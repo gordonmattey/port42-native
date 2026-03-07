@@ -818,6 +818,15 @@ public final class AppState: ObservableObject {
         showDreamscape = true
     }
 
+    /// Power off: keep data but require bootloader (name entry) on next launch.
+    public func powerOff() {
+        for session in swimSessions.values { session.stop() }
+        activeSwimSession = nil
+        currentUser = nil
+        isSetupComplete = false
+        showDreamscape = true
+    }
+
     public func unlock() {
         showDreamscape = false
         // Restore channel state if already set up

@@ -18,7 +18,7 @@ public struct NgrokSetupSheet: View {
                     .font(.system(size: 28, weight: .ultraLight))
                     .foregroundStyle(Port42Theme.accent)
 
-                Text("enable sharing")
+                Text("invite others")
                     .font(Port42Theme.monoBold(14))
                     .foregroundStyle(Port42Theme.textPrimary)
             }
@@ -28,7 +28,7 @@ public struct NgrokSetupSheet: View {
             Divider().background(Port42Theme.border)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("to share channels over the internet, Port42 uses ngrok to create a secure tunnel to your local gateway.")
+                Text("to invite others to your channels, Port42 uses ngrok to create a secure tunnel to your local gateway.")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -69,7 +69,7 @@ public struct NgrokSetupSheet: View {
 
             VStack(spacing: 10) {
                 Button(action: save) {
-                    Text("save and share")
+                    Text("save and connect")
                         .font(Port42Theme.monoBold(13))
                         .foregroundStyle(Port42Theme.bgPrimary)
                         .frame(maxWidth: .infinity)

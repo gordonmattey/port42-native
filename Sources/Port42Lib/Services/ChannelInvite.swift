@@ -87,12 +87,40 @@ public enum ChannelInvite {
         return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name)
     }
 
-    /// Copy an invite link to the clipboard.
+    /// Build an HTTPS invite URL served by the gateway's /invite endpoint.
+    @MainActor
+    public static func generateInviteURL(channel: Channel) -> String? {
+        // Use tunnel URL for internet-accessible invite pages
+        guard let tunnelURL = TunnelService.shared.publicURL else { return nil }
+
+        // Convert ws(s):// to https://
+        let baseURL = tunnelURL
+            .replacingOccurrences(of: "wss://", with: "https://")
+            .replacingOccurrences(of: "ws://", with: "http://")
+            .replacingOccurrences(of: "/ws", with: "")
+
+        var components = URLComponents(string: baseURL + "/invite")
+        components?.queryItems = [
+            URLQueryItem(name: "id", value: channel.id),
+            URLQueryItem(name: "name", value: channel.name),
+        ]
+        return components?.string
+    }
+
+    /// Copy an invite link to the clipboard. Prefers the landing page URL
+    /// so recipients get download/connect options on the page itself.
     @MainActor
     public static func copyToClipboard(channel: Channel, gatewayURL: String) {
-        let link = generateLink(channel: channel, gatewayURL: gatewayURL)
-        guard !link.isEmpty else { return }
+        let message: String
+        if let inviteURL = generateInviteURL(channel: channel) {
+            message = "Join #\(channel.name) on Port42\n\(inviteURL)"
+        } else {
+            let deepLink = generateLink(channel: channel, gatewayURL: gatewayURL)
+            guard !deepLink.isEmpty else { return }
+            message = "Join #\(channel.name) on Port42\n\(deepLink)"
+        }
+
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(link, forType: .string)
+        NSPasteboard.general.setString(message, forType: .string)
     }
 }

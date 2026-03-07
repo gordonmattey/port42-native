@@ -76,9 +76,13 @@ public final class TunnelService: ObservableObject {
     public func start(port: Int) {
         guard !isRunning else { return }
         isRunning = true
-        status = "looking for ngrok..."
+        status = "starting..."
 
         Task { @MainActor in
+            // Force-kill any lingering ngrok and wait for port 4040 to be free
+            Self.forceKillNgrok()
+            try? await Task.sleep(nanoseconds: 1_000_000_000)  // 1s for port release
+
             // Find or download ngrok
             let binary: String
             if let found = findNgrok() {
@@ -104,29 +108,29 @@ public final class TunnelService: ObservableObject {
         processGeneration += 1  // Invalidate any pending termination handler
         pollTask?.cancel()
         pollTask = nil
+
         if let proc = process, proc.isRunning {
             proc.terminate()
-        } else {
-            // We detected an external ngrok (process is nil) so kill it by name
-            killExternalNgrok()
         }
         process = nil
+
+        Self.forceKillNgrok()
+
         isRunning = false
         publicURL = nil
         status = ""
         print("[tunnel] stopped")
     }
 
-    /// Kill any ngrok process we didn't start (detected via localhost:4040).
-    private func killExternalNgrok() {
+    /// Force-kill all ngrok processes (SIGKILL) so port 4040 is freed immediately.
+    private static func forceKillNgrok() {
         let kill = Process()
         kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        kill.arguments = ["-x", "ngrok"]
+        kill.arguments = ["-9", "-x", "ngrok"]  // SIGKILL
         kill.standardOutput = Pipe()
         kill.standardError = Pipe()
         try? kill.run()
         kill.waitUntilExit()
-        print("[tunnel] killed external ngrok")
     }
 
     // MARK: - Download
