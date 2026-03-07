@@ -81,7 +81,10 @@ public final class SyncService: NSObject, ObservableObject {
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         self.urlSession = session
 
-        let task = session.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        // Skip ngrok's free-tier browser warning interstitial
+        request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
+        let task = session.webSocketTask(with: request)
         self.webSocket = task
         task.resume()
 

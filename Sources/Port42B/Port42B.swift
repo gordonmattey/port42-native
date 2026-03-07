@@ -7,9 +7,6 @@ struct Port42B: App {
     @StateObject private var appState: AppState
 
     init() {
-        // Use a different port so both instances can run their own gateway
-        GatewayProcess.shared.port = 4242
-
         do {
             let db = try DatabaseService(subdirectory: "Port42B")
             _appState = StateObject(wrappedValue: AppState(db: db))

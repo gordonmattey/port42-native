@@ -10,11 +10,15 @@ public struct ChannelInviteData {
 public enum ChannelInvite {
 
     /// Generate a port42://channel? invite link for sharing a channel.
-    /// When the gateway is localhost, substitutes the machine's LAN IP
+    /// Prefers tunnel (ngrok) URL if available, otherwise substitutes LAN IP
     /// so the link works for other devices on the network.
+    @MainActor
     public static func generateLink(channel: Channel, gatewayURL: String) -> String {
         let resolvedGW: String
-        if gatewayURL.contains("localhost") || gatewayURL.contains("127.0.0.1") {
+        // Prefer tunnel URL for internet-accessible links
+        if let tunnelURL = TunnelService.shared.publicURL {
+            resolvedGW = tunnelURL
+        } else if gatewayURL.contains("localhost") || gatewayURL.contains("127.0.0.1") {
             if let lanIP = localIPAddress() {
                 resolvedGW = gatewayURL
                     .replacingOccurrences(of: "localhost", with: lanIP)
@@ -84,6 +88,7 @@ public enum ChannelInvite {
     }
 
     /// Copy an invite link to the clipboard.
+    @MainActor
     public static func copyToClipboard(channel: Channel, gatewayURL: String) {
         let link = generateLink(channel: channel, gatewayURL: gatewayURL)
         guard !link.isEmpty else { return }

@@ -24,8 +24,13 @@ public struct SidebarView: View {
                             .fill(.green)
                             .frame(width: 6, height: 6)
                     }
+                    if appState.tunnel.publicURL != nil {
+                        Image(systemName: "globe")
+                            .font(.system(size: 8))
+                            .foregroundStyle(Port42Theme.accent)
+                    }
                 }
-                .help(appState.sync.gatewayURL ?? "no gateway")
+                .help(appState.tunnel.publicURL ?? appState.sync.gatewayURL ?? "no gateway")
                 Spacer()
                 Menu {
                     Button(action: { showNewChannel = true }) {

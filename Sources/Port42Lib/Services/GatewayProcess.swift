@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 public final class GatewayProcess: ObservableObject {
     @Published public var isRunning = false
-    @Published public var port: Int = 8042
+    @Published public var port: Int = 4242
 
     private var process: Process?
     private var outputPipe: Pipe?

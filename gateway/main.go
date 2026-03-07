@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8042", "listen address")
+	addr := flag.String("addr", ":4242", "listen address")
 	flag.Parse()
 
 	gw := NewGateway()
@@ -25,10 +25,10 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:         *addr,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:    *addr,
+		Handler: mux,
+		// No read/write timeouts: WebSocket connections are long-lived
+		// and timeouts would kill them (especially through reverse proxies/ngrok)
 	}
 
 	done := make(chan os.Signal, 1)

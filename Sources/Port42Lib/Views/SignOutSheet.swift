@@ -1,11 +1,13 @@
 import SwiftUI
+import AppKit
 
 public struct SignOutSheet: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
     @State private var eraseAll = false
     @State private var isHovering = false
-    @State private var gatewayURL: String = UserDefaults.standard.string(forKey: "gatewayURL") ?? ""
+    @State private var ngrokToken: String = UserDefaults.standard.string(forKey: "ngrokAuthToken") ?? ""
+    @State private var ngrokDomain: String = UserDefaults.standard.string(forKey: "ngrokDomain") ?? ""
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -41,47 +43,12 @@ public struct SignOutSheet: View {
 
             Divider().background(Port42Theme.border)
 
-            // Gateway
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(appState.sync.isConnected ? .green : Port42Theme.textSecondary.opacity(0.3))
-                        .frame(width: 6, height: 6)
-                    Text("gateway")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    Spacer()
-                    if GatewayProcess.shared.isRunning {
-                        Text("self-hosted")
-                            .font(Port42Theme.mono(9))
-                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    TextField("ws://localhost:8042", text: $gatewayURL)
-                        .textFieldStyle(.plain)
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                        .padding(6)
-                        .background(Port42Theme.bgPrimary)
-                        .cornerRadius(4)
-                        .onSubmit { connectGateway() }
-
-                    Button(action: connectGateway) {
-                        Text(appState.sync.isConnected ? "ok" : "go")
-                            .font(Port42Theme.mono(10))
-                            .foregroundStyle(appState.sync.isConnected ? .green : Port42Theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Text("leave empty for self-hosted gateway")
-                    .font(Port42Theme.mono(9))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            // Sharing
+            VStack(alignment: .leading, spacing: 8) {
+                sharingSection
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
 
             Divider().background(Port42Theme.border)
 
@@ -133,8 +100,139 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 320, height: 460)
+        .frame(width: 340, height: 580)
         .background(Port42Theme.bgSecondary)
+    }
+
+    @ViewBuilder
+    private var sharingSection: some View {
+        if let publicURL = appState.tunnel.publicURL {
+            // Tunnel is live
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 6, height: 6)
+                Text("sharing enabled")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                Spacer()
+            }
+
+            HStack(spacing: 6) {
+                Text(publicURL.replacingOccurrences(of: "wss://", with: ""))
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.accent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+
+                Button(action: {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(publicURL, forType: .string)
+                }) {
+                    Text("copy")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Port42Theme.accent.opacity(0.1))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: toggleTunnel) {
+                    Text("stop")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+            }
+        } else if appState.tunnel.isRunning {
+            // Starting up
+            HStack(spacing: 6) {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 12, height: 12)
+                Text(appState.tunnel.status)
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+        } else {
+            // Not sharing yet
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Port42Theme.textSecondary.opacity(0.3))
+                    .frame(width: 6, height: 6)
+                Text("sharing")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+                Text("local only")
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            }
+
+            // One-tap share button if token is already saved
+            if !ngrokToken.isEmpty {
+                Button(action: toggleTunnel) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 11))
+                        Text("share over internet")
+                            .font(Port42Theme.monoBold(11))
+                    }
+                    .foregroundStyle(Port42Theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Port42Theme.accent.opacity(0.1))
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+            } else {
+                // First time setup
+                Text("to share channels with others over the internet, add a free ngrok token")
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                SecureField("paste ngrok token here", text: $ngrokToken)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Port42Theme.bgPrimary)
+                    .cornerRadius(4)
+                    .onChange(of: ngrokToken) { _, newValue in
+                        appState.tunnel.setAuthToken(newValue)
+                    }
+
+                HStack(spacing: 4) {
+                    Text("get one free at")
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                    Text("ngrok.com")
+                        .font(Port42Theme.monoBold(9))
+                        .foregroundStyle(Port42Theme.accent.opacity(0.7))
+                        .onTapGesture {
+                            if let url = URL(string: "https://dashboard.ngrok.com/get-started/your-authtoken") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                }
+
+                if !appState.tunnel.status.isEmpty && appState.tunnel.status != "needs auth token" {
+                    Text(appState.tunnel.status)
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(.red.opacity(0.7))
+                }
+            }
+        }
     }
 
     private func statRow(label: String, value: String) -> some View {
@@ -149,17 +247,12 @@ public struct SignOutSheet: View {
         }
     }
 
-    private func connectGateway() {
-        let trimmed = gatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        UserDefaults.standard.set(trimmed, forKey: "gatewayURL")
-        if trimmed.isEmpty {
-            appState.sync.disconnect()
-        } else if let user = appState.currentUser {
-            appState.sync.configure(gatewayURL: trimmed, userId: user.id, db: appState.db)
-            appState.sync.connect()
-            for channel in appState.channels {
-                appState.sync.joinChannel(channel.id)
-            }
+    private func toggleTunnel() {
+        if appState.tunnel.isRunning {
+            appState.tunnel.stop()
+        } else {
+            let port = GatewayProcess.shared.port
+            appState.tunnel.start(port: port)
         }
     }
 

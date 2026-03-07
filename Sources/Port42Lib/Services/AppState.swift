@@ -323,17 +323,22 @@ public final class AppState: ObservableObject {
 
     public let db: DatabaseService
     public let sync = SyncService()
+    public let tunnel = TunnelService.shared
     let fileResolver = FileResolver()
 
     private var channelObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
     private var unreadObservation: AnyDatabaseCancellable?
     private var syncConnectionCancellable: AnyCancellable?
+    private var tunnelCancellable: AnyCancellable?
 
     public init(db: DatabaseService) {
         self.db = db
-        // Forward nested sync.isConnected changes to trigger SwiftUI updates
+        // Forward nested sync/tunnel changes to trigger SwiftUI updates
         syncConnectionCancellable = sync.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        tunnelCancellable = tunnel.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         loadInitialState()
@@ -370,8 +375,8 @@ public final class AppState: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "gatewayURL"), !saved.isEmpty {
             gwURL = saved
         } else {
-            // Check if the default gateway (port 8042) is already running (another instance)
-            let defaultPort = 8042
+            // Check if the default gateway (port 4242) is already running (another instance)
+            let defaultPort = 4242
             let gp = GatewayProcess.shared
             if canConnectToPort(defaultPort) {
                 // Another instance's gateway is already running, use it
