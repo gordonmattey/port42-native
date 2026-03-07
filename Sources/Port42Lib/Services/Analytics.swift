@@ -11,8 +11,16 @@ public final class Analytics {
     public func configure(userId: String) {
         guard !configured else { return }
 
+        let apiKey = Bundle.main.object(forInfoDictionaryKey: "POSTHOG_API_KEY") as? String
+            ?? ProcessInfo.processInfo.environment["POSTHOG_API_KEY"]
+            ?? ""
+        guard !apiKey.isEmpty else {
+            print("[analytics] no PostHog API key configured")
+            return
+        }
+
         let config = PostHogConfig(
-            apiKey: "phc_DDR13ZN1UqQXXsChPsSkjaFWO6HM4VUwYITgrX3SghI",
+            apiKey: apiKey,
             host: "https://us.i.posthog.com"
         )
         config.captureScreenViews = false
