@@ -61,8 +61,7 @@ public struct SidebarView: View {
                                     && appState.currentChannel?.id == channel.id,
                                 unreadCount: appState.unreadCounts[channel.id] ?? 0,
                                 companionNames: companionNames,
-                                onlineCount: max(1, uniqueSenders.count),
-                                memberTooltip: uniqueSenders.joined(separator: "\n")
+                                onlineCount: max(1, uniqueSenders.count)
                             )
                         }
                         .buttonStyle(.plain)
@@ -213,18 +212,15 @@ public struct ChannelRow: View {
     let unreadCount: Int
     let companionNames: [String]
     let onlineCount: Int
-    let memberTooltip: String
 
     @State private var isHovered = false
-    @State private var showMembers = false
 
-    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0, memberTooltip: String = "") {
+    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0) {
         self.channel = channel
         self.isActive = isActive
         self.unreadCount = unreadCount
         self.companionNames = companionNames
         self.onlineCount = onlineCount
-        self.memberTooltip = memberTooltip
     }
 
     public var body: some View {
@@ -257,7 +253,7 @@ public struct ChannelRow: View {
 
             Spacer()
 
-            // Online count (click to see members)
+            // Online count
             if onlineCount > 0 {
                 HStack(spacing: 3) {
                     Circle()
@@ -266,20 +262,6 @@ public struct ChannelRow: View {
                     Text("\(onlineCount)")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textPrimary)
-                }
-                .onTapGesture { showMembers.toggle() }
-                .popover(isPresented: $showMembers, arrowEdge: .trailing) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("members")
-                            .font(Port42Theme.monoBold(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        ForEach(memberTooltip.components(separatedBy: "\n"), id: \.self) { name in
-                            Text(name)
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(Port42Theme.textPrimary)
-                        }
-                    }
-                    .padding(10)
                 }
             }
 

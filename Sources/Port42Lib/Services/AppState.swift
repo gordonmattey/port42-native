@@ -317,7 +317,6 @@ public final class AppState: ObservableObject {
     @Published public var showDreamscape = true
     /// Agent names currently typing in channels (for typing indicators)
     @Published public var typingAgentNames: Set<String> = []
-
     private var swimSessions: [String: SwimSession] = [:]
     var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]

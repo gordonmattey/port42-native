@@ -22,7 +22,13 @@ public struct ChatView: View {
                 mentionCandidates: appState.companions.map {
                     MentionSuggestion(id: $0.id, name: $0.displayName)
                 },
-                onSend: { content in appState.sendMessage(content: content) }
+                onSend: { content in appState.sendMessage(content: content) },
+                onTypingChanged: { isTyping in
+                    if let channelId = appState.currentChannel?.id,
+                       let userName = appState.currentUser?.displayName {
+                        appState.sync.sendTyping(channelId: channelId, senderName: userName, isTyping: isTyping)
+                    }
+                }
             )
         }
         .background(Port42Theme.bgPrimary)
@@ -47,6 +53,7 @@ public struct ChatView: View {
 public struct ChannelHeader: View {
     public init() {}
     @EnvironmentObject var appState: AppState
+    @State private var showMembers = false
 
     private var memberNames: [String] {
         guard let id = appState.currentChannel?.id else { return [] }
@@ -62,7 +69,7 @@ public struct ChannelHeader: View {
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 
-            // Member avatars
+            // Member avatars (click to see list)
             if !memberNames.isEmpty {
                 HStack(spacing: -4) {
                     ForEach(memberNames.prefix(8), id: \.self) { name in
@@ -91,6 +98,30 @@ public struct ChannelHeader: View {
                     }
                 }
                 .padding(.leading, 8)
+                .onTapGesture { showMembers.toggle() }
+                .popover(isPresented: $showMembers, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("members")
+                            .font(Port42Theme.monoBold(11))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                        ForEach(memberNames, id: \.self) { name in
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Port42Theme.agentColor(for: name))
+                                        .frame(width: 16, height: 16)
+                                    Text(String(name.prefix(1)).uppercased())
+                                        .font(Port42Theme.monoBold(8))
+                                        .foregroundStyle(.white)
+                                }
+                                Text(name)
+                                    .font(Port42Theme.mono(12))
+                                    .foregroundStyle(Port42Theme.textPrimary)
+                            }
+                        }
+                    }
+                    .padding(12)
+                }
             }
 
             Spacer()

@@ -171,6 +171,7 @@ public final class SyncService: NSObject, ObservableObject {
                 replyToId: nil
             )
         )
+        print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) channel=\(channelId)")
         send(envelope)
     }
 
@@ -330,6 +331,7 @@ public final class SyncService: NSObject, ObservableObject {
             var names = remoteTypingNames[channelId] ?? []
             names.insert(senderName)
             remoteTypingNames[channelId] = names
+            print("[sync] typing: \(senderName) in \(channelId)")
         } else {
             remoteTypingNames[channelId]?.remove(senderName)
         }

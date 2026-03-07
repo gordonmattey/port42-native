@@ -60,6 +60,7 @@ public struct ConversationContent: View {
     let onStop: (() -> Void)?
     let onRetry: (() -> Void)?
     let onDismissError: (() -> Void)?
+    let onTypingChanged: ((Bool) -> Void)?
 
     @State private var draft = ""
     @State private var selectedSuggestionIndex = 0
@@ -75,7 +76,8 @@ public struct ConversationContent: View {
         onSend: @escaping (String) -> Void,
         onStop: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
-        onDismissError: (() -> Void)? = nil
+        onDismissError: (() -> Void)? = nil,
+        onTypingChanged: ((Bool) -> Void)? = nil
     ) {
         self.entries = entries
         self.placeholder = placeholder
@@ -87,6 +89,7 @@ public struct ConversationContent: View {
         self.onStop = onStop
         self.onRetry = onRetry
         self.onDismissError = onDismissError
+        self.onTypingChanged = onTypingChanged
     }
 
     /// Compute active suggestions from internal draft and candidates
@@ -299,6 +302,13 @@ public struct ConversationContent: View {
             .padding(.horizontal, 4)
             .padding(.vertical, 4)
             .animation(.easeInOut(duration: 0.3), value: isInputFocused)
+            .onChange(of: draft) { old, new in
+                let wasTyping = !old.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let isTyping = !new.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if wasTyping != isTyping {
+                    onTypingChanged?(isTyping)
+                }
+            }
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     isInputFocused = true
@@ -310,6 +320,7 @@ public struct ConversationContent: View {
     private func send() {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
+        onTypingChanged?(false)
         onSend(content)
         draft = ""
         isInputFocused = true
