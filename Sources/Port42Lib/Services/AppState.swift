@@ -315,6 +315,9 @@ public final class AppState: ObservableObject {
     @Published public var channelCompanions: [AgentConfig] = []
     @Published public var activeSwimSession: SwimSession?
     @Published public var showDreamscape = true
+    @Published public var showNgrokSetup = false
+    /// Channel waiting for ngrok setup to complete before copying invite link
+    public var pendingInviteChannel: Channel?
     /// Agent names currently typing in channels (for typing indicators)
     @Published public var typingAgentNames: Set<String> = []
     private var swimSessions: [String: SwimSession] = [:]
@@ -406,13 +409,23 @@ public final class AppState: ObservableObject {
                 for channel in channels {
                     self.syncJoinChannel(channel.id)
                 }
+                self.autoStartTunnelIfConfigured()
             }
         } else {
             sync.connect()
             for channel in channels {
                 syncJoinChannel(channel.id)
             }
+            autoStartTunnelIfConfigured()
         }
+    }
+
+    /// Auto-start the ngrok tunnel if the user has a saved auth token.
+    private func autoStartTunnelIfConfigured() {
+        guard !tunnel.authToken.isEmpty, !tunnel.isRunning else { return }
+        let port = GatewayProcess.shared.port
+        tunnel.start(port: port)
+        print("[tunnel] auto-started with saved token")
     }
 
     /// Quick TCP probe to check if a port is listening

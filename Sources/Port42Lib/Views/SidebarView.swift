@@ -98,7 +98,12 @@ public struct SidebarView: View {
 
                             if let gwURL = appState.sync.gatewayURL, !gwURL.isEmpty {
                                 Button("Copy Invite Link") {
-                                    ChannelInvite.copyToClipboard(channel: channel, gatewayURL: gwURL)
+                                    if appState.tunnel.authToken.isEmpty {
+                                        appState.pendingInviteChannel = channel
+                                        appState.showNgrokSetup = true
+                                    } else {
+                                        ChannelInvite.copyToClipboard(channel: channel, gatewayURL: gwURL)
+                                    }
                                 }
                             }
 

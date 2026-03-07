@@ -21,3 +21,6 @@ Port42.app/
 # Large media (tracked via LFS or excluded)
 *.mp4
 *.mov
+*.cer
+*.key
+*.csr

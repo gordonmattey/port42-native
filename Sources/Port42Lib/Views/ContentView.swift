@@ -36,6 +36,10 @@ public struct ContentView: View {
         .sheet(isPresented: $showNewChannel) {
             NewChannelSheet(isPresented: $showNewChannel)
         }
+        .sheet(isPresented: $appState.showNgrokSetup) {
+            NgrokSetupSheet(isPresented: $appState.showNgrokSetup)
+                .environmentObject(appState)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
             showNewChannel = true
         }

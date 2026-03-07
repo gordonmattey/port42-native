@@ -9,6 +9,7 @@ public final class TunnelService: ObservableObject {
     @Published public var status: String = ""
 
     private var process: Process?
+    private var processGeneration: Int = 0
     private var pollTask: Task<Void, Never>?
 
     public static let shared = TunnelService()
@@ -100,17 +101,32 @@ public final class TunnelService: ObservableObject {
 
     /// Stop the ngrok tunnel.
     public func stop() {
+        processGeneration += 1  // Invalidate any pending termination handler
         pollTask?.cancel()
         pollTask = nil
         if let proc = process, proc.isRunning {
             proc.terminate()
+        } else {
+            // We detected an external ngrok (process is nil) so kill it by name
+            killExternalNgrok()
         }
-        // If we didn't own the process, just detach
         process = nil
         isRunning = false
         publicURL = nil
         status = ""
         print("[tunnel] stopped")
+    }
+
+    /// Kill any ngrok process we didn't start (detected via localhost:4040).
+    private func killExternalNgrok() {
+        let kill = Process()
+        kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        kill.arguments = ["-x", "ngrok"]
+        kill.standardOutput = Pipe()
+        kill.standardError = Pipe()
+        try? kill.run()
+        kill.waitUntilExit()
+        print("[tunnel] killed external ngrok")
     }
 
     // MARK: - Download
@@ -236,13 +252,19 @@ public final class TunnelService: ObservableObject {
             }
         }
 
+        processGeneration += 1
+        let expectedGeneration = processGeneration
         proc.terminationHandler = { [weak self] _ in
             Task { @MainActor in
-                let wasAuthError = self?.status == "needs auth token"
-                self?.isRunning = false
-                self?.publicURL = nil
+                guard let self, self.processGeneration == expectedGeneration else {
+                    print("[tunnel] ignoring stale termination handler")
+                    return
+                }
+                let wasAuthError = self.status == "needs auth token"
+                self.isRunning = false
+                self.publicURL = nil
                 if !wasAuthError {
-                    self?.status = "tunnel closed"
+                    self.status = "tunnel closed"
                 }
                 print("[tunnel] ngrok process terminated")
             }

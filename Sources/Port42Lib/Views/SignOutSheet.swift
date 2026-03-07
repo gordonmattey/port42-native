@@ -8,6 +8,7 @@ public struct SignOutSheet: View {
     @State private var isHovering = false
     @State private var ngrokToken: String = UserDefaults.standard.string(forKey: "ngrokAuthToken") ?? ""
     @State private var ngrokDomain: String = UserDefaults.standard.string(forKey: "ngrokDomain") ?? ""
+    @State private var editingToken = false
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -177,8 +178,8 @@ public struct SignOutSheet: View {
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
             }
 
-            // One-tap share button if token is already saved
-            if !ngrokToken.isEmpty {
+            if !ngrokToken.isEmpty && !editingToken {
+                // One-tap share button with edit option
                 Button(action: toggleTunnel) {
                     HStack(spacing: 6) {
                         Image(systemName: "globe")
@@ -193,12 +194,29 @@ public struct SignOutSheet: View {
                     .cornerRadius(5)
                 }
                 .buttonStyle(.plain)
+
+                Button(action: { editingToken = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "key")
+                            .font(.system(size: 9))
+                        Text("change token")
+                            .font(Port42Theme.mono(10))
+                    }
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(Port42Theme.textSecondary.opacity(0.08))
+                    .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
             } else {
-                // First time setup
-                Text("to share channels with others over the internet, add a free ngrok token")
-                    .font(Port42Theme.mono(9))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
+                // Token setup or editing
+                if ngrokToken.isEmpty {
+                    Text("to share channels with others over the internet, add a free ngrok token")
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 SecureField("paste ngrok token here", text: $ngrokToken)
                     .textFieldStyle(.plain)
@@ -224,6 +242,15 @@ public struct SignOutSheet: View {
                                 NSWorkspace.shared.open(url)
                             }
                         }
+                    Spacer()
+                    if editingToken {
+                        Button(action: { editingToken = false }) {
+                            Text("done")
+                                .font(Port42Theme.monoBold(9))
+                                .foregroundStyle(Port42Theme.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
                 if !appState.tunnel.status.isEmpty && appState.tunnel.status != "needs auth token" {
