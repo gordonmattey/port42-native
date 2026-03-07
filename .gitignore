@@ -1,0 +1,23 @@
+# Build
+.build/
+Port42.app/
+
+# macOS
+.DS_Store
+._*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Claude
+.claude/
+
+# Large media (tracked via LFS or excluded)
+*.mp4
+*.mov
