@@ -17,6 +17,24 @@ public enum Port42Theme {
     public static let textSecondary = Color(hex: 0x888888)
     public static let textAgent = Color(hex: 0x00D4AA)
 
+    // Agent color palette for per-agent variation
+    public static let agentColors: [Color] = [
+        Color(hex: 0x00D4AA),  // teal (default)
+        Color(hex: 0xFF6B9D),  // pink
+        Color(hex: 0x7B68EE),  // purple
+        Color(hex: 0xFFB347),  // orange
+        Color(hex: 0x87CEEB),  // sky blue
+        Color(hex: 0xDDA0DD),  // plum
+        Color(hex: 0x98FB98),  // pale green
+        Color(hex: 0xF0E68C),  // khaki
+    ]
+
+    /// Deterministic color for an agent based on its name
+    public static func agentColor(for name: String) -> Color {
+        let hash = name.utf8.reduce(0) { ($0 &+ Int($1)) &* 31 }
+        return agentColors[abs(hash) % agentColors.count]
+    }
+
     // Borders
     public static let border = Color(hex: 0x333333)
     public static let borderActive = Color(hex: 0x00FF41)

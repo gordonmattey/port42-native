@@ -296,8 +296,9 @@ public struct ConversationContent: View {
                     .font(Port42Theme.mono(12))
                     .foregroundColor(Port42Theme.textSecondary)
             } else {
-                let nameColor: Color = entry.isAgent ? Port42Theme.textAgent : Port42Theme.textPrimary
-                let contentColor: Color = entry.isAgent ? Port42Theme.textAgent : Port42Theme.textPrimary
+                let agentColor = Port42Theme.agentColor(for: entry.senderName)
+                let nameColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
+                let contentColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
 
                 result = result + Text(entry.senderName)
                     .font(Port42Theme.monoBold(13))
@@ -314,7 +315,7 @@ public struct ConversationContent: View {
                 if entry.isPlaceholder {
                     result = result + Text("\n") + Text("...")
                         .font(Port42Theme.mono(13))
-                        .foregroundColor(Port42Theme.textAgent.opacity(0.5))
+                        .foregroundColor(agentColor.opacity(0.5))
                 } else {
                     result = result + Text("\n") + Text(entry.content)
                         .font(Port42Theme.mono(13))

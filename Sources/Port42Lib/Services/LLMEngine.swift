@@ -67,11 +67,10 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         self.lastSendArgs = (messages, systemPrompt, model, authConfig)
 
         // Build request body
-        // OAuth requires the system prompt to be an array with the Claude Code preamble
+        // OAuth requires the system prompt to be an array
         let systemValue: Any
         if auth.source == .claudeCodeOAuth {
             systemValue = [
-                ["type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude."],
                 ["type": "text", "text": systemPrompt]
             ]
         } else {

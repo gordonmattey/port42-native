@@ -19,14 +19,28 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         self.appState = appState
     }
 
-    func start(channelMessages: [Message]) {
+    func start(channelMessages: [Message], triggerContent: String) {
         // Build conversation context from recent channel history (last 50 messages)
-        let recent = channelMessages.suffix(50)
-        let apiMessages = recent.compactMap { msg -> [String: String]? in
+        // Note: channelMessages may not include the triggering message yet (DB observation lag),
+        // so we append it explicitly to ensure the conversation ends with a user message.
+        // Only THIS agent's messages are "assistant". Other agents' messages are attributed
+        // as user messages with their name prefix to avoid identity confusion.
+        // Build context from channel history.
+        // This agent's messages = assistant role. Other agents' messages = user role
+        // with clear attribution so the model doesn't adopt their identity.
+        let recent = channelMessages.suffix(30)
+        var apiMessages = recent.compactMap { msg -> [String: String]? in
             guard !msg.isSystem else { return nil }
-            let role = msg.isAgent ? "assistant" : "user"
-            return ["role": role, "content": msg.content]
+            guard !msg.content.isEmpty, !msg.content.hasPrefix("[error:") else { return nil }
+            if msg.senderId == agent.id {
+                return ["role": "assistant", "content": msg.content]
+            } else if msg.isAgent {
+                return ["role": "user", "content": "(another companion named \(msg.senderName) said): \(msg.content)"]
+            } else {
+                return ["role": "user", "content": msg.content]
+            }
         }
+        apiMessages.append(["role": "user", "content": triggerContent])
 
         // Ensure messages alternate and start with user
         let cleaned = cleanAlternation(apiMessages)
@@ -53,10 +67,23 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             print("[Port42] Failed to save placeholder: \(error)")
         }
 
+        // Build system prompt with strong identity framing
+        let basePrompt = agent.systemPrompt ?? "You are a helpful companion."
+        let channelPrompt = """
+            IDENTITY: You are \(agent.displayName). This is non-negotiable. \
+            You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
+
+            CONTEXT: You are an AI companion in Port42, a native macOS app. \
+            You are in a shared channel with other companions. Messages from other \
+            companions appear as [Name]: message. Those are NOT you. You are \(agent.displayName).
+
+            INSTRUCTIONS: \(basePrompt)
+            """
+
         do {
             try engine.send(
                 messages: cleaned,
-                systemPrompt: agent.systemPrompt ?? "You are a helpful assistant.",
+                systemPrompt: channelPrompt,
                 model: agent.model ?? "claude-opus-4-6",
                 delegate: self
             )
@@ -81,6 +108,10 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         // Must start with user
         if result.first?["role"] == "assistant" {
             result.removeFirst()
+        }
+        // Must end with user (Opus 4.6 doesn't support assistant prefill)
+        if result.last?["role"] == "assistant" {
+            result.removeLast()
         }
         return result
     }
@@ -357,7 +388,7 @@ public final class AppState: ObservableObject {
             case .llm:
                 let handler = ChannelAgentHandler(agent: agent, channelId: channel.id, appState: self)
                 activeAgentHandlers[handler.messageId] = handler
-                handler.start(channelMessages: messages)
+                handler.start(channelMessages: messages, triggerContent: trimmed)
             case .command:
                 let handler = CommandAgentHandler(agent: agent, channelId: channel.id, appState: self)
                 activeCommandHandlers[handler.messageId] = handler

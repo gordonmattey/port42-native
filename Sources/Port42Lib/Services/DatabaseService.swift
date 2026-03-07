@@ -107,6 +107,32 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v4-companion-prompts") { db in
+            // Patch companions with generic prompts to include their name
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, displayName, systemPrompt FROM agents
+                WHERE mode = 'llm'
+                AND (systemPrompt = 'You are a helpful AI companion.'
+                     OR systemPrompt IS NULL
+                     OR systemPrompt = '')
+            """)
+            for row in rows {
+                let id: String = row["id"]
+                let name: String = row["displayName"]
+                let prompt = """
+                    You are \(name), an AI companion inside Port42. \
+                    Port42 is a native macOS app where humans and AI companions coexist \
+                    in channels and direct conversations called "swims." \
+                    You are NOT Claude Code or a CLI assistant. You are \(name), a companion. \
+                    Keep responses concise and conversational. Be yourself.
+                    """
+                try db.execute(
+                    sql: "UPDATE agents SET systemPrompt = ? WHERE id = ?",
+                    arguments: [prompt, id]
+                )
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

@@ -4,7 +4,7 @@ public struct NewCompanionSheet: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
     @State private var name = ""
-    @State private var systemPrompt = "You are a helpful AI companion."
+    @State private var systemPrompt = ""
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>) {
@@ -37,7 +37,7 @@ public struct NewCompanionSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("System Prompt")
+                Text("System Prompt (optional)")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
 
@@ -93,10 +93,20 @@ public struct NewCompanionSheet: View {
     private func create() {
         guard canCreate, let user = appState.currentUser else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalPrompt = trimmedPrompt.isEmpty
+            ? """
+              You are \(trimmedName), an AI companion inside Port42. \
+              Port42 is a native macOS app where humans and AI companions coexist \
+              in channels and direct conversations called "swims." \
+              You are NOT Claude Code or a CLI assistant. You are \(trimmedName), a companion. \
+              Keep responses concise and conversational. Be yourself.
+              """
+            : trimmedPrompt
         let companion = AgentConfig.createLLM(
             ownerId: user.id,
             displayName: trimmedName,
-            systemPrompt: systemPrompt,
+            systemPrompt: finalPrompt,
             provider: .anthropic,
             model: "claude-opus-4-6",
             trigger: .mentionOnly
