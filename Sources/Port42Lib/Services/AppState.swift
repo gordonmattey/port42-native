@@ -2,6 +2,134 @@ import Foundation
 import GRDB
 import Combine
 
+// MARK: - Channel Agent Response Handler
+
+@MainActor
+final class ChannelAgentHandler: LLMStreamDelegate {
+    private let agent: AgentConfig
+    private let channelId: String
+    let messageId: String
+    private let engine = LLMEngine()
+    private weak var appState: AppState?
+
+    init(agent: AgentConfig, channelId: String, appState: AppState) {
+        self.agent = agent
+        self.channelId = channelId
+        self.messageId = UUID().uuidString
+        self.appState = appState
+    }
+
+    func start(channelMessages: [Message]) {
+        // Build conversation context from recent channel history (last 50 messages)
+        let recent = channelMessages.suffix(50)
+        let apiMessages = recent.compactMap { msg -> [String: String]? in
+            guard !msg.isSystem else { return nil }
+            let role = msg.isAgent ? "assistant" : "user"
+            return ["role": role, "content": msg.content]
+        }
+
+        // Ensure messages alternate and start with user
+        let cleaned = cleanAlternation(apiMessages)
+        guard !cleaned.isEmpty else { return }
+
+        // Insert placeholder message for streaming
+        let placeholder = Message(
+            id: messageId,
+            channelId: channelId,
+            senderId: agent.id,
+            senderName: agent.displayName,
+            senderType: "agent",
+            content: "",
+            timestamp: Date(),
+            replyToId: nil,
+            syncStatus: "local",
+            createdAt: Date()
+        )
+
+        // Save placeholder to DB so it survives observation resets
+        do {
+            try appState?.db.saveMessage(placeholder)
+        } catch {
+            print("[Port42] Failed to save placeholder: \(error)")
+        }
+
+        do {
+            try engine.send(
+                messages: cleaned,
+                systemPrompt: agent.systemPrompt ?? "You are a helpful assistant.",
+                model: agent.model ?? "claude-opus-4-6",
+                delegate: self
+            )
+        } catch {
+            // Remove placeholder on error
+            appState?.messages.removeAll { $0.id == messageId }
+            NSLog("[Port42] Channel agent send error: \(error)")
+        }
+    }
+
+    /// Ensure messages alternate user/assistant and start with user
+    private func cleanAlternation(_ messages: [[String: String]]) -> [[String: String]] {
+        var result: [[String: String]] = []
+        for msg in messages {
+            if let last = result.last, last["role"] == msg["role"] {
+                // Merge consecutive same-role messages
+                result[result.count - 1]["content"] = (last["content"] ?? "") + "\n" + (msg["content"] ?? "")
+            } else {
+                result.append(msg)
+            }
+        }
+        // Must start with user
+        if result.first?["role"] == "assistant" {
+            result.removeFirst()
+        }
+        return result
+    }
+
+    // MARK: - LLMStreamDelegate
+
+    nonisolated func llmDidReceiveToken(_ token: String) {
+        Task { @MainActor in
+            guard let appState = self.appState,
+                  let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) else { return }
+            appState.messages[idx].content += token
+        }
+    }
+
+    nonisolated func llmDidFinish(fullResponse: String) {
+        Task { @MainActor in
+            guard let appState = self.appState,
+                  let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) else { return }
+            // Patch with full response
+            if appState.messages[idx].content.count < fullResponse.count {
+                appState.messages[idx].content = fullResponse
+            }
+            // Persist the completed message
+            do {
+                try appState.db.saveMessage(appState.messages[idx])
+            } catch {
+                NSLog("[Port42] Failed to persist agent message: \(error)")
+            }
+            appState.activeAgentHandlers.removeValue(forKey: self.messageId)
+        }
+    }
+
+    nonisolated func llmDidError(_ error: Error) {
+        NSLog("[Port42] Channel agent error: \(error)")
+        Task { @MainActor in
+            guard let appState = self.appState else { return }
+            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
+                if appState.messages[idx].content.isEmpty {
+                    // Replace empty placeholder with error message
+                    appState.messages[idx].content = "[error: \(error.localizedDescription)]"
+                }
+            }
+            appState.activeAgentHandlers.removeValue(forKey: self.messageId)
+        }
+    }
+}
+
+// MARK: - App State
+
 @MainActor
 public final class AppState: ObservableObject {
     @Published public var channels: [Channel] = []
@@ -17,6 +145,8 @@ public final class AppState: ObservableObject {
     @Published public var showDreamscape = true
 
     private var swimSessions: [String: SwimSession] = [:]
+    var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
+    var activeCommandHandlers: [String: CommandAgentHandler] = [:]
 
     public let db: DatabaseService
 
@@ -219,7 +349,23 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Failed to send message: \(error)")
         }
+
+        // Route to agents via @mention detection
+        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions)
+        for agent in targets {
+            switch agent.mode {
+            case .llm:
+                let handler = ChannelAgentHandler(agent: agent, channelId: channel.id, appState: self)
+                activeAgentHandlers[handler.messageId] = handler
+                handler.start(channelMessages: messages)
+            case .command:
+                let handler = CommandAgentHandler(agent: agent, channelId: channel.id, appState: self)
+                activeCommandHandlers[handler.messageId] = handler
+                handler.start(triggerContent: trimmed, senderId: user.id, senderName: user.displayName)
+            }
+        }
     }
+
 
     // MARK: - Companions
 
@@ -333,9 +479,25 @@ public final class AppState: ObservableObject {
 
     private func startMessageObservation(channelId: String) {
         messageObservation?.cancel()
-        messageObservation = db.observeMessages(channelId: channelId) { [weak self] messages in
+        messageObservation = db.observeMessages(channelId: channelId) { [weak self] dbMessages in
             Task { @MainActor in
-                self?.messages = messages
+                guard let self else { return }
+                // Preserve in-memory streaming content for active agent handlers
+                let activeIds = Set(self.activeAgentHandlers.keys)
+                if activeIds.isEmpty {
+                    self.messages = dbMessages
+                } else {
+                    // Merge: use DB messages but keep in-memory content for active streams
+                    var merged = dbMessages
+                    for id in activeIds {
+                        if let memIdx = self.messages.firstIndex(where: { $0.id == id }),
+                           let dbIdx = merged.firstIndex(where: { $0.id == id }) {
+                            // Keep the in-memory version (has streaming tokens)
+                            merged[dbIdx] = self.messages[memIdx]
+                        }
+                    }
+                    self.messages = merged
+                }
             }
         }
     }

@@ -4,6 +4,7 @@ public struct ContentView: View {
     public init() {}
     @EnvironmentObject var appState: AppState
     @State private var showNewChannel = false
+    @State private var showQuickSwitcher = false
 
     public var body: some View {
         NavigationSplitView {
@@ -36,6 +37,24 @@ public struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
             showNewChannel = true
+        }
+        .overlay {
+            if showQuickSwitcher {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture { showQuickSwitcher = false }
+
+                    VStack {
+                        QuickSwitcher(isPresented: $showQuickSwitcher)
+                            .padding(.top, 80)
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickSwitcherRequested)) { _ in
+            showQuickSwitcher.toggle()
         }
     }
 }

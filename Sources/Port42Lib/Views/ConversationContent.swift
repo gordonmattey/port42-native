@@ -33,6 +33,20 @@ public struct ChatEntry: Identifiable {
     }
 }
 
+// MARK: - Autocomplete suggestion
+
+public struct MentionSuggestion: Identifiable {
+    public let id: String
+    public let name: String
+    public let isAgent: Bool
+
+    public init(id: String, name: String, isAgent: Bool = true) {
+        self.id = id
+        self.name = name
+        self.isAgent = isAgent
+    }
+}
+
 // MARK: - Conversation Content View
 
 public struct ConversationContent: View {
@@ -40,12 +54,14 @@ public struct ConversationContent: View {
     let placeholder: String
     let isStreaming: Bool
     let error: String?
+    let mentionCandidates: [MentionSuggestion]
     let onSend: (String) -> Void
     let onStop: (() -> Void)?
     let onRetry: (() -> Void)?
     let onDismissError: (() -> Void)?
 
     @State private var draft = ""
+    @State private var selectedSuggestionIndex = 0
     @FocusState private var isInputFocused: Bool
 
     public init(
@@ -53,6 +69,7 @@ public struct ConversationContent: View {
         placeholder: String,
         isStreaming: Bool = false,
         error: String? = nil,
+        mentionCandidates: [MentionSuggestion] = [],
         onSend: @escaping (String) -> Void,
         onStop: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
@@ -62,10 +79,22 @@ public struct ConversationContent: View {
         self.placeholder = placeholder
         self.isStreaming = isStreaming
         self.error = error
+        self.mentionCandidates = mentionCandidates
         self.onSend = onSend
         self.onStop = onStop
         self.onRetry = onRetry
         self.onDismissError = onDismissError
+    }
+
+    /// Compute active suggestions from internal draft and candidates
+    private var suggestions: [MentionSuggestion] {
+        guard let atRange = draft.range(of: "@", options: .backwards) else { return [] }
+        let afterAt = String(draft[atRange.lowerBound...])
+        if afterAt.contains(" ") { return [] }
+        let query = String(afterAt.dropFirst()).lowercased()
+        return mentionCandidates.filter { candidate in
+            query.isEmpty || candidate.name.lowercased().hasPrefix(query)
+        }
     }
 
     public var body: some View {
@@ -117,6 +146,44 @@ public struct ConversationContent: View {
                 .background(Color.red.opacity(0.1))
             }
 
+            // Autocomplete suggestions
+            if !suggestions.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(suggestions.prefix(8).enumerated()), id: \.element.id) { index, suggestion in
+                        Button(action: { insertMention(suggestion) }) {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(suggestion.isAgent ? Port42Theme.textAgent : Port42Theme.accent)
+                                    .frame(width: 6, height: 6)
+                                Text("@\(suggestion.name)")
+                                    .font(Port42Theme.mono(13))
+                                    .foregroundStyle(
+                                        index == selectedSuggestionIndex
+                                            ? Port42Theme.textPrimary
+                                            : Port42Theme.textSecondary
+                                    )
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                index == selectedSuggestionIndex
+                                    ? Port42Theme.bgHover
+                                    : Color.clear
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .background(Port42Theme.bgSecondary)
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundStyle(Port42Theme.border),
+                    alignment: .top
+                )
+            }
+
             Divider().background(Port42Theme.border)
 
             // Input bar
@@ -127,16 +194,48 @@ public struct ConversationContent: View {
                     .foregroundStyle(Port42Theme.textPrimary)
                     .focused($isInputFocused)
                     .onSubmit {
-                        send()
-                        isInputFocused = true
+                        if !suggestions.isEmpty, selectedSuggestionIndex < suggestions.count {
+                            insertMention(suggestions[selectedSuggestionIndex])
+                        } else {
+                            send()
+                            isInputFocused = true
+                        }
                     }
                     .disabled(isStreaming)
+                    .onChange(of: draft) { _, _ in
+                        selectedSuggestionIndex = 0
+                    }
                     .onChange(of: isStreaming) { _, streaming in
                         if !streaming {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 isInputFocused = true
                             }
                         }
+                    }
+                    .onKeyPress(.upArrow) {
+                        guard !suggestions.isEmpty else { return .ignored }
+                        selectedSuggestionIndex = max(0, selectedSuggestionIndex - 1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        guard !suggestions.isEmpty else { return .ignored }
+                        selectedSuggestionIndex = min(suggestions.count - 1, selectedSuggestionIndex + 1)
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        if !suggestions.isEmpty {
+                            // Clear the @query to dismiss suggestions
+                            if let atRange = draft.range(of: "@", options: .backwards) {
+                                draft = String(draft[draft.startIndex..<atRange.lowerBound])
+                            }
+                            return .handled
+                        }
+                        return .ignored
+                    }
+                    .onKeyPress(.tab) {
+                        guard !suggestions.isEmpty, selectedSuggestionIndex < suggestions.count else { return .ignored }
+                        insertMention(suggestions[selectedSuggestionIndex])
+                        return .handled
                     }
 
                 if isStreaming {
@@ -232,6 +331,13 @@ public struct ConversationContent: View {
         onSend(content)
         draft = ""
         isInputFocused = true
+    }
+
+    private func insertMention(_ suggestion: MentionSuggestion) {
+        // Replace the @partial with @Name
+        if let atRange = draft.range(of: "@", options: .backwards) {
+            draft = String(draft[draft.startIndex..<atRange.lowerBound]) + "@\(suggestion.name) "
+        }
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {

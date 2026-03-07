@@ -16,6 +16,9 @@ public struct ChatView: View {
             ConversationContent(
                 entries: channelEntries,
                 placeholder: "Message #\(appState.currentChannel?.name ?? "")...",
+                mentionCandidates: appState.companions.map {
+                    MentionSuggestion(id: $0.id, name: $0.displayName)
+                },
                 onSend: { content in appState.sendMessage(content: content) }
             )
         }

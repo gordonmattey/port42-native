@@ -45,14 +45,16 @@ public enum AgentRouter {
         content: String,
         agents: [AgentConfig]
     ) -> [AgentConfig] {
-        let mentions = MentionParser.extractMentions(from: content)
+        // extractMentions returns ["@Echo", "@ai-engineer"] etc.
+        let mentionNames = MentionParser.extractMentions(from: content)
+            .map { $0.dropFirst().lowercased() } // strip @ and lowercase
 
         return agents.filter { agent in
             switch agent.trigger {
             case .allMessages:
                 return true
             case .mentionOnly:
-                return mentions.contains(agent.displayName)
+                return mentionNames.contains(agent.displayName.lowercased())
             }
         }
     }
