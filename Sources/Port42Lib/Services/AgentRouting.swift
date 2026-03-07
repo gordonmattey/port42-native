@@ -40,22 +40,32 @@ public enum MentionParser {
 
 public enum AgentRouter {
 
-    /// Find agents that should receive this message based on mentions and trigger mode.
+    /// Find agents that should receive this message based on mentions, trigger mode,
+    /// and channel membership. Agents assigned to the channel respond to all messages.
+    /// @mention works for any agent regardless of channel membership.
     public static func findTargetAgents(
         content: String,
-        agents: [AgentConfig]
+        agents: [AgentConfig],
+        channelAgentIds: Set<String> = []
     ) -> [AgentConfig] {
         // extractMentions returns ["@Echo", "@ai-engineer"] etc.
         let mentionNames = MentionParser.extractMentions(from: content)
             .map { $0.dropFirst().lowercased() } // strip @ and lowercase
 
         return agents.filter { agent in
-            switch agent.trigger {
-            case .allMessages:
+            // @mentioned explicitly: always respond
+            if mentionNames.contains(agent.displayName.lowercased()) {
                 return true
-            case .mentionOnly:
-                return mentionNames.contains(agent.displayName.lowercased())
             }
+            // Assigned to this channel: respond to all messages
+            if channelAgentIds.contains(agent.id) {
+                return true
+            }
+            // Global allMessages trigger
+            if agent.trigger == .allMessages {
+                return true
+            }
+            return false
         }
     }
 }

@@ -172,6 +172,7 @@ public final class AppState: ObservableObject {
     @Published public var unreadCounts: [String: Int] = [:]
     @Published public var lastReadDates: [String: Date] = [:]
     @Published public var companions: [AgentConfig] = []
+    @Published public var channelCompanions: [AgentConfig] = []
     @Published public var activeSwimSession: SwimSession?
     @Published public var showDreamscape = true
 
@@ -309,12 +310,14 @@ public final class AppState: ObservableObject {
         currentChannel = channel
         lastReadDates[channel.id] = Date()
 
-        // Load messages for new channel
+        // Load messages and channel companions
         do {
             messages = try db.getMessages(channelId: channel.id)
+            channelCompanions = try db.getAgentsForChannel(channelId: channel.id)
         } catch {
             print("[Port42] Failed to load messages: \(error)")
             messages = []
+            channelCompanions = []
         }
 
         startMessageObservation(channelId: channel.id)
@@ -381,9 +384,15 @@ public final class AppState: ObservableObject {
             print("[Port42] Failed to send message: \(error)")
         }
 
-        // Route to agents via @mention detection
-        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions)
+        // Route to agents via @mention detection + channel membership
+        let channelAgentIds = Set(channelCompanions.map { $0.id })
+        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds)
         for agent in targets {
+            // Auto-join: if responding in this channel, stay in it
+            if !channelAgentIds.contains(agent.id) {
+                addCompanionToChannel(agent, channel: channel)
+            }
+
             switch agent.mode {
             case .llm:
                 let handler = ChannelAgentHandler(agent: agent, channelId: channel.id, appState: self)
@@ -406,6 +415,28 @@ public final class AppState: ObservableObject {
             companions = try db.getAllAgents()
         } catch {
             print("[Port42] Failed to save companion: \(error)")
+        }
+    }
+
+    public func addCompanionToChannel(_ companion: AgentConfig, channel: Channel) {
+        do {
+            try db.assignAgentToChannel(agentId: companion.id, channelId: channel.id)
+            if currentChannel?.id == channel.id {
+                channelCompanions = try db.getAgentsForChannel(channelId: channel.id)
+            }
+        } catch {
+            print("[Port42] Failed to add companion to channel: \(error)")
+        }
+    }
+
+    public func removeCompanionFromChannel(_ companion: AgentConfig, channel: Channel) {
+        do {
+            try db.removeAgentFromChannel(agentId: companion.id, channelId: channel.id)
+            if currentChannel?.id == channel.id {
+                channelCompanions = try db.getAgentsForChannel(channelId: channel.id)
+            }
+        } catch {
+            print("[Port42] Failed to remove companion from channel: \(error)")
         }
     }
 
@@ -469,6 +500,7 @@ public final class AppState: ObservableObject {
         channels = []
         messages = []
         companions = []
+        channelCompanions = []
         drafts = [:]
         unreadCounts = [:]
         lastReadDates = [:]

@@ -137,20 +137,44 @@ public struct QuickSwitcher: View {
 
     // MARK: - Data
 
-    private var allItems: [QuickSwitcherItem] {
-        let channels = appState.channels.map { ch in
+    private var channelItems: [QuickSwitcherItem] {
+        appState.channels.map { ch in
             QuickSwitcherItem(id: "ch-\(ch.id)", icon: "#", name: ch.name, kind: .channel(ch))
         }
-        let companions = appState.companions.map { comp in
+    }
+
+    private var companionItems: [QuickSwitcherItem] {
+        appState.companions.map { comp in
             QuickSwitcherItem(id: "sw-\(comp.id)", icon: "@", name: comp.displayName, kind: .companion(comp))
         }
-        return channels + companions
     }
 
     private var filteredItems: [QuickSwitcherItem] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return allItems }
-        return allItems.filter { fuzzyMatch(q, $0.name.lowercased()) }
+        let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Empty query: show channels only (companions are in sidebar)
+        guard !raw.isEmpty else { return channelItems }
+
+        // @ prefix: search companions only
+        if raw.hasPrefix("@") {
+            let q = String(raw.dropFirst())
+            if q.isEmpty { return companionItems }
+            return companionItems.filter { match(q, $0.name.lowercased()) }
+        }
+
+        // # prefix: search channels only
+        if raw.hasPrefix("#") {
+            let q = String(raw.dropFirst())
+            if q.isEmpty { return channelItems }
+            return channelItems.filter { match(q, $0.name.lowercased()) }
+        }
+
+        // No prefix: search both
+        let all = channelItems + companionItems
+        return all.filter { match(raw, $0.name.lowercased()) }
+    }
+
+    private func match(_ query: String, _ name: String) -> Bool {
+        name.contains(query) || fuzzyMatch(query, name)
     }
 
     // MARK: - Fuzzy Match
@@ -188,7 +212,7 @@ public struct QuickSwitcher: View {
     private func iconColor(_ item: QuickSwitcherItem) -> Color {
         switch item.kind {
         case .channel: return Port42Theme.accent
-        case .companion: return Port42Theme.textAgent
+        case .companion: return Port42Theme.agentColor(for: item.name)
         }
     }
 

@@ -49,11 +49,37 @@ public struct SidebarView: View {
                                 channel: channel,
                                 isActive: appState.activeSwimSession == nil
                                     && appState.currentChannel?.id == channel.id,
-                                unreadCount: appState.unreadCounts[channel.id] ?? 0
+                                unreadCount: appState.unreadCounts[channel.id] ?? 0,
+                                companionNames: ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName }
                             )
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            let assigned = (try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []
+                            let assignedIds = Set(assigned.map { $0.id })
+                            let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
+
+                            if !unassigned.isEmpty {
+                                Menu("Add Swimmer") {
+                                    ForEach(unassigned) { comp in
+                                        Button("@\(comp.displayName)") {
+                                            appState.addCompanionToChannel(comp, channel: channel)
+                                        }
+                                    }
+                                }
+                            }
+                            if !assigned.isEmpty {
+                                Menu("Remove Swimmer") {
+                                    ForEach(assigned) { comp in
+                                        Button("@\(comp.displayName)") {
+                                            appState.removeCompanionFromChannel(comp, channel: channel)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Divider()
+
                             Button("Delete Channel", role: .destructive) {
                                 appState.deleteChannel(channel)
                             }
@@ -167,13 +193,15 @@ public struct ChannelRow: View {
     let channel: Channel
     let isActive: Bool
     let unreadCount: Int
+    let companionNames: [String]
 
     @State private var isHovered = false
 
-    public init(channel: Channel, isActive: Bool, unreadCount: Int) {
+    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = []) {
         self.channel = channel
         self.isActive = isActive
         self.unreadCount = unreadCount
+        self.companionNames = companionNames
     }
 
     public var body: some View {
@@ -192,6 +220,17 @@ public struct ChannelRow: View {
                     : Port42Theme.textSecondary
                 )
                 .fontWeight(unreadCount > 0 ? .bold : .regular)
+
+            // Companion dots
+            if !companionNames.isEmpty {
+                HStack(spacing: -3) {
+                    ForEach(companionNames.prefix(3), id: \.self) { name in
+                        Circle()
+                            .fill(Port42Theme.agentColor(for: name))
+                            .frame(width: 6, height: 6)
+                    }
+                }
+            }
 
             Spacer()
 

@@ -133,6 +133,16 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v5-agent-channels") { db in
+            try db.create(table: "agentChannels") { t in
+                t.column("agentId", .text).notNull()
+                    .references("agents", onDelete: .cascade)
+                t.column("channelId", .text).notNull()
+                    .references("channels", onDelete: .cascade)
+                t.primaryKey(["agentId", "channelId"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -190,6 +200,52 @@ public final class DatabaseService {
         }
     }
 
+    // MARK: - Agent Channel Membership
+
+    public func assignAgentToChannel(agentId: String, channelId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT OR IGNORE INTO agentChannels (agentId, channelId) VALUES (?, ?)",
+                arguments: [agentId, channelId]
+            )
+        }
+    }
+
+    public func removeAgentFromChannel(agentId: String, channelId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM agentChannels WHERE agentId = ? AND channelId = ?",
+                arguments: [agentId, channelId]
+            )
+        }
+    }
+
+    public func getAgentsForChannel(channelId: String) throws -> [AgentConfig] {
+        try dbQueue.read { db in
+            try AgentConfig.fetchAll(
+                db,
+                sql: """
+                    SELECT a.* FROM agents a
+                    INNER JOIN agentChannels ac ON ac.agentId = a.id
+                    WHERE ac.channelId = ?
+                    ORDER BY a.displayName ASC
+                    """,
+                arguments: [channelId]
+            )
+        }
+    }
+
+    public func getChannelIdsForAgent(agentId: String) throws -> Set<String> {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT channelId FROM agentChannels WHERE agentId = ?",
+                arguments: [agentId]
+            )
+            return Set(rows.map { $0["channelId"] as String })
+        }
+    }
+
     // MARK: - Swim Messages
 
     public func saveSwimMessages(companionId: String, messages: [SwimMessage]) throws {
@@ -239,6 +295,7 @@ public final class DatabaseService {
 
     public func resetAll() throws {
         try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM agentChannels")
             try db.execute(sql: "DELETE FROM swimMessages")
             try db.execute(sql: "DELETE FROM messages")
             try db.execute(sql: "DELETE FROM channels")
