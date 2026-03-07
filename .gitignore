@@ -16,6 +16,9 @@ port42-gateway
 # Logs
 *.log
 
+# Secrets
+.secrets
+
 # Claude
 .claude/
 
