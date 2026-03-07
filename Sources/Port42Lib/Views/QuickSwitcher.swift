@@ -70,6 +70,22 @@ public struct QuickSwitcher: View {
 
             Divider().background(Port42Theme.border)
 
+            // Invite link hint
+            if let inviteInfo = parsedInvite {
+                HStack(spacing: 8) {
+                    Image(systemName: "link")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Port42Theme.accent)
+                    Text("press enter to join #\(inviteInfo.channelName)")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.accent)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Port42Theme.accent.opacity(0.1))
+            }
+
             // Results
             ScrollViewReader { proxy in
                 ScrollView {
@@ -190,9 +206,24 @@ public struct QuickSwitcher: View {
         return true
     }
 
+    // MARK: - Invite Link
+
+    private var parsedInvite: ChannelInviteData? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("port42://channel"),
+              let url = URL(string: trimmed) else { return nil }
+        return ChannelInvite.parse(url: url)
+    }
+
     // MARK: - Actions
 
     private func selectCurrent() {
+        if let invite = parsedInvite {
+            appState.joinChannelFromInvite(invite)
+            isPresented = false
+            return
+        }
+
         guard selectedIndex < filteredItems.count else { return }
         select(filteredItems[selectedIndex])
     }

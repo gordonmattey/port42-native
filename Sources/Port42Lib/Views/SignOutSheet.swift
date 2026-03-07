@@ -5,6 +5,7 @@ public struct SignOutSheet: View {
     @Binding var isPresented: Bool
     @State private var eraseAll = false
     @State private var isHovering = false
+    @State private var gatewayURL: String = UserDefaults.standard.string(forKey: "gatewayURL") ?? ""
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -37,6 +38,50 @@ public struct SignOutSheet: View {
             }
             .padding(.vertical, 16)
             .padding(.horizontal, 24)
+
+            Divider().background(Port42Theme.border)
+
+            // Gateway
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(appState.sync.isConnected ? .green : Port42Theme.textSecondary.opacity(0.3))
+                        .frame(width: 6, height: 6)
+                    Text("gateway")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    if GatewayProcess.shared.isRunning {
+                        Text("self-hosted")
+                            .font(Port42Theme.mono(9))
+                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    TextField("ws://localhost:8042", text: $gatewayURL)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .padding(6)
+                        .background(Port42Theme.bgPrimary)
+                        .cornerRadius(4)
+                        .onSubmit { connectGateway() }
+
+                    Button(action: connectGateway) {
+                        Text(appState.sync.isConnected ? "ok" : "go")
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(appState.sync.isConnected ? .green : Port42Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text("leave empty for self-hosted gateway")
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
 
             Divider().background(Port42Theme.border)
 
@@ -88,7 +133,7 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 320, height: 360)
+        .frame(width: 320, height: 460)
         .background(Port42Theme.bgSecondary)
     }
 
@@ -101,6 +146,20 @@ public struct SignOutSheet: View {
             Text(value)
                 .font(Port42Theme.monoBold(11))
                 .foregroundStyle(Port42Theme.textPrimary)
+        }
+    }
+
+    private func connectGateway() {
+        let trimmed = gatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(trimmed, forKey: "gatewayURL")
+        if trimmed.isEmpty {
+            appState.sync.disconnect()
+        } else if let user = appState.currentUser {
+            appState.sync.configure(gatewayURL: trimmed, userId: user.id, db: appState.db)
+            appState.sync.connect()
+            for channel in appState.channels {
+                appState.sync.joinChannel(channel.id)
+            }
         }
     }
 

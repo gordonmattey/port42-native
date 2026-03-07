@@ -29,6 +29,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
     public let companion: AgentConfig
     private let engine = LLMEngine()
     private weak var db: DatabaseService?
+    var fileResolver: FileResolver?
 
     public init(companion: AgentConfig, db: DatabaseService? = nil, savedMessages: [SwimMessage] = []) {
         self.companion = companion
@@ -49,9 +50,14 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         messages.append(SwimMessage(role: .user, content: text))
 
         // Build API messages from conversation history (exclude empty placeholders)
+        // Resolve file paths in user messages so companions can see file contents
+        let swimChannelId = "swim-\(companion.id)"
         let apiMessages = messages.compactMap { msg -> [String: String]? in
             guard !msg.content.isEmpty else { return nil }
-            return ["role": msg.role == .user ? "user" : "assistant", "content": msg.content]
+            let content = msg.role == .user
+                ? (fileResolver?.resolve(msg.content, channelId: swimChannelId) ?? msg.content)
+                : msg.content
+            return ["role": msg.role == .user ? "user" : "assistant", "content": content]
         }
 
         // Add placeholder for streaming response
@@ -214,6 +220,7 @@ public struct SwimView: View {
                 placeholder: "Message \(session.companion.displayName)...",
                 isStreaming: session.isStreaming,
                 error: session.error,
+                typingNames: session.isStreaming ? [session.companion.displayName] : [],
                 onSend: { content in session.send(content) },
                 onStop: { session.stop() },
                 onRetry: { session.retry() },

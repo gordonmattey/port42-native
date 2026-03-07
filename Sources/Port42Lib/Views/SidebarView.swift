@@ -15,9 +15,17 @@ public struct SidebarView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("PORT42")
-                    .font(Port42Theme.monoBold(14))
-                    .foregroundStyle(Port42Theme.accent)
+                HStack(spacing: 4) {
+                    Text("PORT42")
+                        .font(Port42Theme.monoBold(14))
+                        .foregroundStyle(Port42Theme.accent)
+                    if appState.sync.isConnected {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+                .help(appState.sync.gatewayURL ?? "no gateway")
                 Spacer()
                 Menu {
                     Button(action: { showNewChannel = true }) {
@@ -50,7 +58,8 @@ public struct SidebarView: View {
                                 isActive: appState.activeSwimSession == nil
                                     && appState.currentChannel?.id == channel.id,
                                 unreadCount: appState.unreadCounts[channel.id] ?? 0,
-                                companionNames: ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName }
+                                companionNames: ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName },
+                                onlineCount: appState.sync.onlineUsers[channel.id]?.count ?? 0
                             )
                         }
                         .buttonStyle(.plain)
@@ -79,6 +88,12 @@ public struct SidebarView: View {
                             }
 
                             Divider()
+
+                            if let gwURL = appState.sync.gatewayURL, !gwURL.isEmpty {
+                                Button("Copy Invite Link") {
+                                    ChannelInvite.copyToClipboard(channel: channel, gatewayURL: gwURL)
+                                }
+                            }
 
                             Button("Delete Channel", role: .destructive) {
                                 appState.deleteChannel(channel)
@@ -194,14 +209,16 @@ public struct ChannelRow: View {
     let isActive: Bool
     let unreadCount: Int
     let companionNames: [String]
+    let onlineCount: Int
 
     @State private var isHovered = false
 
-    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = []) {
+    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0) {
         self.channel = channel
         self.isActive = isActive
         self.unreadCount = unreadCount
         self.companionNames = companionNames
+        self.onlineCount = onlineCount
     }
 
     public var body: some View {
@@ -229,6 +246,18 @@ public struct ChannelRow: View {
                             .fill(Port42Theme.agentColor(for: name))
                             .frame(width: 6, height: 6)
                     }
+                }
+            }
+
+            // Online count
+            if onlineCount > 0 {
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 5, height: 5)
+                    Text("\(onlineCount)")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary)
                 }
             }
 

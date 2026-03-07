@@ -2,6 +2,101 @@ import Foundation
 import GRDB
 import Combine
 
+// MARK: - File Content Resolution
+
+/// Resolves file paths in messages and manages per-channel directory allowlists.
+/// When a user shares a file path, the parent directory is added to the allowlist.
+/// Short filenames (like "readme.md") are resolved against allowed directories.
+@MainActor
+final class FileResolver {
+    /// Allowed directories per channel (channelId -> set of directory paths)
+    private var allowedDirs: [String: Set<String>] = [:]
+
+    /// Regex matching absolute paths (/...) or ~/... or file:// URLs
+    private static let absolutePathPattern = try! NSRegularExpression(
+        pattern: #"(?:file://)?([~/][^\s\n,;\"'<>]+)"#,
+        options: []
+    )
+
+    /// Regex matching bare filenames (word.ext) that might be in allowed dirs
+    private static let bareFilenamePattern = try! NSRegularExpression(
+        pattern: #"\b([\w.+-]+\.[\w]+)\b"#,
+        options: []
+    )
+
+    /// Max file size to inline (64KB keeps context reasonable)
+    private static let maxFileSize = 64 * 1024
+
+    /// Get the set of allowed directories for a channel
+    func allowedDirectories(for channelId: String) -> Set<String> {
+        allowedDirs[channelId] ?? []
+    }
+
+    /// Scan text for file paths, read any that exist, add parent dirs to allowlist.
+    /// Also resolves bare filenames against previously allowed directories.
+    func resolve(_ text: String, channelId: String) -> String {
+        var attachments: [String] = []
+        var resolvedPaths: Set<String> = []
+
+        // Pass 1: Resolve absolute paths and file:// URLs
+        let nsText = text as NSString
+        let absMatches = Self.absolutePathPattern.matches(
+            in: text, range: NSRange(location: 0, length: nsText.length)
+        )
+        for match in absMatches {
+            guard let range = Range(match.range(at: 1), in: text) else { continue }
+            var path = String(text[range])
+            if path.hasPrefix("~") {
+                path = (path as NSString).expandingTildeInPath
+            }
+            if let content = readFile(at: path) {
+                resolvedPaths.insert(path)
+                let dir = (path as NSString).deletingLastPathComponent
+                var dirs = allowedDirs[channelId] ?? []
+                dirs.insert(dir)
+                allowedDirs[channelId] = dirs
+                let filename = (path as NSString).lastPathComponent
+                attachments.append("--- contents of \(filename) ---\n\(content)\n--- end \(filename) ---")
+            }
+        }
+
+        // Pass 2: Try resolving bare filenames against allowed directories
+        let dirs = allowedDirs[channelId] ?? []
+        if !dirs.isEmpty {
+            let bareMatches = Self.bareFilenamePattern.matches(
+                in: text, range: NSRange(location: 0, length: nsText.length)
+            )
+            for match in bareMatches {
+                guard let range = Range(match.range(at: 1), in: text) else { continue }
+                let filename = String(text[range])
+                // Skip if it was already resolved as an absolute path
+                for dir in dirs {
+                    let candidatePath = (dir as NSString).appendingPathComponent(filename)
+                    guard !resolvedPaths.contains(candidatePath) else { continue }
+                    if let content = readFile(at: candidatePath) {
+                        resolvedPaths.insert(candidatePath)
+                        attachments.append("--- contents of \(filename) ---\n\(content)\n--- end \(filename) ---")
+                        break // found it, stop searching dirs
+                    }
+                }
+            }
+        }
+
+        if attachments.isEmpty { return text }
+        return text + "\n\n" + attachments.joined(separator: "\n\n")
+    }
+
+    private func readFile(at path: String) -> String? {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
+              !isDir.boolValue else { return nil }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? Int,
+              size <= Self.maxFileSize else { return nil }
+        return try? String(contentsOfFile: path, encoding: .utf8)
+    }
+}
+
 // MARK: - Channel Agent Response Handler
 
 @MainActor
@@ -11,6 +106,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     let messageId: String
     private let engine = LLMEngine()
     private weak var appState: AppState?
+    private var bufferedContent = ""
+    private var isTyping = false
 
     init(agent: AgentConfig, channelId: String, appState: AppState) {
         self.agent = agent
@@ -40,7 +137,9 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 return ["role": "user", "content": msg.content]
             }
         }
-        apiMessages.append(["role": "user", "content": triggerContent])
+        // Resolve any file paths in the trigger message and inline their content
+        let enrichedTrigger = appState?.fileResolver.resolve(triggerContent, channelId: channelId) ?? triggerContent
+        apiMessages.append(["role": "user", "content": enrichedTrigger])
 
         // Ensure messages alternate and start with user
         let cleaned = cleanAlternation(apiMessages)
@@ -69,13 +168,32 @@ final class ChannelAgentHandler: LLMStreamDelegate {
 
         // Build system prompt with strong identity framing
         let basePrompt = agent.systemPrompt ?? "You are a helpful companion."
+        let allowedDirs = appState?.fileResolver.allowedDirectories(for: channelId) ?? []
+        let fileAccessNote: String
+        if allowedDirs.isEmpty {
+            fileAccessNote = """
+                When someone shares a file path, Port42 automatically reads the file and includes \
+                its contents in the message. You can see and discuss file contents directly. \
+                Never tell users you cannot access files.
+                """
+        } else {
+            let dirList = allowedDirs.sorted().joined(separator: ", ")
+            fileAccessNote = """
+                Port42 automatically reads files shared in chat and includes their contents. \
+                You have scoped read access to these directories: \(dirList). \
+                If you need to reference another file from those directories, mention the filename \
+                and the user can share it. You can see and discuss all file contents directly. \
+                Never tell users you cannot access files.
+                """
+        }
         let channelPrompt = """
             IDENTITY: You are \(agent.displayName). This is non-negotiable. \
             You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
 
             CONTEXT: You are an AI companion in Port42, a native macOS app. \
-            You are in a shared channel with other companions. Messages from other \
-            companions appear as [Name]: message. Those are NOT you. You are \(agent.displayName).
+            You are in a shared channel with other companions and humans. Messages from other \
+            companions appear as [Name]: message. Those are NOT you. You are \(agent.displayName). \
+            \(fileAccessNote)
 
             INSTRUCTIONS: \(basePrompt)
             """
@@ -120,23 +238,42 @@ final class ChannelAgentHandler: LLMStreamDelegate {
 
     nonisolated func llmDidReceiveToken(_ token: String) {
         Task { @MainActor in
-            guard let appState = self.appState,
-                  let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) else { return }
-            appState.messages[idx].content += token
+            self.bufferedContent += token
+            if !self.isTyping {
+                self.isTyping = true
+                self.appState?.typingAgentNames.insert(self.agent.displayName)
+            }
         }
     }
 
     nonisolated func llmDidFinish(fullResponse: String) {
         Task { @MainActor in
-            guard let appState = self.appState,
-                  let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) else { return }
-            // Patch with full response
-            if appState.messages[idx].content.count < fullResponse.count {
-                appState.messages[idx].content = fullResponse
+            guard let appState = self.appState else { return }
+            appState.typingAgentNames.remove(self.agent.displayName)
+
+            let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
+
+            // Remove placeholder, insert completed message
+            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
+                appState.messages[idx].content = content
             }
-            // Persist the completed message
+
+            // Persist and sync
+            let finalMessage = Message(
+                id: self.messageId,
+                channelId: self.channelId,
+                senderId: self.agent.id,
+                senderName: self.agent.displayName,
+                senderType: "agent",
+                content: content,
+                timestamp: Date(),
+                replyToId: nil,
+                syncStatus: "local",
+                createdAt: Date()
+            )
             do {
-                try appState.db.saveMessage(appState.messages[idx])
+                try appState.db.saveMessage(finalMessage)
+                appState.sync.sendMessage(finalMessage)
             } catch {
                 NSLog("[Port42] Failed to persist agent message: \(error)")
             }
@@ -148,9 +285,9 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         NSLog("[Port42] Channel agent error: \(error)")
         Task { @MainActor in
             guard let appState = self.appState else { return }
+            appState.typingAgentNames.remove(self.agent.displayName)
             if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
                 if appState.messages[idx].content.isEmpty {
-                    // Replace empty placeholder with error message
                     appState.messages[idx].content = "[error: \(error.localizedDescription)]"
                 }
             }
@@ -175,19 +312,28 @@ public final class AppState: ObservableObject {
     @Published public var channelCompanions: [AgentConfig] = []
     @Published public var activeSwimSession: SwimSession?
     @Published public var showDreamscape = true
+    /// Agent names currently typing in channels (for typing indicators)
+    @Published public var typingAgentNames: Set<String> = []
 
     private var swimSessions: [String: SwimSession] = [:]
     var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
 
     public let db: DatabaseService
+    public let sync = SyncService()
+    let fileResolver = FileResolver()
 
     private var channelObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
     private var unreadObservation: AnyDatabaseCancellable?
+    private var syncConnectionCancellable: AnyCancellable?
 
     public init(db: DatabaseService) {
         self.db = db
+        // Forward nested sync.isConnected changes to trigger SwiftUI updates
+        syncConnectionCancellable = sync.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         loadInitialState()
     }
 
@@ -199,6 +345,13 @@ public final class AppState: ObservableObject {
 
             companions = try db.getAllAgents()
 
+            // Configure sync and analytics
+            if let user = currentUser {
+                configureSyncIfNeeded(userId: user.id)
+                Analytics.shared.configure(userId: user.id)
+                Analytics.shared.capture("app_opened")
+            }
+
             if let first = channels.first {
                 selectChannel(first)
             }
@@ -206,6 +359,101 @@ public final class AppState: ObservableObject {
             startChannelObservation()
         } catch {
             print("[Port42] Failed to load state: \(error)")
+        }
+    }
+
+    private func configureSyncIfNeeded(userId: String) {
+        let gwURL: String
+        var didStartGateway = false
+        if let saved = UserDefaults.standard.string(forKey: "gatewayURL"), !saved.isEmpty {
+            gwURL = saved
+        } else {
+            // Self-host by default: start bundled gateway
+            let gp = GatewayProcess.shared
+            if !gp.isRunning {
+                gp.start()
+                didStartGateway = true
+            }
+            gwURL = gp.localURL
+        }
+
+        sync.configure(gatewayURL: gwURL, userId: userId, db: db)
+        sync.onMessageReceived = { [weak self] channelId, message in
+            self?.handleIncomingSyncedMessage(channelId: channelId, message: message)
+        }
+
+        let channels = self.channels
+        if didStartGateway {
+            // Give the gateway a moment to bind the port
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.sync.connect()
+                for channel in channels {
+                    self.sync.joinChannel(channel.id)
+                }
+            }
+        } else {
+            sync.connect()
+            for channel in channels {
+                sync.joinChannel(channel.id)
+            }
+        }
+    }
+
+    /// Route incoming synced messages to agents (only human messages to avoid loops)
+    private func handleIncomingSyncedMessage(channelId: String, message: Message) {
+        guard message.senderType == "human" else { return }
+
+        let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
+        guard !channelAgents.isEmpty else { return }
+
+        let channelAgentIds = Set(channelAgents.map { $0.id })
+        let targets = AgentRouter.findTargetAgents(
+            content: message.content, agents: companions, channelAgentIds: channelAgentIds
+        )
+
+        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
+
+        launchAgents(
+            targets, channelId: channelId, channelAgentIds: channelAgentIds,
+            channelMessages: channelMessages, triggerContent: message.content,
+            senderId: message.senderId, senderName: message.senderName
+        )
+    }
+
+    /// Launch agents with staggered delays so companions respond at different rates
+    private func launchAgents(
+        _ agents: [AgentConfig], channelId: String, channelAgentIds: Set<String>,
+        channelMessages: [Message], triggerContent: String,
+        senderId: String, senderName: String
+    ) {
+        for (index, agent) in agents.enumerated() {
+            if !channelAgentIds.contains(agent.id) {
+                if let channel = channels.first(where: { $0.id == channelId }) {
+                    addCompanionToChannel(agent, channel: channel)
+                }
+            }
+
+            // Stagger responses: base delay per position + random jitter
+            let baseDelay = Double(index) * 1.5
+            let jitter = Double.random(in: 0.5...2.5)
+            let delay = baseDelay + jitter
+
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+
+                switch agent.mode {
+                case .llm:
+                    let msgs = (try? self.db.getMessages(channelId: channelId)) ?? channelMessages
+                    let handler = ChannelAgentHandler(agent: agent, channelId: channelId, appState: self)
+                    self.activeAgentHandlers[handler.messageId] = handler
+                    handler.start(channelMessages: msgs, triggerContent: triggerContent)
+                case .command:
+                    let handler = CommandAgentHandler(agent: agent, channelId: channelId, appState: self)
+                    self.activeCommandHandlers[handler.messageId] = handler
+                    handler.start(triggerContent: triggerContent, senderId: senderId, senderName: senderName)
+                }
+            }
         }
     }
 
@@ -288,8 +536,12 @@ public final class AppState: ObservableObject {
             // Start a swim session but don't send yet.
             // SetupView will trigger the first message after the transition animation.
             let session = SwimSession(companion: companion, db: db)
+            session.fileResolver = fileResolver
             swimSessions[companion.id] = session
             activeSwimSession = session
+
+            Analytics.shared.configure(userId: user.id)
+            Analytics.shared.capture("setup_completed", properties: ["display_name": displayName])
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
@@ -309,6 +561,7 @@ public final class AppState: ObservableObject {
 
         currentChannel = channel
         lastReadDates[channel.id] = Date()
+        sync.joinChannel(channel.id)
 
         // Load messages and channel companions
         do {
@@ -334,10 +587,49 @@ public final class AppState: ObservableObject {
         do {
             try db.saveChannel(channel)
             channels = try db.getAllChannels()
+            sync.joinChannel(channel.id)
             selectChannel(channel)
+            Analytics.shared.capture("channel_created", properties: ["channel_name": cleaned])
         } catch {
             print("[Port42] Failed to create channel: \(error)")
         }
+    }
+
+    public func joinChannelFromInvite(_ invite: ChannelInviteData) {
+        // If channel already exists locally, just select it
+        if let existing = channels.first(where: { $0.id == invite.channelId }) {
+            selectChannel(existing)
+            return
+        }
+
+        // Create the channel with the shared ID
+        let channel = Channel(
+            id: invite.channelId,
+            name: invite.channelName,
+            type: "team",
+            createdAt: Date()
+        )
+        do {
+            try db.saveChannel(channel)
+            channels = try db.getAllChannels()
+        } catch {
+            print("[Port42] Failed to save invited channel: \(error)")
+            return
+        }
+
+        // Configure sync to the invite's gateway if different
+        let currentGW = sync.gatewayURL ?? ""
+        if currentGW != invite.gateway, let user = currentUser {
+            UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
+            sync.configure(gatewayURL: invite.gateway, userId: user.id, db: db)
+            sync.connect()
+            for ch in channels {
+                sync.joinChannel(ch.id)
+            }
+        }
+
+        selectChannel(channel)
+        print("[Port42] Joined channel from invite: #\(invite.channelName)")
     }
 
     public func deleteChannel(_ channel: Channel) {
@@ -380,6 +672,9 @@ public final class AppState: ObservableObject {
 
         do {
             try db.saveMessage(message)
+            // Send to relay if connected
+            sync.sendMessage(message)
+            Analytics.shared.capture("message_sent", properties: ["channel_id": channel.id])
         } catch {
             print("[Port42] Failed to send message: \(error)")
         }
@@ -387,23 +682,11 @@ public final class AppState: ObservableObject {
         // Route to agents via @mention detection + channel membership
         let channelAgentIds = Set(channelCompanions.map { $0.id })
         let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds)
-        for agent in targets {
-            // Auto-join: if responding in this channel, stay in it
-            if !channelAgentIds.contains(agent.id) {
-                addCompanionToChannel(agent, channel: channel)
-            }
-
-            switch agent.mode {
-            case .llm:
-                let handler = ChannelAgentHandler(agent: agent, channelId: channel.id, appState: self)
-                activeAgentHandlers[handler.messageId] = handler
-                handler.start(channelMessages: messages, triggerContent: trimmed)
-            case .command:
-                let handler = CommandAgentHandler(agent: agent, channelId: channel.id, appState: self)
-                activeCommandHandlers[handler.messageId] = handler
-                handler.start(triggerContent: trimmed, senderId: user.id, senderName: user.displayName)
-            }
-        }
+        launchAgents(
+            targets, channelId: channel.id, channelAgentIds: channelAgentIds,
+            channelMessages: messages, triggerContent: trimmed,
+            senderId: user.id, senderName: user.displayName
+        )
     }
 
 
@@ -413,6 +696,7 @@ public final class AppState: ObservableObject {
         do {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()
+            Analytics.shared.capture("companion_created", properties: ["companion_name": companion.displayName])
         } catch {
             print("[Port42] Failed to save companion: \(error)")
         }
@@ -461,9 +745,11 @@ public final class AppState: ObservableObject {
             // Load persisted messages if any
             let saved = (try? db.getSwimMessages(companionId: companion.id)) ?? []
             let session = SwimSession(companion: companion, db: db, savedMessages: saved)
+            session.fileResolver = fileResolver
             swimSessions[companion.id] = session
             activeSwimSession = session
         }
+        Analytics.shared.capture("swim_started", properties: ["companion_name": companion.displayName])
     }
 
     public func exitSwim() {

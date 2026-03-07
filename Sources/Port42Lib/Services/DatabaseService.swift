@@ -4,10 +4,10 @@ import GRDB
 public final class DatabaseService {
     public let dbQueue: DatabaseQueue
 
-    public init() throws {
+    public init(subdirectory: String = "Port42") throws {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!.appendingPathComponent("Port42", isDirectory: true)
+        ).first!.appendingPathComponent(subdirectory, isDirectory: true)
 
         try FileManager.default.createDirectory(
             at: appSupport, withIntermediateDirectories: true
@@ -309,6 +309,15 @@ public final class DatabaseService {
     public func saveMessage(_ message: Message) throws {
         try dbQueue.write { db in
             try message.save(db)
+        }
+    }
+
+    public func updateSyncStatus(messageId: String, status: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE messages SET syncStatus = ? WHERE id = ?",
+                arguments: [status, messageId]
+            )
         }
     }
 

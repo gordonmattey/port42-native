@@ -152,25 +152,39 @@ struct TransitionRoot: View {
     }
 
     private func handleInviteURL(_ url: URL) {
-        guard url.scheme == "port42", url.host == "agent" else { return }
-        do {
-            let invite = try AgentInvite.parse(link: url.absoluteString)
-            guard let user = appState.currentUser else {
-                NSLog("[Port42] Cannot add invited agent: no current user")
+        guard url.scheme == "port42" else { return }
+
+        switch url.host {
+        case "agent":
+            do {
+                let invite = try AgentInvite.parse(link: url.absoluteString)
+                guard let user = appState.currentUser else {
+                    NSLog("[Port42] Cannot add invited agent: no current user")
+                    return
+                }
+                let agent = AgentConfig.createLLM(
+                    ownerId: user.id,
+                    displayName: invite.displayName,
+                    systemPrompt: invite.systemPrompt,
+                    provider: invite.provider,
+                    model: invite.model,
+                    trigger: .mentionOnly
+                )
+                appState.addCompanion(agent)
+                NSLog("[Port42] Added invited agent: %@", invite.displayName)
+            } catch {
+                NSLog("[Port42] Failed to parse agent invite: %@", error.localizedDescription)
+            }
+
+        case "channel":
+            guard let invite = ChannelInvite.parse(url: url) else {
+                NSLog("[Port42] Failed to parse channel invite: %@", url.absoluteString)
                 return
             }
-            let agent = AgentConfig.createLLM(
-                ownerId: user.id,
-                displayName: invite.displayName,
-                systemPrompt: invite.systemPrompt,
-                provider: invite.provider,
-                model: invite.model,
-                trigger: .mentionOnly
-            )
-            appState.addCompanion(agent)
-            NSLog("[Port42] Added invited agent: %@", invite.displayName)
-        } catch {
-            NSLog("[Port42] Failed to parse invite link: %@", error.localizedDescription)
+            appState.joinChannelFromInvite(invite)
+
+        default:
+            NSLog("[Port42] Unknown invite type: %@", url.host ?? "nil")
         }
     }
 

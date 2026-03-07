@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Unified chat renderer for both channels and swims
 
 /// A single message entry that both channel Messages and SwimMessages can map to.
-public struct ChatEntry: Identifiable {
+public struct ChatEntry: Identifiable, Equatable {
     public let id: String
     public let senderName: String
     public let content: String
@@ -54,6 +54,7 @@ public struct ConversationContent: View {
     let placeholder: String
     let isStreaming: Bool
     let error: String?
+    let typingNames: [String]
     let mentionCandidates: [MentionSuggestion]
     let onSend: (String) -> Void
     let onStop: (() -> Void)?
@@ -69,6 +70,7 @@ public struct ConversationContent: View {
         placeholder: String,
         isStreaming: Bool = false,
         error: String? = nil,
+        typingNames: [String] = [],
         mentionCandidates: [MentionSuggestion] = [],
         onSend: @escaping (String) -> Void,
         onStop: (() -> Void)? = nil,
@@ -79,6 +81,7 @@ public struct ConversationContent: View {
         self.placeholder = placeholder
         self.isStreaming = isStreaming
         self.error = error
+        self.typingNames = typingNames
         self.mentionCandidates = mentionCandidates
         self.onSend = onSend
         self.onStop = onStop
@@ -101,17 +104,30 @@ public struct ConversationContent: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    allMessagesText
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(entries) { entry in
+                            MessageRow(entry: entry)
+                                .id(entry.id)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+
+                    if !typingNames.isEmpty {
+                        TypingIndicator(names: typingNames)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 4)
+                    }
+
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .onChange(of: entries.count) { _, _ in
                     scrollToBottom(proxy: proxy)
                 }
                 .onChange(of: entries.last?.content) { _, _ in
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: typingNames) { _, _ in
                     scrollToBottom(proxy: proxy)
                 }
                 .onAppear {
@@ -237,6 +253,13 @@ public struct ConversationContent: View {
                         insertMention(suggestions[selectedSuggestionIndex])
                         return .handled
                     }
+                    .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in
+                        if draft.isEmpty {
+                            NotificationCenter.default.post(name: .helpRequested, object: nil)
+                            return .handled
+                        }
+                        return .ignored
+                    }
 
                 if isStreaming {
                     if let onStop {
@@ -284,48 +307,6 @@ public struct ConversationContent: View {
         }
     }
 
-    private var allMessagesText: Text {
-        var result = Text("")
-        for (i, entry) in entries.enumerated() {
-            if i > 0 {
-                result = result + Text("\n\n")
-            }
-
-            if entry.isSystem {
-                result = result + Text(entry.content)
-                    .font(Port42Theme.mono(12))
-                    .foregroundColor(Port42Theme.textSecondary)
-            } else {
-                let agentColor = Port42Theme.agentColor(for: entry.senderName)
-                let nameColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
-                let contentColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
-
-                result = result + Text(entry.senderName)
-                    .font(Port42Theme.monoBold(13))
-                    .foregroundColor(nameColor)
-
-                if let time = entry.formattedTime {
-                    result = result
-                        + Text("  ")
-                        + Text(time)
-                            .font(Port42Theme.mono(11))
-                            .foregroundColor(Port42Theme.textSecondary)
-                }
-
-                if entry.isPlaceholder {
-                    result = result + Text("\n") + Text("...")
-                        .font(Port42Theme.mono(13))
-                        .foregroundColor(agentColor.opacity(0.5))
-                } else {
-                    result = result + Text("\n") + Text(entry.content)
-                        .font(Port42Theme.mono(13))
-                        .foregroundColor(contentColor)
-                }
-            }
-        }
-        return result
-    }
-
     private func send() {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
@@ -344,6 +325,112 @@ public struct ConversationContent: View {
     private func scrollToBottom(proxy: ScrollViewProxy) {
         withAnimation(.easeOut(duration: 0.15)) {
             proxy.scrollTo("bottom", anchor: .bottom)
+        }
+    }
+}
+
+// MARK: - Message Row (Equatable for diff-only re-render)
+
+struct MessageRow: View, Equatable {
+    let entry: ChatEntry
+
+    static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
+        lhs.entry.id == rhs.entry.id &&
+        lhs.entry.content == rhs.entry.content &&
+        lhs.entry.isPlaceholder == rhs.entry.isPlaceholder
+    }
+
+    var body: some View {
+        messageContent
+            .padding(.top, 8)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var messageContent: some View {
+        Group {
+            if entry.isSystem {
+                Text(entry.content)
+                    .font(Port42Theme.mono(12))
+                    .foregroundColor(Port42Theme.textSecondary)
+            } else {
+                let agentColor = Port42Theme.agentColor(for: entry.senderName)
+                let nameColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
+                let contentColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 0) {
+                        Text(entry.senderName)
+                            .font(Port42Theme.monoBold(13))
+                            .foregroundColor(nameColor)
+                        if let time = entry.formattedTime {
+                            Text("  ")
+                            Text(time)
+                                .font(Port42Theme.mono(11))
+                                .foregroundColor(Port42Theme.textSecondary)
+                        }
+                    }
+
+                    if entry.isPlaceholder {
+                        Text("...")
+                            .font(Port42Theme.mono(13))
+                            .foregroundColor(agentColor.opacity(0.5))
+                    } else {
+                        Text(entry.content)
+                            .font(Port42Theme.mono(13))
+                            .foregroundColor(contentColor)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Typing Indicator
+
+struct TypingIndicator: View {
+    let names: [String]
+    @State private var dotPhase = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: -3) {
+                ForEach(names.prefix(3), id: \.self) { name in
+                    Circle()
+                        .fill(Port42Theme.agentColor(for: name))
+                        .frame(width: 6, height: 6)
+                }
+            }
+
+            Text(typingText)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+
+            HStack(spacing: 3) {
+                ForEach(0..<3) { i in
+                    Circle()
+                        .fill(Port42Theme.textSecondary.opacity(i <= dotPhase ? 1.0 : 0.3))
+                        .frame(width: 4, height: 4)
+                }
+            }
+
+            Spacer()
+        }
+        .onAppear { animateDots() }
+    }
+
+    private var typingText: String {
+        let sorted = names.sorted()
+        switch sorted.count {
+        case 1: return "\(sorted[0]) is typing"
+        case 2: return "\(sorted[0]) and \(sorted[1]) are typing"
+        default: return "\(sorted[0]) and \(sorted.count - 1) others are typing"
+        }
+    }
+
+    private func animateDots() {
+        Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+            dotPhase = (dotPhase + 1) % 3
         }
     }
 }
