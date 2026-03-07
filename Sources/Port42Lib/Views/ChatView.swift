@@ -16,7 +16,9 @@ public struct ChatView: View {
             ConversationContent(
                 entries: channelEntries,
                 placeholder: "chat with your reality... (press ? for help)",
-                typingNames: Array(appState.typingAgentNames),
+                typingNames: Array(appState.typingAgentNames.union(
+                    appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
+                )),
                 mentionCandidates: appState.companions.map {
                     MentionSuggestion(id: $0.id, name: $0.displayName)
                 },
@@ -46,9 +48,9 @@ public struct ChannelHeader: View {
     public init() {}
     @EnvironmentObject var appState: AppState
 
-    private var onlineCount: Int {
-        guard let id = appState.currentChannel?.id else { return 0 }
-        return appState.sync.onlineUsers[id]?.count ?? 0
+    private var memberNames: [String] {
+        guard let id = appState.currentChannel?.id else { return [] }
+        return (try? appState.db.getUniqueSenders(channelId: id)) ?? []
     }
 
     public var body: some View {
@@ -60,14 +62,33 @@ public struct ChannelHeader: View {
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 
-            if onlineCount > 0 {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 6, height: 6)
-                    Text("\(onlineCount) online")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
+            // Member avatars
+            if !memberNames.isEmpty {
+                HStack(spacing: -4) {
+                    ForEach(memberNames.prefix(8), id: \.self) { name in
+                        ZStack {
+                            Circle()
+                                .fill(Port42Theme.agentColor(for: name))
+                                .frame(width: 20, height: 20)
+                            Text(String(name.prefix(1)).uppercased())
+                                .font(Port42Theme.monoBold(9))
+                                .foregroundStyle(.white)
+                        }
+                        .overlay(
+                            Circle()
+                                .stroke(Port42Theme.bgPrimary, lineWidth: 1.5)
+                        )
+                    }
+                    if memberNames.count > 8 {
+                        ZStack {
+                            Circle()
+                                .fill(Port42Theme.bgSecondary)
+                                .frame(width: 20, height: 20)
+                            Text("+\(memberNames.count - 8)")
+                                .font(Port42Theme.mono(8))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                        }
+                    }
                 }
                 .padding(.leading, 8)
             }

@@ -21,8 +21,9 @@ type Envelope struct {
 	Timestamp int64           `json:"timestamp,omitempty"`
 	Error     string          `json:"error,omitempty"`
 	// Presence fields
-	OnlineIDs []string `json:"online_ids,omitempty"`
-	Status    string   `json:"status,omitempty"` // "online" or "offline"
+	OnlineIDs    []string `json:"online_ids,omitempty"`
+	Status       string   `json:"status,omitempty"` // "online" or "offline"
+	CompanionIDs []string `json:"companion_ids,omitempty"`
 }
 
 // Peer represents a connected client.
@@ -55,13 +56,17 @@ type Gateway struct {
 	peers    map[string]*Peer
 	channels map[string]map[string]bool
 	store    map[string][]StoredMessage
+	// companions tracks companion IDs registered by each peer per channel
+	// key: channelID -> peerID -> []companionID
+	companions map[string]map[string][]string
 }
 
 func NewGateway() *Gateway {
 	return &Gateway{
-		peers:    make(map[string]*Peer),
-		channels: make(map[string]map[string]bool),
-		store:    make(map[string][]StoredMessage),
+		peers:      make(map[string]*Peer),
+		channels:   make(map[string]map[string]bool),
+		store:      make(map[string][]StoredMessage),
+		companions: make(map[string]map[string][]string),
 	}
 }
 
@@ -128,12 +133,14 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 
 		switch env.Type {
 		case "join":
-			g.joinChannel(peer, env.ChannelID)
+			g.joinChannel(peer, env.ChannelID, env.CompanionIDs)
 			g.flushStoredForChannel(ctx, peer, env.ChannelID)
 		case "leave":
 			g.leaveChannel(peer, env.ChannelID)
 		case "message":
 			g.routeMessage(ctx, peer, env)
+		case "typing":
+			g.broadcastTyping(ctx, peer, env)
 		case "ack":
 			// Client acknowledges receipt
 		default:
@@ -153,10 +160,18 @@ func (g *Gateway) addPeer(p *Peer) {
 
 func (g *Gateway) removePeer(p *Peer) {
 	g.mu.Lock()
-	// Collect channels before removing
+	// Collect channels and their companions before removing
 	channels := make([]string, 0, len(p.Channels))
+	channelCompanions := make(map[string][]string)
 	for ch := range p.Channels {
 		channels = append(channels, ch)
+		if peerCompanions, ok := g.companions[ch]; ok {
+			channelCompanions[ch] = peerCompanions[p.ID]
+			delete(peerCompanions, p.ID)
+			if len(peerCompanions) == 0 {
+				delete(g.companions, ch)
+			}
+		}
 	}
 	if current, ok := g.peers[p.ID]; ok && current == p {
 		delete(g.peers, p.ID)
@@ -164,15 +179,19 @@ func (g *Gateway) removePeer(p *Peer) {
 	}
 	g.mu.Unlock()
 
-	// Broadcast offline to all channels this peer was in
+	// Broadcast offline for peer and companions to all channels
+	ctx := context.Background()
 	for _, ch := range channels {
-		g.broadcastPresence(context.Background(), ch, p.ID, "offline")
+		g.broadcastPresence(ctx, ch, p.ID, "offline")
+		for _, cID := range channelCompanions[ch] {
+			g.broadcastPresence(ctx, ch, cID, "offline")
+		}
 	}
 
 	log.Printf("[gateway] peer disconnected: %s", p.ID)
 }
 
-func (g *Gateway) joinChannel(p *Peer, channelID string) {
+func (g *Gateway) joinChannel(p *Peer, channelID string, companionIDs []string) {
 	if channelID == "" {
 		return
 	}
@@ -184,17 +203,31 @@ func (g *Gateway) joinChannel(p *Peer, channelID string) {
 	}
 	g.channels[channelID][p.ID] = true
 
-	// Collect current online members for this channel
-	var onlineIDs []string
+	// Track companions for this peer in this channel
+	if g.companions[channelID] == nil {
+		g.companions[channelID] = make(map[string][]string)
+	}
+	g.companions[channelID][p.ID] = companionIDs
+
+	// Collect current online members + all companions for this channel
+	onlineSet := make(map[string]bool)
 	for memberID := range g.channels[channelID] {
 		if _, online := g.peers[memberID]; online {
-			onlineIDs = append(onlineIDs, memberID)
+			onlineSet[memberID] = true
+			// Add this member's companions
+			for _, cID := range g.companions[channelID][memberID] {
+				onlineSet[cID] = true
+			}
 		}
+	}
+	var onlineIDs []string
+	for id := range onlineSet {
+		onlineIDs = append(onlineIDs, id)
 	}
 
 	g.mu.Unlock()
 
-	// Send the joiner the full online list
+	// Send the joiner the full online list (peers + all companions)
 	ctx := context.Background()
 	p.Send(ctx, Envelope{
 		Type:      "presence",
@@ -202,10 +235,13 @@ func (g *Gateway) joinChannel(p *Peer, channelID string) {
 		OnlineIDs: onlineIDs,
 	})
 
-	// Broadcast this peer's online status to others
+	// Broadcast this peer's online status to others (include companions)
 	g.broadcastPresence(ctx, channelID, p.ID, "online")
+	for _, cID := range companionIDs {
+		g.broadcastPresence(ctx, channelID, cID, "online")
+	}
 
-	log.Printf("[gateway] peer %s joined channel %s", p.ID, channelID)
+	log.Printf("[gateway] peer %s joined channel %s with %d companions", p.ID, channelID, len(companionIDs))
 }
 
 func (g *Gateway) flushStoredForChannel(ctx context.Context, p *Peer, channelID string) {
@@ -245,6 +281,16 @@ func (g *Gateway) leaveChannel(p *Peer, channelID string) {
 	}
 	g.mu.Lock()
 
+	// Get companion IDs before removing
+	var companionIDs []string
+	if peerCompanions, ok := g.companions[channelID]; ok {
+		companionIDs = peerCompanions[p.ID]
+		delete(peerCompanions, p.ID)
+		if len(peerCompanions) == 0 {
+			delete(g.companions, channelID)
+		}
+	}
+
 	delete(p.Channels, channelID)
 	if members, ok := g.channels[channelID]; ok {
 		delete(members, p.ID)
@@ -255,7 +301,11 @@ func (g *Gateway) leaveChannel(p *Peer, channelID string) {
 
 	g.mu.Unlock()
 
-	g.broadcastPresence(context.Background(), channelID, p.ID, "offline")
+	ctx := context.Background()
+	g.broadcastPresence(ctx, channelID, p.ID, "offline")
+	for _, cID := range companionIDs {
+		g.broadcastPresence(ctx, channelID, cID, "offline")
+	}
 
 	log.Printf("[gateway] peer %s left channel %s", p.ID, channelID)
 }
@@ -280,6 +330,28 @@ func (g *Gateway) broadcastPresence(ctx context.Context, channelID, peerID, stat
 		SenderID:  peerID,
 		Status:    status,
 	}
+	for _, peer := range targets {
+		peer.Send(ctx, env)
+	}
+}
+
+// broadcastTyping sends a typing indicator to all other online peers in the channel (no storage).
+func (g *Gateway) broadcastTyping(ctx context.Context, sender *Peer, env Envelope) {
+	if env.ChannelID == "" {
+		return
+	}
+	g.mu.RLock()
+	members := g.channels[env.ChannelID]
+	var targets []*Peer
+	for id := range members {
+		if id != sender.ID {
+			if peer, online := g.peers[id]; online {
+				targets = append(targets, peer)
+			}
+		}
+	}
+	g.mu.RUnlock()
+
 	for _, peer := range targets {
 		peer.Send(ctx, env)
 	}

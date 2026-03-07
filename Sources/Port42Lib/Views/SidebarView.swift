@@ -52,14 +52,17 @@ public struct SidebarView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(appState.channels) { channel in
+                        let companionNames = ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName }
+                        let uniqueSenders = (try? appState.db.getUniqueSenders(channelId: channel.id)) ?? []
                         Button(action: { appState.selectChannel(channel) }) {
                             ChannelRow(
                                 channel: channel,
                                 isActive: appState.activeSwimSession == nil
                                     && appState.currentChannel?.id == channel.id,
                                 unreadCount: appState.unreadCounts[channel.id] ?? 0,
-                                companionNames: ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName },
-                                onlineCount: appState.sync.onlineUsers[channel.id]?.count ?? 0
+                                companionNames: companionNames,
+                                onlineCount: max(1, uniqueSenders.count),
+                                memberTooltip: uniqueSenders.joined(separator: "\n")
                             )
                         }
                         .buttonStyle(.plain)
@@ -210,15 +213,18 @@ public struct ChannelRow: View {
     let unreadCount: Int
     let companionNames: [String]
     let onlineCount: Int
+    let memberTooltip: String
 
     @State private var isHovered = false
+    @State private var showMembers = false
 
-    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0) {
+    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0, memberTooltip: String = "") {
         self.channel = channel
         self.isActive = isActive
         self.unreadCount = unreadCount
         self.companionNames = companionNames
         self.onlineCount = onlineCount
+        self.memberTooltip = memberTooltip
     }
 
     public var body: some View {
@@ -249,19 +255,33 @@ public struct ChannelRow: View {
                 }
             }
 
-            // Online count
+            Spacer()
+
+            // Online count (click to see members)
             if onlineCount > 0 {
                 HStack(spacing: 3) {
                     Circle()
                         .fill(.green)
                         .frame(width: 5, height: 5)
                     Text("\(onlineCount)")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary)
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                }
+                .onTapGesture { showMembers.toggle() }
+                .popover(isPresented: $showMembers, arrowEdge: .trailing) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("members")
+                            .font(Port42Theme.monoBold(11))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                        ForEach(memberTooltip.components(separatedBy: "\n"), id: \.self) { name in
+                            Text(name)
+                                .font(Port42Theme.mono(12))
+                                .foregroundStyle(Port42Theme.textPrimary)
+                        }
+                    }
+                    .padding(10)
                 }
             }
-
-            Spacer()
 
             if unreadCount > 0 {
                 Text("\(unreadCount)")

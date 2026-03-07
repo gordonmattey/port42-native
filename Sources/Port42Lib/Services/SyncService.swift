@@ -14,6 +14,7 @@ struct SyncEnvelope: Codable {
     // Presence fields
     var onlineIds: [String]?
     var status: String?
+    var companionIds: [String]?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -25,6 +26,7 @@ struct SyncEnvelope: Codable {
         case error
         case onlineIds = "online_ids"
         case status
+        case companionIds = "companion_ids"
     }
 }
 
@@ -43,6 +45,8 @@ public final class SyncService: NSObject, ObservableObject {
     @Published public var gatewayURL: String?
     /// Online user IDs per channel
     @Published public var onlineUsers: [String: Set<String>] = [:]
+    /// Remote typing indicators: channel -> set of sender names currently typing
+    @Published public var remoteTypingNames: [String: Set<String>] = [:]
 
     private var webSocket: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -71,8 +75,8 @@ public final class SyncService: NSObject, ObservableObject {
             return
         }
 
-        shouldReconnect = true
         disconnect(reconnect: false)
+        shouldReconnect = true
 
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         self.urlSession = session
@@ -107,13 +111,17 @@ public final class SyncService: NSObject, ObservableObject {
 
     // MARK: - Channel Management
 
-    public func joinChannel(_ channelId: String) {
+    /// Companion IDs per channel, sent to gateway on join for cross-instance presence
+    private var channelCompanions: [String: [String]] = [:]
+
+    public func joinChannel(_ channelId: String, companionIds: [String] = []) {
+        channelCompanions[channelId] = companionIds
         guard isConnected else {
             joinedChannels.insert(channelId)
             return
         }
         joinedChannels.insert(channelId)
-        send(SyncEnvelope(type: "join", channelId: channelId))
+        send(SyncEnvelope(type: "join", channelId: channelId, companionIds: companionIds.isEmpty ? nil : companionIds))
     }
 
     public func leaveChannel(_ channelId: String) {
@@ -124,7 +132,8 @@ public final class SyncService: NSObject, ObservableObject {
 
     public func joinAllChannels() {
         for channelId in joinedChannels {
-            send(SyncEnvelope(type: "join", channelId: channelId))
+            let companions = channelCompanions[channelId]
+            send(SyncEnvelope(type: "join", channelId: channelId, companionIds: companions?.isEmpty == false ? companions : nil))
         }
     }
 
@@ -147,6 +156,21 @@ public final class SyncService: NSObject, ObservableObject {
             timestamp: Int64(message.timestamp.timeIntervalSince1970 * 1000)
         )
 
+        send(envelope)
+    }
+
+    /// Broadcast typing indicator to other peers
+    public func sendTyping(channelId: String, senderName: String, isTyping: Bool) {
+        let envelope = SyncEnvelope(
+            type: "typing",
+            channelId: channelId,
+            payload: SyncPayload(
+                senderName: senderName,
+                senderType: "agent",
+                content: isTyping ? "typing" : "stopped",
+                replyToId: nil
+            )
+        )
         send(envelope)
     }
 
@@ -214,6 +238,9 @@ public final class SyncService: NSObject, ObservableObject {
 
         case "presence":
             handlePresence(envelope)
+
+        case "typing":
+            handleTyping(envelope)
 
         case "error":
             print("[sync] gateway error: \(envelope.error ?? "unknown")")
@@ -291,6 +318,20 @@ public final class SyncService: NSObject, ObservableObject {
             }
             onlineUsers[channelId] = members
             print("[sync] \(senderId) went \(status) in \(channelId)")
+        }
+    }
+
+    private func handleTyping(_ envelope: SyncEnvelope) {
+        guard let channelId = envelope.channelId,
+              let senderName = envelope.payload?.senderName,
+              let content = envelope.payload?.content else { return }
+
+        if content == "typing" {
+            var names = remoteTypingNames[channelId] ?? []
+            names.insert(senderName)
+            remoteTypingNames[channelId] = names
+        } else {
+            remoteTypingNames[channelId]?.remove(senderName)
         }
     }
 

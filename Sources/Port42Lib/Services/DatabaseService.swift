@@ -330,6 +330,17 @@ public final class DatabaseService {
         }
     }
 
+    /// Returns distinct sender names for a channel (unique posters)
+    public func getUniqueSenders(channelId: String) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT senderName FROM messages
+                WHERE channelId = ? AND senderType != 'system'
+                ORDER BY senderName
+                """, arguments: [channelId])
+        }
+    }
+
     // MARK: - Observations
 
     public func observeChannels(

@@ -242,6 +242,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             if !self.isTyping {
                 self.isTyping = true
                 self.appState?.typingAgentNames.insert(self.agent.displayName)
+                self.appState?.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: true)
             }
         }
     }
@@ -250,6 +251,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNames.remove(self.agent.displayName)
+            appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false)
 
             let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
 
@@ -286,6 +288,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNames.remove(self.agent.displayName)
+            appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false)
             if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
                 if appState.messages[idx].content.isEmpty {
                     appState.messages[idx].content = "[error: \(error.localizedDescription)]"
@@ -368,13 +371,21 @@ public final class AppState: ObservableObject {
         if let saved = UserDefaults.standard.string(forKey: "gatewayURL"), !saved.isEmpty {
             gwURL = saved
         } else {
-            // Self-host by default: start bundled gateway
+            // Check if the default gateway (port 8042) is already running (another instance)
+            let defaultPort = 8042
             let gp = GatewayProcess.shared
-            if !gp.isRunning {
-                gp.start()
-                didStartGateway = true
+            if canConnectToPort(defaultPort) {
+                // Another instance's gateway is already running, use it
+                gwURL = "ws://localhost:\(defaultPort)"
+                print("[sync] found existing gateway on port \(defaultPort), using it")
+            } else {
+                // No gateway found, start our own
+                if !gp.isRunning {
+                    gp.start()
+                    didStartGateway = true
+                }
+                gwURL = gp.localURL
             }
-            gwURL = gp.localURL
         }
 
         sync.configure(gatewayURL: gwURL, userId: userId, db: db)
@@ -389,15 +400,34 @@ public final class AppState: ObservableObject {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 self.sync.connect()
                 for channel in channels {
-                    self.sync.joinChannel(channel.id)
+                    self.syncJoinChannel(channel.id)
                 }
             }
         } else {
             sync.connect()
             for channel in channels {
-                sync.joinChannel(channel.id)
+                syncJoinChannel(channel.id)
             }
         }
+    }
+
+    /// Quick TCP probe to check if a port is listening
+    private func canConnectToPort(_ port: Int) -> Bool {
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else { return false }
+        defer { close(sock) }
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(port).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                Darwin.connect(sock, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
     }
 
     /// Route incoming synced messages to agents (only human messages to avoid loops)
@@ -549,6 +579,12 @@ public final class AppState: ObservableObject {
 
     // MARK: - Channels
 
+    /// Join a channel on the gateway, including companion IDs for cross-instance presence
+    private func syncJoinChannel(_ channelId: String) {
+        let companionIds = ((try? db.getAgentsForChannel(channelId: channelId)) ?? []).map { $0.id }
+        sync.joinChannel(channelId, companionIds: companionIds)
+    }
+
     public func selectChannel(_ channel: Channel) {
         // Hide swim session so ChatView renders (session stays cached)
         activeSwimSession = nil
@@ -561,7 +597,7 @@ public final class AppState: ObservableObject {
 
         currentChannel = channel
         lastReadDates[channel.id] = Date()
-        sync.joinChannel(channel.id)
+        syncJoinChannel(channel.id)
 
         // Load messages and channel companions
         do {
@@ -587,7 +623,7 @@ public final class AppState: ObservableObject {
         do {
             try db.saveChannel(channel)
             channels = try db.getAllChannels()
-            sync.joinChannel(channel.id)
+            syncJoinChannel(channel.id)
             selectChannel(channel)
             Analytics.shared.capture("channel_created", properties: ["channel_name": cleaned])
         } catch {
@@ -624,7 +660,7 @@ public final class AppState: ObservableObject {
             sync.configure(gatewayURL: invite.gateway, userId: user.id, db: db)
             sync.connect()
             for ch in channels {
-                sync.joinChannel(ch.id)
+                syncJoinChannel(ch.id)
             }
         }
 
