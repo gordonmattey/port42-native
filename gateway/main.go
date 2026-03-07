@@ -140,8 +140,8 @@ const invitePage = `<!DOCTYPE html>
   <h1>join <span>#%s</span></h1>
   <div class="steps">
     <strong>1.</strong> download Port42 for macOS (Apple Silicon)<br>
-    <strong>2.</strong> install the app, come back and accept the invitation<br>
-    <strong>3.</strong> or copy the link and use <strong style="color:#e0e0e0;">&#8984;K</strong> after onboarding
+    <strong>2.</strong> install the app and open it<br>
+    <strong>3.</strong> once you're in the aquarium, come back and accept the invitation
   </div>
   <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn btn-secondary">download Port42.dmg</a>
   <a href="%s" class="btn btn-primary" style="margin-top:10px;">accept invitation</a>

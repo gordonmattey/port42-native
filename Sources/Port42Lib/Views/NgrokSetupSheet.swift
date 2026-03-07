@@ -111,7 +111,7 @@ public struct NgrokSetupSheet: View {
         // Copy the pending invite link now that tunnel is configured
         if let channel = appState.pendingInviteChannel,
            let gwURL = appState.sync.gatewayURL {
-            ChannelInvite.copyToClipboard(channel: channel, gatewayURL: gwURL)
+            ChannelInvite.copyToClipboard(channel: channel, gatewayURL: gwURL, hostName: appState.currentUser?.displayName)
             appState.pendingInviteChannel = nil
         }
 

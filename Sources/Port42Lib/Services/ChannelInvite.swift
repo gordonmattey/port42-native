@@ -110,14 +110,15 @@ public enum ChannelInvite {
     /// Copy an invite link to the clipboard. Prefers the landing page URL
     /// so recipients get download/connect options on the page itself.
     @MainActor
-    public static func copyToClipboard(channel: Channel, gatewayURL: String) {
+    public static func copyToClipboard(channel: Channel, gatewayURL: String, hostName: String? = nil) {
+        let host = hostName ?? "Port42"
         let message: String
         if let inviteURL = generateInviteURL(channel: channel) {
-            message = "Join #\(channel.name) on Port42\n\(inviteURL)"
+            message = "Join first swimmers on \(host)'s Port42\n\(inviteURL)"
         } else {
             let deepLink = generateLink(channel: channel, gatewayURL: gatewayURL)
             guard !deepLink.isEmpty else { return }
-            message = "Join #\(channel.name) on Port42\n\(deepLink)"
+            message = "Join first swimmers on \(host)'s Port42\n\(deepLink)"
         }
 
         NSPasteboard.general.clearContents()

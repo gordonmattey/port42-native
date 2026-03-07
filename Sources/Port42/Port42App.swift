@@ -3,8 +3,32 @@ import AppKit
 import AVKit
 import Port42Lib
 
+/// Intercept port42:// URLs at the AppDelegate level so SwiftUI doesn't
+/// open a new window for each deep link.
+class Port42AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURL(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: urlString) else { return }
+        NotificationCenter.default.post(name: .handleDeepLink, object: url)
+    }
+}
+
+extension Notification.Name {
+    static let handleDeepLink = Notification.Name("Port42HandleDeepLink")
+}
+
 @main
 struct Port42App: App {
+    @NSApplicationDelegateAdaptor(Port42AppDelegate.self) var delegate
     @StateObject private var appState: AppState
 
     init() {
@@ -35,7 +59,6 @@ struct Port42App: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1200, height: 800)
-        .handlesExternalEvents(matching: ["port42"])
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Channel") {
@@ -146,8 +169,10 @@ struct TransitionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: .enterAquariumRequested)) { _ in
             startEnterAquariumTransition()
         }
-        .onOpenURL { url in
-            handleInviteURL(url)
+        .onReceive(NotificationCenter.default.publisher(for: .handleDeepLink)) { note in
+            if let url = note.object as? URL {
+                handleInviteURL(url)
+            }
         }
     }
 

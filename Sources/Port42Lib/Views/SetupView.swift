@@ -18,6 +18,7 @@ public struct SetupView: View {
     @State private var authError: String?
     @State private var isCheckingAuth = false
     @State private var submittedName: String?
+    @State private var showAnalyticsConsent = false
     @State private var terminalVisible = false
     @State private var terminalOffset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
@@ -217,6 +218,12 @@ public struct SetupView: View {
                             }
                         }
 
+                        // Analytics consent (after name, before create)
+                        if showAnalyticsConsent {
+                            analyticsConsentContent
+                                .id("analytics")
+                        }
+
                         // Create sequence lines (appear after name submitted)
                         if showCreateLines {
                             // Echo the submitted name first
@@ -255,6 +262,9 @@ public struct SetupView: View {
                     scrollToEnd(proxy: proxy)
                 }
                 .onChange(of: visibleCreateLines) { _, _ in
+                    scrollToEnd(proxy: proxy)
+                }
+                .onChange(of: showAnalyticsConsent) { _, _ in
                     scrollToEnd(proxy: proxy)
                 }
                 .onChange(of: showAuthOptions) { _, _ in
@@ -384,6 +394,57 @@ public struct SetupView: View {
             return .handled
         }
         .focusable()
+    }
+
+    // MARK: - Analytics Consent
+
+    private var analyticsConsentContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Spacer().frame(height: 4)
+
+            Text("help improve Port42?")
+                .font(Port42Theme.monoBold(13))
+                .foregroundStyle(Port42Theme.textPrimary)
+
+            Text("we collect anonymous product analytics to measure performance and improve the experience. no personal data, no messages, no tracking.")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer().frame(height: 8)
+
+            HStack(spacing: 12) {
+                Button(action: { respondToAnalytics(optIn: true) }) {
+                    Text("sure")
+                        .font(Port42Theme.monoBold(13))
+                        .foregroundStyle(Port42Theme.bgPrimary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(Port42Theme.accent)
+                        .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { respondToAnalytics(optIn: false) }) {
+                    Text("no thanks")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("you can change this anytime in settings.")
+                .font(Port42Theme.mono(10))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+        }
+    }
+
+    private func respondToAnalytics(optIn: Bool) {
+        Analytics.shared.setOptIn(optIn)
+        withAnimation(.easeIn(duration: 0.15)) {
+            showAnalyticsConsent = false
+        }
+        startCreateSequence()
     }
 
     // MARK: - Transition (fade to black, diamond, reveal)
@@ -566,6 +627,10 @@ public struct SetupView: View {
             withAnimation(.easeOut(duration: 0.15)) {
                 proxy.scrollTo("create-\(visibleCreateLines - 1)", anchor: .bottom)
             }
+        } else if showAnalyticsConsent {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo("analytics", anchor: .bottom)
+            }
         }
     }
 
@@ -651,7 +716,12 @@ public struct SetupView: View {
             NSLog("[Port42] Failed to save user during key gen: \(error)")
         }
 
-        startCreateSequence()
+        // Show analytics consent before proceeding
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeIn(duration: 0.2)) {
+                showAnalyticsConsent = true
+            }
+        }
     }
 
     private func selectApiKey() {

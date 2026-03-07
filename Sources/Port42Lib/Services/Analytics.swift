@@ -6,10 +6,25 @@ import PostHog
 public final class Analytics {
     public static let shared = Analytics()
 
+    private static let optInKey = "analyticsOptIn"
+
     private var configured = false
 
+    /// Whether the user has opted in to anonymous product analytics.
+    public var isOptedIn: Bool {
+        UserDefaults.standard.bool(forKey: Self.optInKey)
+    }
+
+    /// Set the user's analytics opt-in preference.
+    public func setOptIn(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.optInKey)
+        if !enabled && configured {
+            PostHogSDK.shared.optOut()
+        }
+    }
+
     public func configure(userId: String) {
-        guard !configured else { return }
+        guard !configured, isOptedIn else { return }
 
         let apiKey = Bundle.main.object(forInfoDictionaryKey: "POSTHOG_API_KEY") as? String
             ?? ProcessInfo.processInfo.environment["POSTHOG_API_KEY"]
