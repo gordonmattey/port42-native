@@ -1,6 +1,7 @@
 # Build
 .build/
 dist/Port42.app/
+port42-gateway
 
 # macOS
 .DS_Store
@@ -24,3 +25,4 @@ dist/Port42.app/
 *.cer
 *.key
 *.csr
+*.certSigningRequest
