@@ -1,6 +1,6 @@
 # Build
 .build/
-Port42.app/
+dist/Port42.app/
 
 # macOS
 .DS_Store

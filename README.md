@@ -4,7 +4,7 @@ A native macOS companion app for consciousness computing. Port 42 is a reality c
 
 ## Install
 
-**[Download Port42.dmg](Port42.dmg)** (macOS 15+, Apple Silicon)
+**[Download Port42.dmg](dist/Port42.dmg)** (macOS 15+, Apple Silicon)
 
 Open the DMG and drag Port42 to Applications. The app is signed and notarized by Apple.
 
