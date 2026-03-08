@@ -30,11 +30,21 @@ struct SyncEnvelope: Codable {
     }
 }
 
-struct SyncPayload: Codable {
-    let senderName: String
-    let senderType: String
-    let content: String
-    let replyToId: String?
+public struct SyncPayload: Codable {
+    public let senderName: String
+    public let senderType: String
+    public let content: String
+    public let replyToId: String?
+    /// When true, `content` is an encrypted blob and senderName is masked.
+    public var encrypted: Bool?
+
+    public init(senderName: String, senderType: String, content: String, replyToId: String?, encrypted: Bool? = nil) {
+        self.senderName = senderName
+        self.senderType = senderType
+        self.content = content
+        self.replyToId = replyToId
+        self.encrypted = encrypted
+    }
 }
 
 // MARK: - Sync Service
@@ -143,12 +153,28 @@ public final class SyncService: NSObject, ObservableObject {
     // MARK: - Send Message
 
     public func sendMessage(_ message: Message) {
-        let payload = SyncPayload(
+        let clearPayload = SyncPayload(
             senderName: message.senderName,
             senderType: message.senderType,
             content: message.content,
             replyToId: message.replyToId
         )
+
+        let payload: SyncPayload
+        if let key = try? db?.getChannelKey(channelId: message.channelId),
+           let blob = ChannelCrypto.encrypt(clearPayload, keyBase64: key) {
+            // Encrypted: content is the blob, senderName masked
+            payload = SyncPayload(
+                senderName: "",
+                senderType: message.senderType,
+                content: blob,
+                replyToId: nil,
+                encrypted: true
+            )
+        } else {
+            // No key or encryption failed: send plaintext (backward compat)
+            payload = clearPayload
+        }
 
         let envelope = SyncEnvelope(
             type: "message",
@@ -266,6 +292,19 @@ public final class SyncService: NSObject, ObservableObject {
         // Don't insert our own messages
         guard senderId != userId else { return }
 
+        // Decrypt if encrypted
+        let resolvedPayload: SyncPayload
+        if payload.encrypted == true {
+            guard let key = try? db?.getChannelKey(channelId: channelId),
+                  let decrypted = ChannelCrypto.decrypt(blob: payload.content, keyBase64: key) else {
+                NSLog("[sync] failed to decrypt message %@ in channel %@", messageId, channelId)
+                return
+            }
+            resolvedPayload = decrypted
+        } else {
+            resolvedPayload = payload
+        }
+
         let timestamp: Date
         if let ts = envelope.timestamp {
             timestamp = Date(timeIntervalSince1970: Double(ts) / 1000.0)
@@ -277,18 +316,18 @@ public final class SyncService: NSObject, ObservableObject {
             id: messageId,
             channelId: channelId,
             senderId: senderId,
-            senderName: payload.senderName,
-            senderType: payload.senderType,
-            content: payload.content,
+            senderName: resolvedPayload.senderName,
+            senderType: resolvedPayload.senderType,
+            content: resolvedPayload.content,
             timestamp: timestamp,
-            replyToId: payload.replyToId,
+            replyToId: resolvedPayload.replyToId,
             syncStatus: "synced",
             createdAt: Date()
         )
 
         do {
             try db?.saveMessage(message)
-            print("[sync] received message from \(payload.senderName) in channel \(channelId)")
+            print("[sync] received message from \(resolvedPayload.senderName) in channel \(channelId)")
             onMessageReceived?(channelId, message)
         } catch {
             print("[sync] failed to save incoming message: \(error)")

@@ -66,6 +66,7 @@ func main() {
 func handleInvite(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("id")
 	channelName := r.URL.Query().Get("name")
+	encKey := r.URL.Query().Get("key")
 	if channelID == "" || channelName == "" {
 		http.Error(w, "missing id or name", http.StatusBadRequest)
 		return
@@ -80,6 +81,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 		url.QueryEscape(gateway),
 		url.QueryEscape(channelID),
 		url.QueryEscape(channelName))
+	if encKey != "" {
+		deepLink += "&key=" + url.QueryEscape(encKey)
+	}
 
 	safeName := html.EscapeString(channelName)
 
@@ -88,6 +92,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 		r.Host,
 		url.QueryEscape(channelID),
 		url.QueryEscape(channelName))
+	if encKey != "" {
+		pageURL += "&key=" + url.QueryEscape(encKey)
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")

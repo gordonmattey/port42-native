@@ -143,6 +143,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v6-encryption-key") { db in
+            try db.alter(table: "channels") { t in
+                t.add(column: "encryptionKey", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -171,6 +177,12 @@ public final class DatabaseService {
     public func getAllChannels() throws -> [Channel] {
         try dbQueue.read { db in
             try Channel.order(Column("createdAt").asc).fetchAll(db)
+        }
+    }
+
+    public func getChannelKey(channelId: String) throws -> String? {
+        try dbQueue.read { db in
+            try Channel.fetchOne(db, id: channelId)?.encryptionKey
         }
     }
 

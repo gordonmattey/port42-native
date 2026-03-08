@@ -5,6 +5,7 @@ public struct ChannelInviteData {
     public let gateway: String
     public let channelId: String
     public let channelName: String
+    public let encryptionKey: String?
 }
 
 public enum ChannelInvite {
@@ -32,11 +33,15 @@ public enum ChannelInvite {
         var components = URLComponents()
         components.scheme = "port42"
         components.host = "channel"
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "gateway", value: resolvedGW),
             URLQueryItem(name: "id", value: channel.id),
             URLQueryItem(name: "name", value: channel.name),
         ]
+        if let key = channel.encryptionKey {
+            items.append(URLQueryItem(name: "key", value: key))
+        }
+        components.queryItems = items
         return components.string ?? ""
     }
 
@@ -83,7 +88,7 @@ public enum ChannelInvite {
             return nil
         }
 
-        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name)
+        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name, encryptionKey: dict["key"])
     }
 
     /// Build an HTTPS invite URL served by the gateway's /invite endpoint.
@@ -99,10 +104,14 @@ public enum ChannelInvite {
             .replacingOccurrences(of: "/ws", with: "")
 
         var components = URLComponents(string: baseURL + "/invite")
-        components?.queryItems = [
+        var items = [
             URLQueryItem(name: "id", value: channel.id),
             URLQueryItem(name: "name", value: channel.name),
         ]
+        if let key = channel.encryptionKey {
+            items.append(URLQueryItem(name: "key", value: key))
+        }
+        components?.queryItems = items
         return components?.string
     }
 

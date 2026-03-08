@@ -651,12 +651,13 @@ public final class AppState: ObservableObject {
             return
         }
 
-        // Create the channel with the shared ID
+        // Create the channel with the shared ID and encryption key
         let channel = Channel(
             id: invite.channelId,
             name: invite.channelName,
             type: "team",
-            createdAt: Date()
+            createdAt: Date(),
+            encryptionKey: invite.encryptionKey
         )
         do {
             try db.saveChannel(channel)
