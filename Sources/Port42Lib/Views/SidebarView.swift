@@ -96,7 +96,7 @@ public struct SidebarView: View {
 
                             Divider()
 
-                            Button("Copy Invite Link") {
+                            Button("Copy Invitation") {
                                 let secured = appState.ensureEncryptionKey(for: channel)
                                 if appState.tunnel.authToken.isEmpty {
                                     appState.pendingInviteChannel = secured
@@ -125,7 +125,7 @@ public struct SidebarView: View {
                         .buttonStyle(.plain)
                         .contextMenu {
                             if companion.mode == .llm {
-                                Button("Copy Invite Link") {
+                                Button("Copy Invitation") {
                                     let link = AgentInvite.generateLink(from: companion)
                                     if !link.isEmpty {
                                         NSPasteboard.general.clearContents()

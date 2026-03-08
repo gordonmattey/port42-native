@@ -190,7 +190,7 @@ public struct ChannelHeader: View {
     }
 }
 
-/// Avatar circle for a channel member. AI members get a dashed outline, humans get solid.
+/// Avatar circle for a channel member. Teal dot for companions, green dot for humans.
 struct MemberAvatar: View {
     let member: ChannelMember
     let size: CGFloat
@@ -206,24 +206,11 @@ struct MemberAvatar: View {
                 .font(Port42Theme.monoBold(size * 0.45))
                 .foregroundStyle(.white)
         }
-        .overlay(
-            Circle()
-                .stroke(
-                    member.isAgent ? color : Port42Theme.bgPrimary,
-                    style: StrokeStyle(
-                        lineWidth: member.isAgent ? 1.5 : 1.5,
-                        dash: member.isAgent ? [3, 2] : []
-                    )
-                )
-                .frame(width: size + 3, height: size + 3)
-        )
         .overlay(alignment: .bottomTrailing) {
-            if isOnline {
-                Circle()
-                    .fill(.green)
-                    .frame(width: size * 0.3, height: size * 0.3)
-                    .overlay(Circle().stroke(Port42Theme.bgPrimary, lineWidth: 1))
-            }
+            Circle()
+                .fill(member.isAgent ? Port42Theme.textAgent : Port42Theme.accent)
+                .frame(width: size * 0.3, height: size * 0.3)
+                .overlay(Circle().stroke(Port42Theme.bgPrimary, lineWidth: 1))
         }
     }
 }

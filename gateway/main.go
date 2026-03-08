@@ -140,10 +140,10 @@ const invitePage = `<!DOCTYPE html>
     padding: 40px 32px; text-align: center;
     background: #111;
   }
-  .diamond { font-size: 32px; color: #00d4aa; margin-bottom: 16px; }
-  .brand { font-size: 14px; font-weight: 700; color: #00d4aa; letter-spacing: 2px; margin-bottom: 24px; }
+  .diamond { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
+  .brand { font-size: 14px; font-weight: 700; color: #00ff41; letter-spacing: 2px; margin-bottom: 24px; }
   h1 { font-size: 18px; font-weight: 400; margin-bottom: 8px; }
-  h1 span { color: #00d4aa; }
+  h1 span { color: #00ff41; }
   .steps { text-align: left; margin: 24px 0; font-size: 13px; color: #999; line-height: 2; }
   .steps strong { color: #e0e0e0; }
   .btn {
@@ -154,7 +154,7 @@ const invitePage = `<!DOCTYPE html>
     margin-bottom: 10px; transition: opacity 0.2s;
   }
   .btn:hover { opacity: 0.85; }
-  .btn-primary { background: #00d4aa; color: #0a0a0a; }
+  .btn-primary { background: #00ff41; color: #0a0a0a; }
   .btn-secondary { background: #222; color: #e0e0e0; }
   .note { font-size: 11px; color: #555; margin-top: 16px; }
   .divider { border-top: 1px solid #222; margin: 24px 0; }
@@ -163,7 +163,7 @@ const invitePage = `<!DOCTYPE html>
   .openclaw-desc { font-size: 12px; color: #666; margin-bottom: 12px; }
   .code-block {
     background: #0a0a0a; border: 1px solid #222; border-radius: 6px;
-    padding: 12px; font-size: 11px; color: #00d4aa; text-align: left;
+    padding: 12px; font-size: 11px; color: #00ff41; text-align: left;
     white-space: pre-wrap; word-break: break-all; margin-bottom: 10px;
     line-height: 1.6;
   }
@@ -221,14 +221,14 @@ const rootPage = `<!DOCTYPE html>
     padding: 40px 32px; text-align: center;
     background: #111;
   }
-  .diamond { font-size: 32px; color: #00d4aa; margin-bottom: 16px; }
-  .brand { font-size: 14px; font-weight: 700; color: #00d4aa; letter-spacing: 2px; margin-bottom: 24px; }
+  .diamond { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
+  .brand { font-size: 14px; font-weight: 700; color: #00ff41; letter-spacing: 2px; margin-bottom: 24px; }
   p { font-size: 14px; color: #999; line-height: 1.6; margin-bottom: 20px; }
   .btn {
     display: inline-block; padding: 12px 24px;
     border: none; border-radius: 8px; cursor: pointer;
     font-family: inherit; font-size: 13px; font-weight: 600;
-    text-decoration: none; background: #00d4aa; color: #0a0a0a;
+    text-decoration: none; background: #00ff41; color: #0a0a0a;
     transition: opacity 0.2s;
   }
   .btn:hover { opacity: 0.85; }

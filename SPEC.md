@@ -213,7 +213,7 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | ID | Feature | Description | Done When | Milestone | Status |
 |----|---------|-------------|-----------|-----------|--------|
 | F-500 | Invite System | Generate invite link containing relay address and encrypted channel key. Recipient opens in Port42, key exchange completes automatically. | Two users connected and see shared channel after invite flow | M3 | **Done** |
-| F-501 | E2E Encryption | Per-channel symmetric keys. Messages encrypted before leaving the app. Relay sees only encrypted blobs. CryptoKit (AES-GCM). | Messages unreadable without channel key, verified by inspection | M3 | |
+| F-501 | E2E Encryption | Per-channel symmetric keys. Messages encrypted before leaving the app. Relay sees only encrypted blobs. CryptoKit (AES-GCM). | Messages unreadable without channel key, verified by inspection | M3 | **Done** |
 | F-502 | Real-Time Sync | WebSocket connection to Go relay. Messages forwarded to all channel members instantly. | Message sent on Device A appears on Device B within 500ms | M3 | **Done** |
 | F-503 | Store and Forward | Relay holds encrypted messages for offline recipients. Delivers on reconnect. Deletes after ACK. | Messages sent while recipient offline arrive when they reconnect | M3 | **Done** |
 | F-504 | Offline Queue | Messages created while offline queue locally. Sync automatically when connection restored. | No messages lost during network interruption | M3 | Partial |
