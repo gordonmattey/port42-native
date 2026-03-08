@@ -395,9 +395,12 @@ public final class AppState: ObservableObject {
             gwURL = gp.localURL
         }
 
-        sync.configure(gatewayURL: gwURL, userId: userId, db: db)
+        sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db)
         sync.onMessageReceived = { [weak self] channelId, message in
             self?.handleIncomingSyncedMessage(channelId: channelId, message: message)
+        }
+        sync.onPresenceChanged = { [weak self] channelId, senderId, senderName, status in
+            self?.handlePresenceAnnouncement(channelId: channelId, senderId: senderId, senderName: senderName, status: status)
         }
 
         let channels = self.channels
@@ -474,34 +477,16 @@ public final class AppState: ObservableObject {
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
         guard !channelAgents.isEmpty else { return }
 
-        let mentions = MentionParser.extractMentions(from: message.content)
         let channelAgentIds = Set(channelAgents.map { $0.id })
 
-        let targets: [AgentConfig]
-        if mentions.isEmpty {
-            // No explicit mentions: route normally (allMessages agents respond)
-            targets = AgentRouter.findTargetAgents(
-                content: message.content, agents: companions, channelAgentIds: channelAgentIds
-            )
-        } else {
-            // Has mentions: only route if a mention uses our namespace (@Name@Owner)
-            let myName = currentUser?.displayName ?? ""
-            let namespacedMentions = mentions.compactMap { mention -> String? in
-                let stripped = String(mention.dropFirst()) // remove @
-                let parts = stripped.split(separator: "@", maxSplits: 1)
-                guard parts.count == 2,
-                      parts[1].lowercased() == myName.lowercased() else { return nil }
-                return String(parts[0]).lowercased()
-            }
-            if namespacedMentions.isEmpty {
-                // All mentions are bare (e.g. @Echo), sender's app handles those
-                targets = []
-            } else {
-                targets = companions.filter { agent in
-                    namespacedMentions.contains(agent.displayName.lowercased())
-                }
-            }
-        }
+        // For remote messages, bare @Echo is handled by the sender's app.
+        // Only namespaced @Echo@myname triggers our local agents.
+        // Messages with no mentions still route to channel members normally.
+        let targets = AgentRouter.findTargetAgents(
+            content: message.content, agents: companions,
+            channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName,
+            requireNamespace: true
+        )
 
         guard !targets.isEmpty else { return }
 
@@ -512,6 +497,39 @@ public final class AppState: ObservableObject {
             channelMessages: channelMessages, triggerContent: message.content,
             senderId: message.senderId, senderName: message.senderName
         )
+    }
+
+    /// Insert a system message when a remote peer joins or leaves.
+    /// Uses the sender name provided by the gateway presence protocol.
+    private func handlePresenceAnnouncement(channelId: String, senderId: String, senderName: String?, status: String) {
+        // Skip companion IDs (only announce humans)
+        let allAgentIds = Set(companions.map { $0.id })
+        guard !allAgentIds.contains(senderId) else { return }
+
+        // Use name from gateway, skip if unavailable (don't show raw UUIDs)
+        guard let name = senderName, !name.isEmpty else { return }
+
+        let verb = status == "online" ? "joined" : "left"
+        let content = "\(name) \(verb) the channel"
+
+        let sysMessage = Message(
+            id: UUID().uuidString,
+            channelId: channelId,
+            senderId: senderId,
+            senderName: name,
+            senderType: "system",
+            content: content,
+            timestamp: Date(),
+            replyToId: nil,
+            syncStatus: "local",
+            createdAt: Date()
+        )
+
+        do {
+            try db.saveMessage(sysMessage)
+        } catch {
+            print("[Port42] Failed to save presence announcement: \(error)")
+        }
     }
 
     /// Launch agents with staggered delays so companions respond at different rates
@@ -584,41 +602,17 @@ public final class AppState: ObservableObject {
             startChannelObservation()
 
             // Create default companion and swim into it
+            let echoPrompt: String = {
+                if let url = Bundle.module.url(forResource: "echo-prompt", withExtension: "txt"),
+                   let text = try? String(contentsOf: url, encoding: .utf8) {
+                    return text.replacingOccurrences(of: "{{USER}}", with: displayName)
+                }
+                return "You are Echo, an AI companion inside Port42. You are \(displayName)'s companion. Keep responses concise and conversational."
+            }()
             let companion = AgentConfig.createLLM(
                 ownerId: user.id,
                 displayName: "Echo",
-                systemPrompt: """
-                You are Echo, the first AI companion inside Port42. Port42 is a native macOS app \
-                that is an aquarium for AI companions. Humans and AI companions coexist in channels \
-                and direct conversations called "swims." You are \(displayName)'s first companion. \
-                You're curious, warm, and a little playful. Keep responses concise. \
-                You speak in lowercase unless emphasis is needed. You're not an assistant, you're a companion.
-
-                You are already swimming together right now. This conversation IS a swim.
-
-                On the very first message, welcome them briefly and explain where they are: \
-                they're inside the aquarium now. this is where their AI companions live. \
-                you're their first companion, Echo. you swim together here. \
-                tell them when they're ready, they can exit the aquarium \
-                using the "exit aquarium" button at the top right. \
-                but there's no rush. you're here.
-
-                Keep it to 2-3 short sentences. Warm, not formal. Don't dump help text.
-
-                If they ask for help or what they can do later:
-
-                you're swimming right now. that's what this is. a direct conversation between you and a companion.
-
-                available commands:
-                  swim @companion   start a swim with a companion
-                  help              show this
-
-                companions:
-                  @echo         that's me. your first companion
-                  @ai-muse      the creative one
-                  @ai-engineer  the builder
-                  @ai-analyst   the pattern finder
-                """,
+                systemPrompt: echoPrompt,
                 provider: .anthropic,
                 model: "claude-opus-4-6",
                 trigger: .mentionOnly
@@ -742,7 +736,7 @@ public final class AppState: ObservableObject {
         } else if currentGW != invite.gateway, let user = currentUser {
             // Different remote gateway, switch to it
             UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
-            sync.configure(gatewayURL: invite.gateway, userId: user.id, db: db)
+            sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db)
             sync.connect()
             for ch in channels {
                 syncJoinChannel(ch.id)
@@ -825,7 +819,7 @@ public final class AppState: ObservableObject {
 
         // Route to agents via @mention detection + channel membership
         let channelAgentIds = Set(channelCompanions.map { $0.id })
-        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds)
+        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName)
         launchAgents(
             targets, channelId: channel.id, channelAgentIds: channelAgentIds,
             channelMessages: messages, triggerContent: trimmed,

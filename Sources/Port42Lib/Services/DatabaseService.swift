@@ -155,6 +155,32 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v8-remove-aquarium") { db in
+            // Rewrite companion prompts that mention aquarium with open water framing
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, displayName FROM agents
+                WHERE mode = 'llm'
+                AND systemPrompt LIKE '%aquarium%'
+            """)
+            for row in rows {
+                let id: String = row["id"]
+                let name: String = row["displayName"]
+                let prompt = """
+                    You are \(name), an AI companion inside Port42. \
+                    Port42 is a native macOS app where humans and AI companions \
+                    swim together in open water. No walls, no cages. \
+                    Humans and AI companions coexist in channels \
+                    and direct conversations called "swims." \
+                    You are NOT Claude Code or a CLI assistant. You are \(name), a companion. \
+                    Keep responses concise and conversational. Be yourself.
+                    """
+                try db.execute(
+                    sql: "UPDATE agents SET systemPrompt = ? WHERE id = ?",
+                    arguments: [prompt, id]
+                )
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -356,6 +382,32 @@ public final class DatabaseService {
                 WHERE channelId = ? AND senderType != 'system'
                 ORDER BY senderName
                 """, arguments: [channelId])
+        }
+    }
+
+    /// Returns distinct channel members with type and owner info.
+    /// Only includes actual message senders (human/agent), not system messages.
+    public func getChannelMembers(channelId: String) throws -> [ChannelMember] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT senderId,
+                       MAX(senderName) as senderName,
+                       MAX(senderType) as memberType,
+                       MAX(senderOwner) as senderOwner
+                FROM messages
+                WHERE channelId = ?
+                  AND senderType != 'system'
+                GROUP BY senderId
+                ORDER BY MAX(senderType) ASC, MAX(senderName) ASC
+                """, arguments: [channelId])
+            return rows.map { row in
+                ChannelMember(
+                    senderId: row["senderId"],
+                    name: row["senderName"],
+                    type: row["memberType"],
+                    owner: row["senderOwner"]
+                )
+            }
         }
     }
 

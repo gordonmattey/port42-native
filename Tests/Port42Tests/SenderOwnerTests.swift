@@ -7,13 +7,13 @@ struct SenderOwnerTests {
 
     // MARK: - Message Model
 
-    @Test("Human message has nil senderOwner by default")
-    func humanMessageNilOwner() {
+    @Test("Human message has senderOwner set to own name")
+    func humanMessageSelfOwner() {
         let msg = Message.create(
             channelId: "ch1", senderId: "user1",
             senderName: "Gordon", content: "hello"
         )
-        #expect(msg.senderOwner == nil)
+        #expect(msg.senderOwner == "Gordon")
     }
 
     @Test("Agent message preserves senderOwner on init")
@@ -36,24 +36,42 @@ struct SenderOwnerTests {
             id: "1", senderName: "Echo", content: "hi",
             isAgent: true
         )
-        #expect(entry.displayName == "Echo")
+        #expect(entry.displayName() == "Echo")
     }
 
-    @Test("ChatEntry displayName with owner shows Name@Owner")
+    @Test("ChatEntry displayName with different owner shows Name@Owner")
     func displayNameWithOwner() {
         let entry = ChatEntry(
             id: "1", senderName: "Echo", content: "hi",
             isAgent: true, senderOwner: "Gordon"
         )
-        #expect(entry.displayName == "Echo@Gordon")
+        #expect(entry.displayName() == "Echo@Gordon")
     }
 
-    @Test("ChatEntry human has no senderOwner")
+    @Test("ChatEntry displayName suppresses namespace when name equals owner")
+    func displayNameSameAsOwner() {
+        let entry = ChatEntry(
+            id: "1", senderName: "Gordon", content: "hello",
+            senderOwner: "Gordon"
+        )
+        #expect(entry.displayName() == "Gordon")
+    }
+
+    @Test("ChatEntry displayName strips namespace for local owner")
+    func displayNameLocalOwner() {
+        let entry = ChatEntry(
+            id: "1", senderName: "Echo", content: "hi",
+            isAgent: true, senderOwner: "Gordon"
+        )
+        #expect(entry.displayName(localOwner: "Gordon") == "Echo")
+    }
+
+    @Test("ChatEntry human has senderOwner nil when not provided")
     func humanChatEntry() {
         let entry = ChatEntry(
             id: "1", senderName: "Alice", content: "hello"
         )
-        #expect(entry.displayName == "Alice")
+        #expect(entry.displayName() == "Alice")
         #expect(entry.senderOwner == nil)
     }
 
@@ -173,8 +191,8 @@ struct SenderOwnerTests {
         #expect(messages[0].senderOwner == "Gordon")
     }
 
-    @Test("Nil senderOwner persisted correctly in DB")
-    func nilSenderOwnerInDB() throws {
+    @Test("Human senderOwner auto-set to own name in DB")
+    func humanSenderOwnerInDB() throws {
         let db = try DatabaseService(inMemory: true)
 
         let user = AppUser.createLocal(displayName: "Alice")
@@ -191,6 +209,95 @@ struct SenderOwnerTests {
 
         let messages = try db.getMessages(channelId: channel.id)
         #expect(messages.count == 1)
-        #expect(messages[0].senderOwner == nil)
+        #expect(messages[0].senderOwner == "Alice")
+    }
+
+    // MARK: - ChannelMember
+
+    @Test("ChannelMember displayName without owner")
+    func channelMemberNoOwner() {
+        let m = ChannelMember(senderId: "u1", name: "Gordon", type: "human", owner: nil)
+        #expect(m.displayName() == "Gordon")
+        #expect(!m.isAgent)
+    }
+
+    @Test("ChannelMember displayName with different owner uses namespace")
+    func channelMemberWithOwner() {
+        let m = ChannelMember(senderId: "a1", name: "Echo", type: "agent", owner: "Gordon")
+        #expect(m.displayName() == "Echo@Gordon")
+        #expect(m.isAgent)
+    }
+
+    @Test("ChannelMember displayName suppresses namespace when name equals owner")
+    func channelMemberSameNameAsOwner() {
+        let m = ChannelMember(senderId: "u1", name: "Gordon", type: "human", owner: "Gordon")
+        #expect(m.displayName() == "Gordon")
+    }
+
+    @Test("ChannelMember displayName strips namespace for local owner")
+    func channelMemberLocalOwner() {
+        let m = ChannelMember(senderId: "a1", name: "Echo", type: "agent", owner: "Gordon")
+        #expect(m.displayName(localOwner: "Gordon") == "Echo")
+    }
+
+    @Test("getChannelMembers returns distinct members with type and owner")
+    func channelMembersFromDB() throws {
+        let db = try DatabaseService(inMemory: true)
+
+        let user = AppUser.createLocal(displayName: "Gordon")
+        try db.saveUser(user)
+
+        let channel = Channel.create(name: "general")
+        try db.saveChannel(channel)
+
+        // Human message
+        let m1 = Message(
+            id: "m1", channelId: channel.id, senderId: user.id,
+            senderName: "Gordon", senderType: "human",
+            content: "hello", timestamp: Date(),
+            replyToId: nil, syncStatus: "local", createdAt: Date()
+        )
+        // Agent message with owner
+        let m2 = Message(
+            id: "m2", channelId: channel.id, senderId: "agent1",
+            senderName: "Echo", senderType: "agent",
+            content: "hey", timestamp: Date(),
+            replyToId: nil, syncStatus: "local", createdAt: Date(),
+            senderOwner: "Gordon"
+        )
+        // Remote human
+        let m3 = Message(
+            id: "m3", channelId: channel.id, senderId: "user2",
+            senderName: "Alice", senderType: "human",
+            content: "hi", timestamp: Date(),
+            replyToId: nil, syncStatus: "synced", createdAt: Date()
+        )
+        // Remote agent
+        let m4 = Message(
+            id: "m4", channelId: channel.id, senderId: "agent2",
+            senderName: "Echo", senderType: "agent",
+            content: "yo", timestamp: Date(),
+            replyToId: nil, syncStatus: "synced", createdAt: Date(),
+            senderOwner: "Alice"
+        )
+        try db.saveMessage(m1)
+        try db.saveMessage(m2)
+        try db.saveMessage(m3)
+        try db.saveMessage(m4)
+
+        let members = try db.getChannelMembers(channelId: channel.id)
+        #expect(members.count == 4)
+
+        // Humans sorted first (type ASC: "agent" < "human"), then by name
+        let names = members.map { $0.displayName() }
+        #expect(names.contains("Gordon"))
+        #expect(names.contains("Alice"))
+        #expect(names.contains("Echo@Gordon"))
+        #expect(names.contains("Echo@Alice"))
+
+        // Two Echos are distinct members
+        let echos = members.filter { $0.name == "Echo" }
+        #expect(echos.count == 2)
+        #expect(echos[0].owner != echos[1].owner)
     }
 }

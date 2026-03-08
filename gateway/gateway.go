@@ -16,6 +16,8 @@ type Envelope struct {
 	Type      string          `json:"type"`
 	ChannelID string          `json:"channel_id,omitempty"`
 	SenderID  string          `json:"sender_id,omitempty"`
+	SenderName string         `json:"sender_name,omitempty"`
+	PeerID    string          `json:"peer_id,omitempty"` // authenticated peer who sent this
 	MessageID string          `json:"message_id,omitempty"`
 	Payload   json.RawMessage `json:"payload,omitempty"`
 	Timestamp int64           `json:"timestamp,omitempty"`
@@ -29,6 +31,7 @@ type Envelope struct {
 // Peer represents a connected client.
 type Peer struct {
 	ID       string
+	Name     string
 	Conn     *websocket.Conn
 	Channels map[string]bool
 	mu       sync.Mutex
@@ -97,6 +100,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 
 	peer := &Peer{
 		ID:       ident.SenderID,
+		Name:     ident.SenderName,
 		Conn:     conn,
 		Channels: make(map[string]bool),
 	}
@@ -126,7 +130,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			continue
 		}
 
-		env.SenderID = peer.ID
+		env.PeerID = peer.ID // authenticated peer identity
 		if env.Timestamp == 0 {
 			env.Timestamp = time.Now().UnixMilli()
 		}
@@ -322,13 +326,19 @@ func (g *Gateway) broadcastPresence(ctx context.Context, channelID, peerID, stat
 			}
 		}
 	}
+	// Look up the sender's display name
+	var senderName string
+	if peer, ok := g.peers[peerID]; ok {
+		senderName = peer.Name
+	}
 	g.mu.RUnlock()
 
 	env := Envelope{
-		Type:      "presence",
-		ChannelID: channelID,
-		SenderID:  peerID,
-		Status:    status,
+		Type:       "presence",
+		ChannelID:  channelID,
+		SenderID:   peerID,
+		SenderName: senderName,
+		Status:     status,
 	}
 	for _, peer := range targets {
 		peer.Send(ctx, env)

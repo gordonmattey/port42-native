@@ -19,9 +19,8 @@ public struct ChatView: View {
                 typingNames: Array(appState.typingAgentNames.union(
                     appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
                 )),
-                mentionCandidates: appState.companions.map {
-                    MentionSuggestion(id: $0.id, name: $0.displayName)
-                },
+                mentionCandidates: buildMentionCandidates(),
+                localOwner: appState.currentUser?.displayName,
                 onSend: { content in appState.sendMessage(content: content) },
                 onTypingChanged: { isTyping in
                     if let channelId = appState.currentChannel?.id,
@@ -49,6 +48,56 @@ public struct ChatView: View {
             )
         }
     }
+
+    /// Build mention candidates from local companions + remote channel members.
+    /// Local entities show bare names, remote entities show namespaced names.
+    private func buildMentionCandidates() -> [MentionSuggestion] {
+        var seenIds = Set<String>()
+        var seenNames = Set<String>()
+        var candidates: [MentionSuggestion] = []
+
+        let localUserId = appState.currentUser?.id
+        let localOwner = appState.currentUser?.displayName
+
+        // Local companions first (bare name, no namespace needed for your own agents)
+        for companion in appState.companions {
+            seenIds.insert(companion.id)
+            let key = companion.displayName.lowercased()
+            if seenNames.insert(key).inserted {
+                candidates.append(MentionSuggestion(id: companion.id, name: companion.displayName, isAgent: true))
+            }
+        }
+
+        // Remote members from channel message history
+        guard let channelId = appState.currentChannel?.id else { return candidates }
+        let members = (try? appState.db.getChannelMembers(channelId: channelId)) ?? []
+
+        for member in members {
+            if member.senderId == localUserId { continue }
+            if seenIds.contains(member.senderId) { continue }
+            seenIds.insert(member.senderId)
+            let name = member.displayName(localOwner: localOwner)
+            let key = name.lowercased()
+            if seenNames.insert(key).inserted {
+                candidates.append(MentionSuggestion(id: member.senderId, name: name, isAgent: member.isAgent))
+            }
+        }
+
+        // Online users from presence who haven't messaged yet
+        let onlineIds = appState.sync.onlineUsers[channelId] ?? []
+        for userId in onlineIds {
+            if userId == localUserId { continue }
+            if seenIds.contains(userId) { continue }
+            if let name = appState.sync.knownNames[userId] {
+                let key = name.lowercased()
+                if seenNames.insert(key).inserted {
+                    candidates.append(MentionSuggestion(id: userId, name: name, isAgent: false))
+                }
+            }
+        }
+
+        return candidates
+    }
 }
 
 public struct ChannelHeader: View {
@@ -56,9 +105,35 @@ public struct ChannelHeader: View {
     @EnvironmentObject var appState: AppState
     @State private var showMembers = false
 
-    private var memberNames: [String] {
+    private var members: [ChannelMember] {
         guard let id = appState.currentChannel?.id else { return [] }
-        return (try? appState.db.getUniqueSenders(channelId: id)) ?? []
+        var result = (try? appState.db.getChannelMembers(channelId: id)) ?? []
+
+        // Always include the current user even if they haven't messaged yet
+        if let user = appState.currentUser,
+           !result.contains(where: { $0.senderId == user.id }) {
+            result.insert(ChannelMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
+        }
+
+        // Include local companions assigned to this channel
+        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
+        for agent in channelAgents {
+            if !result.contains(where: { $0.senderId == agent.id }) {
+                result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
+            }
+        }
+
+        return result
+    }
+
+    private var onlineIds: Set<String> {
+        guard let id = appState.currentChannel?.id else { return [] }
+        var ids = appState.sync.onlineUsers[id] ?? []
+        // Current user is always online
+        if let userId = appState.currentUser?.id { ids.insert(userId) }
+        // Local companions are always online
+        for companion in appState.companions { ids.insert(companion.id) }
+        return ids
     }
 
     public var body: some View {
@@ -71,28 +146,17 @@ public struct ChannelHeader: View {
                 .foregroundStyle(Port42Theme.textPrimary)
 
             // Member avatars (click to see list)
-            if !memberNames.isEmpty {
+            if !members.isEmpty {
                 HStack(spacing: -4) {
-                    ForEach(memberNames.prefix(8), id: \.self) { name in
-                        ZStack {
-                            Circle()
-                                .fill(Port42Theme.agentColor(for: name))
-                                .frame(width: 20, height: 20)
-                            Text(String(name.prefix(1)).uppercased())
-                                .font(Port42Theme.monoBold(9))
-                                .foregroundStyle(.white)
-                        }
-                        .overlay(
-                            Circle()
-                                .stroke(Port42Theme.bgPrimary, lineWidth: 1.5)
-                        )
+                    ForEach(Array(members.prefix(8))) { member in
+                        MemberAvatar(member: member, size: 20, isOnline: onlineIds.contains(member.senderId))
                     }
-                    if memberNames.count > 8 {
+                    if members.count > 8 {
                         ZStack {
                             Circle()
                                 .fill(Port42Theme.bgSecondary)
                                 .frame(width: 20, height: 20)
-                            Text("+\(memberNames.count - 8)")
+                            Text("+\(members.count - 8)")
                                 .font(Port42Theme.mono(8))
                                 .foregroundStyle(Port42Theme.textSecondary)
                         }
@@ -105,17 +169,10 @@ public struct ChannelHeader: View {
                         Text("members")
                             .font(Port42Theme.monoBold(11))
                             .foregroundStyle(Port42Theme.textSecondary)
-                        ForEach(memberNames, id: \.self) { name in
+                        ForEach(members) { member in
                             HStack(spacing: 8) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Port42Theme.agentColor(for: name))
-                                        .frame(width: 16, height: 16)
-                                    Text(String(name.prefix(1)).uppercased())
-                                        .font(Port42Theme.monoBold(8))
-                                        .foregroundStyle(.white)
-                                }
-                                Text(name)
+                                MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
+                                Text(member.displayName(localOwner: appState.currentUser?.displayName))
                                     .font(Port42Theme.mono(12))
                                     .foregroundStyle(Port42Theme.textPrimary)
                             }
@@ -130,5 +187,43 @@ public struct ChannelHeader: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(Port42Theme.bgPrimary)
+    }
+}
+
+/// Avatar circle for a channel member. AI members get a dashed outline, humans get solid.
+struct MemberAvatar: View {
+    let member: ChannelMember
+    let size: CGFloat
+    var isOnline: Bool = false
+
+    var body: some View {
+        let color = Port42Theme.agentColor(for: member.name, owner: member.owner)
+        ZStack {
+            Circle()
+                .fill(color)
+                .frame(width: size, height: size)
+            Text(String(member.name.prefix(1)).uppercased())
+                .font(Port42Theme.monoBold(size * 0.45))
+                .foregroundStyle(.white)
+        }
+        .overlay(
+            Circle()
+                .stroke(
+                    member.isAgent ? color : Port42Theme.bgPrimary,
+                    style: StrokeStyle(
+                        lineWidth: member.isAgent ? 1.5 : 1.5,
+                        dash: member.isAgent ? [3, 2] : []
+                    )
+                )
+                .frame(width: size + 3, height: size + 3)
+        )
+        .overlay(alignment: .bottomTrailing) {
+            if isOnline {
+                Circle()
+                    .fill(.green)
+                    .frame(width: size * 0.3, height: size * 0.3)
+                    .overlay(Circle().stroke(Port42Theme.bgPrimary, lineWidth: 1))
+            }
+        }
     }
 }

@@ -7,6 +7,8 @@ struct SyncEnvelope: Codable {
     let type: String
     var channelId: String?
     var senderId: String?
+    var senderName: String?
+    var peerId: String?
     var messageId: String?
     var payload: SyncPayload?
     var timestamp: Int64?
@@ -20,6 +22,8 @@ struct SyncEnvelope: Codable {
         case type
         case channelId = "channel_id"
         case senderId = "sender_id"
+        case senderName = "sender_name"
+        case peerId = "peer_id"
         case messageId = "message_id"
         case payload
         case timestamp
@@ -60,10 +64,13 @@ public final class SyncService: NSObject, ObservableObject {
     @Published public var onlineUsers: [String: Set<String>] = [:]
     /// Remote typing indicators: channel -> set of sender names currently typing
     @Published public var remoteTypingNames: [String: Set<String>] = [:]
+    /// Cached display names from presence events: userId -> displayName
+    @Published public var knownNames: [String: String] = [:]
 
     private var webSocket: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private var userId: String?
+    private var userName: String?
     private weak var db: DatabaseService?
     private var joinedChannels: Set<String> = []
     private var reconnectTask: Task<Void, Never>?
@@ -71,10 +78,13 @@ public final class SyncService: NSObject, ObservableObject {
 
     /// Called when a message arrives from the network (channelId, message)
     public var onMessageReceived: ((String, Message) -> Void)?
+    /// Called when a peer's presence changes (channelId, senderId, senderName, status "online"/"offline")
+    public var onPresenceChanged: ((String, String, String?, String) -> Void)?
 
-    public func configure(gatewayURL: String, userId: String, db: DatabaseService) {
+    public func configure(gatewayURL: String, userId: String, userName: String? = nil, db: DatabaseService) {
         self.gatewayURL = gatewayURL
         self.userId = userId
+        self.userName = userName
         self.db = db
     }
 
@@ -101,8 +111,8 @@ public final class SyncService: NSObject, ObservableObject {
         self.webSocket = task
         task.resume()
 
-        // Send identify
-        let identify = SyncEnvelope(type: "identify", senderId: userId)
+        // Send identify (include display name so gateway can relay it in presence)
+        let identify = SyncEnvelope(type: "identify", senderId: userId, senderName: userName)
         send(identify)
 
         // Start receive loop
@@ -123,6 +133,7 @@ public final class SyncService: NSObject, ObservableObject {
         urlSession = nil
         isConnected = false
         onlineUsers = [:]
+        knownNames = [:]
     }
 
     // MARK: - Channel Management
@@ -131,12 +142,12 @@ public final class SyncService: NSObject, ObservableObject {
     private var channelCompanions: [String: [String]] = [:]
 
     public func joinChannel(_ channelId: String, companionIds: [String] = []) {
+        let alreadyJoined = joinedChannels.contains(channelId)
         channelCompanions[channelId] = companionIds
-        guard isConnected else {
-            joinedChannels.insert(channelId)
-            return
-        }
         joinedChannels.insert(channelId)
+        guard isConnected else { return }
+        // Skip sending join if already joined (prevents duplicate presence broadcasts)
+        guard !alreadyJoined else { return }
         send(SyncEnvelope(type: "join", channelId: channelId, companionIds: companionIds.isEmpty ? nil : companionIds))
     }
 
@@ -294,8 +305,9 @@ public final class SyncService: NSObject, ObservableObject {
             return
         }
 
-        // Don't insert our own messages
-        guard senderId != userId else { return }
+        // Don't insert our own messages (use authenticated peerId from gateway)
+        let authenticatedPeer = envelope.peerId ?? senderId
+        guard authenticatedPeer != userId else { return }
 
         // Decrypt if encrypted
         let resolvedPayload: SyncPayload
@@ -358,6 +370,12 @@ public final class SyncService: NSObject, ObservableObject {
             onlineUsers[channelId] = Set(onlineIds)
             print("[sync] presence for \(channelId): \(onlineIds.count) online")
         } else if let senderId = envelope.senderId, let status = envelope.status {
+            // Skip our own presence events
+            guard senderId != userId else { return }
+            // Cache display name from presence
+            if let name = envelope.senderName, !name.isEmpty {
+                knownNames[senderId] = name
+            }
             // Single user update
             var members = onlineUsers[channelId] ?? []
             if status == "online" {
@@ -366,7 +384,9 @@ public final class SyncService: NSObject, ObservableObject {
                 members.remove(senderId)
             }
             onlineUsers[channelId] = members
-            print("[sync] \(senderId) went \(status) in \(channelId)")
+            let name = envelope.senderName
+            print("[sync] \(name ?? senderId) went \(status) in \(channelId)")
+            onPresenceChanged?(channelId, senderId, name, status)
         }
     }
 

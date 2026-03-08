@@ -30,3 +30,32 @@ public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable
         )
     }
 }
+
+/// A channel participant derived from message history
+public struct ChannelMember: Identifiable, Equatable {
+    public let senderId: String
+    public let name: String
+    public let type: String   // "human" or "agent"
+    public let owner: String? // owner's display name (nil for humans)
+
+    public var id: String { senderId }
+
+    /// Full namespaced identity (always includes owner when available)
+    public var qualifiedName: String {
+        if let owner {
+            return "\(name)@\(owner)"
+        }
+        return name
+    }
+
+    /// Display name for UI. Strips namespace for local entities.
+    public func displayName(localOwner: String? = nil) -> String {
+        if let owner, owner.lowercased() != localOwner?.lowercased(),
+           owner.lowercased() != name.lowercased() {
+            return "\(name)@\(owner)"
+        }
+        return name
+    }
+
+    public var isAgent: Bool { type == "agent" }
+}

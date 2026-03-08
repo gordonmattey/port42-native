@@ -28,9 +28,18 @@ public struct ChatEntry: Identifiable, Equatable {
         self.isPlaceholder = isPlaceholder
     }
 
-    /// Display name with owner namespace for remote agents
-    public var displayName: String {
+    /// Full namespaced identity
+    public var qualifiedName: String {
         if let owner = senderOwner {
+            return "\(senderName)@\(owner)"
+        }
+        return senderName
+    }
+
+    /// Display name for UI. Strips namespace for local entities.
+    public func displayName(localOwner: String? = nil) -> String {
+        if let owner = senderOwner, owner.lowercased() != localOwner?.lowercased(),
+           owner.lowercased() != senderName.lowercased() {
             return "\(senderName)@\(owner)"
         }
         return senderName
@@ -67,6 +76,7 @@ public struct ConversationContent: View {
     let error: String?
     let typingNames: [String]
     let mentionCandidates: [MentionSuggestion]
+    let localOwner: String?
     let onSend: (String) -> Void
     let onStop: (() -> Void)?
     let onRetry: (() -> Void)?
@@ -84,6 +94,7 @@ public struct ConversationContent: View {
         error: String? = nil,
         typingNames: [String] = [],
         mentionCandidates: [MentionSuggestion] = [],
+        localOwner: String? = nil,
         onSend: @escaping (String) -> Void,
         onStop: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
@@ -96,6 +107,7 @@ public struct ConversationContent: View {
         self.error = error
         self.typingNames = typingNames
         self.mentionCandidates = mentionCandidates
+        self.localOwner = localOwner
         self.onSend = onSend
         self.onStop = onStop
         self.onRetry = onRetry
@@ -120,7 +132,7 @@ public struct ConversationContent: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(entries) { entry in
-                            MessageRow(entry: entry)
+                            MessageRow(entry: entry, localOwner: localOwner)
                                 .id(entry.id)
                         }
                     }
@@ -355,6 +367,7 @@ public struct ConversationContent: View {
 
 struct MessageRow: View, Equatable {
     let entry: ChatEntry
+    var localOwner: String? = nil
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
@@ -382,7 +395,7 @@ struct MessageRow: View, Equatable {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 0) {
-                        Text(entry.displayName)
+                        Text(entry.displayName(localOwner: localOwner))
                             .font(Port42Theme.monoBold(13))
                             .foregroundColor(nameColor)
                         if let time = entry.formattedTime {

@@ -5,9 +5,11 @@ import Foundation
 public enum MentionParser {
 
     /// Extract @mentions from message content.
+    /// Supports both `@Name` and namespaced `@Name@Owner` formats.
     /// Ignores email addresses (word@domain). Deduplicates results.
     public static func extractMentions(from content: String) -> [String] {
-        let pattern = #"(?<![a-zA-Z0-9.])@([a-zA-Z][a-zA-Z0-9-]*)"#
+        // Match @Name or @Name@Owner (but not email: requires non-word char before @)
+        let pattern = #"(?<![a-zA-Z0-9.])@([a-zA-Z][a-zA-Z0-9-]*(?:@[a-zA-Z][a-zA-Z0-9-]*)?)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
         let range = NSRange(content.startIndex..., in: content)
@@ -45,20 +47,42 @@ public enum AgentRouter {
     /// Find agents that should receive this message based on mentions, trigger mode,
     /// and channel membership.
     /// If explicit @mentions are present, ONLY those companions respond.
+    /// Namespaced mentions like `@Echo@gordon` only match if the owner matches `localOwner`.
+    /// Bare mentions like `@Echo` match local agents directly (unless `requireNamespace` is true).
     /// Otherwise, channel members and global listeners respond.
+    /// - `requireNamespace`: When true, bare @mentions are ignored (used for remote messages
+    ///   where the sender's app handles bare mentions).
     public static func findTargetAgents(
         content: String,
         agents: [AgentConfig],
-        channelAgentIds: Set<String> = []
+        channelAgentIds: Set<String> = [],
+        localOwner: String? = nil,
+        requireNamespace: Bool = false
     ) -> [AgentConfig] {
-        let mentionNames = MentionParser.extractMentions(from: content)
-            .map { $0.dropFirst().lowercased() }
+        let mentions = MentionParser.extractMentions(from: content)
+            .map { String($0.dropFirst()).lowercased() } // strip leading @
 
-        // If someone is explicitly @mentioned, only they respond
-        if !mentionNames.isEmpty {
-            return agents.filter { agent in
-                mentionNames.contains(agent.displayName.lowercased())
+        if !mentions.isEmpty {
+            let matched = agents.filter { agent in
+                let agentName = agent.displayName.lowercased()
+                return mentions.contains { mention in
+                    if mention.contains("@") {
+                        // Namespaced: @Echo@gordon -> only match if owner matches
+                        let parts = mention.split(separator: "@", maxSplits: 1)
+                        guard parts.count == 2 else { return false }
+                        let name = String(parts[0])
+                        let owner = String(parts[1])
+                        return agentName == name && owner == (localOwner?.lowercased() ?? "")
+                    } else if !requireNamespace {
+                        // Bare: @Echo -> match local agent by name
+                        return agentName == mention
+                    } else {
+                        return false
+                    }
+                }
             }
+            // If mentions were present but none matched, don't fall through to channel routing
+            return matched
         }
 
         // No @mentions: channel members and global listeners respond

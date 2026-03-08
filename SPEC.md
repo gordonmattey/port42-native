@@ -231,6 +231,7 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-511 | Relay Auth | Secure Enclave P256 identity. Client connects, gateway sends a nonce challenge, client signs with `SecureEnclave.P256.Signing.PrivateKey` (hardware-backed, non-extractable). Gateway verifies signature against the client's public key. No passwords, no accounts, no Apple ID. Identity is device-bound and hardware-secured. | Only the key holder can connect as that identity. Private key cannot be exported or cloned. | M3 |
 | F-512 | Relay Self-Host | Single binary, no external dependencies, configurable via env vars or flags. README with deploy instructions. | Anyone can run their own relay with `./port42-relay` | M3 |
 | F-514 | Channel Join Tokens | Invite links include a one-time join token signed by the inviter. Gateway only allows channel joins with a valid token from an existing member. Prevents unauthorized channel access even if the channel ID is known. | Connecting to the gateway and sending a join without a valid token is rejected | M3 |
+| F-515 | Join/Leave Announcements | System messages when a peer joins or leaves a shared channel. Triggered by presence events from the gateway. Shows "Name joined the channel" or "Name left the channel." | Peers see system messages when others join or leave | M3 |
 | F-513 | Signaling | SDP/ICE exchange for WebRTC audio room setup routed through relay. | Audio room connections negotiate through relay | M5 |
 
 ### Platform Bridges
@@ -369,7 +370,30 @@ Persistent bar at bottom shows who's talking.
 **M5 is done when:** Two users can join an audio room, hear each other, see voice
 activity indicators, mute/unmute, and leave. Works across different networks.
 
-### M6: Ship
+### M6: Transport Layer Evaluation
+
+*Evaluate replacing the custom Go gateway with a production-grade P2P/messaging library.*
+
+The M3 gateway is a hand-rolled WebSocket relay that handles presence, store-and-forward,
+and channel routing. It works well as a learning scaffold with zero dependencies, but
+production use will surface scaling, reliability, and NAT traversal gaps that mature
+libraries have already solved.
+
+Candidates to evaluate:
+- **LiveKit** (rooms, presence, media, signaling out of the box, also covers M5 audio)
+- **Matrix / matrix-rust-sdk** (decentralized, E2E encryption baked in, room management)
+- **libp2p** (fully decentralized, NAT traversal, pub/sub channels)
+- **CRDTs + custom transport** (Automerge/Yjs for conflict-free sync)
+
+The SyncService abstraction means the transport can be swapped without touching the rest
+of the app. Key criteria: self-hostable, no vendor lock-in, Swift client maturity, and
+alignment with Port42's escape-the-walled-garden philosophy.
+
+**M6 is done when:** A decision document compares the custom gateway against at least two
+library options on latency, reliability, NAT traversal, encryption, and maintenance burden.
+If a library wins, a migration plan exists.
+
+### M7: Ship
 
 *Package it up and get it into people's hands.*
 
@@ -453,6 +477,12 @@ work. All keyboard shortcuts documented and functional.
 | F-601 | Rate limiting: Discord has strict rate limits. How to queue agent responses to avoid hitting limits? |
 | F-604 | Message format translation: Discord markdown vs Port42 message format. How much formatting fidelity to preserve? |
 | F-600 | Beyond Discord: Slack, Matrix, Telegram? Define the bridge adapter interface generically enough for future platforms. |
+
+### Blocks M6 (Transport Layer)
+
+| ID | Question |
+|----|----------|
+| F-510 | Custom gateway vs LiveKit vs Matrix vs libp2p? LiveKit covers audio too (M5) but adds a server dependency. Matrix is decentralized and has E2E baked in but the Swift SDK is less mature. libp2p is fully P2P but complex. Custom gateway gives full control but means maintaining presence, NAT traversal, and reliability ourselves. |
 
 ### Blocks M5 (Audio Rooms)
 

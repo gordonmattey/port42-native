@@ -18,6 +18,38 @@ for arg in "$@"; do
     esac
 done
 
+# --- Generate app icon assets from SVG ---
+SVG="$DIR/Sources/Port42/Resources/port42-icon.svg"
+ICNS="$DIR/Sources/Port42/Resources/AppIcon.icns"
+LOGO_PNG="$DIR/Sources/Port42Lib/Resources/Media.xcassets/port42-logo.imageset/port42-logo.png"
+
+if [ "$SVG" -nt "$ICNS" ] 2>/dev/null || [ ! -f "$ICNS" ]; then
+    if ! command -v rsvg-convert &>/dev/null; then
+        echo "[build] ERROR: rsvg-convert not found. Install with: brew install librsvg"
+        exit 1
+    fi
+
+    echo "[build] Generating icon assets from SVG..."
+    ICONSET=$(mktemp -d)/Port42.iconset
+    mkdir -p "$ICONSET"
+
+    for size in 16 32 128 256 512; do
+        retina=$((size * 2))
+        rsvg-convert -w $size -h $size "$SVG" -o "$ICONSET/icon_${size}x${size}.png"
+        rsvg-convert -w $retina -h $retina "$SVG" -o "$ICONSET/icon_${size}x${size}@2x.png"
+    done
+
+    iconutil -c icns -o "$ICNS" "$ICONSET"
+    rm -rf "$(dirname "$ICONSET")"
+
+    # In-app logo (512px)
+    rsvg-convert -w 512 -h 512 "$SVG" -o "$LOGO_PNG"
+
+    echo "[build] Icon assets generated."
+else
+    echo "[build] Icon assets up to date."
+fi
+
 # Build Swift + Go (shared by both app and peer)
 echo "[build] Swift ($CONFIG)..."
 cd "$DIR"

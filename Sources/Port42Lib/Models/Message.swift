@@ -40,9 +40,12 @@ public struct Message: Codable, FetchableRecord, PersistableRecord, Identifiable
         senderId: String,
         senderName: String,
         content: String,
-        senderType: String = "human"
+        senderType: String = "human",
+        senderOwner: String? = nil
     ) -> Message {
         let now = Date()
+        // Humans own themselves, agents have an explicit owner
+        let owner = senderOwner ?? (senderType == "human" ? senderName : nil)
         return Message(
             id: UUID().uuidString,
             channelId: channelId,
@@ -53,7 +56,8 @@ public struct Message: Codable, FetchableRecord, PersistableRecord, Identifiable
             timestamp: now,
             replyToId: nil,
             syncStatus: "local",
-            createdAt: now
+            createdAt: now,
+            senderOwner: owner
         )
     }
 

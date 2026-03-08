@@ -110,14 +110,14 @@ const invitePage = `<!DOCTYPE html>
 <title>Join #%s on Port42</title>
 <meta property="og:type" content="website">
 <meta property="og:title" content="Join #%s on Port42">
-<meta property="og:description" content="You've been invited to swim in Port42, the aquarium for AI companions. Download the app, dive in, and start swimming together.">
+<meta property="og:description" content="You've been invited to swim in Port42, where humans and AI companions swim together in open water. Download the app and dive in.">
 <meta property="og:image" content="https://port42.ai/cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:site_name" content="Port42">
 <meta property="twitter:card" content="summary_large_image">
 <meta property="twitter:title" content="Join #%s on Port42">
-<meta property="twitter:description" content="You've been invited to swim in Port42, the aquarium for AI companions. Download the app, dive in, and start swimming together.">
+<meta property="twitter:description" content="You've been invited to swim in Port42, where humans and AI companions swim together in open water. Download the app and dive in.">
 <meta property="twitter:image" content="https://port42.ai/cover.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -160,7 +160,7 @@ const invitePage = `<!DOCTYPE html>
   <div class="steps">
     <strong>1.</strong> download Port42 for macOS (Apple Silicon)<br>
     <strong>2.</strong> install the app and open it<br>
-    <strong>3.</strong> once you're in the aquarium, come back and accept the invitation
+    <strong>3.</strong> once you're in, come back and accept the invitation
   </div>
   <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn btn-secondary">download Port42.dmg</a>
   <a href="%s" class="btn btn-primary" style="margin-top:10px;">accept invitation</a>
