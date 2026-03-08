@@ -645,8 +645,17 @@ public final class AppState: ObservableObject {
     }
 
     public func joinChannelFromInvite(_ invite: ChannelInviteData) {
-        // If channel already exists locally, just select it
-        if let existing = channels.first(where: { $0.id == invite.channelId }) {
+        // If channel already exists locally, update encryption key if provided and select it
+        if var existing = channels.first(where: { $0.id == invite.channelId }) {
+            if let newKey = invite.encryptionKey, existing.encryptionKey == nil {
+                existing.encryptionKey = newKey
+                do {
+                    try db.saveChannel(existing)
+                    channels = try db.getAllChannels()
+                } catch {
+                    print("[Port42] Failed to update channel key: \(error)")
+                }
+            }
             selectChannel(existing)
             return
         }
@@ -673,19 +682,38 @@ public final class AppState: ObservableObject {
             UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
             sync.configure(gatewayURL: invite.gateway, userId: user.id, db: db)
             sync.connect()
+            // Rejoin all channels on the new gateway
             for ch in channels {
                 syncJoinChannel(ch.id)
             }
+        } else {
+            // Same gateway, just join the new channel
+            syncJoinChannel(channel.id)
         }
 
         selectChannel(channel)
-        print("[Port42] Joined channel from invite: #\(invite.channelName)")
+        print("[Port42] Joined channel from invite: #\(invite.channelName) via \(invite.gateway)")
 
-        // Prompt ngrok setup so this user can also share channels
-        if tunnel.authToken.isEmpty {
-            pendingInviteChannel = channel
-            showNgrokSetup = true
+        // Don't prompt ngrok setup on join — only needed when sharing invite links
+    }
+
+    /// Ensure a channel has an encryption key. Generates one for legacy channels
+    /// that were created before encryption was added. Returns the updated channel.
+    @discardableResult
+    public func ensureEncryptionKey(for channel: Channel) -> Channel {
+        guard channel.encryptionKey == nil else { return channel }
+        var updated = channel
+        updated.encryptionKey = ChannelCrypto.generateKey()
+        do {
+            try db.saveChannel(updated)
+            channels = try db.getAllChannels()
+            if currentChannel?.id == channel.id {
+                currentChannel = updated
+            }
+        } catch {
+            print("[Port42] Failed to save encryption key: \(error)")
         }
+        return updated
     }
 
     public func deleteChannel(_ channel: Channel) {

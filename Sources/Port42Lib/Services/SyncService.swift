@@ -400,7 +400,7 @@ extension SyncService: URLSessionWebSocketDelegate {
         didOpenWithProtocol protocol: String?
     ) {
         Task { @MainActor in
-            print("[sync] WebSocket opened")
+            print("[sync] WebSocket opened to \(self.gatewayURL ?? "unknown")")
         }
     }
 
@@ -410,10 +410,25 @@ extension SyncService: URLSessionWebSocketDelegate {
         didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
         reason: Data?
     ) {
+        let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) }
         Task { @MainActor in
-            print("[sync] WebSocket closed: \(closeCode)")
+            print("[sync] WebSocket closed: \(closeCode) reason: \(reasonStr ?? "none")")
             self.isConnected = false
             self.scheduleReconnect()
+        }
+    }
+
+    nonisolated public func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            Task { @MainActor in
+                print("[sync] WebSocket connection failed: \(error.localizedDescription)")
+                self.isConnected = false
+                self.scheduleReconnect()
+            }
         }
     }
 }

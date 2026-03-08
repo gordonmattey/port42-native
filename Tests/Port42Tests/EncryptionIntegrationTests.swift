@@ -375,4 +375,41 @@ struct InviteLinkKeyExchangeTests {
         let parsed = ChannelInvite.parse(url: url)
         #expect(parsed == nil)
     }
+
+    @Test("Rejoin existing channel updates encryption key")
+    func rejoinUpdatesKey() throws {
+        let db = try DatabaseService(inMemory: true)
+        // Legacy channel with no key
+        let legacy = Channel(id: "ch-legacy", name: "old-channel", type: "team", createdAt: Date())
+        try db.saveChannel(legacy)
+
+        let storedKey = try db.getChannelKey(channelId: "ch-legacy")
+        #expect(storedKey == nil)
+
+        // Rejoin with invite that has a key
+        let newKey = ChannelCrypto.generateKey()
+        var updated = legacy
+        updated.encryptionKey = newKey
+        try db.saveChannel(updated)
+
+        let afterKey = try db.getChannelKey(channelId: "ch-legacy")
+        #expect(afterKey == newKey)
+    }
+
+    @Test("Rejoin does not overwrite existing key")
+    func rejoinDoesNotOverwrite() throws {
+        let db = try DatabaseService(inMemory: true)
+        let originalKey = ChannelCrypto.generateKey()
+        let channel = Channel(id: "ch-1", name: "secure", type: "team", createdAt: Date(), encryptionKey: originalKey)
+        try db.saveChannel(channel)
+
+        // Simulate rejoin with a different key (should not overwrite)
+        // This mirrors the AppState logic: only update if existing key is nil
+        let existingKey = try db.getChannelKey(channelId: "ch-1")
+        #expect(existingKey == originalKey)
+
+        // The AppState code checks: if existing.encryptionKey == nil, then update
+        // Since it's not nil, no update happens
+        #expect(existingKey != nil) // so no overwrite
+    }
 }

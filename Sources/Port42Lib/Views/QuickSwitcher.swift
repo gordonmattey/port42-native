@@ -210,9 +210,41 @@ public struct QuickSwitcher: View {
 
     private var parsedInvite: ChannelInviteData? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("port42://channel"),
-              let url = URL(string: trimmed) else { return nil }
-        return ChannelInvite.parse(url: url)
+
+        // Direct port42:// deep link
+        if trimmed.hasPrefix("port42://channel"),
+           let url = URL(string: trimmed) {
+            return ChannelInvite.parse(url: url)
+        }
+
+        // HTTPS invite page link (e.g. https://xxx.ngrok.io/invite?id=...&name=...&key=...)
+        if let url = URL(string: trimmed),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           (components.scheme == "https" || components.scheme == "http"),
+           components.path == "/invite" {
+            let items = components.queryItems ?? []
+            let dict = Dictionary(items.compactMap { item in
+                item.value.map { (item.name, $0) }
+            }, uniquingKeysWith: { _, last in last })
+
+            guard let channelId = dict["id"],
+                  let name = dict["name"],
+                  let host = components.host else { return nil }
+
+            // Build the gateway WSS URL from the invite page host
+            let scheme = components.scheme == "https" ? "wss" : "ws"
+            let port = components.port.map { ":\($0)" } ?? ""
+            let gateway = "\(scheme)://\(host)\(port)"
+
+            return ChannelInviteData(
+                gateway: gateway,
+                channelId: channelId,
+                channelName: name,
+                encryptionKey: dict["key"]
+            )
+        }
+
+        return nil
     }
 
     // MARK: - Actions

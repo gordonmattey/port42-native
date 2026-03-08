@@ -97,11 +97,12 @@ public struct SidebarView: View {
                             Divider()
 
                             Button("Copy Invite Link") {
+                                let secured = appState.ensureEncryptionKey(for: channel)
                                 if appState.tunnel.authToken.isEmpty {
-                                    appState.pendingInviteChannel = channel
+                                    appState.pendingInviteChannel = secured
                                     appState.showNgrokSetup = true
                                 } else {
-                                    ChannelInvite.copyToClipboard(channel: channel, hostName: appState.currentUser?.displayName)
+                                    ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName)
                                 }
                             }
 
@@ -231,6 +232,10 @@ public struct ChannelRow: View {
         self.onlineCount = onlineCount
     }
 
+    private var isEncrypted: Bool {
+        channel.encryptionKey != nil
+    }
+
     public var body: some View {
         HStack(spacing: 8) {
             Text("#")
@@ -247,6 +252,14 @@ public struct ChannelRow: View {
                     : Port42Theme.textSecondary
                 )
                 .fontWeight(unreadCount > 0 ? .bold : .regular)
+
+            if isEncrypted {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(
+                        isActive ? Port42Theme.accent : Port42Theme.textSecondary
+                    )
+            }
 
             // Companion dots
             if !companionNames.isEmpty {
