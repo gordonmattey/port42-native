@@ -4,6 +4,10 @@
 <dict>
 	<key>files</key>
 	<dict>
+		<key>Resources/AppIcon.icns</key>
+		<data>
+		JboaUNjLIAzsh7g+ta1v0tBske0=
+		</data>
 		<key>Resources/GRDB_GRDB.bundle/Info.plist</key>
 		<data>
 		7g0CDUAAkeHXoZohLhU1fyFxbzA=
@@ -22,11 +26,11 @@
 		</data>
 		<key>Resources/Port42_Port42.bundle/AppIcon.icns</key>
 		<data>
-		srmcsApjGf0fwKKwFfYwgwNn41c=
+		JboaUNjLIAzsh7g+ta1v0tBske0=
 		</data>
 		<key>Resources/Port42_Port42.bundle/port42-icon.svg</key>
 		<data>
-		Kqulx6BU/4EXdG/+z6+EFoLvCmk=
+		4qmMBlrPb3zy8ladYCSjCpQPKFw=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/Contents.json</key>
 		<data>
@@ -38,7 +42,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/port42-logo.imageset/port42-logo.png</key>
 		<data>
-		5iO6rQb0vY4Ju9hJEH2nVjpGkdk=
+		j0f+jdgU4gPlvdfYoOPiEFQao+A=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/TheAquariumsDoorIsOpen.mp4</key>
 		<data>
@@ -67,10 +71,17 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			Cm5ekdULsCPmD51vTgk6P0zcDYw=
+			0WdrV8K5FrQgkp/wlqtvWvW0bos=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"0a6e5e91d50bb023e60f9d6f4e093a3f4cdc0d8c"</string>
+			<string>cdhash H"d1676b57c2b916b420929ff096ab6f5af5b46e8b"</string>
+		</dict>
+		<key>Resources/AppIcon.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			2emXQFzl5jC8VuCSJE0lTzPgT0KNc6Pq+YZpbPSs7iY=
+			</data>
 		</dict>
 		<key>Resources/GRDB_GRDB.bundle/Info.plist</key>
 		<dict>
@@ -104,14 +115,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			uWT6vJmUGCVzmYujRvZPG1IrpWLodUwpnaEsn8GtX+0=
+			2emXQFzl5jC8VuCSJE0lTzPgT0KNc6Pq+YZpbPSs7iY=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42.bundle/port42-icon.svg</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			8P8yhgLTXrND3vewZ4/1kiTId5akhdhJ3mpBbVfpK4Y=
+			ioYsFPK0vZayXP8hcGRNVUGScJv+6P3AntM++Rpclgg=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/Contents.json</key>
@@ -132,7 +143,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			fjn8vsnCSP3cNHCMev4zcP+fthzVsObwruWFyRr8a3M=
+			T2hHKPEkNG6c5k3P0t7xKgdSr0lRaohaEJpwUJZ0Yek=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/TheAquariumsDoorIsOpen.mp4</key>
