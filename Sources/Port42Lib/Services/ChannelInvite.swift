@@ -10,24 +10,23 @@ public struct ChannelInviteData {
 public enum ChannelInvite {
 
     /// Generate a port42://channel? invite link for sharing a channel.
-    /// Prefers tunnel (ngrok) URL if available, otherwise substitutes LAN IP
-    /// so the link works for other devices on the network.
+    /// Always uses this user's OWN tunnel or local gateway, never a remote URL.
     @MainActor
-    public static func generateLink(channel: Channel, gatewayURL: String) -> String {
+    public static func generateLink(channel: Channel) -> String {
         let resolvedGW: String
-        // Prefer tunnel URL for internet-accessible links
+        // Only use this user's own tunnel URL
         if let tunnelURL = TunnelService.shared.publicURL {
             resolvedGW = tunnelURL
-        } else if gatewayURL.contains("localhost") || gatewayURL.contains("127.0.0.1") {
+        } else {
+            // Fall back to local gateway with LAN IP so it works on the local network
+            let localGW = GatewayProcess.shared.localURL
             if let lanIP = localIPAddress() {
-                resolvedGW = gatewayURL
+                resolvedGW = localGW
                     .replacingOccurrences(of: "localhost", with: lanIP)
                     .replacingOccurrences(of: "127.0.0.1", with: lanIP)
             } else {
-                resolvedGW = gatewayURL
+                resolvedGW = localGW
             }
-        } else {
-            resolvedGW = gatewayURL
         }
 
         var components = URLComponents()
@@ -110,13 +109,13 @@ public enum ChannelInvite {
     /// Copy an invite link to the clipboard. Prefers the landing page URL
     /// so recipients get download/connect options on the page itself.
     @MainActor
-    public static func copyToClipboard(channel: Channel, gatewayURL: String, hostName: String? = nil) {
+    public static func copyToClipboard(channel: Channel, hostName: String? = nil) {
         let host = hostName ?? "Port42"
         let message: String
         if let inviteURL = generateInviteURL(channel: channel) {
             message = "Join first swimmers on \(host)'s Port42\n\(inviteURL)"
         } else {
-            let deepLink = generateLink(channel: channel, gatewayURL: gatewayURL)
+            let deepLink = generateLink(channel: channel)
             guard !deepLink.isEmpty else { return }
             message = "Join first swimmers on \(host)'s Port42\n\(deepLink)"
         }

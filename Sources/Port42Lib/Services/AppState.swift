@@ -679,6 +679,12 @@ public final class AppState: ObservableObject {
 
         selectChannel(channel)
         print("[Port42] Joined channel from invite: #\(invite.channelName)")
+
+        // Prompt ngrok setup so this user can also share channels
+        if tunnel.authToken.isEmpty {
+            pendingInviteChannel = channel
+            showNgrokSetup = true
+        }
     }
 
     public func deleteChannel(_ channel: Channel) {

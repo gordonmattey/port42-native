@@ -96,14 +96,12 @@ public struct SidebarView: View {
 
                             Divider()
 
-                            if let gwURL = appState.sync.gatewayURL, !gwURL.isEmpty {
-                                Button("Copy Invite Link") {
-                                    if appState.tunnel.authToken.isEmpty {
-                                        appState.pendingInviteChannel = channel
-                                        appState.showNgrokSetup = true
-                                    } else {
-                                        ChannelInvite.copyToClipboard(channel: channel, gatewayURL: gwURL, hostName: appState.currentUser?.displayName)
-                                    }
+                            Button("Copy Invite Link") {
+                                if appState.tunnel.authToken.isEmpty {
+                                    appState.pendingInviteChannel = channel
+                                    appState.showNgrokSetup = true
+                                } else {
+                                    ChannelInvite.copyToClipboard(channel: channel, hostName: appState.currentUser?.displayName)
                                 }
                             }
 

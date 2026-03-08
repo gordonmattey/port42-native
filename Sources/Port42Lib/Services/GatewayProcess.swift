@@ -14,7 +14,18 @@ public final class GatewayProcess: ObservableObject {
 
     /// Path to the gateway binary inside the app bundle
     private var binaryPath: String? {
-        Bundle.main.path(forAuxiliaryExecutable: "port42-gateway")
+        // Try standard auxiliary executable lookup first
+        if let path = Bundle.main.path(forAuxiliaryExecutable: "port42-gateway") {
+            return path
+        }
+        // Fallback: look next to the main executable in Contents/MacOS/
+        if let execURL = Bundle.main.executableURL {
+            let sibling = execURL.deletingLastPathComponent().appendingPathComponent("port42-gateway")
+            if FileManager.default.isExecutableFile(atPath: sibling.path) {
+                return sibling.path
+            }
+        }
+        return nil
     }
 
     /// Start the local gateway on the configured port
@@ -22,7 +33,7 @@ public final class GatewayProcess: ObservableObject {
         guard !isRunning else { return }
 
         guard let path = binaryPath else {
-            print("[gateway] binary not found in app bundle")
+            NSLog("[gateway] binary not found in app bundle")
             return
         }
 
