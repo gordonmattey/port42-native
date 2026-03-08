@@ -62,21 +62,21 @@ struct AgentRoutingTests {
     @Test("Message with agent mention routes to that agent")
     func routeToMentionedAgent() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
-            makeAgent(name: "@ai-muse", trigger: .mentionOnly),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "ai-muse", trigger: .mentionOnly),
         ]
         let targets = AgentRouter.findTargetAgents(
             content: "@ai-engineer review this",
             agents: agents
         )
         #expect(targets.count == 1)
-        #expect(targets.first?.displayName == "@ai-engineer")
+        #expect(targets.first?.displayName == "ai-engineer")
     }
 
     @Test("Message with no mention skips mention-only agents")
     func noRouteWithoutMention() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
         ]
         let targets = AgentRouter.findTargetAgents(
             content: "hello everyone",
@@ -88,41 +88,42 @@ struct AgentRoutingTests {
     @Test("All-messages agent receives everything")
     func allMessagesAgent() {
         let agents = [
-            makeAgent(name: "@watcher", trigger: .allMessages),
+            makeAgent(name: "watcher", trigger: .allMessages),
         ]
         let targets = AgentRouter.findTargetAgents(
             content: "hello everyone",
             agents: agents
         )
         #expect(targets.count == 1)
-        #expect(targets.first?.displayName == "@watcher")
+        #expect(targets.first?.displayName == "watcher")
     }
 
     @Test("Mixed trigger modes route correctly")
     func mixedTriggerModes() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
-            makeAgent(name: "@watcher", trigger: .allMessages),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "watcher", trigger: .allMessages),
         ]
 
-        // Message without mention: only watcher
+        // Message without mention: only watcher (allMessages trigger)
         let targets1 = AgentRouter.findTargetAgents(content: "hello", agents: agents)
         #expect(targets1.count == 1)
-        #expect(targets1.first?.displayName == "@watcher")
+        #expect(targets1.first?.displayName == "watcher")
 
-        // Message with mention: both
+        // Message with explicit mention: only the mentioned agent responds
         let targets2 = AgentRouter.findTargetAgents(
             content: "@ai-engineer hello", agents: agents
         )
-        #expect(targets2.count == 2)
+        #expect(targets2.count == 1)
+        #expect(targets2.first?.displayName == "ai-engineer")
     }
 
     @Test("Multiple agents mentioned")
     func multipleMentioned() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
-            makeAgent(name: "@ai-muse", trigger: .mentionOnly),
-            makeAgent(name: "@ai-analyst", trigger: .mentionOnly),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "ai-muse", trigger: .mentionOnly),
+            makeAgent(name: "ai-analyst", trigger: .mentionOnly),
         ]
         let targets = AgentRouter.findTargetAgents(
             content: "@ai-engineer @ai-muse thoughts?",
@@ -136,12 +137,12 @@ struct AgentRoutingTests {
     @Test("LLM and command agents both route by mention")
     func mixedModeRouting() {
         let llmAgent = AgentConfig.createLLM(
-            ownerId: "u", displayName: "@ai-engineer",
+            ownerId: "u", displayName: "ai-engineer",
             systemPrompt: "engineer", provider: .anthropic, model: "claude-sonnet-4-20250514",
             trigger: .mentionOnly
         )
         let cmdAgent = AgentConfig.createCommand(
-            ownerId: "u", displayName: "@custom-bot",
+            ownerId: "u", displayName: "custom-bot",
             command: "/bin/bot", trigger: .mentionOnly
         )
         let targets = AgentRouter.findTargetAgents(
@@ -156,20 +157,20 @@ struct AgentRoutingTests {
     @Test("Autocomplete matches prefix")
     func autocompletePrefix() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
-            makeAgent(name: "@ai-muse", trigger: .mentionOnly),
-            makeAgent(name: "@ai-analyst", trigger: .mentionOnly),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "ai-muse", trigger: .mentionOnly),
+            makeAgent(name: "ai-analyst", trigger: .mentionOnly),
         ]
         let matches = MentionParser.autocomplete(query: "@ai-e", agents: agents)
         #expect(matches.count == 1)
-        #expect(matches.first?.displayName == "@ai-engineer")
+        #expect(matches.first?.displayName == "ai-engineer")
     }
 
     @Test("Autocomplete with just @ returns all")
     func autocompleteAll() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
-            makeAgent(name: "@ai-muse", trigger: .mentionOnly),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "ai-muse", trigger: .mentionOnly),
         ]
         let matches = MentionParser.autocomplete(query: "@", agents: agents)
         #expect(matches.count == 2)
@@ -178,7 +179,7 @@ struct AgentRoutingTests {
     @Test("Autocomplete is case-insensitive")
     func autocompleteCaseInsensitive() {
         let agents = [
-            makeAgent(name: "@AI-Engineer", trigger: .mentionOnly),
+            makeAgent(name: "AI-Engineer", trigger: .mentionOnly),
         ]
         let matches = MentionParser.autocomplete(query: "@ai-eng", agents: agents)
         #expect(matches.count == 1)
@@ -187,7 +188,7 @@ struct AgentRoutingTests {
     @Test("Autocomplete no match returns empty")
     func autocompleteNoMatch() {
         let agents = [
-            makeAgent(name: "@ai-engineer", trigger: .mentionOnly),
+            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
         ]
         let matches = MentionParser.autocomplete(query: "@xyz", agents: agents)
         #expect(matches.isEmpty)

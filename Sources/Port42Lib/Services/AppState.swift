@@ -132,9 +132,10 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             if msg.senderId == agent.id {
                 return ["role": "assistant", "content": msg.content]
             } else if msg.isAgent {
-                return ["role": "user", "content": "(another companion named \(msg.senderName) said): \(msg.content)"]
+                let ownerNote = msg.senderOwner.map { " (belonging to \($0))" } ?? ""
+                return ["role": "user", "content": "(companion \(msg.senderName)\(ownerNote) said): \(msg.content)"]
             } else {
-                return ["role": "user", "content": msg.content]
+                return ["role": "user", "content": "[\(msg.senderName)]: \(msg.content)"]
             }
         }
         // Resolve any file paths in the trigger message and inline their content
@@ -146,6 +147,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         guard !cleaned.isEmpty else { return }
 
         // Insert placeholder message for streaming
+        let ownerName = appState?.currentUser?.displayName
         let placeholder = Message(
             id: messageId,
             channelId: channelId,
@@ -156,7 +158,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             timestamp: Date(),
             replyToId: nil,
             syncStatus: "local",
-            createdAt: Date()
+            createdAt: Date(),
+            senderOwner: ownerName
         )
 
         // Save placeholder to DB so it survives observation resets
@@ -191,8 +194,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
 
             CONTEXT: You are an AI companion in Port42, a native macOS app. \
-            You are in a shared channel with other companions and humans. Messages from other \
-            companions appear as [Name]: message. Those are NOT you. You are \(agent.displayName). \
+            You are in a shared channel with other companions and humans. \
+            Messages from humans appear as [Name]: message. \
+            Messages from other companions appear as (companion Name said): message. \
+            If a companion belongs to a specific human, it shows as (companion Name (belonging to Owner) said). \
+            Those are NOT you. You are \(agent.displayName). \
             \(fileAccessNote)
 
             INSTRUCTIONS: \(basePrompt)
@@ -242,7 +248,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             if !self.isTyping {
                 self.isTyping = true
                 self.appState?.typingAgentNames.insert(self.agent.displayName)
-                self.appState?.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: true)
+                self.appState?.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: true, senderOwner: self.appState?.currentUser?.displayName)
             }
         }
     }
@@ -251,7 +257,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNames.remove(self.agent.displayName)
-            appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false)
+            appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
 
             let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
 
@@ -271,7 +277,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 timestamp: Date(),
                 replyToId: nil,
                 syncStatus: "local",
-                createdAt: Date()
+                createdAt: Date(),
+                senderOwner: appState.currentUser?.displayName
             )
             do {
                 try appState.db.saveMessage(finalMessage)
@@ -288,7 +295,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNames.remove(self.agent.displayName)
-            appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false)
+            appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
             if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
                 if appState.messages[idx].content.isEmpty {
                     appState.messages[idx].content = "[error: \(error.localizedDescription)]"
@@ -456,17 +463,47 @@ public final class AppState: ObservableObject {
         return false
     }
 
-    /// Route incoming synced messages to agents (only human messages to avoid loops)
+    /// Route incoming synced messages to agents (only human messages to avoid loops).
+    /// When the remote message contains explicit @mentions, skip routing because
+    /// the sender's own app already routed to their agents. Only allMessages-trigger
+    /// agents respond to remote messages, unless the mention uses the namespace
+    /// format @Name@Owner to target a specific peer's agent.
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
         guard message.senderType == "human" else { return }
 
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
         guard !channelAgents.isEmpty else { return }
 
+        let mentions = MentionParser.extractMentions(from: message.content)
         let channelAgentIds = Set(channelAgents.map { $0.id })
-        let targets = AgentRouter.findTargetAgents(
-            content: message.content, agents: companions, channelAgentIds: channelAgentIds
-        )
+
+        let targets: [AgentConfig]
+        if mentions.isEmpty {
+            // No explicit mentions: route normally (allMessages agents respond)
+            targets = AgentRouter.findTargetAgents(
+                content: message.content, agents: companions, channelAgentIds: channelAgentIds
+            )
+        } else {
+            // Has mentions: only route if a mention uses our namespace (@Name@Owner)
+            let myName = currentUser?.displayName ?? ""
+            let namespacedMentions = mentions.compactMap { mention -> String? in
+                let stripped = String(mention.dropFirst()) // remove @
+                let parts = stripped.split(separator: "@", maxSplits: 1)
+                guard parts.count == 2,
+                      parts[1].lowercased() == myName.lowercased() else { return nil }
+                return String(parts[0]).lowercased()
+            }
+            if namespacedMentions.isEmpty {
+                // All mentions are bare (e.g. @Echo), sender's app handles those
+                targets = []
+            } else {
+                targets = companions.filter { agent in
+                    namespacedMentions.contains(agent.displayName.lowercased())
+                }
+            }
+        }
+
+        guard !targets.isEmpty else { return }
 
         let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
 

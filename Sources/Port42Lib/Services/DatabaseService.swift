@@ -149,6 +149,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v7-sender-owner") { db in
+            try db.alter(table: "messages") { t in
+                t.add(column: "senderOwner", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

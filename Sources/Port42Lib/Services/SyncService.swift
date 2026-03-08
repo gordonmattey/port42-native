@@ -37,13 +37,16 @@ public struct SyncPayload: Codable {
     public let replyToId: String?
     /// When true, `content` is an encrypted blob and senderName is masked.
     public var encrypted: Bool?
+    /// Display name of the human who owns this sender (nil for human senders).
+    public var senderOwner: String?
 
-    public init(senderName: String, senderType: String, content: String, replyToId: String?, encrypted: Bool? = nil) {
+    public init(senderName: String, senderType: String, content: String, replyToId: String?, encrypted: Bool? = nil, senderOwner: String? = nil) {
         self.senderName = senderName
         self.senderType = senderType
         self.content = content
         self.replyToId = replyToId
         self.encrypted = encrypted
+        self.senderOwner = senderOwner
     }
 }
 
@@ -157,7 +160,8 @@ public final class SyncService: NSObject, ObservableObject {
             senderName: message.senderName,
             senderType: message.senderType,
             content: message.content,
-            replyToId: message.replyToId
+            replyToId: message.replyToId,
+            senderOwner: message.senderOwner
         )
 
         let payload: SyncPayload
@@ -189,7 +193,7 @@ public final class SyncService: NSObject, ObservableObject {
     }
 
     /// Broadcast typing indicator to other peers
-    public func sendTyping(channelId: String, senderName: String, isTyping: Bool) {
+    public func sendTyping(channelId: String, senderName: String, isTyping: Bool, senderOwner: String? = nil) {
         let envelope = SyncEnvelope(
             type: "typing",
             channelId: channelId,
@@ -197,7 +201,8 @@ public final class SyncService: NSObject, ObservableObject {
                 senderName: senderName,
                 senderType: "agent",
                 content: isTyping ? "typing" : "stopped",
-                replyToId: nil
+                replyToId: nil,
+                senderOwner: senderOwner
             )
         )
         print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) channel=\(channelId)")
@@ -322,7 +327,8 @@ public final class SyncService: NSObject, ObservableObject {
             timestamp: timestamp,
             replyToId: resolvedPayload.replyToId,
             syncStatus: "synced",
-            createdAt: Date()
+            createdAt: Date(),
+            senderOwner: resolvedPayload.senderOwner
         )
 
         do {
@@ -369,13 +375,20 @@ public final class SyncService: NSObject, ObservableObject {
               let senderName = envelope.payload?.senderName,
               let content = envelope.payload?.content else { return }
 
+        let displayName: String
+        if let owner = envelope.payload?.senderOwner {
+            displayName = "\(senderName)@\(owner)"
+        } else {
+            displayName = senderName
+        }
+
         if content == "typing" {
             var names = remoteTypingNames[channelId] ?? []
-            names.insert(senderName)
+            names.insert(displayName)
             remoteTypingNames[channelId] = names
-            print("[sync] typing: \(senderName) in \(channelId)")
+            print("[sync] typing: \(displayName) in \(channelId)")
         } else {
-            remoteTypingNames[channelId]?.remove(senderName)
+            remoteTypingNames[channelId]?.remove(displayName)
         }
     }
 

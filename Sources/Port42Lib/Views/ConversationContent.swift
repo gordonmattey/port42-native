@@ -6,6 +6,7 @@ import SwiftUI
 public struct ChatEntry: Identifiable, Equatable {
     public let id: String
     public let senderName: String
+    public let senderOwner: String?
     public let content: String
     public let timestamp: Date?
     public let isSystem: Bool
@@ -14,15 +15,25 @@ public struct ChatEntry: Identifiable, Equatable {
 
     public init(
         id: String, senderName: String, content: String, timestamp: Date? = nil,
-        isSystem: Bool = false, isAgent: Bool = false, isPlaceholder: Bool = false
+        isSystem: Bool = false, isAgent: Bool = false, isPlaceholder: Bool = false,
+        senderOwner: String? = nil
     ) {
         self.id = id
         self.senderName = senderName
+        self.senderOwner = senderOwner
         self.content = content
         self.timestamp = timestamp
         self.isSystem = isSystem
         self.isAgent = isAgent
         self.isPlaceholder = isPlaceholder
+    }
+
+    /// Display name with owner namespace for remote agents
+    public var displayName: String {
+        if let owner = senderOwner {
+            return "\(senderName)@\(owner)"
+        }
+        return senderName
     }
 
     public var formattedTime: String? {
@@ -365,13 +376,13 @@ struct MessageRow: View, Equatable {
                     .font(Port42Theme.mono(12))
                     .foregroundColor(Port42Theme.textSecondary)
             } else {
-                let agentColor = Port42Theme.agentColor(for: entry.senderName)
+                let agentColor = Port42Theme.agentColor(for: entry.senderName, owner: entry.senderOwner)
                 let nameColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
                 let contentColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 0) {
-                        Text(entry.senderName)
+                        Text(entry.displayName)
                             .font(Port42Theme.monoBold(13))
                             .foregroundColor(nameColor)
                         if let time = entry.formattedTime {

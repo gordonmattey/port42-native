@@ -9,6 +9,7 @@ public struct Message: Codable, FetchableRecord, PersistableRecord, Identifiable
     public var senderId: String
     public var senderName: String
     public var senderType: String
+    public var senderOwner: String?
     public var content: String
     public var timestamp: Date
     public var replyToId: String?
@@ -18,13 +19,15 @@ public struct Message: Codable, FetchableRecord, PersistableRecord, Identifiable
     public init(
         id: String, channelId: String, senderId: String, senderName: String,
         senderType: String, content: String, timestamp: Date,
-        replyToId: String?, syncStatus: String, createdAt: Date
+        replyToId: String?, syncStatus: String, createdAt: Date,
+        senderOwner: String? = nil
     ) {
         self.id = id
         self.channelId = channelId
         self.senderId = senderId
         self.senderName = senderName
         self.senderType = senderType
+        self.senderOwner = senderOwner
         self.content = content
         self.timestamp = timestamp
         self.replyToId = replyToId

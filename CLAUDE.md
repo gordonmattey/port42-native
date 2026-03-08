@@ -167,12 +167,24 @@ xcrun stapler staple dist/Port42.dmg
 - **Naming:** Models are plain structs. Services are classes. Views are structs.
 - **Migrations:** Never modify an existing migration. Always append a new `registerMigration`.
 
+## Testing
+
+Tests use **Swift Testing** (not XCTest). Key conventions:
+- `import Testing` (never `import XCTest`)
+- `@Suite("Name")` for test suites, `@Test("description")` for individual tests
+- `#expect(condition)` for assertions (not `XCTAssert`)
+- `throws` on test functions for error handling (no `XCTAssertNoThrow`)
+- Factory methods like `AppUser.createLocal(displayName:)`, `Channel.create(name:)`, `Message.create(...)` for test data
+- `DatabaseService(inMemory: true)` for isolated DB tests
+- Run tests with `swift test` or filter with `swift test --filter SuiteName`
+
 ## Development Rules
 
 - DO NOT COMMIT unless asked
 - DO NOT REFACTOR unless asked
 - FIX ROOT CAUSES not symptoms
 - Test changes by building and running before committing
+- Write tests for new features using Swift Testing
 - When modifying the gateway, `./build.sh` handles it automatically
 
 ## Milestones

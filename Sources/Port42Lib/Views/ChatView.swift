@@ -44,7 +44,8 @@ public struct ChatView: View {
                 content: message.content,
                 timestamp: message.timestamp,
                 isSystem: message.isSystem,
-                isAgent: message.isAgent
+                isAgent: message.isAgent,
+                senderOwner: message.senderOwner
             )
         }
     }

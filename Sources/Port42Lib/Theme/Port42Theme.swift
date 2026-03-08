@@ -29,9 +29,10 @@ public enum Port42Theme {
         Color(hex: 0xF0E68C),  // khaki
     ]
 
-    /// Deterministic color for an agent based on its name
-    public static func agentColor(for name: String) -> Color {
-        let hash = name.utf8.reduce(0) { ($0 &+ Int($1)) &* 31 }
+    /// Deterministic color for an agent based on its name and optional owner
+    public static func agentColor(for name: String, owner: String? = nil) -> Color {
+        let key = owner.map { "\(name)·\($0)" } ?? name
+        let hash = key.utf8.reduce(0) { ($0 &+ Int($1)) &* 31 }
         return agentColors[abs(hash) % agentColors.count]
     }
 

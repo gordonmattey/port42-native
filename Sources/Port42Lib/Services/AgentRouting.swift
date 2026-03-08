@@ -32,7 +32,9 @@ public enum MentionParser {
     public static func autocomplete(query: String, agents: [AgentConfig]) -> [AgentConfig] {
         let lowered = query.lowercased()
         if lowered == "@" { return agents }
-        return agents.filter { $0.displayName.lowercased().hasPrefix(lowered) }
+        // Strip leading @ since displayName doesn't include it
+        let stripped = lowered.hasPrefix("@") ? String(lowered.dropFirst()) : lowered
+        return agents.filter { $0.displayName.lowercased().hasPrefix(stripped) }
     }
 }
 

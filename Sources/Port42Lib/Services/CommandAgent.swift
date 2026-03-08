@@ -64,7 +64,8 @@ final class CommandAgentHandler {
             timestamp: Date(),
             replyToId: nil,
             syncStatus: "local",
-            createdAt: Date()
+            createdAt: Date(),
+            senderOwner: appState?.currentUser?.displayName
         )
         appState?.messages.append(placeholder)
 
