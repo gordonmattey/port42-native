@@ -72,9 +72,10 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the gateway WS URL from the request host
+	// Build the gateway WS URL from the request host (no /ws suffix;
+	// the client appends /ws when connecting)
 	scheme := "wss"
-	gateway := scheme + "://" + r.Host + "/ws"
+	gateway := scheme + "://" + r.Host
 
 	// Build port42:// deep link
 	deepLink := fmt.Sprintf("port42://channel?gateway=%s&id=%s&name=%s",

@@ -1,16 +1,25 @@
 import Foundation
+import AppKit
 
 /// Manages the bundled Port42 Gateway process lifecycle.
 /// The gateway binary lives inside the app bundle and is launched as a subprocess.
 @MainActor
 public final class GatewayProcess: ObservableObject {
     @Published public var isRunning = false
-    @Published public var port: Int = 4242
+    @Published public var port: Int = {
+        if let envPort = ProcessInfo.processInfo.environment["PORT42_GATEWAY_PORT"],
+           let p = Int(envPort) {
+            return p
+        }
+        return 4242
+    }()
 
     private var process: Process?
     private var outputPipe: Pipe?
 
     public static let shared = GatewayProcess()
+
+    private var terminationObserver: NSObjectProtocol?
 
     /// Path to the gateway binary inside the app bundle
     private var binaryPath: String? {
@@ -66,6 +75,17 @@ public final class GatewayProcess: ObservableObject {
             self.process = proc
             isRunning = true
             print("[gateway] started on port \(port), pid \(proc.processIdentifier)")
+
+            // Kill the gateway when the app terminates (singleton never deinits)
+            if terminationObserver == nil {
+                terminationObserver = NotificationCenter.default.addObserver(
+                    forName: NSApplication.willTerminateNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.process?.terminate()
+                }
+            }
         } catch {
             print("[gateway] failed to start: \(error)")
         }

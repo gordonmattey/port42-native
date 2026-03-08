@@ -11,15 +11,21 @@ public struct ChannelInviteData {
 public enum ChannelInvite {
 
     /// Generate a port42://channel? invite link for sharing a channel.
-    /// Always uses this user's OWN tunnel or local gateway, never a remote URL.
+    /// Uses the gateway this user is actually connected to. If connected to
+    /// a remote gateway (joined from someone else's invite), the link points
+    /// back to that original host so new peers join the same gateway.
     @MainActor
-    public static func generateLink(channel: Channel) -> String {
+    public static func generateLink(channel: Channel, syncGatewayURL: String? = nil) -> String {
         let resolvedGW: String
-        // Only use this user's own tunnel URL
-        if let tunnelURL = TunnelService.shared.publicURL {
+
+        // If connected to a remote gateway, use that
+        if let gw = syncGatewayURL, !gw.contains("localhost"), !gw.contains("127.0.0.1") {
+            resolvedGW = gw
+        } else if let tunnelURL = TunnelService.shared.publicURL {
+            // Host with tunnel: use the public tunnel URL
             resolvedGW = tunnelURL
         } else {
-            // Fall back to local gateway with LAN IP so it works on the local network
+            // No tunnel: fall back to LAN IP
             let localGW = GatewayProcess.shared.localURL
             if let lanIP = localIPAddress() {
                 resolvedGW = localGW
@@ -92,16 +98,25 @@ public enum ChannelInvite {
     }
 
     /// Build an HTTPS invite URL served by the gateway's /invite endpoint.
+    /// If connected to a remote gateway, the invite URL points to that host's
+    /// landing page so the link always leads back to the channel's origin.
     @MainActor
-    public static func generateInviteURL(channel: Channel) -> String? {
-        // Use tunnel URL for internet-accessible invite pages
-        guard let tunnelURL = TunnelService.shared.publicURL else { return nil }
-
-        // Convert ws(s):// to https://
-        let baseURL = tunnelURL
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
-            .replacingOccurrences(of: "/ws", with: "")
+    public static func generateInviteURL(channel: Channel, syncGatewayURL: String? = nil) -> String? {
+        // If connected to a remote gateway, build the invite URL from that
+        let baseURL: String
+        if let gw = syncGatewayURL, !gw.contains("localhost"), !gw.contains("127.0.0.1") {
+            baseURL = gw
+                .replacingOccurrences(of: "wss://", with: "https://")
+                .replacingOccurrences(of: "ws://", with: "http://")
+                .replacingOccurrences(of: "/ws", with: "")
+        } else if let tunnelURL = TunnelService.shared.publicURL {
+            baseURL = tunnelURL
+                .replacingOccurrences(of: "wss://", with: "https://")
+                .replacingOccurrences(of: "ws://", with: "http://")
+                .replacingOccurrences(of: "/ws", with: "")
+        } else {
+            return nil
+        }
 
         var components = URLComponents(string: baseURL + "/invite")
         var items = [
@@ -118,13 +133,13 @@ public enum ChannelInvite {
     /// Copy an invite link to the clipboard. Prefers the landing page URL
     /// so recipients get download/connect options on the page itself.
     @MainActor
-    public static func copyToClipboard(channel: Channel, hostName: String? = nil) {
+    public static func copyToClipboard(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil) {
         let host = hostName ?? "Port42"
         let message: String
-        if let inviteURL = generateInviteURL(channel: channel) {
+        if let inviteURL = generateInviteURL(channel: channel, syncGatewayURL: syncGatewayURL) {
             message = "Join first swimmers on \(host)'s Port42\n\(inviteURL)"
         } else {
-            let deepLink = generateLink(channel: channel)
+            let deepLink = generateLink(channel: channel, syncGatewayURL: syncGatewayURL)
             guard !deepLink.isEmpty else { return }
             message = "Join first swimmers on \(host)'s Port42\n\(deepLink)"
         }

@@ -494,7 +494,7 @@ public struct SetupView: View {
                     HStack(spacing: 8) {
                         Text("\u{1F42C}")
                             .font(.system(size: 16))
-                        Text("enter aquarium")
+                        Text("exit aquarium")
                             .font(Port42Theme.monoBold(12))
                             .foregroundStyle(.black)
                     }

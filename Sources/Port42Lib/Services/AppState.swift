@@ -440,6 +440,22 @@ public final class AppState: ObservableObject {
         return result == 0
     }
 
+    /// Check if a gateway URL points back to our own local gateway
+    /// (either directly via localhost or through our ngrok tunnel).
+    private func isOwnGateway(_ url: String) -> Bool {
+        let local = GatewayProcess.shared.localURL
+        if url == local { return true }
+
+        // Check if the URL matches our tunnel domain
+        if let tunnelURL = tunnel.publicURL {
+            let tunnelHost = URL(string: tunnelURL.replacingOccurrences(of: "wss://", with: "https://"))?.host
+            let urlHost = URL(string: url.replacingOccurrences(of: "wss://", with: "https://").replacingOccurrences(of: "ws://", with: "http://"))?.host
+            if let th = tunnelHost, let uh = urlHost, th == uh { return true }
+        }
+
+        return false
+    }
+
     /// Route incoming synced messages to agents (only human messages to avoid loops)
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
         guard message.senderType == "human" else { return }
@@ -546,8 +562,8 @@ public final class AppState: ObservableObject {
                 On the very first message, welcome them briefly and explain where they are: \
                 they're inside the aquarium now. this is where their AI companions live. \
                 you're their first companion, Echo. you swim together here. \
-                tell them when they're ready, they can enter the aquarium \
-                using the "enter aquarium" button at the top right. \
+                tell them when they're ready, they can exit the aquarium \
+                using the "exit aquarium" button at the top right. \
                 but there's no rush. you're here.
 
                 Keep it to 2-3 short sentences. Warm, not formal. Don't dump help text.
@@ -676,18 +692,25 @@ public final class AppState: ObservableObject {
             return
         }
 
-        // Configure sync to the invite's gateway if different
+        // Configure sync to the invite's gateway if different.
+        // But don't switch away from our local gateway if the invite points
+        // back to us (e.g. through our own ngrok tunnel).
+        let localGW = GatewayProcess.shared.localURL
         let currentGW = sync.gatewayURL ?? ""
-        if currentGW != invite.gateway, let user = currentUser {
+        let invitePointsToSelf = isOwnGateway(invite.gateway)
+
+        if invitePointsToSelf {
+            // Invite is for our own gateway, just join the channel
+            syncJoinChannel(channel.id)
+        } else if currentGW != invite.gateway, let user = currentUser {
+            // Different remote gateway, switch to it
             UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
             sync.configure(gatewayURL: invite.gateway, userId: user.id, db: db)
             sync.connect()
-            // Rejoin all channels on the new gateway
             for ch in channels {
                 syncJoinChannel(ch.id)
             }
         } else {
-            // Same gateway, just join the new channel
             syncJoinChannel(channel.id)
         }
 

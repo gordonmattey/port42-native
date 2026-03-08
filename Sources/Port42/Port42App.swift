@@ -33,7 +33,9 @@ struct Port42App: App {
 
     init() {
         do {
-            let db = try DatabaseService()
+            // Use a separate data directory when running as a test peer
+            let subdir = ProcessInfo.processInfo.environment["PORT42_DATA_DIR"] ?? "Port42"
+            let db = try DatabaseService(subdirectory: subdir)
             _appState = StateObject(wrappedValue: AppState(db: db))
         } catch {
             fatalError("[Port42] Failed to initialize database: \(error)")

@@ -218,14 +218,19 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-503 | Store and Forward | Relay holds encrypted messages for offline recipients. Delivers on reconnect. Deletes after ACK. | Messages sent while recipient offline arrive when they reconnect | M3 |
 | F-504 | Offline Queue | Messages created while offline queue locally. Sync automatically when connection restored. | No messages lost during network interruption | M3 |
 | F-505 | Presence | Online/offline status for all channel members. Broadcast via relay. | User can see who is online in a channel | M3 |
+| F-506 | Remote Identity | Qualify synced AI names with owner (e.g. "Echo · gordon") so AIs with the same name are visually distinct across peers. Colors and avatars differ per owner. | Two users with identically named AIs can tell them apart in chat | M3 |
+| F-507 | Cross-Peer Mentions | @ mention autocomplete includes remote humans and their AIs, built from message history and presence data. | User can @mention a remote human or their AI in a shared channel | M3 |
+| F-508 | Full Member List | Channel header shows all connected members and companions (from presence), not just historical senders. Humans and AIs visually distinguished. | Header shows remote companions and humans with type indicators | M3 |
+| F-509 | Sender Attribution | Human messages sent to AI include sender name in context. AI knows who is speaking and can address them by name. | AI responds using the correct human's name | M3 |
 
 ### Go Relay Server
 
 | ID | Feature | Description | Done When | Milestone |
 |----|---------|-------------|-----------|-----------|
 | F-510 | Relay Core | Go binary that accepts WebSocket connections, routes encrypted blobs by channel membership, stores until ACK. | Relay forwards messages between two connected clients | M3 |
-| F-511 | Relay Auth | Key-pair based auth. Client signs a challenge from relay to prove identity. No passwords, no accounts. | Only the key holder can connect as that identity | M3 |
+| F-511 | Relay Auth | Secure Enclave P256 identity. Client connects, gateway sends a nonce challenge, client signs with `SecureEnclave.P256.Signing.PrivateKey` (hardware-backed, non-extractable). Gateway verifies signature against the client's public key. No passwords, no accounts, no Apple ID. Identity is device-bound and hardware-secured. | Only the key holder can connect as that identity. Private key cannot be exported or cloned. | M3 |
 | F-512 | Relay Self-Host | Single binary, no external dependencies, configurable via env vars or flags. README with deploy instructions. | Anyone can run their own relay with `./port42-relay` | M3 |
+| F-514 | Channel Join Tokens | Invite links include a one-time join token signed by the inviter. Gateway only allows channel joins with a valid token from an existing member. Prevents unauthorized channel access even if the channel ID is known. | Connecting to the gateway and sending a join without a valid token is rejected | M3 |
 | F-513 | Signaling | SDP/ICE exchange for WebRTC audio room setup routed through relay. | Audio room connections negotiate through relay | M5 |
 
 ### Platform Bridges
@@ -319,17 +324,21 @@ same companion with their own auth. Autocomplete works for companion names.
 *Real-time encrypted chat between multiple people.*
 
 Covers invite system (F-500), E2E encryption (F-501), real-time sync (F-502),
-store-and-forward (F-503), offline queue (F-504), presence (F-505), relay core
-(F-510), relay auth (F-511), relay self-host (F-512), reply threading (F-303),
-message status (F-304), typing indicators (F-305), and full activity indicators (F-202).
+store-and-forward (F-503), offline queue (F-504), presence (F-505), remote identity
+(F-506), cross-peer mentions (F-507), full member list (F-508), sender attribution
+(F-509), relay core (F-510), relay auth (F-511), relay self-host (F-512), channel
+join tokens (F-514), reply
+threading (F-303), message status (F-304), typing indicators (F-305), and full
+activity indicators (F-202).
 
 Enables Flow 3 and Flow 5. Two people on different machines share a channel.
-Messages sync instantly. Each person's agents are visible to the other. Messages
-queue when offline and deliver on reconnect.
+Messages sync instantly. Each person's agents are visible and distinguishable.
+Messages queue when offline and deliver on reconnect.
 
 **M3 is done when:** Two users on separate Macs, connected via relay, can chat in
 real time with E2E encryption. Messages arrive within 500ms. Offline messages
-deliver on reconnect. Each user's agents visible to the other.
+deliver on reconnect. Each user's agents are visible, distinguishable by owner,
+and mentionable by the other user.
 
 ### M4: Platform Bridges
 
