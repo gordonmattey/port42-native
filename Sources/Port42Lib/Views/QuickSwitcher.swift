@@ -208,40 +208,56 @@ public struct QuickSwitcher: View {
 
     // MARK: - Invite Link
 
+    /// Extract the first URL from text that may contain surrounding prose
+    private func extractURL(from text: String) -> String? {
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let range = NSRange(text.startIndex..., in: text)
+        if let match = detector?.firstMatch(in: text, range: range),
+           let urlRange = Range(match.range, in: text) {
+            return String(text[urlRange])
+        }
+        return nil
+    }
+
     private var parsedInvite: ChannelInviteData? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Direct port42:// deep link
-        if trimmed.hasPrefix("port42://channel"),
-           let url = URL(string: trimmed) {
-            return ChannelInvite.parse(url: url)
-        }
+        // Try parsing the input directly, or extract a URL from surrounding text
+        let candidates = [trimmed, extractURL(from: trimmed)].compactMap { $0 }
 
-        // HTTPS invite page link (e.g. https://xxx.ngrok.io/invite?id=...&name=...&key=...)
-        if let url = URL(string: trimmed),
-           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           (components.scheme == "https" || components.scheme == "http"),
-           components.path == "/invite" {
-            let items = components.queryItems ?? []
-            let dict = Dictionary(items.compactMap { item in
-                item.value.map { (item.name, $0) }
-            }, uniquingKeysWith: { _, last in last })
+        for candidate in candidates {
+            // Direct port42:// deep link
+            if candidate.hasPrefix("port42://channel"),
+               let url = URL(string: candidate) {
+                return ChannelInvite.parse(url: url)
+            }
 
-            guard let channelId = dict["id"],
-                  let name = dict["name"],
-                  let host = components.host else { return nil }
+            // HTTPS invite page link (e.g. https://xxx.ngrok.io/invite?id=...&name=...&key=...)
+            if let url = URL(string: candidate),
+               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               (components.scheme == "https" || components.scheme == "http"),
+               components.path == "/invite" {
+                let items = components.queryItems ?? []
+                let dict = Dictionary(items.compactMap { item in
+                    item.value.map { (item.name, $0) }
+                }, uniquingKeysWith: { _, last in last })
 
-            // Build the gateway WSS URL from the invite page host
-            let scheme = components.scheme == "https" ? "wss" : "ws"
-            let port = components.port.map { ":\($0)" } ?? ""
-            let gateway = "\(scheme)://\(host)\(port)"
+                guard let channelId = dict["id"],
+                      let name = dict["name"],
+                      let host = components.host else { continue }
 
-            return ChannelInviteData(
-                gateway: gateway,
-                channelId: channelId,
-                channelName: name,
-                encryptionKey: dict["key"]
-            )
+                // Build the gateway WSS URL from the invite page host
+                let scheme = components.scheme == "https" ? "wss" : "ws"
+                let port = components.port.map { ":\($0)" } ?? ""
+                let gateway = "\(scheme)://\(host)\(port)"
+
+                return ChannelInviteData(
+                    gateway: gateway,
+                    channelId: channelId,
+                    channelName: name,
+                    encryptionKey: dict["key"]
+                )
+            }
         }
 
         return nil

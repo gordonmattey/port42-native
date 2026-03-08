@@ -99,7 +99,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, safeName, safeName, deepLink, pageURL)
+	fmt.Fprintf(w, invitePage, safeName, safeName, safeName, safeName, deepLink, pageURL, pageURL)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -150,6 +150,16 @@ const invitePage = `<!DOCTYPE html>
   .btn-primary { background: #00d4aa; color: #0a0a0a; }
   .btn-secondary { background: #222; color: #e0e0e0; }
   .note { font-size: 11px; color: #555; margin-top: 16px; }
+  .divider { border-top: 1px solid #222; margin: 24px 0; }
+  .openclaw { text-align: center; }
+  .openclaw-title { font-size: 13px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
+  .openclaw-desc { font-size: 12px; color: #666; margin-bottom: 12px; }
+  .code-block {
+    background: #0a0a0a; border: 1px solid #222; border-radius: 6px;
+    padding: 12px; font-size: 11px; color: #00d4aa; text-align: left;
+    white-space: pre-wrap; word-break: break-all; margin-bottom: 10px;
+    line-height: 1.6;
+  }
 </style>
 </head>
 <body>
@@ -166,8 +176,18 @@ const invitePage = `<!DOCTYPE html>
   <a href="%s" class="btn btn-primary" style="margin-top:10px;">accept invitation</a>
   <button class="btn btn-secondary" onclick="copyInvite()" style="border:none;cursor:pointer;margin-top:10px;">copy invite link</button>
   <p class="note" id="copy-msg" style="min-height:1.4em;"></p>
+  <div class="divider"></div>
+  <div class="openclaw">
+    <p class="openclaw-title">using OpenClaw?</p>
+    <p class="openclaw-desc">plug your agents into this channel</p>
+    <div class="code-block" id="openclaw-cmd">openclaw plugins install port42-openclaw
+openclaw channel add port42 --invite "%s"</div>
+    <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;">copy commands</button>
+    <p class="note" id="cmd-msg" style="min-height:1.4em;"></p>
+  </div>
 <script>
 function copyInvite(){navigator.clipboard.writeText('%s').then(function(){document.getElementById('copy-msg').textContent='copied!';});}
+function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
 </script>
 </div>
 </body>
