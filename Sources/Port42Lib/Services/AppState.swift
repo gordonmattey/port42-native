@@ -373,26 +373,19 @@ public final class AppState: ObservableObject {
     }
 
     private func configureSyncIfNeeded(userId: String) {
-        let gwURL: String
+        // Always ensure the local gateway is running (ngrok and other proxies connect to it)
+        let gp = GatewayProcess.shared
         var didStartGateway = false
+        if !gp.isRunning && !canConnectToPort(gp.port) {
+            gp.start()
+            didStartGateway = true
+        }
+
+        let gwURL: String
         if let saved = UserDefaults.standard.string(forKey: "gatewayURL"), !saved.isEmpty {
             gwURL = saved
         } else {
-            // Check if the default gateway (port 4242) is already running (another instance)
-            let defaultPort = 4242
-            let gp = GatewayProcess.shared
-            if canConnectToPort(defaultPort) {
-                // Another instance's gateway is already running, use it
-                gwURL = "ws://localhost:\(defaultPort)"
-                print("[sync] found existing gateway on port \(defaultPort), using it")
-            } else {
-                // No gateway found, start our own
-                if !gp.isRunning {
-                    gp.start()
-                    didStartGateway = true
-                }
-                gwURL = gp.localURL
-            }
+            gwURL = gp.localURL
         }
 
         sync.configure(gatewayURL: gwURL, userId: userId, db: db)
@@ -589,6 +582,9 @@ public final class AppState: ObservableObject {
 
             Analytics.shared.configure(userId: user.id)
             Analytics.shared.capture("setup_completed", properties: ["display_name": displayName])
+
+            // Start gateway and sync now (don't wait for next app launch)
+            configureSyncIfNeeded(userId: user.id)
         } catch {
             print("[Port42] Setup failed: \(error)")
         }

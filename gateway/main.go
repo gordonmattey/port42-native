@@ -91,7 +91,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, deepLink, pageURL)
+	fmt.Fprintf(w, invitePage, safeName, safeName, safeName, safeName, deepLink, pageURL)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -100,6 +100,17 @@ const invitePage = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Join #%s on Port42</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="Join #%s on Port42">
+<meta property="og:description" content="You've been invited to swim in Port42, the aquarium for AI companions. Download the app, dive in, and start swimming together.">
+<meta property="og:image" content="https://port42.ai/cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:site_name" content="Port42">
+<meta property="twitter:card" content="summary_large_image">
+<meta property="twitter:title" content="Join #%s on Port42">
+<meta property="twitter:description" content="You've been invited to swim in Port42, the aquarium for AI companions. Download the app, dive in, and start swimming together.">
+<meta property="twitter:image" content="https://port42.ai/cover.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
