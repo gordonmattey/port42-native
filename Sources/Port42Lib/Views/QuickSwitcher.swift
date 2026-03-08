@@ -255,7 +255,8 @@ public struct QuickSwitcher: View {
                     gateway: gateway,
                     channelId: channelId,
                     channelName: name,
-                    encryptionKey: dict["key"]
+                    encryptionKey: dict["key"],
+                    token: dict["token"]
                 )
             }
         }

@@ -13,6 +13,7 @@ struct SyncEnvelope: Codable {
     var payload: SyncPayload?
     var timestamp: Int64?
     var error: String?
+    var token: String?
     // Presence fields
     var onlineIds: [String]?
     var status: String?
@@ -28,6 +29,7 @@ struct SyncEnvelope: Codable {
         case payload
         case timestamp
         case error
+        case token
         case onlineIds = "online_ids"
         case status
         case companionIds = "companion_ids"
@@ -75,6 +77,8 @@ public final class SyncService: NSObject, ObservableObject {
     private var joinedChannels: Set<String> = []
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
+    /// Pending token request continuations: channelId -> continuation
+    private var tokenContinuations: [String: CheckedContinuation<String, Error>] = [:]
 
     /// Called when a message arrives from the network (channelId, message)
     public var onMessageReceived: ((String, Message) -> Void)?
@@ -141,14 +145,20 @@ public final class SyncService: NSObject, ObservableObject {
     /// Companion IDs per channel, sent to gateway on join for cross-instance presence
     private var channelCompanions: [String: [String]] = [:]
 
-    public func joinChannel(_ channelId: String, companionIds: [String] = []) {
+    /// Tokens received from the gateway for channel joins (persisted across reconnects)
+    private var channelTokens: [String: String] = [:]
+
+    public func joinChannel(_ channelId: String, companionIds: [String] = [], token: String? = nil) {
         let alreadyJoined = joinedChannels.contains(channelId)
         channelCompanions[channelId] = companionIds
+        if let token { channelTokens[channelId] = token }
         joinedChannels.insert(channelId)
         guard isConnected else { return }
         // Skip sending join if already joined (prevents duplicate presence broadcasts)
         guard !alreadyJoined else { return }
-        send(SyncEnvelope(type: "join", channelId: channelId, companionIds: companionIds.isEmpty ? nil : companionIds))
+        var envelope = SyncEnvelope(type: "join", channelId: channelId, companionIds: companionIds.isEmpty ? nil : companionIds)
+        envelope.token = channelTokens[channelId]
+        send(envelope)
     }
 
     public func leaveChannel(_ channelId: String) {
@@ -160,7 +170,9 @@ public final class SyncService: NSObject, ObservableObject {
     public func joinAllChannels() {
         for channelId in joinedChannels {
             let companions = channelCompanions[channelId]
-            send(SyncEnvelope(type: "join", channelId: channelId, companionIds: companions?.isEmpty == false ? companions : nil))
+            var envelope = SyncEnvelope(type: "join", channelId: channelId, companionIds: companions?.isEmpty == false ? companions : nil)
+            envelope.token = channelTokens[channelId]
+            send(envelope)
         }
     }
 
@@ -218,6 +230,14 @@ public final class SyncService: NSObject, ObservableObject {
         )
         print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) channel=\(channelId)")
         send(envelope)
+    }
+
+    /// Request a single-use join token for a channel from the gateway.
+    public func requestToken(channelId: String) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            tokenContinuations[channelId] = continuation
+            send(SyncEnvelope(type: "create_token", channelId: channelId))
+        }
     }
 
     // MARK: - Private
@@ -288,8 +308,17 @@ public final class SyncService: NSObject, ObservableObject {
         case "typing":
             handleTyping(envelope)
 
+        case "token":
+            handleToken(envelope)
+
         case "error":
             print("[sync] gateway error: \(envelope.error ?? "unknown")")
+            // Check if this error is for a pending token request
+            if let channelId = envelope.channelId,
+               let continuation = tokenContinuations.removeValue(forKey: channelId) {
+                continuation.resume(throwing: NSError(domain: "SyncService", code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: envelope.error ?? "unknown error"]))
+            }
 
         default:
             break
@@ -410,6 +439,15 @@ public final class SyncService: NSObject, ObservableObject {
         } else {
             remoteTypingNames[channelId]?.remove(displayName)
         }
+    }
+
+    private func handleToken(_ envelope: SyncEnvelope) {
+        guard let channelId = envelope.channelId,
+              let token = envelope.token else { return }
+        if let continuation = tokenContinuations.removeValue(forKey: channelId) {
+            continuation.resume(returning: token)
+        }
+        print("[sync] received join token for channel \(channelId)")
     }
 
     private func scheduleReconnect() {

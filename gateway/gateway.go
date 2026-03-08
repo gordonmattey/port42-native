@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -22,6 +25,7 @@ type Envelope struct {
 	Payload   json.RawMessage `json:"payload,omitempty"`
 	Timestamp int64           `json:"timestamp,omitempty"`
 	Error     string          `json:"error,omitempty"`
+	Token     string          `json:"token,omitempty"`
 	// Presence fields
 	OnlineIDs    []string `json:"online_ids,omitempty"`
 	Status       string   `json:"status,omitempty"` // "online" or "offline"
@@ -62,6 +66,8 @@ type Gateway struct {
 	// companions tracks companion IDs registered by each peer per channel
 	// key: channelID -> peerID -> []companionID
 	companions map[string]map[string][]string
+	// tokens: channelID -> set of valid single-use join tokens
+	tokens map[string]map[string]bool
 }
 
 func NewGateway() *Gateway {
@@ -70,6 +76,7 @@ func NewGateway() *Gateway {
 		channels:   make(map[string]map[string]bool),
 		store:      make(map[string][]StoredMessage),
 		companions: make(map[string]map[string][]string),
+		tokens:     make(map[string]map[string]bool),
 	}
 }
 
@@ -137,14 +144,19 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 
 		switch env.Type {
 		case "join":
-			g.joinChannel(peer, env.ChannelID, env.CompanionIDs)
-			g.flushStoredForChannel(ctx, peer, env.ChannelID)
+			if err := g.joinChannel(ctx, peer, env.ChannelID, env.CompanionIDs, env.Token); err != nil {
+				peer.Send(ctx, Envelope{Type: "error", Error: err.Error(), ChannelID: env.ChannelID})
+			} else {
+				g.flushStoredForChannel(ctx, peer, env.ChannelID)
+			}
 		case "leave":
 			g.leaveChannel(peer, env.ChannelID)
 		case "message":
 			g.routeMessage(ctx, peer, env)
 		case "typing":
 			g.broadcastTyping(ctx, peer, env)
+		case "create_token":
+			g.handleCreateToken(ctx, peer, env.ChannelID)
 		case "ack":
 			// Client acknowledges receipt
 		default:
@@ -195,11 +207,32 @@ func (g *Gateway) removePeer(p *Peer) {
 	log.Printf("[gateway] peer disconnected: %s", p.ID)
 }
 
-func (g *Gateway) joinChannel(p *Peer, channelID string, companionIDs []string) {
+func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, companionIDs []string, token string) error {
 	if channelID == "" {
-		return
+		return fmt.Errorf("missing channel_id")
 	}
 	g.mu.Lock()
+
+	// Token validation: first member (creator) is auto-authorized,
+	// existing members rejoining are allowed, everyone else needs a valid token.
+	members := g.channels[channelID]
+	isFirstMember := members == nil || len(members) == 0
+	isExistingMember := members != nil && members[p.ID]
+
+	if !isFirstMember && !isExistingMember {
+		// Require a valid token
+		tokenSet := g.tokens[channelID]
+		if token == "" || tokenSet == nil || !tokenSet[token] {
+			g.mu.Unlock()
+			log.Printf("[gateway] peer %s rejected from channel %s: invalid or missing join token", p.ID, channelID)
+			return fmt.Errorf("invalid or missing join token")
+		}
+		// Consume the token (single-use)
+		delete(tokenSet, token)
+		if len(tokenSet) == 0 {
+			delete(g.tokens, channelID)
+		}
+	}
 
 	p.Channels[channelID] = true
 	if g.channels[channelID] == nil {
@@ -232,7 +265,6 @@ func (g *Gateway) joinChannel(p *Peer, channelID string, companionIDs []string) 
 	g.mu.Unlock()
 
 	// Send the joiner the full online list (peers + all companions)
-	ctx := context.Background()
 	p.Send(ctx, Envelope{
 		Type:      "presence",
 		ChannelID: channelID,
@@ -246,6 +278,39 @@ func (g *Gateway) joinChannel(p *Peer, channelID string, companionIDs []string) 
 	}
 
 	log.Printf("[gateway] peer %s joined channel %s with %d companions", p.ID, channelID, len(companionIDs))
+	return nil
+}
+
+// handleCreateToken generates a single-use join token for a channel.
+// Only existing members can create tokens.
+func (g *Gateway) handleCreateToken(ctx context.Context, p *Peer, channelID string) {
+	if channelID == "" {
+		p.Send(ctx, Envelope{Type: "error", Error: "create_token requires channel_id"})
+		return
+	}
+
+	g.mu.Lock()
+	// Verify the requesting peer is a member
+	members := g.channels[channelID]
+	if members == nil || !members[p.ID] {
+		g.mu.Unlock()
+		p.Send(ctx, Envelope{Type: "error", Error: "not a member of this channel", ChannelID: channelID})
+		return
+	}
+
+	// Generate a random token
+	b := make([]byte, 16)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+
+	if g.tokens[channelID] == nil {
+		g.tokens[channelID] = make(map[string]bool)
+	}
+	g.tokens[channelID][token] = true
+	g.mu.Unlock()
+
+	p.Send(ctx, Envelope{Type: "token", ChannelID: channelID, Token: token})
+	log.Printf("[gateway] created join token for channel %s (requested by %s)", channelID, p.ID)
 }
 
 func (g *Gateway) flushStoredForChannel(ctx context.Context, p *Peer, channelID string) {

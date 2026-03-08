@@ -67,6 +67,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("id")
 	channelName := r.URL.Query().Get("name")
 	encKey := r.URL.Query().Get("key")
+	token := r.URL.Query().Get("token")
 	if channelID == "" || channelName == "" {
 		http.Error(w, "missing id or name", http.StatusBadRequest)
 		return
@@ -85,6 +86,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	if encKey != "" {
 		deepLink += "&key=" + url.QueryEscape(encKey)
 	}
+	if token != "" {
+		deepLink += "&token=" + url.QueryEscape(token)
+	}
 
 	safeName := html.EscapeString(channelName)
 
@@ -95,6 +99,9 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 		url.QueryEscape(channelName))
 	if encKey != "" {
 		pageURL += "&key=" + url.QueryEscape(encKey)
+	}
+	if token != "" {
+		pageURL += "&token=" + url.QueryEscape(token)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

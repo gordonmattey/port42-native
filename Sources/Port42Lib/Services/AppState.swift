@@ -640,9 +640,9 @@ public final class AppState: ObservableObject {
     // MARK: - Channels
 
     /// Join a channel on the gateway, including companion IDs for cross-instance presence
-    private func syncJoinChannel(_ channelId: String) {
+    private func syncJoinChannel(_ channelId: String, token: String? = nil) {
         let companionIds = ((try? db.getAgentsForChannel(channelId: channelId)) ?? []).map { $0.id }
-        sync.joinChannel(channelId, companionIds: companionIds)
+        sync.joinChannel(channelId, companionIds: companionIds, token: token)
     }
 
     public func selectChannel(_ channel: Channel) {
@@ -732,17 +732,20 @@ public final class AppState: ObservableObject {
 
         if invitePointsToSelf {
             // Invite is for our own gateway, just join the channel
-            syncJoinChannel(channel.id)
+            syncJoinChannel(channel.id, token: invite.token)
         } else if currentGW != invite.gateway, let user = currentUser {
             // Different remote gateway, switch to it
             UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
             sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db)
             sync.connect()
-            for ch in channels {
+            // Join all existing channels (no token needed, already members)
+            for ch in channels where ch.id != channel.id {
                 syncJoinChannel(ch.id)
             }
+            // Join the invited channel with the token
+            syncJoinChannel(channel.id, token: invite.token)
         } else {
-            syncJoinChannel(channel.id)
+            syncJoinChannel(channel.id, token: invite.token)
         }
 
         selectChannel(channel)

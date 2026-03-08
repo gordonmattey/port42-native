@@ -6,6 +6,7 @@ public struct ChannelInviteData {
     public let channelId: String
     public let channelName: String
     public let encryptionKey: String?
+    public let token: String?
 }
 
 public enum ChannelInvite {
@@ -15,7 +16,7 @@ public enum ChannelInvite {
     /// a remote gateway (joined from someone else's invite), the link points
     /// back to that original host so new peers join the same gateway.
     @MainActor
-    public static func generateLink(channel: Channel, syncGatewayURL: String? = nil) -> String {
+    public static func generateLink(channel: Channel, syncGatewayURL: String? = nil, token: String? = nil) -> String {
         let resolvedGW: String
 
         // If connected to a remote gateway, use that
@@ -46,6 +47,9 @@ public enum ChannelInvite {
         ]
         if let key = channel.encryptionKey {
             items.append(URLQueryItem(name: "key", value: key))
+        }
+        if let token {
+            items.append(URLQueryItem(name: "token", value: token))
         }
         components.queryItems = items
         return components.string ?? ""
@@ -94,14 +98,14 @@ public enum ChannelInvite {
             return nil
         }
 
-        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name, encryptionKey: dict["key"])
+        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name, encryptionKey: dict["key"], token: dict["token"])
     }
 
     /// Build an HTTPS invite URL served by the gateway's /invite endpoint.
     /// If connected to a remote gateway, the invite URL points to that host's
     /// landing page so the link always leads back to the channel's origin.
     @MainActor
-    public static func generateInviteURL(channel: Channel, syncGatewayURL: String? = nil) -> String? {
+    public static func generateInviteURL(channel: Channel, syncGatewayURL: String? = nil, token: String? = nil) -> String? {
         // If connected to a remote gateway, build the invite URL from that
         let baseURL: String
         if let gw = syncGatewayURL, !gw.contains("localhost"), !gw.contains("127.0.0.1") {
@@ -126,6 +130,9 @@ public enum ChannelInvite {
         if let key = channel.encryptionKey {
             items.append(URLQueryItem(name: "key", value: key))
         }
+        if let token {
+            items.append(URLQueryItem(name: "token", value: token))
+        }
         components?.queryItems = items
         return components?.string
     }
@@ -133,13 +140,13 @@ public enum ChannelInvite {
     /// Copy an invite link to the clipboard. Prefers the landing page URL
     /// so recipients get download/connect options on the page itself.
     @MainActor
-    public static func copyToClipboard(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil) {
+    public static func copyToClipboard(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) {
         let host = hostName ?? "Port42"
         let message: String
-        if let inviteURL = generateInviteURL(channel: channel, syncGatewayURL: syncGatewayURL) {
+        if let inviteURL = generateInviteURL(channel: channel, syncGatewayURL: syncGatewayURL, token: token) {
             message = "Join first swimmers on \(host)'s Port42\n\(inviteURL)"
         } else {
-            let deepLink = generateLink(channel: channel, syncGatewayURL: syncGatewayURL)
+            let deepLink = generateLink(channel: channel, syncGatewayURL: syncGatewayURL, token: token)
             guard !deepLink.isEmpty else { return }
             message = "Join first swimmers on \(host)'s Port42\n\(deepLink)"
         }

@@ -102,7 +102,10 @@ public struct SidebarView: View {
                                     appState.pendingInviteChannel = secured
                                     appState.showNgrokSetup = true
                                 } else {
-                                    ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL)
+                                    Task {
+                                        let token = try? await appState.sync.requestToken(channelId: secured.id)
+                                        ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                                    }
                                 }
                             }
 

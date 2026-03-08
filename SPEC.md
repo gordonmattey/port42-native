@@ -184,15 +184,15 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 
 ### Chat
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-300 | Message Display | Scrollable message list. Sender name (bold), timestamp (right-aligned), content. Agent messages show teal left border and "(via OwnerName)". | Messages render with correct attribution and styling | M1 |
-| F-301 | Message Input | Single-line input, Enter to send, Shift+Enter for newline. Clear on send. | User can type and send messages that appear in the chat | M1 |
-| F-302 | @Mention Autocomplete | Typing @ triggers dropdown above input showing matching agents and humans. Arrow keys navigate, Tab/Enter select, Escape dismiss. Max 8 visible. | Autocomplete appears, filters, and inserts selected name | M2 |
-| F-303 | Reply Threading | Reply to a specific message. Shows quoted original above reply. | Reply links to original message, both display correctly | M3 |
-| F-304 | Message Status | Sent, delivered, read indicators (checkmarks or similar). | Status updates as relay confirms delivery and recipient reads | M3 |
-| F-305 | Typing Indicators | Show "Name is typing..." when another user is composing. | Typing state broadcasts and displays within 500ms | M3 |
-| F-306 | /Commands | Support /swarm and extensible command registry. | Commands parse and route to appropriate handlers | M6 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-300 | Message Display | Scrollable message list. Sender name (bold), timestamp (right-aligned), content. Agent messages show teal left border and "(via OwnerName)". | Messages render with correct attribution and styling | M1 | **Done** |
+| F-301 | Message Input | Single-line input, Enter to send, Shift+Enter for newline. Clear on send. | User can type and send messages that appear in the chat | M1 | **Done** |
+| F-302 | @Mention Autocomplete | Typing @ triggers dropdown above input showing matching agents and humans. Arrow keys navigate, Tab/Enter select, Escape dismiss. Max 8 visible. | Autocomplete appears, filters, and inserts selected name | M2 | **Done** |
+| F-303 | Reply Threading | Reply to a specific message. Shows quoted original above reply. | Reply links to original message, both display correctly | M3 | |
+| F-304 | Message Status | Sent, delivered, read indicators (checkmarks or similar). | Status updates as relay confirms delivery and recipient reads | M3 | |
+| F-305 | Typing Indicators | Show "Name is typing..." when another user is composing. | Typing state broadcasts and displays within 500ms | M3 | **Done** |
+| F-306 | /Commands | Support /swarm and extensible command registry. | Commands parse and route to appropriate handlers | M6 | |
 
 ### BYOA (Bring Your Own Agent)
 
@@ -210,28 +210,28 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 
 ### Sync & Encryption
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-500 | Invite System | Generate invite link containing relay address and encrypted channel key. Recipient opens in Port42, key exchange completes automatically. | Two users connected and see shared channel after invite flow | M3 |
-| F-501 | E2E Encryption | Per-channel symmetric keys. Messages encrypted before leaving the app. Relay sees only encrypted blobs. CryptoKit (AES-GCM). | Messages unreadable without channel key, verified by inspection | M3 |
-| F-502 | Real-Time Sync | WebSocket connection to Go relay. Messages forwarded to all channel members instantly. | Message sent on Device A appears on Device B within 500ms | M3 |
-| F-503 | Store and Forward | Relay holds encrypted messages for offline recipients. Delivers on reconnect. Deletes after ACK. | Messages sent while recipient offline arrive when they reconnect | M3 |
-| F-504 | Offline Queue | Messages created while offline queue locally. Sync automatically when connection restored. | No messages lost during network interruption | M3 |
-| F-505 | Presence | Online/offline status for all channel members. Broadcast via relay. | User can see who is online in a channel | M3 |
-| F-506 | Remote Identity | Qualify synced AI names with owner (e.g. "Echo · gordon") so AIs with the same name are visually distinct across peers. Colors and avatars differ per owner. | Two users with identically named AIs can tell them apart in chat | M3 |
-| F-507 | Cross-Peer Mentions | @ mention autocomplete includes remote humans and their AIs, built from message history and presence data. | User can @mention a remote human or their AI in a shared channel | M3 |
-| F-508 | Full Member List | Channel header shows all connected members and companions (from presence), not just historical senders. Humans and AIs visually distinguished. | Header shows remote companions and humans with type indicators | M3 |
-| F-509 | Sender Attribution | Human messages sent to AI include sender name in context. AI knows who is speaking and can address them by name. | AI responds using the correct human's name | M3 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-500 | Invite System | Generate invite link containing relay address and encrypted channel key. Recipient opens in Port42, key exchange completes automatically. | Two users connected and see shared channel after invite flow | M3 | **Done** |
+| F-501 | E2E Encryption | Per-channel symmetric keys. Messages encrypted before leaving the app. Relay sees only encrypted blobs. CryptoKit (AES-GCM). | Messages unreadable without channel key, verified by inspection | M3 | |
+| F-502 | Real-Time Sync | WebSocket connection to Go relay. Messages forwarded to all channel members instantly. | Message sent on Device A appears on Device B within 500ms | M3 | **Done** |
+| F-503 | Store and Forward | Relay holds encrypted messages for offline recipients. Delivers on reconnect. Deletes after ACK. | Messages sent while recipient offline arrive when they reconnect | M3 | **Done** |
+| F-504 | Offline Queue | Messages created while offline queue locally. Sync automatically when connection restored. | No messages lost during network interruption | M3 | Partial |
+| F-505 | Presence | Online/offline status for all channel members. Broadcast via relay. | User can see who is online in a channel | M3 | |
+| F-506 | Remote Identity | Qualify synced AI names with owner (e.g. "Echo · gordon") so AIs with the same name are visually distinct across peers. Colors and avatars differ per owner. | Two users with identically named AIs can tell them apart in chat | M3 | **Done** |
+| F-507 | Cross-Peer Mentions | @ mention autocomplete includes remote humans and their AIs, built from message history and presence data. | User can @mention a remote human or their AI in a shared channel | M3 | **Done** |
+| F-508 | Full Member List | Channel header shows all connected members and companions (from presence), not just historical senders. Humans and AIs visually distinguished. | Header shows remote companions and humans with type indicators | M3 | **Done** |
+| F-509 | Sender Attribution | Human messages sent to AI include sender name in context. AI knows who is speaking and can address them by name. | AI responds using the correct human's name | M3 | **Done** |
 
 ### Go Relay Server
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-510 | Relay Core | Go binary that accepts WebSocket connections, routes encrypted blobs by channel membership, stores until ACK. | Relay forwards messages between two connected clients | M3 |
-| F-511 | Relay Auth | Secure Enclave P256 identity. Client connects, gateway sends a nonce challenge, client signs with `SecureEnclave.P256.Signing.PrivateKey` (hardware-backed, non-extractable). Gateway verifies signature against the client's public key. No passwords, no accounts, no Apple ID. Identity is device-bound and hardware-secured. | Only the key holder can connect as that identity. Private key cannot be exported or cloned. | M3 |
-| F-512 | Relay Self-Host | Single binary, no external dependencies, configurable via env vars or flags. README with deploy instructions. | Anyone can run their own relay with `./port42-relay` | M3 |
-| F-514 | Channel Join Tokens | Invite links include a one-time join token signed by the inviter. Gateway only allows channel joins with a valid token from an existing member. Prevents unauthorized channel access even if the channel ID is known. | Connecting to the gateway and sending a join without a valid token is rejected | M3 |
-| F-515 | Join/Leave Announcements | System messages when a peer joins or leaves a shared channel. Triggered by presence events from the gateway. Shows "Name joined the channel" or "Name left the channel." | Peers see system messages when others join or leave | M3 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-510 | Relay Core | Go binary that accepts WebSocket connections, routes encrypted blobs by channel membership, stores until ACK. | Relay forwards messages between two connected clients | M3 | **Done** |
+| F-511 | Relay Auth | Secure Enclave P256 identity. Client connects, gateway sends a nonce challenge, client signs with `SecureEnclave.P256.Signing.PrivateKey` (hardware-backed, non-extractable). Gateway verifies signature against the client's public key. No passwords, no accounts, no Apple ID. Identity is device-bound and hardware-secured. | Only the key holder can connect as that identity. Private key cannot be exported or cloned. | M3 | |
+| F-512 | Relay Self-Host | Single binary, no external dependencies, configurable via env vars or flags. README with deploy instructions. | Anyone can run their own relay with `./port42-relay` | M3 | **Done** |
+| F-514 | Channel Join Tokens | Invite links include a one-time join token signed by the inviter. Gateway only allows channel joins with a valid token from an existing member. Prevents unauthorized channel access even if the channel ID is known. | Connecting to the gateway and sending a join without a valid token is rejected | M3 | **Done** |
+| F-515 | Join/Leave Announcements | System messages when a peer joins or leaves a shared channel. Triggered by presence events from the gateway. Shows "Name joined the channel" or "Name left the channel." | Peers see system messages when others join or leave | M3 | Buggy (delayed display) |
 | F-513 | Signaling | SDP/ICE exchange for WebRTC audio room setup routed through relay. | Audio room connections negotiate through relay | M5 |
 
 ### Platform Bridges
