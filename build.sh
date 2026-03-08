@@ -73,6 +73,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/Port42"
 cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
 cp "$DIR/Info.plist" "$APP/Contents/Info.plist"
+cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
 done
@@ -93,6 +94,7 @@ if $PEER; then
 
     cp "$DIR/.build/$CONFIG/Port42" "$PEER_MACOS/Port42-Peer"
     cp "$GATEWAY_BIN" "$PEER_MACOS/port42-gateway"
+    cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$PEER_RESOURCES/AppIcon.icns"
     for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
         [ -d "$bundle" ] && cp -R "$bundle" "$PEER_RESOURCES/"
     done
@@ -134,6 +136,8 @@ EOF
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSHighResolutionCapable</key>
