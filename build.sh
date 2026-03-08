@@ -77,7 +77,14 @@ cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
 done
-codesign --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
+SIGN_IDENTITY="${PORT42_SIGN_IDENTITY:--}"
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    # Release: sign gateway separately, use release entitlements, hardened runtime + timestamp
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-gateway"
+    codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" --options runtime --timestamp "$APP"
+else
+    codesign --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
+fi
 echo "[build] Ready: $APP"
 
 if $RUN; then
