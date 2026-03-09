@@ -132,7 +132,7 @@ public struct DreamscapeVideoLayer: NSViewRepresentable {
             let videoNames = ["dreamscape", "dream-architect"]
             var items: [AVPlayerItem] = []
             for name in videoNames {
-                if let url = Bundle.module.url(forResource: name, withExtension: "mp4") {
+                if let url = Bundle.port42.url(forResource: name, withExtension: "mp4") {
                     items.append(AVPlayerItem(asset: AVAsset(url: url)))
                 }
             }
@@ -153,7 +153,7 @@ public struct DreamscapeVideoLayer: NSViewRepresentable {
 
                 if player.items().count <= 1 {
                     for name in videoNames {
-                        if let url = Bundle.module.url(forResource: name, withExtension: "mp4") {
+                        if let url = Bundle.port42.url(forResource: name, withExtension: "mp4") {
                             let newItem = AVPlayerItem(asset: AVAsset(url: url))
                             player.insert(newItem, after: nil)
                         }

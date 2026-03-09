@@ -610,7 +610,7 @@ public final class AppState: ObservableObject {
 
             // Create default companion and swim into it
             let echoPrompt: String = {
-                if let url = Bundle.module.url(forResource: "echo-prompt", withExtension: "txt"),
+                if let url = Bundle.port42.url(forResource: "echo-prompt", withExtension: "txt"),
                    let text = try? String(contentsOf: url, encoding: .utf8) {
                     return text.replacingOccurrences(of: "{{USER}}", with: displayName)
                 }

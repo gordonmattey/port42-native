@@ -118,10 +118,15 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     rm -rf "$DIST/Port42.app"
     cp -R "$APP" "$DIST/Port42.app"
 
-    # Create DMG
+    # Create DMG with Applications symlink for drag-and-drop install
     rm -f "$DMG"
     echo "[build] Creating DMG..."
-    hdiutil create -volname "Port42" -srcfolder "$DIST/Port42.app" -ov -format UDZO "$DMG" >/dev/null 2>&1
+    DMG_STAGING=$(mktemp -d)/Port42
+    mkdir -p "$DMG_STAGING"
+    cp -R "$DIST/Port42.app" "$DMG_STAGING/"
+    ln -s /Applications "$DMG_STAGING/Applications"
+    hdiutil create -volname "Port42" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG" >/dev/null 2>&1
+    rm -rf "$(dirname "$DMG_STAGING")"
 
     # Sign DMG
     codesign --force --sign "$SIGN_IDENTITY" "$DMG"
