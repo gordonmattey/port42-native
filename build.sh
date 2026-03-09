@@ -108,6 +108,34 @@ else
 fi
 echo "[build] Ready: $APP"
 
+# --- Release: package DMG, notarize, staple, update dist ---
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    DIST="$DIR/dist"
+    DMG="$DIST/Port42.dmg"
+    mkdir -p "$DIST"
+
+    # Copy app to dist
+    rm -rf "$DIST/Port42.app"
+    cp -R "$APP" "$DIST/Port42.app"
+
+    # Create DMG
+    rm -f "$DMG"
+    echo "[build] Creating DMG..."
+    hdiutil create -volname "Port42" -srcfolder "$DIST/Port42.app" -ov -format UDZO "$DMG" >/dev/null 2>&1
+
+    # Sign DMG
+    codesign --force --sign "$SIGN_IDENTITY" "$DMG"
+    echo "[build] DMG signed."
+
+    # Notarize
+    echo "[build] Submitting for notarization..."
+    xcrun notarytool submit "$DMG" --keychain-profile "notarytool" --wait 2>&1 | tail -5
+
+    # Staple
+    xcrun stapler staple "$DMG" 2>&1 | tail -1
+    echo "[build] Release ready: $DMG"
+fi
+
 if $RUN; then
     echo "[build] Launching..."
     open "$APP"

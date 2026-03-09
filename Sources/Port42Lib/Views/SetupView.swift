@@ -70,10 +70,7 @@ public struct SetupView: View {
             .init(text: "", style: .blank, delay: 0.8),
             .init(text: "Welcome to Port 42.", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
-            .init(text: "", style: .blank, delay: 0.3),
-            .init(text: "This is not a chatbot.", style: .body, delay: 0.6),
-            .init(text: "This is not an app.", style: .body, delay: 0.5),
-            .init(text: "This is a Reality Compiler.", style: .accent, delay: 0.6),
+            .init(text: "Your companions. Your friends. One room.", style: .accent, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.8),
         ]
     }

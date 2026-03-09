@@ -71,7 +71,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			1TX663DCebfkS0pf3d2cmhX62Ks=
+			0X9RnpdjUzbv5cXOuJ+2wYLSBy0=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
