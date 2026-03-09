@@ -105,7 +105,7 @@ public enum ChannelInvite {
     /// If connected to a remote gateway, the invite URL points to that host's
     /// landing page so the link always leads back to the channel's origin.
     @MainActor
-    public static func generateInviteURL(channel: Channel, syncGatewayURL: String? = nil, token: String? = nil) -> String? {
+    public static func generateInviteURL(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) -> String? {
         // If connected to a remote gateway, build the invite URL from that
         let baseURL: String
         if let gw = syncGatewayURL, !gw.contains("localhost"), !gw.contains("127.0.0.1") {
@@ -133,6 +133,9 @@ public enum ChannelInvite {
         if let token {
             items.append(URLQueryItem(name: "token", value: token))
         }
+        if let hostName, !hostName.isEmpty {
+            items.append(URLQueryItem(name: "host", value: hostName))
+        }
         components?.queryItems = items
         return components?.string
     }
@@ -143,7 +146,7 @@ public enum ChannelInvite {
     public static func copyToClipboard(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) {
         let host = hostName ?? "Port42"
         let message: String
-        if let inviteURL = generateInviteURL(channel: channel, syncGatewayURL: syncGatewayURL, token: token) {
+        if let inviteURL = generateInviteURL(channel: channel, hostName: hostName, syncGatewayURL: syncGatewayURL, token: token) {
             message = "Join first swimmers on \(host)'s Port42\n\(inviteURL)"
         } else {
             let deepLink = generateLink(channel: channel, syncGatewayURL: syncGatewayURL, token: token)

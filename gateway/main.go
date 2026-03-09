@@ -76,6 +76,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	channelName := r.URL.Query().Get("name")
 	encKey := r.URL.Query().Get("key")
 	token := r.URL.Query().Get("token")
+	hostName := r.URL.Query().Get("host")
 	if channelID == "" || channelName == "" {
 		http.Error(w, "missing id or name", http.StatusBadRequest)
 		return
@@ -99,6 +100,10 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeName := html.EscapeString(channelName)
+	hostLine := ""
+	if hostName != "" {
+		hostLine = fmt.Sprintf(`<p style="font-size:13px;color:#999;margin-bottom:0;">on %s's aquarium</p>`, html.EscapeString(hostName))
+	}
 
 	// Build the HTTPS invite page URL for sharing
 	pageURL := fmt.Sprintf("https://%s/invite?id=%s&name=%s",
@@ -111,10 +116,13 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	if token != "" {
 		pageURL += "&token=" + url.QueryEscape(token)
 	}
+	if hostName != "" {
+		pageURL += "&host=" + url.QueryEscape(hostName)
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, pageURL, safeName, pageURL, safeName, safeName, deepLink, pageURL, pageURL)
+	fmt.Fprintf(w, invitePage, safeName, safeName, pageURL, safeName, pageURL, safeName, safeName, hostLine, deepLink, pageURL, pageURL)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -175,8 +183,8 @@ const invitePage = `<!DOCTYPE html>
   .note { font-size: 11px; color: #555; margin-top: 16px; }
   .divider { border-top: 1px solid #222; margin: 24px 0; }
   .openclaw { text-align: center; }
-  .openclaw-title { font-size: 13px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
-  .openclaw-desc { font-size: 12px; color: #666; margin-bottom: 12px; }
+  .openclaw-title { font-size: 15px; font-weight: 700; color: #00ff41; margin-bottom: 6px; letter-spacing: 1px; }
+  .openclaw-desc { font-size: 12px; color: #999; margin-bottom: 14px; }
   .code-block {
     background: #0a0a0a; border: 1px solid #222; border-radius: 6px;
     padding: 12px; font-size: 11px; color: #00ff41; text-align: left;
@@ -190,26 +198,33 @@ const invitePage = `<!DOCTYPE html>
   <div class="logo">&#x25CB;</div>
   <div class="brand">PORT42</div>
   <h1>join <span>#%s</span></h1>
+  %s
   <div class="steps">
     <strong>1.</strong> download Port42 for macOS (Apple Silicon)<br>
     <strong>2.</strong> install the app and open it<br>
     <strong>3.</strong> once you're in, come back and accept the invitation
   </div>
   <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn btn-secondary">download Port42.dmg</a>
-  <a href="%s" class="btn btn-primary" style="margin-top:10px;">accept invitation</a>
-  <button class="btn btn-secondary" onclick="copyInvite()" style="border:none;cursor:pointer;margin-top:10px;">copy invite link</button>
-  <p class="note" id="copy-msg" style="min-height:1.4em;"></p>
+  <a href="%s" class="btn btn-primary" style="margin-top:10px;margin-bottom:0;">accept invitation</a>
   <div class="divider"></div>
   <div class="openclaw">
-    <p class="openclaw-title">using OpenClaw?</p>
-    <p class="openclaw-desc">plug your agents into this channel</p>
+    <p class="openclaw-title">OPENCLAW</p>
+    <p class="openclaw-desc">plug your agents into this channel from the terminal</p>
     <div class="code-block" id="openclaw-cmd">openclaw plugins install port42-openclaw
 openclaw channels add --channel port42 --invite "%s"</div>
-    <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;">copy commands</button>
-    <p class="note" id="cmd-msg" style="min-height:1.4em;"></p>
+    <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;">copy commands</button>
+    <p class="note" id="cmd-msg"></p>
+  </div>
+  <div class="divider"></div>
+  <div class="openclaw">
+    <p class="openclaw-title">SHARE</p>
+    <p class="openclaw-desc">send this link to invite others</p>
+    <div class="code-block" id="invite-link">%s</div>
+    <button class="btn btn-secondary" onclick="copyInvite()" style="border:none;cursor:pointer;margin-bottom:0;">copy invite link</button>
+    <p class="note" id="copy-msg" style="min-height:1.2em;"></p>
   </div>
 <script>
-function copyInvite(){navigator.clipboard.writeText('%s').then(function(){document.getElementById('copy-msg').textContent='copied!';});}
+function copyInvite(){navigator.clipboard.writeText(document.getElementById('invite-link').textContent).then(function(){document.getElementById('copy-msg').textContent='copied!';});}
 function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
 </script>
 </div>
