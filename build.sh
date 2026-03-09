@@ -54,7 +54,7 @@ fi
 echo "[build] Swift ($CONFIG)..."
 cd "$DIR"
 if [ "$CONFIG" = "release" ]; then
-    swift build -c release 2>&1 | tail -3
+    swift build -c release -Xswiftc -DRELEASE 2>&1 | tail -3
 else
     swift build 2>&1 | tail -3
 fi
@@ -97,7 +97,7 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
 elif [ -n "$DEV_IDENTITY" ] && [ -f "$DEV_PROFILE" ]; then
     # Debug with Apple Development cert + dev profile: Sign in with Apple enabled
     cp "$DEV_PROFILE" "$APP/Contents/embedded.provisionprofile"
-    codesign --force --sign "$DEV_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" "$APP"
+    codesign --force --sign "$DEV_IDENTITY" --entitlements "$DIR/Port42.dev.entitlements" "$APP"
     echo "[build] Signed with Apple Development (Sign in with Apple enabled)"
 elif [ "$SIGN_IDENTITY" != "-" ]; then
     # Debug with Developer ID: no applesignin (requires notarization)

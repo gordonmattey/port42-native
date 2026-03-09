@@ -81,15 +81,19 @@ public struct SetupView: View {
         let name = submittedName ?? ""
         let keychainOK = appState.currentUser.map { AppUser.keychainHasKey(account: $0.id) } ?? false
         let keychainStatus = keychainOK ? "OK" : "FAILED"
-        let appleStatus = appleAuthStatus ?? "pending"
-        return [
+        var lines: [TermLine] = [
             .init(text: "", style: .blank, delay: 0.5),
             .init(text: "Creating reality instance for \(name)...", style: .post, delay: 0.8),
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Generating P256 identity key pair...", style: .post, delay: 0.8),
             .init(text: "Storing private key in Keychain... \(keychainStatus)", style: .post, delay: 1.0),
             .init(text: "Public key: \(keyFingerprint)", style: .dim, delay: 0.6),
-            .init(text: "Linking Apple identity... \(appleStatus)", style: .post, delay: 0.6),
+        ]
+        #if !RELEASE
+        let appleStatus = appleAuthStatus ?? "pending"
+        lines.append(.init(text: "Linking Apple identity... \(appleStatus)", style: .post, delay: 0.6))
+        #endif
+        lines += [
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Detecting Claude Code credentials...", style: .post, delay: 0.8),
             .init(text: "macOS may prompt for Keychain access. Click Allow.", style: .dim, delay: 0.6),
@@ -98,6 +102,7 @@ public struct SetupView: View {
             .init(text: "Welcome, \(name).", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
         ]
+        return lines
     }
 
     private var keyFingerprint: String {
@@ -718,9 +723,11 @@ public struct SetupView: View {
             NSLog("[Port42] Failed to save user during key gen: \(error)")
         }
 
-        // Trigger Apple sign-in, then show analytics consent
+        // Trigger Apple sign-in (dev only), then show analytics consent
         Task {
+            #if !RELEASE
             await performAppleSignIn()
+            #endif
 
             // Show analytics consent after Apple sign-in completes (or is skipped)
             try? await Task.sleep(nanoseconds: 400_000_000)
