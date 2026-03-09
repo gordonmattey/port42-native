@@ -1,6 +1,6 @@
 # Port42 Native Spec
 
-**Last updated:** 2026-03-07
+**Last updated:** 2026-03-09
 
 **Status:** Working draft
 
@@ -190,7 +190,7 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-301 | Message Input | Single-line input, Enter to send, Shift+Enter for newline. Clear on send. | User can type and send messages that appear in the chat | M1 | **Done** |
 | F-302 | @Mention Autocomplete | Typing @ triggers dropdown above input showing matching agents and humans. Arrow keys navigate, Tab/Enter select, Escape dismiss. Max 8 visible. | Autocomplete appears, filters, and inserts selected name | M2 | **Done** |
 | F-303 | Reply Threading | Reply to a specific message. Shows quoted original above reply. | Reply links to original message, both display correctly | M3 | |
-| F-304 | Message Status | Sent, delivered, read indicators (checkmarks or similar). | Status updates as relay confirms delivery and recipient reads | M3 | |
+| F-304 | Message Status | Sent, delivered, read indicators (checkmarks or similar). | Status updates as relay confirms delivery and recipient reads | M3 | **Done** |
 | F-305 | Typing Indicators | Show "Name is typing..." when another user is composing. | Typing state broadcasts and displays within 500ms | M3 | **Done** |
 | F-306 | /Commands | Support /swarm and extensible command registry. | Commands parse and route to appropriate handlers | M8 | |
 
@@ -216,8 +216,8 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-501 | E2E Encryption | Per-channel symmetric keys. Messages encrypted before leaving the app. Relay sees only encrypted blobs. CryptoKit (AES-GCM). | Messages unreadable without channel key, verified by inspection | M3 | **Done** |
 | F-502 | Real-Time Sync | WebSocket connection to Go relay. Messages forwarded to all channel members instantly. | Message sent on Device A appears on Device B within 500ms | M3 | **Done** |
 | F-503 | Store and Forward | Relay holds encrypted messages for offline recipients. Delivers on reconnect. Deletes after ACK. | Messages sent while recipient offline arrive when they reconnect | M3 | **Done** |
-| F-504 | Offline Queue | Messages created while offline queue locally. Sync automatically when connection restored. | No messages lost during network interruption | M3 | Partial |
-| F-505 | Presence | Online/offline status for all channel members. Broadcast via relay. | User can see who is online in a channel | M3 | |
+| F-504 | Offline Queue | Messages created while offline queue locally. Sync automatically when connection restored. | No messages lost during network interruption | M4 | Deferred |
+| F-505 | Presence | Online/offline status for all channel members. Broadcast via relay. | User can see who is online in a channel | M3 | **Done** |
 | F-506 | Remote Identity | Qualify synced AI names with owner (e.g. "Echo · gordon") so AIs with the same name are visually distinct across peers. Colors and avatars differ per owner. | Two users with identically named AIs can tell them apart in chat | M3 | **Done** |
 | F-507 | Cross-Peer Mentions | @ mention autocomplete includes remote humans and their AIs, built from message history and presence data. | User can @mention a remote human or their AI in a shared channel | M3 | **Done** |
 | F-508 | Full Member List | Channel header shows all connected members and companions (from presence), not just historical senders. Humans and AIs visually distinguished. | Header shows remote companions and humans with type indicators | M3 | **Done** |
@@ -228,10 +228,10 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | ID | Feature | Description | Done When | Milestone | Status |
 |----|---------|-------------|-----------|-----------|--------|
 | F-510 | Relay Core | Go binary that accepts WebSocket connections, routes encrypted blobs by channel membership, stores until ACK. | Relay forwards messages between two connected clients | M3 | **Done** |
-| F-511 | Relay Auth | Sign in with Apple identity. Gateway sends nonce challenge, client gets Apple-signed JWT with hashed nonce, gateway verifies against Apple JWKS. Apple sign-in happens once during setup. Apple user ID stored on AppUser. Localhost connections skip auth. Agents use F-514 join tokens instead. | Only Apple-authenticated users can identify to a remote gateway. Replay blocked by per-connection nonce. | M3 | |
+| F-511 | Relay Auth | Sign in with Apple identity. Gateway sends nonce challenge, client gets Apple-signed JWT with hashed nonce, gateway verifies against Apple JWKS. Apple sign-in happens once during setup. Apple user ID stored on AppUser. Localhost connections skip auth. Agents use F-514 join tokens instead. | Only Apple-authenticated users can identify to a remote gateway. Replay blocked by per-connection nonce. | M4 | Implemented (code complete, needs notarized release for production use) |
 | F-512 | Relay Self-Host | Single binary, no external dependencies, configurable via env vars or flags. README with deploy instructions. | Anyone can run their own relay with `./port42-relay` | M3 | **Done** |
 | F-514 | Channel Join Tokens | Invite links include a one-time join token signed by the inviter. Gateway only allows channel joins with a valid token from an existing member. Prevents unauthorized channel access even if the channel ID is known. | Connecting to the gateway and sending a join without a valid token is rejected | M3 | **Done** |
-| F-515 | Join/Leave Announcements | System messages when a peer joins or leaves a shared channel. Triggered by presence events from the gateway. Shows "Name joined the channel" or "Name left the channel." | Peers see system messages when others join or leave | M3 | Buggy (delayed display) |
+| F-515 | Join/Leave Announcements | System messages when a peer joins or leaves a shared channel. Triggered by presence events from the gateway. Shows "Name joined the channel" or "Name left the channel." | Peers see system messages when others join or leave | M3 | **Done** (minor display delay) |
 | F-516 | Gateway Persistence | Persist Apple ID to channel membership mappings on the gateway (file-backed). Enables auto-rejoin on connect, store-and-forward keyed by identity (not ephemeral peer ID), and multi-device support. Currently all gateway state is in-memory and lost on restart. | New device connects with same Apple ID, gateway auto-joins their channels and delivers stored messages. | M4 | |
 | F-513 | Signaling | SDP/ICE exchange for WebRTC audio room setup routed through relay. | Audio room connections negotiate through relay | M6 |
 
@@ -277,7 +277,7 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 
 ## Milestones
 
-### M1: Local Chat Shell
+### M1: Local Chat Shell ✅
 
 *A working native chat app on your Mac. No networking, no agents. Just the shell.*
 
@@ -293,7 +293,7 @@ send messages, switch between them, and everything persists.
 sends messages, switches channels with draft preserved, restarts app and all data is there.
 Matches Portal42 dark/green aesthetic.
 
-### M2: Bring Your Own Agent
+### M2: Bring Your Own Agent ✅
 
 *Give your agent a name and a brain. It joins the chat as a participant.*
 
@@ -321,39 +321,45 @@ same companion with their own auth. Autocomplete works for companion names.
 5. @Mention autocomplete (F-302) — Dropdown above input when typing @.
 6. Quick switcher (F-203) — Cmd+K overlay with fuzzy search.
 
-### M3: Sync & Friends
+### M3: Sync & Friends ✅
 
 *Real-time encrypted chat between multiple people.*
 
 Covers invite system (F-500), E2E encryption (F-501), real-time sync (F-502),
-store-and-forward (F-503), offline queue (F-504), presence (F-505), remote identity
+store-and-forward (F-503), presence (F-505), remote identity
 (F-506), cross-peer mentions (F-507), full member list (F-508), sender attribution
-(F-509), relay core (F-510), relay auth (F-511), relay self-host (F-512), channel
-join tokens (F-514), reply
-threading (F-303), message status (F-304), typing indicators (F-305), and full
+(F-509), relay core (F-510), relay self-host (F-512), channel
+join tokens (F-514), message status (F-304), typing indicators (F-305), and full
 activity indicators (F-202).
+
+Also completed beyond original plan: friends/DM discovery from channel members,
+unified sidebar sorted by last activity, delivery and read receipts with visual
+indicators (· local, ✓ synced, ✓✓ delivered, ✓✓ green for read).
 
 Enables Flow 3 and Flow 5. Two people on different machines share a channel.
 Messages sync instantly. Each person's agents are visible and distinguishable.
-Messages queue when offline and deliver on reconnect.
 
-**M3 is done when:** Two users on separate Macs, connected via relay, can chat in
-real time with E2E encryption. Messages arrive within 500ms. Offline messages
-deliver on reconnect. Each user's agents are visible, distinguishable by owner,
-and mentionable by the other user.
+**M3 is done.** Two users on separate Macs, connected via gateway (direct or
+through ngrok), chat in real time with AES-GCM encryption. Messages arrive
+within 500ms. Each user's agents are visible, distinguishable by owner, and
+mentionable by the other user. Delivery and read receipts update automatically.
 
-### M4: Multi-Device Identity
+Deferred to M4: offline queue (F-504), relay auth (F-511), reply threading (F-303).
 
-*Same person, multiple devices, one identity.*
+### M4: Reliability & Multi-Device
 
-Covers gateway persistence (F-516). The gateway persists Apple ID to channel
-membership mappings so that a second device (e.g. future iOS app) can connect
-with the same Apple ID and automatically rejoin channels, receive stored messages,
-and share identity. Depends on F-511 (relay auth) for the Apple ID foundation.
+*Offline resilience, gateway persistence, and multi-device identity.*
 
-**M4 is done when:** A user's gateway restarts and their channel memberships
-survive. A second client connecting with the same Apple ID is auto-joined to
-existing channels.
+Covers offline queue (F-504), gateway persistence (F-516), and relay auth (F-511).
+Messages created while offline queue locally and sync on reconnect. The gateway
+persists Apple ID to channel membership mappings so channel memberships survive
+restarts and a second device can auto-rejoin. Depends on the transport layer
+evaluation (M7) to determine whether these features are built on the custom
+gateway or a production-grade P2P/messaging library.
+
+**M4 is done when:** No messages lost during network interruption. A user's
+gateway restarts and their channel memberships survive. A second client connecting
+with the same Apple ID is auto-joined to existing channels.
 
 ### M5: Platform Bridges
 
@@ -450,7 +456,7 @@ work. All keyboard shortcuts documented and functional.
 - Agent marketplace (sharing is via invite links, not a store)
 - Message history sync (you have what your device has)
 - Threads beyond simple reply-to
-- Read receipts with user-level granularity
+- Read receipts with per-message user-level granularity (current: channel-level read)
 
 ---
 

@@ -387,13 +387,33 @@ struct MessageRow: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func receiptSymbol(_ status: String) -> String {
+    @ViewBuilder
+    private func receiptView(_ status: String) -> some View {
+        let font = Port42Theme.mono(11)
         switch status {
-        case "local": return "·"
-        case "synced": return "✓"
-        case "delivered": return "✓✓"
-        case "read": return "✓✓"
-        default: return ""
+        case "local":
+            Text("·")
+                .font(font)
+                .foregroundColor(Port42Theme.textSecondary)
+        case "synced":
+            Text("✓✓")
+                .font(font)
+                .foregroundColor(Port42Theme.textSecondary)
+        case "delivered":
+            HStack(spacing: 0) {
+                Text("✓")
+                    .font(font)
+                    .foregroundColor(Port42Theme.accent)
+                Text("✓")
+                    .font(font)
+                    .foregroundColor(Port42Theme.textSecondary)
+            }
+        case "read":
+            Text("✓✓")
+                .font(font)
+                .foregroundColor(Port42Theme.accent)
+        default:
+            EmptyView()
         }
     }
 
@@ -421,9 +441,7 @@ struct MessageRow: View, Equatable {
                         }
                         if entry.isOwnMessage, let status = entry.syncStatus {
                             Text("  ")
-                            Text(receiptSymbol(status))
-                                .font(Port42Theme.mono(11))
-                                .foregroundColor(status == "read" ? Port42Theme.accent : Port42Theme.textSecondary)
+                            receiptView(status)
                         }
                     }
 
