@@ -230,8 +230,6 @@ public struct ConversationContent: View {
                 )
             }
 
-            Divider().background(Port42Theme.border)
-
             // Input bar
             HStack(spacing: 12) {
                 TextField(placeholder, text: $draft)

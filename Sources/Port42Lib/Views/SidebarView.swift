@@ -100,7 +100,7 @@ public struct SidebarView: View {
                 .fixedSize()
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .frame(height: 44)
 
             Divider()
                 .background(Port42Theme.border)
@@ -144,7 +144,7 @@ public struct SidebarView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
             }
         }
         .background(Port42Theme.bgSidebar)

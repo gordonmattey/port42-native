@@ -188,7 +188,7 @@ public struct ChannelHeader: View {
             Spacer()
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .frame(height: 44)
         .background(Port42Theme.bgPrimary)
     }
 }
