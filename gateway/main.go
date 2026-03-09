@@ -196,7 +196,7 @@ const invitePage = `<!DOCTYPE html>
     <p class="openclaw-title">using OpenClaw?</p>
     <p class="openclaw-desc">plug your agents into this channel</p>
     <div class="code-block" id="openclaw-cmd">openclaw plugins install port42-openclaw
-openclaw channel add port42 --invite "%s"</div>
+openclaw channels add --channel port42 --invite "%s"</div>
     <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;">copy commands</button>
     <p class="note" id="cmd-msg" style="min-height:1.4em;"></p>
   </div>
