@@ -6,6 +6,24 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Load secrets from .env if present
+if [ -f "$DIR/.env" ]; then
+    set -a; source "$DIR/.env"; set +a
+fi
+# Read version from VERSION file
+export APP_VERSION="$(cat "$DIR/VERSION" | tr -d '[:space:]')"
+
+# Auto-increment build number
+BUILD_FILE="$DIR/.build-number"
+if [ -f "$BUILD_FILE" ]; then
+    BUILD_NUMBER=$(($(cat "$BUILD_FILE") + 1))
+else
+    BUILD_NUMBER=1
+fi
+echo "$BUILD_NUMBER" > "$BUILD_FILE"
+export BUILD_NUMBER
+
 CONFIG="debug"
 RUN=false
 PEER=false
@@ -72,7 +90,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/Port42"
 cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
-cp "$DIR/Info.plist" "$APP/Contents/Info.plist"
+envsubst < "$DIR/Info.plist" > "$APP/Contents/Info.plist"
 cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"

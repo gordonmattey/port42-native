@@ -107,7 +107,7 @@ struct HelpOverlay: View {
                     helpSection("shortcuts", items: [
                         ("Cmd+K", "quick switcher / paste invite link"),
                         ("Cmd+N", "new channel"),
-                        ("?", "this help"),
+                        ("Cmd+/", "this help"),
                     ])
 
                     helpSection("chat", items: [
@@ -124,10 +124,17 @@ struct HelpOverlay: View {
 
                 Divider().background(Port42Theme.border)
 
-                Text("where humans and AI swim together")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .padding(.vertical, 10)
+                HStack(spacing: 8) {
+                    Text("where humans and AI swim together")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"))")
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
             }
             .fixedSize(horizontal: false, vertical: true)
             .background(Port42Theme.bgSecondary)

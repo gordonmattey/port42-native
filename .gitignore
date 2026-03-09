@@ -18,6 +18,10 @@ port42-gateway
 
 # Secrets
 .secrets
+.env
+
+# Build state
+.build-number
 
 # Claude
 .claude/

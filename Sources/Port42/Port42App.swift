@@ -76,6 +76,13 @@ struct Port42App: App {
                     )
                 }
                 .keyboardShortcut("k", modifiers: .command)
+
+                Button("Help") {
+                    NotificationCenter.default.post(
+                        name: .helpRequested, object: nil
+                    )
+                }
+                .keyboardShortcut("/", modifiers: .command)
             }
         }
     }

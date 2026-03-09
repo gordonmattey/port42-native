@@ -24,15 +24,20 @@ public final class Analytics {
     }
 
     public func configure(userId: String) {
-        guard !configured, isOptedIn else { return }
-
-        let apiKey = Bundle.main.object(forInfoDictionaryKey: "POSTHOG_API_KEY") as? String
-            ?? ProcessInfo.processInfo.environment["POSTHOG_API_KEY"]
-            ?? ""
-        guard !apiKey.isEmpty else {
-            print("[analytics] no PostHog API key configured")
+        guard !configured else { return }
+        guard isOptedIn else {
+            NSLog("[analytics] user has not opted in (analyticsOptIn = false)")
             return
         }
+
+        let apiKey = ProcessInfo.processInfo.environment["POSTHOG_API_KEY"]
+            ?? Bundle.main.object(forInfoDictionaryKey: "POSTHOG_API_KEY") as? String
+            ?? ""
+        guard !apiKey.isEmpty else {
+            NSLog("[analytics] no PostHog API key configured")
+            return
+        }
+        NSLog("[analytics] configuring PostHog for user %@", userId)
 
         let config = PostHogConfig(
             apiKey: apiKey,
@@ -44,6 +49,11 @@ public final class Analytics {
         config.enableSwizzling = false
         PostHogSDK.shared.setup(config)
         PostHogSDK.shared.identify(userId)
+
+        // Attach app version to every event
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        PostHogSDK.shared.register(["app_version": version, "app_build": build])
 
         configured = true
     }

@@ -114,7 +114,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, safeName, safeName, deepLink, pageURL, pageURL)
+	fmt.Fprintf(w, invitePage, safeName, safeName, pageURL, safeName, pageURL, safeName, safeName, deepLink, pageURL, pageURL)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -123,17 +123,25 @@ const invitePage = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Join #%s on Port42</title>
+<meta name="title" content="Join #%s on Port42">
+<meta name="description" content="You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in.">
+<meta name="author" content="Port42">
+<meta name="theme-color" content="#00d4aa">
 <meta property="og:type" content="website">
+<meta property="og:url" content="%s">
 <meta property="og:title" content="Join #%s on Port42">
-<meta property="og:description" content="You've been invited to swim in Port42, where humans and AI companions swim together in open water. Download the app and dive in.">
+<meta property="og:description" content="You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in.">
 <meta property="og:image" content="https://port42.ai/cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:site_name" content="Port42">
+<meta property="og:site_name" content="Port 42">
+<meta property="og:locale" content="en_US">
 <meta property="twitter:card" content="summary_large_image">
+<meta property="twitter:url" content="%s">
 <meta property="twitter:title" content="Join #%s on Port42">
-<meta property="twitter:description" content="You've been invited to swim in Port42, where humans and AI companions swim together in open water. Download the app and dive in.">
+<meta property="twitter:description" content="You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in.">
 <meta property="twitter:image" content="https://port42.ai/cover.png">
+<link rel="icon" type="image/png" href="https://port42.ai/favicon.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -214,7 +222,24 @@ const rootPage = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Port42</title>
+<title>Port 42: The Aquarium for AI Companions</title>
+<meta name="title" content="Port 42: The Aquarium for AI Companions">
+<meta name="description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your aquarium, your companions, your rules.">
+<meta name="author" content="Port42">
+<meta name="theme-color" content="#00d4aa">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Port 42: The Aquarium for AI Companions">
+<meta property="og:description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your aquarium, your companions, your rules.">
+<meta property="og:image" content="https://port42.ai/cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:site_name" content="Port 42">
+<meta property="og:locale" content="en_US">
+<meta property="twitter:card" content="summary_large_image">
+<meta property="twitter:title" content="Port 42: The Aquarium for AI Companions">
+<meta property="twitter:description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your aquarium, your companions, your rules.">
+<meta property="twitter:image" content="https://port42.ai/cover.png">
+<link rel="icon" type="image/png" href="https://port42.ai/favicon.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {

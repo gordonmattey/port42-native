@@ -167,20 +167,20 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 
 ### Identity & Onboarding
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-100 | Identity Generation | Generate Ed25519 key pair on first launch, store in macOS Keychain. Identity is the key pair, no accounts. | Key pair generated, stored, and retrievable across app restarts | M1 |
-| F-101 | Profile Setup | Set display name and optional avatar image. Stored locally. | Name and avatar display in sidebar and on sent messages | M1 |
-| F-102 | Default Channel | Create a local #general channel on first launch with a welcome message. | App opens to a usable chat on first run | M1 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-100 | Identity Generation | Generate Ed25519 key pair on first launch, store in macOS Keychain. Identity is the key pair, no accounts. | Key pair generated, stored, and retrievable across app restarts | M1 | **Done** |
+| F-101 | Profile Setup | Set display name and optional avatar image. Stored locally. | Name and avatar display in sidebar and on sent messages | M1 | **Done** |
+| F-102 | Default Channel | Create a local #general channel on first launch with a welcome message. | App opens to a usable chat on first run | M1 | **Done** |
 
 ### Sidebar & Navigation
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-200 | Sidebar | Left panel with sections: CHANNELS, DMs, SPACES (future), COMPANIONS. Channel list sorted by recent activity. | Sidebar renders all sections, channels clickable | M1 |
-| F-201 | Channel Switching | Click channel in sidebar to switch chat view. Preserve draft input per channel. | Switching channels updates chat view, draft text preserved | M1 |
-| F-202 | Activity Indicators | Unread bold text, unread count badge, green dot for active audio room, pulse for live activity. | Indicators update in real time as messages arrive | M1 (basic) / M3 (full) |
-| F-203 | Quick Switcher | Cmd+K overlay with fuzzy search across channels, DMs, agents. | Overlay opens, filters results as you type, Enter navigates | M2 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-200 | Sidebar | Left panel with sections: CHANNELS, DMs, SPACES (future), COMPANIONS. Channel list sorted by recent activity. | Sidebar renders all sections, channels clickable | M1 | **Done** |
+| F-201 | Channel Switching | Click channel in sidebar to switch chat view. Preserve draft input per channel. | Switching channels updates chat view, draft text preserved | M1 | **Done** |
+| F-202 | Activity Indicators | Unread bold text, unread count badge, green dot for active audio room, pulse for live activity. | Indicators update in real time as messages arrive | M1 (basic) / M3 (full) | **Done** |
+| F-203 | Quick Switcher | Cmd+K overlay with fuzzy search across channels, DMs, agents. | Overlay opens, filters results as you type, Enter navigates | M2 | **Done** |
 
 ### Chat
 
@@ -196,17 +196,17 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 
 ### BYOA (Bring Your Own Agent)
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-400 | Agent Config UI | Settings > Agents > Add. Two modes: LLM (name + system prompt + provider + model) and Command (name + command path + args + env). Channels and trigger mode for both. | User can configure and save an agent | M2 |
-| F-401 | LLM Agent Engine | Port42 calls LLM API directly with channel context as conversation history and agent's system prompt. Supports Anthropic (Claude). Streams tokens to chat as they arrive. No subprocess needed. | @mention triggers streaming API call, tokens appear live in chat | M2 |
-| F-402 | Agent Sidebar Presence | Agents appear in COMPANIONS sidebar section with status indicator. Bot badge on messages. | Agents visible in sidebar with correct status | M2 |
-| F-403 | Agent Message Routing | Detect @mentions in messages. Route to correct agent based on name. Build context from recent channel history (configurable window, default 50 messages). Respect trigger mode (mention-only vs all-messages). | Agent receives mention, responds, response appears in chat | M2 |
-| F-404 | Agent Response Display | Agent messages appear in chat with bot badge, teal styling, "(via OwnerName)" attribution. | Agent messages visually distinct from human messages | M2 |
-| F-405 | Command Agent (power user) | Spawn agent as child process. stdin/stdout NDJSON protocol. Events: mention, message, shutdown. Response: streaming content lines, optional reply_to. Logs captured from stderr. | Command agent receives events and streams responses via stdio | M2 |
-| F-406 | Agent Auth | Auto-detect Claude Code OAuth token from macOS Keychain ("Claude Code-credentials"). Watches for token refresh. Fallback: user provides API key manually. Per-agent auth config. | Agent calls succeed with Claude Code OAuth from Keychain or manual API key | M2 |
-| F-407 | Agent Invite Link | Share agent config as a link (port42://agent?...). Contains name, system prompt, provider, model. Recipient adds their own auth. | Friend can add shared agent from a link | M2 |
-| F-408 | Swim | Jump into a companion for direct 1:1 conversation. Opens a dedicated DM-style view. No @mention needed, companion always responds. Streaming conversation with full context. Native version of the CLI `swim` command. `/swim @companion` or click companion in sidebar. | User swims into a companion, has direct streaming conversation, exits back to channels | M2 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-400 | Agent Config UI | Settings > Agents > Add. Two modes: LLM (name + system prompt + provider + model) and Command (name + command path + args + env). Channels and trigger mode for both. | User can configure and save an agent | M2 | **Done** |
+| F-401 | LLM Agent Engine | Port42 calls LLM API directly with channel context as conversation history and agent's system prompt. Supports Anthropic (Claude). Streams tokens to chat as they arrive. No subprocess needed. | @mention triggers streaming API call, tokens appear live in chat | M2 | **Done** |
+| F-402 | Agent Sidebar Presence | Agents appear in COMPANIONS sidebar section with status indicator. Bot badge on messages. | Agents visible in sidebar with correct status | M2 | **Done** |
+| F-403 | Agent Message Routing | Detect @mentions in messages. Route to correct agent based on name. Build context from recent channel history (configurable window, default 50 messages). Respect trigger mode (mention-only vs all-messages). | Agent receives mention, responds, response appears in chat | M2 | **Done** |
+| F-404 | Agent Response Display | Agent messages appear in chat with bot badge, teal styling, "(via OwnerName)" attribution. | Agent messages visually distinct from human messages | M2 | **Done** |
+| F-405 | Command Agent (power user) | Spawn agent as child process. stdin/stdout NDJSON protocol. Events: mention, message, shutdown. Response: streaming content lines, optional reply_to. Logs captured from stderr. | Command agent receives events and streams responses via stdio | M2 | **Done** |
+| F-406 | Agent Auth | Auto-detect Claude Code OAuth token from macOS Keychain ("Claude Code-credentials"). Watches for token refresh. Fallback: user provides API key manually. Per-agent auth config. | Agent calls succeed with Claude Code OAuth from Keychain or manual API key | M2 | **Done** |
+| F-407 | Agent Invite Link | Share agent config as a link (port42://agent?...). Contains name, system prompt, provider, model. Recipient adds their own auth. | Friend can add shared agent from a link | M2 | **Done** |
+| F-408 | Swim | Jump into a companion for direct 1:1 conversation. Opens a dedicated DM-style view. No @mention needed, companion always responds. Streaming conversation with full context. Native version of the CLI `swim` command. `/swim @companion` or click companion in sidebar. | User swims into a companion, has direct streaming conversation, exits back to channels | M2 | **Done** |
 
 ### Sync & Encryption
 
@@ -258,20 +258,20 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 
 ### Local Storage
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-800 | SQLite Database | GRDB.swift for local persistence. Messages, channels, users, agents, audio rooms. | Data persists across app restarts | M1 |
-| F-801 | Channel CRUD | Create, rename, delete channels. Stored in SQLite. | Channels persist and can be managed | M1 |
-| F-802 | Message Persistence | All messages stored locally in SQLite, indexed by channel and timestamp. | Messages survive app restart, load on channel switch | M1 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-800 | SQLite Database | GRDB.swift for local persistence. Messages, channels, users, agents, audio rooms. | Data persists across app restarts | M1 | **Done** |
+| F-801 | Channel CRUD | Create, rename, delete channels. Stored in SQLite. | Channels persist and can be managed | M1 | **Done** |
+| F-802 | Message Persistence | All messages stored locally in SQLite, indexed by channel and timestamp. | Messages survive app restart, load on channel switch | M1 | **Done** |
 
 ### Theme & Polish
 
-| ID | Feature | Description | Done When | Milestone |
-|----|---------|-------------|-----------|-----------|
-| F-900 | Dark Theme | Black background (#000/#111), neon green accent (#00ff41), teal for agent text (#00d4aa), SF Mono font, no light mode. | App matches Portal42 web aesthetic | M1 |
-| F-901 | Notifications | macOS native notifications for mentions and DMs. Badge count on dock icon. Respect Do Not Disturb. | Notifications fire for mentions, badge updates | M8 |
-| F-902 | Keyboard Shortcuts | Full shortcut set: Cmd+K, Cmd+N, Cmd+1-9, Cmd+M, Cmd+/, Enter, Shift+Enter, Escape, Up arrow edit. | All shortcuts functional | M1 (basic) / M8 (full) |
-| F-903 | App Packaging | App icon, DMG for distribution, code signing. | App installable via DMG on any Apple Silicon Mac | M8 |
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-900 | Dark Theme | Black background (#000/#111), neon green accent (#00ff41), teal for agent text (#00d4aa), SF Mono font, no light mode. | App matches Portal42 web aesthetic | M1 | **Done** |
+| F-901 | Notifications | macOS native notifications for mentions and DMs. Badge count on dock icon. Respect Do Not Disturb. | Notifications fire for mentions, badge updates | M8 | |
+| F-902 | Keyboard Shortcuts | Full shortcut set: Cmd+K, Cmd+N, Cmd+1-9, Cmd+M, Cmd+/, Enter, Shift+Enter, Escape, Up arrow edit. | All shortcuts functional | M1 (basic) / M8 (full) | **Done** (basic) |
+| F-903 | App Packaging | App icon, DMG for distribution, code signing. | App installable via DMG on any Apple Silicon Mac | M8 | **Done** |
 
 ---
 
