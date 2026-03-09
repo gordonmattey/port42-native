@@ -414,6 +414,10 @@ public final class AppState: ObservableObject {
         sync.onMessageReceived = { [weak self] channelId, message in
             self?.handleIncomingSyncedMessage(channelId: channelId, message: message)
             self?.refreshFriends()
+            // Auto-send read receipt if user is viewing this channel
+            if self?.currentChannel?.id == channelId {
+                self?.sync.sendReadReceipt(channelId: channelId)
+            }
         }
         sync.onPresenceChanged = { [weak self] channelId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(channelId: channelId, senderId: senderId, senderName: senderName, status: status)
@@ -677,6 +681,9 @@ public final class AppState: ObservableObject {
         currentChannel = channel
         lastReadDates[channel.id] = Date()
         syncJoinChannel(channel.id)
+
+        // Send read receipt so remote peers know we've seen their messages
+        sync.sendReadReceipt(channelId: channel.id)
 
         // Load messages and channel companions
         do {

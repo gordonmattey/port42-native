@@ -335,6 +335,12 @@ public final class SyncService: NSObject, ObservableObject {
         case "ack":
             handleAck(envelope)
 
+        case "delivered":
+            handleDelivered(envelope)
+
+        case "read":
+            handleReadReceipt(envelope)
+
         case "presence":
             handlePresence(envelope)
 
@@ -416,12 +422,38 @@ public final class SyncService: NSObject, ObservableObject {
 
     private func handleAck(_ envelope: SyncEnvelope) {
         guard let messageId = envelope.messageId else { return }
-        // Update sync status
         do {
             try db?.updateSyncStatus(messageId: messageId, status: "synced")
         } catch {
             print("[sync] failed to update sync status: \(error)")
         }
+    }
+
+    private func handleDelivered(_ envelope: SyncEnvelope) {
+        guard let messageId = envelope.messageId else { return }
+        do {
+            // Only upgrade from synced to delivered (don't downgrade from read)
+            try db?.updateSyncStatusIfBefore(messageId: messageId, newStatus: "delivered", before: ["local", "synced"])
+        } catch {
+            print("[sync] failed to update delivered status: \(error)")
+        }
+    }
+
+    private func handleReadReceipt(_ envelope: SyncEnvelope) {
+        guard let channelId = envelope.channelId,
+              let senderId = envelope.senderId,
+              senderId != userId else { return }
+        // Mark all our messages in this channel as read
+        do {
+            try db?.markMessagesAsRead(channelId: channelId, bySenderId: userId ?? "")
+        } catch {
+            print("[sync] failed to update read status: \(error)")
+        }
+    }
+
+    /// Send a read receipt for a channel (call when user views messages)
+    public func sendReadReceipt(channelId: String) {
+        send(SyncEnvelope(type: "read", channelId: channelId, senderId: userId))
     }
 
     private func handlePresence(_ envelope: SyncEnvelope) {

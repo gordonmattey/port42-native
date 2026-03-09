@@ -34,7 +34,8 @@ public struct ChatView: View {
     }
 
     private var channelEntries: [ChatEntry] {
-        appState.messages.compactMap { message in
+        let currentUserId = appState.currentUser?.id
+        return appState.messages.compactMap { message in
             // Hide empty placeholders (agent is still typing)
             if message.isAgent && message.content.isEmpty { return nil }
             return ChatEntry(
@@ -44,7 +45,9 @@ public struct ChatView: View {
                 timestamp: message.timestamp,
                 isSystem: message.isSystem,
                 isAgent: message.isAgent,
-                senderOwner: message.senderOwner
+                senderOwner: message.senderOwner,
+                syncStatus: message.syncStatus,
+                isOwnMessage: message.senderId == currentUserId
             )
         }
     }

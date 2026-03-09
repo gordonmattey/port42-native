@@ -12,11 +12,13 @@ public struct ChatEntry: Identifiable, Equatable {
     public let isSystem: Bool
     public let isAgent: Bool
     public let isPlaceholder: Bool
+    public let syncStatus: String?
+    public let isOwnMessage: Bool
 
     public init(
         id: String, senderName: String, content: String, timestamp: Date? = nil,
         isSystem: Bool = false, isAgent: Bool = false, isPlaceholder: Bool = false,
-        senderOwner: String? = nil
+        senderOwner: String? = nil, syncStatus: String? = nil, isOwnMessage: Bool = false
     ) {
         self.id = id
         self.senderName = senderName
@@ -26,6 +28,8 @@ public struct ChatEntry: Identifiable, Equatable {
         self.isSystem = isSystem
         self.isAgent = isAgent
         self.isPlaceholder = isPlaceholder
+        self.syncStatus = syncStatus
+        self.isOwnMessage = isOwnMessage
     }
 
     /// Full namespaced identity
@@ -372,7 +376,8 @@ struct MessageRow: View, Equatable {
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
         lhs.entry.content == rhs.entry.content &&
-        lhs.entry.isPlaceholder == rhs.entry.isPlaceholder
+        lhs.entry.isPlaceholder == rhs.entry.isPlaceholder &&
+        lhs.entry.syncStatus == rhs.entry.syncStatus
     }
 
     var body: some View {
@@ -380,6 +385,16 @@ struct MessageRow: View, Equatable {
             .padding(.top, 8)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func receiptSymbol(_ status: String) -> String {
+        switch status {
+        case "local": return "·"
+        case "synced": return "✓"
+        case "delivered": return "✓✓"
+        case "read": return "✓✓"
+        default: return ""
+        }
     }
 
     private var messageContent: some View {
@@ -403,6 +418,12 @@ struct MessageRow: View, Equatable {
                             Text(time)
                                 .font(Port42Theme.mono(11))
                                 .foregroundColor(Port42Theme.textSecondary)
+                        }
+                        if entry.isOwnMessage, let status = entry.syncStatus {
+                            Text("  ")
+                            Text(receiptSymbol(status))
+                                .font(Port42Theme.mono(11))
+                                .foregroundColor(status == "read" ? Port42Theme.accent : Port42Theme.textSecondary)
                         }
                     }
 

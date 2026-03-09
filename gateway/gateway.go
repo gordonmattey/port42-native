@@ -245,6 +245,8 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			g.broadcastTyping(ctx, peer, env)
 		case "create_token":
 			g.handleCreateToken(ctx, peer, env.ChannelID)
+		case "read":
+			g.routeReceipt(ctx, peer, env)
 		case "ack":
 			// Client acknowledges receipt
 		default:
@@ -539,6 +541,7 @@ func (g *Gateway) routeMessage(ctx context.Context, sender *Peer, env Envelope) 
 
 	log.Printf("[gateway] ROUTE: from=%s channel=%s targets=%d members=%d", sender.ID[:min(8, len(sender.ID))], env.ChannelID[:min(8, len(env.ChannelID))], len(targetIDs), len(members))
 
+	delivered := false
 	for _, id := range targetIDs {
 		g.mu.RLock()
 		peer, online := g.peers[id]
@@ -548,17 +551,52 @@ func (g *Gateway) routeMessage(ctx context.Context, sender *Peer, env Envelope) 
 			if err := peer.Send(ctx, env); err != nil {
 				log.Printf("[gateway] failed to send to %s: %v", id, err)
 				g.storeForPeer(id, env)
+			} else {
+				delivered = true
 			}
 		} else {
 			g.storeForPeer(id, env)
 		}
 	}
 
+	// Send ack (gateway received) then delivered (peer received) if applicable
 	sender.Send(ctx, Envelope{
 		Type:      "ack",
 		MessageID: env.MessageID,
 		ChannelID: env.ChannelID,
 	})
+	if delivered {
+		sender.Send(ctx, Envelope{
+			Type:      "delivered",
+			MessageID: env.MessageID,
+			ChannelID: env.ChannelID,
+		})
+	}
+}
+
+// routeReceipt forwards a read receipt to all other channel members.
+func (g *Gateway) routeReceipt(ctx context.Context, sender *Peer, env Envelope) {
+	if env.ChannelID == "" {
+		return
+	}
+	env.SenderID = sender.ID
+	env.SenderName = sender.Name
+
+	g.mu.RLock()
+	members := g.channels[env.ChannelID]
+	var targets []*Peer
+	for id := range members {
+		if id != sender.ID {
+			if p, ok := g.peers[id]; ok {
+				targets = append(targets, p)
+			}
+		}
+	}
+	g.mu.RUnlock()
+
+	for _, peer := range targets {
+		peer.Send(ctx, env)
+	}
 }
 
 func (g *Gateway) storeForPeer(peerID string, env Envelope) {

@@ -371,6 +371,27 @@ public final class DatabaseService {
         }
     }
 
+    /// Only upgrade sync status if current status is in the `before` list
+    public func updateSyncStatusIfBefore(messageId: String, newStatus: String, before: [String]) throws {
+        try dbQueue.write { db in
+            let placeholders = before.map { _ in "?" }.joined(separator: ", ")
+            try db.execute(
+                sql: "UPDATE messages SET syncStatus = ? WHERE id = ? AND syncStatus IN (\(placeholders))",
+                arguments: StatementArguments([newStatus, messageId] + before)
+            )
+        }
+    }
+
+    /// Mark all messages from a sender in a channel as read
+    public func markMessagesAsRead(channelId: String, bySenderId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE messages SET syncStatus = 'read' WHERE channelId = ? AND senderId = ? AND syncStatus IN ('local', 'synced', 'delivered')",
+                arguments: [channelId, bySenderId]
+            )
+        }
+    }
+
     public func getMessages(channelId: String) throws -> [Message] {
         try dbQueue.read { db in
             try Message
