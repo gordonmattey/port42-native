@@ -58,7 +58,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<data>
-		asvMBfViC3H3HJTxoGHNW535SjI=
+		6tfrv9+NDiR0tVFb6ijussxIRwc=
 		</data>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>
 		<data>
@@ -71,10 +71,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			0WdrV8K5FrQgkp/wlqtvWvW0bos=
+			1TX663DCebfkS0pf3d2cmhX62Ks=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"d1676b57c2b916b420929ff096ab6f5af5b46e8b"</string>
+			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
 		</dict>
 		<key>Resources/AppIcon.icns</key>
 		<dict>
@@ -171,7 +171,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			OKedP2LD4c6NAgTD8Qgo8tUUmMUuyjVFDyp13VkPOKo=
+			E9fd/y+GJX/moYKOwLJiM98eF86xWMQQyiREPBl7nFg=
 			</data>
 		</dict>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>
@@ -179,6 +179,13 @@
 			<key>hash2</key>
 			<data>
 			ThroJG4j7f39WdC+6WBpRWJsEMg+Vaf1rz8E3yX6db0=
+			</data>
+		</dict>
+		<key>embedded.provisionprofile</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			BZqUS/UUQOqc4gjYNi4XoQz7KSCuH6AhS+OUVftYhko=
 			</data>
 		</dict>
 	</dict>
