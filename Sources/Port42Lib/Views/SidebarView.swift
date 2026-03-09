@@ -124,15 +124,6 @@ public struct SidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            if companion.mode == .llm {
-                                Button("Copy Invitation") {
-                                    let link = AgentInvite.generateLink(from: companion)
-                                    if !link.isEmpty {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(link, forType: .string)
-                                    }
-                                }
-                            }
                             Button("Delete Swimmer", role: .destructive) {
                                 appState.deleteCompanion(companion)
                             }
