@@ -76,6 +76,7 @@ public struct ContentView: View {
 
 struct HelpOverlay: View {
     @Binding var isPresented: Bool
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         ZStack {
@@ -102,39 +103,33 @@ struct HelpOverlay: View {
 
                 Divider().background(Port42Theme.border)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        helpSection("shortcuts", items: [
-                            ("Cmd+K", "quick switcher / paste invite link"),
-                            ("Cmd+N", "new channel"),
-                            ("?", "this help"),
-                        ])
+                VStack(alignment: .leading, spacing: 16) {
+                    helpSection("shortcuts", items: [
+                        ("Cmd+K", "quick switcher / paste invite link"),
+                        ("Cmd+N", "new channel"),
+                        ("?", "this help"),
+                    ])
 
-                        helpSection("chat", items: [
-                            ("@name", "mention a companion (only they respond)"),
-                            ("message", "everyone in the channel can respond"),
-                        ])
+                    helpSection("chat", items: [
+                        ("@name", "mention a swimmer so only they respond"),
+                        ("Tab", "accept @mention autocomplete"),
+                    ])
 
-                        helpSection("companions", items: [
-                            ("right-click channel", "add or remove companions"),
-                            ("click companion", "start a direct swim"),
-                        ])
-
-                        helpSection("sync", items: [
-                            ("right-click channel", "copy invite link"),
-                            ("Cmd+K + paste link", "join a channel from another instance"),
-                        ])
-                    }
-                    .padding(20)
+                    helpSection("context menus", items: [
+                        ("right-click channel", "add swimmers, copy invite link"),
+                        ("right-click swimmer", "edit or delete"),
+                    ])
                 }
+                .padding(20)
 
                 Divider().background(Port42Theme.border)
 
-                Text("a chat app where humans and AI companions coexist")
+                Text("where humans and AI swim together")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                     .padding(.vertical, 10)
             }
+            .fixedSize(horizontal: false, vertical: true)
             .background(Port42Theme.bgSecondary)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
@@ -143,29 +138,32 @@ struct HelpOverlay: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .shadow(color: .black.opacity(0.5), radius: 20)
             .frame(width: 380)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isFocused)
             .onKeyPress(.escape) {
                 isPresented = false
                 return .handled
             }
         }
+        .onAppear { isFocused = true }
     }
 
     private func helpSection(_ title: String, items: [(String, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(Port42Theme.monoBold(12))
                 .foregroundStyle(Port42Theme.accent)
 
             ForEach(items, id: \.0) { key, desc in
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: 0) {
                     Text(key)
                         .font(Port42Theme.mono(12))
                         .foregroundStyle(Port42Theme.textPrimary)
-                        .frame(width: 120, alignment: .trailing)
+                    Text("  ")
                     Text(desc)
                         .font(Port42Theme.mono(12))
                         .foregroundStyle(Port42Theme.textSecondary)
-                    Spacer()
                 }
             }
         }

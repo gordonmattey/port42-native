@@ -895,6 +895,15 @@ public final class AppState: ObservableObject {
         }
     }
 
+    public func updateCompanion(_ companion: AgentConfig) {
+        do {
+            try db.saveAgent(companion)
+            companions = try db.getAllAgents()
+        } catch {
+            print("[Port42] Failed to update companion: \(error)")
+        }
+    }
+
     public func deleteCompanion(_ companion: AgentConfig) {
         do {
             try db.deleteAgent(id: companion.id)

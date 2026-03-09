@@ -30,6 +30,7 @@ public struct SidebarView: View {
     @Binding var showNewChannel: Bool
     @State private var showNewCompanion = false
     @State private var showSignOut = false
+    @State private var editingCompanion: AgentConfig?
 
     public init(showNewChannel: Binding<Bool>) {
         self._showNewChannel = showNewChannel
@@ -137,8 +138,8 @@ public struct SidebarView: View {
                         .foregroundStyle(Port42Theme.textPrimary)
                     Spacer()
                     Button(action: { showSignOut = true }) {
-                        Text("surface")
-                            .font(Port42Theme.mono(10))
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 12))
                             .foregroundStyle(Port42Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
@@ -153,6 +154,16 @@ public struct SidebarView: View {
         }
         .sheet(isPresented: $showNewCompanion) {
             NewCompanionSheet(isPresented: $showNewCompanion)
+        }
+        .sheet(item: $editingCompanion) { companion in
+            EditCompanionSheet(
+                isPresented: Binding(
+                    get: { editingCompanion != nil },
+                    set: { if !$0 { editingCompanion = nil } }
+                ),
+                companion: companion
+            )
+            .environmentObject(appState)
         }
     }
 
@@ -226,6 +237,9 @@ public struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button("Edit Swimmer") {
+                editingCompanion = companion
+            }
             Button("Delete Swimmer", role: .destructive) {
                 appState.deleteCompanion(companion)
             }
