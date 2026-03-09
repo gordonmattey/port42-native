@@ -103,26 +103,28 @@ Port42.app/Contents/
 ### Ship a release (sign + notarize + push)
 
 ```bash
-# 1. Build release with Developer ID signing
-PORT42_SIGN_IDENTITY="Developer ID Application: Gordon Mattey (5R5X43WDXE)" ./build.sh --release
-
-# 2. Create DMG
-hdiutil create -volname Port42 -srcfolder .build/Port42.app -ov -format UDZO dist/Port42.dmg
-
-# 3. Notarize
-xcrun notarytool submit dist/Port42.dmg --keychain-profile "notarytool" --wait
-
-# 4. Staple
-xcrun stapler staple dist/Port42.dmg
-
-# 5. Commit and push (DMG is Git LFS tracked)
-git add dist/Port42.dmg && git commit -m "Ship release DMG" && git push
+./build.sh --release
 ```
 
-build.sh handles signing automatically when `PORT42_SIGN_IDENTITY` is set:
-- Signs the gateway binary separately with hardened runtime and secure timestamp
-- Signs the app bundle with `Port42.release.entitlements` (no get-task-allow)
-- Debug builds (no env var) use ad-hoc signing with `Port42.entitlements`
+This single command handles the full pipeline:
+1. Swift release build with `-DRELEASE` flag
+2. Go gateway build
+3. Developer ID signing with hardened runtime + timestamp
+4. DMG creation with Applications symlink (drag-and-drop install)
+5. DMG signing
+6. Notarization (via `notarytool` Keychain profile)
+7. Stapling
+8. Copy to `dist/`
+
+**After a release build, always commit and push** so the DMG is available on GitHub:
+```bash
+git add -f dist/Port42.app dist/Port42.dmg && git commit -m "Release: <description>" && git push
+```
+
+build.sh auto-detects signing identity from Keychain:
+- **Release**: Developer ID Application cert, hardened runtime, `Port42.release.entitlements`
+- **Debug + dev profile**: Apple Development cert, `Port42.dev.entitlements` (has applesignin)
+- **Debug fallback**: Developer ID or ad-hoc, `Port42.entitlements`
 
 ## Signing Details
 
