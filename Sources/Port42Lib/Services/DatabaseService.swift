@@ -417,6 +417,60 @@ public final class DatabaseService {
         }
     }
 
+    /// Returns distinct remote human senders across all channels (excluding the local user).
+    public func getKnownFriends(excludingUserId: String) throws -> [ChannelMember] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT senderId,
+                       MAX(senderName) as senderName,
+                       MAX(senderOwner) as senderOwner
+                FROM messages
+                WHERE senderType = 'human'
+                  AND senderId != ?
+                GROUP BY senderId
+                ORDER BY MAX(senderName) ASC
+                """, arguments: [excludingUserId])
+            return rows.map { row in
+                ChannelMember(
+                    senderId: row["senderId"],
+                    name: row["senderName"],
+                    type: "human",
+                    owner: row["senderOwner"]
+                )
+            }
+        }
+    }
+
+    /// Returns the timestamp of the most recent message in a channel, or nil if empty.
+    public func getLastMessageTime(channelId: String) throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(db, sql: """
+                SELECT MAX(timestamp) FROM messages
+                WHERE channelId = ? AND senderType != 'system'
+                """, arguments: [channelId])
+        }
+    }
+
+    /// Returns the timestamp of the most recent swim message for a companion.
+    public func getLastSwimTime(companionId: String) throws -> Date? {
+        try dbQueue.read { db in
+            try Date.fetchOne(db, sql: """
+                SELECT MAX(timestamp) FROM swimMessages
+                WHERE companionId = ?
+                """, arguments: [companionId])
+        }
+    }
+
+    /// Find an existing DM channel for a specific remote user, or nil if none exists.
+    public func getDMChannel(friendId: String) throws -> Channel? {
+        try dbQueue.read { db in
+            try Channel.fetchOne(db, sql: """
+                SELECT * FROM channels
+                WHERE type = 'dm' AND id = ?
+                """, arguments: ["dm-\(friendId)"])
+        }
+    }
+
     // MARK: - Observations
 
     public func observeChannels(

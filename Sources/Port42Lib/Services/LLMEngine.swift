@@ -51,6 +51,12 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         authConfig: AgentAuthConfig? = nil,
         delegate: LLMStreamDelegate
     ) throws {
+        // Clean up any existing session before starting a new one
+        currentTask?.cancel()
+        currentTask = nil
+        session?.invalidateAndCancel()
+        session = nil
+
         let auth: ResolvedAuth
         if let config = authConfig {
             auth = try authResolver.resolve(config: config)
@@ -115,6 +121,8 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         currentTask = nil
         session?.invalidateAndCancel()
         session = nil
+        buffer = ""
+        fullResponse = ""
     }
 
     // MARK: - URLSessionDataDelegate
@@ -136,6 +144,10 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
                 hasRetriedAuth = true
                 authResolver.clearCache()
                 NSLog("[Port42] Auth 401, clearing cached token and retrying...")
+                // Clean up current session before retrying
+                self.currentTask = nil
+                session.invalidateAndCancel()
+                self.session = nil
                 DispatchQueue.main.async { [weak self] in
                     do {
                         try self?.send(

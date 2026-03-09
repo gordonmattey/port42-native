@@ -316,6 +316,13 @@ public final class SyncService: NSObject, ObservableObject {
         case "challenge":
             handleChallenge(envelope)
 
+        case "no_auth":
+            // Gateway has no auth, just send identify
+            if let userId {
+                send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
+                print("[sync] sent identify (no auth required)")
+            }
+
         case "welcome":
             print("[sync] connected as \(envelope.senderId ?? "?")")
             isConnected = true

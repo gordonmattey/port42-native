@@ -18,6 +18,14 @@ func main() {
 	addr := flag.String("addr", ":4242", "listen address")
 	flag.Parse()
 
+	// Log to file for debugging
+	home, _ := os.UserHomeDir()
+	logPath := home + "/Library/Application Support/Port42/gateway" + *addr + ".log"
+	os.MkdirAll(home+"/Library/Application Support/Port42", 0755)
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil {
+		log.SetOutput(f)
+	}
+
 	gw := NewGateway()
 
 	mux := http.NewServeMux()

@@ -89,7 +89,10 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
     }
 
     public func retry() {
+        engine.cancel()
         error = nil
+        // Clear stale cached token so we pick up refreshed credentials
+        AgentAuthResolver.shared.clearCache()
         // Re-send the last user message if available
         if let lastUser = messages.last(where: { $0.role == .user }) {
             send(lastUser.content)
@@ -203,9 +206,8 @@ public struct SwimView: View {
                     .font(Port42Theme.monoBold(14))
                     .foregroundStyle(Port42Theme.textAgent)
 
-                Text("swim")
-                    .font(Port42Theme.monoFontSmall)
-                    .foregroundStyle(Port42Theme.textSecondary)
+                Text("🏊")
+                    .font(.system(size: 12))
 
                 Spacer()
             }

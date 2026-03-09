@@ -12,6 +12,7 @@ struct QuickSwitcherItem: Identifiable {
     enum Kind {
         case channel(Channel)
         case companion(AgentConfig)
+        case friend(ChannelMember)
     }
 }
 
@@ -154,7 +155,7 @@ public struct QuickSwitcher: View {
     // MARK: - Data
 
     private var channelItems: [QuickSwitcherItem] {
-        appState.channels.map { ch in
+        appState.channels.filter { $0.type != "dm" }.map { ch in
             QuickSwitcherItem(id: "ch-\(ch.id)", icon: "#", name: ch.name, kind: .channel(ch))
         }
     }
@@ -165,16 +166,23 @@ public struct QuickSwitcher: View {
         }
     }
 
+    private var friendItems: [QuickSwitcherItem] {
+        appState.friends.map { friend in
+            QuickSwitcherItem(id: "fr-\(friend.senderId)", icon: "@", name: friend.displayName(localOwner: appState.currentUser?.displayName), kind: .friend(friend))
+        }
+    }
+
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Empty query: show channels only (companions are in sidebar)
+        // Empty query: show channels only (companions and friends are in sidebar)
         guard !raw.isEmpty else { return channelItems }
 
-        // @ prefix: search companions only
+        // @ prefix: search companions and friends
         if raw.hasPrefix("@") {
             let q = String(raw.dropFirst())
-            if q.isEmpty { return companionItems }
-            return companionItems.filter { match(q, $0.name.lowercased()) }
+            let people = companionItems + friendItems
+            if q.isEmpty { return people }
+            return people.filter { match(q, $0.name.lowercased()) }
         }
 
         // # prefix: search channels only
@@ -184,8 +192,8 @@ public struct QuickSwitcher: View {
             return channelItems.filter { match(q, $0.name.lowercased()) }
         }
 
-        // No prefix: search both
-        let all = channelItems + companionItems
+        // No prefix: search all
+        let all = channelItems + companionItems + friendItems
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -283,6 +291,8 @@ public struct QuickSwitcher: View {
             appState.selectChannel(channel)
         case .companion(let companion):
             appState.startSwim(with: companion)
+        case .friend(let friend):
+            appState.startDM(with: friend)
         }
         isPresented = false
     }
@@ -293,13 +303,15 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .channel: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
+        case .friend: return Port42Theme.accent.opacity(0.6)
         }
     }
 
     private func kindLabel(_ item: QuickSwitcherItem) -> String {
         switch item.kind {
         case .channel: return "channel"
-        case .companion: return "swim"
+        case .companion: return "🏊"
+        case .friend: return "friend"
         }
     }
 }

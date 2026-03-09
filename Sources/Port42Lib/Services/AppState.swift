@@ -320,6 +320,7 @@ public final class AppState: ObservableObject {
     @Published public var lastReadDates: [String: Date] = [:]
     @Published public var companions: [AgentConfig] = []
     @Published public var channelCompanions: [AgentConfig] = []
+    @Published public var friends: [ChannelMember] = []
     @Published public var activeSwimSession: SwimSession?
     @Published public var showDreamscape = true
     @Published public var showNgrokSetup = false
@@ -364,6 +365,9 @@ public final class AppState: ObservableObject {
             channels = try db.getAllChannels()
 
             companions = try db.getAllAgents()
+            if let userId = currentUser?.id {
+                friends = (try? db.getKnownFriends(excludingUserId: userId)) ?? []
+            }
 
             // Configure sync and analytics
             if let user = currentUser {
@@ -405,6 +409,7 @@ public final class AppState: ObservableObject {
         #endif
         sync.onMessageReceived = { [weak self] channelId, message in
             self?.handleIncomingSyncedMessage(channelId: channelId, message: message)
+            self?.refreshFriends()
         }
         sync.onPresenceChanged = { [weak self] channelId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(channelId: channelId, senderId: senderId, senderName: senderName, status: status)
@@ -890,6 +895,39 @@ public final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Friends (remote humans)
+
+    public func refreshFriends() {
+        guard let userId = currentUser?.id else { return }
+        friends = (try? db.getKnownFriends(excludingUserId: userId)) ?? []
+    }
+
+    /// Open or create a DM channel with a remote friend, then select it.
+    public func startDM(with friend: ChannelMember) {
+        let dmId = "dm-\(friend.senderId)"
+        // Check if DM channel already exists
+        if let existing = channels.first(where: { $0.id == dmId }) {
+            selectChannel(existing)
+            return
+        }
+        // Create a new DM channel
+        let channel = Channel(
+            id: dmId,
+            name: friend.name,
+            type: "dm",
+            createdAt: Date(),
+            encryptionKey: ChannelCrypto.generateKey()
+        )
+        do {
+            try db.saveChannel(channel)
+            channels = try db.getAllChannels()
+            selectChannel(channel)
+            syncJoinChannel(channel.id)
+        } catch {
+            print("[Port42] Failed to create DM channel: \(error)")
+        }
+    }
+
     public func startSwim(with companion: AgentConfig) {
         if let cached = swimSessions[companion.id] {
             activeSwimSession = cached
@@ -948,6 +986,7 @@ public final class AppState: ObservableObject {
         messages = []
         companions = []
         channelCompanions = []
+        friends = []
         drafts = [:]
         unreadCounts = [:]
         lastReadDates = [:]

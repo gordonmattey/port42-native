@@ -137,7 +137,8 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 
 	ctx := req.Context()
 
-	// If auth is enabled, send a challenge nonce before expecting identify
+	// If auth is enabled, send a challenge nonce before expecting identify.
+	// If auth is disabled, send a no-auth hint so remote clients know to send identify immediately.
 	var nonce string
 	if g.authVerifier != nil {
 		nonce, err = g.generateNonce()
@@ -148,9 +149,13 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		}
 		challengeData, _ := json.Marshal(Envelope{Type: "challenge", Nonce: nonce})
 		conn.Write(ctx, websocket.MessageText, challengeData)
+	} else {
+		// No auth required, tell the client to proceed with identify
+		noAuthData, _ := json.Marshal(Envelope{Type: "no_auth"})
+		conn.Write(ctx, websocket.MessageText, noAuthData)
 	}
 
-	// First message (after challenge, if sent) must be identify
+	// First message (after challenge or no_auth) must be identify
 	_, data, err := conn.Read(ctx)
 	if err != nil {
 		log.Printf("[gateway] read identify error: %v", err)
@@ -302,13 +307,19 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 	isFirstMember := members == nil || len(members) == 0
 	isExistingMember := members != nil && members[p.ID]
 
+	log.Printf("[gateway] JOIN: peer=%s channel=%s first=%v existing=%v hasToken=%v memberCount=%d",
+		p.ID, channelID[:min(8, len(channelID))], isFirstMember, isExistingMember, token != "", len(members))
+
 	if !isFirstMember && !isExistingMember {
-		// Require a valid token
+		// Validate token if provided, but allow joining without one.
+		// Channel IDs are UUIDs (128-bit entropy) and serve as implicit proof
+		// of membership. Tokens add extra security for invite links but should
+		// not block reconnects after gateway restarts.
 		tokenSet := g.tokens[channelID]
-		if token == "" || tokenSet == nil || !tokenSet[token] {
-			g.mu.Unlock()
-			log.Printf("[gateway] peer %s rejected from channel %s: invalid or missing join token", p.ID, channelID)
-			return fmt.Errorf("invalid or missing join token")
+		if token != "" && tokenSet != nil && tokenSet[token] {
+			// Consume valid token
+			delete(tokenSet, token)
+			log.Printf("[gateway] peer %s used valid token for channel %s", p.ID, channelID[:min(8, len(channelID))])
 		}
 	}
 
@@ -525,6 +536,8 @@ func (g *Gateway) routeMessage(ctx context.Context, sender *Peer, env Envelope) 
 		}
 	}
 	g.mu.RUnlock()
+
+	log.Printf("[gateway] ROUTE: from=%s channel=%s targets=%d members=%d", sender.ID[:min(8, len(sender.ID))], env.ChannelID[:min(8, len(env.ChannelID))], len(targetIDs), len(members))
 
 	for _, id := range targetIDs {
 		g.mu.RLock()

@@ -21,7 +21,7 @@ public struct LockScreenView: View {
                         // Returning user: avatar + "Dive In"
                         HStack(spacing: 12) {
                             userAvatar
-                            Text("Boot")
+                            Text("Swim")
                                 .font(Port42Theme.monoBold(16))
                                 .foregroundStyle(.black)
                         }
@@ -33,7 +33,7 @@ public struct LockScreenView: View {
                         .shadow(color: Port42Theme.accent.opacity(0.4), radius: 16)
                     } else {
                         // New user: just text
-                        Text("Boot")
+                        Text("Swim")
                             .font(Port42Theme.monoBold(16))
                             .foregroundStyle(.black)
                             .padding(.horizontal, 40)

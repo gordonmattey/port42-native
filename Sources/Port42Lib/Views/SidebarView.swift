@@ -1,6 +1,30 @@
 import SwiftUI
 import AppKit
 
+/// A unified sidebar entry that wraps channels and swimmers (companions + friends) for sorted display.
+private enum SidebarItem: Identifiable {
+    case channel(Channel)
+    case companion(AgentConfig)
+    case friend(ChannelMember)
+
+    var id: String {
+        switch self {
+        case .channel(let c): return "ch-\(c.id)"
+        case .companion(let c): return "comp-\(c.id)"
+        case .friend(let f): return "fr-\(f.senderId)"
+        }
+    }
+
+    /// Display name for this sidebar item
+    var swimmerName: String? {
+        switch self {
+        case .channel: return nil
+        case .companion(let c): return c.displayName
+        case .friend(let f): return f.name
+        }
+    }
+}
+
 public struct SidebarView: View {
     @EnvironmentObject var appState: AppState
     @Binding var showNewChannel: Bool
@@ -9,6 +33,34 @@ public struct SidebarView: View {
 
     public init(showNewChannel: Binding<Bool>) {
         self._showNewChannel = showNewChannel
+    }
+
+    /// Build a sorted list of all sidebar items ordered by most recent activity.
+    private var sortedItems: [SidebarItem] {
+        var items: [(SidebarItem, Date)] = []
+
+        for channel in appState.channels {
+            // Skip DM channels from the channel list (they show as friend rows)
+            if channel.type == "dm" { continue }
+            let lastMsg = (try? appState.db.getLastMessageTime(channelId: channel.id)) ?? channel.createdAt
+            items.append((.channel(channel), lastMsg))
+        }
+
+        for companion in appState.companions {
+            let lastSwim = (try? appState.db.getLastSwimTime(companionId: companion.id)) ?? companion.createdAt
+            items.append((.companion(companion), lastSwim))
+        }
+
+        for friend in appState.friends {
+            // Check if a DM channel exists for activity time
+            let dmId = "dm-\(friend.senderId)"
+            let lastDM = (try? appState.db.getLastMessageTime(channelId: dmId)) ?? Date.distantPast
+            // Also check when they last appeared in any channel
+            items.append((.friend(friend), lastDM))
+        }
+
+        items.sort { $0.1 > $1.1 }
+        return items.map { $0.0 }
     }
 
     public var body: some View {
@@ -53,80 +105,17 @@ public struct SidebarView: View {
             Divider()
                 .background(Port42Theme.border)
 
-            // Unified conversation list
+            // Unified conversation list sorted by last activity
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(appState.channels) { channel in
-                        let companionNames = ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName }
-                        let uniqueSenders = (try? appState.db.getUniqueSenders(channelId: channel.id)) ?? []
-                        Button(action: { appState.selectChannel(channel) }) {
-                            ChannelRow(
-                                channel: channel,
-                                isActive: appState.activeSwimSession == nil
-                                    && appState.currentChannel?.id == channel.id,
-                                unreadCount: appState.unreadCounts[channel.id] ?? 0,
-                                companionNames: companionNames,
-                                onlineCount: max(1, uniqueSenders.count)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            let assigned = (try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []
-                            let assignedIds = Set(assigned.map { $0.id })
-                            let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
-
-                            if !unassigned.isEmpty {
-                                Menu("Add Swimmer") {
-                                    ForEach(unassigned) { comp in
-                                        Button("@\(comp.displayName)") {
-                                            appState.addCompanionToChannel(comp, channel: channel)
-                                        }
-                                    }
-                                }
-                            }
-                            if !assigned.isEmpty {
-                                Menu("Remove Swimmer") {
-                                    ForEach(assigned) { comp in
-                                        Button("@\(comp.displayName)") {
-                                            appState.removeCompanionFromChannel(comp, channel: channel)
-                                        }
-                                    }
-                                }
-                            }
-
-                            Divider()
-
-                            Button("Copy Invitation") {
-                                let secured = appState.ensureEncryptionKey(for: channel)
-                                if appState.tunnel.authToken.isEmpty {
-                                    appState.pendingInviteChannel = secured
-                                    appState.showNgrokSetup = true
-                                } else {
-                                    Task {
-                                        let token = try? await appState.sync.requestToken(channelId: secured.id)
-                                        ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
-                                    }
-                                }
-                            }
-
-                            Button("Delete Channel", role: .destructive) {
-                                appState.deleteChannel(channel)
-                            }
-                        }
-                    }
-
-                    ForEach(appState.companions) { companion in
-                        Button(action: { appState.startSwim(with: companion) }) {
-                            CompanionRow(
-                                companion: companion,
-                                isActive: appState.activeSwimSession?.companion.id == companion.id
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Delete Swimmer", role: .destructive) {
-                                appState.deleteCompanion(companion)
-                            }
+                    ForEach(sortedItems) { item in
+                        switch item {
+                        case .channel(let channel):
+                            channelRow(channel)
+                        case .companion(let companion):
+                            companionRow(companion)
+                        case .friend(let friend):
+                            friendRow(friend)
                         }
                     }
                 }
@@ -167,16 +156,111 @@ public struct SidebarView: View {
         }
     }
 
+    @ViewBuilder
+    private func channelRow(_ channel: Channel) -> some View {
+        let companionNames = ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName }
+        let uniqueSenders = (try? appState.db.getUniqueSenders(channelId: channel.id)) ?? []
+        Button(action: { appState.selectChannel(channel) }) {
+            ChannelRow(
+                channel: channel,
+                isActive: appState.activeSwimSession == nil
+                    && appState.currentChannel?.id == channel.id,
+                unreadCount: appState.unreadCounts[channel.id] ?? 0,
+                companionNames: companionNames,
+                onlineCount: max(1, uniqueSenders.count)
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            let assigned = (try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []
+            let assignedIds = Set(assigned.map { $0.id })
+            let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
+
+            if !unassigned.isEmpty {
+                Menu("Add Swimmer") {
+                    ForEach(unassigned) { comp in
+                        Button("@\(comp.displayName)") {
+                            appState.addCompanionToChannel(comp, channel: channel)
+                        }
+                    }
+                }
+            }
+            if !assigned.isEmpty {
+                Menu("Remove Swimmer") {
+                    ForEach(assigned) { comp in
+                        Button("@\(comp.displayName)") {
+                            appState.removeCompanionFromChannel(comp, channel: channel)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Copy Invitation") {
+                let secured = appState.ensureEncryptionKey(for: channel)
+                if appState.tunnel.authToken.isEmpty {
+                    appState.pendingInviteChannel = secured
+                    appState.showNgrokSetup = true
+                } else {
+                    Task {
+                        let token = try? await appState.sync.requestToken(channelId: secured.id)
+                        ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                    }
+                }
+            }
+
+            Button("Delete Channel", role: .destructive) {
+                appState.deleteChannel(channel)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func companionRow(_ companion: AgentConfig) -> some View {
+        Button(action: { appState.startSwim(with: companion) }) {
+            CompanionRow(
+                companion: companion,
+                isActive: appState.activeSwimSession?.companion.id == companion.id
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Delete Swimmer", role: .destructive) {
+                appState.deleteCompanion(companion)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func friendRow(_ friend: ChannelMember) -> some View {
+        let dmId = "dm-\(friend.senderId)"
+        let isActive = appState.activeSwimSession == nil
+            && appState.currentChannel?.id == dmId
+        let displayName = friend.displayName(localOwner: appState.currentUser?.displayName)
+        Button(action: { appState.startDM(with: friend) }) {
+            CompanionRow(
+                name: displayName,
+                isActive: isActive
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 public struct CompanionRow: View {
-    let companion: AgentConfig
+    let name: String
     let isActive: Bool
 
     @State private var isHovered = false
 
     public init(companion: AgentConfig, isActive: Bool) {
-        self.companion = companion
+        self.name = companion.displayName
+        self.isActive = isActive
+    }
+
+    public init(name: String, isActive: Bool) {
+        self.name = name
         self.isActive = isActive
     }
 
@@ -186,7 +270,7 @@ public struct CompanionRow: View {
                 .fill(Port42Theme.textAgent)
                 .frame(width: 8, height: 8)
 
-            Text(companion.displayName)
+            Text(name)
                 .font(Port42Theme.mono(13))
                 .foregroundStyle(
                     isActive ? Port42Theme.textAgent : Port42Theme.textSecondary
@@ -304,3 +388,4 @@ public struct ChannelRow: View {
         }
     }
 }
+
