@@ -42,6 +42,7 @@ public final class AgentAuthResolver {
     private let keychainService: String
     private let keychainAccount: String?
     private var cachedToken: String?
+    private var cachedExpiresAt: Date?
 
     /// Default init reads from the real Claude Code keychain entry.
     /// Pass custom service/account for testing.
@@ -66,6 +67,7 @@ public final class AgentAuthResolver {
     /// Call this on 401 errors to pick up refreshed tokens.
     public func clearCache() {
         cachedToken = nil
+        cachedExpiresAt = nil
     }
 
     public func resolve(config: AgentAuthConfig) throws -> ResolvedAuth {
@@ -102,9 +104,16 @@ public final class AgentAuthResolver {
     // MARK: - Private
 
     private func readClaudeCodeToken() throws -> String {
-        // Return cached token if available
+        // Return cached token if available and not expired
         if let cached = cachedToken {
-            return cached
+            if let exp = cachedExpiresAt, exp < Date().addingTimeInterval(60) {
+                // Token expires within 60s, force re-read from Keychain
+                cachedToken = nil
+                cachedExpiresAt = nil
+                NSLog("[Port42] OAuth token expired or expiring soon, re-reading from Keychain")
+            } else {
+                return cached
+            }
         }
 
         // Test path: read from JSON file
@@ -141,6 +150,10 @@ public final class AgentAuthResolver {
             if let oauthObj = json["claudeAiOauth"] as? [String: Any],
                let accessToken = oauthObj["accessToken"] as? String {
                 cachedToken = accessToken
+                // Cache expiry so we can proactively refresh
+                if let expiresMs = oauthObj["expiresAt"] as? Double {
+                    cachedExpiresAt = Date(timeIntervalSince1970: expiresMs / 1000.0)
+                }
                 return accessToken
             }
             // Fallback: flat structure

@@ -12,6 +12,7 @@ public protocol LLMStreamDelegate: AnyObject {
 
 public enum LLMEngineError: Error, LocalizedError {
     case noAuth
+    case authExpired
     case httpError(Int, String)
     case invalidResponse
     case streamingError(String)
@@ -19,6 +20,7 @@ public enum LLMEngineError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .noAuth: return "No API key or OAuth token available"
+        case .authExpired: return "Your Claude session has expired. Run /login in Claude Code to re-authenticate."
         case .httpError(let code, let msg): return "HTTP \(code): \(msg)"
         case .invalidResponse: return "Invalid response from API"
         case .streamingError(let msg): return "Streaming error: \(msg)"
@@ -165,7 +167,11 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             }
             let errorMsg = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
             DispatchQueue.main.async { [weak self] in
-                self?.delegate?.llmDidError(LLMEngineError.httpError(http.statusCode, errorMsg))
+                if http.statusCode == 401 {
+                    self?.delegate?.llmDidError(LLMEngineError.authExpired)
+                } else {
+                    self?.delegate?.llmDidError(LLMEngineError.httpError(http.statusCode, errorMsg))
+                }
             }
             return
         }

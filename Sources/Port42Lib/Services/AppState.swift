@@ -376,7 +376,11 @@ public final class AppState: ObservableObject {
                 Analytics.shared.capture("app_opened")
             }
 
-            if let first = channels.first {
+            // Restore last selected channel, or fall back to first
+            let lastId = UserDefaults.standard.string(forKey: "lastSelectedChannelId")
+            if let lastId, let restored = channels.first(where: { $0.id == lastId }) {
+                selectChannel(restored)
+            } else if let first = channels.first {
                 selectChannel(first)
             }
 
@@ -660,6 +664,9 @@ public final class AppState: ObservableObject {
     public func selectChannel(_ channel: Channel) {
         // Hide swim session so ChatView renders (session stays cached)
         activeSwimSession = nil
+
+        // Remember last selected channel for next launch
+        UserDefaults.standard.set(channel.id, forKey: "lastSelectedChannelId")
 
         // Save draft for current channel
         if let current = currentChannel {
