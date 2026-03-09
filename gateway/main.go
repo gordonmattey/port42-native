@@ -148,7 +148,7 @@ const invitePage = `<!DOCTYPE html>
     padding: 40px 32px; text-align: center;
     background: #111;
   }
-  .diamond { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
+  .logo { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
   .brand { font-size: 14px; font-weight: 700; color: #00ff41; letter-spacing: 2px; margin-bottom: 24px; }
   h1 { font-size: 18px; font-weight: 400; margin-bottom: 8px; }
   h1 span { color: #00ff41; }
@@ -179,7 +179,7 @@ const invitePage = `<!DOCTYPE html>
 </head>
 <body>
 <div class="card">
-  <div class="diamond">&#x25C7;</div>
+  <div class="logo">&#x25CB;</div>
   <div class="brand">PORT42</div>
   <h1>join <span>#%s</span></h1>
   <div class="steps">
@@ -229,7 +229,7 @@ const rootPage = `<!DOCTYPE html>
     padding: 40px 32px; text-align: center;
     background: #111;
   }
-  .diamond { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
+  .logo { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
   .brand { font-size: 14px; font-weight: 700; color: #00ff41; letter-spacing: 2px; margin-bottom: 24px; }
   p { font-size: 14px; color: #999; line-height: 1.6; margin-bottom: 20px; }
   .btn {
@@ -244,7 +244,7 @@ const rootPage = `<!DOCTYPE html>
 </head>
 <body>
 <div class="card">
-  <div class="diamond">&#x25C7;</div>
+  <div class="logo">&#x25CB;</div>
   <div class="brand">PORT42</div>
   <p>a gateway is running here</p>
   <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn">download Port42</a>

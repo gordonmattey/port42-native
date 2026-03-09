@@ -454,15 +454,15 @@ public struct SetupView: View {
         startCreateSequence()
     }
 
-    // MARK: - Transition (fade to black, diamond, reveal)
+    // MARK: - Transition (fade to black, circle, reveal)
 
     private var transitionView: some View {
         ZStack {
             Color.black.opacity(0.6).ignoresSafeArea()
 
             if diamondVisible {
-                Text("\u{25C7}")
-                    .font(.system(size: 24, weight: .light))
+                Text("\u{25CB}")
+                    .font(.system(size: 28, weight: .light))
                     .foregroundStyle(Port42Theme.accent)
                     .transition(.opacity)
             }
