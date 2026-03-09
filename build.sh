@@ -77,12 +77,33 @@ cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
 done
-SIGN_IDENTITY="${PORT42_SIGN_IDENTITY:--}"
+# Auto-detect Developer ID signing identity if not explicitly set.
+if [ -z "${PORT42_SIGN_IDENTITY:-}" ]; then
+    DETECTED_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | awk '{print $2}')
+    SIGN_IDENTITY="${DETECTED_IDENTITY:--}"
+else
+    SIGN_IDENTITY="$PORT42_SIGN_IDENTITY"
+fi
+# Provisioning profiles
+DEV_PROFILE="$HOME/Library/MobileDevice/Provisioning Profiles/Port 42 Local Development.provisionprofile"
+RELEASE_PROFILE="$HOME/Library/MobileDevice/Provisioning Profiles/Port42 Provisioning Profile.provisionprofile"
+# Apple Development identity for debug builds with Sign in with Apple
+DEV_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -1 | awk '{print $2}')
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    # Release: sign gateway separately, use release entitlements, hardened runtime + timestamp
+    # Release: hardened runtime + timestamp + embedded profile
+    [ -f "$RELEASE_PROFILE" ] && cp "$RELEASE_PROFILE" "$APP/Contents/embedded.provisionprofile"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-gateway"
     codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" --options runtime --timestamp "$APP"
+elif [ -n "$DEV_IDENTITY" ] && [ -f "$DEV_PROFILE" ]; then
+    # Debug with Apple Development cert + dev profile: Sign in with Apple enabled
+    cp "$DEV_PROFILE" "$APP/Contents/embedded.provisionprofile"
+    codesign --force --sign "$DEV_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" "$APP"
+    echo "[build] Signed with Apple Development (Sign in with Apple enabled)"
+elif [ "$SIGN_IDENTITY" != "-" ]; then
+    # Debug with Developer ID: no applesignin (requires notarization)
+    codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.entitlements" --options runtime "$APP"
 else
+    # Debug ad-hoc fallback
     codesign --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
 fi
 echo "[build] Ready: $APP"

@@ -18,6 +18,7 @@ public struct SetupView: View {
     @State private var authError: String?
     @State private var isCheckingAuth = false
     @State private var submittedName: String?
+    @State private var appleAuthStatus: String?
     @State private var showAnalyticsConsent = false
     @State private var terminalVisible = false
     @State private var terminalOffset: CGSize = .zero
@@ -83,6 +84,7 @@ public struct SetupView: View {
         let name = submittedName ?? ""
         let keychainOK = appState.currentUser.map { AppUser.keychainHasKey(account: $0.id) } ?? false
         let keychainStatus = keychainOK ? "OK" : "FAILED"
+        let appleStatus = appleAuthStatus ?? "pending"
         return [
             .init(text: "", style: .blank, delay: 0.5),
             .init(text: "Creating reality instance for \(name)...", style: .post, delay: 0.8),
@@ -90,8 +92,11 @@ public struct SetupView: View {
             .init(text: "Generating P256 identity key pair...", style: .post, delay: 0.8),
             .init(text: "Storing private key in Keychain... \(keychainStatus)", style: .post, delay: 1.0),
             .init(text: "Public key: \(keyFingerprint)", style: .dim, delay: 0.6),
+            .init(text: "Linking Apple identity... \(appleStatus)", style: .post, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.6),
-            .init(text: "Establishing neural bridge...", style: .post, delay: 1.0),
+            .init(text: "Detecting Claude Code credentials...", style: .post, delay: 0.8),
+            .init(text: "macOS may prompt for Keychain access. Click Allow.", style: .dim, delay: 0.6),
+            .init(text: "", style: .blank, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.8),
             .init(text: "Welcome, \(name).", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
@@ -379,7 +384,7 @@ public struct SetupView: View {
 
             Spacer().frame(height: 8)
 
-            Text("Claude Code subscribers connect automatically via keychain.")
+            Text("Claude Code subscribers connect automatically. macOS will prompt for Keychain access.")
                 .font(Port42Theme.mono(10))
                 .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
         }
@@ -716,11 +721,36 @@ public struct SetupView: View {
             NSLog("[Port42] Failed to save user during key gen: \(error)")
         }
 
-        // Show analytics consent before proceeding
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        // Trigger Apple sign-in, then show analytics consent
+        Task {
+            await performAppleSignIn()
+
+            // Show analytics consent after Apple sign-in completes (or is skipped)
+            try? await Task.sleep(nanoseconds: 400_000_000)
             withAnimation(.easeIn(duration: 0.2)) {
                 showAnalyticsConsent = true
             }
+        }
+    }
+
+    private func performAppleSignIn() async {
+        let appleAuth = AppleAuthService()
+        let nonce = UUID().uuidString
+        do {
+            let result = try await appleAuth.authenticate(nonce: nonce)
+            // Store Apple user ID on AppUser
+            if var user = appState.currentUser {
+                user.appleUserID = result.appleUserID
+                try appState.db.saveUser(user)
+                appState.currentUser = user
+            }
+            appleAuthStatus = "OK"
+            NSLog("[Port42] Apple sign-in linked successfully")
+        } catch {
+            // Apple sign-in failed or cancelled, continue without it.
+            // User can still use local features, just won't auth to remote gateway.
+            appleAuthStatus = "skipped"
+            NSLog("[Port42] Apple sign-in skipped: \(error)")
         }
     }
 

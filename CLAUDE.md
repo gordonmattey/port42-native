@@ -91,68 +91,52 @@ Port42.app/Contents/
 
 ## Build Commands
 
-### Unified build script
+### Development
 
 ```bash
 ./build.sh              # Debug build into .build/Port42.app
 ./build.sh --run        # Debug build and launch
-./build.sh --release    # Release build into .build/Port42.app
-./build.sh --release --run  # Release build and launch
+./build.sh --peer       # Build and launch a second instance for local testing
+./build.sh --run --peer # Build and launch both instances
 ```
 
-This always builds both Swift and Go gateway fresh.
-
-### Release build + sign + notarize
+### Ship a release (sign + notarize + push)
 
 ```bash
-# 1. Build release
-./build.sh --release
+# 1. Build release with Developer ID signing
+PORT42_SIGN_IDENTITY="Developer ID Application: Gordon Mattey (5R5X43WDXE)" ./build.sh --release
 
-# 2. Copy into dist bundle
-mkdir -p dist/Port42.app/Contents/MacOS dist/Port42.app/Contents/Resources
-cp .build/Port42.app/Contents/MacOS/Port42 dist/Port42.app/Contents/MacOS/
-cp .build/Port42.app/Contents/MacOS/port42-gateway dist/Port42.app/Contents/MacOS/
-cp Info.plist dist/Port42.app/Contents/Info.plist
+# 2. Create DMG
+hdiutil create -volname Port42 -srcfolder .build/Port42.app -ov -format UDZO dist/Port42.dmg
 
-# 3. Sign with hardened runtime (release entitlements, no get-task-allow)
-IDENTITY="Developer ID Application: Gordon Mattey (5R5X43WDXE)"
-ENT="Port42.release.entitlements"
-codesign --force --options runtime --sign "$IDENTITY" --entitlements "$ENT" dist/Port42.app/Contents/MacOS/port42-gateway
-codesign --force --options runtime --sign "$IDENTITY" --entitlements "$ENT" dist/Port42.app/Contents/MacOS/Port42
-codesign --force --options runtime --sign "$IDENTITY" --entitlements "$ENT" dist/Port42.app
+# 3. Notarize
+xcrun notarytool submit dist/Port42.dmg --keychain-profile "notarytool" --wait
 
-# 4. Verify
-codesign --verify --deep --strict dist/Port42.app
-
-# 5. Create DMG with Applications symlink
-mkdir -p /tmp/port42-dmg
-cp -R dist/Port42.app /tmp/port42-dmg/
-ln -sf /Applications /tmp/port42-dmg/Applications
-hdiutil create -volname "Port42" -srcfolder /tmp/port42-dmg -ov -format UDZO dist/Port42.dmg
-rm -rf /tmp/port42-dmg
-codesign --force --sign "$IDENTITY" dist/Port42.dmg
-
-# 6. Notarize (credentials stored as keychain profile "port42-notary")
-xcrun notarytool submit dist/Port42.dmg --keychain-profile "port42-notary" --wait
-
-# 7. Staple
+# 4. Staple
 xcrun stapler staple dist/Port42.dmg
+
+# 5. Commit and push (DMG is Git LFS tracked)
+git add dist/Port42.dmg && git commit -m "Ship release DMG" && git push
 ```
+
+build.sh handles signing automatically when `PORT42_SIGN_IDENTITY` is set:
+- Signs the gateway binary separately with hardened runtime and secure timestamp
+- Signs the app bundle with `Port42.release.entitlements` (no get-task-allow)
+- Debug builds (no env var) use ad-hoc signing with `Port42.entitlements`
 
 ## Signing Details
 
 - **Identity**: `Developer ID Application: Gordon Mattey (5R5X43WDXE)`
 - **Team ID**: `5R5X43WDXE`
 - **Apple ID**: `gordon.mattey@gmail.com`
-- **Notary profile**: `port42-notary` (stored in macOS Keychain)
+- **Notary profile**: `notarytool` (stored in macOS Keychain via `xcrun notarytool store-credentials`)
 - **Debug entitlements**: `Port42.entitlements` (has `get-task-allow` for debugging)
-- **Release entitlements**: `Port42.release.entitlements` (empty dict, required for notarization)
-- **IMPORTANT**: Never use `Port42.entitlements` for release builds. The `get-task-allow` entitlement will cause notarization to fail.
+- **Release entitlements**: `Port42.release.entitlements` (network client/server, no get-task-allow)
+- **IMPORTANT**: Never use `Port42.entitlements` for release builds. The `get-task-allow` entitlement causes notarization to fail.
 
 ## Distribution
 
 - `dist/Port42.dmg` is tracked via Git LFS (see `.gitattributes`)
-- `dist/Port42.app/` is gitignored (rebuild from source)
 - DMG download link: `https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg`
 
 ## Conventions
@@ -191,4 +175,4 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 
 - **M1 (Local Chat Shell)**: Done
 - **M2 (Companions)**: Done (LLM agents, command agents, channel membership, invite links, Quick Switcher)
-- **M3 (Sync)**: In progress (Go gateway, WebSocket sync, E2E encryption, presence, typing indicators)
+- **M3 (Sync)**: In progress. Done: gateway, WebSocket sync, E2E encryption, typing indicators, remote identity, sender attribution, member list, cross-peer mentions, invite system, channel join tokens. Remaining: presence dots (F-505), relay auth (F-511), join/leave announcements bugfix (F-515), reply threading (F-303), message status (F-304), offline queue (F-504 partial)

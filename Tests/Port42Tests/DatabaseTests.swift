@@ -31,6 +31,27 @@ struct DatabaseTests {
         #expect(user == nil)
     }
 
+    @Test("AppUser appleUserID persists across save/load")
+    func appleUserIDPersists() throws {
+        let db = try makeDB()
+        var user = AppUser.createLocal(displayName: "Gordon")
+        user.appleUserID = "001234.abcdef1234567890.1234"
+        try db.saveUser(user)
+
+        let fetched = try db.getLocalUser()
+        #expect(fetched?.appleUserID == "001234.abcdef1234567890.1234")
+    }
+
+    @Test("AppUser without appleUserID loads as nil")
+    func appleUserIDNilByDefault() throws {
+        let db = try makeDB()
+        let user = AppUser.createLocal(displayName: "Gordon")
+        try db.saveUser(user)
+
+        let fetched = try db.getLocalUser()
+        #expect(fetched?.appleUserID == nil)
+    }
+
     // MARK: - Channels
 
     @Test("Create and list channels")

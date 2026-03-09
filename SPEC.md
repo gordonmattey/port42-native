@@ -192,7 +192,7 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-303 | Reply Threading | Reply to a specific message. Shows quoted original above reply. | Reply links to original message, both display correctly | M3 | |
 | F-304 | Message Status | Sent, delivered, read indicators (checkmarks or similar). | Status updates as relay confirms delivery and recipient reads | M3 | |
 | F-305 | Typing Indicators | Show "Name is typing..." when another user is composing. | Typing state broadcasts and displays within 500ms | M3 | **Done** |
-| F-306 | /Commands | Support /swarm and extensible command registry. | Commands parse and route to appropriate handlers | M6 | |
+| F-306 | /Commands | Support /swarm and extensible command registry. | Commands parse and route to appropriate handlers | M8 | |
 
 ### BYOA (Bring Your Own Agent)
 
@@ -228,32 +228,33 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | ID | Feature | Description | Done When | Milestone | Status |
 |----|---------|-------------|-----------|-----------|--------|
 | F-510 | Relay Core | Go binary that accepts WebSocket connections, routes encrypted blobs by channel membership, stores until ACK. | Relay forwards messages between two connected clients | M3 | **Done** |
-| F-511 | Relay Auth | Secure Enclave P256 identity. Client connects, gateway sends a nonce challenge, client signs with `SecureEnclave.P256.Signing.PrivateKey` (hardware-backed, non-extractable). Gateway verifies signature against the client's public key. No passwords, no accounts, no Apple ID. Identity is device-bound and hardware-secured. | Only the key holder can connect as that identity. Private key cannot be exported or cloned. | M3 | |
+| F-511 | Relay Auth | Sign in with Apple identity. Gateway sends nonce challenge, client gets Apple-signed JWT with hashed nonce, gateway verifies against Apple JWKS. Apple sign-in happens once during setup. Apple user ID stored on AppUser. Localhost connections skip auth. Agents use F-514 join tokens instead. | Only Apple-authenticated users can identify to a remote gateway. Replay blocked by per-connection nonce. | M3 | |
 | F-512 | Relay Self-Host | Single binary, no external dependencies, configurable via env vars or flags. README with deploy instructions. | Anyone can run their own relay with `./port42-relay` | M3 | **Done** |
 | F-514 | Channel Join Tokens | Invite links include a one-time join token signed by the inviter. Gateway only allows channel joins with a valid token from an existing member. Prevents unauthorized channel access even if the channel ID is known. | Connecting to the gateway and sending a join without a valid token is rejected | M3 | **Done** |
 | F-515 | Join/Leave Announcements | System messages when a peer joins or leaves a shared channel. Triggered by presence events from the gateway. Shows "Name joined the channel" or "Name left the channel." | Peers see system messages when others join or leave | M3 | Buggy (delayed display) |
-| F-513 | Signaling | SDP/ICE exchange for WebRTC audio room setup routed through relay. | Audio room connections negotiate through relay | M5 |
+| F-516 | Gateway Persistence | Persist Apple ID to channel membership mappings on the gateway (file-backed). Enables auto-rejoin on connect, store-and-forward keyed by identity (not ephemeral peer ID), and multi-device support. Currently all gateway state is in-memory and lost on restart. | New device connects with same Apple ID, gateway auto-joins their channels and delivers stored messages. | M4 | |
+| F-513 | Signaling | SDP/ICE exchange for WebRTC audio room setup routed through relay. | Audio room connections negotiate through relay | M6 |
 
 ### Platform Bridges
 
 | ID | Feature | Description | Done When | Milestone |
 |----|---------|-------------|-----------|-----------|
-| F-600 | Bridge Architecture | Adapter pattern: bridge process connects to external platform API, routes messages through AgentRouter. Agents work identically across platforms. | Bridge adapter interface defined, one platform working | M4 |
-| F-601 | Discord Bridge | Connect to Discord server via bot token. Messages in bridged channels route to your local agents. Agent responses posted back to Discord. | Agent responds to @mention in Discord channel | M4 |
-| F-602 | Bridge Config UI | Settings > Bridges > Add. Configure platform, auth token, channel mapping (which Discord channels map to which agents). | User can set up and manage bridge connections | M4 |
-| F-603 | Bridge Status | Show bridge connection status in sidebar. Online/offline indicator. Reconnect on disconnect. | Bridge status visible, auto-reconnects | M4 |
-| F-604 | Bridge Message Sync | Messages from bridged platforms appear in Port42 chat view alongside local messages. Unified conversation history. | Discord messages visible in Port42 with platform badge | M4 |
+| F-600 | Bridge Architecture | Adapter pattern: bridge process connects to external platform API, routes messages through AgentRouter. Agents work identically across platforms. | Bridge adapter interface defined, one platform working | M5 |
+| F-601 | Discord Bridge | Connect to Discord server via bot token. Messages in bridged channels route to your local agents. Agent responses posted back to Discord. | Agent responds to @mention in Discord channel | M5 |
+| F-602 | Bridge Config UI | Settings > Bridges > Add. Configure platform, auth token, channel mapping (which Discord channels map to which agents). | User can set up and manage bridge connections | M5 |
+| F-603 | Bridge Status | Show bridge connection status in sidebar. Online/offline indicator. Reconnect on disconnect. | Bridge status visible, auto-reconnects | M5 |
+| F-604 | Bridge Message Sync | Messages from bridged platforms appear in Port42 chat view alongside local messages. Unified conversation history. | Discord messages visible in Port42 with platform badge | M5 |
 
 ### Audio Rooms
 
 | ID | Feature | Description | Done When | Milestone |
 |----|---------|-------------|-----------|-----------|
-| F-700 | Join/Leave Audio | Click speaker icon on channel to join audio room. Room created on first join, destroyed when empty. | User can join and leave, other participants hear them | M5 |
-| F-701 | WebRTC P2P Audio | Peer-to-peer audio via WebRTC. Signaling through relay (F-513). TURN fallback for strict NATs. | Audio streams between two peers on different networks | M5 |
-| F-702 | Audio Bar | Persistent bar at bottom of chat when in a room. Shows room name, participant avatars, controls. | Bar visible, shows correct participants, persists across channel switches | M5 |
-| F-703 | Voice Activity | Green ring pulse around speaking participant's avatar. | Visual indicator activates when participant is speaking | M5 |
-| F-704 | Mute/Deafen/Leave | Microphone toggle, speaker toggle, leave button. Keyboard shortcuts: Cmd+M, Cmd+Shift+D. | All controls functional, state reflected to other participants | M5 |
-| F-705 | Audio Settings | Input/output device selection. Voice activity detection sensitivity. Push-to-talk option. | User can select devices and configure voice activation | M5 |
+| F-700 | Join/Leave Audio | Click speaker icon on channel to join audio room. Room created on first join, destroyed when empty. | User can join and leave, other participants hear them | M6 |
+| F-701 | WebRTC P2P Audio | Peer-to-peer audio via WebRTC. Signaling through relay (F-513). TURN fallback for strict NATs. | Audio streams between two peers on different networks | M6 |
+| F-702 | Audio Bar | Persistent bar at bottom of chat when in a room. Shows room name, participant avatars, controls. | Bar visible, shows correct participants, persists across channel switches | M6 |
+| F-703 | Voice Activity | Green ring pulse around speaking participant's avatar. | Visual indicator activates when participant is speaking | M6 |
+| F-704 | Mute/Deafen/Leave | Microphone toggle, speaker toggle, leave button. Keyboard shortcuts: Cmd+M, Cmd+Shift+D. | All controls functional, state reflected to other participants | M6 |
+| F-705 | Audio Settings | Input/output device selection. Voice activity detection sensitivity. Push-to-talk option. | User can select devices and configure voice activation | M6 |
 
 ### Local Storage
 
@@ -268,9 +269,9 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | ID | Feature | Description | Done When | Milestone |
 |----|---------|-------------|-----------|-----------|
 | F-900 | Dark Theme | Black background (#000/#111), neon green accent (#00ff41), teal for agent text (#00d4aa), SF Mono font, no light mode. | App matches Portal42 web aesthetic | M1 |
-| F-901 | Notifications | macOS native notifications for mentions and DMs. Badge count on dock icon. Respect Do Not Disturb. | Notifications fire for mentions, badge updates | M6 |
-| F-902 | Keyboard Shortcuts | Full shortcut set: Cmd+K, Cmd+N, Cmd+1-9, Cmd+M, Cmd+/, Enter, Shift+Enter, Escape, Up arrow edit. | All shortcuts functional | M1 (basic) / M6 (full) |
-| F-903 | App Packaging | App icon, DMG for distribution, code signing. | App installable via DMG on any Apple Silicon Mac | M6 |
+| F-901 | Notifications | macOS native notifications for mentions and DMs. Badge count on dock icon. Respect Do Not Disturb. | Notifications fire for mentions, badge updates | M8 |
+| F-902 | Keyboard Shortcuts | Full shortcut set: Cmd+K, Cmd+N, Cmd+1-9, Cmd+M, Cmd+/, Enter, Shift+Enter, Escape, Up arrow edit. | All shortcuts functional | M1 (basic) / M8 (full) |
+| F-903 | App Packaging | App icon, DMG for distribution, code signing. | App installable via DMG on any Apple Silicon Mac | M8 |
 
 ---
 
@@ -341,7 +342,20 @@ real time with E2E encryption. Messages arrive within 500ms. Offline messages
 deliver on reconnect. Each user's agents are visible, distinguishable by owner,
 and mentionable by the other user.
 
-### M4: Platform Bridges
+### M4: Multi-Device Identity
+
+*Same person, multiple devices, one identity.*
+
+Covers gateway persistence (F-516). The gateway persists Apple ID to channel
+membership mappings so that a second device (e.g. future iOS app) can connect
+with the same Apple ID and automatically rejoin channels, receive stored messages,
+and share identity. Depends on F-511 (relay auth) for the Apple ID foundation.
+
+**M4 is done when:** A user's gateway restarts and their channel memberships
+survive. A second client connecting with the same Apple ID is auto-joined to
+existing channels.
+
+### M5: Platform Bridges
 
 *Your agents follow you into Discord and beyond.*
 
@@ -352,11 +366,11 @@ Enables Flow 6 (new). Connect Port42 to a Discord server. Your local agents resp
 to @mentions in Discord channels. Messages flow both ways: Discord messages appear
 in Port42, agent responses post back to Discord. Your agents aren't locked in.
 
-**M4 is done when:** User connects to a Discord server, @mentions their agent in a
+**M5 is done when:** User connects to a Discord server, @mentions their agent in a
 Discord channel, agent responds in Discord. Bridge shows connected status in Port42
 sidebar. Discord messages visible in Port42 chat view.
 
-### M5: Audio Rooms
+### M6: Audio Rooms
 
 *Voice chat in any channel.*
 
@@ -367,10 +381,10 @@ signaling (F-513).
 Enables Flow 4. Click to join a voice room in any channel. Audio is peer-to-peer.
 Persistent bar at bottom shows who's talking.
 
-**M5 is done when:** Two users can join an audio room, hear each other, see voice
+**M6 is done when:** Two users can join an audio room, hear each other, see voice
 activity indicators, mute/unmute, and leave. Works across different networks.
 
-### M6: Transport Layer Evaluation
+### M7: Transport Layer Evaluation
 
 *Evaluate replacing the custom Go gateway with a production-grade P2P/messaging library.*
 
@@ -380,7 +394,7 @@ production use will surface scaling, reliability, and NAT traversal gaps that ma
 libraries have already solved.
 
 Candidates to evaluate:
-- **LiveKit** (rooms, presence, media, signaling out of the box, also covers M5 audio)
+- **LiveKit** (rooms, presence, media, signaling out of the box, also covers M6 audio)
 - **Matrix / matrix-rust-sdk** (decentralized, E2E encryption baked in, room management)
 - **libp2p** (fully decentralized, NAT traversal, pub/sub channels)
 - **CRDTs + custom transport** (Automerge/Yjs for conflict-free sync)
@@ -389,18 +403,18 @@ The SyncService abstraction means the transport can be swapped without touching 
 of the app. Key criteria: self-hostable, no vendor lock-in, Swift client maturity, and
 alignment with Port42's escape-the-walled-garden philosophy.
 
-**M6 is done when:** A decision document compares the custom gateway against at least two
+**M7 is done when:** A decision document compares the custom gateway against at least two
 library options on latency, reliability, NAT traversal, encryption, and maintenance burden.
 If a library wins, a migration plan exists.
 
-### M7: Ship
+### M8: Ship
 
 *Package it up and get it into people's hands.*
 
 Covers /commands (F-306), notifications (F-901), full keyboard shortcuts (F-902),
 and app packaging (F-903).
 
-**M6 is done when:** DMG installs cleanly on a fresh Apple Silicon Mac. Notifications
+**M8 is done when:** DMG installs cleanly on a fresh Apple Silicon Mac. Notifications
 work. All keyboard shortcuts documented and functional.
 
 ---
@@ -412,10 +426,10 @@ work. All keyboard shortcuts documented and functional.
 | GRDB.swift (SQLite) | F-800, F-801, F-802 | Mature, stable | Add as SPM dependency |
 | Apple CryptoKit | F-501 | Ships with macOS | None |
 | macOS Keychain / Security.framework | F-100, F-406 | Ships with macOS | None |
-| Discord API (discord.js or raw HTTP) | F-601 | Stable | Evaluate: Swift Discord library vs raw WebSocket gateway. Needed for M4. |
-| Google WebRTC (Swift) | F-701, F-513 | Available, active | Evaluate Swift package maturity for macOS. Alternatives: LiveKit SDK. Needed for M5. |
+| Discord API (discord.js or raw HTTP) | F-601 | Stable | Evaluate: Swift Discord library vs raw WebSocket gateway. Needed for M5. |
+| Google WebRTC (Swift) | F-701, F-513 | Available, active | Evaluate Swift package maturity for macOS. Alternatives: LiveKit SDK. Needed for M6. |
 | Go standard library | F-510, F-511, F-512 | Ships with Go | None |
-| TURN server | F-701 | Need to self-host or use a service | Decide: self-host coturn, use Cloudflare TURN, or Twilio TURN. Needed for M5. |
+| TURN server | F-701 | Need to self-host or use a service | Decide: self-host coturn, use Cloudflare TURN, or Twilio TURN. Needed for M6. |
 
 ---
 
@@ -469,7 +483,7 @@ work. All keyboard shortcuts documented and functional.
 | F-500 | Invite link format: deep link (port42://invite/...) or HTTPS with universal link? Need to register URL scheme. |
 | F-502 | Conflict resolution for concurrent messages: timestamp ordering sufficient, or need vector clocks / CRDTs? |
 
-### Blocks M4 (Platform Bridges)
+### Blocks M5 (Platform Bridges)
 
 | ID | Question |
 |----|----------|
@@ -478,16 +492,16 @@ work. All keyboard shortcuts documented and functional.
 | F-604 | Message format translation: Discord markdown vs Port42 message format. How much formatting fidelity to preserve? |
 | F-600 | Beyond Discord: Slack, Matrix, Telegram? Define the bridge adapter interface generically enough for future platforms. |
 
-### Blocks M6 (Transport Layer)
-
-| ID | Question |
-|----|----------|
-| F-510 | Custom gateway vs LiveKit vs Matrix vs libp2p? LiveKit covers audio too (M5) but adds a server dependency. Matrix is decentralized and has E2E baked in but the Swift SDK is less mature. libp2p is fully P2P but complex. Custom gateway gives full control but means maintaining presence, NAT traversal, and reliability ourselves. |
-
-### Blocks M5 (Audio Rooms)
+### Blocks M6 (Audio Rooms)
 
 | ID | Question |
 |----|----------|
 | F-701 | Google WebRTC Swift package vs LiveKit vs building on AVFoundation directly? WebRTC is complex, LiveKit abstracts it but adds a dependency. |
 | F-701 | TURN server: self-host coturn, or use managed service (Cloudflare, Twilio)? Cost vs reliability. |
 | F-703 | Voice activity detection: WebRTC's built-in VAD sufficient, or need custom threshold? |
+
+### Blocks M7 (Transport Layer)
+
+| ID | Question |
+|----|----------|
+| F-510 | Custom gateway vs LiveKit vs Matrix vs libp2p? LiveKit covers audio too (M6) but adds a server dependency. Matrix is decentralized and has E2E baked in but the Swift SDK is less mature. libp2p is fully P2P but complex. Custom gateway gives full control but means maintaining presence, NAT traversal, and reliability ourselves. |

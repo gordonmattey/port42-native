@@ -181,6 +181,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v9-apple-user-id") { db in
+            try db.alter(table: "users") { t in
+                t.add(column: "appleUserID", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

@@ -333,6 +333,7 @@ public final class AppState: ObservableObject {
 
     public let db: DatabaseService
     public let sync = SyncService()
+    public let appleAuth = AppleAuthService()
     public let tunnel = TunnelService.shared
     let fileResolver = FileResolver()
 
@@ -395,7 +396,7 @@ public final class AppState: ObservableObject {
             gwURL = gp.localURL
         }
 
-        sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db)
+        sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db, appleAuth: appleAuth, appleUserID: currentUser?.appleUserID)
         sync.onMessageReceived = { [weak self] channelId, message in
             self?.handleIncomingSyncedMessage(channelId: channelId, message: message)
         }
@@ -736,7 +737,7 @@ public final class AppState: ObservableObject {
         } else if currentGW != invite.gateway, let user = currentUser {
             // Different remote gateway, switch to it
             UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
-            sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db)
+            sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db, appleAuth: appleAuth, appleUserID: user.appleUserID)
             sync.connect()
             // Join all existing channels (no token needed, already members)
             for ch in channels where ch.id != channel.id {

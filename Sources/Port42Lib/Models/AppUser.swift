@@ -14,16 +14,19 @@ public struct AppUser: Codable, FetchableRecord, PersistableRecord, Identifiable
     public var isLocal: Bool
     public var publicKey: String?
     public var privateKey: Data?
+    public var appleUserID: String?
     public var createdAt: Date
 
     public init(id: String, displayName: String, avatarData: Data?, isLocal: Bool,
-                publicKey: String? = nil, privateKey: Data? = nil, createdAt: Date) {
+                publicKey: String? = nil, privateKey: Data? = nil,
+                appleUserID: String? = nil, createdAt: Date) {
         self.id = id
         self.displayName = displayName
         self.avatarData = avatarData
         self.isLocal = isLocal
         self.publicKey = publicKey
         self.privateKey = privateKey
+        self.appleUserID = appleUserID
         self.createdAt = createdAt
     }
 

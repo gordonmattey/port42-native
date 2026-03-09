@@ -18,6 +18,10 @@ struct SyncEnvelope: Codable {
     var onlineIds: [String]?
     var status: String?
     var companionIds: [String]?
+    // Auth fields (F-511)
+    var nonce: String?
+    var identityToken: String?
+    var authType: String?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -33,6 +37,9 @@ struct SyncEnvelope: Codable {
         case onlineIds = "online_ids"
         case status
         case companionIds = "companion_ids"
+        case nonce
+        case identityToken = "identity_token"
+        case authType = "auth_type"
     }
 }
 
@@ -79,17 +86,28 @@ public final class SyncService: NSObject, ObservableObject {
     private var shouldReconnect = false
     /// Pending token request continuations: channelId -> continuation
     private var tokenContinuations: [String: CheckedContinuation<String, Error>] = [:]
+    /// Apple auth service for remote gateway authentication
+    private var appleAuth: AppleAuthService?
+    /// Stored Apple user ID for silent re-auth
+    private var appleUserID: String?
 
     /// Called when a message arrives from the network (channelId, message)
     public var onMessageReceived: ((String, Message) -> Void)?
     /// Called when a peer's presence changes (channelId, senderId, senderName, status "online"/"offline")
     public var onPresenceChanged: ((String, String, String?, String) -> Void)?
 
-    public func configure(gatewayURL: String, userId: String, userName: String? = nil, db: DatabaseService) {
+    public func configure(gatewayURL: String, userId: String, userName: String? = nil, db: DatabaseService, appleAuth: AppleAuthService? = nil, appleUserID: String? = nil) {
         self.gatewayURL = gatewayURL
         self.userId = userId
         self.userName = userName
         self.db = db
+        self.appleAuth = appleAuth
+        self.appleUserID = appleUserID
+    }
+
+    /// Returns true if the gateway URL points to localhost (skip auth).
+    nonisolated static func isLocalGateway(_ url: String) -> Bool {
+        url.contains("localhost") || url.contains("127.0.0.1")
     }
 
     public func connect() {
@@ -115,14 +133,19 @@ public final class SyncService: NSObject, ObservableObject {
         self.webSocket = task
         task.resume()
 
-        // Send identify (include display name so gateway can relay it in presence)
-        let identify = SyncEnvelope(type: "identify", senderId: userId, senderName: userName)
-        send(identify)
+        let isLocal = Self.isLocalGateway(gatewayURL)
+
+        if isLocal {
+            // Localhost: send identify immediately (no challenge expected)
+            let identify = SyncEnvelope(type: "identify", senderId: userId, senderName: userName)
+            send(identify)
+        }
+        // Remote: wait for challenge message in receiveLoop, then send identify
 
         // Start receive loop
         receiveLoop()
 
-        print("[sync] connecting to \(gatewayURL)")
+        print("[sync] connecting to \(gatewayURL) (local=\(isLocal))")
     }
 
     public func disconnect(reconnect: Bool = false) {
@@ -290,6 +313,9 @@ public final class SyncService: NSObject, ObservableObject {
         }
 
         switch envelope.type {
+        case "challenge":
+            handleChallenge(envelope)
+
         case "welcome":
             print("[sync] connected as \(envelope.senderId ?? "?")")
             isConnected = true
@@ -438,6 +464,47 @@ public final class SyncService: NSObject, ObservableObject {
             print("[sync] typing: \(displayName) in \(channelId)")
         } else {
             remoteTypingNames[channelId]?.remove(displayName)
+        }
+    }
+
+    private func handleChallenge(_ envelope: SyncEnvelope) {
+        guard let nonce = envelope.nonce else {
+            print("[sync] challenge missing nonce")
+            return
+        }
+        guard let userId else { return }
+
+        Task {
+            do {
+                var token: String?
+                if let appleAuth, let appleUserID {
+                    // Silent re-auth with stored Apple user ID
+                    token = try await appleAuth.silentAuth(appleUserID: appleUserID, nonce: nonce)
+                } else if let appleAuth {
+                    // First auth (shouldn't normally happen here, setup should have stored it)
+                    let result = try await appleAuth.authenticate(nonce: nonce)
+                    token = result.identityToken
+                    self.appleUserID = result.appleUserID
+                }
+
+                if let token {
+                    send(SyncEnvelope(
+                        type: "identify",
+                        senderId: userId,
+                        senderName: userName,
+                        identityToken: token,
+                        authType: "apple"
+                    ))
+                    print("[sync] sent authenticated identify")
+                } else {
+                    // No Apple auth available, send identify without token
+                    send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
+                    print("[sync] sent unauthenticated identify (no Apple auth)")
+                }
+            } catch {
+                print("[sync] Apple auth failed: \(error), connecting without auth")
+                send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
+            }
         }
     }
 

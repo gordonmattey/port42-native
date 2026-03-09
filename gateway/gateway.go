@@ -30,6 +30,10 @@ type Envelope struct {
 	OnlineIDs    []string `json:"online_ids,omitempty"`
 	Status       string   `json:"status,omitempty"` // "online" or "offline"
 	CompanionIDs []string `json:"companion_ids,omitempty"`
+	// Auth fields (F-511)
+	Nonce         string `json:"nonce,omitempty"`
+	IdentityToken string `json:"identity_token,omitempty"`
+	AuthType      string `json:"auth_type,omitempty"`
 }
 
 // Peer represents a connected client.
@@ -57,6 +61,14 @@ type StoredMessage struct {
 	Timestamp time.Time
 }
 
+// AuthVerifier verifies identity tokens during the handshake.
+// If nil on the Gateway, auth is skipped (localhost mode).
+type AuthVerifier interface {
+	// Verify checks the identity token against the expected nonce.
+	// Returns the verified external user ID (e.g. Apple user ID) or an error.
+	Verify(identityToken string, expectedNonce string) (externalUserID string, err error)
+}
+
 // Gateway manages all connected peers and channel routing.
 type Gateway struct {
 	mu       sync.RWMutex
@@ -68,16 +80,49 @@ type Gateway struct {
 	companions map[string]map[string][]string
 	// tokens: channelID -> set of valid single-use join tokens
 	tokens map[string]map[string]bool
+	// auth: identity mapping (apple_user_id -> peer_id)
+	appleIDs map[string]string
+	// authVerifier verifies identity tokens. Nil means auth is disabled.
+	authVerifier AuthVerifier
+	// pendingNonces tracks nonces issued to connections awaiting identify.
+	// Keyed by nonce value for lookup during verify.
+	pendingNonces map[string]bool
 }
 
 func NewGateway() *Gateway {
 	return &Gateway{
-		peers:      make(map[string]*Peer),
-		channels:   make(map[string]map[string]bool),
-		store:      make(map[string][]StoredMessage),
-		companions: make(map[string]map[string][]string),
-		tokens:     make(map[string]map[string]bool),
+		peers:         make(map[string]*Peer),
+		channels:      make(map[string]map[string]bool),
+		store:         make(map[string][]StoredMessage),
+		companions:    make(map[string]map[string][]string),
+		tokens:        make(map[string]map[string]bool),
+		appleIDs:      make(map[string]string),
+		pendingNonces: make(map[string]bool),
 	}
+}
+
+// generateNonce creates a 32-byte random hex nonce and tracks it.
+func (g *Gateway) generateNonce() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	nonce := hex.EncodeToString(b)
+	g.mu.Lock()
+	g.pendingNonces[nonce] = true
+	g.mu.Unlock()
+	return nonce, nil
+}
+
+// consumeNonce removes a nonce from the pending set. Returns true if it was valid.
+func (g *Gateway) consumeNonce(nonce string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.pendingNonces[nonce] {
+		delete(g.pendingNonces, nonce)
+		return true
+	}
+	return false
 }
 
 func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
@@ -92,7 +137,20 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 
 	ctx := req.Context()
 
-	// First message must be identify
+	// If auth is enabled, send a challenge nonce before expecting identify
+	var nonce string
+	if g.authVerifier != nil {
+		nonce, err = g.generateNonce()
+		if err != nil {
+			log.Printf("[gateway] nonce generation error: %v", err)
+			conn.Close(websocket.StatusInternalError, "nonce generation failed")
+			return
+		}
+		challengeData, _ := json.Marshal(Envelope{Type: "challenge", Nonce: nonce})
+		conn.Write(ctx, websocket.MessageText, challengeData)
+	}
+
+	// First message (after challenge, if sent) must be identify
 	_, data, err := conn.Read(ctx)
 	if err != nil {
 		log.Printf("[gateway] read identify error: %v", err)
@@ -103,6 +161,31 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	if err := json.Unmarshal(data, &ident); err != nil || ident.Type != "identify" || ident.SenderID == "" {
 		conn.Close(websocket.StatusPolicyViolation, "first message must be identify with sender_id")
 		return
+	}
+
+	// Verify identity token if auth is enabled
+	if g.authVerifier != nil {
+		if ident.IdentityToken != "" && nonce != "" {
+			// Consume the nonce so it can't be reused
+			if !g.consumeNonce(nonce) {
+				conn.Close(websocket.StatusPolicyViolation, "nonce already consumed")
+				return
+			}
+			appleUserID, err := g.authVerifier.Verify(ident.IdentityToken, nonce)
+			if err != nil {
+				log.Printf("[gateway] auth failed for %s: %v", ident.SenderID, err)
+				conn.Close(websocket.StatusPolicyViolation, "authentication failed")
+				return
+			}
+			// Map Apple user ID to peer ID
+			g.mu.Lock()
+			g.appleIDs[appleUserID] = ident.SenderID
+			g.mu.Unlock()
+			log.Printf("[gateway] peer %s authenticated (apple_id=%s...)", ident.SenderID, appleUserID[:min(8, len(appleUserID))])
+		} else {
+			// No token provided but auth is enabled
+			log.Printf("[gateway] peer %s connected without auth token (unauthenticated)", ident.SenderID)
+		}
 	}
 
 	peer := &Peer{
@@ -226,11 +309,6 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 			g.mu.Unlock()
 			log.Printf("[gateway] peer %s rejected from channel %s: invalid or missing join token", p.ID, channelID)
 			return fmt.Errorf("invalid or missing join token")
-		}
-		// Consume the token (single-use)
-		delete(tokenSet, token)
-		if len(tokenSet) == 0 {
-			delete(g.tokens, channelID)
 		}
 	}
 
