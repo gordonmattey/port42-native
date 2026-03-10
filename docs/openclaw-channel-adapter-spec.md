@@ -289,7 +289,7 @@ Users paste a Port42 HTTPS invite link. The adapter parses all connection detail
 
 Invite links look like:
 ```
-https://<host>/invite?id=<channel-uuid>&name=<channel-name>&key=<url-encoded-base64-aes-key>
+https://<host>/invite?id=<channel-uuid>&name=<channel-name>&key=<url-encoded-base64-aes-key>&token=<gateway-token>&host=<host-name>
 ```
 
 The adapter derives the WebSocket gateway URL from the host:
@@ -334,6 +334,8 @@ The adapter derives the WebSocket gateway URL from the host:
 | `gateway` | yes* | WebSocket URL of Port42 gateway. Derived from invite host if provided (HTTPS → WSS, HTTP → WS, append `/ws`) |
 | `channelId` | yes* | UUID of the Port42 channel. From `id` query param in invite |
 | `encryptionKey` | no | Base64 AES-256 key for E2E encryption. From URL-decoded `key` query param in invite. If absent, messages sent unencrypted |
+| `token` | no | Gateway authentication token. From `token` query param in invite |
+| `host` | no | Name of the person hosting the gateway. From `host` query param in invite |
 | `displayName` | yes | How the agent appears in Port42 |
 | `trigger` | no | `"mention"` (default) or `"all"`. Whether agent responds to @mentions only or all messages |
 
