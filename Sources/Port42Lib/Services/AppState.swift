@@ -508,9 +508,13 @@ public final class AppState: ObservableObject {
     /// Namespaced @Echo@gordon also works for explicit targeting.
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
         let isAISender = message.senderType != "human"
+        NSLog("[Port42] handleIncomingSyncedMessage: sender=%@ type=%@ isAI=%d content=%@", message.senderName, message.senderType, isAISender ? 1 : 0, String(message.content.prefix(80)))
 
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
-        guard !channelAgents.isEmpty else { return }
+        guard !channelAgents.isEmpty else {
+            NSLog("[Port42] No agents in channel %@, skipping", channelId)
+            return
+        }
 
         let channelAgentIds = Set(channelAgents.map { $0.id })
 
@@ -520,6 +524,7 @@ public final class AppState: ObservableObject {
             requireNamespace: false
         )
 
+        NSLog("[Port42] AgentRouter found %d targets from %d companions", targets.count, companions.count)
         guard !targets.isEmpty else { return }
 
         // For AI-to-AI messages, apply cooldown to prevent loops
