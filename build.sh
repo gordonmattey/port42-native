@@ -7,9 +7,12 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Load secrets from .env if present
+# Load secrets from .env and .secrets if present
 if [ -f "$DIR/.env" ]; then
     set -a; source "$DIR/.env"; set +a
+fi
+if [ -f "$DIR/.secrets" ]; then
+    set -a; source "$DIR/.secrets"; set +a
 fi
 # Read version from VERSION file
 export APP_VERSION="$(cat "$DIR/VERSION" | tr -d '[:space:]')"

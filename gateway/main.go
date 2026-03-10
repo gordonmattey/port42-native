@@ -100,9 +100,14 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeName := html.EscapeString(channelName)
+	safeHost := html.EscapeString(hostName)
 	hostLine := ""
 	if hostName != "" {
-		hostLine = fmt.Sprintf(`<p style="font-size:13px;color:#999;margin-bottom:0;">hosted by %s</p>`, html.EscapeString(hostName))
+		hostLine = fmt.Sprintf(`<p style="font-size:13px;color:#999;margin-bottom:16px;">hosted by %s</p>`, safeHost)
+	}
+	ogDesc := "You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in."
+	if hostName != "" {
+		ogDesc = fmt.Sprintf("%s invited you to swim in #%s on Port42. A native macOS app where humans and AI companions coexist.", safeHost, safeName)
 	}
 
 	// Build the HTTPS invite page URL for sharing
@@ -122,7 +127,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, pageURL, safeName, pageURL, safeName, safeName, hostLine, deepLink, pageURL, pageURL)
+	fmt.Fprintf(w, invitePage, safeName, safeName, ogDesc, pageURL, safeName, ogDesc, pageURL, safeName, ogDesc, safeName, hostLine, safeName, deepLink, safeName, pageURL, pageURL)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -132,23 +137,28 @@ const invitePage = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Join #%s on Port42</title>
 <meta name="title" content="Join #%s on Port42">
-<meta name="description" content="You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in.">
+<meta name="description" content="%s">
 <meta name="author" content="Port42">
 <meta name="theme-color" content="#00d4aa">
 <meta property="og:type" content="website">
 <meta property="og:url" content="%s">
 <meta property="og:title" content="Join #%s on Port42">
-<meta property="og:description" content="You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in.">
+<meta property="og:description" content="%s">
 <meta property="og:image" content="https://port42.ai/cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:site_name" content="Port 42">
+<meta property="og:site_name" content="Port42">
 <meta property="og:locale" content="en_US">
+<meta property="og:video" content="https://port42.ai/dreamscape.mp4">
+<meta property="og:video:type" content="video/mp4">
 <meta property="twitter:card" content="summary_large_image">
 <meta property="twitter:url" content="%s">
 <meta property="twitter:title" content="Join #%s on Port42">
-<meta property="twitter:description" content="You've been invited to swim in Port42. A native macOS app where humans and AI companions coexist. No walls. No lock-in.">
+<meta property="twitter:description" content="%s">
 <meta property="twitter:image" content="https://port42.ai/cover.png">
+<meta property="twitter:player" content="https://port42.ai/dreamscape.mp4">
+<meta property="twitter:player:width" content="1920">
+<meta property="twitter:player:height" content="1080">
 <link rel="icon" type="image/png" href="https://port42.ai/favicon.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -160,14 +170,19 @@ const invitePage = `<!DOCTYPE html>
   }
   .card {
     max-width: 560px; width: 100%%;
+    text-align: center;
+  }
+  .box {
     border: 1px solid #222; border-radius: 12px;
-    padding: 40px 32px; text-align: center;
-    background: #111;
+    padding: 32px 28px; background: #111;
+    margin-bottom: 16px;
   }
   .logo { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
   .brand { font-size: 14px; font-weight: 700; color: #00ff41; letter-spacing: 2px; margin-bottom: 24px; }
-  h1 { font-size: 18px; font-weight: 400; margin-bottom: 8px; }
+  h1 { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
   h1 span { color: #00ff41; }
+  .section-title { font-size: 15px; font-weight: 700; color: #00ff41; margin-bottom: 6px; letter-spacing: 1px; }
+  .section-desc { font-size: 12px; color: #999; margin-bottom: 14px; }
   .steps { text-align: left; margin: 24px 0; font-size: 13px; color: #999; line-height: 2; }
   .steps strong { color: #e0e0e0; }
   .btn {
@@ -181,10 +196,7 @@ const invitePage = `<!DOCTYPE html>
   .btn-primary { background: #00ff41; color: #0a0a0a; }
   .btn-secondary { background: #222; color: #e0e0e0; }
   .note { font-size: 11px; color: #555; margin-top: 16px; }
-  .divider { border-top: 1px solid #222; margin: 24px 0; }
-  .openclaw { text-align: center; }
-  .openclaw-title { font-size: 15px; font-weight: 700; color: #00ff41; margin-bottom: 6px; letter-spacing: 1px; }
-  .openclaw-desc { font-size: 12px; color: #999; margin-bottom: 14px; }
+  .section { text-align: center; }
   .code-block {
     background: #0a0a0a; border: 1px solid #222; border-radius: 6px;
     padding: 12px; font-size: 11px; color: #00ff41; text-align: left;
@@ -207,26 +219,29 @@ const invitePage = `<!DOCTYPE html>
   <div class="brand">PORT42</div>
   <h1>join <span>#%s</span></h1>
   %s
-  <div class="steps">
-    <strong>1.</strong> download Port42 for macOS (Apple Silicon)<br>
-    <strong>2.</strong> install the app and open it<br>
-    <strong>3.</strong> once you're in, come back and accept the invitation
+  <div class="box">
+    <p class="section-title">PORT42 APP</p>
+    <p class="section-desc">join #%s with the native macOS app</p>
+    <div class="steps">
+      <strong>1.</strong> download Port42 for macOS (Apple Silicon)<br>
+      <strong>2.</strong> install the app and open it<br>
+      <strong>3.</strong> come back and accept the invitation
+    </div>
+    <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn btn-secondary">download Port42.dmg</a>
+    <a href="%s" class="btn btn-primary" style="margin-top:10px;margin-bottom:0;">accept invitation</a>
   </div>
-  <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn btn-secondary">download Port42.dmg</a>
-  <a href="%s" class="btn btn-primary" style="margin-top:10px;margin-bottom:0;">accept invitation</a>
-  <div class="divider"></div>
-  <div class="openclaw">
-    <p class="openclaw-title">OPENCLAW</p>
-    <p class="openclaw-desc">plug your companions into this channel from the terminal</p>
-    <input class="agent-input" id="agent-name" type="text" placeholder="enter your companion name (aka openclaw agent name)..." oninput="updateCmd()">
-    <div class="code-block" id="openclaw-cmd"></div>
-    <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;">copy commands</button>
+  <div class="box">
+    <p class="section-title">OPENCLAW</p>
+    <p class="section-desc">turn your clawd agents into companions to join #%s</p>
+    <input class="agent-input" id="owner-name" type="text" placeholder="enter your gateway hostname (default: clawd)..." oninput="updateCmd()">
+    <input class="agent-input" id="agent-name" type="text" placeholder="enter your companion name (openclaw agent name)..." oninput="updateCmd()">
+    <div class="code-block" id="openclaw-cmd" style="display:none;"></div>
+    <button class="btn btn-secondary" id="copy-btn" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;display:none;">copy commands</button>
     <p class="note" id="cmd-msg"></p>
   </div>
-  <div class="divider"></div>
-  <div class="openclaw">
-    <p class="openclaw-title">SHARE</p>
-    <p class="openclaw-desc">send this link to invite others</p>
+  <div class="box">
+    <p class="section-title">SHARE</p>
+    <p class="section-desc">send this link to invite others</p>
     <div class="code-block" id="invite-link">%s</div>
     <button class="btn btn-secondary" onclick="copyInvite()" style="border:none;cursor:pointer;margin-bottom:0;">copy invite link</button>
     <p class="note" id="copy-msg" style="min-height:1.2em;"></p>
@@ -234,16 +249,25 @@ const invitePage = `<!DOCTYPE html>
 <script>
 var inviteURL='%s';
 function updateCmd(){
-  var a=document.getElementById('agent-name').value||'YOUR_AGENT';
-  document.getElementById('openclaw-cmd').textContent=
-    'openclaw plugins install port42-openclaw\n'+
-    'openclaw port42 join --invite "'+inviteURL+'" --agent '+a+'\n'+
-    'openclaw agents bind --agent '+a+' --bind port42:'+a+'\n'+
-    'openclaw gateway restart';
+  var o=document.getElementById('owner-name').value||'clawd';
+  var a=document.getElementById('agent-name').value;
+  var cmd=document.getElementById('openclaw-cmd');
+  var btn=document.getElementById('copy-btn');
+  if(a){
+    cmd.style.display='block';
+    btn.style.display='block';
+    cmd.textContent=
+      'openclaw plugins install port42-openclaw\n'+
+      'openclaw port42 join --invite "'+inviteURL+'" --agent '+a+' --owner '+o+'\n'+
+      'openclaw agents bind --agent '+a+' --bind port42:'+a+'\n'+
+      'openclaw gateway restart';
+  }else{
+    cmd.style.display='none';
+    btn.style.display='none';
+  }
 }
-updateCmd();
 function copyInvite(){navigator.clipboard.writeText(document.getElementById('invite-link').textContent).then(function(){document.getElementById('copy-msg').textContent='copied!';});}
-function copyCmd(){var a=document.getElementById('agent-name').value;if(!a){document.getElementById('cmd-msg').textContent='enter your companion name first';return;}navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
+function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
 </script>
 </div>
 </body>
@@ -255,23 +279,28 @@ const rootPage = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Port 42: The Aquarium for AI Companions</title>
-<meta name="title" content="Port 42: The Aquarium for AI Companions">
-<meta name="description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your aquarium, your companions, your rules.">
+<title>Port42 — Companion Computing</title>
+<meta name="title" content="Port42 — Companion Computing">
+<meta name="description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your companions, your rules.">
 <meta name="author" content="Port42">
 <meta name="theme-color" content="#00d4aa">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Port 42: The Aquarium for AI Companions">
-<meta property="og:description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your aquarium, your companions, your rules.">
+<meta property="og:title" content="Port42 — Companion Computing">
+<meta property="og:description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your companions, your rules.">
 <meta property="og:image" content="https://port42.ai/cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:site_name" content="Port 42">
+<meta property="og:site_name" content="Port42">
 <meta property="og:locale" content="en_US">
+<meta property="og:video" content="https://port42.ai/dreamscape.mp4">
+<meta property="og:video:type" content="video/mp4">
 <meta property="twitter:card" content="summary_large_image">
-<meta property="twitter:title" content="Port 42: The Aquarium for AI Companions">
-<meta property="twitter:description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your aquarium, your companions, your rules.">
+<meta property="twitter:title" content="Port42 — Companion Computing">
+<meta property="twitter:description" content="A native macOS app where humans and AI companions coexist. No walls. No lock-in. Your companions, your rules.">
 <meta property="twitter:image" content="https://port42.ai/cover.png">
+<meta property="twitter:player" content="https://port42.ai/dreamscape.mp4">
+<meta property="twitter:player:width" content="1920">
+<meta property="twitter:player:height" content="1080">
 <link rel="icon" type="image/png" href="https://port42.ai/favicon.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -304,7 +333,7 @@ const rootPage = `<!DOCTYPE html>
 <div class="card">
   <div class="logo">&#x25CB;</div>
   <div class="brand">PORT42</div>
-  <p>a gateway is running here</p>
+  <p>a companion gateway is running here</p>
   <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn">download Port42</a>
 </div>
 </body>

@@ -84,6 +84,7 @@ public final class SyncService: NSObject, ObservableObject {
     private var joinedChannels: Set<String> = []
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
+    private var didSendIdentify = false
     /// Pending token request continuations: channelId -> continuation
     private var tokenContinuations: [String: CheckedContinuation<String, Error>] = [:]
     /// Apple auth service for remote gateway authentication
@@ -135,10 +136,12 @@ public final class SyncService: NSObject, ObservableObject {
 
         let isLocal = Self.isLocalGateway(gatewayURL)
 
+        didSendIdentify = false
         if isLocal {
             // Localhost: send identify immediately (no challenge expected)
             let identify = SyncEnvelope(type: "identify", senderId: userId, senderName: userName)
             send(identify)
+            didSendIdentify = true
         }
         // Remote: wait for challenge message in receiveLoop, then send identify
 
@@ -277,9 +280,12 @@ public final class SyncService: NSObject, ObservableObject {
     }
 
     private func receiveLoop() {
-        webSocket?.receive { [weak self] result in
+        guard let ws = webSocket else { return }
+        ws.receive { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
+                // Ignore callbacks from stale WebSocket connections
+                guard ws === self.webSocket else { return }
 
                 switch result {
                 case .success(let message):
@@ -317,8 +323,8 @@ public final class SyncService: NSObject, ObservableObject {
             handleChallenge(envelope)
 
         case "no_auth":
-            // Gateway has no auth, just send identify
-            if let userId {
+            // Gateway has no auth, send identify (skip if already sent for local connections)
+            if !didSendIdentify, let userId {
                 send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
                 print("[sync] sent identify (no auth required)")
             }
@@ -589,6 +595,12 @@ extension SyncService: URLSessionWebSocketDelegate {
     ) {
         let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) }
         Task { @MainActor in
+            // Only reconnect if this is still the active WebSocket (not a stale one
+            // being replaced by a new connect() call)
+            guard webSocketTask === self.webSocket else {
+                print("[sync] WebSocket closed (stale): \(closeCode) reason: \(reasonStr ?? "none")")
+                return
+            }
             print("[sync] WebSocket closed: \(closeCode) reason: \(reasonStr ?? "none")")
             self.isConnected = false
             self.scheduleReconnect()
@@ -602,6 +614,11 @@ extension SyncService: URLSessionWebSocketDelegate {
     ) {
         if let error {
             Task { @MainActor in
+                // Only reconnect if this is still the active WebSocket
+                guard (task as? URLSessionWebSocketTask) === self.webSocket else {
+                    print("[sync] WebSocket connection failed (stale): \(error.localizedDescription)")
+                    return
+                }
                 print("[sync] WebSocket connection failed: \(error.localizedDescription)")
                 self.isConnected = false
                 self.scheduleReconnect()

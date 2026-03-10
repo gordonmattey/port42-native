@@ -487,10 +487,9 @@ public final class AppState: ObservableObject {
     }
 
     /// Route incoming synced messages to agents (only human messages to avoid loops).
-    /// When the remote message contains explicit @mentions, skip routing because
-    /// the sender's own app already routed to their agents. Only allMessages-trigger
-    /// agents respond to remote messages, unless the mention uses the namespace
-    /// format @Name@Owner to target a specific peer's agent.
+    /// Route remote messages to local companions. Bare @Echo mentions trigger
+    /// local companions directly since the remote peer may not have that companion.
+    /// Namespaced @Echo@gordon also works for explicit targeting.
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
         guard message.senderType == "human" else { return }
 
@@ -499,13 +498,10 @@ public final class AppState: ObservableObject {
 
         let channelAgentIds = Set(channelAgents.map { $0.id })
 
-        // For remote messages, bare @Echo is handled by the sender's app.
-        // Only namespaced @Echo@myname triggers our local agents.
-        // Messages with no mentions still route to channel members normally.
         let targets = AgentRouter.findTargetAgents(
             content: message.content, agents: companions,
             channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName,
-            requireNamespace: true
+            requireNamespace: false
         )
 
         guard !targets.isEmpty else { return }
@@ -521,6 +517,9 @@ public final class AppState: ObservableObject {
 
     /// Insert a system message when a remote peer joins or leaves.
     /// Uses the sender name provided by the gateway presence protocol.
+    /// Tracks last presence status per user per channel to deduplicate rapid reconnects
+    private var lastPresenceStatus: [String: String] = [:]
+
     private func handlePresenceAnnouncement(channelId: String, senderId: String, senderName: String?, status: String) {
         // Skip companion IDs (only announce humans)
         let allAgentIds = Set(companions.map { $0.id })
@@ -528,6 +527,11 @@ public final class AppState: ObservableObject {
 
         // Use name from gateway, skip if unavailable (don't show raw UUIDs)
         guard let name = senderName, !name.isEmpty else { return }
+
+        // Deduplicate: skip if same status as last announcement for this user+channel
+        let key = "\(channelId):\(senderId)"
+        guard lastPresenceStatus[key] != status else { return }
+        lastPresenceStatus[key] = status
 
         let verb = status == "online" ? "joined" : "left"
         let content = "\(name) \(verb) the channel"

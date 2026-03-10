@@ -40,10 +40,15 @@ public struct ChatEntry: Identifiable, Equatable {
         return senderName
     }
 
-    /// Display name for UI. Strips namespace for local entities.
+    /// Display name for UI. Shows owner namespace for remote entities,
+    /// strips it for local ones (own messages and own companions).
     public func displayName(localOwner: String? = nil) -> String {
-        if let owner = senderOwner, owner.lowercased() != localOwner?.lowercased(),
+        if let owner = senderOwner,
            owner.lowercased() != senderName.lowercased() {
+            // Strip namespace for local messages (our own companions)
+            if syncStatus == "local" || syncStatus == nil {
+                return senderName
+            }
             return "\(senderName)@\(owner)"
         }
         return senderName
