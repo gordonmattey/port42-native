@@ -102,7 +102,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 	safeName := html.EscapeString(channelName)
 	hostLine := ""
 	if hostName != "" {
-		hostLine = fmt.Sprintf(`<p style="font-size:13px;color:#999;margin-bottom:0;">on %s's aquarium</p>`, html.EscapeString(hostName))
+		hostLine = fmt.Sprintf(`<p style="font-size:13px;color:#999;margin-bottom:0;">hosted by %s</p>`, html.EscapeString(hostName))
 	}
 
 	// Build the HTTPS invite page URL for sharing
