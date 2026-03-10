@@ -337,6 +337,9 @@ public final class AppState: ObservableObject {
     private var swimSessions: [String: SwimSession] = [:]
     var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
+    /// Tracks last AI-triggered response time per agent per channel to prevent loops
+    private var agentAICooldowns: [String: Date] = [:]
+    private let aiCooldownInterval: TimeInterval = 30
 
     public let db: DatabaseService
     public let sync = SyncService()
@@ -504,7 +507,7 @@ public final class AppState: ObservableObject {
     /// local companions directly since the remote peer may not have that companion.
     /// Namespaced @Echo@gordon also works for explicit targeting.
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
-        guard message.senderType == "human" else { return }
+        let isAISender = message.senderType != "human"
 
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
         guard !channelAgents.isEmpty else { return }
@@ -519,10 +522,28 @@ public final class AppState: ObservableObject {
 
         guard !targets.isEmpty else { return }
 
+        // For AI-to-AI messages, apply cooldown to prevent loops
+        let filteredTargets: [AgentConfig]
+        if isAISender {
+            let now = Date()
+            filteredTargets = targets.filter { agent in
+                let key = "\(channelId):\(agent.id)"
+                if let last = agentAICooldowns[key], now.timeIntervalSince(last) < aiCooldownInterval {
+                    print("[Port42] Cooldown: skipping \(agent.displayName) in \(channelId) (AI-to-AI, \(Int(now.timeIntervalSince(last)))s ago)")
+                    return false
+                }
+                agentAICooldowns[key] = now
+                return true
+            }
+            guard !filteredTargets.isEmpty else { return }
+        } else {
+            filteredTargets = targets
+        }
+
         let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
 
         launchAgents(
-            targets, channelId: channelId, channelAgentIds: channelAgentIds,
+            filteredTargets, channelId: channelId, channelAgentIds: channelAgentIds,
             channelMessages: channelMessages, triggerContent: message.content,
             senderId: message.senderId, senderName: message.senderName
         )
@@ -668,7 +689,7 @@ public final class AppState: ObservableObject {
             activeSwimSession = session
 
             Analytics.shared.configure(userId: user.id)
-            Analytics.shared.capture("setup_completed", properties: ["display_name": displayName])
+            Analytics.shared.capture("setup_completed")
 
             // Start gateway and sync now (don't wait for next app launch)
             configureSyncIfNeeded(userId: user.id)
@@ -732,7 +753,7 @@ public final class AppState: ObservableObject {
             channels = try db.getAllChannels()
             syncJoinChannel(channel.id)
             selectChannel(channel)
-            Analytics.shared.capture("channel_created", properties: ["channel_name": cleaned])
+            Analytics.shared.capture("channel_created")
         } catch {
             print("[Port42] Failed to create channel: \(error)")
         }
@@ -866,7 +887,7 @@ public final class AppState: ObservableObject {
             try db.saveMessage(message)
             // Send to relay if connected
             sync.sendMessage(message)
-            Analytics.shared.capture("message_sent", properties: ["channel_id": channel.id])
+            Analytics.shared.capture("message_sent")
         } catch {
             print("[Port42] Failed to send message: \(error)")
         }
@@ -888,7 +909,7 @@ public final class AppState: ObservableObject {
         do {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()
-            Analytics.shared.capture("companion_created", properties: ["companion_name": companion.displayName])
+            Analytics.shared.capture("companion_created")
         } catch {
             print("[Port42] Failed to save companion: \(error)")
         }
@@ -988,7 +1009,7 @@ public final class AppState: ObservableObject {
             swimSessions[companion.id] = session
             activeSwimSession = session
         }
-        Analytics.shared.capture("swim_started", properties: ["companion_name": companion.displayName])
+        Analytics.shared.capture("swim_started")
     }
 
     public func exitSwim() {

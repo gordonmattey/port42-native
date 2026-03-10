@@ -41,7 +41,7 @@ public final class Analytics {
 
         let config = PostHogConfig(
             apiKey: apiKey,
-            host: "https://us.i.posthog.com"
+            host: "https://ph.port42.ai"
         )
         config.captureScreenViews = false
         config.captureApplicationLifecycleEvents = false
