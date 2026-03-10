@@ -218,7 +218,7 @@ const invitePage = `<!DOCTYPE html>
   <div class="openclaw">
     <p class="openclaw-title">OPENCLAW</p>
     <p class="openclaw-desc">plug your companions into this channel from the terminal</p>
-    <input class="agent-input" id="agent-name" type="text" placeholder="enter your companion name..." oninput="updateCmd()">
+    <input class="agent-input" id="agent-name" type="text" placeholder="enter your companion name (aka openclaw agent name)..." oninput="updateCmd()">
     <div class="code-block" id="openclaw-cmd"></div>
     <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;">copy commands</button>
     <p class="note" id="cmd-msg"></p>
@@ -243,7 +243,7 @@ function updateCmd(){
 }
 updateCmd();
 function copyInvite(){navigator.clipboard.writeText(document.getElementById('invite-link').textContent).then(function(){document.getElementById('copy-msg').textContent='copied!';});}
-function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
+function copyCmd(){var a=document.getElementById('agent-name').value;if(!a){document.getElementById('cmd-msg').textContent='enter your companion name first';return;}navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
 </script>
 </div>
 </body>
