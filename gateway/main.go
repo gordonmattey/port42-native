@@ -227,7 +227,7 @@ const invitePage = `<!DOCTYPE html>
       <strong>2.</strong> install the app and open it<br>
       <strong>3.</strong> come back and accept the invitation
     </div>
-    <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn btn-secondary">download Port42.dmg</a>
+    <a href="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" class="btn btn-secondary" download="Port42 Companion Computing.dmg">download Port42.dmg</a>
     <a href="%s" class="btn btn-primary" style="margin-top:10px;margin-bottom:0;">accept invitation</a>
   </div>
   <div class="box">
@@ -334,7 +334,7 @@ const rootPage = `<!DOCTYPE html>
   <div class="logo">&#x25CB;</div>
   <div class="brand">PORT42</div>
   <p>a companion gateway is running here</p>
-  <a href="https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg" class="btn">download Port42</a>
+  <a href="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" class="btn" download="Port42 Companion Computing.dmg">download Port42</a>
 </div>
 </body>
 </html>
