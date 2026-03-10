@@ -13,7 +13,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.3.0</string>
 	<key>CFBundleVersion</key>
-	<string>298</string>
+	<string>366</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>CFBundleIconFile</key>
@@ -21,7 +21,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>POSTHOG_API_KEY</key>
-	<string>phx_6nbDg4QMyjxTnaZEYSKFTzPVHJuSrDcNjCgHhqukYhD93uh</string>
+	<string>phx_T6kCOHcmlg1l9n6nOiJi5hXdIUhr6FSw9mqVCFGNZEbYijk</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

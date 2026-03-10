@@ -32,6 +32,10 @@
 		<data>
 		4qmMBlrPb3zy8ladYCSjCpQPKFw=
 		</data>
+		<key>Resources/Port42_Port42Lib.bundle/DolphinProtocolLoading.mp4</key>
+		<data>
+		74RJxC2JbJTWOyPeEtuhf2bA5HM=
+		</data>
 		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/Contents.json</key>
 		<data>
 		OsxTSdeF0zGUdTl13dMC26vX4YM=
@@ -58,7 +62,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<data>
-		6tfrv9+NDiR0tVFb6ijussxIRwc=
+		FQQSa+Vuw1wHDR1UXt7bwR/mUVs=
 		</data>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>
 		<data>
@@ -71,7 +75,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			LFinvXX/jd4D8WE3sKfaTyG6HTM=
+			aaWLb5qmbC1eYWpAh67JVAIcF3g=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -125,6 +129,13 @@
 			ioYsFPK0vZayXP8hcGRNVUGScJv+6P3AntM++Rpclgg=
 			</data>
 		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/DolphinProtocolLoading.mp4</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			7rCkfRWIS8Ynt2ZmPP24lMMTnVgehvsaVqacuIuj3Vc=
+			</data>
+		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/Contents.json</key>
 		<dict>
 			<key>hash2</key>
@@ -171,7 +182,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			E9fd/y+GJX/moYKOwLJiM98eF86xWMQQyiREPBl7nFg=
+			nw+yIfx7Y6JzEcr5KC0Ku55+g14X23aEo2pz39RzyQs=
 			</data>
 		</dict>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>

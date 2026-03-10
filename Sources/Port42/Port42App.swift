@@ -23,14 +23,17 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         let size = NSSize(width: 24, height: 24)
         let green = NSColor(red: 0.0, green: 1.0, blue: 0.255, alpha: 1.0) // #00FF41
         let image = NSImage(size: size, flipped: false) { rect in
-            // Glow layers
-            let glowOuter = NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2))
-            green.withAlphaComponent(0.1).setFill()
-            glowOuter.fill()
+            // Outer glow (stroke only)
+            let glowOuter = NSBezierPath(ovalIn: rect.insetBy(dx: 3, dy: 3))
+            green.withAlphaComponent(0.1).setStroke()
+            glowOuter.lineWidth = 4
+            glowOuter.stroke()
 
-            let glowInner = NSBezierPath(ovalIn: rect.insetBy(dx: 4, dy: 4))
-            green.withAlphaComponent(0.15).setFill()
-            glowInner.fill()
+            // Inner glow (stroke only)
+            let glowInner = NSBezierPath(ovalIn: rect.insetBy(dx: 4.5, dy: 4.5))
+            green.withAlphaComponent(0.15).setStroke()
+            glowInner.lineWidth = 2
+            glowInner.stroke()
 
             // Circle stroke
             let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 5, dy: 5))
