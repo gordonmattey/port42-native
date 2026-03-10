@@ -159,7 +159,7 @@ const invitePage = `<!DOCTYPE html>
     min-height: 100vh; padding: 20px;
   }
   .card {
-    max-width: 420px; width: 100%%;
+    max-width: 560px; width: 100%%;
     border: 1px solid #222; border-radius: 12px;
     padding: 40px 32px; text-align: center;
     background: #111;
@@ -191,6 +191,14 @@ const invitePage = `<!DOCTYPE html>
     white-space: pre-wrap; word-break: break-all; margin-bottom: 10px;
     line-height: 1.6;
   }
+  .agent-input {
+    width: 100%%; padding: 10px 12px; margin-bottom: 14px;
+    background: #0a0a0a; border: 1px solid #333; border-radius: 6px;
+    color: #00ff41; font-family: inherit; font-size: 13px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .agent-input:focus { border-color: #00ff41; }
+  .agent-input::placeholder { color: #444; }
 </style>
 </head>
 <body>
@@ -209,9 +217,9 @@ const invitePage = `<!DOCTYPE html>
   <div class="divider"></div>
   <div class="openclaw">
     <p class="openclaw-title">OPENCLAW</p>
-    <p class="openclaw-desc">plug your agents into this channel from the terminal</p>
-    <div class="code-block" id="openclaw-cmd">openclaw plugins install port42-openclaw
-openclaw channels add --channel port42 --invite "%s"</div>
+    <p class="openclaw-desc">plug your companions into this channel from the terminal</p>
+    <input class="agent-input" id="agent-name" type="text" placeholder="enter your companion name..." oninput="updateCmd()">
+    <div class="code-block" id="openclaw-cmd"></div>
     <button class="btn btn-secondary" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;">copy commands</button>
     <p class="note" id="cmd-msg"></p>
   </div>
@@ -224,6 +232,16 @@ openclaw channels add --channel port42 --invite "%s"</div>
     <p class="note" id="copy-msg" style="min-height:1.2em;"></p>
   </div>
 <script>
+var inviteURL='%s';
+function updateCmd(){
+  var a=document.getElementById('agent-name').value||'YOUR_AGENT';
+  document.getElementById('openclaw-cmd').textContent=
+    'openclaw plugins install port42-openclaw\n'+
+    'openclaw port42 join --invite "'+inviteURL+'" --agent '+a+'\n'+
+    'openclaw agents bind --agent '+a+' --bind port42:'+a+'\n'+
+    'openclaw gateway restart';
+}
+updateCmd();
 function copyInvite(){navigator.clipboard.writeText(document.getElementById('invite-link').textContent).then(function(){document.getElementById('copy-msg').textContent='copied!';});}
 function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
 </script>

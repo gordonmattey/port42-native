@@ -29,6 +29,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
     public let companion: AgentConfig
     private let engine = LLMEngine()
     private weak var db: DatabaseService?
+    private var pendingResponse = ""
     var fileResolver: FileResolver?
 
     public init(companion: AgentConfig, db: DatabaseService? = nil, savedMessages: [SwimMessage] = []) {
@@ -61,6 +62,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         }
 
         // Add placeholder for streaming response
+        pendingResponse = ""
         messages.append(SwimMessage(role: .assistant, content: ""))
         isStreaming = true
 
@@ -127,8 +129,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
 
     nonisolated public func llmDidReceiveToken(_ token: String) {
         Task { @MainActor in
-            guard !self.messages.isEmpty else { return }
-            self.messages[self.messages.count - 1].content += token
+            self.pendingResponse += token
         }
     }
 
@@ -136,12 +137,10 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         p42log("[Port42] Swim finished, response length: \(fullResponse.count)")
         Task { @MainActor in
             self.isStreaming = false
-            // Ensure the final message has the complete response
+            self.pendingResponse = ""
+            // Replace the empty placeholder with the complete response
             if let last = self.messages.last, last.role == .assistant {
-                if last.content.count < fullResponse.count {
-                    p42log("[Port42] Patching truncated message: had \(last.content.count), full is \(fullResponse.count)")
-                    self.messages[self.messages.count - 1].content = fullResponse
-                }
+                self.messages[self.messages.count - 1].content = fullResponse
             }
             self.persistMessages()
         }

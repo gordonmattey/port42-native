@@ -209,7 +209,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 	g.flushStored(ctx, peer)
 
 	for {
-		_, data, err := conn.Read(ctx)
+		msgType, data, err := conn.Read(ctx)
 		if err != nil {
 			if websocket.CloseStatus(err) != -1 {
 				log.Printf("[gateway] peer %s disconnected: %v", peer.ID, websocket.CloseStatus(err))
@@ -219,11 +219,17 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		log.Printf("[gateway] RECV from %s: frameType=%v len=%d data=%s", peer.ID[:min(8, len(peer.ID))], msgType, len(data), string(data[:min(200, len(data))]))
+
 		var env Envelope
 		if err := json.Unmarshal(data, &env); err != nil {
-			log.Printf("[gateway] peer %s bad json: %v", peer.ID, err)
+			log.Printf("[gateway] peer %s bad json: %v data=%s", peer.ID, err, string(data[:min(200, len(data))]))
 			continue
 		}
+
+		chPrefix := env.ChannelID
+		if len(chPrefix) > 8 { chPrefix = chPrefix[:8] }
+		log.Printf("[gateway] PARSED from %s: type=%s channel=%s sender=%s", peer.ID[:min(8, len(peer.ID))], env.Type, chPrefix, env.SenderID)
 
 		env.PeerID = peer.ID // authenticated peer identity
 		if env.Timestamp == 0 {
