@@ -109,14 +109,13 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 340, height: 580)
+        .frame(width: 340, height: 640)
         .background(Port42Theme.bgSecondary)
     }
 
     @ViewBuilder
     private var sharingSection: some View {
         if let publicURL = appState.tunnel.publicURL {
-            // Tunnel is live
             HStack(spacing: 6) {
                 Circle()
                     .fill(.green)
@@ -162,7 +161,6 @@ public struct SignOutSheet: View {
                 .buttonStyle(.plain)
             }
         } else if appState.tunnel.isRunning {
-            // Starting up
             HStack(spacing: 6) {
                 ProgressView()
                     .scaleEffect(0.5)
@@ -172,7 +170,6 @@ public struct SignOutSheet: View {
                     .foregroundStyle(Port42Theme.textSecondary)
             }
         } else {
-            // Not sharing yet
             HStack(spacing: 6) {
                 Circle()
                     .fill(Port42Theme.textSecondary.opacity(0.3))
@@ -187,7 +184,6 @@ public struct SignOutSheet: View {
             }
 
             if !ngrokToken.isEmpty && !editingToken {
-                // One-tap share button with edit option
                 Button(action: toggleTunnel) {
                     HStack(spacing: 6) {
                         Image(systemName: "globe")
@@ -218,7 +214,6 @@ public struct SignOutSheet: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                // Token setup or editing
                 if ngrokToken.isEmpty {
                     Text("to invite others to your channels, add a free ngrok token")
                         .font(Port42Theme.mono(11))

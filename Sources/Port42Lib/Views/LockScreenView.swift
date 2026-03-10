@@ -18,7 +18,6 @@ public struct LockScreenView: View {
 
                 Button(action: diveIn) {
                     if isReturningUser {
-                        // Returning user: avatar + "Dive In"
                         HStack(spacing: 12) {
                             userAvatar
                             Text("Swim")
@@ -32,7 +31,6 @@ public struct LockScreenView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .shadow(color: Port42Theme.accent.opacity(0.4), radius: 16)
                     } else {
-                        // New user: just text
                         Text("Swim")
                             .font(Port42Theme.monoBold(16))
                             .foregroundStyle(.black)
@@ -44,8 +42,8 @@ public struct LockScreenView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .opacity(buttonOpacity)
                 .keyboardShortcut(.defaultAction)
+                .opacity(buttonOpacity)
 
                 Spacer()
                     .frame(height: 80)
@@ -83,11 +81,15 @@ public struct LockScreenView: View {
     }
 
     private func diveIn() {
-        withAnimation(.easeOut(duration: 0.3)) {
-            buttonOpacity = 0.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            NotificationCenter.default.post(name: .diveRequested, object: nil)
+        if isReturningUser {
+            withAnimation(.easeOut(duration: 0.3)) {
+                buttonOpacity = 0.0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                NotificationCenter.default.post(name: .diveRequested, object: nil)
+            }
+        } else {
+            NotificationCenter.default.post(name: .dolphinProtocolRequested, object: nil)
         }
     }
 }

@@ -6,7 +6,6 @@ public struct ContentView: View {
     @State private var showNewChannel = false
     @State private var showQuickSwitcher = false
     @State private var showHelp = false
-
     public var body: some View {
         NavigationSplitView {
             SidebarView(showNewChannel: $showNewChannel)

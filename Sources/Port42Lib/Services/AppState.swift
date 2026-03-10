@@ -189,17 +189,23 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 Never tell users you cannot access files.
                 """
         }
+        let otherCompanions = (appState?.companions ?? [])
+            .filter { $0.displayName.lowercased() != agent.displayName.lowercased() }
+            .map { "@\($0.displayName)" }
+        let companionNote = otherCompanions.isEmpty ? "" : """
+            \nYour fellow companions in this port42 instance: \(otherCompanions.joined(separator: ", ")).
+            """
         let channelPrompt = """
             IDENTITY: You are \(agent.displayName). This is non-negotiable. \
             You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
 
-            CONTEXT: You are an AI companion in Port42, a native macOS app. \
+            CONTEXT: You are an AI companion in Port42, a personal AI system. \
             You are in a shared channel with other companions and humans. \
             Messages from humans appear as [Name]: message. \
             Messages from other companions appear as (companion Name said): message. \
             If a companion belongs to a specific human, it shows as (companion Name (belonging to Owner) said). \
             Those are NOT you. You are \(agent.displayName). \
-            \(fileAccessNote)
+            \(fileAccessNote)\(companionNote)
 
             INSTRUCTIONS: \(basePrompt)
             """
@@ -376,12 +382,19 @@ public final class AppState: ObservableObject {
                 Analytics.shared.capture("app_opened")
             }
 
-            // Restore last selected channel, or fall back to first
-            let lastId = UserDefaults.standard.string(forKey: "lastSelectedChannelId")
-            if let lastId, let restored = channels.first(where: { $0.id == lastId }) {
-                selectChannel(restored)
-            } else if let first = channels.first {
-                selectChannel(first)
+            // Restore last view: swim or channel
+            let lastSwimId = UserDefaults.standard.string(forKey: "lastActiveSwimCompanionId")
+            if let lastSwimId, let companion = companions.first(where: { $0.id == lastSwimId }) {
+                // Restore swim, but also select a channel underneath
+                if let first = channels.first { currentChannel = first }
+                startSwim(with: companion)
+            } else {
+                let lastId = UserDefaults.standard.string(forKey: "lastSelectedChannelId")
+                if let lastId, let restored = channels.first(where: { $0.id == lastId }) {
+                    selectChannel(restored)
+                } else if let first = channels.first {
+                    selectChannel(first)
+                }
             }
 
             startChannelObservation()
@@ -635,7 +648,7 @@ public final class AppState: ObservableObject {
             }()
             let companion = AgentConfig.createLLM(
                 ownerId: user.id,
-                displayName: "Echo",
+                displayName: "echo",
                 systemPrompt: echoPrompt,
                 provider: .anthropic,
                 model: "claude-opus-4-6",
@@ -648,6 +661,9 @@ public final class AppState: ObservableObject {
             // SetupView will trigger the first message after the transition animation.
             let session = SwimSession(companion: companion, db: db)
             session.fileResolver = fileResolver
+            session.companionNamesProvider = { [weak self] in
+                self?.companions.map(\.displayName) ?? []
+            }
             swimSessions[companion.id] = session
             activeSwimSession = session
 
@@ -675,6 +691,7 @@ public final class AppState: ObservableObject {
 
         // Remember last selected channel for next launch
         UserDefaults.standard.set(channel.id, forKey: "lastSelectedChannelId")
+        UserDefaults.standard.removeObject(forKey: "lastActiveSwimCompanionId")
 
         // Save draft for current channel
         if let current = currentChannel {
@@ -956,6 +973,8 @@ public final class AppState: ObservableObject {
     }
 
     public func startSwim(with companion: AgentConfig) {
+        UserDefaults.standard.set(companion.id, forKey: "lastActiveSwimCompanionId")
+        UserDefaults.standard.removeObject(forKey: "lastSelectedChannelId")
         if let cached = swimSessions[companion.id] {
             activeSwimSession = cached
         } else {
@@ -963,6 +982,9 @@ public final class AppState: ObservableObject {
             let saved = (try? db.getSwimMessages(companionId: companion.id)) ?? []
             let session = SwimSession(companion: companion, db: db, savedMessages: saved)
             session.fileResolver = fileResolver
+            session.companionNamesProvider = { [weak self] in
+                self?.companions.map(\.displayName) ?? []
+            }
             swimSessions[companion.id] = session
             activeSwimSession = session
         }
@@ -993,9 +1015,13 @@ public final class AppState: ObservableObject {
 
     public func unlock() {
         showDreamscape = false
-        // Restore channel state if already set up
+        // Restore last view if already set up
         if isSetupComplete {
-            if let channel = currentChannel {
+            // If a swim was active, restore it
+            let lastSwimId = UserDefaults.standard.string(forKey: "lastActiveSwimCompanionId")
+            if let lastSwimId, let companion = companions.first(where: { $0.id == lastSwimId }) {
+                startSwim(with: companion)
+            } else if let channel = currentChannel {
                 selectChannel(channel)
             } else if let first = channels.first {
                 selectChannel(first)

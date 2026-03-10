@@ -15,10 +15,53 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupCustomCursor()
+    }
+
+    private func setupCustomCursor() {
+        let size = NSSize(width: 24, height: 24)
+        let green = NSColor(red: 0.0, green: 1.0, blue: 0.255, alpha: 1.0) // #00FF41
+        let image = NSImage(size: size, flipped: false) { rect in
+            // Glow layers
+            let glowOuter = NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2))
+            green.withAlphaComponent(0.1).setFill()
+            glowOuter.fill()
+
+            let glowInner = NSBezierPath(ovalIn: rect.insetBy(dx: 4, dy: 4))
+            green.withAlphaComponent(0.15).setFill()
+            glowInner.fill()
+
+            // Circle stroke
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 5, dy: 5))
+            green.withAlphaComponent(0.9).setStroke()
+            circle.lineWidth = 1.5
+            circle.stroke()
+            return true
+        }
+        let cursor = NSCursor(image: image, hotSpot: NSPoint(x: 12, y: 12))
+        Port42Cursor.shared = cursor
+        swizzleArrowCursor()
+    }
+
+    private func swizzleArrowCursor() {
+        guard let originalMethod = class_getClassMethod(NSCursor.self, #selector(getter: NSCursor.arrow)),
+              let swizzledMethod = class_getClassMethod(Port42Cursor.self, #selector(Port42Cursor.port42Arrow)) else { return }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }
+
     @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: urlString) else { return }
         NotificationCenter.default.post(name: .handleDeepLink, object: url)
+    }
+}
+
+class Port42Cursor: NSObject {
+    static var shared: NSCursor = NSCursor.arrow
+
+    @objc class func port42Arrow() -> NSCursor {
+        return Port42Cursor.shared
     }
 }
 
@@ -96,6 +139,9 @@ struct TransitionRoot: View {
     @State private var prevSetupComplete = false
     @State private var diveProgress: CGFloat = 0.0  // 0 = surface, 1 = submerged
     @State private var isDiving = false
+    @State private var showDolphinProtocol = false
+    @State private var showBootCinematic = false
+    @State private var bootCinematicDone = false
 
     private var showDreamscapeVideo: Bool {
         appState.showDreamscape || isDiving || (!appState.isSetupComplete && transitionPhase == .none)
@@ -123,7 +169,7 @@ struct TransitionRoot: View {
                 LockScreenView()
             } else if transitionPhase != .none || (appState.isSetupComplete && transitionPhase == .none) {
                 ContentView()
-            } else if !appState.showDreamscape {
+            } else if !appState.showDreamscape && bootCinematicDone {
                 SetupView()
             }
 
@@ -161,6 +207,46 @@ struct TransitionRoot: View {
                     .ignoresSafeArea()
                     .opacity(diveProgress)
                     .allowsHitTesting(false)
+            }
+
+            // Dolphin Protocol cinematic overlay (manual trigger from settings/lock screen)
+            if showDolphinProtocol {
+                DolphinProtocolView(isPresented: $showDolphinProtocol)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
+
+            // Boot cinematic (fresh start only, skips BIOS since SetupView has its own)
+            if showBootCinematic {
+                DolphinProtocolView(isPresented: $showBootCinematic, skipBios: true)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dolphinProtocolRequested)) { _ in
+            if !appState.isSetupComplete {
+                // Fresh user, show cinematic then setup BIOS
+                withAnimation(.easeIn(duration: 0.5)) {
+                    showBootCinematic = true
+                }
+            } else {
+                // Returning user, show full cinematic with BIOS
+                withAnimation(.easeIn(duration: 0.5)) {
+                    showDolphinProtocol = true
+                }
+            }
+        }
+        .onChange(of: showBootCinematic) { _, newValue in
+            NSLog("[TransitionRoot] showBootCinematic changed to %d, bootCinematicDone=%d, showDreamscape=%d", newValue ? 1 : 0, bootCinematicDone ? 1 : 0, appState.showDreamscape ? 1 : 0)
+            if !newValue {
+                bootCinematicDone = true
+                appState.showDreamscape = false
+                NSLog("[TransitionRoot] Set bootCinematicDone=true, showDreamscape=false")
+            }
+        }
+        .onAppear {
+            if appState.isSetupComplete || appState.showDreamscape {
+                bootCinematicDone = true
             }
         }
         .onChange(of: appState.isSetupComplete) { _, newValue in

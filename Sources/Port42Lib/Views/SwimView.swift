@@ -31,6 +31,8 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
     private weak var db: DatabaseService?
     private var pendingResponse = ""
     var fileResolver: FileResolver?
+    /// Returns the display names of all current companions (for dynamic prompt context)
+    var companionNamesProvider: (() -> [String])?
 
     public init(companion: AgentConfig, db: DatabaseService? = nil, savedMessages: [SwimMessage] = []) {
         self.companion = companion
@@ -69,10 +71,19 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         let modelName = companion.model ?? "unknown"
         p42log("[Port42] Swim sending \(apiMessages.count) messages to \(modelName)")
 
+        // Build system prompt with dynamic companion list
+        var prompt = companion.systemPrompt ?? "You are a helpful companion."
+        let others = (companionNamesProvider?() ?? [])
+            .filter { $0.lowercased() != companion.displayName.lowercased() }
+        if !others.isEmpty {
+            let list = others.map { "@\($0)" }.joined(separator: ", ")
+            prompt += "\n\nyour fellow companions in this port42 instance: \(list). the user can @mention any of them in channels or start a swim with them directly."
+        }
+
         do {
             try engine.send(
                 messages: apiMessages,
-                systemPrompt: companion.systemPrompt ?? "You are a helpful assistant.",
+                systemPrompt: prompt,
                 model: companion.model ?? "claude-opus-4-6",
                 delegate: self
             )
@@ -114,13 +125,15 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
 
     /// Convert swim messages to unified ChatEntry array
     public func chatEntries(userName: String) -> [ChatEntry] {
-        messages.map { msg in
-            ChatEntry(
+        messages.compactMap { msg in
+            // Hide empty placeholder messages (typing indicator handles streaming state)
+            if msg.role == .assistant && msg.content.isEmpty { return nil }
+            return ChatEntry(
                 id: msg.id.uuidString,
                 senderName: msg.role == .user ? userName : companion.displayName,
                 content: msg.content,
                 isAgent: msg.role == .assistant,
-                isPlaceholder: msg.content.isEmpty && msg.role == .assistant
+                isPlaceholder: false
             )
         }
     }
@@ -211,7 +224,7 @@ public struct SwimView: View {
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .frame(height: 44)
             .background(Port42Theme.bgPrimary)
 
             Divider().background(Port42Theme.border)

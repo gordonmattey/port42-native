@@ -250,7 +250,6 @@ public struct ConversationContent: View {
                             isInputFocused = true
                         }
                     }
-                    .disabled(isStreaming)
                     .onChange(of: draft) { _, _ in
                         selectedSuggestionIndex = 0
                     }

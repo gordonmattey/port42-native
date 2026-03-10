@@ -45,6 +45,9 @@ struct TransitionRootB: View {
     @ObservedObject var appState: AppState
     @State private var diveProgress: CGFloat = 0.0
     @State private var isDiving = false
+    @State private var showDolphinProtocol = false
+    @State private var showBootCinematic = false
+    @State private var bootCinematicDone = false
 
     private var showDreamscapeVideo: Bool {
         appState.showDreamscape || isDiving || !appState.isSetupComplete
@@ -63,7 +66,7 @@ struct TransitionRootB: View {
                 LockScreenView()
             } else if appState.isSetupComplete {
                 ContentView()
-            } else if !appState.showDreamscape {
+            } else if !appState.showDreamscape && bootCinematicDone {
                 SetupView()
             }
 
@@ -77,6 +80,40 @@ struct TransitionRootB: View {
                     .ignoresSafeArea()
                     .opacity(diveProgress)
                     .allowsHitTesting(false)
+            }
+
+            if showDolphinProtocol {
+                DolphinProtocolView(isPresented: $showDolphinProtocol)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
+
+            if showBootCinematic {
+                DolphinProtocolView(isPresented: $showBootCinematic, skipBios: true)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dolphinProtocolRequested)) { _ in
+            if !appState.isSetupComplete {
+                withAnimation(.easeIn(duration: 0.5)) {
+                    showBootCinematic = true
+                }
+            } else {
+                withAnimation(.easeIn(duration: 0.5)) {
+                    showDolphinProtocol = true
+                }
+            }
+        }
+        .onChange(of: showBootCinematic) { _, newValue in
+            if !newValue && !bootCinematicDone {
+                bootCinematicDone = true
+                appState.showDreamscape = false
+            }
+        }
+        .onAppear {
+            if appState.isSetupComplete || appState.showDreamscape {
+                bootCinematicDone = true
             }
         }
         .onChange(of: appState.isSetupComplete) { _, newValue in

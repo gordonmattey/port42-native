@@ -23,6 +23,7 @@ public struct SetupView: View {
     @State private var terminalVisible = false
     @State private var terminalOffset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
+    @State private var revealedSuffixes: Set<Int> = []
     @FocusState private var isFocused: Bool
     @FocusState private var isApiKeyFocused: Bool
 
@@ -43,12 +44,15 @@ public struct SetupView: View {
         let text: String
         let style: Style
         let delay: Double
+        var suffix: String? = nil
+        var suffixDelay: Double = 0
 
         enum Style {
             case post
             case header
             case body
             case accent
+            case warn
             case dim
             case blank
         }
@@ -64,11 +68,13 @@ public struct SetupView: View {
             .init(text: "...", style: .dim, delay: 0.4),
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "REALITY KERNEL v0.1.0", style: .post, delay: 0.8),
-            .init(text: "Checking consciousness drivers... OK", style: .post, delay: 0.7),
-            .init(text: "Loading memory subsystem... OK", style: .post, delay: 0.6),
-            .init(text: "Initializing possibility engine... OK", style: .post, delay: 0.8),
-            .init(text: "", style: .blank, delay: 0.8),
-            .init(text: "Welcome to Port 42.", style: .header, delay: 0.6),
+            .init(text: "Port42 :: Active", style: .warn, delay: 0.5),
+            .init(text: "", style: .blank, delay: 0.4),
+            .init(text: "Checking consciousness drivers...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
+            .init(text: "Loading memory subsystem...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
+            .init(text: "Initializing possibility engine...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
+            .init(text: "", style: .blank, delay: 0.6),
+            .init(text: "Welcome to Port42.", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
             .init(text: "Your companions. Your friends. One room.", style: .accent, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.8),
@@ -84,7 +90,6 @@ public struct SetupView: View {
         var lines: [TermLine] = [
             .init(text: "", style: .blank, delay: 0.5),
             .init(text: "Creating reality instance for \(name)...", style: .post, delay: 0.8),
-            .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Generating P256 identity key pair...", style: .post, delay: 0.8),
             .init(text: "Storing private key in Keychain... \(keychainStatus)", style: .post, delay: 1.0),
             .init(text: "Public key: \(keyFingerprint)", style: .dim, delay: 0.6),
@@ -94,10 +99,8 @@ public struct SetupView: View {
         lines.append(.init(text: "Linking Apple identity... \(appleStatus)", style: .post, delay: 0.6))
         #endif
         lines += [
-            .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Detecting Claude Code credentials...", style: .post, delay: 0.8),
             .init(text: "macOS may prompt for Keychain access. Click Allow.", style: .dim, delay: 0.6),
-            .init(text: "", style: .blank, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.8),
             .init(text: "Welcome, \(name).", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
@@ -149,7 +152,7 @@ public struct SetupView: View {
     private var setupTerminal: some View {
         setupTerminalContent
             .frame(width: 520)
-            .frame(maxHeight: 500)
+            .frame(maxHeight: 560)
             .background(Port42Theme.bgSecondary)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
@@ -173,7 +176,7 @@ public struct SetupView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         // Boot lines
                         ForEach(Array(bootSequence.prefix(visibleBootLines).enumerated()), id: \.offset) { idx, line in
-                            termLineView(line)
+                            termLineView(line, index: idx)
                                 .id("boot-\(idx)")
                         }
 
@@ -558,9 +561,21 @@ public struct SetupView: View {
     }
 
     @ViewBuilder
-    private func termLineView(_ line: TermLine) -> some View {
+    private func termLineView(_ line: TermLine, index: Int = -1) -> some View {
         if line.style == .blank {
             Spacer().frame(height: 6)
+        } else if let suffix = line.suffix {
+            HStack(spacing: 0) {
+                Text(line.text)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(lineColor(for: line.style))
+                if revealedSuffixes.contains(index) {
+                    Text(suffix)
+                        .font(Port42Theme.monoBold(14))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .transition(.opacity)
+                }
+            }
         } else {
             Text(line.text)
                 .font(line.style == .header ? Port42Theme.monoBold(14) : Port42Theme.mono(13))
@@ -574,6 +589,7 @@ public struct SetupView: View {
         case .header: return Port42Theme.textPrimary
         case .body: return Port42Theme.textSecondary
         case .accent: return Port42Theme.accent
+        case .warn: return .yellow
         case .dim: return Port42Theme.textSecondary.opacity(0.6)
         case .blank: return .clear
         }
@@ -695,9 +711,20 @@ public struct SetupView: View {
             completion()
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + lines[index].delay) {
+        let line = lines[index]
+        DispatchQueue.main.asyncAfter(deadline: .now() + line.delay) {
             update(index + 1)
-            revealLines(lines, current: index + 1, update: update, completion: completion)
+            if line.suffix != nil && line.suffixDelay > 0 {
+                // Show line first, then reveal suffix after delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + line.suffixDelay) {
+                    withAnimation(.easeIn(duration: 0.2)) {
+                        revealedSuffixes.insert(index)
+                    }
+                    revealLines(lines, current: index + 1, update: update, completion: completion)
+                }
+            } else {
+                revealLines(lines, current: index + 1, update: update, completion: completion)
+            }
         }
     }
 
