@@ -3,6 +3,15 @@
     <channel>
         <title>Port42</title>
         <item>
+            <title>0.3.15</title>
+            <pubDate>Wed, 11 Mar 2026 15:45:24 -0700</pubDate>
+            <sparkle:version>411</sparkle:version>
+            <sparkle:shortVersionString>0.3.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v0.3.15/Port42.dmg" length="27781554" type="application/octet-stream" sparkle:edSignature="d3V1WTQdQYY/QlfDc+ZKwaWBwG9UoniwGSFxxajd/gLSPxy++G5cNtzICUmI+qFpO3MMG/ejvSaNZbf05djcAw=="/>
+        </item>
+        <item>
             <title>0.3.14</title>
             <pubDate>Wed, 11 Mar 2026 15:24:04 -0700</pubDate>
             <sparkle:version>410</sparkle:version>
