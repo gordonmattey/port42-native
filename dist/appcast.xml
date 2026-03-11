@@ -3,6 +3,15 @@
     <channel>
         <title>Port42</title>
         <item>
+            <title>0.3.10</title>
+            <pubDate>Wed, 11 Mar 2026 15:05:45 -0700</pubDate>
+            <sparkle:version>402</sparkle:version>
+            <sparkle:shortVersionString>0.3.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27780300" type="application/octet-stream" sparkle:edSignature="VCvGe2yz4L1Vekq6+bH86rNqRCZYVf9+wgahLSttjJdjuTE5DtxHXKo8Qmj5Uq9vfSe2tpH6M+e/hsZO5p/kCA=="/>
+        </item>
+        <item>
             <title>0.3.9</title>
             <pubDate>Wed, 11 Mar 2026 14:56:37 -0700</pubDate>
             <sparkle:version>401</sparkle:version>
@@ -19,15 +28,6 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27780150" type="application/octet-stream" sparkle:edSignature="QO+CRqEguWOGnaf5XwLhWnA+pXYNtcQKpR1Cj03pGvSatjY2lm3/nRtDhyb7wVGjgvwbpnpONMRr7f7s0hqYDA=="/>
-        </item>
-        <item>
-            <title>0.3.6</title>
-            <pubDate>Wed, 11 Mar 2026 14:42:27 -0700</pubDate>
-            <sparkle:version>395</sparkle:version>
-            <sparkle:shortVersionString>0.3.6</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27779509" type="application/octet-stream" sparkle:edSignature="LIrjRBpdf/GbEd4TyRLKRbrL4id43qaLMSqVaESF4DaDoliwPhnhRkPMio5yXQ/gL+l21JhN/8OMCilHcNM/Aw=="/>
         </item>
     </channel>
 </rss>
