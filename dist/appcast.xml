@@ -3,6 +3,15 @@
     <channel>
         <title>Port42</title>
         <item>
+            <title>0.3.4</title>
+            <pubDate>Wed, 11 Mar 2026 14:37:44 -0700</pubDate>
+            <sparkle:version>393</sparkle:version>
+            <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27777901" type="application/octet-stream" sparkle:edSignature="8L8kDvwTfDVh5Y8Bce54f9nsd8SDILB9UyyPXA3bbUhNnjJgVULtkGCO2sVqgREm3lurUnLRNEC2noo595AWDA=="/>
+        </item>
+        <item>
             <title>0.3.3</title>
             <pubDate>Wed, 11 Mar 2026 12:08:21 -0700</pubDate>
             <sparkle:version>390</sparkle:version>
@@ -19,15 +28,6 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27772442" type="application/octet-stream" sparkle:edSignature="2QKItB415nr6XP5knuWmK2YQiSE/BeoA8R8Shgug8KKSU8Dfy6SEvm9/+JsVc9HGmoWjw1mbKk9ec5QkKgWUBg=="/>
-        </item>
-        <item>
-            <title>0.1.0</title>
-            <pubDate>Sat, 07 Mar 2026 16:21:01 -0800</pubDate>
-            <sparkle:version>1</sparkle:version>
-            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.zip" length="21847542" type="application/octet-stream"/>
         </item>
     </channel>
 </rss>
