@@ -9,25 +9,7 @@
             <sparkle:shortVersionString>0.3.14</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27781672" type="application/octet-stream" sparkle:edSignature="Tfx47iM5kjVRzHli/mqpeXotcm5ghSCCMfE2fBEVLVA5nk1D2qAnQLj8/ardufFDWT+eKAVIOrBSqOSPDfXqDw=="/>
-        </item>
-        <item>
-            <title>0.3.13</title>
-            <pubDate>Wed, 11 Mar 2026 15:20:19 -0700</pubDate>
-            <sparkle:version>409</sparkle:version>
-            <sparkle:shortVersionString>0.3.13</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27781442" type="application/octet-stream" sparkle:edSignature="g7G2fMhv50U9iANYbI5lk0e4pmFodCWeTAwVfwUSchEdvZ/s0TFFSqWFJ9GEE1HV0+/z4aoU2Kl611J1J2pXBg=="/>
-        </item>
-        <item>
-            <title>0.3.12</title>
-            <pubDate>Wed, 11 Mar 2026 15:14:47 -0700</pubDate>
-            <sparkle:version>408</sparkle:version>
-            <sparkle:shortVersionString>0.3.12</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" length="27779863" type="application/octet-stream" sparkle:edSignature="1Wa+rJxSUCHW76vAmPGyxFyREAiBnngU/wY6mdvjHKIYcBc4uBSU+y0ysew8i8RA50xPot2tiX8b7TwjbCC8DA=="/>
+            <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v0.3.14/Port42.dmg" length="27781672" type="application/octet-stream" sparkle:edSignature="Tfx47iM5kjVRzHli/mqpeXotcm5ghSCCMfE2fBEVLVA5nk1D2qAnQLj8/ardufFDWT+eKAVIOrBSqOSPDfXqDw=="/>
         </item>
     </channel>
 </rss>
