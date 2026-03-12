@@ -1,6 +1,17 @@
 import SwiftUI
 import WebKit
 
+// MARK: - Scroll-Passthrough WebView
+
+/// WKWebView subclass that forwards scroll events to the parent view
+/// so inline ports don't eat scroll gestures from the chat ScrollView.
+private class PassthroughWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        // Forward scroll events to the next responder (parent ScrollView)
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+
 // MARK: - Inline Port Renderer
 
 /// Renders a port (companion-generated HTML/CSS/JS) in a sandboxed WKWebView.
@@ -50,7 +61,35 @@ public struct PortView: NSViewRepresentable {
         config.userContentController.addUserScript(heightScript)
         config.userContentController.add(context.coordinator, name: "portHeight")
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        // Forward JS console.log/error/warn to native NSLog for debugging
+        let consoleScript = WKUserScript(
+            source: """
+            (function() {
+                const orig = { log: console.log, error: console.error, warn: console.warn };
+                function forward(level, args) {
+                    try {
+                        const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                        window.webkit.messageHandlers.portConsole.postMessage({ level: level, message: msg });
+                    } catch(e) {}
+                }
+                console.log = function() { forward('log', arguments); orig.log.apply(console, arguments); };
+                console.error = function() { forward('error', arguments); orig.error.apply(console, arguments); };
+                console.warn = function() { forward('warn', arguments); orig.warn.apply(console, arguments); };
+                window.addEventListener('error', function(e) {
+                    forward('error', [e.message + ' at ' + (e.filename || '') + ':' + (e.lineno || '')]);
+                });
+                window.addEventListener('unhandledrejection', function(e) {
+                    forward('error', ['Unhandled promise rejection: ' + (e.reason || '')]);
+                });
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(consoleScript)
+        config.userContentController.add(context.coordinator, name: "portConsole")
+
+        let webView = PassthroughWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         webView.allowsMagnification = false
@@ -148,7 +187,7 @@ public struct PortView: NSViewRepresentable {
             }
         }
 
-        // Receive height updates from JS
+        // Receive messages from JS (height updates + console forwarding)
         public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "portHeight", let h = message.body as? CGFloat {
                 DispatchQueue.main.async {
@@ -157,6 +196,11 @@ public struct PortView: NSViewRepresentable {
                         self.parent.height = clamped
                     }
                 }
+            } else if message.name == "portConsole",
+                      let body = message.body as? [String: Any],
+                      let level = body["level"] as? String,
+                      let msg = body["message"] as? String {
+                NSLog("[Port42:port:%@] %@", level, msg)
             }
         }
     }

@@ -161,6 +161,39 @@ functionality must continue working at every step.
 
 ---
 
+### Step 4b: Connection Health (P-106b) ✅
+
+**Goal:** Ports know whether push events are alive and get notified if they drop.
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — add heartbeat + connection API
+- `Sources/Port42Lib/Services/AppState.swift` — heartbeat timer
+
+**What to build:**
+
+1. `port42.connection.status()` — returns `'connected'` or `'disconnected'`.
+   Backed by a heartbeat: native pings the webview every 5s via
+   `port42._heartbeat()`. JS side tracks last heartbeat timestamp.
+   If no heartbeat for 10s, status flips to `'disconnected'`.
+
+2. `port42.connection.onStatusChange(callback)` — fires when status
+   changes. Ports can show a visual indicator or attempt recovery.
+
+3. Native heartbeat timer on AppState, iterates `activeBridges` and
+   calls `pushHeartbeat()` every 5s.
+
+**Unit tests:**
+- `testConnectionStatusConnected` — returns connected when heartbeat recent
+- `testConnectionStatusDisconnected` — returns disconnected after timeout
+- `testOnStatusChangeCallback` — callback fires on transition
+
+**User test:**
+- Port with connection indicator dot (green = connected, red = disconnected)
+- Kill and restart app, verify port reconnects and dot goes green
+- Verify existing event push still works alongside heartbeat
+
+---
+
 ### Step 5: Port Sandbox (P-108) ✅
 
 **Goal:** Ports cannot escape the bridge.

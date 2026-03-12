@@ -134,6 +134,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }
     }
 
+    /// Send heartbeat to keep connection status alive
+    @MainActor
+    public func pushHeartbeat() {
+        webView?.evaluateJavaScript("port42._heartbeat()") { _, _ in }
+    }
+
     // MARK: - Injected JavaScript
 
     /// The port42.* namespace injected into every port webview
@@ -142,6 +148,24 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
         let _callId = 0;
         const _pending = {};
         const _listeners = {};
+
+        // Connection health tracking
+        let _lastHeartbeat = Date.now();
+        let _connected = true;
+        const _statusCallbacks = [];
+        const _HEARTBEAT_TIMEOUT = 10000; // 10s without heartbeat = disconnected
+
+        function _checkConnection() {
+            const now = Date.now();
+            const wasConnected = _connected;
+            _connected = (now - _lastHeartbeat) < _HEARTBEAT_TIMEOUT;
+            if (wasConnected !== _connected) {
+                const status = _connected ? 'connected' : 'disconnected';
+                _statusCallbacks.forEach(cb => { try { cb(status); } catch(e) { console.error(e); } });
+            }
+        }
+        // Check connection status every 3s
+        setInterval(_checkConnection, 3000);
 
         function call(method, args) {
             return new Promise((resolve) => {
@@ -167,6 +191,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                 const cbs = _listeners[event] || [];
                 cbs.forEach(cb => { try { cb(data); } catch(e) { console.error(e); } });
             },
+            _heartbeat: function() {
+                _lastHeartbeat = Date.now();
+                const wasConnected = _connected;
+                _connected = true;
+                if (!wasConnected) {
+                    _statusCallbacks.forEach(cb => { try { cb('connected'); } catch(e) { console.error(e); } });
+                }
+            },
 
             companions: {
                 list: () => call('companions.list'),
@@ -181,6 +213,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
             on: function(event, callback) {
                 if (!_listeners[event]) _listeners[event] = [];
                 _listeners[event].push(callback);
+            },
+            connection: {
+                status: () => _connected ? 'connected' : 'disconnected',
+                onStatusChange: (callback) => _statusCallbacks.push(callback)
             },
             port: {
                 close: () => call('port.close'),

@@ -209,14 +209,21 @@ final class ChannelAgentHandler: LLMStreamDelegate {
 
             PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a \
             ```port code fence. Ports render as live interactive surfaces in the user's \
-            chat. Available bridge APIs inside ports: \
-            port42.companions.list(), port42.companions.get(id), \
-            port42.messages.recent(n), port42.user.get(), \
-            port42.on(event, callback) for live events ('message', 'companion.activity'), \
-            port42.port.close(), port42.port.resize(w, h). \
-            The port42 dark theme (black bg, green accent, monospace font) is auto-injected. \
-            No <html> or <body> tags needed. Use ports when asked to build something interactive, \
-            create a dashboard, visualize data, or make a tool.
+            chat. The port42 dark theme (black bg, green accent, monospace font) is auto-injected. \
+            No <html> or <body> tags needed. Use ports when asked to build something interactive. \
+            IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use them \
+            instead of hardcoding. The APIs are async and return real data: \
+            const companions = await port42.companions.list(); // [{id, name, model, isActive}] \
+            const user = await port42.user.get(); // {id, name} \
+            const msgs = await port42.messages.recent(10); // [{id, sender, content, timestamp, isCompanion}] \
+            port42.on('message', (msg) => { /* live new message */ }); \
+            port42.on('companion.activity', (data) => { /* {activeNames: [...]} */ }); \
+            port42.connection.status() // 'connected' or 'disconnected' \
+            port42.connection.onStatusChange((status) => { /* 'connected'|'disconnected' */ }); \
+            Example: <script>port42.companions.list().then(companions => { \
+            companions.forEach(c => { const el = document.createElement('div'); \
+            el.textContent = c.name + (c.isActive ? ' (active)' : ''); \
+            document.body.appendChild(el); }); });</script>
 
             INSTRUCTIONS: \(basePrompt)
             """
@@ -372,6 +379,7 @@ public final class AppState: ObservableObject {
     private var activeBridges: [WeakBridge] = []
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
+    private var heartbeatTimer: Timer?
 
     private var channelObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
@@ -418,6 +426,13 @@ public final class AppState: ObservableObject {
                 self.pushEventToBridges("message", data: data)
             }
 
+        // Heartbeat timer: ping active ports every 5s so they know push is alive
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.pushHeartbeatToBridges()
+            }
+        }
+
         // Push companion activity changes to active ports
         typingSink = $typingAgentNames
             .dropFirst()
@@ -435,6 +450,13 @@ public final class AppState: ObservableObject {
         activeBridges.removeAll { $0.bridge == nil }
         for weak in activeBridges {
             weak.bridge?.pushEvent(event, data: data)
+        }
+    }
+
+    private func pushHeartbeatToBridges() {
+        activeBridges.removeAll { $0.bridge == nil }
+        for weak in activeBridges {
+            weak.bridge?.pushHeartbeat()
         }
     }
 

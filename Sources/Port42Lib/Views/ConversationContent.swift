@@ -145,6 +145,12 @@ public struct ConversationContent: View {
     @State private var draft = ""
     @State private var selectedSuggestionIndex = 0
     @FocusState private var isInputFocused: Bool
+    @State private var isNearBottom = true
+    @State private var unreadCount = 0
+    @State private var unreadStartIndex = 0
+    @State private var visibleEntryIDs: Set<String> = []
+    @State private var scrollContentBottom: CGFloat = 0
+    @State private var scrollVisibleBottom: CGFloat = 0
 
     public init(
         entries: [ChatEntry],
@@ -187,40 +193,113 @@ public struct ConversationContent: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(entries) { entry in
-                            MessageRow(entry: entry, localOwner: localOwner)
-                                .id(entry.id)
+            ZStack(alignment: .bottom) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                                MessageRow(entry: entry, localOwner: localOwner)
+                                    .id(entry.id)
+                                    .onAppear {
+                                        if index >= unreadStartIndex && unreadCount > 0 {
+                                            let newCount = max(0, entries.count - 1 - index)
+                                            if newCount < unreadCount {
+                                                unreadCount = newCount
+                                            }
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+
+                        if !typingNames.isEmpty {
+                            TypingIndicator(names: typingNames)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 4)
+                        }
+
+                        // Content bottom tracker (moves with scroll content)
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: ScrollOffsetKey.self,
+                                value: geo.frame(in: .named("chatScrollOuter")).maxY
+                            )
+                        }
+                        .frame(height: 1)
+                        .id("bottom")
+                    }
+                    .onPreferenceChange(ScrollOffsetKey.self) { contentBottom in
+                        scrollContentBottom = contentBottom
+                        updateNearBottom()
+                    }
+                    .onChange(of: entries.count) { old, new in
+                        let userSent = new > old && entries.last?.isAgent == false
+                        if userSent || isNearBottom {
+                            scrollToBottom(proxy: proxy)
+                        } else {
+                            if unreadCount == 0 {
+                                unreadStartIndex = old
+                            }
+                            unreadCount += (new - old)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-
-                    if !typingNames.isEmpty {
-                        TypingIndicator(names: typingNames)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 4)
+                    .onChange(of: entries.last?.content) { _, _ in
+                        if isNearBottom {
+                            scrollToBottom(proxy: proxy)
+                        }
+                    }
+                    .onChange(of: typingNames) { _, _ in
+                        if isNearBottom {
+                            scrollToBottom(proxy: proxy)
+                        }
+                    }
+                    .onAppear {
+                        proxy.scrollTo("bottom", anchor: .bottom)
                     }
 
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .onChange(of: entries.count) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: entries.last?.content) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: typingNames) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-                .onAppear {
-                    proxy.scrollTo("bottom", anchor: .bottom)
+                    // New messages bubble
+                    if unreadCount > 0 {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                proxy.scrollTo("bottom", anchor: .bottom)
+                            }
+                            unreadCount = 0
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("\(unreadCount) new")
+                                    .font(Port42Theme.monoBold(12))
+                            }
+                            .foregroundColor(Port42Theme.bgPrimary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(Port42Theme.accent)
+                            .clipShape(Capsule())
+                            .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
+            .coordinateSpace(name: "chatScrollOuter")
             .frame(minHeight: 0, maxHeight: .infinity)
-            .background(Color.black.opacity(0.5))
+            .background(
+                GeometryReader { outerGeo in
+                    Color.black.opacity(0.5)
+                        .preference(
+                            key: VisibleBottomKey.self,
+                            value: outerGeo.size.height
+                        )
+                }
+            )
+            .onPreferenceChange(VisibleBottomKey.self) { visibleHeight in
+                scrollVisibleBottom = visibleHeight
+                updateNearBottom()
+            }
 
             if let error {
                 HStack {
@@ -416,6 +495,34 @@ public struct ConversationContent: View {
         withAnimation(.easeOut(duration: 0.15)) {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
+        unreadCount = 0
+    }
+
+    private func updateNearBottom() {
+        // scrollContentBottom = content's maxY in the outer coordinate space
+        // scrollVisibleBottom = visible container height
+        // When scrolled to bottom, content maxY ≈ container height
+        let wasNear = isNearBottom
+        isNearBottom = (scrollContentBottom - scrollVisibleBottom) < 100
+        if !wasNear && isNearBottom {
+            unreadCount = 0
+        }
+    }
+}
+
+// MARK: - Scroll Position Tracking
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct VisibleBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -424,6 +531,7 @@ public struct ConversationContent: View {
 struct MessageRow: View, Equatable {
     let entry: ChatEntry
     var localOwner: String? = nil
+    @EnvironmentObject var appState: AppState
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
@@ -507,7 +615,7 @@ struct MessageRow: View, Equatable {
                                 .font(Port42Theme.mono(13))
                                 .foregroundColor(contentColor)
                         }
-                        InlinePortView(html: portHTML)
+                        InlinePortView(html: portHTML, appState: appState)
                         if let after = entry.textAfterPort {
                             Text(after)
                                 .font(Port42Theme.mono(13))
@@ -528,25 +636,61 @@ struct MessageRow: View, Equatable {
 
 struct InlinePortView: View {
     let html: String
-    @EnvironmentObject var appState: AppState
+    let appState: AppState
     @State private var height: CGFloat = 100
-    @State private var bridge: PortBridge?
+    @State private var showCode = false
+    let bridge: PortBridge
+
+    init(html: String, appState: AppState) {
+        self.html = html
+        self.appState = appState
+        let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id)
+        self.bridge = b
+    }
 
     var body: some View {
-        PortView(html: html, bridge: bridge, height: $height)
-            .frame(height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Port42Theme.border, lineWidth: 1)
-            )
-            .onAppear {
-                if bridge == nil {
-                    let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id)
-                    bridge = b
-                    appState.registerPortBridge(b)
+        VStack(alignment: .leading, spacing: 0) {
+            // Toggle bar
+            HStack(spacing: 6) {
+                Button(action: { showCode.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 10))
+                        Text(showCode ? "Run" : "Source")
+                            .font(Port42Theme.mono(11))
+                    }
+                    .foregroundStyle(Port42Theme.accent)
                 }
+                .buttonStyle(.plain)
+                Spacer()
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Port42Theme.bgSecondary)
+
+            if showCode {
+                ScrollView(.vertical) {
+                    Text(html)
+                        .font(Port42Theme.mono(12))
+                        .foregroundColor(Port42Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 300)
+            } else {
+                PortView(html: html, bridge: bridge, height: $height)
+                    .frame(height: height)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Port42Theme.border, lineWidth: 1)
+        )
+        .onAppear {
+            appState.registerPortBridge(bridge)
+        }
     }
 }
 
