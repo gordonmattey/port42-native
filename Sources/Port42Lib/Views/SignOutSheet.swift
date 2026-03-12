@@ -9,6 +9,9 @@ public struct SignOutSheet: View {
     @State private var ngrokDomain: String = UserDefaults.standard.string(forKey: "ngrokDomain") ?? ""
     @State private var editingToken = false
     @State private var autoUpdatesEnabled: Bool = UserDefaults.standard.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
+    @State private var selectedAuthMode: StoredAuthMode = Port42AuthStore.shared.loadMode()
+    @State private var authCredentialInput = ""
+    @State private var authSaved = false
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -47,6 +50,15 @@ public struct SignOutSheet: View {
             // Sharing
             VStack(alignment: .leading, spacing: 8) {
                 sharingSection
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+
+            Divider().background(Port42Theme.border)
+
+            // AI Connection
+            VStack(alignment: .leading, spacing: 8) {
+                aiConnectionSection
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -119,7 +131,7 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 340, height: 640)
+        .frame(width: 380, height: 740)
         .background(Port42Theme.bgSecondary)
     }
 
@@ -276,6 +288,122 @@ public struct SignOutSheet: View {
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(.red.opacity(0.8))
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var aiConnectionSection: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "brain")
+                .font(.system(size: 11))
+                .foregroundStyle(Port42Theme.textSecondary)
+            Text("Claude connection")
+                .font(Port42Theme.mono(13))
+                .foregroundStyle(Port42Theme.textSecondary)
+            Spacer()
+
+            let modeLabel: String = {
+                switch selectedAuthMode {
+                case .autoDetect: return "Claude auto-detect"
+                case .manualToken: return "Claude token"
+                case .apiKey: return "Anthropic API key"
+                }
+            }()
+            Text(modeLabel)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+        }
+
+        // Mode picker
+        HStack(spacing: 6) {
+            authModeButton(.autoDetect, label: "auto")
+            authModeButton(.manualToken, label: "token")
+            authModeButton(.apiKey, label: "API key")
+        }
+
+        // Credential input for manual modes
+        if selectedAuthMode == .manualToken || selectedAuthMode == .apiKey {
+            let placeholder = selectedAuthMode == .manualToken
+                ? "paste Claude session token"
+                : "paste Anthropic API key (sk-ant-...)"
+
+            SecureField(placeholder, text: $authCredentialInput)
+                .textFieldStyle(.plain)
+                .font(Port42Theme.mono(12))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Port42Theme.bgPrimary)
+                .cornerRadius(4)
+                .onSubmit { saveAuthCredential() }
+
+            HStack(spacing: 8) {
+                Button(action: saveAuthCredential) {
+                    Text(authCredentialInput.isEmpty ? "clear" : "save")
+                        .font(Port42Theme.monoBold(12))
+                        .foregroundStyle(Port42Theme.accent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Port42Theme.accent.opacity(0.1))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+
+                if authSaved {
+                    Text("saved")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(.green)
+                        .transition(.opacity)
+                }
+
+                Spacer()
+            }
+        }
+    }
+
+    private func authModeButton(_ mode: StoredAuthMode, label: String) -> some View {
+        Button(action: {
+            withAnimation(.easeIn(duration: 0.1)) {
+                selectedAuthMode = mode
+                authSaved = false
+                authCredentialInput = ""
+            }
+            Port42AuthStore.shared.saveMode(mode)
+            if mode == .autoDetect {
+                // Clear stored credentials when switching to auto
+                AgentAuthResolver.shared.clearCache()
+            }
+        }) {
+            Text(label)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(selectedAuthMode == mode ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.5))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(selectedAuthMode == mode ? Port42Theme.accent.opacity(0.15) : Port42Theme.bgPrimary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func saveAuthCredential() {
+        let value = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let account = selectedAuthMode == .manualToken ? "manualToken" : "apiKey"
+
+        if value.isEmpty {
+            // Clear credential
+            Port42AuthStore.shared.deleteCredential(account: account)
+        } else {
+            Port42AuthStore.shared.saveCredential(value, account: account)
+        }
+        AgentAuthResolver.shared.clearCache()
+
+        withAnimation(.easeIn(duration: 0.2)) {
+            authSaved = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                authSaved = false
             }
         }
     }

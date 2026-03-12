@@ -14,6 +14,7 @@ public struct SetupView: View {
     @State private var transitionOpacity = 0.0
     @State private var diamondVisible = false
     @State private var apiKeyInput = ""
+    @State private var manualTokenInput = ""
     @State private var authMethod: AuthMethod?
     @State private var authError: String?
     @State private var isCheckingAuth = false
@@ -26,9 +27,12 @@ public struct SetupView: View {
     @State private var revealedSuffixes: Set<Int> = []
     @FocusState private var isFocused: Bool
     @FocusState private var isApiKeyFocused: Bool
+    @FocusState private var isManualTokenFocused: Bool
+    @FocusState private var isAuthPickerFocused: Bool
 
     enum AuthMethod {
         case claudeCode
+        case manualToken
         case apiKey
     }
 
@@ -99,9 +103,7 @@ public struct SetupView: View {
         lines.append(.init(text: "Linking Apple identity... \(appleStatus)", style: .post, delay: 0.6))
         #endif
         lines += [
-            .init(text: "Detecting Claude Code credentials...", style: .post, delay: 0.8),
-            .init(text: "macOS may prompt for Keychain access. Click Allow.", style: .dim, delay: 0.6),
-            .init(text: "", style: .blank, delay: 0.8),
+            .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Welcome, \(name).", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
         ]
@@ -152,7 +154,7 @@ public struct SetupView: View {
     private var setupTerminal: some View {
         setupTerminalContent
             .frame(width: 520)
-            .frame(maxHeight: 560)
+            .frame(maxHeight: 700)
             .background(Port42Theme.bgSecondary)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
@@ -228,12 +230,6 @@ public struct SetupView: View {
                             }
                         }
 
-                        // Analytics consent (after name, before create)
-                        if showAnalyticsConsent {
-                            analyticsConsentContent
-                                .id("analytics")
-                        }
-
                         // Create sequence lines (appear after name submitted)
                         if showCreateLines {
                             // Echo the submitted name first
@@ -252,10 +248,20 @@ public struct SetupView: View {
                             }
                         }
 
-                        // Auth options (appear after create sequence)
+                        // Analytics consent (after "Welcome, name.", before auth)
+                        if showAnalyticsConsent {
+                            analyticsConsentContent
+                                .id("analytics")
+                        }
+
+                        // Auth options (appear after analytics consent)
                         if showAuthOptions {
                             authOptionsContent
                                 .id("auth")
+
+                            // Bottom padding so scroll can reach auth content
+                            Spacer().frame(height: 20)
+                                .id("auth-bottom")
                         }
 
                         // Blinking cursor at the bottom when no input is shown
@@ -304,46 +310,45 @@ public struct SetupView: View {
 
             Spacer().frame(height: 8)
 
-            Button(action: selectAndSubmitClaudeCode) {
-                HStack(spacing: 8) {
-                    Text(authSelected == .claudeCode ? ">" : " ")
-                        .font(Port42Theme.monoBold(14))
-                        .foregroundStyle(Port42Theme.accent)
-                    Text("Use Claude Code subscription")
-                        .font(Port42Theme.mono(13))
-                        .foregroundStyle(authSelected == .claudeCode ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
-                    if authSelected == .claudeCode {
-                        Text("(auto-detect)")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
+            // Option 1: Auto-detect
+            authOptionButton(.claudeCode, label: "Claude subscription", hint: "(auto-detect)", action: selectAndSubmitClaudeCode)
 
             Spacer().frame(height: 4)
 
-            Button(action: selectApiKey) {
-                HStack(spacing: 8) {
-                    Text(authSelected == .apiKey ? ">" : " ")
-                        .font(Port42Theme.monoBold(14))
-                        .foregroundStyle(Port42Theme.accent)
-                    Text("Enter API key")
-                        .font(Port42Theme.mono(13))
-                        .foregroundStyle(authSelected == .apiKey ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
+            // Option 2: Manual token
+            authOptionButton(.manualToken, label: "Claude subscription", hint: "(enter token)", action: selectManualToken)
+
+            if authMethod == .manualToken {
+                Spacer().frame(height: 8)
+                SecureField("paste your session token", text: $manualTokenInput)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .focused($isManualTokenFocused)
+                    .onSubmit { submitManualToken() }
+
+                if !manualTokenInput.isEmpty {
+                    Button(action: submitManualToken) {
+                        Text("connect \u{21B5}")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
                 }
             }
-            .buttonStyle(.plain)
+
+            Spacer().frame(height: 4)
+
+            // Option 3: API key
+            authOptionButton(.apiKey, label: "API key", hint: nil, action: selectApiKey)
 
             if authMethod == .apiKey {
                 Spacer().frame(height: 8)
-
                 HStack(spacing: 6) {
                     Text("sk-")
                         .font(Port42Theme.mono(13))
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-
                     SecureField("paste your Anthropic API key", text: $apiKeyInput)
                         .textFieldStyle(.plain)
                         .font(Port42Theme.mono(13))
@@ -389,21 +394,69 @@ public struct SetupView: View {
 
             Spacer().frame(height: 8)
 
-            Text("Claude Code subscribers connect automatically. macOS will prompt for Keychain access.")
+            Text("Auto-detect reads from Claude Code/Desktop. Manual token for multiple subscriptions.")
                 .font(Port42Theme.mono(10))
                 .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
         }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isAuthPickerFocused)
         .onKeyPress(.downArrow) {
-            if authSelected != .apiKey { selectApiKey() }
+            cycleAuthMethod(forward: true)
             return .handled
         }
         .onKeyPress(.upArrow) {
-            if authSelected != .claudeCode {
-                withAnimation(.easeIn(duration: 0.1)) { authMethod = .claudeCode }
-            }
+            cycleAuthMethod(forward: false)
             return .handled
         }
-        .focusable()
+        .onKeyPress(.return) {
+            submitSelectedAuth()
+            return .handled
+        }
+    }
+
+    private func authOptionButton(_ method: AuthMethod, label: String, hint: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(authSelected == method ? ">" : " ")
+                    .font(Port42Theme.monoBold(14))
+                    .foregroundStyle(Port42Theme.accent)
+                    .opacity(authSelected == method ? (cursorVisible ? 1 : 0.3) : 0)
+                Text(label)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(authSelected == method ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
+                if let hint {
+                    Text(hint)
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func submitSelectedAuth() {
+        switch authSelected {
+        case .claudeCode:
+            selectAndSubmitClaudeCode()
+        case .manualToken:
+            selectManualToken()
+        case .apiKey:
+            selectApiKey()
+        }
+    }
+
+    private func cycleAuthMethod(forward: Bool) {
+        let order: [AuthMethod] = [.claudeCode, .manualToken, .apiKey]
+        let current = authSelected
+        guard let idx = order.firstIndex(of: current) else { return }
+        let next = forward ? min(idx + 1, order.count - 1) : max(idx - 1, 0)
+        let method = order[next]
+        withAnimation(.easeIn(duration: 0.1)) { authMethod = method }
+        // Always keep focus on the picker so arrow keys keep working
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isAuthPickerFocused = true
+        }
     }
 
     // MARK: - Analytics Consent
@@ -454,7 +507,23 @@ public struct SetupView: View {
         withAnimation(.easeIn(duration: 0.15)) {
             showAnalyticsConsent = false
         }
-        startCreateSequence()
+
+        // Pre-fill API key from environment if available (but keep auto-detect as default)
+        if let envKey = ProcessInfo.processInfo.environment.first(where: {
+            $0.key.uppercased().contains("API_KEY") && !$0.value.isEmpty
+        }) {
+            apiKeyInput = envKey.value
+        }
+
+        // Show auth options after analytics consent
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeIn(duration: 0.2)) {
+                showAuthOptions = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                isAuthPickerFocused = true
+            }
+        }
     }
 
     // MARK: - Transition (fade to black, circle, reveal)
@@ -476,64 +545,68 @@ public struct SetupView: View {
         }
     }
 
-    // MARK: - Swim (full-screen)
+    // MARK: - Swim (full-screen with dreamscape video showing through)
 
     private var swimTerminal: some View {
-        VStack(spacing: 0) {
-            // Top bar
-            HStack {
-                if let session = appState.activeSwimSession {
-                    Circle()
-                        .fill(Port42Theme.textAgent)
-                        .frame(width: 8, height: 8)
+        ZStack {
+            // Blue tint matching the dive transition, lets dreamscape video show through
+            Color(red: 0.0, green: 0.15, blue: 0.3).opacity(0.3).ignoresSafeArea()
 
-                    Text(session.companion.displayName)
-                        .font(Port42Theme.monoBold(14))
-                        .foregroundStyle(Port42Theme.textAgent)
-
-                    Text("swim session")
-                        .font(Port42Theme.monoFontSmall)
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-
-                Spacer()
-
-                Button(action: {
-                    NotificationCenter.default.post(name: .enterAquariumRequested, object: nil)
-                }) {
-                    HStack(spacing: 8) {
-                        Text("\u{1F42C}")
-                            .font(.system(size: 16))
-                        Text("swim in open water")
-                            .font(Port42Theme.monoBold(12))
-                            .foregroundStyle(.black)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Port42Theme.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .shadow(color: Port42Theme.accent.opacity(0.4), radius: 8)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Color.black.opacity(0.7))
-
-            Divider().background(Port42Theme.border.opacity(0.5))
-
-            // Chat content fills remaining space
             if let session = appState.activeSwimSession {
-                ConversationContent(
-                    entries: session.chatEntries(userName: submittedName ?? displayName),
-                    placeholder: "Message \(session.companion.displayName)...",
-                    isStreaming: session.isStreaming,
-                    error: session.error,
-                    onSend: { content in session.send(content) },
-                    onStop: { session.stop() },
-                    onRetry: { session.retry() },
-                    onDismissError: { session.error = nil }
-                )
+                VStack(spacing: 0) {
+                    // Branded top bar for first swim
+                    HStack {
+                        Circle()
+                            .fill(Port42Theme.textAgent)
+                            .frame(width: 8, height: 8)
+
+                        Text(session.companion.displayName)
+                            .font(Port42Theme.monoBold(14))
+                            .foregroundStyle(Port42Theme.textAgent)
+
+                        Text("swim session")
+                            .font(Port42Theme.monoFontSmall)
+                            .foregroundStyle(Port42Theme.textSecondary)
+
+                        Spacer()
+
+                        Button(action: {
+                            NotificationCenter.default.post(name: .enterAquariumRequested, object: nil)
+                        }) {
+                            HStack(spacing: 8) {
+                                Text("\u{1F42C}")
+                                    .font(.system(size: 16))
+                                Text("swim in open water")
+                                    .font(Port42Theme.monoBold(12))
+                                    .foregroundStyle(.black)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Port42Theme.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .shadow(color: Port42Theme.accent.opacity(0.4), radius: 8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.black.opacity(0.7))
+
+                    Divider().background(Port42Theme.border.opacity(0.5))
+
+                    // Chat content (same as SwimView internals)
+                    ConversationContent(
+                        entries: session.chatEntries(userName: submittedName ?? displayName),
+                        placeholder: "Message \(session.companion.displayName)...",
+                        isStreaming: session.isStreaming,
+                        error: session.error,
+                        typingNames: session.isStreaming ? [session.companion.displayName] : [],
+                        onSend: { content in session.send(content) },
+                        onStop: { session.stop() },
+                        onRetry: { session.retry() },
+                        onDismissError: { session.error = nil }
+                    )
+                }
             }
         }
         .onAppear {
@@ -644,7 +717,7 @@ public struct SetupView: View {
     private func scrollToEnd(proxy: ScrollViewProxy) {
         if showAuthOptions {
             withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo("auth", anchor: .bottom)
+                proxy.scrollTo("auth-bottom", anchor: .bottom)
             }
         } else if visibleCreateLines > 0 {
             withAnimation(.easeOut(duration: 0.15)) {
@@ -679,23 +752,10 @@ public struct SetupView: View {
         revealLines(lines, current: 0) { count in
             visibleCreateLines = count
         } completion: {
-            // Auto-detect Claude Code credentials during boot
-            // The Keychain prompt will appear here if needed
-            DispatchQueue.global(qos: .userInitiated).async {
-                let resolver = AgentAuthResolver.shared
-                let found = resolver.autoDetect() != nil
-                DispatchQueue.main.async {
-                    if found {
-                        // Credentials found, skip auth options and go straight to swim
-                        completeAuth()
-                    } else {
-                        // No credentials found, show manual auth options
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            withAnimation(.easeIn(duration: 0.2)) {
-                                showAuthOptions = true
-                            }
-                        }
-                    }
+            // Show analytics consent after "Welcome, name." before auth options
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    showAnalyticsConsent = true
                 }
             }
         }
@@ -750,16 +810,16 @@ public struct SetupView: View {
             NSLog("[Port42] Failed to save user during key gen: \(error)")
         }
 
-        // Trigger Apple sign-in (dev only), then show analytics consent
+        // Trigger Apple sign-in (dev only), then start create sequence
         Task {
             #if !RELEASE
             await performAppleSignIn()
             #endif
 
-            // Show analytics consent after Apple sign-in completes (or is skipped)
+            // Start create sequence (which shows analytics then auth options)
             try? await Task.sleep(nanoseconds: 400_000_000)
             withAnimation(.easeIn(duration: 0.2)) {
-                showAnalyticsConsent = true
+                startCreateSequence()
             }
         }
     }
@@ -791,6 +851,30 @@ public struct SetupView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             isApiKeyFocused = true
+        }
+    }
+
+    private func selectManualToken() {
+        withAnimation(.easeIn(duration: 0.1)) {
+            authMethod = .manualToken
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isManualTokenFocused = true
+        }
+    }
+
+    private func submitManualToken() {
+        let token = manualTokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        authError = nil
+        isCheckingAuth = true
+
+        Port42AuthStore.shared.saveCredential(token, account: "manualToken")
+        Port42AuthStore.shared.saveMode(.manualToken)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isCheckingAuth = false
+            completeAuth()
         }
     }
 
@@ -829,7 +913,9 @@ public struct SetupView: View {
         authError = nil
         isCheckingAuth = true
 
-        // TODO: store the API key for LLMEngine to use
+        Port42AuthStore.shared.saveCredential(key, account: "apiKey")
+        Port42AuthStore.shared.saveMode(.apiKey)
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             isCheckingAuth = false
             completeAuth()

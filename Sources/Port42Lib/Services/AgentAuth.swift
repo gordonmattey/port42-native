@@ -5,7 +5,107 @@ import Security
 
 public enum AgentAuthConfig: Equatable {
     case claudeCodeOAuth
+    case claudeManualToken(String)
     case apiKey(String)
+}
+
+// MARK: - Stored Auth Mode
+
+/// Which auth mode the user selected (persisted in UserDefaults)
+public enum StoredAuthMode: String {
+    case autoDetect = "autoDetect"
+    case manualToken = "manualToken"
+    case apiKey = "apiKey"
+}
+
+/// Manages Port42's own stored credentials in Keychain
+public final class Port42AuthStore {
+    public static let shared = Port42AuthStore()
+
+    private let service = "Port42-credentials"
+
+    /// Save the user's chosen auth mode
+    public func saveMode(_ mode: StoredAuthMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: "port42AuthMode")
+    }
+
+    /// Load the stored auth mode
+    public func loadMode() -> StoredAuthMode {
+        guard let raw = UserDefaults.standard.string(forKey: "port42AuthMode"),
+              let mode = StoredAuthMode(rawValue: raw) else {
+            return .autoDetect
+        }
+        return mode
+    }
+
+    /// Save a credential to Keychain (manual token or API key)
+    public func saveCredential(_ value: String, account: String) {
+        let data = value.data(using: .utf8)!
+        // Delete existing first
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("[Port42] Failed to save credential for %@: %d", account, status)
+        }
+    }
+
+    /// Load a credential from Keychain
+    public func loadCredential(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data,
+              let str = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return str
+    }
+
+    /// Delete a credential from Keychain
+    public func deleteCredential(account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    /// Resolve the stored auth config (returns nil if not configured or auto-detect)
+    public func resolveStoredConfig() -> AgentAuthConfig? {
+        switch loadMode() {
+        case .autoDetect:
+            return nil // let AgentAuthResolver.autoDetect() handle it
+        case .manualToken:
+            if let token = loadCredential(account: "manualToken") {
+                return .claudeManualToken(token)
+            }
+            return nil
+        case .apiKey:
+            if let key = loadCredential(account: "apiKey") {
+                return .apiKey(key)
+            }
+            return nil
+        }
+    }
 }
 
 // MARK: - Resolved Auth
@@ -76,14 +176,22 @@ public final class AgentAuthResolver {
             let token = try readClaudeCodeToken()
             return ResolvedAuth(token: token, source: .claudeCodeOAuth)
 
+        case .claudeManualToken(let token):
+            return ResolvedAuth(token: token, source: .claudeCodeOAuth)
+
         case .apiKey(let key):
             return ResolvedAuth(token: key, source: .apiKey)
         }
     }
 
     /// Auto-detect available auth. Returns the best available config, or nil.
-    /// Eagerly reads and caches the token so only one Keychain prompt is needed.
+    /// Checks Port42's stored auth first, then falls back to Claude Code Keychain.
     public func autoDetect() -> AgentAuthConfig? {
+        // Check if user has explicitly configured auth in Port42
+        if let stored = Port42AuthStore.shared.resolveStoredConfig() {
+            return stored
+        }
+
         if let dir = _testConfigDir {
             let credPath = (dir as NSString).appendingPathComponent("credentials.json")
             return FileManager.default.fileExists(atPath: credPath) ? .claudeCodeOAuth : nil
@@ -98,6 +206,14 @@ public final class AgentAuthResolver {
         if let _ = try? readClaudeCodeToken() {
             return .claudeCodeOAuth
         }
+
+        // Fallback: check environment for any API_KEY variable
+        if let envKey = ProcessInfo.processInfo.environment.first(where: {
+            $0.key.uppercased().contains("API_KEY") && !$0.value.isEmpty
+        }) {
+            return .apiKey(envKey.value)
+        }
+
         return nil
     }
 

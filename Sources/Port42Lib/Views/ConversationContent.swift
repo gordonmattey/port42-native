@@ -580,7 +580,6 @@ struct MessageRow: View, Equatable {
     var body: some View {
         messageContent
             .padding(.top, 8)
-            .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -620,6 +619,7 @@ struct MessageRow: View, Equatable {
                 Text(entry.content)
                     .font(Port42Theme.mono(12))
                     .foregroundColor(Port42Theme.textSecondary)
+                    .textSelection(.enabled)
             } else {
                 let agentColor = Port42Theme.agentColor(for: entry.senderName, owner: entry.senderOwner)
                 let nameColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
@@ -651,6 +651,7 @@ struct MessageRow: View, Equatable {
                             Text(before)
                                 .font(Port42Theme.mono(13))
                                 .foregroundColor(contentColor)
+                                .textSelection(.enabled)
                         }
                         if entry.isPortTruncated {
                             HStack(spacing: 6) {
@@ -694,11 +695,13 @@ struct MessageRow: View, Equatable {
                             Text(after)
                                 .font(Port42Theme.mono(13))
                                 .foregroundColor(contentColor)
+                                .textSelection(.enabled)
                         }
                     } else {
                         Text(entry.content)
                             .font(Port42Theme.mono(13))
                             .foregroundColor(contentColor)
+                            .textSelection(.enabled)
                     }
                 }
             }
@@ -734,6 +737,7 @@ struct InlinePortView: View {
                             .font(Port42Theme.mono(11))
                     }
                     .foregroundStyle(Port42Theme.accent)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 Spacer()
@@ -741,6 +745,7 @@ struct InlinePortView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Port42Theme.bgSecondary)
+            .zIndex(1)
 
             if showCode {
                 ScrollView(.vertical) {
