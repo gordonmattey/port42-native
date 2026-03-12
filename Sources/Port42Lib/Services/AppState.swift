@@ -207,6 +207,17 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             Those are NOT you. You are \(agent.displayName). \
             \(fileAccessNote)\(companionNote)
 
+            PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a \
+            ```port code fence. Ports render as live interactive surfaces in the user's \
+            chat. Available bridge APIs inside ports: \
+            port42.companions.list(), port42.companions.get(id), \
+            port42.messages.recent(n), port42.user.get(), \
+            port42.on(event, callback) for live events ('message', 'companion.activity'), \
+            port42.port.close(), port42.port.resize(w, h). \
+            The port42 dark theme (black bg, green accent, monospace font) is auto-injected. \
+            No <html> or <body> tags needed. Use ports when asked to build something interactive, \
+            create a dashboard, visualize data, or make a tool.
+
             INSTRUCTIONS: \(basePrompt)
             """
 

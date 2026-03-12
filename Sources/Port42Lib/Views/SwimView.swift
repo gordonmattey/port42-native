@@ -79,6 +79,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
             let list = others.map { "@\($0)" }.joined(separator: ", ")
             prompt += "\n\nyour fellow companions in this port42 instance: \(list). the user can @mention any of them in channels or start a swim with them directly."
         }
+        prompt += "\n\nyou can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. ports render as live interactive surfaces in the user's chat. available bridge APIs: port42.companions.list(), port42.messages.recent(n), port42.user.get(), port42.on(event, callback). the port42 dark theme is auto-injected. no <html> or <body> needed. use ports when asked to build something interactive."
 
         do {
             try engine.send(

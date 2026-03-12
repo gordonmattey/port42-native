@@ -191,7 +191,7 @@ functionality must continue working at every step.
 
 ---
 
-### Step 6: Companion Context (P-107)
+### Step 6: Companion Context (P-107) ✅
 
 **Goal:** Companions know they can emit ports and what APIs are available.
 
