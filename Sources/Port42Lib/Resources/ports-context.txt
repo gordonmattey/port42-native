@@ -24,6 +24,22 @@ BRIDGE API REFERENCE:
     Returns: [{id, sender, content, timestamp, isCompanion}]
     Get the last n messages from the current channel (default 20).
 
+  port42.messages.send(text)
+    Sends a message to the current channel as the user. Use this to make ports interactive
+    (e.g. a port with a text input that sends commands or replies).
+
+  port42.channel.current()
+    Returns: {id, name, type, members: [{name, type}]} or null
+    Get the current channel or swim session context. type is 'channel' or 'swim'.
+    members includes both humans and companions with their type ('human' or 'agent').
+
+  port42.channel.list()
+    Returns: [{id, name, type, isCurrent}]
+    List all channels the user belongs to.
+
+  port42.channel.switchTo(id)
+    Switches the app to the given channel by ID. Returns {ok: true} or {error: ...}.
+
   port42.on(event, callback)
     Subscribe to live events. Events:
     - 'message': fires when a new message arrives. Payload: {id, sender, content, timestamp, isCompanion}
@@ -41,6 +57,10 @@ BRIDGE API REFERENCE:
     The current port dimensions in pixels. Updated live on resize.
     Also available as CSS variables: var(--port-width), var(--port-height).
     Use these to make responsive layouts that adapt to the chat size.
+
+  port42.port.info()
+    Returns: {messageId, createdBy, channelId}
+    Get metadata about this port (which message spawned it, which companion created it).
 
   port42.port.close()
     Close this port.
@@ -74,3 +94,15 @@ EXAMPLE PORT:
 ```
 
 Use ports when asked to build something interactive, create a dashboard, visualize data, or make a tool. Always use the bridge APIs for real data. Never hardcode companion names or user data.
+
+FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
+
+  Tier 2:
+  - port42.messages.recent(n, channelId) — read messages from a different channel
+  - port42.companions.invoke(id, prompt) — ask a companion to perform a task from within a port
+  - port42.storage.get(key) / port42.storage.set(key, value) — persist port state across re-renders
+
+  Tier 3:
+  - port42.on('channel.switch') — fires when user navigates to a different channel
+  - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
+  - port42.port.spawn(html) — create a child port from within a port

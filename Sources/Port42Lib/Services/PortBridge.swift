@@ -10,13 +10,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
     private weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
     private let channelId: String?
+    private let messageId: String?
+    private let createdBy: String?
 
     /// Accessor for AppState (cast from AnyObject to avoid circular dependency)
     private var state: AppState? { appState as? AppState }
 
-    public init(appState: AnyObject, channelId: String?) {
+    public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
+        self.messageId = messageId
+        self.createdBy = createdBy
         super.init()
     }
 
@@ -51,7 +55,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
             let result = await handleMethod(method, args: args)
             let jsonData = try? JSONSerialization.data(withJSONObject: result)
             let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
-            try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
+            _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
         }
     }
 
@@ -109,6 +113,73 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                     "isCompanion": msg.isAgent
                 ]
             }
+
+        // port42.channel.current()
+        case "channel.current":
+            // Check if we're in a swim
+            if let swim = state.activeSwimSession {
+                return [
+                    "id": "swim-\(swim.companion.id)",
+                    "name": swim.companion.displayName,
+                    "type": "swim",
+                    "members": [
+                        ["name": state.currentUser?.displayName ?? "you", "type": "human"],
+                        ["name": swim.companion.displayName, "type": "companion"]
+                    ]
+                ] as [String: Any]
+            }
+            // Otherwise return current channel
+            if let channel = state.currentChannel {
+                let channelMembers = (try? state.db.getChannelMembers(channelId: channel.id)) ?? []
+                let members: [[String: String]] = channelMembers.map {
+                    ["name": $0.name, "type": $0.type]
+                }
+                return [
+                    "id": channel.id,
+                    "name": channel.name,
+                    "type": channel.type,
+                    "members": members
+                ] as [String: Any]
+            }
+            return NSNull()
+
+        // port42.channel.list()
+        case "channel.list":
+            return state.channels.map { ch -> [String: Any] in
+                [
+                    "id": ch.id,
+                    "name": ch.name,
+                    "type": ch.type,
+                    "isCurrent": ch.id == state.currentChannel?.id
+                ]
+            }
+
+        // port42.channel.switchTo(id)
+        case "channel.switchTo":
+            guard let id = args.first as? String else {
+                return ["error": "channel.switchTo requires a channel id"]
+            }
+            if let channel = state.channels.first(where: { $0.id == id }) {
+                state.selectChannel(channel)
+                return ["ok": true]
+            }
+            return ["error": "channel not found"]
+
+        // port42.messages.send(text)
+        case "messages.send":
+            guard let text = args.first as? String, !text.isEmpty else {
+                return ["error": "messages.send requires a non-empty text argument"]
+            }
+            state.sendMessage(content: text)
+            return ["ok": true]
+
+        // port42.port.info()
+        case "port.info":
+            var info: [String: Any] = [:]
+            if let mid = messageId { info["messageId"] = mid }
+            if let creator = createdBy { info["createdBy"] = creator }
+            if let cid = channelId { info["channelId"] = cid }
+            return info
 
         // port42.port.close() — handled by JS side for now
         case "port.close":
@@ -205,10 +276,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                 get: (id) => call('companions.get', [id])
             },
             messages: {
-                recent: (n) => call('messages.recent', [n || 20])
+                recent: (n) => call('messages.recent', [n || 20]),
+                send: (text) => call('messages.send', [text])
             },
             user: {
                 get: () => call('user.get')
+            },
+            channel: {
+                current: () => call('channel.current'),
+                list: () => call('channel.list'),
+                switchTo: (id) => call('channel.switchTo', [id])
             },
             on: function(event, callback) {
                 if (!_listeners[event]) _listeners[event] = [];
@@ -219,6 +296,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                 onStatusChange: (callback) => _statusCallbacks.push(callback)
             },
             port: {
+                info: () => call('port.info'),
                 close: () => call('port.close'),
                 resize: (w, h) => {
                     document.body.style.width = w + 'px';

@@ -169,6 +169,8 @@ public struct ConversationContent: View {
     @State private var visibleEntryIDs: Set<String> = []
     @State private var scrollContentBottom: CGFloat = 0
     @State private var scrollVisibleBottom: CGFloat = 0
+    @State private var cachedActivePortIDs: Set<String> = []
+    @State private var lastEntryCount = 0
 
     public init(
         entries: [ChatEntry],
@@ -199,10 +201,12 @@ public struct ConversationContent: View {
     }
 
     /// IDs of the last 3 port-containing entries (only these render live)
-    private var activePortIDs: Set<String> {
+    /// Cached to avoid scanning all entries on every body evaluation (keystroke)
+    private func recomputeActivePortIDs() {
         let portEntries = entries.filter { $0.containsPort }
         let recent = portEntries.suffix(3)
-        return Set(recent.map { $0.id })
+        cachedActivePortIDs = Set(recent.map { $0.id })
+        lastEntryCount = entries.count
     }
 
     /// Compute active suggestions from internal draft and candidates
@@ -223,7 +227,7 @@ public struct ConversationContent: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                                MessageRow(entry: entry, localOwner: localOwner, portIsActive: activePortIDs.contains(entry.id))
+                                MessageRow(entry: entry, localOwner: localOwner, portIsActive: cachedActivePortIDs.contains(entry.id))
                                     .id(entry.id)
                                     .onAppear {
                                         if index >= unreadStartIndex && unreadCount > 0 {
@@ -254,11 +258,14 @@ public struct ConversationContent: View {
                         .frame(height: 1)
                         .id("bottom")
                     }
+                    .defaultScrollAnchor(.bottom)
                     .onPreferenceChange(ScrollOffsetKey.self) { contentBottom in
+                        guard abs(scrollContentBottom - contentBottom) > 2 else { return }
                         scrollContentBottom = contentBottom
                         updateNearBottom()
                     }
                     .onChange(of: entries.count) { old, new in
+                        recomputeActivePortIDs()
                         let userSent = new > old && entries.last?.isAgent == false
                         if userSent || isNearBottom {
                             scrollToBottom(proxy: proxy)
@@ -280,6 +287,7 @@ public struct ConversationContent: View {
                         }
                     }
                     .onAppear {
+                        recomputeActivePortIDs()
                         proxy.scrollTo("bottom", anchor: .bottom)
                     }
 
@@ -322,6 +330,7 @@ public struct ConversationContent: View {
                 }
             )
             .onPreferenceChange(VisibleBottomKey.self) { visibleHeight in
+                guard abs(scrollVisibleBottom - visibleHeight) > 2 else { return }
                 scrollVisibleBottom = visibleHeight
                 updateNearBottom()
             }
@@ -657,7 +666,7 @@ struct MessageRow: View, Equatable {
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         if portIsActive || portActivatedManually {
-                            InlinePortView(html: portHTML, appState: appState)
+                            InlinePortView(html: portHTML, appState: appState, messageId: entry.id, createdBy: entry.senderName)
                         } else {
                             // Collapsed port (older than last 3)
                             Button {
@@ -706,10 +715,10 @@ struct InlinePortView: View {
     @State private var showCode = false
     let bridge: PortBridge
 
-    init(html: String, appState: AppState) {
+    init(html: String, appState: AppState, messageId: String? = nil, createdBy: String? = nil) {
         self.html = html
         self.appState = appState
-        let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id)
+        let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy)
         self.bridge = b
     }
 
