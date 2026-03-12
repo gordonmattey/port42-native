@@ -47,19 +47,21 @@ public struct PortView: NSViewRepresentable {
                     const h = document.body.scrollHeight;
                     window.webkit.messageHandlers.portHeight.postMessage(h);
                 }
-                function updateWidth() {
+                function updateViewport() {
                     const w = document.documentElement.clientWidth;
+                    const h = document.documentElement.clientHeight;
                     document.documentElement.style.setProperty('--port-width', w + 'px');
-                    if (window.port42) window.port42.viewport = { width: w };
+                    document.documentElement.style.setProperty('--port-height', h + 'px');
+                    if (window.port42) window.port42.viewport = { width: w, height: h };
                 }
                 window.addEventListener('load', function() {
                     reportHeight();
-                    updateWidth();
-                    new ResizeObserver(function() { reportHeight(); updateWidth(); }).observe(document.body);
+                    updateViewport();
+                    new ResizeObserver(function() { reportHeight(); updateViewport(); }).observe(document.body);
                 });
                 window.addEventListener('resize', updateWidth);
-                setTimeout(function() { reportHeight(); updateWidth(); }, 100);
-                setTimeout(function() { reportHeight(); updateWidth(); }, 500);
+                setTimeout(function() { reportHeight(); updateViewport(); }, 100);
+                setTimeout(function() { reportHeight(); updateViewport(); }, 500);
             })();
             """,
             injectionTime: .atDocumentEnd,

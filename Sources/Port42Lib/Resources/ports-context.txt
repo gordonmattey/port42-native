@@ -35,10 +35,10 @@ BRIDGE API REFERENCE:
     Fires when connection status changes. Callback receives 'connected' or 'disconnected'.
     Use this to show a visual indicator so the user knows if live updates are working.
 
-  port42.viewport.width
-    The current port width in pixels. Updated live on resize.
-    Also available as CSS variable: var(--port-width).
-    Use these to make responsive layouts that adapt to the chat width.
+  port42.viewport.width / port42.viewport.height
+    The current port dimensions in pixels. Updated live on resize.
+    Also available as CSS variables: var(--port-width), var(--port-height).
+    Use these to make responsive layouts that adapt to the chat size.
 
   port42.port.close()
     Close this port.
