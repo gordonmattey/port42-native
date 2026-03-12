@@ -19,8 +19,17 @@ public struct ContentView: View {
                 )
                 .id(session.companion.id)
             } else if let channel = appState.currentChannel {
-                ChatView()
-                    .id(channel.id)
+                if let docked = appState.portWindows.dockedPanel {
+                    HSplitView {
+                        ChatView()
+                            .id(channel.id)
+                        DockedPortView(panel: docked, manager: appState.portWindows)
+                            .frame(minWidth: 200)
+                    }
+                } else {
+                    ChatView()
+                        .id(channel.id)
+                }
             } else {
                 VStack {
                     Text("Select a channel")
@@ -67,6 +76,9 @@ public struct ContentView: View {
             if showHelp {
                 HelpOverlay(isPresented: $showHelp)
             }
+        }
+        .overlay {
+            FloatingPortOverlay(manager: appState.portWindows)
         }
         .onReceive(NotificationCenter.default.publisher(for: .quickSwitcherRequested)) { _ in
             showQuickSwitcher.toggle()
@@ -184,5 +196,159 @@ struct HelpOverlay: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Floating Port Overlay
+
+struct FloatingPortOverlay: View {
+    @ObservedObject var manager: PortWindowManager
+
+    var body: some View {
+        ZStack {
+            ForEach(manager.floatingPanels) { panel in
+                FloatingPortPanel(panel: panel, manager: manager)
+            }
+        }
+        .allowsHitTesting(!manager.floatingPanels.isEmpty)
+    }
+}
+
+struct FloatingPortPanel: View {
+    let panel: PortPanel
+    @ObservedObject var manager: PortWindowManager
+    @State private var dragOffset: CGSize = .zero
+    @State private var height: CGFloat = 300
+
+    var body: some View {
+        panelContent
+            .frame(width: panel.size.width, height: panel.size.height)
+            .background(Port42Theme.bgPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(panelBorder)
+            .shadow(color: .black.opacity(0.5), radius: 12)
+            .position(panelPosition)
+            .onTapGesture { manager.bringToFront(panel.id) }
+    }
+
+    private var panelContent: some View {
+        VStack(spacing: 0) {
+            titleBar
+            PortView(html: panel.html, bridge: panel.bridge, height: $height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var titleBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 6))
+                .foregroundStyle(Port42Theme.accent)
+            Text(panel.title)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .lineLimit(1)
+            Spacer()
+            dockButton
+            closeButton
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Port42Theme.bgSecondary)
+        .gesture(dragGesture)
+    }
+
+    private var dockButton: some View {
+        Button(action: { manager.dock(panel.id) }) {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 10))
+                .foregroundStyle(Port42Theme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .help("Dock right")
+    }
+
+    private var closeButton: some View {
+        Button(action: { manager.close(panel.id) }) {
+            Image(systemName: "xmark")
+                .font(.system(size: 10))
+                .foregroundStyle(Port42Theme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .help("Close")
+    }
+
+    private var panelBorder: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .stroke(Port42Theme.border, lineWidth: 1)
+    }
+
+    private var panelPosition: CGPoint {
+        CGPoint(
+            x: panel.position.x + panel.size.width / 2 + dragOffset.width,
+            y: panel.position.y + panel.size.height / 2 + dragOffset.height
+        )
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                dragOffset = value.translation
+            }
+            .onEnded { value in
+                let newPos = CGPoint(
+                    x: panel.position.x + value.translation.width,
+                    y: panel.position.y + value.translation.height
+                )
+                manager.move(panel.id, to: newPos)
+                dragOffset = .zero
+            }
+    }
+}
+
+// MARK: - Docked Port View
+
+struct DockedPortView: View {
+    let panel: PortPanel
+    @ObservedObject var manager: PortWindowManager
+    @State private var height: CGFloat = 400
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title bar
+            HStack(spacing: 8) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(Port42Theme.accent)
+                Text(panel.title)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+
+                Button(action: { manager.undock(panel.id) }) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Undock")
+
+                Button(action: { manager.close(panel.id) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Port42Theme.bgSecondary)
+
+            PortView(html: panel.html, bridge: panel.bridge, height: $height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Port42Theme.bgPrimary)
     }
 }

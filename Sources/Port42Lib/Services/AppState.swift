@@ -372,6 +372,9 @@ public final class AppState: ObservableObject {
     public let tunnel = TunnelService.shared
     let fileResolver = FileResolver()
 
+    /// Manages popped-out and docked port panels
+    @Published public var portWindows = PortWindowManager()
+
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
     private var messageSink: AnyCancellable?
