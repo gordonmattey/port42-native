@@ -198,6 +198,13 @@ public struct ConversationContent: View {
         self.onTypingChanged = onTypingChanged
     }
 
+    /// IDs of the last 3 port-containing entries (only these render live)
+    private var activePortIDs: Set<String> {
+        let portEntries = entries.filter { $0.containsPort }
+        let recent = portEntries.suffix(3)
+        return Set(recent.map { $0.id })
+    }
+
     /// Compute active suggestions from internal draft and candidates
     private var suggestions: [MentionSuggestion] {
         guard let atRange = draft.range(of: "@", options: .backwards) else { return [] }
@@ -216,7 +223,7 @@ public struct ConversationContent: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                                MessageRow(entry: entry, localOwner: localOwner)
+                                MessageRow(entry: entry, localOwner: localOwner, portIsActive: activePortIDs.contains(entry.id))
                                     .id(entry.id)
                                     .onAppear {
                                         if index >= unreadStartIndex && unreadCount > 0 {
@@ -549,13 +556,15 @@ private struct VisibleBottomKey: PreferenceKey {
 struct MessageRow: View, Equatable {
     let entry: ChatEntry
     var localOwner: String? = nil
+    var portIsActive: Bool = false
     @EnvironmentObject var appState: AppState
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
         lhs.entry.content == rhs.entry.content &&
         lhs.entry.isPlaceholder == rhs.entry.isPlaceholder &&
-        lhs.entry.syncStatus == rhs.entry.syncStatus
+        lhs.entry.syncStatus == rhs.entry.syncStatus &&
+        lhs.portIsActive == rhs.portIsActive
     }
 
     var body: some View {
@@ -646,7 +655,26 @@ struct MessageRow: View, Equatable {
                             .background(Color.orange.opacity(0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
-                        InlinePortView(html: portHTML, appState: appState)
+                        if portIsActive {
+                            InlinePortView(html: portHTML, appState: appState)
+                        } else {
+                            // Collapsed port (older than last 3)
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.on.square")
+                                    .font(.system(size: 11))
+                                Text("port (scroll to activate)")
+                                    .font(Port42Theme.mono(11))
+                            }
+                            .foregroundColor(Port42Theme.textSecondary)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Port42Theme.bgSecondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Port42Theme.border, lineWidth: 1)
+                            )
+                        }
                         if let after = entry.textAfterPort {
                             Text(after)
                                 .font(Port42Theme.mono(13))
