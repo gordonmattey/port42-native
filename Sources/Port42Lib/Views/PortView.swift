@@ -75,10 +75,56 @@ public struct PortView: NSViewRepresentable {
             source: """
             (function() {
                 const orig = { log: console.log, error: console.error, warn: console.warn };
+                let _console = null;
+                let _consoleLog = null;
+                let _toggle = null;
+                const _colors = { log: '#888', warn: '#ffaa00', error: '#ff4444' };
+                let _hasError = false;
+
+                function ensureConsole() {
+                    if (_console) return;
+                    _console = document.createElement('div');
+                    _console.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#0a0a0a;border-top:1px solid #333;font-size:10px;font-family:monospace;display:none;flex-direction:column;max-height:40%;';
+                    const header = document.createElement('div');
+                    header.style.cssText = 'display:flex;justify-content:space-between;padding:3px 8px;background:#111;border-bottom:1px solid #222;color:#555;cursor:pointer;';
+                    header.innerHTML = '<span>console</span><span>✕</span>';
+                    header.onclick = function() { _console.style.display = 'none'; };
+                    _consoleLog = document.createElement('div');
+                    _consoleLog.style.cssText = 'overflow-y:auto;padding:4px 8px;flex:1;';
+                    _console.appendChild(header);
+                    _console.appendChild(_consoleLog);
+                    document.body.appendChild(_console);
+
+                    _toggle = document.createElement('div');
+                    _toggle.style.cssText = 'position:fixed;bottom:4px;right:4px;z-index:99998;width:16px;height:16px;border-radius:3px;background:#222;border:1px solid #333;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:8px;color:#555;';
+                    _toggle.textContent = '>';
+                    _toggle.onclick = function() {
+                        const vis = _console.style.display === 'flex';
+                        _console.style.display = vis ? 'none' : 'flex';
+                    };
+                    document.body.appendChild(_toggle);
+                }
+
+                function appendLine(level, msg) {
+                    ensureConsole();
+                    const line = document.createElement('div');
+                    line.style.cssText = 'padding:1px 0;color:' + _colors[level] + ';word-break:break-all;';
+                    line.textContent = (level === 'log' ? '' : level + ': ') + msg;
+                    _consoleLog.appendChild(line);
+                    _consoleLog.scrollTop = _consoleLog.scrollHeight;
+                    if (level === 'error' && !_hasError) {
+                        _hasError = true;
+                        _toggle.style.borderColor = '#ff4444';
+                        _toggle.style.color = '#ff4444';
+                        _console.style.display = 'flex';
+                    }
+                }
+
                 function forward(level, args) {
                     try {
                         const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
                         window.webkit.messageHandlers.portConsole.postMessage({ level: level, message: msg });
+                        appendLine(level, msg);
                     } catch(e) {}
                 }
                 console.log = function() { forward('log', arguments); orig.log.apply(console, arguments); };
@@ -119,12 +165,17 @@ public struct PortView: NSViewRepresentable {
 
     private func loadContent(_ webView: WKWebView) {
         let document = wrapHTML(html)
-        webView.loadHTMLString(document, baseURL: nil)
+        webView.loadHTMLString(document, baseURL: URL(string: "http://port42.local/"))
     }
 
     /// Wrap port content in a full HTML document with port42 theme and CSP
     private func wrapHTML(_ body: String) -> String {
-        """
+        // Convert <script> tags to <script type="module"> for top-level await support.
+        // Module scripts also report full error details (line numbers) to error handlers.
+        let moduleBody = body
+            .replacingOccurrences(of: "<script>", with: "<script type=\"module\">")
+
+        return """
         <!DOCTYPE html>
         <html>
         <head>
@@ -170,7 +221,7 @@ public struct PortView: NSViewRepresentable {
         </style>
         </head>
         <body>
-        \(body)
+        \(moduleBody)
         </body>
         </html>
         """

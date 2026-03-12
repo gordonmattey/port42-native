@@ -114,6 +114,11 @@ struct HelpOverlay: View {
                         ("Tab", "accept @mention autocomplete"),
                     ])
 
+                    helpSection("ports", items: [
+                        ("\"build me a...\"", "ask any companion to create a live port"),
+                        ("Source / Run", "toggle between port code and live view"),
+                    ])
+
                     helpSection("context menus", items: [
                         ("right-click channel", "add swimmers, copy invite link"),
                         ("right-click swimmer", "edit or delete"),

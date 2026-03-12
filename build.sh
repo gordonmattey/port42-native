@@ -254,11 +254,19 @@ if $PEER; then
     mkdir -p "$PEER_MACOS" "$PEER_RESOURCES"
 
     cp "$DIR/.build/$CONFIG/Port42" "$PEER_MACOS/Port42-Peer"
+    install_name_tool -add_rpath "@loader_path/../Frameworks" "$PEER_MACOS/Port42-Peer" 2>/dev/null || true
     cp "$GATEWAY_BIN" "$PEER_MACOS/port42-gateway"
     cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$PEER_RESOURCES/AppIcon.icns"
     for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
         [ -d "$bundle" ] && cp -R "$bundle" "$PEER_RESOURCES/"
     done
+
+    # Copy Sparkle framework to peer
+    PEER_FRAMEWORKS="$PEER_APP/Contents/Frameworks"
+    mkdir -p "$PEER_FRAMEWORKS"
+    if [ -d "$SPARKLE_FW" ]; then
+        cp -R "$SPARKLE_FW" "$PEER_FRAMEWORKS/"
+    fi
 
     # Peer gets a different bundle ID and name
     sed -e 's/com.port42.app/com.port42.peer/' \
@@ -307,7 +315,7 @@ EOF
 </plist>
 PLIST_EOF
 
-    codesign --force --sign - --entitlements "$DIR/Port42.entitlements" "$PEER_APP"
+    codesign --deep --force --sign - --entitlements "$DIR/Port42.entitlements" "$PEER_APP"
 
     echo "[build] Ready: $PEER_APP"
     echo "[build] Launching peer (data: Port42-Peer, gateway: 4243)..."

@@ -68,28 +68,53 @@ BRIDGE API REFERENCE:
   port42.port.resize(w, h)
     Resize this port to the given width and height in pixels.
 
+RESILIENCE: All bridge APIs are async and can return null. Wrap your init in try/catch
+so one failed call doesn't kill the whole port. If an API returns null, degrade gracefully
+(show "unavailable" instead of crashing). channel.current() returns null in some contexts.
+
+ERRORS: console.log/error/warn are piped to the native app log. Use console.error() to
+report problems. Unhandled exceptions and promise rejections are also captured. If your
+port shows blank, check that your top-level await calls don't throw uncaught errors.
+
 EXAMPLE PORT:
 
 ```port
-<div id="companions"></div>
+<div id="app">loading...</div>
 <script>
-  const el = document.getElementById('companions');
-  const companions = await port42.companions.list();
-  companions.forEach(c => {
-    const div = document.createElement('div');
-    div.textContent = c.name + (c.isActive ? ' (active)' : '');
-    el.appendChild(div);
-  });
+  const app = document.getElementById('app');
+  try {
+    const [user, companions, channel] = await Promise.all([
+      port42.user.get(),
+      port42.companions.list(),
+      port42.channel.current()
+    ]);
 
-  // Live updates
-  port42.on('companion.activity', (data) => {
-    el.textContent = 'Active: ' + data.activeNames.join(', ');
-  });
+    app.innerHTML = '';
 
-  // Connection indicator
-  port42.connection.onStatusChange((status) => {
-    console.log('bridge:', status);
-  });
+    // Greet user
+    const h = document.createElement('div');
+    h.textContent = (user?.name || 'you') + ' + ' + companions.map(c => c.name).join(', ');
+    h.style.color = '#00ff41';
+    app.appendChild(h);
+
+    // Show context (may be null in some views)
+    if (channel) {
+      const ch = document.createElement('div');
+      ch.textContent = 'in #' + channel.name;
+      ch.style.opacity = '0.5';
+      app.appendChild(ch);
+    }
+
+    // Live updates
+    port42.on('companion.activity', (data) => {
+      if (data.activeNames.length > 0) {
+        h.textContent = data.activeNames.join(', ') + ' thinking...';
+      }
+    });
+  } catch (e) {
+    app.textContent = 'port error: ' + e.message;
+    console.error('port init failed:', e);
+  }
 </script>
 ```
 
