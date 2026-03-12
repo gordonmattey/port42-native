@@ -78,6 +78,9 @@ public struct DolphinProtocolView: View {
                 biosView
             }
         }
+        .onTapGesture {
+            _ = handleKeyPress()
+        }
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
@@ -185,7 +188,7 @@ public struct DolphinProtocolView: View {
             VStack {
                 Spacer()
                 if currentStage == .glitch && !sequenceComplete {
-                    Text("press any key")
+                    Text("press any key to continue")
                         .font(Port42Theme.mono(13))
                         .foregroundStyle(Port42Theme.textSecondary.opacity(cursorVisible ? 0.6 : 0.2))
                         .padding(.bottom, 40)
@@ -200,11 +203,6 @@ public struct DolphinProtocolView: View {
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.3))
                         .padding(.bottom, 20)
-                }
-            }
-            .onTapGesture {
-                if currentStage == .glitch && !sequenceComplete {
-                    advanceFromGlitch()
                 }
             }
         }

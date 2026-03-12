@@ -39,6 +39,20 @@ for arg in "$@"; do
     esac
 done
 
+# Auto-bump patch version for release builds if not manually bumped
+if [ "$CONFIG" = "release" ]; then
+    LAST_RELEASE_FILE="$DIR/.last-release-version"
+    LAST_RELEASE=$(cat "$LAST_RELEASE_FILE" 2>/dev/null || echo "")
+    if [ "$APP_VERSION" = "$LAST_RELEASE" ]; then
+        IFS='.' read -r major minor patch <<< "$APP_VERSION"
+        APP_VERSION="$major.$minor.$((patch + 1))"
+        echo "$APP_VERSION" > "$DIR/VERSION"
+        echo "[build] Auto-bumped version to $APP_VERSION"
+    fi
+    echo "$APP_VERSION" > "$LAST_RELEASE_FILE"
+fi
+export APP_VERSION
+
 # --- Generate app icon assets from SVG ---
 SVG="$DIR/Sources/Port42/Resources/port42-icon.svg"
 ICNS="$DIR/Sources/Port42/Resources/AppIcon.icns"
@@ -93,6 +107,20 @@ mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/Port42"
 cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
+
+# Add rpath so the binary can find frameworks in Contents/Frameworks/
+install_name_tool -add_rpath "@loader_path/../Frameworks" "$MACOS/Port42" 2>/dev/null || true
+
+# Bundle Sparkle.framework
+FRAMEWORKS="$APP/Contents/Frameworks"
+mkdir -p "$FRAMEWORKS"
+SPARKLE_FW="$DIR/.build/arm64-apple-macosx/$CONFIG/Sparkle.framework"
+if [ -d "$SPARKLE_FW" ]; then
+    cp -R "$SPARKLE_FW" "$FRAMEWORKS/"
+else
+    echo "[build] WARNING: Sparkle.framework not found at $SPARKLE_FW"
+fi
+
 envsubst < "$DIR/Info.plist" > "$APP/Contents/Info.plist"
 cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
@@ -114,17 +142,40 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     # Release: hardened runtime + timestamp + embedded profile
     [ -f "$RELEASE_PROFILE" ] && cp "$RELEASE_PROFILE" "$APP/Contents/embedded.provisionprofile"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-gateway"
+    # Sign Sparkle framework and all nested components (inside-out)
+    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
+        SPARKLE_ENT="$DIR/Sparkle.entitlements"
+        # Sign nested executables first
+        find "$FRAMEWORKS/Sparkle.framework" -type f -perm +111 -not -name "*.plist" -not -name "*.h" -not -name "*.modulemap" | while read binary; do
+            codesign --force --sign "$SIGN_IDENTITY" --entitlements "$SPARKLE_ENT" --options runtime --timestamp "$binary"
+        done
+        # Sign nested bundles
+        find "$FRAMEWORKS/Sparkle.framework" \( -name "*.app" -o -name "*.xpc" \) | while read nested; do
+            codesign --force --sign "$SIGN_IDENTITY" --entitlements "$SPARKLE_ENT" --options runtime --timestamp "$nested"
+        done
+        # Sign the framework itself
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$FRAMEWORKS/Sparkle.framework"
+    fi
     codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" --options runtime --timestamp "$APP"
 elif [ -n "$DEV_IDENTITY" ] && [ -f "$DEV_PROFILE" ]; then
     # Debug with Apple Development cert + dev profile: Sign in with Apple enabled
     cp "$DEV_PROFILE" "$APP/Contents/embedded.provisionprofile"
+    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
+        codesign --force --sign "$DEV_IDENTITY" "$FRAMEWORKS/Sparkle.framework"
+    fi
     codesign --force --sign "$DEV_IDENTITY" --entitlements "$DIR/Port42.dev.entitlements" "$APP"
     echo "[build] Signed with Apple Development (Sign in with Apple enabled)"
 elif [ "$SIGN_IDENTITY" != "-" ]; then
     # Debug with Developer ID: no applesignin (requires notarization)
+    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
+        codesign --force --sign "$SIGN_IDENTITY" --options runtime "$FRAMEWORKS/Sparkle.framework"
+    fi
     codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.entitlements" --options runtime "$APP"
 else
     # Debug ad-hoc fallback
+    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
+        codesign --force --sign - "$FRAMEWORKS/Sparkle.framework"
+    fi
     codesign --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
 fi
 echo "[build] Ready: $APP"
@@ -139,6 +190,9 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     rm -rf "$DIST/Port42.app"
     cp -R "$APP" "$DIST/Port42.app"
 
+    # Eject any mounted Port42 volumes before creating DMG
+    hdiutil detach /Volumes/Port42 -force 2>/dev/null || true
+
     # Create DMG with Applications symlink for drag-and-drop install
     rm -f "$DMG"
     echo "[build] Creating DMG..."
@@ -146,7 +200,7 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     mkdir -p "$DMG_STAGING"
     cp -R "$DIST/Port42.app" "$DMG_STAGING/"
     ln -s /Applications "$DMG_STAGING/Applications"
-    hdiutil create -volname "Port42" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG" >/dev/null 2>&1
+    hdiutil create -volname "Port42 Companion Computing" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG" 2>&1
     rm -rf "$(dirname "$DMG_STAGING")"
 
     # Sign DMG
@@ -159,6 +213,31 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
 
     # Staple
     xcrun stapler staple "$DMG" 2>&1 | tail -1
+
+    # Generate Sparkle appcast (temporary prefix, will be fixed below)
+    GENERATE_APPCAST=$(ls /opt/homebrew/Caskroom/sparkle/*/bin/generate_appcast 2>/dev/null | head -1 || true)
+    if [ -n "$GENERATE_APPCAST" ] && [ -x "$GENERATE_APPCAST" ]; then
+        echo "[build] Generating Sparkle appcast..."
+        "$GENERATE_APPCAST" --download-url-prefix "https://github.com/gordonmattey/port42-native/releases/download/v${APP_VERSION}/" "$DIST"
+        echo "[build] Appcast generated: $DIST/appcast.xml"
+    else
+        echo "[build] WARNING: generate_appcast not found, skipping appcast generation"
+        echo "[build] Install with: brew install --cask sparkle"
+    fi
+
+    # Create GitHub Release and upload DMG
+    echo "[build] Creating GitHub Release v${APP_VERSION}..."
+    gh release create "v${APP_VERSION}" "$DMG" \
+        --title "v${APP_VERSION}" \
+        --notes "Port42 v${APP_VERSION}" 2>&1 || echo "[build] WARNING: GitHub Release creation failed (may already exist)"
+
+    # Push appcast and dist to git
+    echo "[build] Pushing appcast to git..."
+    cd "$DIR"
+    git add dist/appcast.xml
+    git commit -m "Update appcast for v${APP_VERSION}" 2>&1 | tail -1
+    git push 2>&1 | tail -2
+
     echo "[build] Release ready: $DMG"
 fi
 

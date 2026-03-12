@@ -153,6 +153,10 @@ public final class AgentAuthResolver {
                 // Cache expiry so we can proactively refresh
                 if let expiresMs = oauthObj["expiresAt"] as? Double {
                     cachedExpiresAt = Date(timeIntervalSince1970: expiresMs / 1000.0)
+                    let remaining = cachedExpiresAt!.timeIntervalSince(Date())
+                    NSLog("[Port42] OAuth token read from Keychain, expires in %.0f minutes (%.1f hours)", remaining / 60, remaining / 3600)
+                } else {
+                    NSLog("[Port42] OAuth token read from Keychain, no expiry set")
                 }
                 return accessToken
             }

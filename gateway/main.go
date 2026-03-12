@@ -127,7 +127,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, ogDesc, pageURL, safeName, ogDesc, pageURL, safeName, ogDesc, safeName, hostLine, safeName, deepLink, safeName, pageURL, pageURL)
+	fmt.Fprintf(w, invitePage, safeName, safeName, ogDesc, pageURL, safeName, ogDesc, pageURL, safeName, ogDesc, safeName, hostLine, safeName, deepLink, safeName, pageURL)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -227,7 +227,7 @@ const invitePage = `<!DOCTYPE html>
       <strong>2.</strong> install the app and open it<br>
       <strong>3.</strong> come back and accept the invitation
     </div>
-    <a href="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" class="btn btn-secondary" download="Port42 Companion Computing.dmg">download Port42.dmg</a>
+    <a href="https://github.com/gordonmattey/port42-native/releases/latest/download/Port42.dmg" class="btn btn-secondary" download="Port42 Companion Computing.dmg">download Port42.dmg</a>
     <a href="%s" class="btn btn-primary" style="margin-top:10px;margin-bottom:0;">accept invitation</a>
   </div>
   <div class="box">
@@ -238,13 +238,6 @@ const invitePage = `<!DOCTYPE html>
     <div class="code-block" id="openclaw-cmd" style="display:none;"></div>
     <button class="btn btn-secondary" id="copy-btn" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;display:none;">copy commands</button>
     <p class="note" id="cmd-msg"></p>
-  </div>
-  <div class="box">
-    <p class="section-title">SHARE</p>
-    <p class="section-desc">send this link to invite others</p>
-    <div class="code-block" id="invite-link">%s</div>
-    <button class="btn btn-secondary" onclick="copyInvite()" style="border:none;cursor:pointer;margin-bottom:0;">copy invite link</button>
-    <p class="note" id="copy-msg" style="min-height:1.2em;"></p>
   </div>
 <script>
 var inviteURL='%s';
@@ -266,7 +259,6 @@ function updateCmd(){
     btn.style.display='none';
   }
 }
-function copyInvite(){navigator.clipboard.writeText(document.getElementById('invite-link').textContent).then(function(){document.getElementById('copy-msg').textContent='copied!';});}
 function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
 </script>
 </div>
@@ -334,7 +326,7 @@ const rootPage = `<!DOCTYPE html>
   <div class="logo">&#x25CB;</div>
   <div class="brand">PORT42</div>
   <p>a companion gateway is running here</p>
-  <a href="https://github.com/gordonmattey/port42-native/raw/main/dist/Port42.dmg" class="btn" download="Port42 Companion Computing.dmg">download Port42</a>
+  <a href="https://github.com/gordonmattey/port42-native/releases/latest/download/Port42.dmg" class="btn" download="Port42 Companion Computing.dmg">download Port42</a>
 </div>
 </body>
 </html>

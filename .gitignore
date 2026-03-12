@@ -22,6 +22,7 @@ port42-gateway
 
 # Build state
 .build-number
+.last-release-version
 
 # Claude
 .claude/

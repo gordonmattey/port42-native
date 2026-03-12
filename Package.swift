@@ -6,12 +6,13 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.24.0"),
-        .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0")
+        .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
     ],
     targets: [
         .executableTarget(
             name: "Port42",
-            dependencies: ["Port42Lib"],
+            dependencies: ["Port42Lib", "Sparkle"],
             path: "Sources/Port42",
             resources: [
                 .process("Resources")

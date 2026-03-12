@@ -152,6 +152,11 @@ public struct SidebarView: View {
         .sheet(isPresented: $showSignOut) {
             SignOutSheet(isPresented: $showSignOut)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .dismissAllSheets)) { _ in
+            showSignOut = false
+            showNewCompanion = false
+            editingCompanion = nil
+        }
         .sheet(isPresented: $showNewCompanion) {
             NewCompanionSheet(isPresented: $showNewCompanion)
         }

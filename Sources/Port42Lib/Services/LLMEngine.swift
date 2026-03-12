@@ -183,6 +183,8 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
             if (error as NSError).code == NSURLErrorCancelled { return }
+            let nsError = error as NSError
+            NSLog("[Port42] LLM connection error: domain=%@ code=%d desc=%@", nsError.domain, nsError.code, nsError.localizedDescription)
             DispatchQueue.main.async { [weak self] in
                 self?.delegate?.llmDidError(error)
             }

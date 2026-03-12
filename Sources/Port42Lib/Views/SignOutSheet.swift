@@ -8,6 +8,7 @@ public struct SignOutSheet: View {
     @State private var ngrokToken: String = UserDefaults.standard.string(forKey: "ngrokAuthToken") ?? ""
     @State private var ngrokDomain: String = UserDefaults.standard.string(forKey: "ngrokDomain") ?? ""
     @State private var editingToken = false
+    @State private var autoUpdatesEnabled: Bool = UserDefaults.standard.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -46,6 +47,15 @@ public struct SignOutSheet: View {
             // Sharing
             VStack(alignment: .leading, spacing: 8) {
                 sharingSection
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+
+            Divider().background(Port42Theme.border)
+
+            // Updates
+            VStack(alignment: .leading, spacing: 8) {
+                updatesSection
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -266,6 +276,62 @@ public struct SignOutSheet: View {
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(.red.opacity(0.8))
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var updatesSection: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11))
+                .foregroundStyle(Port42Theme.textSecondary)
+            Text("updates")
+                .font(Port42Theme.mono(13))
+                .foregroundStyle(Port42Theme.textSecondary)
+            Spacer()
+
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+            Text("v\(version) (\(build))")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+        }
+
+        HStack(spacing: 8) {
+            Button(action: {
+                isPresented = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    NotificationCenter.default.post(name: .checkForUpdatesRequested, object: nil)
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 11))
+                    Text("check now")
+                        .font(Port42Theme.monoBold(12))
+                }
+                .foregroundStyle(Port42Theme.accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Port42Theme.accent.opacity(0.1))
+                .cornerRadius(5)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Toggle(isOn: $autoUpdatesEnabled) {
+                Text("auto")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .tint(Port42Theme.accent)
+            .onChange(of: autoUpdatesEnabled) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: "SUAutomaticallyUpdate")
+                UserDefaults.standard.set(newValue, forKey: "SUEnableAutomaticChecks")
             }
         }
     }

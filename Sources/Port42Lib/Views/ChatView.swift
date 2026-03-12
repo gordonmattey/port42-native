@@ -186,10 +186,29 @@ public struct ChannelHeader: View {
             }
 
             Spacer()
+
+            Button(action: copyConversation) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Copy conversation")
         }
         .padding(.horizontal, 20)
         .frame(height: 44)
         .background(Port42Theme.bgPrimary)
+    }
+
+    private func copyConversation() {
+        guard let channelId = appState.currentChannel?.id else { return }
+        let messages = (try? appState.db.getMessages(channelId: channelId)) ?? []
+        let lines: [String] = messages.map { msg in
+            "\(msg.senderName): \(msg.content)"
+        }
+        let text: String = lines.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: NSPasteboard.PasteboardType.string)
     }
 }
 

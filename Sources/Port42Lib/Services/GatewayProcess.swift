@@ -91,10 +91,17 @@ public final class GatewayProcess: ObservableObject {
         }
     }
 
-    /// Stop the local gateway
+    /// Stop the local gateway, giving it time to drain connections
     public func stop() {
         guard let proc = process, proc.isRunning else { return }
         proc.terminate()
+        // Give gateway up to 2 seconds to drain WebSocket connections
+        let sem = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            proc.waitUntilExit()
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 2)
         process = nil
         isRunning = false
         print("[gateway] stopped")

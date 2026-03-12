@@ -2,10 +2,14 @@ import SwiftUI
 import AppKit
 import AVKit
 import Port42Lib
+import Sparkle
 
 /// Intercept port42:// URLs at the AppDelegate level so SwiftUI doesn't
 /// open a new window for each deep link.
 class Port42AppDelegate: NSObject, NSApplicationDelegate {
+    /// Sparkle updater controller for automatic + manual update checks
+    private(set) var updaterController: SPUStandardUpdaterController!
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSAppleEventManager.shared().setEventHandler(
             self,
@@ -13,10 +17,37 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
+
+        // Initialize Sparkle (starts automatic update checks)
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: self,
+            userDriverDelegate: nil
+        )
+        NSLog("[Port42] Sparkle updater initialized, canCheckForUpdates=%d", updaterController.updater.canCheckForUpdates ? 1 : 0)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupCustomCursor()
+        NSLog("[Port42] Sparkle feedURL=%@", updaterController.updater.feedURL?.absoluteString ?? "nil")
+
+        // Listen for manual update check requests from settings
+        NotificationCenter.default.addObserver(forName: .checkForUpdatesRequested, object: nil, queue: .main) { [weak self] _ in
+            NSLog("[Port42] Check for updates requested via notification")
+            self?.updaterController.checkForUpdates(nil)
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Dismiss SwiftUI sheets (they block termination)
+        NotificationCenter.default.post(name: .dismissAllSheets, object: nil)
+        // Also dismiss any AppKit-level attached sheets
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet {
+                window.endSheet(sheet)
+            }
+        }
+        return .terminateNow
     }
 
     private func setupCustomCursor() {
@@ -68,6 +99,16 @@ class Port42Cursor: NSObject {
     }
 }
 
+// MARK: - Sparkle Delegate
+
+extension Port42AppDelegate: SPUUpdaterDelegate {
+    /// Gracefully stop gateway before bundle replacement
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        NSLog("[Port42] Sparkle will install update %@, stopping gateway...", item.displayVersionString)
+        GatewayProcess.shared.stop()
+    }
+}
+
 extension Notification.Name {
     static let handleDeepLink = Notification.Name("Port42HandleDeepLink")
 }
@@ -108,6 +149,11 @@ struct Port42App: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1200, height: 800)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    NotificationCenter.default.post(name: .checkForUpdatesRequested, object: nil)
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Channel") {
                     NotificationCenter.default.post(
