@@ -50,7 +50,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         messages: [[String: String]],
         systemPrompt: String,
         model: String = "claude-opus-4-6",
-        maxTokens: Int = 4096,
+        maxTokens: Int = 8192,
         authConfig: AgentAuthConfig? = nil,
         delegate: LLMStreamDelegate
     ) throws {

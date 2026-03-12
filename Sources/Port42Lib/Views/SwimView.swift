@@ -85,14 +85,10 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         }
 
         do {
-            let lastMsg = text.lowercased()
-            let portHint = ["port", "build", "dashboard", "interactive", "visualiz", "widget", "tool"]
-                .contains { lastMsg.contains($0) }
             try engine.send(
                 messages: apiMessages,
                 systemPrompt: prompt,
                 model: companion.model ?? "claude-opus-4-6",
-                maxTokens: portHint ? 16384 : 4096,
                 delegate: self
             )
             p42log("[Port42] Swim engine.send() succeeded, waiting for stream...")
