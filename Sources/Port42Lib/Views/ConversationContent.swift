@@ -528,16 +528,23 @@ struct MessageRow: View, Equatable {
 
 struct InlinePortView: View {
     let html: String
+    @EnvironmentObject var appState: AppState
     @State private var height: CGFloat = 100
+    @State private var bridge: PortBridge?
 
     var body: some View {
-        PortView(html: html, height: $height)
+        PortView(html: html, bridge: bridge, height: $height)
             .frame(height: height)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Port42Theme.border, lineWidth: 1)
             )
+            .onAppear {
+                if bridge == nil {
+                    bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id)
+                }
+            }
     }
 }
 

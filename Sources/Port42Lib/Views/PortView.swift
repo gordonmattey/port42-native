@@ -6,10 +6,12 @@ import WebKit
 /// Renders a port (companion-generated HTML/CSS/JS) in a sandboxed WKWebView.
 public struct PortView: NSViewRepresentable {
     let html: String
+    let bridge: PortBridge?
     @Binding var height: CGFloat
 
-    public init(html: String, height: Binding<CGFloat>) {
+    public init(html: String, bridge: PortBridge? = nil, height: Binding<CGFloat>) {
         self.html = html
+        self.bridge = bridge
         self._height = height
     }
 
@@ -23,6 +25,9 @@ public struct PortView: NSViewRepresentable {
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
+        // Attach bridge if available (injects port42.* namespace)
+        bridge?.attach(to: config)
+
         // Height reporting script: posts document height after load and on resize
         let heightScript = WKUserScript(
             source: """
@@ -35,7 +40,6 @@ public struct PortView: NSViewRepresentable {
                     reportHeight();
                     new ResizeObserver(reportHeight).observe(document.body);
                 });
-                // Also report after a short delay for dynamic content
                 setTimeout(reportHeight, 100);
                 setTimeout(reportHeight, 500);
             })();
@@ -51,12 +55,14 @@ public struct PortView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         webView.allowsMagnification = false
 
+        // Give bridge a reference to the webview for callbacks
+        bridge?.setWebView(webView)
+
         loadContent(webView)
         return webView
     }
 
     public func updateNSView(_ webView: WKWebView, context: Context) {
-        // Reload if HTML changed
         if context.coordinator.lastHTML != html {
             context.coordinator.lastHTML = html
             loadContent(webView)
@@ -136,7 +142,6 @@ public struct PortView: NSViewRepresentable {
         // Block all navigation (sandbox)
         public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if navigationAction.navigationType == .other {
-                // Allow initial load
                 decisionHandler(.allow)
             } else {
                 decisionHandler(.cancel)

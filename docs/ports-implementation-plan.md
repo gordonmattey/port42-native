@@ -58,7 +58,7 @@ functionality must continue working at every step.
 
 ---
 
-### Step 2: Bridge Core (P-102)
+### Step 2: Bridge Core (P-102) ✅
 
 **Goal:** Ports can call `port42.*` methods and get results back.
 
@@ -92,7 +92,7 @@ functionality must continue working at every step.
 
 ---
 
-### Step 3: Bridge Read APIs (P-103, P-104, P-105)
+### Step 3: Bridge Read APIs (P-103, P-104, P-105) ✅
 
 **Goal:** Ports can read companions, messages, and user data.
 
@@ -161,7 +161,7 @@ functionality must continue working at every step.
 
 ---
 
-### Step 5: Port Sandbox (P-108)
+### Step 5: Port Sandbox (P-108) ✅
 
 **Goal:** Ports cannot escape the bridge.
 
