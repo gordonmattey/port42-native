@@ -514,9 +514,9 @@ Step 6:  Companion context                  → companions know about ports ✅
   bonus: channel APIs, messages.send, storage, viewport, console, modules ✅
 Phase 1 complete ─────────────────────────────────────────────────────────
 
-Step 7a: PortWindowManager + pop-out button  → ports detach from chat     ← NEXT
-Step 7b: Draggable + resizable panels       → ports feel like windows
-Step 8:  Docking (right side, single slot)  → ports snap to side
+Step 7a: PortWindowManager + pop-out + drag + dock → ports detach from chat ✅
+Step 7b: Resize handles + polish            → ports feel like windows     ← NEXT
+Step 8:  Persistence + update + close       → ports are managed
 Step 9:  Persistence + update + close       → ports are managed
 Phase 2 ──────────────────────────────────────────────────────────────────
 
