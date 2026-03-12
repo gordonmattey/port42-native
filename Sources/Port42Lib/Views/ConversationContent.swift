@@ -558,6 +558,7 @@ struct MessageRow: View, Equatable {
     var localOwner: String? = nil
     var portIsActive: Bool = false
     @EnvironmentObject var appState: AppState
+    @State private var portActivatedManually = false
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
@@ -655,25 +656,30 @@ struct MessageRow: View, Equatable {
                             .background(Color.orange.opacity(0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
-                        if portIsActive {
+                        if portIsActive || portActivatedManually {
                             InlinePortView(html: portHTML, appState: appState)
                         } else {
                             // Collapsed port (older than last 3)
-                            HStack(spacing: 6) {
-                                Image(systemName: "square.on.square")
-                                    .font(.system(size: 11))
-                                Text("port (scroll to activate)")
-                                    .font(Port42Theme.mono(11))
+                            Button {
+                                portActivatedManually = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 10))
+                                    Text("run port")
+                                        .font(Port42Theme.mono(11))
+                                }
+                                .foregroundColor(Port42Theme.accent)
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Port42Theme.bgSecondary)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Port42Theme.border, lineWidth: 1)
+                                )
                             }
-                            .foregroundColor(Port42Theme.textSecondary)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Port42Theme.bgSecondary)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Port42Theme.border, lineWidth: 1)
-                            )
+                            .buttonStyle(.plain)
                         }
                         if let after = entry.textAfterPort {
                             Text(after)
