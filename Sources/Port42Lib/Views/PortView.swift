@@ -59,7 +59,7 @@ public struct PortView: NSViewRepresentable {
                     updateViewport();
                     new ResizeObserver(function() { reportHeight(); updateViewport(); }).observe(document.body);
                 });
-                window.addEventListener('resize', updateWidth);
+                window.addEventListener('resize', updateViewport);
                 setTimeout(function() { reportHeight(); updateViewport(); }, 100);
                 setTimeout(function() { reportHeight(); updateViewport(); }, 500);
             })();
