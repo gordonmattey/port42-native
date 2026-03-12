@@ -187,6 +187,18 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v10-port-storage") { db in
+            try db.create(table: "port_storage") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("portKey", .text).notNull()
+                t.column("channelId", .text).notNull()
+                t.column("creatorId", .text).notNull()
+                t.column("value", .text).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.uniqueKey(["portKey", "channelId", "creatorId"])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -547,5 +559,54 @@ public final class DatabaseService {
             .start(in: dbQueue, onError: { error in
                 print("[Port42] Unread observation error: \(error)")
             }, onChange: onChange)
+    }
+
+    // MARK: - Port Storage
+
+    /// scope is the channelId for channel-scoped storage, or "__global__" for global scope
+    public func setPortStorage(key: String, value: String, scope: String, creatorId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO port_storage (portKey, channelId, creatorId, value, updatedAt)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (portKey, channelId, creatorId)
+                    DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt
+                    """,
+                arguments: [key, scope, creatorId, value, Date()]
+            )
+        }
+    }
+
+    public func getPortStorage(key: String, scope: String, creatorId: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT value FROM port_storage
+                WHERE portKey = ? AND channelId = ? AND creatorId = ?
+                """,
+                arguments: [key, scope, creatorId]
+            )
+        }
+    }
+
+    public func deletePortStorage(key: String, scope: String, creatorId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM port_storage WHERE portKey = ? AND channelId = ? AND creatorId = ?",
+                arguments: [key, scope, creatorId]
+            )
+        }
+    }
+
+    public func listPortStorageKeys(scope: String, creatorId: String) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT portKey FROM port_storage
+                WHERE channelId = ? AND creatorId = ?
+                ORDER BY portKey
+                """,
+                arguments: [scope, creatorId]
+            )
+        }
     }
 }

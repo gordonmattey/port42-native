@@ -120,12 +120,58 @@ EXAMPLE PORT:
 
 Use ports when asked to build something interactive, create a dashboard, visualize data, or make a tool. Always use the bridge APIs for real data. Never hardcode companion names or user data.
 
+  port42.storage.set(key, value, options?)
+    Persist data for this port. Value can be any JSON-serializable type (string, number,
+    object, array). By default storage is scoped per-companion per-channel and survives
+    app restarts. Pass {scope: 'global'} to store data accessible from any channel.
+    Returns: true on success.
+
+  port42.storage.get(key, options?)
+    Retrieve a previously stored value. Returns the value (parsed from JSON) or null.
+    Pass {scope: 'global'} to read from global storage.
+    Use this to load saved state when the port initializes.
+
+  port42.storage.delete(key, options?)
+    Remove a stored key. Pass {scope: 'global'} for global storage.
+    Returns: true on success.
+
+  port42.storage.list(options?)
+    List all storage keys for this port. Pass {scope: 'global'} for global keys.
+    Returns: [key1, key2, ...]
+
+STORAGE SCOPING:
+  Storage has two independent axes:
+  - scope: 'channel' (default) or 'global' — controls whether data is per-channel or cross-channel
+  - shared: false (default) or true — controls whether data is per-companion or shared across all companions
+
+  This gives four combinations:
+  - {} (default): per-companion, per-channel (private to this companion in this channel)
+  - {scope: 'global'}: per-companion, all channels (companion's own data everywhere)
+  - {shared: true}: all companions, per-channel (collaborative data in this channel)
+  - {scope: 'global', shared: true}: all companions, all channels (app-wide shared data)
+
+STORAGE EXAMPLE:
+  // Channel-scoped, private (default) — only this companion in this channel
+  await port42.storage.set('count', 42);
+  const count = await port42.storage.get('count'); // 42
+
+  // Global, private — this companion across all channels
+  await port42.storage.set('preferences', {fontSize: 14}, {scope: 'global'});
+  const prefs = await port42.storage.get('preferences', {scope: 'global'});
+
+  // Channel-scoped, shared — any companion's port in this channel can read/write
+  await port42.storage.set('game-state', {turn: 3, board: [...]}, {shared: true});
+  const game = await port42.storage.get('game-state', {shared: true});
+
+  // Global, shared — any companion anywhere can read/write
+  await port42.storage.set('high-scores', [...], {scope: 'global', shared: true});
+  const scores = await port42.storage.get('high-scores', {scope: 'global', shared: true});
+
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Tier 2:
   - port42.messages.recent(n, channelId) — read messages from a different channel
   - port42.companions.invoke(id, prompt) — ask a companion to perform a task from within a port
-  - port42.storage.get(key) / port42.storage.set(key, value) — persist port state across re-renders
 
   Tier 3:
   - port42.on('channel.switch') — fires when user navigates to a different channel

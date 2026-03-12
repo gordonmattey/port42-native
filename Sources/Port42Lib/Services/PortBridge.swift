@@ -181,6 +181,87 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
             if let cid = channelId { info["channelId"] = cid }
             return info
 
+        // port42.storage.set(key, value, options?)
+        // options: { scope: 'global', shared: true }
+        case "storage.set":
+            guard let key = args.first as? String else {
+                return ["error": "storage.set requires a key"]
+            }
+            let opts = args.count > 2 ? args[2] as? [String: Any] : nil
+            guard let resolved = storageScope(opts: opts) else {
+                return ["error": "storage.set requires channel context for channel-scoped storage"]
+            }
+            let value: String
+            if args.count > 1 {
+                if let str = args[1] as? String {
+                    value = str
+                } else if let data = try? JSONSerialization.data(withJSONObject: args[1]),
+                          let json = String(data: data, encoding: .utf8) {
+                    value = json
+                } else {
+                    return ["error": "storage.set value must be serializable"]
+                }
+            } else {
+                return ["error": "storage.set requires a value"]
+            }
+            do {
+                try state.db.setPortStorage(key: key, value: value, scope: resolved.scope, creatorId: resolved.creator)
+                return ["ok": true]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
+        // port42.storage.get(key, options?)
+        case "storage.get":
+            guard let key = args.first as? String else {
+                return ["error": "storage.get requires a key"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            guard let resolved = storageScope(opts: opts) else {
+                return ["error": "storage.get requires channel context for channel-scoped storage"]
+            }
+            do {
+                if let value = try state.db.getPortStorage(key: key, scope: resolved.scope, creatorId: resolved.creator) {
+                    if let data = value.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: data) {
+                        return ["value": parsed]
+                    }
+                    return ["value": value]
+                }
+                return ["value": NSNull()]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
+        // port42.storage.delete(key, options?)
+        case "storage.delete":
+            guard let key = args.first as? String else {
+                return ["error": "storage.delete requires a key"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            guard let resolved = storageScope(opts: opts) else {
+                return ["error": "storage.delete requires channel context for channel-scoped storage"]
+            }
+            do {
+                try state.db.deletePortStorage(key: key, scope: resolved.scope, creatorId: resolved.creator)
+                return ["ok": true]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
+        // port42.storage.list(options?)
+        case "storage.list":
+            let opts = args.first as? [String: Any]
+            guard let resolved = storageScope(opts: opts) else {
+                return ["error": "storage.list requires channel context for channel-scoped storage"]
+            }
+            do {
+                let keys = try state.db.listPortStorageKeys(scope: resolved.scope, creatorId: resolved.creator)
+                return ["keys": keys]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
         // port42.port.close() — handled by JS side for now
         case "port.close":
             return ["ok": true]
@@ -193,6 +274,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
             NSLog("[Port42] Unknown bridge method: %@", method)
             return ["error": "unknown method: \(method)"]
         }
+    }
+
+    // MARK: - Storage Helpers
+
+    /// Resolve storage scope and creator from JS options.
+    /// scope: channelId or "__global__", creator: createdBy or "__shared__"
+    private func storageScope(opts: [String: Any]?) -> (scope: String, creator: String)? {
+        let scope: String
+        if let s = opts?["scope"] as? String, s == "global" {
+            scope = "__global__"
+        } else {
+            guard let cid = channelId else { return nil }
+            scope = cid
+        }
+        let shared = opts?["shared"] as? Bool ?? false
+        let creator = shared ? "__shared__" : (createdBy ?? "__unknown__")
+        return (scope, creator)
     }
 
     // MARK: - Event Pushing
@@ -294,6 +392,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
             connection: {
                 status: () => _connected ? 'connected' : 'disconnected',
                 onStatusChange: (callback) => _statusCallbacks.push(callback)
+            },
+            storage: {
+                set: (key, value, opts) => call('storage.set', [key, value, opts || {}]).then(r => r && r.ok),
+                get: (key, opts) => call('storage.get', [key, opts || {}]).then(r => r ? r.value : null),
+                delete: (key, opts) => call('storage.delete', [key, opts || {}]).then(r => r && r.ok),
+                list: (opts) => call('storage.list', [opts || {}]).then(r => r ? r.keys : [])
             },
             port: {
                 info: () => call('port.info'),
