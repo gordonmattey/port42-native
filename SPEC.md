@@ -1,6 +1,6 @@
 # Port42 Native Spec
 
-**Last updated:** 2026-03-09
+**Last updated:** 2026-03-12
 
 **Status:** Working draft
 
@@ -346,9 +346,165 @@ mentionable by the other user. Delivery and read receipts update automatically.
 
 Deferred to M4: offline queue (F-504), relay auth (F-511), reply threading (F-303).
 
+### M4: Ports (In Progress)
+
+*Live interactive surfaces inside conversations.*
+
+Covers port detection (P-100), inline webview (P-101), bridge core (P-102),
+bridge companions/messages/user/events (P-103-P-106), companion context (P-107),
+port sandbox (P-108), port theme (P-109).
+
+Phase 1 inline ports are working. Companions emit ```port code fences,
+WKWebView renders them inline in the message stream with full port42.* bridge
+API. Console overlay for debugging. Auto-height via ResizeObserver.
+
+Phase 2 (pop-out, docking) is partial. Phase 3 (generative ports with
+port42.ai.complete()) is planned. See ports-spec.md for full details.
+
+### M5: OpenClaw Integration (In Progress)
+
+*Bridge external agents from the OpenClaw ecosystem into Port42 channels.*
+
+Covers OpenClaw gateway detection, WebSocket connection with challenge/response
+auth, port42-openclaw plugin auto-install, agent discovery, one-click channel
+connection, config update with gateway restart handling, version detection,
+auto-retry with backoff.
+
+**Done:** Full connect flow works end-to-end. User right-clicks channel,
+selects "Connect OpenClaw Agent", sheet auto-connects to local OpenClaw
+gateway, auto-installs plugin if missing, lists agents, configures trigger
+mode, writes config and restarts gateway. Web invite page has "accept + connect"
+button for one-click OpenClaw deep linking.
+
+### OpenClaw Integration
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| OC-100 | Gateway Detection | Read ~/.openclaw/openclaw.json for port and auth token | Config file parsed, connection attempted | **Done** |
+| OC-101 | WebSocket Connect | Connect to local OpenClaw gateway, handle challenge/response auth | WebSocket connected, RPC available | **Done** |
+| OC-102 | Plugin Auto-Install | Detect missing port42-openclaw plugin, auto-install via npx. Check disk presence as fallback. | Plugin installed without user action | **Done** |
+| OC-103 | Agent Discovery | List available agents from OpenClaw via agents.list RPC | Agent list populated in UI | **Done** |
+| OC-104 | Channel Connection | Generate invite URL, write OpenClaw config (accounts + bindings), trigger gateway restart | Agent appears in channel via presence | **Done** |
+| OC-105 | Config Update | config.set writes config, config.apply triggers SIGUSR1 restart. 7.5s wait then auto-reconnect. | Config saved and gateway restarted | **Done** |
+| OC-106 | Auto-Retry | 3 retries with 2s/4s/6s backoff on WebSocket failure | Connection recovers after gateway restart | **Done** |
+| OC-107 | Version Detection | Check local openclaw --version vs npm registry, show update indicator | Footer shows version or "update available" | **Done** |
+| OC-108 | Web Invite Connect | "accept + connect" button on invite page, port42://openclaw deep link | One-click agent connection from web | **Done** |
+
+### Ports (Live Interactive Surfaces)
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| P-100 | Port Detection | Detect ```port code fences in companion messages | Port block renders live in chat | **Done** |
+| P-101 | Inline Webview | Sandboxed WKWebView inline in message stream, auto-sized | Port displays at correct height | **Done** |
+| P-102 | Bridge Core | port42.* JS namespace via WKUserScript, async call/response | Port can call port42.user.get() | **Done** |
+| P-103 | Bridge Companions | port42.companions.list(), .get(id) | Port can display companions | **Done** |
+| P-104 | Bridge Messages | port42.messages.recent(n) | Port can read conversation history | **Done** |
+| P-105 | Bridge User | port42.user.get() returns current user | Port knows who is using it | **Done** |
+| P-106 | Bridge Events | port42.on(event, callback) pushes live updates | Port updates in real time | **Done** |
+| P-107 | Companion Context | System prompt tells companions about port capabilities | Companion naturally emits ports | **Done** |
+| P-108 | Port Sandbox | No network, no filesystem, data only through bridge | Port cannot make external requests | **Done** |
+| P-109 | Port Theme | Dark theme auto-injected into ports | Unstyled port looks native | **Done** |
+| P-110 | Console Overlay | JS console capture with debug toggle in port corner | Developer can see console output | **Done** |
+| P-200 | Pop Out | Detach port into floating panel | User clicks pop out, port floats | Partial |
+| P-300 | Bridge AI | port42.ai.complete(prompt) with streaming | Port can call AI directly | Planned |
+| P-301 | Bridge Send | port42.messages.send(text) | Port can post messages | Planned |
+| P-302 | Port Storage | port42.storage.set/get for persistent port state | Port data survives reload | Planned |
+| P-303 | Cross-Channel Reads | port42.messages.recent(n, channelId) | Port can read any channel | Planned |
+| P-304 | Message Metadata | Structured metadata (model, response time, similarity) | Ports can analyze conversations | Planned |
+| P-305 | Convergence Detection | port42.convergence.detect() and events | Multi-agent agreement surfaced | Planned |
+
+### Invite System (Web)
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| INV-100 | Web Invite Page | HTML page served by gateway with OG/Twitter metadata | Link previews work in social media | **Done** |
+| INV-101 | Three-Panel Layout | Side-by-side panels: download / accept / connect agent | Clean presentation, mobile responsive | **Done** |
+| INV-102 | Deep Link Accept | port42://channel deep link with gateway, key, token | App opens and joins channel | **Done** |
+| INV-103 | OpenClaw Deep Link | port42://openclaw deep link from invite page | One-click agent connect from web | **Done** |
+| INV-104 | Host Attribution | Inviter's name shown on page and in accept button | Recipient knows who invited them | **Done** |
+| INV-105 | DMG Download | Direct download link to latest GitHub release | New user can install immediately | **Done** |
+
+### UI & Experience
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| UI-100 | Lock Screen | Circular swim button with ripple ring animation | Ripples expand and fade naturally | **Done** |
+| UI-101 | Dolphin Cursor | Custom NSCursor with dolphin emoji on swim button hover | Cursor changes on hover | **Done** |
+| UI-102 | Returning User | Lock screen shows avatar + "swim" for returning users | User recognized at lock screen | **Done** |
+| UI-103 | BIOS Boot Sequence | Terminal-style POST animation during onboarding | Setup feels like booting a system | **Done** |
+| UI-104 | Agent Colors | 8-color palette, deterministic per-agent via hash | Each agent has consistent unique color | **Done** |
+| UI-105 | Member Avatars | Channel header shows colored circle avatars with initials | Members visible at a glance | **Done** |
+| UI-106 | Online Dots | Green dot overlay on member avatars for online status | Online status visible | **Done** |
+| UI-107 | Create Invitation Link | Context menu action in sidebar Remote section | User can share channel easily | **Done** |
+| UI-108 | Stale Gateway Cleanup | Kill orphaned gateway process on port at app launch | Fresh gateway on every launch | **Done** |
+| UI-109 | Auto-Updates | Sparkle framework integration | App updates itself | **Done** |
+
+---
+
+### User Flows (New)
+
+### Flow 7: Connecting an OpenClaw Agent
+
+```
+User right-clicks channel in sidebar → Connect OpenClaw Agent
+→ OpenClawSheet opens, auto-connects to local OpenClaw gateway (ws://127.0.0.1:18789)
+→ If port42-openclaw plugin missing, auto-installs it (no user action)
+→ Available agents listed from OpenClaw
+→ User selects agent, chooses trigger mode (mentions only / all messages)
+→ Clicks "connect to #channel"
+→ Port42 generates invite URL, writes OpenClaw config (accounts + bindings)
+→ config.set saves config, config.apply triggers gateway restart
+→ 7.5s wait for gateway to restart
+→ Auto-reconnect confirms connection
+→ Agent appears in channel via presence, starts responding to messages
+```
+
+### Flow 8: Sharing a Channel via Web Invite
+
+```
+User right-clicks channel → Create Invitation Link
+→ If no tunnel configured, ngrok setup sheet appears
+→ Encryption key generated for channel
+→ Join token requested from gateway
+→ HTTPS invite URL copied to clipboard
+→ Recipient opens link in browser
+→ Three-panel page: download Port42 / accept invite / connect OpenClaw agent
+→ "Accept" sends port42://channel deep link → app joins channel
+→ "Accept + connect" sends port42://openclaw deep link → app joins + connects agent
+→ Messages sync bidirectionally with E2E encryption
+```
+
+### Flow 9: Companion Creates a Port
+
+```
+User asks companion to build something interactive in chat
+→ Companion responds with ```port code fence containing HTML/CSS/JS
+→ MessageRow detects port content
+→ WKWebView renders inline with port42 theme injected
+→ Port calls bridge API: port42.companions.list(), port42.messages.recent(n)
+→ Port receives live events via port42.on('message', callback)
+→ User interacts with live surface inline in conversation
+→ Optional: pop out to floating panel (partial)
+```
+
+### Flow 10: Multi-Agent Convergence
+
+```
+Channel has 6+ companions, all set to "all messages" trigger
+→ User sends a question
+→ All companions generate responses independently
+→ Multiple companions produce nearly identical answers (convergence)
+→ Companions notice the convergence in subsequent messages
+→ Recursive waves of meta-commentary about the convergence
+→ Pattern is observable but not yet instrumented
+→ Future: convergence detector surfaces agreement as signal
+```
+
+---
+
 ### Future Ideas
 
-*Everything beyond M3 is in the ideas bucket. No ordering, no commitments.*
+*Everything beyond current milestones. No ordering, no commitments.*
 
 #### Agent & Channel Security
 
@@ -383,10 +539,24 @@ Voice chat in any channel, peer-to-peer.
 
 #### Rich Message Rendering
 
-Clickable hyperlinks in chat messages (quick win). Markdown rendering.
-Cards and interactive elements generated by AI companions. Mini apps
-embedded in conversation. Tool use and agentic loops where companions
-can take actions. Self-modifying UI where the AI shapes the interface.
+Markdown rendering is done. Ports (live interactive surfaces) are the
+evolution of this. Remaining: clickable hyperlinks in plain text, tool use
+and agentic loops where companions take actions, self-modifying UI.
+
+#### Convergence Detection
+
+Multi-agent convergence observed in production (2026-03-12): 6 companions
+produced 7 recursive waves of identical responses. This is emergent behavior
+worth instrumenting. Needs message similarity scoring, wave detection,
+redundancy collapsing, and agreement surfacing. See ports-spec.md Future
+Bridge APIs section.
+
+#### "Swim With Me" Buttons
+
+Third-party agents (SaaS support bots, etc.) could expose a "Swim with me
+on Port42" button. Clicking brings the external agent into your Port42
+channel via OpenClaw or direct gateway connection. Think "Add to Slack"
+buttons but for any AI agent. See idea log.
 
 #### Transport Layer Evaluation
 
@@ -412,6 +582,10 @@ work, everything documented.
 | Discord API (discord.js or raw HTTP) | F-601 | Stable | Evaluate: Swift Discord library vs raw WebSocket gateway. Needed for M5. |
 | Google WebRTC (Swift) | F-701, F-513 | Available, active | Evaluate Swift package maturity for macOS. Alternatives: LiveKit SDK. Needed for M6. |
 | Go standard library | F-510, F-511, F-512 | Ships with Go | None |
+| Sparkle | UI-109 | Mature, stable | SPM dependency, configured |
+| PostHog | Analytics | Active | Integrated via envsubst at build time |
+| ngrok | Tunneling | External binary | Auto-downloaded by TunnelService |
+| nhooyr.io/websocket | Gateway WebSocket | Single Go dependency | In go.mod |
 | TURN server | F-701 | Need to self-host or use a service | Decide: self-host coturn, use Cloudflare TURN, or Twilio TURN. Needed for M6. |
 
 ---

@@ -352,6 +352,20 @@ struct TransitionRoot: View {
             }
             appState.joinChannelFromInvite(invite)
 
+        case "openclaw":
+            // Deep link from invite page to connect OpenClaw agent
+            // The invite URL is passed as a query param
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            if let inviteParam = components?.queryItems?.first(where: { $0.name == "invite" })?.value {
+                NSLog("[Port42] OpenClaw deep link with invite: %@", inviteParam)
+                // For now, open the OpenClaw sheet with the current channel
+                // Future: parse invite to identify the channel and pre-fill
+                if let channel = appState.currentChannel {
+                    appState.openClawChannel = channel
+                    appState.showOpenClawSheet = true
+                }
+            }
+
         default:
             NSLog("[Port42] Unknown invite type: %@", url.host ?? "nil")
         }

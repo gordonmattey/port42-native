@@ -349,8 +349,12 @@ public final class AppState: ObservableObject {
     @Published public var activeSwimSession: SwimSession?
     @Published public var showDreamscape = true
     @Published public var showNgrokSetup = false
+    @Published public var showOpenClawSheet = false
+    @Published public var openClawAvailable = false
     /// Channel waiting for ngrok setup to complete before copying invite link
     public var pendingInviteChannel: Channel?
+    /// Channel for the OpenClaw agent connection sheet
+    public var openClawChannel: Channel?
     /// Agent names currently typing in channels (for typing indicators)
     @Published public var typingAgentNames: Set<String> = []
     private var swimSessions: [String: SwimSession] = [:]
@@ -487,6 +491,12 @@ public final class AppState: ObservableObject {
             }
 
             startChannelObservation()
+
+            // Detect OpenClaw installation
+            openClawAvailable = OpenClawService.isInstalled
+            if openClawAvailable {
+                print("[Port42] OpenClaw detected")
+            }
         } catch {
             print("[Port42] Failed to load state: \(error)")
         }
@@ -496,7 +506,12 @@ public final class AppState: ObservableObject {
         // Always ensure the local gateway is running (ngrok and other proxies connect to it)
         let gp = GatewayProcess.shared
         var didStartGateway = false
-        if !gp.isRunning && !canConnectToPort(gp.port) {
+        if !gp.isRunning {
+            // Kill any stale gateway from a previous session so we run the bundled binary
+            if canConnectToPort(gp.port) {
+                killProcessOnPort(gp.port)
+                usleep(200_000) // 200ms for port to free
+            }
             gp.start()
             didStartGateway = true
         }
@@ -570,6 +585,29 @@ public final class AppState: ObservableObject {
             }
         }
         return result == 0
+    }
+
+    /// Kill any process listening on the given port (used to clear stale gateway processes)
+    private func killProcessOnPort(_ port: Int) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")
+        proc.arguments = ["-ti", "tcp:\(port)"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            for pidStr in output.split(separator: "\n") {
+                if let pid = Int32(pidStr.trimmingCharacters(in: .whitespaces)) {
+                    NSLog("[gateway] killing stale process on port %d (pid %d)", port, pid)
+                    kill(pid, SIGTERM)
+                }
+            }
+        } catch {
+            NSLog("[gateway] lsof failed: %@", error.localizedDescription)
+        }
     }
 
     /// Check if a gateway URL points back to our own local gateway

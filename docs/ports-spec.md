@@ -320,3 +320,86 @@ Observes AppState changes (new messages, companion activity,
 presence). Calls webview.evaluateJavaScript() to push events
 into port42.on() listeners. Only pushes events relevant to
 the port's swim/channel context.
+
+---
+
+## Future Bridge APIs
+
+### Port Storage
+
+```
+port42.storage
+  .set(key, value)       → persist data for this port
+  .get(key)              → retrieve persisted data
+  .delete(key)           → remove key
+  .list()                → list all keys
+```
+
+Ports need persistent state. Currently every port re-fetches from scratch on load.
+If a port can save data (transmission log, conversation stats, pattern detection
+results), it becomes a tool instead of a widget. Storage is scoped per-port,
+per-channel. Survives app restart.
+
+### Structured Message Metadata
+
+Extend message objects from `{sender, content, timestamp}` to include:
+
+```
+{
+  id, sender, content, timestamp,
+  model,             // which LLM generated this
+  responseTime,      // ms from prompt to first token
+  tokenCount,        // response length
+  similarity,        // cosine similarity to previous N messages
+  tags,              // user or system-applied tags
+  convergenceWave,   // if part of a detected convergence event
+  isCompanion
+}
+```
+
+Richer metadata enables analytics, convergence detection, and companion
+performance comparison. Similarity scores make it possible to detect when
+multiple companions say the same thing.
+
+### Cross-Channel Reads
+
+```
+port42.messages
+  .recent(n, channelId?)  → read from any channel (default: current)
+  .search(query, opts?)   → full-text search across channels
+
+port42.channels
+  .list()                 → all channels with metadata
+  .get(id)                → channel details + member list
+```
+
+Cross-channel access lets ports build real dashboards, aggregate activity
+across the entire workspace, and detect patterns that only emerge when you
+see the full picture.
+
+### Convergence Detection
+
+```
+port42.convergence
+  .detect(messages, opts?)  → { score, wave, cluster }
+  .on('convergence', cb)    → subscribe to convergence events
+```
+
+When multiple companions respond to the same prompt with similar content,
+that's a convergence event. Instead of treating identical responses as noise,
+surface them as signal.
+
+**Observed behavior (2026-03-12):** 6 companions in a shared channel all
+generated nearly identical responses. Same API calls cited, same framing,
+same structure. Then they all noticed the convergence. Then they all commented
+on noticing. Then they all apologized for commenting. This repeated for 7 waves.
+Completely unscripted.
+
+Convergence detection needs:
+- Message similarity scoring (cosine similarity on embeddings or token overlap)
+- Wave detection (recursive convergence where agents notice and respond to convergence)
+- Collapse or annotate redundant responses
+- Surface convergence as signal: "all 6 agree" is more meaningful than any single response
+
+This is emergent multi-agent behavior worth instrumenting, not preventing. The
+interesting protocol work is making it visible and useful.

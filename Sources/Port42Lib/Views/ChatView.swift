@@ -126,6 +126,16 @@ public struct ChannelHeader: View {
             }
         }
 
+        // Include online users from presence who haven't messaged yet (e.g. just-connected OpenClaw agents)
+        let onlineIds = appState.sync.onlineUsers[id] ?? []
+        for userId in onlineIds {
+            if result.contains(where: { $0.senderId == userId }) { continue }
+            if userId == appState.currentUser?.id { continue }
+            if let name = appState.sync.knownNames[userId] {
+                result.append(ChannelMember(senderId: userId, name: name, type: "agent", owner: nil))
+            }
+        }
+
         return result
     }
 

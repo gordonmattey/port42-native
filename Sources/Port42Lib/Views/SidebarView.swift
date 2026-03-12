@@ -192,36 +192,43 @@ public struct SidebarView: View {
             let assignedIds = Set(assigned.map { $0.id })
             let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
 
-            if !unassigned.isEmpty {
-                Menu("Add Swimmer") {
-                    ForEach(unassigned) { comp in
-                        Button("@\(comp.displayName)") {
-                            appState.addCompanionToChannel(comp, channel: channel)
+            Menu("Add Swimmer") {
+                if !unassigned.isEmpty {
+                    Section("Local") {
+                        ForEach(unassigned) { comp in
+                            Button("@\(comp.displayName)") {
+                                appState.addCompanionToChannel(comp, channel: channel)
+                            }
+                        }
+                    }
+                }
+
+                Section("Remote") {
+                    Button("Connect OpenClaw Agent...") {
+                        appState.openClawChannel = channel
+                        appState.showOpenClawSheet = true
+                    }
+                    Button("Create Invitation Link") {
+                        let secured = appState.ensureEncryptionKey(for: channel)
+                        if appState.tunnel.authToken.isEmpty {
+                            appState.pendingInviteChannel = secured
+                            appState.showNgrokSetup = true
+                        } else {
+                            Task {
+                                let token = try? await appState.sync.requestToken(channelId: secured.id)
+                                ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                            }
                         }
                     }
                 }
             }
+
             if !assigned.isEmpty {
                 Menu("Remove Swimmer") {
                     ForEach(assigned) { comp in
                         Button("@\(comp.displayName)") {
                             appState.removeCompanionFromChannel(comp, channel: channel)
                         }
-                    }
-                }
-            }
-
-            Divider()
-
-            Button("Copy Invitation") {
-                let secured = appState.ensureEncryptionKey(for: channel)
-                if appState.tunnel.authToken.isEmpty {
-                    appState.pendingInviteChannel = secured
-                    appState.showNgrokSetup = true
-                } else {
-                    Task {
-                        let token = try? await appState.sync.requestToken(channelId: secured.id)
-                        ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
                     }
                 }
             }

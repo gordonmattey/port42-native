@@ -127,7 +127,15 @@ func handleInvite(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("ngrok-skip-browser-warning", "true")
-	fmt.Fprintf(w, invitePage, safeName, safeName, ogDesc, pageURL, safeName, ogDesc, pageURL, safeName, ogDesc, safeName, hostLine, safeName, deepLink, safeName, pageURL)
+	// Build port42://openclaw deep link for one-click OpenClaw connection
+	openclawDeepLink := fmt.Sprintf("port42://openclaw?invite=%s", url.QueryEscape(pageURL))
+
+	// Fallback label for accept button when no host name
+	acceptLabel := "first swim"
+	if safeHost != "" {
+		acceptLabel = safeHost
+	}
+	fmt.Fprintf(w, invitePage, safeName, safeName, ogDesc, pageURL, safeName, ogDesc, pageURL, safeName, ogDesc, safeName, hostLine, deepLink, acceptLabel, openclawDeepLink)
 }
 
 const invitePage = `<!DOCTYPE html>
@@ -169,48 +177,39 @@ const invitePage = `<!DOCTYPE html>
     min-height: 100vh; padding: 20px;
   }
   .card {
-    max-width: 560px; width: 100%%;
+    max-width: 760px; width: 100%%;
     text-align: center;
-  }
-  .box {
-    border: 1px solid #222; border-radius: 12px;
-    padding: 32px 28px; background: #111;
-    margin-bottom: 16px;
   }
   .logo { font-size: 32px; color: #00ff41; margin-bottom: 16px; }
   .brand { font-size: 14px; font-weight: 700; color: #00ff41; letter-spacing: 2px; margin-bottom: 24px; }
-  h1 { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
+  h1 { font-size: 24px; font-weight: 400; margin-bottom: 24px; }
   h1 span { color: #00ff41; }
-  .section-title { font-size: 15px; font-weight: 700; color: #00ff41; margin-bottom: 6px; letter-spacing: 1px; }
-  .section-desc { font-size: 12px; color: #999; margin-bottom: 14px; }
-  .steps { text-align: left; margin: 24px 0; font-size: 13px; color: #999; line-height: 2; }
-  .steps strong { color: #e0e0e0; }
-  .btn {
-    display: block; width: 100%%; padding: 12px;
+  .panels { display: flex; gap: 12px; }
+  .panel {
+    flex: 1; border: 1px solid #222; border-radius: 12px;
+    padding: 28px 20px; background: #111;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; transition: border-color 0.2s;
+  }
+  .panel:hover { border-color: #333; }
+  .panel-icon { font-size: 24px; margin-bottom: 14px; }
+  .panel-title { font-size: 13px; font-weight: 700; color: #e0e0e0; margin-bottom: 6px; }
+  .panel-desc { font-size: 10px; color: #666; line-height: 1.5; margin-bottom: 18px; flex: 1; }
+  .panel-btn {
+    display: block; width: 100%%; padding: 10px 16px;
     border: none; border-radius: 8px; cursor: pointer;
-    font-family: inherit; font-size: 13px; font-weight: 600;
+    font-family: inherit; font-size: 12px; font-weight: 600;
     text-decoration: none; text-align: center;
-    margin-bottom: 10px; transition: opacity 0.2s;
+    transition: opacity 0.2s;
   }
-  .btn:hover { opacity: 0.85; }
-  .btn-primary { background: #00ff41; color: #0a0a0a; }
-  .btn-secondary { background: #222; color: #e0e0e0; }
-  .note { font-size: 11px; color: #555; margin-top: 16px; }
-  .section { text-align: center; }
-  .code-block {
-    background: #0a0a0a; border: 1px solid #222; border-radius: 6px;
-    padding: 12px; font-size: 11px; color: #00ff41; text-align: left;
-    white-space: pre-wrap; word-break: break-all; margin-bottom: 10px;
-    line-height: 1.6;
+  .panel-btn:hover { opacity: 0.85; }
+  .panel-btn-primary { background: #00ff41; color: #0a0a0a; }
+  .panel-btn-secondary { background: #222; color: #e0e0e0; }
+  .panel-btn-outline { background: transparent; color: #e0e0e0; border: 1px solid #333; }
+  .panel-sub { font-size: 9px; font-weight: 400; color: #555; margin-top: 6px; }
+  @media (max-width: 600px) {
+    .panels { flex-direction: column; }
   }
-  .agent-input {
-    width: 100%%; padding: 10px 12px; margin-bottom: 14px;
-    background: #0a0a0a; border: 1px solid #333; border-radius: 6px;
-    color: #00ff41; font-family: inherit; font-size: 13px;
-    outline: none; transition: border-color 0.2s;
-  }
-  .agent-input:focus { border-color: #00ff41; }
-  .agent-input::placeholder { color: #444; }
 </style>
 </head>
 <body>
@@ -219,48 +218,29 @@ const invitePage = `<!DOCTYPE html>
   <div class="brand">PORT42</div>
   <h1>join <span>#%s</span></h1>
   %s
-  <div class="box">
-    <p class="section-title">PORT42 APP</p>
-    <p class="section-desc">join #%s with the native macOS app</p>
-    <div class="steps">
-      <strong>1.</strong> download Port42 for macOS (Apple Silicon)<br>
-      <strong>2.</strong> install the app and open it<br>
-      <strong>3.</strong> come back and accept the invitation
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-icon">&#x2B07;</div>
+      <div class="panel-title">download</div>
+      <div class="panel-desc">get Port42 for macOS</div>
+      <a href="https://github.com/gordonmattey/port42-native/releases/latest/download/Port42.dmg" class="panel-btn panel-btn-outline" download="Port42 Companion Computing.dmg">Port42.dmg</a>
+      <div class="panel-sub">Apple Silicon</div>
     </div>
-    <a href="https://github.com/gordonmattey/port42-native/releases/latest/download/Port42.dmg" class="btn btn-secondary" download="Port42 Companion Computing.dmg">download Port42.dmg</a>
-    <a href="%s" class="btn btn-primary" style="margin-top:10px;margin-bottom:0;">accept invitation</a>
+    <div class="panel">
+      <div class="panel-icon">&#x25CB;</div>
+      <div class="panel-title">accept invite</div>
+      <div class="panel-desc">swim into the channel</div>
+      <a href="%s" class="panel-btn panel-btn-primary">accept</a>
+      <div class="panel-sub">%s</div>
+    </div>
+    <div class="panel">
+      <div class="panel-icon">&#x2699;</div>
+      <div class="panel-title">connect agent</div>
+      <div class="panel-desc">bring your openclaw agent</div>
+      <a href="%s" class="panel-btn panel-btn-secondary">accept + connect</a>
+      <div class="panel-sub">openclaw</div>
+    </div>
   </div>
-  <div class="box">
-    <p class="section-title">OPENCLAW</p>
-    <p class="section-desc">turn your clawd agents into companions to join #%s</p>
-    <input class="agent-input" id="owner-name" type="text" placeholder="enter your gateway hostname (default: clawd)..." oninput="updateCmd()">
-    <input class="agent-input" id="agent-name" type="text" placeholder="enter your companion name (openclaw agent name)..." oninput="updateCmd()">
-    <div class="code-block" id="openclaw-cmd" style="display:none;"></div>
-    <button class="btn btn-secondary" id="copy-btn" onclick="copyCmd()" style="border:none;cursor:pointer;margin-bottom:0;display:none;">copy commands</button>
-    <p class="note" id="cmd-msg"></p>
-  </div>
-<script>
-var inviteURL='%s';
-function updateCmd(){
-  var o=document.getElementById('owner-name').value||'clawd';
-  var a=document.getElementById('agent-name').value;
-  var cmd=document.getElementById('openclaw-cmd');
-  var btn=document.getElementById('copy-btn');
-  if(a){
-    cmd.style.display='block';
-    btn.style.display='block';
-    cmd.textContent=
-      'openclaw plugins install port42-openclaw\n'+
-      'openclaw port42 join --invite "'+inviteURL+'" --agent '+a+' --owner '+o+'\n'+
-      'openclaw agents bind --agent '+a+' --bind port42:'+a+'\n'+
-      'openclaw gateway restart';
-  }else{
-    cmd.style.display='none';
-    btn.style.display='none';
-  }
-}
-function copyCmd(){navigator.clipboard.writeText(document.getElementById('openclaw-cmd').textContent).then(function(){document.getElementById('cmd-msg').textContent='copied!';});}
-</script>
 </div>
 </body>
 </html>

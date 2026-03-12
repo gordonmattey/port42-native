@@ -39,6 +39,12 @@ public struct ContentView: View {
             NgrokSetupSheet(isPresented: $appState.showNgrokSetup)
                 .environmentObject(appState)
         }
+        .sheet(isPresented: $appState.showOpenClawSheet) {
+            if let channel = appState.openClawChannel {
+                OpenClawSheet(isPresented: $appState.showOpenClawSheet, channel: channel)
+                    .environmentObject(appState)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
             showNewChannel = true
         }
