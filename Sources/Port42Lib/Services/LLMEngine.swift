@@ -38,7 +38,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     private var fullResponse = ""
     private var currentTask: URLSessionDataTask?
     private var hasRetriedAuth = false
-    private var lastSendArgs: (messages: [[String: String]], systemPrompt: String, model: String, authConfig: AgentAuthConfig?)?
+    private var lastSendArgs: (messages: [[String: String]], systemPrompt: String, model: String, maxTokens: Int, authConfig: AgentAuthConfig?)?
 
     public init(authResolver: AgentAuthResolver = .shared) {
         self.authResolver = authResolver
@@ -50,6 +50,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         messages: [[String: String]],
         systemPrompt: String,
         model: String = "claude-opus-4-6",
+        maxTokens: Int = 4096,
         authConfig: AgentAuthConfig? = nil,
         delegate: LLMStreamDelegate
     ) throws {
@@ -72,7 +73,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         self.buffer = ""
         self.fullResponse = ""
         self.hasRetriedAuth = false
-        self.lastSendArgs = (messages, systemPrompt, model, authConfig)
+        self.lastSendArgs = (messages, systemPrompt, model, maxTokens, authConfig)
 
         // Build request body
         // OAuth requires the system prompt to be an array
@@ -87,7 +88,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
 
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": maxTokens,
             "stream": true,
             "system": systemValue,
             "messages": messages
@@ -156,6 +157,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
                             messages: args.messages,
                             systemPrompt: args.systemPrompt,
                             model: args.model,
+                            maxTokens: args.maxTokens,
                             authConfig: args.authConfig,
                             delegate: del
                         )

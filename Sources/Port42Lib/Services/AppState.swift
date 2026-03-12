@@ -213,10 +213,15 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             """
 
         do {
+            // Use higher token limit if user message suggests port generation
+            let lastUserMsg = cleaned.last(where: { $0["role"] == "user" })?["content"]?.lowercased() ?? ""
+            let portHint = ["port", "build", "dashboard", "interactive", "visualiz", "widget", "tool"]
+                .contains { lastUserMsg.contains($0) }
             try engine.send(
                 messages: cleaned,
                 systemPrompt: channelPrompt,
                 model: agent.model ?? "claude-opus-4-6",
+                maxTokens: portHint ? 16384 : 4096,
                 delegate: self
             )
         } catch {

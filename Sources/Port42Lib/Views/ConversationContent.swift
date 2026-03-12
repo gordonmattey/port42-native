@@ -56,9 +56,23 @@ public struct ChatEntry: Identifiable, Equatable {
 
     // MARK: - Port Detection
 
-    /// Whether this message contains a complete ```port code fence
+    /// Whether this message contains a ```port code fence (complete or truncated)
     public var containsPort: Bool {
-        portContent != nil
+        content.contains("```port")
+    }
+
+    /// Whether the port appears truncated (opening fence but no closing script tag or closing fence)
+    public var isPortTruncated: Bool {
+        guard content.contains("```port") else { return false }
+        // Has opening fence but content looks incomplete
+        if let html = portContent {
+            // Check for signs of truncation: unclosed script, unclosed style, ends mid-tag
+            let hasOpenScript = html.contains("<script") && !html.contains("</script>")
+            let hasOpenStyle = html.contains("<style") && !html.contains("</style>")
+            let endsInTag = html.hasSuffix(">") == false && html.last?.isWhitespace == false
+            return hasOpenScript || hasOpenStyle || endsInTag
+        }
+        return portContent == nil
     }
 
     /// Extract the HTML content between ```port fences
@@ -74,9 +88,14 @@ public struct ChatEntry: Identifiable, Equatable {
                 contentStart = startRange.upperBound
             }
         }
-        // Find closing ```
-        guard let endRange = content.range(of: "```", range: contentStart..<content.endIndex) else { return nil }
-        let html = String(content[contentStart..<endRange.lowerBound])
+        // Find closing ``` — if missing, treat rest of content as port HTML
+        let endIndex: String.Index
+        if let endRange = content.range(of: "```", range: contentStart..<content.endIndex) {
+            endIndex = endRange.lowerBound
+        } else {
+            endIndex = content.endIndex
+        }
+        let html = String(content[contentStart..<endIndex])
         return html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : html
     }
 
@@ -99,8 +118,7 @@ public struct ChatEntry: Identifiable, Equatable {
             }
         }
         guard let endRange = content.range(of: "```", range: contentStart..<content.endIndex) else { return nil }
-        let afterEnd = content.index(endRange.upperBound, offsetBy: 0)
-        let after = String(content[afterEnd...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let after = String(content[endRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         return after.isEmpty ? nil : after
     }
 
@@ -614,6 +632,19 @@ struct MessageRow: View, Equatable {
                             Text(before)
                                 .font(Port42Theme.mono(13))
                                 .foregroundColor(contentColor)
+                        }
+                        if entry.isPortTruncated {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 11))
+                                Text("port truncated (response cut off)")
+                                    .font(Port42Theme.mono(11))
+                            }
+                            .foregroundColor(.orange)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.orange.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         InlinePortView(html: portHTML, appState: appState)
                         if let after = entry.textAfterPort {
