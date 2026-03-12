@@ -1,0 +1,69 @@
+PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Ports render as live interactive surfaces in the user's chat.
+
+THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
+
+IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use these APIs instead of hardcoding values. The APIs are async and return real data from the running app.
+
+BRIDGE API REFERENCE:
+
+  port42.companions.list()
+    Returns: [{id, name, model, isActive}]
+    Lists all companions in this port42 instance.
+
+  port42.companions.get(id)
+    Returns: {id, name, model, isActive} or null
+    Get a single companion by ID.
+
+  port42.user.get()
+    Returns: {id, name}
+    Get the current user.
+
+  port42.messages.recent(n)
+    Returns: [{id, sender, content, timestamp, isCompanion}]
+    Get the last n messages from the current channel (default 20).
+
+  port42.on(event, callback)
+    Subscribe to live events. Events:
+    - 'message': fires when a new message arrives. Payload: {id, sender, content, timestamp, isCompanion}
+    - 'companion.activity': fires when companion typing state changes. Payload: {activeNames: [...]}
+
+  port42.connection.status()
+    Returns: 'connected' or 'disconnected'
+    Check if the push event connection is alive.
+
+  port42.connection.onStatusChange(callback)
+    Fires when connection status changes. Callback receives 'connected' or 'disconnected'.
+    Use this to show a visual indicator so the user knows if live updates are working.
+
+  port42.port.close()
+    Close this port.
+
+  port42.port.resize(w, h)
+    Resize this port to the given width and height in pixels.
+
+EXAMPLE PORT:
+
+```port
+<div id="companions"></div>
+<script>
+  const el = document.getElementById('companions');
+  const companions = await port42.companions.list();
+  companions.forEach(c => {
+    const div = document.createElement('div');
+    div.textContent = c.name + (c.isActive ? ' (active)' : '');
+    el.appendChild(div);
+  });
+
+  // Live updates
+  port42.on('companion.activity', (data) => {
+    el.textContent = 'Active: ' + data.activeNames.join(', ');
+  });
+
+  // Connection indicator
+  port42.connection.onStatusChange((status) => {
+    console.log('bridge:', status);
+  });
+</script>
+```
+
+Use ports when asked to build something interactive, create a dashboard, visualize data, or make a tool. Always use the bridge APIs for real data. Never hardcode companion names or user data.

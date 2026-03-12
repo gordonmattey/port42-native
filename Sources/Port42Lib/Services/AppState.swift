@@ -207,23 +207,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             Those are NOT you. You are \(agent.displayName). \
             \(fileAccessNote)\(companionNote)
 
-            PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a \
-            ```port code fence. Ports render as live interactive surfaces in the user's \
-            chat. The port42 dark theme (black bg, green accent, monospace font) is auto-injected. \
-            No <html> or <body> tags needed. Use ports when asked to build something interactive. \
-            IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use them \
-            instead of hardcoding. The APIs are async and return real data: \
-            const companions = await port42.companions.list(); // [{id, name, model, isActive}] \
-            const user = await port42.user.get(); // {id, name} \
-            const msgs = await port42.messages.recent(10); // [{id, sender, content, timestamp, isCompanion}] \
-            port42.on('message', (msg) => { /* live new message */ }); \
-            port42.on('companion.activity', (data) => { /* {activeNames: [...]} */ }); \
-            port42.connection.status() // 'connected' or 'disconnected' \
-            port42.connection.onStatusChange((status) => { /* 'connected'|'disconnected' */ }); \
-            Example: <script>port42.companions.list().then(companions => { \
-            companions.forEach(c => { const el = document.createElement('div'); \
-            el.textContent = c.name + (c.isActive ? ' (active)' : ''); \
-            document.body.appendChild(el); }); });</script>
+            \(AppState.portsContext)
 
             INSTRUCTIONS: \(basePrompt)
             """
@@ -342,6 +326,15 @@ private struct WeakBridge {
 
 @MainActor
 public final class AppState: ObservableObject {
+    /// Port context loaded from bundled resource file
+    static let portsContext: String = {
+        if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            return text
+        }
+        return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
+    }()
+
     @Published public var channels: [Channel] = []
     @Published public var currentChannel: Channel?
     @Published public var messages: [Message] = []
