@@ -1,6 +1,6 @@
 # Ports Implementation Plan
 
-**Last updated:** 2026-03-11
+**Last updated:** 2026-03-12
 
 **Constraint:** No breaking changes. All existing chat, swim, and sync
 functionality must continue working at every step.
@@ -262,97 +262,175 @@ functionality must continue working at every step.
 
 ## Phase 2: Pop Out and Dock (P-200 through P-206)
 
-### Step 7: Pop Out and Virtual Window (P-200, P-201)
+### Design Decisions
 
-**Goal:** User clicks pop out on inline port, it becomes a floating panel.
+These apply across all Phase 2 steps:
+
+1. **WebView transfer, not recreation.** When popping out, transfer the existing
+   WKWebView from inline to floating. This preserves JS state, storage, event
+   listeners, and DOM. The port doesn't "restart" on pop-out.
+
+2. **Bridge lifecycle extends.** Currently bridges die when inline view scrolls
+   away. For popped ports, PortWindowManager owns the PortPanel which holds the
+   bridge reference. Same weak-ref cleanup pattern, longer lifetime.
+
+3. **Single dock slot first.** One docked port (right side only). Multiple docks
+   and bottom docking are future work. Keep it simple.
+
+4. **Popped port is independent.** Once popped, it lives outside the message
+   stream. Source message deletion does not kill it.
+
+5. **Port update matching.** New ```port from same companion in same channel
+   replaces the existing popped port's HTML rather than creating a duplicate.
+   Matching key: (createdBy, channelId).
+
+6. **Scroll preservation.** When ChatView transitions to HSplitView for docking,
+   use ScrollViewReader to preserve chat scroll position.
+
+---
+
+### Step 7a: PortWindowManager + Pop-Out Button (P-200)
+
+**Goal:** User clicks pop out, port detaches from chat into a floating panel.
 
 **Files to create:**
-- `Sources/Port42Lib/Views/PortWindowManager.swift` — manages port panels
+- `Sources/Port42Lib/Views/PortWindowManager.swift` — manages floating/docked port panels
 
 **Files to modify:**
-- `Sources/Port42Lib/Views/PortView.swift` — add pop-out button overlay
+- `Sources/Port42Lib/Views/ConversationContent.swift` — add pop-out button to InlinePortView
 - `Sources/Port42Lib/Views/ContentView.swift` — overlay floating panels
 
 **What to build:**
 
-1. "↗" button in top-right corner of inline PortView.
+1. `PortPanel` struct: `{ id, html, bridge, position, size, isDocked, title, channelId, createdBy, messageId }`.
+   Title extracted from `<title>` tag in HTML, fallback "port".
 
-2. PortWindowManager (ObservableObject on AppState). Array of PortPanel
-   structs: { id, html, position, size, isDocked, title, channelId }.
+2. `PortWindowManager` as `@Published` property on AppState (or standalone
+   ObservableObject). Holds `panels: [PortPanel]`.
 
-3. Pop out adds PortPanel. Inline port collapses to placeholder.
+3. "↗" pop-out button in top-right corner of InlinePortView. On click:
+   - Creates PortPanel from current inline port state
+   - Transfers bridge reference (not recreated)
+   - Inline port collapses to a placeholder ("port popped out")
 
-4. ContentView overlays floating panels. Each is draggable, resizable,
-   has title bar (from `<title>` or "port"), close button, drag handle.
+4. ContentView overlays floating panels via `.overlay { ForEach(panels) { ... } }`.
+   Same pattern already used for QuickSwitcher and HelpOverlay.
 
 **Unit tests:**
 - `testPortWindowManagerAdd` — adding panel increases count
 - `testPortWindowManagerRemove` — removing panel decreases count
 - `testPortPanelTitleExtraction` — title parsed from HTML `<title>` tag
+- `testPortPanelTitleFallback` — no title tag returns "port"
 
 **User test:**
-- Render inline port, click pop out, verify panel appears floating
-- Drag panel around inside port42 window
-- Verify inline port collapses to placeholder
-- Verify chat still scrolls and functions normally underneath
+- Render inline port, click ↗, verify panel appears floating
+- Verify inline port shows "popped out" placeholder
+- Verify chat still scrolls normally underneath
+
+---
+
+### Step 7b: Draggable + Resizable Panel (P-201)
+
+**Goal:** Floating panel feels like a real window inside port42.
+
+**Files to modify:**
+- `Sources/Port42Lib/Views/PortWindowManager.swift` — FloatingPortView
+
+**What to build:**
+
+1. FloatingPortView with title bar: drag handle area, title text, close button.
+   DragGesture on title bar updates panel position.
+
+2. Resize handle in bottom-right corner. DragGesture updates panel size.
+   Minimum size: 200x150. Maximum: parent bounds.
+
+3. Close button removes from PortWindowManager. Bridge cleaned up via
+   weak reference pattern (automatic).
+
+4. Z-ordering: clicking a panel brings it to front (reorder in array).
+
+**User test:**
+- Drag panel by title bar, verify smooth repositioning
+- Resize from corner, verify content reflows
+- Close panel, verify clean removal
+- Multiple panels, click one to bring to front
 
 ---
 
 ### Step 8: Docking (P-202)
 
-**Goal:** Snap floating port to side, splitting the view.
+**Goal:** Snap floating port to right edge, splitting the view.
 
 **Files to modify:**
-- `Sources/Port42Lib/Views/ContentView.swift` — HSplit/VSplit layout
-- `Sources/Port42Lib/Views/PortWindowManager.swift` — dock state
+- `Sources/Port42Lib/Views/ContentView.swift` — conditional HSplitView layout
+- `Sources/Port42Lib/Views/PortWindowManager.swift` — dock/undock state
 
 **What to build:**
 
-1. Drag to right edge → dock right. ContentView becomes HSplitView.
-2. Drag to bottom → dock bottom. ContentView becomes VSplitView.
-3. Undock button → back to floating.
-4. Resizable divider between chat and docked port.
+1. Dock button in floating panel title bar (or drag-to-edge snap).
+   Sets `panel.isDocked = true`. Only one panel can be docked at a time.
+
+2. ContentView detail pane becomes conditional:
+   ```
+   if dockedPanel exists:
+     HSplitView { ChatView() | DockedPortView }
+   else:
+     ChatView()
+   ```
+   HSplitView nested inside NavigationSplitView detail pane (confirmed compatible).
+
+3. Undock button in docked port header. Returns to floating.
+
+4. Resizable divider between chat and docked port (HSplitView default behavior).
+
+5. ScrollViewReader preserves chat scroll position across layout transitions.
 
 **Unit tests:**
-- `testDockRight` — sets isDocked, dockPosition = .right
-- `testDockBottom` — sets isDocked, dockPosition = .bottom
-- `testUndock` — clears isDocked, returns to floating
+- `testDockRight` — sets isDocked, only one docked at a time
+- `testUndock` — clears isDocked, returns to floating with position
+- `testDockReplacesExisting` — docking new port undocks previous
 
 **User test:**
-- Pop out a port, drag to right edge, verify it docks
+- Pop out a port, click dock button, verify it snaps to right
 - Verify chat resizes, divider is draggable
 - Click undock, verify it floats again
+- Dock a different port, verify first one undocks
 - Verify sidebar, channels, companions all unaffected
 
 ---
 
 ### Step 9: Persistence, Update, Close, Multiple (P-203 through P-206)
 
-**Goal:** Ports survive channel switches, update, close cleanly, coexist.
+**Goal:** Ports survive channel switches, update in place, close cleanly, coexist.
 
 **What to build:**
 
-1. **Persistence:** PortWindowManager on AppState. Ports survive channel switch.
-   Bridge stays bound to original channel context.
+1. **Persistence:** PortWindowManager lives on AppState. Panels survive channel
+   switch. Bridge stays bound to original channel context (channelId captured at
+   pop-out time). When switching back to port's channel, events resume normally.
 
-2. **Update:** New ```port from same companion in same channel updates existing
-   popped-out port HTML. Otherwise creates new inline.
+2. **Update:** New ```port from same companion (createdBy) in same channel updates
+   existing popped/docked port HTML via `webView.loadHTMLString()`. Otherwise
+   creates new inline. Bridge and JS state preserved where possible.
 
-3. **Close:** Close button removes from manager. Inline collapses to code preview.
+3. **Close:** Close button removes from manager. If inline source message still
+   visible, it un-collapses back to inline port (or stays as code preview).
 
-4. **Multiple:** Array of panels. Multiple docked (stacked) or floating.
+4. **Multiple floating:** Array of panels. All float independently. Only one
+   can be docked. Z-ordering managed by click-to-front.
 
 **Unit tests:**
 - `testPortSurvivesChannelSwitch` — switch channel, port panel still exists
 - `testPortUpdateReplacesContent` — same companion sends new port, content updates
 - `testPortClose` — close removes from manager
-- `testMultiplePorts` — two ports coexist
+- `testMultiplePorts` — two floating ports coexist
+- `testDockOnlyOne` — docking second port undocks first
 
 **User test:**
-- Open port, switch channels, switch back — port still docked
-- Ask companion to update the port — verify it refreshes in place
-- Close port — verify clean removal
-- Open two ports — verify both visible and functional
+- Open port, switch channels, switch back, port still docked
+- Ask companion to update the port, verify it refreshes in place
+- Close port, verify clean removal
+- Open two ports, verify both visible and functional
 
 ---
 
@@ -389,43 +467,37 @@ functionality must continue working at every step.
 
 ---
 
-### Step 11: Bridge Write Operations (P-301, P-302)
+### Step 11: Bridge Write Operations (P-301, P-302) ✅
 
-**Goal:** Ports can send messages and list channels.
+Already implemented ahead of schedule during Phase 1:
 
-**What to build:**
-
-1. `port42.messages.send(text)` calls appState.sendMessage().
-2. `port42.channels.list()` returns channels from AppState.
-
-**Unit tests:**
-- `testMessageSend` — verify message appears in channel
-- `testChannelsList` — returns all channels with correct fields
-
-**User test:**
-- Port with a button that sends a predefined message — click it, verify message appears in chat
-- Verify message syncs to peers as normal
+- `port42.messages.send(text)` — sends message to current channel ✅
+- `port42.channel.list()` — returns all channels ✅
+- `port42.channel.current()` — returns current channel with members ✅
+- `port42.channel.switchTo(id)` — switch to channel by ID ✅
+- `port42.storage.*` — full CRUD with channel/global/shared scoping ✅
 
 ---
 
 ### Step 12: Permissions (P-303)
 
-**Goal:** User approves before ports take write actions.
+**Goal:** User approves before ports take AI actions.
 
 **What to build:**
 
-1. First call to `port42.ai.complete()` or `port42.messages.send()` shows
-   SwiftUI alert: "This port wants to [action]. Allow?"
+1. First call to `port42.ai.complete()` shows SwiftUI alert:
+   "This port wants to use AI. Allow?"
 2. Permission stored per port session. Reset on close.
+3. Read APIs and messages.send are allowed by default (companion created the port).
 
 **Unit tests:**
-- `testPermissionPromptOnFirstWrite` — first write triggers prompt
-- `testPermissionCached` — second write skips prompt
+- `testPermissionPromptOnFirstAI` — first AI call triggers prompt
+- `testPermissionCached` — second AI call skips prompt
 - `testPermissionResetOnClose` — new port session requires new approval
 
 **User test:**
-- Port tries to send message — verify alert appears
-- Approve — verify message sends
+- Port tries AI call — verify alert appears
+- Approve — verify response streams
 - Close port, reopen — verify prompt appears again
 
 ---
@@ -433,23 +505,25 @@ functionality must continue working at every step.
 ## Build Order Summary
 
 ```
-Step 1:  Port detection + static render     → ports appear in chat
-Step 2:  Bridge core                        → ports talk to native
-Step 3:  Bridge read APIs                   → ports read data
-Step 4:  Bridge events                      → ports update live
-Step 5:  Sandbox                            → ports can't escape
-Step 6:  Companion context                  → companions know about ports
-Phase 1 complete ─────────────────────────────────────────────
+Step 1:  Port detection + static render     → ports appear in chat       ✅
+Step 2:  Bridge core                        → ports talk to native       ✅
+Step 3:  Bridge read APIs                   → ports read data            ✅
+Step 4:  Bridge events + connection health  → ports update live          ✅
+Step 5:  Sandbox                            → ports can't escape         ✅
+Step 6:  Companion context                  → companions know about ports ✅
+  bonus: channel APIs, messages.send, storage, viewport, console, modules ✅
+Phase 1 complete ─────────────────────────────────────────────────────────
 
-Step 7:  Pop out + virtual window           → ports detach from chat
-Step 8:  Docking                            → ports snap to sides
+Step 7a: PortWindowManager + pop-out button  → ports detach from chat     ← NEXT
+Step 7b: Draggable + resizable panels       → ports feel like windows
+Step 8:  Docking (right side, single slot)  → ports snap to side
 Step 9:  Persistence + update + close       → ports are managed
-Phase 2 complete ─────────────────────────────────────────────
+Phase 2 ──────────────────────────────────────────────────────────────────
 
 Step 10: Bridge AI                          → ports think
-Step 11: Bridge write ops                   → ports act
-Step 12: Permissions                        → user controls ports
-Phase 3 complete ─────────────────────────────────────────────
+Step 11: Bridge write ops                   → DONE (moved to Phase 1)    ✅
+Step 12: Permissions                        → user controls AI calls
+Phase 3 ──────────────────────────────────────────────────────────────────
 ```
 
 ## First Demo

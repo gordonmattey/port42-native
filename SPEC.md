@@ -543,13 +543,43 @@ Markdown rendering is done. Ports (live interactive surfaces) are the
 evolution of this. Remaining: clickable hyperlinks in plain text, tool use
 and agentic loops where companions take actions, self-modifying UI.
 
-#### Convergence Detection
+#### Multi-Agent Coordination (The 7 Notepad Problem)
 
-Multi-agent convergence observed in production (2026-03-12): 6 companions
-produced 7 recursive waves of identical responses. This is emergent behavior
-worth instrumenting. Needs message similarity scoring, wave detection,
-redundancy collapsing, and agreement surfacing. See ports-spec.md Future
-Bridge APIs section.
+Observed in production (2026-03-12): asked one channel to "build a notepad."
+Got seven. Asked them to describe the problem. Got six near-identical descriptions.
+The room proved the problem twice while trying to name it once.
+
+**Three issues, in order of importance:**
+
+1. **Too many companions talk.** The ratio was ~6:1 companion-to-human messages.
+   You can't steer because five responses arrive for every one thing you type.
+   Default behavior is "I was prompted, so I respond." Default should be
+   "someone already covered this, so I don't."
+
+2. **No coordination on builds.** When you say "build X," every companion builds
+   independently. No way to claim a task or defer. Result: duplicate work every time.
+
+3. **Ports are per-message islands.** Two companions can't render into the same
+   surface. Workaround discovered: one port listens via `port42.on('message')`,
+   companions contribute by talking. That pattern works today.
+
+**Immediate fix (no code):** address companions by name. "engineer, build this"
+instead of "build this." That's the coordination primitive that already exists.
+
+**Behavioral change needed:** if someone already said what you were going to say,
+don't say it. If someone already built the thing, don't build another one. Wait
+for the human to respond before piling on.
+
+**Design principle: fan-out for divergence, fan-in for convergence.** Swarm is
+valuable when generating ideas, exploring options, building prototypes. But
+synthesis should be done by fewer companions. Many voices in, one or two voices
+out. Pattern today: "everyone contribute, then engineer synthesize what we said."
+Eventually this could be a routing mode (brainstorm → synthesize handoff) but
+the manual version works now by addressing one companion for the summary.
+
+**Later, maybe:** task claiming, role-based routing, shared port surfaces,
+convergence detection (message similarity scoring, wave detection, redundancy
+collapsing, agreement surfacing). But the 80% fix is just fewer companions talking.
 
 #### "Swim With Me" Buttons
 
