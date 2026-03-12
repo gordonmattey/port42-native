@@ -542,7 +542,9 @@ struct InlinePortView: View {
             )
             .onAppear {
                 if bridge == nil {
-                    bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id)
+                    let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id)
+                    bridge = b
+                    appState.registerPortBridge(b)
                 }
             }
     }

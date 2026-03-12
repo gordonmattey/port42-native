@@ -323,6 +323,14 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     }
 }
 
+// MARK: - Weak Bridge Wrapper
+
+/// Weak wrapper for PortBridge references so ports can be deallocated naturally
+private struct WeakBridge {
+    weak var bridge: PortBridge?
+    init(_ bridge: PortBridge) { self.bridge = bridge }
+}
+
 // MARK: - App State
 
 @MainActor
@@ -360,6 +368,11 @@ public final class AppState: ObservableObject {
     public let tunnel = TunnelService.shared
     let fileResolver = FileResolver()
 
+    /// Active port bridges for event pushing
+    private var activeBridges: [WeakBridge] = []
+    private var messageSink: AnyCancellable?
+    private var typingSink: AnyCancellable?
+
     private var channelObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
     private var unreadObservation: AnyDatabaseCancellable?
@@ -376,6 +389,53 @@ public final class AppState: ObservableObject {
             self?.objectWillChange.send()
         }
         loadInitialState()
+        setupPortEventObservers()
+    }
+
+    // MARK: - Port Bridge Events
+
+    /// Register a port bridge for live event pushing
+    public func registerPortBridge(_ bridge: PortBridge) {
+        // Clean up dead references
+        activeBridges.removeAll { $0.bridge == nil }
+        activeBridges.append(WeakBridge(bridge))
+    }
+
+    private func setupPortEventObservers() {
+        // Push new messages to active ports
+        messageSink = $messages
+            .dropFirst()  // skip initial value
+            .removeDuplicates { $0.count == $1.count && $0.last?.id == $1.last?.id }
+            .sink { [weak self] msgs in
+                guard let self, let msg = msgs.last else { return }
+                let data: [String: Any] = [
+                    "id": msg.id,
+                    "sender": msg.senderName,
+                    "content": msg.content,
+                    "timestamp": ISO8601DateFormatter().string(from: msg.timestamp),
+                    "isCompanion": msg.isAgent
+                ]
+                self.pushEventToBridges("message", data: data)
+            }
+
+        // Push companion activity changes to active ports
+        typingSink = $typingAgentNames
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] names in
+                guard let self else { return }
+                let data: [String: Any] = [
+                    "activeNames": Array(names)
+                ]
+                self.pushEventToBridges("companion.activity", data: data)
+            }
+    }
+
+    private func pushEventToBridges(_ event: String, data: Any) {
+        activeBridges.removeAll { $0.bridge == nil }
+        for weak in activeBridges {
+            weak.bridge?.pushEvent(event, data: data)
+        }
     }
 
     private func loadInitialState() {
