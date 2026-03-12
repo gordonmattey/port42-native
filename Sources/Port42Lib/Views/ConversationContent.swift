@@ -54,6 +54,56 @@ public struct ChatEntry: Identifiable, Equatable {
         return senderName
     }
 
+    // MARK: - Port Detection
+
+    /// Whether this message contains a complete ```port code fence
+    public var containsPort: Bool {
+        portContent != nil
+    }
+
+    /// Extract the HTML content between ```port fences
+    public var portContent: String? {
+        guard let startRange = content.range(of: "```port") else { return nil }
+        // Skip past the ```port tag and any trailing whitespace/newline
+        var contentStart = startRange.upperBound
+        if contentStart < content.endIndex {
+            let afterTag = content[contentStart...]
+            if let newline = afterTag.firstIndex(where: { $0 == "\n" || $0 == "\r" }) {
+                contentStart = content.index(after: newline)
+            } else {
+                contentStart = startRange.upperBound
+            }
+        }
+        // Find closing ```
+        guard let endRange = content.range(of: "```", range: contentStart..<content.endIndex) else { return nil }
+        let html = String(content[contentStart..<endRange.lowerBound])
+        return html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : html
+    }
+
+    /// Text before the port fence (if any)
+    public var textBeforePort: String? {
+        guard let startRange = content.range(of: "```port") else { return nil }
+        let before = String(content[content.startIndex..<startRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return before.isEmpty ? nil : before
+    }
+
+    /// Text after the port fence (if any)
+    public var textAfterPort: String? {
+        guard let startRange = content.range(of: "```port") else { return nil }
+        var contentStart = startRange.upperBound
+        if contentStart < content.endIndex {
+            let afterTag = content[contentStart...]
+            if let newline = afterTag.firstIndex(where: { $0 == "\n" || $0 == "\r" }) {
+                contentStart = content.index(after: newline)
+            }
+        }
+        guard let endRange = content.range(of: "```", range: contentStart..<content.endIndex) else { return nil }
+        let afterEnd = content.index(endRange.upperBound, offsetBy: 0)
+        let after = String(content[afterEnd...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return after.isEmpty ? nil : after
+    }
+
     public var formattedTime: String? {
         guard let timestamp else { return nil }
         let formatter = DateFormatter()
@@ -451,6 +501,18 @@ struct MessageRow: View, Equatable {
                         Text("...")
                             .font(Port42Theme.mono(13))
                             .foregroundColor(agentColor.opacity(0.5))
+                    } else if entry.containsPort, let portHTML = entry.portContent {
+                        if let before = entry.textBeforePort {
+                            Text(before)
+                                .font(Port42Theme.mono(13))
+                                .foregroundColor(contentColor)
+                        }
+                        InlinePortView(html: portHTML)
+                        if let after = entry.textAfterPort {
+                            Text(after)
+                                .font(Port42Theme.mono(13))
+                                .foregroundColor(contentColor)
+                        }
                     } else {
                         Text(entry.content)
                             .font(Port42Theme.mono(13))
@@ -459,6 +521,23 @@ struct MessageRow: View, Equatable {
                 }
             }
         }
+    }
+}
+
+// MARK: - Inline Port View (manages height state for PortView)
+
+struct InlinePortView: View {
+    let html: String
+    @State private var height: CGFloat = 100
+
+    var body: some View {
+        PortView(html: html, height: $height)
+            .frame(height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Port42Theme.border, lineWidth: 1)
+            )
     }
 }
 

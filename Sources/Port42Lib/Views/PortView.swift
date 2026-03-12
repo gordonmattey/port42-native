@@ -1,0 +1,158 @@
+import SwiftUI
+import WebKit
+
+// MARK: - Inline Port Renderer
+
+/// Renders a port (companion-generated HTML/CSS/JS) in a sandboxed WKWebView.
+public struct PortView: NSViewRepresentable {
+    let html: String
+    @Binding var height: CGFloat
+
+    public init(html: String, height: Binding<CGFloat>) {
+        self.html = html
+        self._height = height
+    }
+
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    public func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = prefs
+
+        // Height reporting script: posts document height after load and on resize
+        let heightScript = WKUserScript(
+            source: """
+            (function() {
+                function reportHeight() {
+                    const h = document.body.scrollHeight;
+                    window.webkit.messageHandlers.portHeight.postMessage(h);
+                }
+                window.addEventListener('load', function() {
+                    reportHeight();
+                    new ResizeObserver(reportHeight).observe(document.body);
+                });
+                // Also report after a short delay for dynamic content
+                setTimeout(reportHeight, 100);
+                setTimeout(reportHeight, 500);
+            })();
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(heightScript)
+        config.userContentController.add(context.coordinator, name: "portHeight")
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.allowsMagnification = false
+
+        loadContent(webView)
+        return webView
+    }
+
+    public func updateNSView(_ webView: WKWebView, context: Context) {
+        // Reload if HTML changed
+        if context.coordinator.lastHTML != html {
+            context.coordinator.lastHTML = html
+            loadContent(webView)
+        }
+    }
+
+    private func loadContent(_ webView: WKWebView) {
+        let document = wrapHTML(html)
+        webView.loadHTMLString(document, baseURL: nil)
+    }
+
+    /// Wrap port content in a full HTML document with port42 theme and CSP
+    private func wrapHTML(_ body: String) -> String {
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta http-equiv="Content-Security-Policy"
+              content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                background: #111;
+                color: #e0e0e0;
+                font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+                font-size: 13px;
+                line-height: 1.5;
+                padding: 12px;
+                overflow: hidden;
+            }
+            a { color: #00ff41; }
+            button, input, select, textarea {
+                font-family: inherit;
+                font-size: inherit;
+                color: #e0e0e0;
+                background: #1a1a1a;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 6px 10px;
+                outline: none;
+            }
+            button {
+                cursor: pointer;
+                background: #00ff41;
+                color: #0a0a0a;
+                border: none;
+                font-weight: 600;
+                padding: 6px 14px;
+            }
+            button:hover { opacity: 0.85; }
+            input:focus, textarea:focus { border-color: #00ff41; }
+            ::-webkit-scrollbar { width: 6px; }
+            ::-webkit-scrollbar-track { background: transparent; }
+            ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        </style>
+        </head>
+        <body>
+        \(body)
+        </body>
+        </html>
+        """
+    }
+
+    // MARK: - Coordinator
+
+    public class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        let parent: PortView
+        var lastHTML: String
+
+        init(_ parent: PortView) {
+            self.parent = parent
+            self.lastHTML = parent.html
+        }
+
+        // Block all navigation (sandbox)
+        public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.navigationType == .other {
+                // Allow initial load
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
+        }
+
+        // Receive height updates from JS
+        public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "portHeight", let h = message.body as? CGFloat {
+                DispatchQueue.main.async {
+                    let clamped = min(max(h, 40), 600)
+                    if abs(self.parent.height - clamped) > 1 {
+                        self.parent.height = clamped
+                    }
+                }
+            }
+        }
+    }
+}
