@@ -39,7 +39,7 @@ public struct PortView: NSViewRepresentable {
         // Attach bridge if available (injects port42.* namespace)
         bridge?.attach(to: config)
 
-        // Height reporting script: posts document height after load and on resize
+        // Height reporting + viewport width tracking
         let heightScript = WKUserScript(
             source: """
             (function() {
@@ -47,12 +47,19 @@ public struct PortView: NSViewRepresentable {
                     const h = document.body.scrollHeight;
                     window.webkit.messageHandlers.portHeight.postMessage(h);
                 }
+                function updateWidth() {
+                    const w = document.documentElement.clientWidth;
+                    document.documentElement.style.setProperty('--port-width', w + 'px');
+                    if (window.port42) window.port42.viewport = { width: w };
+                }
                 window.addEventListener('load', function() {
                     reportHeight();
-                    new ResizeObserver(reportHeight).observe(document.body);
+                    updateWidth();
+                    new ResizeObserver(function() { reportHeight(); updateWidth(); }).observe(document.body);
                 });
-                setTimeout(reportHeight, 100);
-                setTimeout(reportHeight, 500);
+                window.addEventListener('resize', updateWidth);
+                setTimeout(function() { reportHeight(); updateWidth(); }, 100);
+                setTimeout(function() { reportHeight(); updateWidth(); }, 500);
             })();
             """,
             injectionTime: .atDocumentEnd,
