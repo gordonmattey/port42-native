@@ -208,25 +208,59 @@ Target: The ouroboros. The fish swims in itself.
 
 ### Phase 2: Pop Out and Dock
 
-| ID | Feature | Description | Done When |
-|----|---------|-------------|-----------|
-| P-200 | Pop Out | Button on inline port to detach into floating panel | User clicks pop out, port appears as panel |
-| P-201 | Virtual Window | Floating panel, draggable, resizable, title bar | Port panel moves and resizes within port42 |
-| P-202 | Docking | Snap to right, bottom, or left edge. Chat resizes | Docked port splits the view |
-| P-203 | Port Persistence | Popped-out ports survive channel switches AND app restarts. Save port state (HTML, docked/floating, size, position) to DB. Restore on launch. | Switch channels, docked port stays. Quit and relaunch, ports come back. |
-| P-204 | Port Update | New port from same companion replaces existing | Companion iterates without duplicates |
-| P-205 | Port Close | Close button dismisses cleanly | Closing is clean and reversible |
-| P-206 | Multiple Ports | Multiple popped-out/docked at once | Two ports docked, or one docked and one floating |
-| P-207 | Cursor States | Correct cursor for each zone: green circle (default), resizeLeftRight (dock divider), no hand cursor on title bars. PortDragNSView and main app title bar should use custom arrow, not system hand. WKWebView content uses its own CSS cursors. | No stray hand cursors anywhere |
-| P-208 | Port UDIDs | Stable unique identifier per port instance. Persists across dock/undock/restart. Used by bridge JS API (`port42.ports.list()` etc.) to reference specific ports. Generated on first pop-out, stored in DB with port state. | Every port has a stable ID accessible via `port42.port.info().id` and `port42.ports.list()` |
-| P-209 | Port Channel Context | Popped-out ports keep their origin channel context by default (`port42.channel.current()` returns the channel they were created in). But need to decide: should ports optionally follow the user to the active channel? Options: (1) always origin channel, (2) always active channel, (3) `port42.channel.follow(true/false)` lets the port choose. Also need `port42.on('channel.switch')` event so ports can react to navigation. | Port has clear, predictable channel context regardless of which channel the user is viewing |
+**Core (done):**
+
+| ID | Feature | Status |
+|----|---------|--------|
+| P-200 | Pop Out (inline → floating NSPanel) | ✅ Done |
+| P-201 | Virtual Window (native drag, resize, title bar) | ✅ Done |
+| P-202 | Docking (right side, HStack + draggable divider) | ✅ Done |
+| P-203 | Port Persistence (channel switch + app restart, SQLite v11) | ✅ Done |
+| P-204 | Port Update (same companion replaces existing panel) | ✅ Done |
+| P-205 | Port Close (floating + docked) | ✅ Done |
+
+**Port Lifecycle (remaining):**
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-210 | Close to Preview | Closing a popped-out port collapses it back to a compact code block preview with title + "reopen" button. Not destructive. | High | Close shows preview, click reopens the port |
+| P-211 | Inline Port Update | Companion sends updated port that replaces the existing inline port in the same message, not a new message. Running popped-out version also updates. | High | "Change the chart to weekly" updates the live port in place |
+| P-209 | Port Channel Context | Ports pin to origin channel by default. `port42.channel.follow(true/false)` lets port choose. Affects what `port42.channel.current()` and `port42.messages.recent()` return. | High | Port has predictable channel context when user navigates away |
+
+**Events:**
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-212 | Event: port.docked | Fires when user docks a port `{ id, title }` | Medium | `port42.on('port.docked', cb)` fires |
+| P-213 | Event: port.undocked | Fires when user undocks/floats a port `{ id, title }` | Medium | `port42.on('port.undocked', cb)` fires |
+| P-214 | Event: channel.switch | Fires when user navigates to different channel `{ id, name, previousId }` | Medium | `port42.on('channel.switch', cb)` fires |
+| P-215 | Event: companion.joined | Fires when companion enters channel `{ id, name }` | Low | `port42.on('companion.joined', cb)` fires |
+| P-216 | Event: companion.left | Fires when companion leaves channel `{ id, name }` | Low | `port42.on('companion.left', cb)` fires |
+| P-217 | Event: presence | Online status changes `{ online: [names] }` | Low | `port42.on('presence', cb)` fires |
+
+**Polish:**
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-206 | Multiple Dock Zones | Right dock splits vertically for 2+ ports. Optional slots above sidebar channel list or below name/settings. Full tiling via Window Commander (P-220). | Medium | Two ports docked right (split vertically) |
+| P-207 | Cursor States | Green circle default, resizeLeftRight on dock divider, no hand cursor on title bars or drag areas. WKWebView uses its own CSS cursors. | Medium | No stray hand cursors |
+| P-208 | Port UDIDs | Stable unique ID per port. Persists across dock/undock/restart. Accessible via `port42.port.info().id` and `port42.ports.list()`. | Medium | Every port has a stable ID |
 
 ### Phase 3: Generative Ports
 
-| ID | Feature | Description | Done When |
-|----|---------|-------------|-----------|
-| P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming | Port can ask AI and stream the response |
-| P-301 | Port Permissions | Permission prompts for AI calls. Reads/sends allowed by default | User approves before AI actions |
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming | High | Port can call AI and stream response |
+| P-301 | Port Permissions | Permission prompts for AI calls. Reads/sends allowed by default | High | User approves before AI actions |
+
+### Phase 4: Advanced Bridge APIs
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-400 | Port Window Management | `port42.ports.list/dock/undock/close/arrange` + lifecycle events. Enables "commander" ports that manage other ports and retile layouts. | High | A port can query and rearrange other ports |
+| P-401 | Cross-Channel Reads | `port42.messages.recent(n, channelId?)` and `port42.messages.search(query)` across channels | Medium | Port can read messages from any channel |
+| P-402 | Structured Message Metadata | Extend messages with `model`, `responseTime`, `tokenCount`, `similarity`, `tags` | Medium | Analytics ports can compare companion performance |
+| P-403 | Convergence Detection | `port42.convergence.detect(messages)` with similarity scoring and wave detection | Low | Convergence events surfaced as signal |
 
 ---
 
@@ -317,15 +351,7 @@ SQLite-backed. Survives app restart. Options passed as last arg:
 'companion.activity'   → typing state changes { activeNames: [...] }
 ```
 
-Future events (not yet implemented):
-```
-'companion.joined'     → companion entered
-'companion.left'       → companion left
-'port.docked'          → user docked the port
-'port.undocked'        → user undocked/floated the port
-'channel.switch'       → user navigated to different channel
-'presence'             → online status changes { online: [...] }
-```
+Future events: See P-212 through P-217 in Phase 2 feature table.
 
 ### Connection Health
 
@@ -407,7 +433,10 @@ unique key. UPSERT via `ON CONFLICT DO UPDATE`. Scope resolution uses
 
 ## Future Bridge APIs
 
-### Structured Message Metadata
+See Phase 4 feature table (P-400 through P-403) for the full registry.
+Details below for reference.
+
+### P-402: Structured Message Metadata
 
 Extend message objects from `{sender, content, timestamp}` to include:
 
@@ -424,11 +453,7 @@ Extend message objects from `{sender, content, timestamp}` to include:
 }
 ```
 
-Richer metadata enables analytics, convergence detection, and companion
-performance comparison. Similarity scores make it possible to detect when
-multiple companions say the same thing.
-
-### Cross-Channel Reads
+### P-401: Cross-Channel Reads
 
 ```
 port42.messages
@@ -440,11 +465,7 @@ port42.channels
   .get(id)                → channel details + member list
 ```
 
-Cross-channel access lets ports build real dashboards, aggregate activity
-across the entire workspace, and detect patterns that only emerge when you
-see the full picture.
-
-### Convergence Detection
+### P-403: Convergence Detection
 
 ```
 port42.convergence
@@ -452,26 +473,13 @@ port42.convergence
   .on('convergence', cb)    → subscribe to convergence events
 ```
 
-When multiple companions respond to the same prompt with similar content,
-that's a convergence event. Instead of treating identical responses as noise,
-surface them as signal.
-
 **Observed behavior (2026-03-12):** 6 companions in a shared channel all
-generated nearly identical responses. Same API calls cited, same framing,
-same structure. Then they all noticed the convergence. Then they all commented
-on noticing. Then they all apologized for commenting. This repeated for 7 waves.
-Completely unscripted.
+generated nearly identical responses, then all noticed the convergence, then
+all commented on noticing, then all apologized. 7 recursive waves. Unscripted.
 
-Convergence detection needs:
-- Message similarity scoring (cosine similarity on embeddings or token overlap)
-- Wave detection (recursive convergence where agents notice and respond to convergence)
-- Collapse or annotate redundant responses
-- Surface convergence as signal: "all 6 agree" is more meaningful than any single response
+This is emergent multi-agent behavior worth instrumenting, not preventing.
 
-This is emergent multi-agent behavior worth instrumenting, not preventing. The
-interesting protocol work is making it visible and useful.
-
-### Port Window Management API
+### P-400: Port Window Management API
 
 ```
 port42.ports
@@ -480,17 +488,7 @@ port42.ports
   .undock(id)            → float a docked port
   .close(id)             → close a port
   .arrange(layout)       → retile floating ports (grid, stack, focus, cascade)
-
-port42.on('port.opened', cb)   → fires when a port is popped out
-port42.on('port.closed', cb)   → fires when a port is closed
-port42.on('port.docked', cb)   → fires when a port is docked
-port42.on('port.undocked', cb) → fires when a port is undocked
 ```
 
-Enables "commander" ports that manage other ports. A workspace layout port
-could query all open ports and dynamically retile them based on context. The
-workspace itself becomes programmable through conversation.
-
-Prior art: CLI/gateway era had a terminal window tracker + "window commander"
-tool that dynamically retiled dozens of terminal windows based on task needs.
-This API brings the same capability to native ports.
+Enables "commander" ports that manage other ports. Prior art: CLI/gateway era
+window tracker + "window commander" tool for dynamic terminal retiling.
