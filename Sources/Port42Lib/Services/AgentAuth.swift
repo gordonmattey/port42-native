@@ -143,6 +143,7 @@ public final class AgentAuthResolver {
     private let keychainAccount: String?
     private var cachedToken: String?
     private var cachedExpiresAt: Date?
+    private var keychainDenied: Bool = false
 
     /// Default init reads from the real Claude Code keychain entry.
     /// Pass custom service/account for testing.
@@ -168,6 +169,7 @@ public final class AgentAuthResolver {
     public func clearCache() {
         cachedToken = nil
         cachedExpiresAt = nil
+        keychainDenied = false
     }
 
     public func resolve(config: AgentAuthConfig) throws -> ResolvedAuth {
@@ -232,6 +234,11 @@ public final class AgentAuthResolver {
             }
         }
 
+        // If we already failed to read from Keychain this session, don't prompt again
+        if keychainDenied {
+            throw AgentAuthError.tokenNotFound
+        }
+
         // Test path: read from JSON file
         if let dir = _testConfigDir {
             let token = try readFromTestFile(dir: dir)
@@ -254,9 +261,12 @@ public final class AgentAuthResolver {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         guard status == errSecSuccess, let data = result as? Data else {
+            keychainDenied = true
             if status == errSecItemNotFound {
+                NSLog("[Port42] Claude Code Keychain entry not found, caching denial for session")
                 throw AgentAuthError.tokenNotFound
             }
+            NSLog("[Port42] Keychain access failed (status %d), caching denial for session", status)
             throw AgentAuthError.keychainError(status)
         }
 
@@ -285,6 +295,8 @@ public final class AgentAuthResolver {
 
         // Fallback: maybe the raw data is the token string
         guard let token = String(data: data, encoding: .utf8), !token.isEmpty else {
+            keychainDenied = true
+            NSLog("[Port42] Keychain entry found but no valid token, caching denial for session")
             throw AgentAuthError.invalidTokenData
         }
         cachedToken = token
