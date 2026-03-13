@@ -365,7 +365,10 @@ with source/run toggle.
 AI permissions with SwiftUI prompt, device permissions framework.
 
 **Phase 5 (Device APIs):** In progress. Terminal (P-500) done with forkpty/PTY,
-xterm.js rendering, stdin/stdout streaming. Audio, camera, screen, clipboard,
+xterm.js rendering, stdin/stdout streaming. Audio (P-501/502) done with
+AVAudioEngine, SFSpeechRecognizer, AVSpeechSynthesizer. Screen capture (P-504)
+done with ScreenCaptureKit (display + window capture). AI vision added to
+ai.complete via multimodal images option. Camera, clipboard,
 filesystem, browser APIs planned.
 
 See ports-spec.md and ports-implementation-plan.md for full details.
@@ -433,10 +436,10 @@ button for one-click OpenClaw deep linking.
 | P-303 | Companion Context | System prompt updated with device API docs as each ships | Companions know all available APIs | **Done** |
 | P-500 | Terminal | port42.terminal.spawn/send/resize/kill with PTY | Port runs shell commands | **Done** |
 | P-310 | Remote Agent Port Context | Inject port context into OpenClaw/remote agents | Remote agents can create ports | Deferred |
-| P-501 | Audio Input | port42.audio.capture with mic + transcription | Port can listen and transcribe | Planned |
-| P-502 | Audio Output | port42.audio.speak/play for TTS and playback | Port can speak | Planned |
+| P-501 | Audio Input | port42.audio.capture with mic + transcription | Port can listen and transcribe | **Done** |
+| P-502 | Audio Output | port42.audio.speak/play for TTS and playback | Port can speak | **Done** |
 | P-503 | Camera | port42.camera.capture for camera frames | Port can see through camera | Planned |
-| P-504 | Screen Capture | port42.screen.capture for screenshots | Port can see the screen | Planned |
+| P-504 | Screen Capture | port42.screen.windows + capture (display/window/region) | Port can see the screen | **Done** |
 | P-505 | Clipboard | port42.clipboard.read/write | Port can access clipboard | **Done** |
 | P-506 | File System | port42.fs.read/write/pick with native file picker | Port can load and save files | **Done** |
 | P-507 | Notifications | port42.notify.send for system notifications | Background port can alert user | **Done** |

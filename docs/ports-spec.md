@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-13
 
-**Status:** Phase 1 + Phase 2 + Phase 3 complete, Phase 5 in progress (Terminal, Clipboard, File System, Notifications done. Audio next)
+**Status:** Phase 1 + Phase 2 + Phase 3 complete, Phase 5 in progress (Terminal, Clipboard, File System, Notifications, Audio, Screen Capture done. AI Vision added.)
 
 ---
 
@@ -280,7 +280,7 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Status |
 |----|---------|-------------|----------|--------|
-| P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming. `port42.ai.models()` for model listing. `port42.companions.invoke()` for companion-scoped AI. JS callback API with `onToken` and `onDone`. | High | ✅ Done |
+| P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming and vision (`images` option for multimodal). `port42.ai.models()` for model listing. `port42.companions.invoke()` for companion-scoped AI. JS callback API with `onToken` and `onDone`. | High | ✅ Done |
 | P-301 | Bridge: Write Ops | `port42.messages.send`, `port42.channel.*`, `port42.storage.*` | ✅ Done | ✅ Moved to Phase 1 |
 | P-302a | AI Permissions | Permission prompt on first `ai.complete` or `companions.invoke` call. Stored per port session, reset on close. | High | ✅ Done |
 | P-302b | Device Permissions | Extend permission model to terminal, microphone, camera, screen, clipboard, filesystem. Same prompt pattern as AI. | High | ✅ Done |
@@ -307,10 +307,10 @@ Target: The ouroboros. The fish swims in itself.
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
 | P-500 | Terminal | `port42.terminal.*` — shell session inside a port. Spawn process, stream stdout/stderr, send stdin. Companion can reason about output with Bridge AI. | High | Port renders a live terminal, companion runs commands |
-| P-501 | Audio Input | `port42.audio.capture(opts?)` — microphone access with permission. Returns audio stream or transcribed text via native Speech framework. | High | Port can listen and transcribe speech |
-| P-502 | Audio Output | `port42.audio.speak(text, opts?)` — text-to-speech via AVSpeechSynthesizer. `port42.audio.play(data)` for generated audio. | Medium | Port can speak and play audio |
+| P-501 | Audio Input | `port42.audio.capture(opts?)` — microphone access with permission. Returns audio stream or transcribed text via native Speech framework. | High | ✅ Done |
+| P-502 | Audio Output | `port42.audio.speak(text, opts?)` — text-to-speech via AVSpeechSynthesizer. `port42.audio.play(data)` for generated audio. | Medium | ✅ Done |
 | P-503 | Camera | `port42.camera.capture(opts?)` — camera frame or continuous feed. Returns base64 image data. Companion can analyze via Bridge AI. | Medium | Port can see through the camera |
-| P-504 | Screen Capture | `port42.screen.capture(opts?)` — screenshot or region. Returns base64 image. "Look at this and tell me what's wrong." | Medium | Port can see the screen |
+| P-504 | Screen Capture | `port42.screen.capture(opts?)` and `port42.screen.windows()` — screenshot display, region, or specific window via ScreenCaptureKit. Returns base64 PNG. AI vision via `ai.complete({ images })`. | Medium | ✅ Done |
 | P-505 | Clipboard | `port42.clipboard.read()` / `.write(data)` — system clipboard access with permission. Seamless data flow in and out of ports. | Medium | ✅ Done |
 | P-506 | File System | `port42.fs.read(path)` / `.write(path, data)` / `.pick()` — scoped file access. Native file picker for user-chosen paths. Drag-and-drop support. | Medium | ✅ Done |
 | P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
@@ -639,7 +639,7 @@ port42.audio
 Native side: AVAudioEngine for capture, Speech framework for transcription,
 AVSpeechSynthesizer for TTS. Permission via macOS microphone authorization.
 
-### P-503/P-504: Camera and Screen
+### P-503: Camera
 
 ```
 port42.camera
@@ -648,14 +648,26 @@ port42.camera
   .stream(opts?)             → start continuous feed
   .stopStream()              → stop feed
   .on('frame', cb)           → { image, timestamp }
-
-port42.screen
-  .capture(opts?)            → { image } base64 PNG
-                               opts: { region?, scale? }
 ```
 
-Native side: AVCaptureSession for camera, CGWindowListCreateImage for
-screen. Permission via macOS camera/screen recording authorization.
+Native side: AVCaptureSession for camera. Permission via macOS camera authorization.
+
+### P-504: Screen Capture ✅
+
+```
+port42.screen
+  .windows()                 → { windows: [{ id, title, app, bundleId, bounds }] }
+  .capture(opts?)            → { image, width, height } base64 PNG
+                               opts: { scale?, windowId?, region?, displayId?, includeSelf? }
+```
+
+Native side: ScreenCaptureKit (SCScreenshotManager, SCShareableContent).
+Supports full display, region, and window-level capture. Permission via macOS
+screen recording TCC authorization. Window capture uses
+SCContentFilter(desktopIndependentWindow:) with transparent background.
+
+AI vision: combine with `port42.ai.complete(prompt, { images: [screenshot.image] })`
+to have AI analyze what's on screen.
 
 ### P-505: Clipboard
 

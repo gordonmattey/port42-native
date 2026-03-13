@@ -436,23 +436,24 @@ resize, kill, and xterm.js rendering. Permission prompt on first spawn.
 
 **Goal:** Ports can see through the camera and capture the screen.
 
-**Files to create:**
-- `Sources/Port42Lib/Services/CameraBridge.swift` — camera capture, screen capture
+**P-504 Screen Capture: ✅ Done**
 
-**What to build:**
+- `Sources/Port42Lib/Services/ScreenBridge.swift` — display + window capture via ScreenCaptureKit
+- `port42.screen.windows()` lists visible windows with id, title, app, bounds
+- `port42.screen.capture({ windowId })` captures a specific window
+- `port42.screen.capture({ scale, region, displayId, includeSelf })` captures display
+- AI vision: `port42.ai.complete(prompt, { images: [base64] })` sends multimodal content blocks
+- `LLMEngine.send` updated to accept `[[String: Any]]` for multimodal messages
+- 4 tests passing
 
-1. Camera capture via AVCaptureSession. Single frame or continuous stream.
-   Returns base64 PNG via bridge callback.
+**P-503 Camera: Planned**
 
-2. Screen capture via CGWindowListCreateImage. Whole screen or region.
-
-3. Permission via macOS camera and screen recording authorization.
-
-4. Combined with Bridge AI: "look at this screenshot and tell me what's wrong."
+- Camera capture via AVCaptureSession. Single frame or continuous stream.
+- Permission via macOS camera authorization.
 
 **User test:**
-- Port that shows a live camera preview
-- "Take a screenshot" — companion analyzes the image via Bridge AI
+- Port with window picker dropdown that screenshots selected window
+- "Take a screenshot" then "Describe" with AI vision
 
 ---
 
@@ -575,8 +576,8 @@ Phase 4 (advanced APIs):
   P-403: Convergence detection              → similarity scoring
 
 Step 13: Terminal (P-500)                   → ports run commands          ✅
-Step 14: Audio (mic + TTS)                  → ports listen and speak      ← NEXT
-Step 15: Camera + screen                    → ports see
+Step 14: Audio (mic + TTS)                  → ports listen and speak      ✅
+Step 15: Camera + screen                    → ports see                   ✅ (screen done, camera planned)
 Step 16: Clipboard + files + notifications  → ports move data            ✅
 Step 17: Browser (P-509)                    → ports browse the web
 Phase 5 (device APIs) ───────────────────────────────────────────────
