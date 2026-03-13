@@ -6,6 +6,8 @@ A native Mac app where you, your friends, and your AI companions share the same 
 
 **[Download Port42.dmg](dist/Port42.dmg)** (macOS 15+, Apple Silicon)
 
+![Port42 — companions building a live visualization during conversation](docs/screenshot.png)
+
 ## What is Port42?
 
 Port42 is the first companion computing platform. Not another AI chat wrapper. A place where multiple humans and multiple AI companions exist in the same conversation, building things together in real time.
@@ -55,7 +57,20 @@ All methods are async and return JSON. Ports run in a sandboxed webview with no 
 ```
 .list()                         → [{ id, name, model, isActive }]
 .get(id)                        → { id, name, model, isActive } | null
+.invoke(id, prompt, opts?)      → response text (string)
 ```
+
+`invoke` calls a companion's AI from within a port. The companion sees recent channel context. Response is port-private (does not appear in chat). Supports streaming via `opts.onToken` and `opts.onDone`. Requires AI permission.
+
+### port42.ai
+
+```
+.models()                       → [{ id, name, tier }]
+.complete(prompt, opts?)        → response text (string)
+.cancel(callId)                 → { ok: true }
+```
+
+Raw LLM access with no personality. Options: `{ model, systemPrompt, maxTokens, onToken, onDone }`. Requires AI permission (shared with `companions.invoke`).
 
 ### port42.messages
 
@@ -72,9 +87,11 @@ All methods are async and return JSON. Ports run in a sandboxed webview with no 
 .switchTo(id)                   → { ok: true } | { error }
 ```
 
+`type` is `'channel'` or `'swim'`. Members include `{ name, type: 'human' | 'companion' }`.
+
 ### port42.storage
 
-Persistent key-value storage scoped by channel/global and private/shared.
+Persistent key-value storage. Survives app restarts.
 
 ```
 .set(key, value, opts?)         → true
@@ -84,6 +101,8 @@ Persistent key-value storage scoped by channel/global and private/shared.
 ```
 
 Options: `{ scope: 'channel' | 'global', shared: true | false }`
+
+Four combinations: per-companion per-channel (default), per-companion global, shared per-channel, shared global.
 
 ### port42.port
 
@@ -101,11 +120,76 @@ Options: `{ scope: 'channel' | 'global', shared: true | false }`
 CSS: var(--port-width), var(--port-height)
 ```
 
+### port42.terminal
+
+Full shell sessions inside ports. Requires terminal permission.
+
+```
+.spawn(opts?)                   → { sessionId }
+.send(sessionId, data)          → { ok: true }
+.resize(sessionId, cols, rows)  → { ok: true }
+.kill(sessionId)                → { ok: true }
+.on('output', cb)               → { sessionId, data } (ANSI escape sequences)
+.on('exit', cb)                 → { sessionId, code }
+.loadXterm()                    → Terminal class (bundled xterm.js)
+```
+
+Spawn options: `{ shell, cwd, cols, rows, env }`. Defaults: `/bin/zsh`, 80x24.
+
+### port42.clipboard
+
+System clipboard access. Requires clipboard permission.
+
+```
+.read()                         → { type: 'text'|'image'|'empty', data?, format? }
+.write(data)                    → { ok: true }
+```
+
+Text: pass a string. Image: pass `{ type: 'image', data: '<base64 png>' }`.
+
+### port42.fs
+
+File access through native pickers. Requires filesystem permission.
+
+```
+.pick(opts?)                    → { path } | { paths: [...] } | { cancelled: true }
+.read(path, opts?)              → { data, encoding, size }
+.write(path, data, opts?)       → { ok: true, size }
+```
+
+Pick options: `{ mode: 'open'|'save', types, multiple, directory, suggestedName }`. Read/write options: `{ encoding: 'utf8'|'base64' }`. Only paths chosen via `pick()` are accessible.
+
+### port42.notify
+
+System notifications. Requires notification permission.
+
+```
+.send(title, body?, opts?)      → { ok: true, id }
+```
+
+Options: `{ sound: true, subtitle: 'text' }`.
+
+### port42.audio
+
+Microphone capture with live transcription and audio output. Capture requires microphone permission.
+
+```
+.capture(opts?)                 → { ok: true, sampleRate }
+.stopCapture()                  → { ok: true }
+.speak(text, opts?)             → { ok: true } (resolves when speech finishes)
+.play(data, opts?)              → { ok: true, duration }
+.stop()                         → { ok: true }
+.on('transcription', cb)        → { text, isFinal }
+.on('data', cb)                 → { samples, sampleRate, frameCount, format }
+```
+
+Capture options: `{ transcribe: true, language: 'en-US', rawAudio: false }`. Speak options: `{ voice, rate, pitch, volume }`. Play takes base64-encoded audio (WAV, MP3, AAC). Play options: `{ volume }`.
+
 ### Events
 
 ```
-port42.on('message', cb)            → new message arrives
-port42.on('companion.activity', cb) → typing state changes
+port42.on('message', cb)            → new message arrives { id, sender, content, timestamp, isCompanion }
+port42.on('companion.activity', cb) → typing state changes { activeNames: [...] }
 ```
 
 ### Connection Health
@@ -114,6 +198,21 @@ port42.on('companion.activity', cb) → typing state changes
 port42.connection.status()           → 'connected' | 'disconnected'
 port42.connection.onStatusChange(cb) → fires on transition
 ```
+
+### Permissions
+
+Sensitive APIs require user permission on first use per port session. Permission groups:
+
+| Permission | Methods |
+|-----------|---------|
+| AI | `ai.complete`, `companions.invoke` |
+| Terminal | `terminal.spawn` |
+| Microphone | `audio.capture`, `audio.stopCapture` |
+| Clipboard | `clipboard.read`, `clipboard.write` |
+| Filesystem | `fs.pick`, `fs.read`, `fs.write` |
+| Notification | `notify.send` |
+
+No permission required: `audio.speak`, `audio.play`, `audio.stop`, all read-only APIs.
 
 ### Sandbox
 
