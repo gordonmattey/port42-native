@@ -18,10 +18,14 @@ public struct SetupView: View {
     @State private var authMethod: AuthMethod?
     @State private var authError: String?
     @State private var isCheckingAuth = false
+    @StateObject private var claudeSetup = ClaudeCodeSetup()
+    @State private var keychainEntries: [ClaudeKeychainEntry] = []
+    @State private var selectedTokenIndex: Int = 0
     @State private var submittedName: String?
     @State private var appleAuthStatus: String?
     @State private var showAnalyticsConsent = false
     @State private var terminalVisible = false
+    @State private var showSettings = false
     @State private var terminalOffset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
     @State private var revealedSuffixes: Set<Int> = []
@@ -147,6 +151,9 @@ public struct SetupView: View {
                 try? await Task.sleep(nanoseconds: 530_000_000)
                 cursorVisible.toggle()
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SignOutSheet(isPresented: $showSettings)
         }
     }
 
@@ -287,6 +294,12 @@ public struct SetupView: View {
                 .onChange(of: showAuthOptions) { _, _ in
                     scrollToEnd(proxy: proxy)
                 }
+                .onChange(of: claudeSetup.state) { _, newState in
+                    if newState == .success {
+                        completeAuth()
+                    }
+                    scrollToEnd(proxy: proxy)
+                }
             }
         }
     }
@@ -295,6 +308,11 @@ public struct SetupView: View {
 
     private var authSelected: AuthMethod {
         authMethod ?? .claudeCode
+    }
+
+    private var isMultiTokenState: Bool {
+        if case .multipleTokens = claudeSetup.state { return true }
+        return false
     }
 
     private var authOptionsContent: some View {
@@ -311,17 +329,50 @@ public struct SetupView: View {
 
             Spacer().frame(height: 8)
 
-            // Option 1: Auto-detect
-            authOptionButton(.claudeCode, label: "Claude subscription", hint: "(auto-detect)", action: selectAndSubmitClaudeCode)
+            // Option 1: Claude subscription (accounts + enter token)
+            if keychainEntries.count > 1 {
+                // Header
+                Text("Claude subscription")
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(authSelected == .claudeCode || authSelected == .manualToken ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
 
-            Spacer().frame(height: 4)
+                // Detected accounts
+                ForEach(Array(keychainEntries.enumerated()), id: \.element.id) { idx, entry in
+                    subOptionButton(
+                        selected: authSelected == .claudeCode && selectedTokenIndex == idx,
+                        label: entry.label,
+                        hint: entry.suffix.map { String($0.prefix(8)) }
+                    ) {
+                        selectTokenEntry(idx)
+                    }
+                }
 
-            // Option 2: Manual token
-            authOptionButton(.manualToken, label: "Claude subscription", hint: "(enter token)", action: selectManualToken)
+                // Enter session key manually (as last sub-option)
+                subOptionButton(
+                    selected: authSelected == .manualToken,
+                    label: "enter OAuth session key manually",
+                    hint: nil
+                ) {
+                    selectManualToken()
+                }
+            } else {
+                // No multi-account: just Claude subscription (sub-options show after selection)
+                authOptionButton(.claudeCode, label: "Claude subscription", hint: "(auto-detect)", action: selectAndSubmitClaudeCode)
+
+                if authMethod == .claudeCode || authMethod == .manualToken {
+                    subOptionButton(
+                        selected: authSelected == .manualToken,
+                        label: "enter OAuth session key manually",
+                        hint: nil
+                    ) {
+                        selectManualToken()
+                    }
+                }
+            }
 
             if authMethod == .manualToken {
                 Spacer().frame(height: 8)
-                SecureField("paste your session token", text: $manualTokenInput)
+                SecureField("paste your OAuth session key", text: $manualTokenInput)
                     .textFieldStyle(.plain)
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(Port42Theme.textPrimary)
@@ -341,22 +392,17 @@ public struct SetupView: View {
 
             Spacer().frame(height: 4)
 
-            // Option 3: API key
+            // Option 2: API key
             authOptionButton(.apiKey, label: "API key", hint: nil, action: selectApiKey)
 
             if authMethod == .apiKey {
                 Spacer().frame(height: 8)
-                HStack(spacing: 6) {
-                    Text("sk-")
-                        .font(Port42Theme.mono(13))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                    SecureField("paste your Anthropic API key", text: $apiKeyInput)
-                        .textFieldStyle(.plain)
-                        .font(Port42Theme.mono(13))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                        .focused($isApiKeyFocused)
-                        .onSubmit { submitApiKey() }
-                }
+                SecureField("paste your Anthropic API key", text: $apiKeyInput)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .focused($isApiKeyFocused)
+                    .onSubmit { submitApiKey() }
 
                 if !apiKeyInput.isEmpty {
                     Button(action: submitApiKey) {
@@ -393,9 +439,17 @@ public struct SetupView: View {
                 .padding(.top, 4)
             }
 
+            // Guided setup for Claude Code (shown when no tokens found, not for multi-token picker)
+            if authMethod == .claudeCode, keychainEntries.isEmpty,
+               claudeSetup.state != .idle, claudeSetup.state != .success,
+               !isMultiTokenState {
+                ClaudeCodeSetupView(setup: claudeSetup)
+                    .padding(.top, 8)
+            }
+
             Spacer().frame(height: 8)
 
-            Text("Auto-detect reads from Claude Code/Desktop. Manual token for multiple subscriptions.")
+            Text("Auto-detect reads from Claude Code/Desktop. Session key for manual OAuth entry.")
                 .font(Port42Theme.mono(10))
                 .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
         }
@@ -414,6 +468,27 @@ public struct SetupView: View {
             submitSelectedAuth()
             return .handled
         }
+    }
+
+    private func subOptionButton(selected: Bool, label: String, hint: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(selected ? ">" : " ")
+                    .font(Port42Theme.monoBold(14))
+                    .foregroundStyle(Port42Theme.accent)
+                    .opacity(selected ? (cursorVisible ? 1 : 0.3) : 0)
+                Text("\u{25B8} \(label)")
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(selected ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
+                if let hint {
+                    Text(hint)
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.3))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 20)
     }
 
     private func authOptionButton(_ method: AuthMethod, label: String, hint: String?, action: @escaping () -> Void) -> some View {
@@ -439,7 +514,11 @@ public struct SetupView: View {
     private func submitSelectedAuth() {
         switch authSelected {
         case .claudeCode:
-            selectAndSubmitClaudeCode()
+            if keychainEntries.count > 1 {
+                selectTokenEntry(selectedTokenIndex)
+            } else {
+                selectAndSubmitClaudeCode()
+            }
         case .manualToken:
             selectManualToken()
         case .apiKey:
@@ -447,14 +526,60 @@ public struct SetupView: View {
         }
     }
 
+    private func selectTokenEntry(_ index: Int) {
+        guard index < keychainEntries.count else { return }
+        selectedTokenIndex = index
+        authMethod = .claudeCode
+        isCheckingAuth = true
+
+        let entry = keychainEntries[index]
+        DispatchQueue.global(qos: .userInitiated).async {
+            AgentAuthResolver.shared.selectEntry(entry)
+            DispatchQueue.main.async {
+                isCheckingAuth = false
+                completeAuth()
+            }
+        }
+    }
+
     private func cycleAuthMethod(forward: Bool) {
-        let order: [AuthMethod] = [.claudeCode, .manualToken, .apiKey]
-        let current = authSelected
-        guard let idx = order.firstIndex(of: current) else { return }
-        let next = forward ? min(idx + 1, order.count - 1) : max(idx - 1, 0)
-        let method = order[next]
-        withAnimation(.easeIn(duration: 0.1)) { authMethod = method }
-        // Always keep focus on the picker so arrow keys keep working
+        if keychainEntries.count > 1 {
+            // Multi-account mode: flat list is [entry0, entry1, ..., enterToken, apiKey]
+            // Map current position to an index in that flat list
+            let entryCount = keychainEntries.count
+            let totalPositions = entryCount + 2 // entries + "enter token" + "API key"
+
+            var currentPos: Int
+            if authSelected == .claudeCode {
+                currentPos = selectedTokenIndex
+            } else if authSelected == .manualToken {
+                currentPos = entryCount  // "enter token" position
+            } else {
+                currentPos = entryCount + 1 // API key
+            }
+
+            let newPos = forward
+                ? min(currentPos + 1, totalPositions - 1)
+                : max(currentPos - 1, 0)
+
+            withAnimation(.easeIn(duration: 0.1)) {
+                if newPos < entryCount {
+                    authMethod = .claudeCode
+                    selectedTokenIndex = newPos
+                } else if newPos == entryCount {
+                    authMethod = .manualToken
+                } else {
+                    authMethod = .apiKey
+                }
+            }
+        } else {
+            // Simple mode: [claudeCode, manualToken (sub-item), apiKey]
+            let order: [AuthMethod] = [.claudeCode, .manualToken, .apiKey]
+            let current = authSelected
+            guard let idx = order.firstIndex(of: current) else { return }
+            let next = forward ? min(idx + 1, order.count - 1) : max(idx - 1, 0)
+            withAnimation(.easeIn(duration: 0.1)) { authMethod = order[next] }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             isAuthPickerFocused = true
         }
@@ -607,7 +732,10 @@ public struct SetupView: View {
                         onSend: { content in session.send(content) },
                         onStop: { session.stop() },
                         onRetry: { session.retry() },
-                        onDismissError: { session.error = nil }
+                        onDismissError: { session.error = nil },
+                        onOpenSettings: {
+                            showSettings = true
+                        }
                     )
                 }
             }
@@ -851,6 +979,7 @@ public struct SetupView: View {
     }
 
     private func selectApiKey() {
+        claudeSetup.cancel()
         withAnimation(.easeIn(duration: 0.1)) {
             authMethod = .apiKey
         }
@@ -860,6 +989,7 @@ public struct SetupView: View {
     }
 
     private func selectManualToken() {
+        claudeSetup.cancel()
         withAnimation(.easeIn(duration: 0.1)) {
             authMethod = .manualToken
         }
@@ -893,20 +1023,36 @@ public struct SetupView: View {
         authError = nil
         isCheckingAuth = true
 
-        // Keychain access can block with a system prompt, so run off main thread
         DispatchQueue.global(qos: .userInitiated).async {
-            NSLog("[Port42] About to call autoDetect()")
             let resolver = AgentAuthResolver.shared
-            let found = resolver.autoDetect() != nil
-            NSLog("[Port42] autoDetect() returned: found=\(found)")
+
+            // Check Port42's own stored credentials first (no Keychain prompt)
+            if let _ = Port42AuthStore.shared.resolveStoredConfig() {
+                DispatchQueue.main.async {
+                    isCheckingAuth = false
+                    completeAuth()
+                }
+                return
+            }
+
+            // Attributes-only query (zero Keychain prompts)
+            let entries = resolver.listKeychainEntries()
+            NSLog("[Port42] Found %d Keychain entries", entries.count)
+
             DispatchQueue.main.async {
                 isCheckingAuth = false
-                if found {
-                    NSLog("[Port42] Auth found, completing")
-                    completeAuth()
+                keychainEntries = entries
+                if entries.count > 1 {
+                    // Picker will show inline, wait for user selection
+                    selectedTokenIndex = 0
+                } else if entries.count == 1 {
+                    // Single entry: select it (one Keychain prompt for data)
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        resolver.selectEntry(entries[0])
+                        DispatchQueue.main.async { completeAuth() }
+                    }
                 } else {
-                    NSLog("[Port42] Auth not found")
-                    authError = "Claude Code credentials not found. Sign in to Claude Code first, or use an API key."
+                    claudeSetup.diagnose()
                 }
             }
         }

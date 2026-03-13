@@ -158,6 +158,7 @@ public struct ConversationContent: View {
     let onStop: (() -> Void)?
     let onRetry: (() -> Void)?
     let onDismissError: (() -> Void)?
+    let onOpenSettings: (() -> Void)?
     let onTypingChanged: ((Bool) -> Void)?
 
     @State private var draft = ""
@@ -184,6 +185,7 @@ public struct ConversationContent: View {
         onStop: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
         onDismissError: (() -> Void)? = nil,
+        onOpenSettings: (() -> Void)? = nil,
         onTypingChanged: ((Bool) -> Void)? = nil
     ) {
         self.entries = entries
@@ -197,6 +199,7 @@ public struct ConversationContent: View {
         self.onStop = onStop
         self.onRetry = onRetry
         self.onDismissError = onDismissError
+        self.onOpenSettings = onOpenSettings
         self.onTypingChanged = onTypingChanged
     }
 
@@ -344,6 +347,12 @@ public struct ConversationContent: View {
                     Spacer()
                     if let onRetry {
                         Button("Retry") { onRetry() }
+                            .font(Port42Theme.monoFontSmall)
+                            .foregroundStyle(Port42Theme.accent)
+                            .buttonStyle(.plain)
+                    }
+                    if let onOpenSettings {
+                        Button("Settings") { onOpenSettings() }
                             .font(Port42Theme.monoFontSmall)
                             .foregroundStyle(Port42Theme.accent)
                             .buttonStyle(.plain)
@@ -789,18 +798,10 @@ struct InlinePortView: View {
         .onAppear {
             appState.registerPortBridge(bridge)
         }
-        .confirmationDialog(
-            bridge.pendingPermission?.permissionDescription.title ?? "Permission",
-            isPresented: Binding(
-                get: { bridge.pendingPermission != nil },
-                set: { if !$0 { bridge.denyPermission() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Allow") { bridge.grantPermission() }
-            Button("Deny", role: .cancel) { bridge.denyPermission() }
-        } message: {
-            Text(bridge.pendingPermission?.permissionDescription.message ?? "")
+        .onChange(of: bridge.pendingPermission) { _, perm in
+            if perm != nil {
+                appState.activePermissionBridge = bridge
+            }
         }
     }
 

@@ -12,6 +12,15 @@ public struct SignOutSheet: View {
     @State private var selectedAuthMode: StoredAuthMode = Port42AuthStore.shared.loadMode()
     @State private var authCredentialInput = ""
     @State private var authSaved = false
+    @StateObject private var claudeSetup = ClaudeCodeSetup()
+    @State private var autoDetectStatus: AutoDetectStatus = .unknown
+
+    enum AutoDetectStatus: Equatable {
+        case unknown
+        case checking
+        case connected(expiresIn: String?, account: String?)
+        case notFound
+    }
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -133,6 +142,9 @@ public struct SignOutSheet: View {
         }
         .frame(width: 380, height: 740)
         .background(Port42Theme.bgSecondary)
+        .onDisappear {
+            claudeSetup.cancel()
+        }
     }
 
     @ViewBuilder
@@ -302,30 +314,104 @@ public struct SignOutSheet: View {
                 .font(Port42Theme.mono(13))
                 .foregroundStyle(Port42Theme.textSecondary)
             Spacer()
-
-            let modeLabel: String = {
-                switch selectedAuthMode {
-                case .autoDetect: return "Claude auto-detect"
-                case .manualToken: return "Claude token"
-                case .apiKey: return "Anthropic API key"
-                }
-            }()
-            Text(modeLabel)
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
         }
 
         // Mode picker
         HStack(spacing: 6) {
             authModeButton(.autoDetect, label: "auto")
-            authModeButton(.manualToken, label: "token")
+            authModeButton(.manualToken, label: "session key")
             authModeButton(.apiKey, label: "API key")
+        }
+
+        // Auto-detect status and guided setup
+        Group { if selectedAuthMode == .autoDetect {
+            switch autoDetectStatus {
+            case .unknown:
+                EmptyView()
+
+            case .checking:
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 12, height: 12)
+                    Text("Detecting...")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+
+            case .connected(let expiresIn, let account):
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 6, height: 6)
+                    Text("connected via Claude Code OAuth")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    if let account {
+                        Text(account)
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                    }
+                }
+                if let exp = expiresIn {
+                    Text("session key expires in \(exp)")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                }
+                Button(action: refreshAutoDetect) {
+                    Text("refresh")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Port42Theme.accent.opacity(0.1))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+
+            case .notFound:
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(.orange)
+                        .frame(width: 6, height: 6)
+                    Text("no Claude Code token found")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(.orange)
+                }
+
+                ClaudeCodeSetupView(setup: claudeSetup)
+                    .onAppear {
+                        if claudeSetup.state == .idle {
+                            claudeSetup.diagnose()
+                        }
+                    }
+                    .onChange(of: claudeSetup.state) { _, newState in
+                        if newState == .success {
+                            checkAutoDetect()
+                        }
+                    }
+            }
+
+            // Account picker (shown when multiple entries exist, even if connected)
+            if case .multipleTokens = claudeSetup.state {
+                ClaudeCodeSetupView(setup: claudeSetup)
+                    .onChange(of: claudeSetup.state) { _, newState in
+                        if newState == .success {
+                            checkAutoDetect()
+                        }
+                    }
+            }
+        } }
+        .onAppear {
+            if selectedAuthMode == .autoDetect, autoDetectStatus == .unknown {
+                checkAutoDetect()
+            }
         }
 
         // Credential input for manual modes
         if selectedAuthMode == .manualToken || selectedAuthMode == .apiKey {
             let placeholder = selectedAuthMode == .manualToken
-                ? "paste Claude session token"
+                ? "paste OAuth session key"
                 : "paste Anthropic API key (sk-ant-...)"
 
             SecureField(placeholder, text: $authCredentialInput)
@@ -371,8 +457,10 @@ public struct SignOutSheet: View {
             }
             Port42AuthStore.shared.saveMode(mode)
             if mode == .autoDetect {
-                // Clear stored credentials when switching to auto
-                AgentAuthResolver.shared.clearCache()
+                AgentAuthResolver.shared.resetAuth()
+                checkAutoDetect()
+            } else {
+                claudeSetup.cancel()
             }
         }) {
             Text(label)
@@ -396,7 +484,7 @@ public struct SignOutSheet: View {
         } else {
             Port42AuthStore.shared.saveCredential(value, account: account)
         }
-        AgentAuthResolver.shared.clearCache()
+        AgentAuthResolver.shared.resetAuth()
 
         withAnimation(.easeIn(duration: 0.2)) {
             authSaved = true
@@ -474,6 +562,62 @@ public struct SignOutSheet: View {
                 .font(Port42Theme.monoBold(13))
                 .foregroundStyle(Port42Theme.textPrimary)
         }
+    }
+
+    private func checkAutoDetect() {
+        autoDetectStatus = .checking
+        DispatchQueue.global(qos: .userInitiated).async {
+            let resolver = AgentAuthResolver.shared
+
+            // Check stored credentials first (no Keychain prompt)
+            if let _ = Port42AuthStore.shared.resolveStoredConfig() {
+                DispatchQueue.main.async {
+                    autoDetectStatus = .connected(expiresIn: nil, account: nil)
+                }
+                return
+            }
+
+            // Attributes-only query (zero Keychain prompts)
+            let entries = resolver.listKeychainEntries()
+            let hasCached = resolver.autoDetect() != nil
+
+            DispatchQueue.main.async {
+                if entries.count > 1 {
+                    // Multiple entries: show picker even if one is cached
+                    if hasCached {
+                        let expiresIn = resolver.cachedExpiryDescription
+                        let account = resolver.activeAccountLabel
+                        autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
+                    } else {
+                        autoDetectStatus = .notFound
+                    }
+                    claudeSetup.state = .multipleTokens(entries)
+                } else if entries.count == 1 {
+                    // Single entry: select on background thread (one Keychain prompt)
+                    autoDetectStatus = .checking
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        resolver.selectEntry(entries[0])
+                        let expiresIn = resolver.cachedExpiryDescription
+                        let account = resolver.activeAccountLabel
+                        DispatchQueue.main.async {
+                            autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
+                        }
+                    }
+                } else if hasCached {
+                    // Token cached from boot (e.g. prefix-match found it)
+                    let expiresIn = resolver.cachedExpiryDescription
+                    let account = resolver.activeAccountLabel
+                    autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
+                } else {
+                    autoDetectStatus = .notFound
+                }
+            }
+        }
+    }
+
+    private func refreshAutoDetect() {
+        AgentAuthResolver.shared.resetAuth()
+        checkAutoDetect()
     }
 
     private func toggleTunnel() {

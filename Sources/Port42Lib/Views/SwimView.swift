@@ -246,7 +246,10 @@ public struct SwimView: View {
                 onSend: { content in session.send(content) },
                 onStop: { session.stop() },
                 onRetry: { session.retry() },
-                onDismissError: { session.error = nil }
+                onDismissError: { session.error = nil },
+                onOpenSettings: {
+                    NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
+                }
             )
         }
         .background(Port42Theme.bgPrimary)

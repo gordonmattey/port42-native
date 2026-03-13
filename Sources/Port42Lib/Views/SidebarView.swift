@@ -157,6 +157,9 @@ public struct SidebarView: View {
             showNewCompanion = false
             editingCompanion = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
+            showSignOut = true
+        }
         .sheet(isPresented: $showNewCompanion) {
             NewCompanionSheet(isPresented: $showNewCompanion)
         }
@@ -217,6 +220,7 @@ public struct SidebarView: View {
                             Task {
                                 let token = try? await appState.sync.requestToken(channelId: secured.id)
                                 ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                                appState.toastMessage = "Copied to clipboard"
                             }
                         }
                     }

@@ -383,6 +383,14 @@ public final class AppState: ObservableObject {
 
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
+
+    /// Cached port permissions by message ID. Survives LazyVStack view recycling.
+    public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
+
+    /// The port bridge currently requesting a permission. Used to lift the
+    /// permission dialog out of the LazyVStack to prevent SwiftUI re-presentation bugs.
+    @Published public var activePermissionBridge: PortBridge?
+
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?
@@ -423,6 +431,20 @@ public final class AppState: ObservableObject {
         // Clean up dead references
         activeBridges.removeAll { $0.bridge == nil }
         activeBridges.append(WeakBridge(bridge))
+
+        // Restore cached permissions (survives LazyVStack view recycling)
+        if let mid = bridge.messageId, let cached = cachedPortPermissions[mid] {
+            bridge.grantedPermissions = cached
+        }
+    }
+
+    /// Cache a port's granted permissions so they survive view recycling
+    public func cachePortPermissions(messageId: String, permissions: Set<PortPermission>) {
+        if permissions.isEmpty {
+            cachedPortPermissions.removeValue(forKey: messageId)
+        } else {
+            cachedPortPermissions[messageId] = permissions
+        }
     }
 
     private func setupPortEventObservers() {
@@ -1246,6 +1268,12 @@ public final class AppState: ObservableObject {
         channelObservation?.cancel()
         messageObservation?.cancel()
         unreadObservation?.cancel()
+
+        // Clear stored auth so boot flow starts fresh
+        Port42AuthStore.shared.deleteCredential(account: "manualToken")
+        Port42AuthStore.shared.deleteCredential(account: "apiKey")
+        Port42AuthStore.shared.saveMode(.autoDetect)
+        AgentAuthResolver.shared.resetAuth()
 
         do {
             try db.resetAll()
