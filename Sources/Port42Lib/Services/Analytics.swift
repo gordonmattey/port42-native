@@ -44,9 +44,8 @@ public final class Analytics {
             host: "https://ph.port42.ai"
         )
         config.captureScreenViews = false
-        config.captureApplicationLifecycleEvents = false
+        config.captureApplicationLifecycleEvents = true
         config.preloadFeatureFlags = false
-        config.enableSwizzling = false
         PostHogSDK.shared.setup(config)
         PostHogSDK.shared.identify(userId)
 

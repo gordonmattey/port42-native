@@ -1182,6 +1182,7 @@ public final class AppState: ObservableObject {
         showDreamscape = false
         // Show any restored floating port panels now that lock screen is gone
         portWindows.showRestoredFloatingPanels()
+        Analytics.shared.capture("app_opened")
         // Restore last view if already set up
         if isSetupComplete {
             // If a swim was active, restore it
