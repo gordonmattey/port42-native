@@ -368,8 +368,10 @@ AI permissions with SwiftUI prompt, device permissions framework.
 xterm.js rendering, stdin/stdout streaming. Audio (P-501/502) done with
 AVAudioEngine, SFSpeechRecognizer, AVSpeechSynthesizer. Screen capture (P-504)
 done with ScreenCaptureKit (display + window capture). AI vision added to
-ai.complete via multimodal images option. Camera, clipboard,
-filesystem, browser APIs planned.
+ai.complete via multimodal images option. Clipboard (P-505), file system (P-506),
+notifications (P-507) done. Browser (P-509) done with headless WKWebView sessions
+for page loading, text/HTML extraction, screenshots, and JS execution.
+Camera (P-503) planned.
 
 See ports-spec.md and ports-implementation-plan.md for full details.
 
@@ -443,7 +445,7 @@ button for one-click OpenClaw deep linking.
 | P-505 | Clipboard | port42.clipboard.read/write | Port can access clipboard | **Done** |
 | P-506 | File System | port42.fs.read/write/pick with native file picker | Port can load and save files | **Done** |
 | P-507 | Notifications | port42.notify.send for system notifications | Background port can alert user | **Done** |
-| P-509 | Browser | port42.browser.open/navigate/capture/text/execute | Port can browse the web | Planned |
+| P-509 | Browser | port42.browser.open/navigate/capture/text/html/execute/close | Port can browse the web | **Done** |
 | P-401 | Cross-Channel Reads | port42.messages.recent(n, channelId) | Port can read any channel | Planned |
 | P-402 | Message Metadata | Structured metadata (model, response time, similarity) | Ports can analyze conversations | Planned |
 | P-403 | Convergence Detection | port42.convergence.detect() and events | Multi-agent agreement surfaced | Planned |

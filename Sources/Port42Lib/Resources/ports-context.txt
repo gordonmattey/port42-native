@@ -351,23 +351,7 @@ Read and write to the system clipboard. Requires user permission on first use.
     data: string for text, or { type: 'image', data: '<base64 png>' } for images
     Returns: { ok: true }
 
-Example clipboard port:
-```port
-<button id="paste">Paste</button>
-<button id="copy">Copy Selection</button>
-<pre id="content"></pre>
-<script>
-  document.getElementById('paste').onclick = async () => {
-    const clip = await port42.clipboard.read();
-    document.getElementById('content').textContent =
-      clip.type === 'text' ? clip.data : `[${clip.type}]`;
-  };
-  document.getElementById('copy').onclick = async () => {
-    const sel = window.getSelection().toString();
-    if (sel) await port42.clipboard.write(sel);
-  };
-</script>
-```
+  Clipboard supports both text and images. Check clip.type to handle each.
 
 ## File System API
 
@@ -388,26 +372,8 @@ Security: Only paths explicitly chosen by the user via the picker are accessible
     opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
     Returns: { ok: true, size: 1234 }
 
-Example file port:
-```port
-<button id="open">Open File</button>
-<button id="save">Save File</button>
-<pre id="content" contenteditable>Edit me...</pre>
-<script>
-  document.getElementById('open').onclick = async () => {
-    const result = await port42.fs.pick({ mode: 'open', types: ['txt','md','json'] });
-    if (result.cancelled) return;
-    const file = await port42.fs.read(result.path);
-    document.getElementById('content').textContent = file.data;
-  };
-  document.getElementById('save').onclick = async () => {
-    const result = await port42.fs.pick({ mode: 'save', suggestedName: 'output.txt' });
-    if (result.cancelled) return;
-    const text = document.getElementById('content').textContent;
-    await port42.fs.write(result.path, text);
-  };
-</script>
-```
+  Always check for {cancelled: true} after pick(). Paths from pick() are the only
+  paths fs.read/fs.write will accept.
 
 ## Notification API
 
@@ -418,12 +384,7 @@ Useful for background ports that need to alert the user.
     opts: { sound: true, subtitle: 'optional subtitle' }
     Returns: { ok: true, id: 'notification-uuid' }
 
-Example:
-```port
-<button onclick="port42.notify.send('Task Complete', 'Your build finished successfully')">
-  Notify Me
-</button>
-```
+  Example: await port42.notify.send('Task Complete', 'Your build finished successfully');
 
 ## Audio API
 
@@ -466,47 +427,9 @@ Microphone capture requires user permission on first use.
   port42.audio.stop()
     Stop any active speech or audio playback immediately.
 
-AUDIO PORT EXAMPLE:
-
-```port
-<title>Voice Notes</title>
-<div id="app">
-  <button id="mic">Start Listening</button>
-  <div id="transcript" style="white-space:pre-wrap;margin-top:8px;opacity:0.8"></div>
-  <button id="playback" style="margin-top:8px;display:none">Read Back</button>
-</div>
-<script>
-  const mic = document.getElementById('mic');
-  const transcript = document.getElementById('transcript');
-  const playback = document.getElementById('playback');
-  let listening = false;
-
-  port42.audio.on('transcription', (e) => {
-    transcript.textContent = e.text;
-    transcript.style.opacity = e.isFinal ? '1' : '0.6';
-    if (e.isFinal && e.text) playback.style.display = 'inline-block';
-  });
-
-  mic.onclick = async () => {
-    if (!listening) {
-      await port42.audio.capture({ transcribe: true });
-      mic.textContent = 'Stop';
-      mic.style.color = '#ff4444';
-      listening = true;
-    } else {
-      await port42.audio.stopCapture();
-      mic.textContent = 'Start Listening';
-      mic.style.color = '';
-      listening = false;
-    }
-  };
-
-  playback.onclick = async () => {
-    const text = transcript.textContent;
-    if (text) await port42.audio.speak(text, { rate: 0.45 });
-  };
-</script>
-```
+  Audio capture is toggle-based: call capture() to start, stopCapture() to stop.
+  Subscribe to audio.on('transcription', cb) BEFORE calling capture().
+  Only one capture session at a time.
 
 ## Screen Capture API
 
@@ -539,100 +462,68 @@ System-level permission is managed in System Settings > Privacy & Security > Scr
     a clean view of what's behind the app. Set includeSelf: true to capture
     Port42 itself (useful for screenshots of ports or the full desktop layout).
 
-SCREEN CAPTURE EXAMPLES:
+  Use screen.windows() to list windows, then screen.capture({windowId: id}) for
+  window-level capture. Combine with ai.complete({images: [result.image]}) for
+  vision workflows. Always pass images via the images option, NOT as text in the prompt.
 
-Window capture (list windows, pick one, screenshot it):
-```port
-<title>Window Capture</title>
-<div id="app">
-  <select id="windowList"><option>Loading windows...</option></select>
-  <button id="snap">Capture Window</button>
-  <div id="preview" style="margin-top:8px"></div>
-</div>
-<script>
-  const sel = document.getElementById('windowList');
-  const preview = document.getElementById('preview');
+## Browser API
 
-  // Populate window list
-  const {windows} = await port42.screen.windows();
-  sel.innerHTML = windows.map(w =>
-    `<option value="${w.id}">${w.app} — ${w.title}</option>`
-  ).join('');
+Browse the web from within a port. Each session is an independent headless browser
+(WKWebView) that can load pages, extract content, take screenshots, and run JavaScript.
+Requires user permission on first use. Max 5 concurrent sessions per port.
 
-  document.getElementById('snap').onclick = async () => {
-    const windowId = parseInt(sel.value);
-    const result = await port42.screen.capture({ windowId, scale: 0.5 });
-    if (result.error) { preview.textContent = result.error; return; }
-    const img = document.createElement('img');
-    img.src = 'data:image/png;base64,' + result.image;
-    img.style.maxWidth = '100%';
-    img.style.borderRadius = '4px';
-    preview.innerHTML = '';
-    preview.appendChild(img);
-  };
-</script>
-```
+  port42.browser.open(url, opts?)
+    Open a URL in a new browser session. Returns {sessionId, url, title}.
+    opts: { width?: 1280, height?: 720, userAgent?: string }
+    Only http, https, and data URIs are allowed.
+    Sessions use non-persistent data stores (no shared cookies).
 
-Screen + AI describe (capture screen, ask AI what it sees):
-```port
-<title>Screen + Describe</title>
-<div id="app">
-  <button id="snap">Screenshot</button>
-  <button id="describe" disabled>Describe</button>
-  <div id="preview" style="margin-top:8px"></div>
-  <div id="output" style="white-space:pre-wrap;margin-top:8px;opacity:0.8"></div>
-</div>
-<script>
-  let currentImage = null;
-  const preview = document.getElementById('preview');
-  const output = document.getElementById('output');
-  const describeBtn = document.getElementById('describe');
+  port42.browser.navigate(sessionId, url)
+    Navigate an existing session to a new URL. Returns {url, title}.
 
-  document.getElementById('snap').onclick = async () => {
-    const result = await port42.screen.capture({ scale: 0.5 });
-    if (result.error) { preview.textContent = result.error; return; }
-    currentImage = result.image;
-    const img = document.createElement('img');
-    img.src = 'data:image/png;base64,' + result.image;
-    img.style.maxWidth = '100%';
-    img.style.borderRadius = '4px';
-    preview.innerHTML = '';
-    preview.appendChild(img);
-    describeBtn.disabled = false;
-    output.textContent = '';
-  };
+  port42.browser.capture(sessionId, opts?)
+    Screenshot the page. Returns {image, width, height}.
+    opts: { region?: {x, y, width, height} }
+    image is a base64-encoded PNG.
 
-  describeBtn.onclick = async () => {
-    if (!currentImage) return;
-    describeBtn.disabled = true;
-    output.textContent = '';
-    try {
-      await port42.ai.complete('Describe what you see on this screen. Be specific but concise.', {
-        images: [currentImage],
-        systemPrompt: 'You are looking at a screenshot. Describe what you see clearly and concisely.',
-        onToken: (t) => { output.textContent += t; }
-      });
-    } catch (e) { output.textContent = 'Error: ' + e.message; }
-    describeBtn.disabled = false;
-  };
-</script>
-```
+  port42.browser.text(sessionId, opts?)
+    Extract page text content. Returns {text, title, url}.
+    opts: { selector?: string }  CSS selector to extract from specific element.
+    Text is truncated at 500KB.
 
-IMPORTANT: When using ai.complete with images (vision), pass the base64 image data
-in the images array option. Do NOT paste base64 data into the prompt text. The images
-option sends proper multimodal content blocks so the model can actually see the image.
+  port42.browser.html(sessionId, opts?)
+    Extract page HTML. Returns {html, title, url}.
+    opts: { selector?: string }  CSS selector to extract specific element's outerHTML.
+    HTML is truncated at 1MB.
+
+  port42.browser.execute(sessionId, js)
+    Run JavaScript in the page context. Returns {result}.
+    result is the return value of the expression (string, number, object, etc).
+
+  port42.browser.close(sessionId)
+    Close the browser session. Returns {ok: true}.
+    Sessions are also cleaned up when the port is closed.
+
+  port42.browser.on('load', callback)
+    Fires when a page finishes loading. Callback receives {sessionId, url, title}.
+
+  port42.browser.on('error', callback)
+    Fires on navigation error. Callback receives {sessionId, url, error}.
+
+  port42.browser.on('redirect', callback)
+    Fires on server redirect. Callback receives {sessionId, url}.
+
+BROWSER UX TIPS:
+  Do NOT use <iframe> to display web pages. Most sites block iframing via
+  X-Frame-Options or CSP headers. Use the headless browser for everything.
+  To show a page visually, use browser.capture() screenshots as the preview.
+  Close old sessions before opening new URLs.
 
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Camera (coming soon):
   - port42.camera.capture(opts?) — camera frame as base64 PNG
     Requires user permission for camera access.
-
-  Browser (coming soon):
-  - port42.browser.open(url) — open a URL in a managed browser session
-  - port42.browser.text(sessionId) — extract page text content
-  - port42.browser.capture(sessionId) — screenshot page as base64 PNG
-    Requires user permission for web browsing.
 
   Data (coming soon):
   - port42.messages.recent(n, channelId) — read messages from a different channel

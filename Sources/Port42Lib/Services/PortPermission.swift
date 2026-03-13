@@ -9,6 +9,7 @@ public enum PortPermission: String, Hashable {
     case microphone  // audio.capture, audio.stopCapture
     case camera      // camera.capture, camera.stream, camera.stopStream
     case screen      // screen.capture
+    case browser     // browser.open, browser.navigate, browser.capture, browser.text, browser.html, browser.execute, browser.close
     case clipboard     // clipboard.read, clipboard.write
     case filesystem    // fs.pick, fs.read, fs.write
     case notification  // notify.send
@@ -28,6 +29,8 @@ public enum PortPermission: String, Hashable {
             return .camera
         case "screen.capture", "screen.windows":
             return .screen
+        case "browser.open", "browser.navigate", "browser.capture", "browser.text", "browser.html", "browser.execute", "browser.close":
+            return .browser
         case "clipboard.read", "clipboard.write":
             return .clipboard
         case "fs.pick", "fs.read", "fs.write", "fs.drop":
@@ -66,6 +69,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Screen Capture",
                 message: "This port wants to capture your screen. Allow?"
+            )
+        case .browser:
+            return (
+                title: "Web Browsing",
+                message: "This port wants to browse the web. It can load pages, extract content, and take screenshots. Allow?"
             )
         case .clipboard:
             return (

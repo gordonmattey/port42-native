@@ -48,6 +48,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Screen capture bridge. Created lazily on first screen call.
     private var screenBridge: ScreenBridge?
 
+    /// Browser bridge. Created lazily on first browser call.
+    private var browserBridge: BrowserBridge?
+
     public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
@@ -79,6 +82,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let ab = audioBridge
         if let ab {
             Task { @MainActor in ab.cleanup() }
+        }
+        let bb = browserBridge
+        if let bb {
+            Task { @MainActor in bb.cleanup() }
         }
     }
 
@@ -611,6 +618,63 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if screenBridge == nil { screenBridge = ScreenBridge() }
             return await screenBridge!.capture(opts: opts)
 
+        // MARK: Browser
+
+        case "browser.open":
+            guard let url = args.first as? String, !url.isEmpty else {
+                return ["error": "browser.open requires a URL"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            if browserBridge == nil { browserBridge = BrowserBridge(bridge: self) }
+            return await browserBridge!.open(url: url, opts: opts)
+
+        case "browser.navigate":
+            guard let sessionId = args.first as? String,
+                  let url = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "browser.navigate requires sessionId and url"]
+            }
+            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
+            return await bb.navigate(sessionId: sessionId, url: url)
+
+        case "browser.capture":
+            guard let sessionId = args.first as? String else {
+                return ["error": "browser.capture requires sessionId"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
+            return await bb.capture(sessionId: sessionId, opts: opts)
+
+        case "browser.text":
+            guard let sessionId = args.first as? String else {
+                return ["error": "browser.text requires sessionId"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
+            return await bb.text(sessionId: sessionId, opts: opts)
+
+        case "browser.html":
+            guard let sessionId = args.first as? String else {
+                return ["error": "browser.html requires sessionId"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
+            return await bb.html(sessionId: sessionId, opts: opts)
+
+        case "browser.execute":
+            guard let sessionId = args.first as? String,
+                  let js = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "browser.execute requires sessionId and JavaScript code"]
+            }
+            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
+            return await bb.execute(sessionId: sessionId, js: js)
+
+        case "browser.close":
+            guard let sessionId = args.first as? String else {
+                return ["error": "browser.close requires sessionId"]
+            }
+            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
+            return bb.close(sessionId: sessionId)
+
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
             return ["error": "unknown method: \(method)"]
@@ -1045,6 +1109,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             screen: {
                 windows: () => call('screen.windows'),
                 capture: (opts) => call('screen.capture', [opts || {}])
+            },
+            browser: {
+                open: (url, opts) => call('browser.open', [url, opts || {}]),
+                navigate: (sessionId, url) => call('browser.navigate', [sessionId, url]),
+                capture: (sessionId, opts) => call('browser.capture', [sessionId, opts || {}]),
+                text: (sessionId, opts) => call('browser.text', [sessionId, opts || {}]),
+                html: (sessionId, opts) => call('browser.html', [sessionId, opts || {}]),
+                execute: (sessionId, js) => call('browser.execute', [sessionId, js]),
+                close: (sessionId) => call('browser.close', [sessionId]),
+                on: function(event, callback) {
+                    var fullEvent = 'browser.' + event;
+                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                    _listeners[fullEvent].push(callback);
+                }
             },
             viewport: { width: window.innerWidth || 600, height: window.innerHeight || 400 }
         };

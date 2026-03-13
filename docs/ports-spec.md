@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-13
 
-**Status:** Phase 1 + Phase 2 + Phase 3 complete, Phase 5 in progress (Terminal, Clipboard, File System, Notifications, Audio, Screen Capture done. AI Vision added.)
+**Status:** Phase 1 + Phase 2 + Phase 3 complete, Phase 5 in progress (Terminal, Clipboard, File System, Notifications, Audio, Screen Capture, Browser done. AI Vision added. Camera planned.)
 
 ---
 
@@ -315,7 +315,7 @@ Target: The ouroboros. The fish swims in itself.
 | P-506 | File System | `port42.fs.read(path)` / `.write(path, data)` / `.pick()` — scoped file access. Native file picker for user-chosen paths. Drag-and-drop support. | Medium | ✅ Done |
 | P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
 | P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
-| P-509 | Browser | `port42.browser.*` — embedded browser session inside a port. Navigate, capture page content, extract text, screenshot pages. Companion can browse the web and reason about what it finds. | High | Port can browse the web, companion can research and extract information |
+| P-509 | Browser | `port42.browser.*` — headless WKWebView sessions. Open, navigate, capture screenshots, extract text/HTML, execute JS, close. Max 5 concurrent sessions. Non-persistent data stores. `.browser` permission. | High | ✅ Done |
 
 ---
 
@@ -439,7 +439,7 @@ Planned (P-302b):
   .screen      → gates screen.capture
   .clipboard   → gates clipboard.read, clipboard.write
   .filesystem  → gates fs.read, fs.write, fs.pick
-  .browser     → gates browser.open, browser.navigate, browser.capture, browser.text, browser.execute
+  .browser     → gates browser.open, browser.navigate, browser.capture, browser.text, browser.html, browser.execute, browser.close
 ```
 
 Read APIs (user.get, companions.list, messages.recent, channel.*, storage.*)
@@ -711,37 +711,36 @@ port42.location
   .on('change', cb)          → location changed
 ```
 
-### P-509: Browser
+### P-509: Browser ✅ Done
 
 ```
 port42.browser
-  .open(url, opts?)            → { sessionId } — open a URL in a managed WKWebView
-                                 opts: { width?, height?, userAgent?, visible? }
-  .navigate(sessionId, url)    → navigate to a new URL
-  .capture(sessionId, opts?)   → { image } base64 PNG screenshot of page
-                                 opts: { fullPage?, region? }
-  .text(sessionId, opts?)      → { text, title, url } — extract page text content
+  .open(url, opts?)            → { sessionId, url, title }
+                                 opts: { width?, height?, userAgent? }
+  .navigate(sessionId, url)    → { url, title }
+  .capture(sessionId, opts?)   → { image, width, height } base64 PNG
+                                 opts: { region? }
+  .text(sessionId, opts?)      → { text, title, url }
                                  opts: { selector? }
-  .html(sessionId, opts?)      → { html, title, url } — extract page HTML
+  .html(sessionId, opts?)      → { html, title, url }
                                  opts: { selector? }
-  .execute(sessionId, js)      → run JavaScript in the page context, return result
-  .close(sessionId)            → close the browser session
-  .on('load', cb)              → page finished loading { sessionId, url, title }
-  .on('error', cb)             → navigation error { sessionId, url, error }
+  .execute(sessionId, js)      → { result }
+  .close(sessionId)            → { ok: true }
+  .on('load', cb)              → { sessionId, url, title }
+  .on('error', cb)             → { sessionId, url, error }
+  .on('redirect', cb)          → { sessionId, url }
 ```
 
-Native side: separate WKWebView per session (not the port's own webview).
-Full network access (unlike ports, browser sessions can fetch). Content
-extracted via evaluateJavaScript and passed back through the bridge.
-Optional visible mode renders the browser inline in the port for the user
-to see. Hidden mode is for headless scraping and research.
+Implementation: BrowserBridge.swift with BrowserSession inner class.
+Separate WKWebView per session (not the port's own webview). Max 5
+concurrent sessions per port. Non-persistent data stores (no shared
+cookies). URL validation (http/https/data only). Text truncated at
+500KB, HTML at 1MB. 30s navigation timeout. Sessions cleaned up on
+port close.
 
 Permission: `.browser` gates all browser methods. "This port wants to
-browse the web. Allow?" Combined with Bridge AI, a companion can research
+browse the web." Combined with Bridge AI, a companion can research
 topics, read documentation, and extract information autonomously.
 
-Use cases:
-- Companion researches a topic and summarizes findings
-- Port that monitors a web page for changes
-- "Read this URL and explain it to me"
-- Automated form filling and web interaction
+UX pattern: iframes don't work for most sites (X-Frame-Options/CSP).
+Use headless browser.capture() screenshots as the visual preview instead.

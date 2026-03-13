@@ -478,45 +478,18 @@ resize, kill, and xterm.js rendering. Permission prompt on first spawn.
 
 ---
 
-### Step 17: Browser (P-509)
+### Step 17: Browser (P-509) ✅
 
-**Goal:** Ports can browse the web, extract content, and take screenshots of pages.
-
-**Files to create:**
-- `Sources/Port42Lib/Services/BrowserBridge.swift` — managed WKWebView sessions, content extraction
-
-**What to build:**
-
-1. `port42.browser.open(url, opts?)` — create a new WKWebView session (separate
-   from the port's own webview). Full network access. Optional visible mode
-   renders the browser inline in the port. Hidden mode for headless research.
-
-2. `port42.browser.navigate(sessionId, url)` — navigate to a new URL.
-
-3. `port42.browser.capture(sessionId, opts?)` — screenshot the page as base64 PNG.
-   Uses WKWebView's `takeSnapshot`. Full page or region.
-
-4. `port42.browser.text(sessionId, opts?)` — extract text content via
-   `evaluateJavaScript("document.body.innerText")`. Optional CSS selector to
-   scope extraction.
-
-5. `port42.browser.html(sessionId, opts?)` — extract HTML content. Optional selector.
-
-6. `port42.browser.execute(sessionId, js)` — run arbitrary JavaScript in the
-   browsed page context. Returns the result.
-
-7. `port42.browser.close(sessionId)` — close the session, deallocate the webview.
-
-8. Events: `'load'` fires when page finishes loading. `'error'` fires on
-   navigation failure.
-
-9. Permission: `.browser` gates all methods. "This port wants to browse the web. Allow?"
-
-**User test:**
-- Port with a URL input that loads and screenshots any webpage
-- Companion that researches a topic by browsing multiple pages and summarizing
-- "Read this URL and explain it" using browser.text + AI.complete
-- Port that monitors a webpage for changes
+**Implemented:**
+- `Sources/Port42Lib/Services/BrowserBridge.swift` with BrowserSession inner class
+- 7 methods: open, navigate, capture, text, html, execute, close
+- 3 events: browser.load, browser.error, browser.redirect
+- Max 5 concurrent headless WKWebView sessions per port
+- Non-persistent data stores (no shared cookies between sessions)
+- URL validation (http/https/data only), 30s timeout, text/HTML truncation limits
+- `.browser` permission gates all methods
+- 8 tests passing
+- Companion context updated with browser API docs and UX tips
 
 ---
 
@@ -579,7 +552,7 @@ Step 13: Terminal (P-500)                   → ports run commands          ✅
 Step 14: Audio (mic + TTS)                  → ports listen and speak      ✅
 Step 15: Camera + screen                    → ports see                   ✅ (screen done, camera planned)
 Step 16: Clipboard + files + notifications  → ports move data            ✅
-Step 17: Browser (P-509)                    → ports browse the web
+Step 17: Browser (P-509)                    → ports browse the web       ✅
 Phase 5 (device APIs) ───────────────────────────────────────────────
 ```
 
