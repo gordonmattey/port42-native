@@ -93,16 +93,22 @@ BRIDGE API REFERENCE:
 
 AI API REFERENCE:
 
+  port42.ai.models()
+    Returns: [{id, name, tier}]
+    List available AI models. Use the id when passing model option to ai.complete.
+    tier is "flagship", "balanced", or "fast".
+
   port42.ai.complete(prompt, options?)
     Call an LLM directly from within a port. Raw AI access with no personality.
     prompt: the text prompt to send
     options: {
-        model: string,        // e.g. "claude-sonnet-4-6" (optional, defaults to creating companion's model)
+        model: string,        // optional, defaults to creating companion's model
         systemPrompt: string, // custom system prompt (optional, defaults to "You are a helpful assistant.")
         maxTokens: number,    // max response tokens (optional, default 4096)
         onToken: fn,          // called with each token as it streams (optional)
         onDone: fn            // called with the full response text on completion (optional)
     }
+    Use port42.ai.models() to get the list of available models.
     Returns: the full response text (string)
     Throws: Error if permission denied or API fails
     Requires AI permission (prompted on first use per session).

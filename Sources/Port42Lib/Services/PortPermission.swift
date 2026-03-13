@@ -28,7 +28,7 @@ public enum PortPermission: String, Hashable {
         case .ai:
             return (
                 title: "AI Access",
-                message: "This port wants to use AI capabilities. This will use your API credits. Allow?"
+                message: "This port wants to use AI capabilities. This will use your AI subscription tokens. Allow?"
             )
         }
     }

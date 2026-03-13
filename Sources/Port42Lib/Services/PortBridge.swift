@@ -282,6 +282,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if let cid = channelId { info["channelId"] = cid }
             return info
 
+        // port42.ai.models()
+        case "ai.models":
+            return [
+                ["id": "claude-opus-4-6", "name": "Opus 4.6", "tier": "flagship"],
+                ["id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "tier": "balanced"],
+                ["id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "tier": "fast"]
+            ]
+
         // port42.ai.complete(prompt, options?)
         case "ai.complete":
             return await handleAIComplete(args: args, callId: callId, state: state)
@@ -452,7 +460,29 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // Model resolution: explicit option (not used for invoke) -> companion config -> creating companion -> system default
         let model = companion.model ?? resolveDefaultModel(state: state)
-        let companionSystemPrompt = companion.systemPrompt ?? "You are a helpful companion."
+        let basePrompt = companion.systemPrompt ?? "You are a helpful companion."
+
+        // Build system prompt with identity and channel context
+        let userName = state.currentUser?.displayName ?? "someone"
+        let contextDescription: String
+        if let swim = state.activeSwimSession {
+            contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(swim.companion.displayName)."
+        } else if let cid = channelId, let ch = state.channels.first(where: { $0.id == cid }) {
+            contextDescription = "You are in the #\(ch.name) channel."
+        } else if let ch = state.currentChannel {
+            contextDescription = "You are in the #\(ch.name) channel."
+        } else {
+            contextDescription = "You are in a Port42 conversation."
+        }
+        let companionSystemPrompt = """
+            IDENTITY: You are \(companion.displayName).
+
+            CONTEXT: You are an AI companion in Port42. \(contextDescription) \
+            The user is \(userName). You were invoked by a port (an interactive UI surface) to provide analysis or answers. \
+            Your response goes back to the port, not to the chat. Be helpful and concise.
+
+            INSTRUCTIONS: \(basePrompt)
+            """
 
         // Build channel context messages (recent conversation)
         var messages: [[String: String]] = []
@@ -641,6 +671,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
 
             ai: {
+                models: () => call('ai.models'),
                 complete: function(prompt, opts) {
                     opts = opts || {};
                     const id = _callId + 1;

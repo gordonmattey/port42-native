@@ -718,15 +718,14 @@ struct InlinePortView: View {
     let createdBy: String?
     @State private var height: CGFloat = 100
     @State private var showCode = false
-    @ObservedObject var bridge: PortBridge
+    @StateObject var bridge: PortBridge
 
     init(html: String, appState: AppState, messageId: String? = nil, createdBy: String? = nil) {
         self.html = html
         self.appState = appState
         self.messageId = messageId
         self.createdBy = createdBy
-        let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy)
-        self.bridge = b
+        _bridge = StateObject(wrappedValue: PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy))
     }
 
     var body: some View {
