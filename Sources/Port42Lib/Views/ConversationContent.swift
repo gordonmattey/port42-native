@@ -731,31 +731,39 @@ struct InlinePortView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Toggle bar
-            HStack(spacing: 6) {
+            // Title bar (matches docked/floating style)
+            HStack(spacing: 8) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(Port42Theme.accent)
+                Text(PortPanel.extractTitle(from: html))
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+
                 Button(action: { showCode.toggle() }) {
                     HStack(spacing: 4) {
                         Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
                             .font(.system(size: 10))
                         Text(showCode ? "Run" : "Source")
-                            .font(Port42Theme.mono(11))
+                            .font(Port42Theme.mono(10))
                     }
                     .foregroundStyle(Port42Theme.accent)
-                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Spacer()
+                .help(showCode ? "Run port" : "View source")
 
                 Button(action: popOut) {
                     Image(systemName: "macwindow")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .help("Pop out")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(Port42Theme.bgSecondary)
             .zIndex(1)
 
@@ -768,10 +776,10 @@ struct InlinePortView: View {
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 300)
+                .frame(height: max(height, 100))
             } else {
                 PortView(html: html, bridge: bridge, height: $height)
-                    .frame(height: height)
+                    .frame(height: max(height, 100))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))

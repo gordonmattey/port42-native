@@ -231,6 +231,7 @@ struct DockDivider: View {
 struct DockedPortView: View {
     let panel: PortPanel
     @ObservedObject var manager: PortWindowManager
+    @State private var showCode = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -244,6 +245,18 @@ struct DockedPortView: View {
                     .foregroundStyle(Port42Theme.textPrimary)
                     .lineLimit(1)
                 Spacer()
+
+                Button(action: { showCode.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 10))
+                        Text(showCode ? "Run" : "Source")
+                            .font(Port42Theme.mono(10))
+                    }
+                    .foregroundStyle(Port42Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help(showCode ? "Run port" : "View source")
 
                 Button(action: {
                     var t = Transaction(animation: nil)
@@ -269,7 +282,16 @@ struct DockedPortView: View {
             .padding(.vertical, 6)
             .background(Port42Theme.bgSecondary)
 
-            if let webView = manager.webViews[panel.id] {
+            if showCode {
+                ScrollView(.vertical) {
+                    Text(panel.html)
+                        .font(Port42Theme.mono(12))
+                        .foregroundColor(Port42Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if let webView = manager.webViews[panel.id] {
                 PortWebViewHost(webView: webView)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

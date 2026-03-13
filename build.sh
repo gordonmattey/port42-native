@@ -97,7 +97,7 @@ fi
 echo "[build] Go gateway..."
 cd "$DIR/gateway"
 GATEWAY_BIN="$DIR/.build/port42-gateway"
-go build -o "$GATEWAY_BIN" .
+go build -ldflags "-X main.posthogAPIKey=${POSTHOG_API_KEY:-}" -o "$GATEWAY_BIN" .
 
 # --- Package the main app ---
 APP="$DIR/.build/Port42.app"

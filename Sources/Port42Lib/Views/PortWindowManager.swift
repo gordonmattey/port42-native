@@ -569,13 +569,23 @@ class PortNSPanel: NSPanel {
 struct PortPanelContentView: View {
     let panel: PortPanel
     let manager: PortWindowManager
+    @State private var showCode = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Custom title bar (draggable)
-            PortPanelTitleBar(panel: panel, manager: manager)
+            PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode)
 
-            if let webView = manager.webViews[panel.id] {
+            if showCode {
+                ScrollView(.vertical) {
+                    Text(panel.html)
+                        .font(Port42Theme.mono(12))
+                        .foregroundColor(Port42Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if let webView = manager.webViews[panel.id] {
                 PortWebViewHost(webView: webView)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -589,6 +599,7 @@ struct PortPanelContentView: View {
 struct PortPanelTitleBar: View {
     let panel: PortPanel
     let manager: PortWindowManager
+    @Binding var showCode: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -600,6 +611,18 @@ struct PortPanelTitleBar: View {
                 .foregroundStyle(Port42Theme.textPrimary)
                 .lineLimit(1)
             Spacer()
+
+            Button(action: { showCode.toggle() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 10))
+                    Text(showCode ? "Run" : "Source")
+                        .font(Port42Theme.mono(10))
+                }
+                .foregroundStyle(Port42Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help(showCode ? "Run port" : "View source")
 
             Button(action: { manager.dock(panel.id) }) {
                 Image(systemName: "sidebar.right")
