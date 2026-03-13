@@ -6,6 +6,7 @@ public struct ContentView: View {
     @State private var showNewChannel = false
     @State private var showQuickSwitcher = false
     @State private var showHelp = false
+    @State private var dockWidth: CGFloat = 380
     public var body: some View {
         NavigationSplitView {
             SidebarView(showNewChannel: $showNewChannel)
@@ -19,8 +20,15 @@ public struct ContentView: View {
                 )
                 .id(session.companion.id)
             } else if let channel = appState.currentChannel {
-                ChatView()
-                    .id(channel.id)
+                HStack(spacing: 0) {
+                    ChatView()
+                        .id(channel.id)
+                    if let docked = appState.portWindows.dockedPanel {
+                        DockDivider(dockWidth: $dockWidth)
+                        DockedPortView(panel: docked, manager: appState.portWindows)
+                            .frame(width: dockWidth)
+                    }
+                }
             } else {
                 VStack {
                     Text("Select a channel")
@@ -184,5 +192,88 @@ struct HelpOverlay: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Dock Divider
+
+struct DockDivider: View {
+    @Binding var dockWidth: CGFloat
+    @State private var isDragging = false
+
+    var body: some View {
+        Rectangle()
+            .fill(isDragging ? Port42Theme.accent.opacity(0.5) : Port42Theme.border)
+            .frame(width: isDragging ? 3 : 1)
+            .contentShape(Rectangle().inset(by: -4))
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        isDragging = true
+                        dockWidth = max(200, min(600, dockWidth - value.translation.width))
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+    }
+}
+
+// MARK: - Docked Port View
+
+struct DockedPortView: View {
+    let panel: PortPanel
+    @ObservedObject var manager: PortWindowManager
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title bar
+            HStack(spacing: 8) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(Port42Theme.accent)
+                Text(panel.title)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+
+                Button(action: {
+                    var t = Transaction(animation: nil)
+                    t.disablesAnimations = true
+                    withTransaction(t) { manager.undock(panel.id) }
+                }) {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Float")
+
+                Button(action: { manager.close(panel.id) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Port42Theme.bgSecondary)
+
+            if let webView = manager.webViews[panel.id] {
+                PortWebViewHost(webView: webView)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(Port42Theme.bgPrimary)
     }
 }

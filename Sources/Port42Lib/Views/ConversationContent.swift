@@ -714,6 +714,8 @@ struct MessageRow: View, Equatable {
 struct InlinePortView: View {
     let html: String
     let appState: AppState
+    let messageId: String?
+    let createdBy: String?
     @State private var height: CGFloat = 100
     @State private var showCode = false
     let bridge: PortBridge
@@ -721,6 +723,8 @@ struct InlinePortView: View {
     init(html: String, appState: AppState, messageId: String? = nil, createdBy: String? = nil) {
         self.html = html
         self.appState = appState
+        self.messageId = messageId
+        self.createdBy = createdBy
         let b = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy)
         self.bridge = b
     }
@@ -741,6 +745,14 @@ struct InlinePortView: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
+
+                Button(action: popOut) {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Pop out")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -770,6 +782,19 @@ struct InlinePortView: View {
         .onAppear {
             appState.registerPortBridge(bridge)
         }
+    }
+
+    private func popOut() {
+        guard let window = NSApp.keyWindow else { return }
+        let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+        appState.portWindows.popOut(
+            html: html,
+            bridge: bridge,
+            channelId: appState.currentChannel?.id,
+            createdBy: createdBy,
+            messageId: messageId,
+            in: bounds
+        )
     }
 }
 

@@ -372,6 +372,9 @@ public final class AppState: ObservableObject {
     public let tunnel = TunnelService.shared
     let fileResolver = FileResolver()
 
+    /// Manages popped-out and docked port panels
+    @Published public var portWindows = PortWindowManager()
+
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
     private var messageSink: AnyCancellable?
@@ -383,18 +386,28 @@ public final class AppState: ObservableObject {
     private var unreadObservation: AnyDatabaseCancellable?
     private var syncConnectionCancellable: AnyCancellable?
     private var tunnelCancellable: AnyCancellable?
+    private var portWindowsCancellable: AnyCancellable?
 
     public init(db: DatabaseService) {
         self.db = db
-        // Forward nested sync/tunnel changes to trigger SwiftUI updates
+        // Forward nested sync/tunnel/portWindows changes to trigger SwiftUI updates
         syncConnectionCancellable = sync.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         tunnelCancellable = tunnel.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        portWindowsCancellable = portWindows.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        portWindows.setDatabase(db)
         loadInitialState()
         setupPortEventObservers()
+        // Restore persisted port panels after a brief delay so the window is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            self.portWindows.restoreFromDB(appState: self)
+        }
     }
 
     // MARK: - Port Bridge Events
@@ -1151,6 +1164,7 @@ public final class AppState: ObservableObject {
     public func lockApp() {
         for session in swimSessions.values { session.stop() }
         activeSwimSession = nil
+        portWindows.hideFloatingPanels()
         showDreamscape = true
     }
 
@@ -1160,11 +1174,14 @@ public final class AppState: ObservableObject {
         activeSwimSession = nil
         currentUser = nil
         isSetupComplete = false
+        portWindows.hideFloatingPanels()
         showDreamscape = true
     }
 
     public func unlock() {
         showDreamscape = false
+        // Show any restored floating port panels now that lock screen is gone
+        portWindows.showRestoredFloatingPanels()
         // Restore last view if already set up
         if isSetupComplete {
             // If a swim was active, restore it
@@ -1183,6 +1200,7 @@ public final class AppState: ObservableObject {
         for session in swimSessions.values { session.stop() }
         swimSessions.removeAll()
         activeSwimSession = nil
+        portWindows.hideFloatingPanels()
         currentChannel = nil
         currentUser = nil
         channels = []
