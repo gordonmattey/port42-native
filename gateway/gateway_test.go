@@ -83,7 +83,7 @@ func readEnvelope(t *testing.T, ctx context.Context, conn *websocket.Conn) Envel
 // --- Tests ---
 
 func TestNoAuthChallenge(t *testing.T) {
-	// Without an auth verifier, no challenge should be sent.
+	// Without an auth verifier, a no_auth hint is sent instead of a challenge.
 	gw := NewGateway()
 	srv, wsURL := setupTestServer(gw)
 	defer srv.Close()
@@ -91,16 +91,17 @@ func TestNoAuthChallenge(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial failed: %v", err)
-	}
+	conn, noAuth := dialAndRead(t, ctx, wsURL)
 	defer conn.CloseNow()
 
-	// Send identify immediately (no challenge expected)
+	if noAuth.Type != "no_auth" {
+		t.Fatalf("expected no_auth, got %s", noAuth.Type)
+	}
+
+	// Send identify immediately
 	sendEnvelope(t, ctx, conn, Envelope{
-		Type:     "identify",
-		SenderID: "peer-1",
+		Type:       "identify",
+		SenderID:   "peer-1",
 		SenderName: "Test",
 	})
 
@@ -230,8 +231,8 @@ func TestInvalidTokenRejected(t *testing.T) {
 	}
 }
 
-func TestUnauthenticatedAllowedWithWarning(t *testing.T) {
-	// Auth is enabled but client sends no token. Should be allowed (backward compat).
+func TestUnauthenticatedRejectedWhenAuthEnabled(t *testing.T) {
+	// Auth is enabled but client sends no token. Should be rejected.
 	gw := NewGateway()
 	gw.authVerifier = &mockVerifier{userID: "apple-123"}
 	srv, wsURL := setupTestServer(gw)
@@ -254,10 +255,10 @@ func TestUnauthenticatedAllowedWithWarning(t *testing.T) {
 		SenderName: "Legacy",
 	})
 
-	// Should still get welcome (backward compat)
-	welcome := readEnvelope(t, ctx, conn)
-	if welcome.Type != "welcome" {
-		t.Fatalf("expected welcome, got %s", welcome.Type)
+	// Connection should be closed (auth required)
+	_, _, err := conn.Read(ctx)
+	if err == nil {
+		t.Fatal("expected connection to be closed when auth required but no token provided")
 	}
 }
 
@@ -399,6 +400,225 @@ func TestAppleIDMappingUpdatesOnReconnect(t *testing.T) {
 	gw.mu.RUnlock()
 	if mappedPeer != "peer-new" {
 		t.Fatalf("expected mapping to peer-new, got %s", mappedPeer)
+	}
+}
+
+// --- Security hardening tests ---
+
+func TestJoinRequiresTokenForNewMemberWithAuth(t *testing.T) {
+	// Token enforcement only active when authVerifier is set (public hosting)
+	gw := NewGateway()
+	gw.authVerifier = &mockVerifier{userID: "apple-a"}
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Peer A creates channel (first member, no token needed)
+	connA, _ := dialAndRead(t, ctx, wsURL)
+	defer connA.CloseNow()
+	sendEnvelope(t, ctx, connA, Envelope{Type: "identify", SenderID: "peer-a", SenderName: "A", IdentityToken: "valid-token", AuthType: "apple"})
+	readEnvelope(t, ctx, connA) // welcome
+	sendEnvelope(t, ctx, connA, Envelope{Type: "join", ChannelID: "chan-1"})
+	readEnvelope(t, ctx, connA) // presence
+
+	// Peer B tries to join without token
+	connB, _ := dialAndRead(t, ctx, wsURL)
+	defer connB.CloseNow()
+	sendEnvelope(t, ctx, connB, Envelope{Type: "identify", SenderID: "peer-b", SenderName: "B", IdentityToken: "valid-token", AuthType: "apple"})
+	readEnvelope(t, ctx, connB) // welcome
+	sendEnvelope(t, ctx, connB, Envelope{Type: "join", ChannelID: "chan-1"})
+	env := readEnvelope(t, ctx, connB)
+	if env.Type != "error" {
+		t.Fatalf("expected error for join without token, got %s", env.Type)
+	}
+}
+
+func TestJoinAllowedWithoutTokenOnLocalhost(t *testing.T) {
+	// Without authVerifier (localhost mode), joins are permissive
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Peer A creates channel
+	connA, _ := dialAndRead(t, ctx, wsURL)
+	defer connA.CloseNow()
+	sendEnvelope(t, ctx, connA, Envelope{Type: "identify", SenderID: "peer-a", SenderName: "A"})
+	readEnvelope(t, ctx, connA) // welcome
+	sendEnvelope(t, ctx, connA, Envelope{Type: "join", ChannelID: "chan-local"})
+	readEnvelope(t, ctx, connA) // presence
+
+	// Peer B joins without token (localhost mode allows it)
+	connB, _ := dialAndRead(t, ctx, wsURL)
+	defer connB.CloseNow()
+	sendEnvelope(t, ctx, connB, Envelope{Type: "identify", SenderID: "peer-b", SenderName: "B"})
+	readEnvelope(t, ctx, connB) // welcome
+	sendEnvelope(t, ctx, connB, Envelope{Type: "join", ChannelID: "chan-local"})
+	env := readEnvelope(t, ctx, connB)
+	if env.Type != "presence" {
+		t.Fatalf("expected presence (localhost allows tokenless join), got %s (error: %s)", env.Type, env.Error)
+	}
+}
+
+func TestJoinWithValidToken(t *testing.T) {
+	// Token-based join works in both modes; test with auth enabled
+	gw := NewGateway()
+	gw.authVerifier = &mockVerifier{userID: "apple-tok"}
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Peer A creates channel and generates token
+	connA, _ := dialAndRead(t, ctx, wsURL)
+	defer connA.CloseNow()
+	sendEnvelope(t, ctx, connA, Envelope{Type: "identify", SenderID: "peer-a", SenderName: "A", IdentityToken: "valid-token", AuthType: "apple"})
+	readEnvelope(t, ctx, connA) // welcome
+	sendEnvelope(t, ctx, connA, Envelope{Type: "join", ChannelID: "chan-token"})
+	readEnvelope(t, ctx, connA) // presence
+
+	sendEnvelope(t, ctx, connA, Envelope{Type: "create_token", ChannelID: "chan-token"})
+	tokenEnv := readEnvelope(t, ctx, connA)
+	if tokenEnv.Type != "token" {
+		t.Fatalf("expected token, got %s", tokenEnv.Type)
+	}
+
+	// Peer B joins with valid token
+	connB, _ := dialAndRead(t, ctx, wsURL)
+	defer connB.CloseNow()
+	sendEnvelope(t, ctx, connB, Envelope{Type: "identify", SenderID: "peer-b", SenderName: "B", IdentityToken: "valid-token", AuthType: "apple"})
+	readEnvelope(t, ctx, connB) // welcome
+	sendEnvelope(t, ctx, connB, Envelope{Type: "join", ChannelID: "chan-token", Token: tokenEnv.Token})
+	env := readEnvelope(t, ctx, connB)
+	if env.Type != "presence" {
+		t.Fatalf("expected presence after valid token join, got %s", env.Type)
+	}
+}
+
+func TestRateLimiting(t *testing.T) {
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _ := dialAndRead(t, ctx, wsURL)
+	defer conn.CloseNow()
+	sendEnvelope(t, ctx, conn, Envelope{Type: "identify", SenderID: "peer-flood", SenderName: "Flood"})
+	readEnvelope(t, ctx, conn) // welcome
+	sendEnvelope(t, ctx, conn, Envelope{Type: "join", ChannelID: "chan-flood"})
+	readEnvelope(t, ctx, conn) // presence
+
+	// Flood messages beyond rate limit
+	gotRateLimited := false
+	for i := 0; i < rateLimitPerSec+10; i++ {
+		sendEnvelope(t, ctx, conn, Envelope{
+			Type:      "message",
+			ChannelID: "chan-flood",
+			SenderID:  "peer-flood",
+			MessageID: fmt.Sprintf("msg-%d", i),
+		})
+	}
+
+	// Read responses, should see at least one rate limit error
+	for i := 0; i < rateLimitPerSec+10; i++ {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			break
+		}
+		var env Envelope
+		json.Unmarshal(data, &env)
+		if env.Type == "error" && env.Error == "rate limit exceeded" {
+			gotRateLimited = true
+			break
+		}
+	}
+	if !gotRateLimited {
+		t.Fatal("expected rate limit error after flooding messages")
+	}
+}
+
+func TestChannelIDTooLong(t *testing.T) {
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _ := dialAndRead(t, ctx, wsURL)
+	defer conn.CloseNow()
+	sendEnvelope(t, ctx, conn, Envelope{Type: "identify", SenderID: "peer-1", SenderName: "A"})
+	readEnvelope(t, ctx, conn) // welcome
+
+	longID := strings.Repeat("x", maxChannelIDLen+1)
+	sendEnvelope(t, ctx, conn, Envelope{Type: "join", ChannelID: longID})
+	env := readEnvelope(t, ctx, conn)
+	if env.Type != "error" {
+		t.Fatalf("expected error for long channel ID, got %s", env.Type)
+	}
+}
+
+func TestPeerIDTooLong(t *testing.T) {
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _ := dialAndRead(t, ctx, wsURL)
+	defer conn.CloseNow()
+
+	longID := strings.Repeat("x", maxPeerIDLen+1)
+	sendEnvelope(t, ctx, conn, Envelope{Type: "identify", SenderID: longID, SenderName: "A"})
+
+	// Connection should be closed
+	_, _, err := conn.Read(ctx)
+	if err == nil {
+		t.Fatal("expected connection to be closed for oversized peer ID")
+	}
+}
+
+func TestExistingMemberRejoinsWithoutToken(t *testing.T) {
+	// When a peer disconnects and reconnects (new WS connection), their channel
+	// membership is preserved because removePeer keeps channel membership.
+	// This simulates that by having peer disconnect and reconnect.
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Peer A creates channel
+	connA, _ := dialAndRead(t, ctx, wsURL)
+	sendEnvelope(t, ctx, connA, Envelope{Type: "identify", SenderID: "peer-rejoin", SenderName: "A"})
+	readEnvelope(t, ctx, connA) // welcome
+	sendEnvelope(t, ctx, connA, Envelope{Type: "join", ChannelID: "chan-rejoin"})
+	readEnvelope(t, ctx, connA) // presence
+
+	// Disconnect (removePeer keeps channel membership)
+	connA.Close(websocket.StatusNormalClosure, "bye")
+	time.Sleep(100 * time.Millisecond)
+
+	// Reconnect with same peer ID
+	connA2, _ := dialAndRead(t, ctx, wsURL)
+	defer connA2.CloseNow()
+	sendEnvelope(t, ctx, connA2, Envelope{Type: "identify", SenderID: "peer-rejoin", SenderName: "A"})
+	readEnvelope(t, ctx, connA2) // welcome
+
+	// Rejoin as existing member (no token needed)
+	sendEnvelope(t, ctx, connA2, Envelope{Type: "join", ChannelID: "chan-rejoin"})
+	env := readEnvelope(t, ctx, connA2)
+	if env.Type != "presence" {
+		t.Fatalf("expected presence on rejoin as existing member, got %s (error: %s)", env.Type, env.Error)
 	}
 }
 

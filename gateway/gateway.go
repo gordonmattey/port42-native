@@ -14,6 +14,19 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// Security limits for public hosting
+const (
+	maxMessageSize     = 64 * 1024 // 64 KB per WebSocket message
+	maxChannelIDLen    = 128
+	maxPeerIDLen       = 128
+	maxSenderNameLen   = 256
+	maxCompanionIDs    = 20
+	maxChannelsPerPeer = 50
+	maxTokensPerChan   = 100
+	maxStoredPerPeer   = 1000
+	rateLimitPerSec    = 30 // messages per second per peer
+)
+
 // Envelope is the wire format for all messages between client and gateway.
 type Envelope struct {
 	Type      string          `json:"type"`
@@ -42,7 +55,30 @@ type Peer struct {
 	Name     string
 	Conn     *websocket.Conn
 	Channels map[string]bool
+	authed   bool // true if identity was verified via auth
 	mu       sync.Mutex
+	// Rate limiting: sliding window of message timestamps
+	msgTimes []time.Time
+	rateMu   sync.Mutex
+}
+
+// rateOK returns true if the peer hasn't exceeded the message rate limit.
+func (p *Peer) rateOK() bool {
+	p.rateMu.Lock()
+	defer p.rateMu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-time.Second)
+	// Trim old entries
+	start := 0
+	for start < len(p.msgTimes) && p.msgTimes[start].Before(cutoff) {
+		start++
+	}
+	p.msgTimes = p.msgTimes[start:]
+	if len(p.msgTimes) >= rateLimitPerSec {
+		return false
+	}
+	p.msgTimes = append(p.msgTimes, now)
+	return true
 }
 
 func (p *Peer) Send(ctx context.Context, env Envelope) error {
@@ -170,7 +206,18 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Validate input lengths
+	if len(ident.SenderID) > maxPeerIDLen {
+		conn.Close(websocket.StatusPolicyViolation, "sender_id too long")
+		return
+	}
+	if len(ident.SenderName) > maxSenderNameLen {
+		conn.Close(websocket.StatusPolicyViolation, "sender_name too long")
+		return
+	}
+
 	// Verify identity token if auth is enabled
+	authed := false
 	if g.authVerifier != nil {
 		if ident.IdentityToken != "" && nonce != "" {
 			// Consume the nonce so it can't be reused
@@ -188,10 +235,13 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			g.mu.Lock()
 			g.appleIDs[appleUserID] = ident.SenderID
 			g.mu.Unlock()
+			authed = true
 			log.Printf("[gateway] peer %s authenticated (apple_id=%s...)", ident.SenderID, appleUserID[:min(8, len(appleUserID))])
 		} else {
-			// No token provided but auth is enabled
-			log.Printf("[gateway] peer %s connected without auth token (unauthenticated)", ident.SenderID)
+			// No token provided and auth is enabled: reject
+			log.Printf("[gateway] peer %s rejected: auth required but no identity token", ident.SenderID)
+			conn.Close(websocket.StatusPolicyViolation, "authentication required")
+			return
 		}
 	}
 
@@ -200,6 +250,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		Name:     ident.SenderName,
 		Conn:     conn,
 		Channels: make(map[string]bool),
+		authed:   authed,
 	}
 
 	g.addPeer(peer)
@@ -209,6 +260,9 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 
 	peer.Send(ctx, Envelope{Type: "welcome", SenderID: peer.ID})
 	g.flushStored(ctx, peer)
+
+	// Set read limit for message size
+	conn.SetReadLimit(maxMessageSize)
 
 	for {
 		msgType, data, err := conn.Read(ctx)
@@ -221,11 +275,24 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
+		// Rate limit check
+		if !peer.rateOK() {
+			peer.Send(ctx, Envelope{Type: "error", Error: "rate limit exceeded"})
+			log.Printf("[gateway] peer %s rate limited", peer.ID[:min(8, len(peer.ID))])
+			continue
+		}
+
 		log.Printf("[gateway] RECV from %s: frameType=%v len=%d data=%s", peer.ID[:min(8, len(peer.ID))], msgType, len(data), string(data[:min(200, len(data))]))
 
 		var env Envelope
 		if err := json.Unmarshal(data, &env); err != nil {
 			log.Printf("[gateway] peer %s bad json: %v data=%s", peer.ID, err, string(data[:min(200, len(data))]))
+			continue
+		}
+
+		// Validate channel ID length on all messages
+		if len(env.ChannelID) > maxChannelIDLen {
+			peer.Send(ctx, Envelope{Type: "error", Error: "channel_id too long"})
 			continue
 		}
 
@@ -309,6 +376,15 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 	if channelID == "" {
 		return fmt.Errorf("missing channel_id")
 	}
+	if len(channelID) > maxChannelIDLen {
+		return fmt.Errorf("channel_id too long")
+	}
+	if len(companionIDs) > maxCompanionIDs {
+		return fmt.Errorf("too many companion IDs")
+	}
+	if len(p.Channels) >= maxChannelsPerPeer {
+		return fmt.Errorf("channel limit reached")
+	}
 	g.mu.Lock()
 
 	// Token validation: first member (creator) is auto-authorized,
@@ -321,15 +397,22 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 		p.ID, channelID[:min(8, len(channelID))], isFirstMember, isExistingMember, token != "", len(members))
 
 	if !isFirstMember && !isExistingMember {
-		// Validate token if provided, but allow joining without one.
-		// Channel IDs are UUIDs (128-bit entropy) and serve as implicit proof
-		// of membership. Tokens add extra security for invite links but should
-		// not block reconnects after gateway restarts.
+		// New member must present a valid invite token (only enforced when auth is enabled,
+		// i.e. public hosting mode). On localhost/self-hosted, channel IDs are UUID-entropy
+		// and serve as implicit proof of membership.
 		tokenSet := g.tokens[channelID]
 		if token != "" && tokenSet != nil && tokenSet[token] {
 			// Consume valid token
 			delete(tokenSet, token)
 			log.Printf("[gateway] peer %s used valid token for channel %s", p.ID, channelID[:min(8, len(channelID))])
+		} else if g.authVerifier != nil {
+			// Strict mode: reject without valid token
+			g.mu.Unlock()
+			log.Printf("[gateway] peer %s rejected from channel %s: invalid or missing token", p.ID, channelID[:min(8, len(channelID))])
+			return fmt.Errorf("valid invite token required")
+		} else {
+			// Permissive mode (localhost): allow join, log for visibility
+			log.Printf("[gateway] peer %s joining channel %s without token (localhost mode)", p.ID, channelID[:min(8, len(channelID))])
 		}
 	}
 
@@ -418,6 +501,11 @@ func (g *Gateway) handleCreateToken(ctx context.Context, p *Peer, channelID stri
 
 	if g.tokens[channelID] == nil {
 		g.tokens[channelID] = make(map[string]bool)
+	}
+	if len(g.tokens[channelID]) >= maxTokensPerChan {
+		g.mu.Unlock()
+		p.Send(ctx, Envelope{Type: "error", Error: "too many active tokens for this channel", ChannelID: channelID})
+		return
 	}
 	g.tokens[channelID][token] = true
 	g.mu.Unlock()
