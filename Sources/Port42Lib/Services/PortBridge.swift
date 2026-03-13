@@ -45,6 +45,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Audio bridge. Created lazily on first audio call.
     private var audioBridge: AudioBridge?
 
+    /// Screen capture bridge. Created lazily on first screen call.
+    private var screenBridge: ScreenBridge?
+
     public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
@@ -597,6 +600,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "audio.stop":
             return audioBridge?.stop() ?? ["ok": true]
 
+        // MARK: Screen Capture
+
+        case "screen.windows":
+            if screenBridge == nil { screenBridge = ScreenBridge() }
+            return await screenBridge!.windows()
+
+        case "screen.capture":
+            let opts = args.first as? [String: Any] ?? [:]
+            if screenBridge == nil { screenBridge = ScreenBridge() }
+            return await screenBridge!.capture(opts: opts)
+
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
             return ["error": "unknown method: \(method)"]
@@ -615,12 +629,32 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let model = opts?["model"] as? String ?? resolveDefaultModel(state: state)
         let systemPrompt = opts?["systemPrompt"] as? String ?? "You are a helpful assistant."
         let maxTokens = opts?["maxTokens"] as? Int ?? 4096
+        let images = opts?["images"] as? [String]
 
         let handler = PortAIHandler(callId: callId, bridge: self)
         activeStreams[callId] = handler
 
-        let messages: [[String: String]] = [
-            ["role": "user", "content": prompt]
+        // Build user message content (multimodal if images provided)
+        let content: Any
+        if let images, !images.isEmpty {
+            var blocks: [[String: Any]] = images.map { base64 in
+                [
+                    "type": "image",
+                    "source": [
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": base64
+                    ] as [String: String]
+                ]
+            }
+            blocks.append(["type": "text", "text": prompt])
+            content = blocks
+        } else {
+            content = prompt
+        }
+
+        let messages: [[String: Any]] = [
+            ["role": "user", "content": content]
         ]
 
         do {
@@ -687,7 +721,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             """
 
         // Build channel context messages (recent conversation)
-        var messages: [[String: String]] = []
+        var messages: [[String: Any]] = []
         let recent = state.messages.suffix(20)
         for msg in recent {
             if msg.isSystem { continue }
@@ -747,20 +781,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     /// Ensure messages alternate user/assistant and start with user.
     /// Merges consecutive same-role messages.
-    private func cleanAlternation(_ messages: [[String: String]]) -> [[String: String]] {
+    private func cleanAlternation(_ messages: [[String: Any]]) -> [[String: Any]] {
         guard !messages.isEmpty else { return [] }
-        var result: [[String: String]] = []
+        var result: [[String: Any]] = []
         for msg in messages {
-            if let last = result.last, last["role"] == msg["role"] {
-                // Merge consecutive same-role messages
-                let merged = (last["content"] ?? "") + "\n" + (msg["content"] ?? "")
-                result[result.count - 1] = ["role": msg["role"] ?? "user", "content": merged]
+            let role = msg["role"] as? String ?? "user"
+            if let last = result.last, last["role"] as? String == role {
+                // Merge consecutive same-role messages (text content only)
+                let lastContent = last["content"] as? String ?? ""
+                let thisContent = msg["content"] as? String ?? ""
+                let merged = lastContent + "\n" + thisContent
+                result[result.count - 1] = ["role": role, "content": merged]
             } else {
                 result.append(msg)
             }
         }
         // Must start with user
-        if result.first?["role"] == "assistant" {
+        if result.first?["role"] as? String == "assistant" {
             result.insert(["role": "user", "content": "(context)"], at: 0)
         }
         return result
@@ -895,7 +932,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     return call('ai.complete', [prompt, {
                         model: opts.model,
                         systemPrompt: opts.systemPrompt,
-                        maxTokens: opts.maxTokens
+                        maxTokens: opts.maxTokens,
+                        images: opts.images
                     }]).then(function(r) {
                         delete _tokenCallbacks[id];
                         if (r && r.error) throw new Error(r.error);
@@ -1003,6 +1041,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
                     _listeners[fullEvent].push(callback);
                 }
+            },
+            screen: {
+                windows: () => call('screen.windows'),
+                capture: (opts) => call('screen.capture', [opts || {}])
             },
             viewport: { width: window.innerWidth || 600, height: window.innerHeight || 400 }
         };

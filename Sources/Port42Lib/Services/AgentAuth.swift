@@ -167,6 +167,8 @@ public final class AgentAuthResolver {
     /// (and repeated permission prompts) until the user explicitly calls resetAuth().
     private var hasReadKeychain: Bool = false
 
+    private static let selectedServiceKey = "port42SelectedKeychainService"
+
     /// Default init reads from the real Claude Code keychain entry.
     /// Pass custom service/account for testing.
     public init(
@@ -175,6 +177,8 @@ public final class AgentAuthResolver {
     ) {
         self.keychainService = keychainService
         self.keychainAccount = keychainAccount
+        // Restore previously selected Keychain entry across app restarts
+        self.activeService = UserDefaults.standard.string(forKey: AgentAuthResolver.selectedServiceKey)
     }
 
     /// For test compatibility: init with a mock directory (reads JSON file instead of Keychain)
@@ -237,6 +241,7 @@ public final class AgentAuthResolver {
         hasReadKeychain = false
         activeService = nil
         resolvedService = nil
+        UserDefaults.standard.removeObject(forKey: AgentAuthResolver.selectedServiceKey)
     }
 
     /// List all Claude Code credential entries in the Keychain.
@@ -297,6 +302,7 @@ public final class AgentAuthResolver {
         keychainDenied = false
         hasReadKeychain = false
         activeService = entry.serviceName
+        UserDefaults.standard.set(entry.serviceName, forKey: AgentAuthResolver.selectedServiceKey)
         // Pre-warm the cache with a single read so no further prompts are needed
         _ = try? readClaudeCodeToken()
     }

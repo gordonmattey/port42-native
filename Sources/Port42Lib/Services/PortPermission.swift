@@ -26,7 +26,7 @@ public enum PortPermission: String, Hashable {
             return nil // audio output doesn't need mic permission
         case "camera.capture", "camera.stream", "camera.stopStream":
             return .camera
-        case "screen.capture":
+        case "screen.capture", "screen.windows":
             return .screen
         case "clipboard.read", "clipboard.write":
             return .clipboard

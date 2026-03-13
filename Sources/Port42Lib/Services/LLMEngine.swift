@@ -38,7 +38,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     private var fullResponse = ""
     private var currentTask: URLSessionDataTask?
     private var hasRetriedAuth = false
-    private var lastSendArgs: (messages: [[String: String]], systemPrompt: String, model: String, maxTokens: Int, authConfig: AgentAuthConfig?)?
+    private var lastSendArgs: (messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int, authConfig: AgentAuthConfig?)?
 
     public init(authResolver: AgentAuthResolver = .shared) {
         self.authResolver = authResolver
@@ -47,7 +47,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
 
     /// Send a message to an LLM companion and stream the response back.
     public func send(
-        messages: [[String: String]],
+        messages: [[String: Any]],
         systemPrompt: String,
         model: String = "claude-opus-4-6",
         maxTokens: Int = 8192,

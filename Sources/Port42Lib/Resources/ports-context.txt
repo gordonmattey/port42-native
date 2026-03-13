@@ -105,6 +105,7 @@ AI API REFERENCE:
         model: string,        // optional, defaults to creating companion's model
         systemPrompt: string, // custom system prompt (optional, defaults to "You are a helpful assistant.")
         maxTokens: number,    // max response tokens (optional, default 4096)
+        images: [string],     // optional array of base64 PNG/JPEG strings for vision
         onToken: fn,          // called with each token as it streams (optional)
         onDone: fn            // called with the full response text on completion (optional)
     }
@@ -113,10 +114,21 @@ AI API REFERENCE:
     Throws: Error if permission denied or API fails
     Requires AI permission (prompted on first use per session).
 
-    Example:
+    When images are provided, they are sent as multimodal content blocks to the
+    Anthropic API. The model can see and analyze the images. Combine with
+    port42.screen.capture() or port42.clipboard.read() for vision workflows.
+
+    Example (text only):
       const summary = await port42.ai.complete("summarize this data: " + JSON.stringify(data), {
           model: "claude-sonnet-4-6",
           systemPrompt: "Be concise. Respond in bullet points.",
+          onToken: (token) => { output.textContent += token; }
+      });
+
+    Example (vision with screenshot):
+      const screenshot = await port42.screen.capture({ scale: 0.5 });
+      const description = await port42.ai.complete("Describe what you see on screen.", {
+          images: [screenshot.image],
           onToken: (token) => { output.textContent += token; }
       });
 
@@ -496,12 +508,125 @@ AUDIO PORT EXAMPLE:
 </script>
 ```
 
+## Screen Capture API
+
+Capture a screenshot of a display. Requires user permission on first use.
+System-level permission is managed in System Settings > Privacy & Security > Screen Recording.
+
+  port42.screen.windows()
+    List visible windows. Returns {windows: [{id, title, app, bundleId, bounds}]}.
+    bounds is {x, y, width, height} in screen points.
+    Filters out tiny windows (menu bar items, etc).
+    Use the id with screen.capture({windowId: id}) to capture a specific window.
+
+  port42.screen.capture(opts?)
+    Capture a screenshot. Returns {image, width, height}.
+    opts: {
+      scale?: 1.0,              // output resolution multiplier (0.1 to 2.0)
+      windowId?: number,         // capture a specific window (from screen.windows())
+      region?: {x, y, width, height},  // capture a specific area in screen points
+      displayId?: number,        // specific display (omit for main display)
+      includeSelf?: false        // include Port42's own windows in the capture
+    }
+    image is a base64-encoded PNG string.
+    width and height are the pixel dimensions of the captured image.
+    Requires screen capture permission (prompted on first use per session).
+
+    When windowId is provided, captures just that window with a transparent background.
+    Otherwise captures the full display (or region of it).
+
+    By default Port42's own windows are excluded from the capture so you get
+    a clean view of what's behind the app. Set includeSelf: true to capture
+    Port42 itself (useful for screenshots of ports or the full desktop layout).
+
+SCREEN CAPTURE EXAMPLES:
+
+Window capture (list windows, pick one, screenshot it):
+```port
+<title>Window Capture</title>
+<div id="app">
+  <select id="windowList"><option>Loading windows...</option></select>
+  <button id="snap">Capture Window</button>
+  <div id="preview" style="margin-top:8px"></div>
+</div>
+<script>
+  const sel = document.getElementById('windowList');
+  const preview = document.getElementById('preview');
+
+  // Populate window list
+  const {windows} = await port42.screen.windows();
+  sel.innerHTML = windows.map(w =>
+    `<option value="${w.id}">${w.app} — ${w.title}</option>`
+  ).join('');
+
+  document.getElementById('snap').onclick = async () => {
+    const windowId = parseInt(sel.value);
+    const result = await port42.screen.capture({ windowId, scale: 0.5 });
+    if (result.error) { preview.textContent = result.error; return; }
+    const img = document.createElement('img');
+    img.src = 'data:image/png;base64,' + result.image;
+    img.style.maxWidth = '100%';
+    img.style.borderRadius = '4px';
+    preview.innerHTML = '';
+    preview.appendChild(img);
+  };
+</script>
+```
+
+Screen + AI describe (capture screen, ask AI what it sees):
+```port
+<title>Screen + Describe</title>
+<div id="app">
+  <button id="snap">Screenshot</button>
+  <button id="describe" disabled>Describe</button>
+  <div id="preview" style="margin-top:8px"></div>
+  <div id="output" style="white-space:pre-wrap;margin-top:8px;opacity:0.8"></div>
+</div>
+<script>
+  let currentImage = null;
+  const preview = document.getElementById('preview');
+  const output = document.getElementById('output');
+  const describeBtn = document.getElementById('describe');
+
+  document.getElementById('snap').onclick = async () => {
+    const result = await port42.screen.capture({ scale: 0.5 });
+    if (result.error) { preview.textContent = result.error; return; }
+    currentImage = result.image;
+    const img = document.createElement('img');
+    img.src = 'data:image/png;base64,' + result.image;
+    img.style.maxWidth = '100%';
+    img.style.borderRadius = '4px';
+    preview.innerHTML = '';
+    preview.appendChild(img);
+    describeBtn.disabled = false;
+    output.textContent = '';
+  };
+
+  describeBtn.onclick = async () => {
+    if (!currentImage) return;
+    describeBtn.disabled = true;
+    output.textContent = '';
+    try {
+      await port42.ai.complete('Describe what you see on this screen. Be specific but concise.', {
+        images: [currentImage],
+        systemPrompt: 'You are looking at a screenshot. Describe what you see clearly and concisely.',
+        onToken: (t) => { output.textContent += t; }
+      });
+    } catch (e) { output.textContent = 'Error: ' + e.message; }
+    describeBtn.disabled = false;
+  };
+</script>
+```
+
+IMPORTANT: When using ai.complete with images (vision), pass the base64 image data
+in the images array option. Do NOT paste base64 data into the prompt text. The images
+option sends proper multimodal content blocks so the model can actually see the image.
+
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
-  Camera and Screen (coming soon):
+  Camera (coming soon):
   - port42.camera.capture(opts?) — camera frame as base64 PNG
-  - port42.screen.capture(opts?) — screenshot as base64 PNG
-    Requires user permission for camera/screen access.
+    Requires user permission for camera access.
 
   Browser (coming soon):
   - port42.browser.open(url) — open a URL in a managed browser session

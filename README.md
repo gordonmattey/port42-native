@@ -70,7 +70,7 @@ All methods are async and return JSON. Ports run in a sandboxed webview with no 
 .cancel(callId)                 → { ok: true }
 ```
 
-Raw LLM access with no personality. Options: `{ model, systemPrompt, maxTokens, onToken, onDone }`. Requires AI permission (shared with `companions.invoke`).
+Raw LLM access with no personality. Options: `{ model, systemPrompt, maxTokens, images, onToken, onDone }`. Pass `images: [base64String]` for vision (screenshot analysis, image understanding). Requires AI permission (shared with `companions.invoke`).
 
 ### port42.messages
 
@@ -185,6 +185,17 @@ Microphone capture with live transcription and audio output. Capture requires mi
 
 Capture options: `{ transcribe: true, language: 'en-US', rawAudio: false }`. Speak options: `{ voice, rate, pitch, volume }`. Play takes base64-encoded audio (WAV, MP3, AAC). Play options: `{ volume }`.
 
+### port42.screen
+
+Screenshot capture via ScreenCaptureKit. Requires screen permission.
+
+```
+.windows()                      → { windows: [{ id, title, app, bundleId, bounds }] }
+.capture(opts?)                 → { image, width, height }
+```
+
+`windows()` lists visible windows. Use `id` with `capture({ windowId })` to screenshot a specific window. Capture options: `{ scale, windowId, region, displayId, includeSelf }`. `image` is base64 PNG. `scale` controls resolution (0.1 to 2.0, default 1.0). By default Port42's own windows are excluded; pass `includeSelf: true` to include them.
+
 ### Events
 
 ```
@@ -208,6 +219,7 @@ Sensitive APIs require user permission on first use per port session. Permission
 | AI | `ai.complete`, `companions.invoke` |
 | Terminal | `terminal.spawn` |
 | Microphone | `audio.capture`, `audio.stopCapture` |
+| Screen | `screen.windows`, `screen.capture` |
 | Clipboard | `clipboard.read`, `clipboard.write` |
 | Filesystem | `fs.pick`, `fs.read`, `fs.write` |
 | Notification | `notify.send` |
