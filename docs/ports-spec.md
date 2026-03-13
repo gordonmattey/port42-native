@@ -213,10 +213,13 @@ Target: The ouroboros. The fish swims in itself.
 | P-200 | Pop Out | Button on inline port to detach into floating panel | User clicks pop out, port appears as panel |
 | P-201 | Virtual Window | Floating panel, draggable, resizable, title bar | Port panel moves and resizes within port42 |
 | P-202 | Docking | Snap to right, bottom, or left edge. Chat resizes | Docked port splits the view |
-| P-203 | Port Persistence | Popped-out ports survive channel switches | Switch channels, docked port stays |
+| P-203 | Port Persistence | Popped-out ports survive channel switches AND app restarts. Save port state (HTML, docked/floating, size, position) to DB. Restore on launch. | Switch channels, docked port stays. Quit and relaunch, ports come back. |
 | P-204 | Port Update | New port from same companion replaces existing | Companion iterates without duplicates |
 | P-205 | Port Close | Close button dismisses cleanly | Closing is clean and reversible |
 | P-206 | Multiple Ports | Multiple popped-out/docked at once | Two ports docked, or one docked and one floating |
+| P-207 | Cursor States | Correct cursor for each zone: green circle (default), resizeLeftRight (dock divider), no hand cursor on title bars. PortDragNSView and main app title bar should use custom arrow, not system hand. WKWebView content uses its own CSS cursors. | No stray hand cursors anywhere |
+| P-208 | Port UDIDs | Stable unique identifier per port instance. Persists across dock/undock/restart. Used by bridge JS API (`port42.ports.list()` etc.) to reference specific ports. Generated on first pop-out, stored in DB with port state. | Every port has a stable ID accessible via `port42.port.info().id` and `port42.ports.list()` |
+| P-209 | Port Channel Context | Popped-out ports keep their origin channel context by default (`port42.channel.current()` returns the channel they were created in). But need to decide: should ports optionally follow the user to the active channel? Options: (1) always origin channel, (2) always active channel, (3) `port42.channel.follow(true/false)` lets the port choose. Also need `port42.on('channel.switch')` event so ports can react to navigation. | Port has clear, predictable channel context regardless of which channel the user is viewing |
 
 ### Phase 3: Generative Ports
 
@@ -467,3 +470,27 @@ Convergence detection needs:
 
 This is emergent multi-agent behavior worth instrumenting, not preventing. The
 interesting protocol work is making it visible and useful.
+
+### Port Window Management API
+
+```
+port42.ports
+  .list()                → [{ id, title, channelId, createdBy, isDocked, isFloating, size }]
+  .dock(id)              → dock a floating port to the right panel
+  .undock(id)            → float a docked port
+  .close(id)             → close a port
+  .arrange(layout)       → retile floating ports (grid, stack, focus, cascade)
+
+port42.on('port.opened', cb)   → fires when a port is popped out
+port42.on('port.closed', cb)   → fires when a port is closed
+port42.on('port.docked', cb)   → fires when a port is docked
+port42.on('port.undocked', cb) → fires when a port is undocked
+```
+
+Enables "commander" ports that manage other ports. A workspace layout port
+could query all open ports and dynamically retile them based on context. The
+workspace itself becomes programmable through conversation.
+
+Prior art: CLI/gateway era had a terminal window tracker + "window commander"
+tool that dynamically retiled dozens of terminal windows based on task needs.
+This API brings the same capability to native ports.

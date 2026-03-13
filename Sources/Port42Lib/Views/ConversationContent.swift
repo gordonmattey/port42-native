@@ -718,7 +718,6 @@ struct InlinePortView: View {
     let createdBy: String?
     @State private var height: CGFloat = 100
     @State private var showCode = false
-    @State private var poppedOut = false
     let bridge: PortBridge
 
     init(html: String, appState: AppState, messageId: String? = nil, createdBy: String? = nil) {
@@ -747,33 +746,20 @@ struct InlinePortView: View {
                 .buttonStyle(.plain)
                 Spacer()
 
-                if !poppedOut {
-                    Button(action: popOut) {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Pop out")
+                Button(action: popOut) {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Port42Theme.textSecondary)
                 }
+                .buttonStyle(.plain)
+                .help("Pop out")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Port42Theme.bgSecondary)
             .zIndex(1)
 
-            if poppedOut {
-                HStack(spacing: 6) {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    Text("popped out")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-            } else if showCode {
+            if showCode {
                 ScrollView(.vertical) {
                     Text(html)
                         .font(Port42Theme.mono(12))
@@ -795,8 +781,6 @@ struct InlinePortView: View {
         )
         .onAppear {
             appState.registerPortBridge(bridge)
-            // Check if already popped out
-            poppedOut = appState.portWindows.isPoppedOut(messageId: messageId)
         }
     }
 
@@ -811,7 +795,6 @@ struct InlinePortView: View {
             messageId: messageId,
             in: bounds
         )
-        poppedOut = true
     }
 }
 

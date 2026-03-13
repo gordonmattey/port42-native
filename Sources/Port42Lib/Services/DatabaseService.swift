@@ -199,6 +199,21 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v11-port-panels") { db in
+            try db.create(table: "port_panels") { t in
+                t.column("id", .text).primaryKey()
+                t.column("html", .text).notNull()
+                t.column("channelId", .text)
+                t.column("createdBy", .text)
+                t.column("messageId", .text)
+                t.column("title", .text).notNull()
+                t.column("width", .double).notNull()
+                t.column("height", .double).notNull()
+                t.column("isDocked", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -608,5 +623,55 @@ public final class DatabaseService {
                 arguments: [scope, creatorId]
             )
         }
+    }
+
+    // MARK: - Port Panels
+
+    public func savePortPanel(_ panel: PersistedPortPanel) throws {
+        try dbQueue.write { db in
+            try panel.save(db)
+        }
+    }
+
+    public func deletePortPanel(_ id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM port_panels WHERE id = ?", arguments: [id])
+        }
+    }
+
+    public func fetchPortPanels() throws -> [PersistedPortPanel] {
+        try dbQueue.read { db in
+            try PersistedPortPanel.fetchAll(db)
+        }
+    }
+}
+
+// MARK: - Persisted Port Panel Record
+
+public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "port_panels"
+
+    public var id: String
+    public var html: String
+    public var channelId: String?
+    public var createdBy: String?
+    public var messageId: String?
+    public var title: String
+    public var width: Double
+    public var height: Double
+    public var isDocked: Bool
+    public var createdAt: Date
+
+    public init(from panel: PortPanel) {
+        self.id = panel.id
+        self.html = panel.html
+        self.channelId = panel.channelId
+        self.createdBy = panel.createdBy
+        self.messageId = panel.messageId
+        self.title = panel.title
+        self.width = Double(panel.size.width)
+        self.height = Double(panel.size.height)
+        self.isDocked = panel.isDocked
+        self.createdAt = Date()
     }
 }
