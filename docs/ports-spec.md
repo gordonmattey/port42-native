@@ -431,7 +431,7 @@ unique key. UPSERT via `ON CONFLICT DO UPDATE`. Scope resolution uses
 
 ---
 
-## Future Bridge APIs
+## Additional Bridge APIs
 
 See Phase 4 feature table (P-400 through P-403) for the full registry.
 Details below for reference.
