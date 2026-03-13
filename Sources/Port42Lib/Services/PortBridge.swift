@@ -5,7 +5,7 @@ import WebKit
 
 /// Bridges port42.* JS calls from a port's WKWebView to native Swift services.
 /// Handles request/response matching via callId, and pushes live events to JS.
-public final class PortBridge: NSObject, WKScriptMessageHandler {
+public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObject {
 
     private weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
@@ -15,6 +15,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
 
     /// Accessor for AppState (cast from AnyObject to avoid circular dependency)
     private var state: AppState? { appState as? AppState }
+
+    // MARK: - Permission State
+
+    /// Permissions granted during this port session. Resets when bridge is deallocated.
+    public var grantedPermissions: Set<PortPermission> = []
+
+    /// Active AI streams keyed by callId.
+    public var activeStreams: [Int: PortAIHandler] = [:]
+
+    /// The permission currently awaiting user approval, if any.
+    @Published public var pendingPermission: PortPermission?
+
+    /// Continuation for the pending permission prompt.
+    private var permissionContinuation: CheckedContinuation<Bool, Never>?
 
     public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
@@ -41,6 +55,77 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
         self.webView = webView
     }
 
+    // MARK: - Permission Management
+
+    /// Grant the pending permission and resume the waiting method.
+    @MainActor
+    public func grantPermission() {
+        guard let perm = pendingPermission else { return }
+        grantedPermissions.insert(perm)
+        pendingPermission = nil
+        permissionContinuation?.resume(returning: true)
+        permissionContinuation = nil
+    }
+
+    /// Deny the pending permission and resume the waiting method with false.
+    @MainActor
+    public func denyPermission() {
+        pendingPermission = nil
+        permissionContinuation?.resume(returning: false)
+        permissionContinuation = nil
+    }
+
+    /// Check and request permission for a method. Returns true if allowed.
+    @MainActor
+    private func checkPermission(for method: String) async -> Bool {
+        guard let perm = PortPermission.permissionForMethod(method) else { return true }
+        if grantedPermissions.contains(perm) { return true }
+
+        // Ask the user
+        return await withCheckedContinuation { continuation in
+            permissionContinuation = continuation
+            pendingPermission = perm
+        }
+    }
+
+    // MARK: - Streaming Support
+
+    /// Push a token to the port's JS context for streaming.
+    @MainActor
+    public func pushToken(_ callId: Int, _ token: String) {
+        let escaped = escapeJSString(token)
+        webView?.evaluateJavaScript("port42._tokenCallback(\(callId), \"\(escaped)\")") { _, _ in }
+    }
+
+    /// Resolve a deferred call with a string result.
+    @MainActor
+    public func resolveCall(_ callId: Int, _ result: String) {
+        let escaped = escapeJSString(result)
+        webView?.evaluateJavaScript("port42._resolve(\(callId), \"\(escaped)\")") { _, _ in }
+    }
+
+    /// Reject a deferred call with an error message.
+    @MainActor
+    public func rejectCall(_ callId: Int, _ error: String) {
+        let escaped = escapeJSString(error)
+        webView?.evaluateJavaScript("port42._reject(\(callId), \"\(escaped)\")") { _, _ in }
+    }
+
+    /// Remove a completed stream handler.
+    @MainActor
+    public func removeStream(_ callId: Int) {
+        activeStreams.removeValue(forKey: callId)
+    }
+
+    /// Escape a string for safe embedding in JS string literals.
+    private func escapeJSString(_ str: String) -> String {
+        str.replacingOccurrences(of: "\\", with: "\\\\")
+           .replacingOccurrences(of: "\"", with: "\\\"")
+           .replacingOccurrences(of: "\n", with: "\\n")
+           .replacingOccurrences(of: "\r", with: "\\r")
+           .replacingOccurrences(of: "\t", with: "\\t")
+    }
+
     // MARK: - WKScriptMessageHandler
 
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -52,7 +137,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
         let args = body["args"] as? [Any] ?? []
 
         Task { @MainActor in
-            let result = await handleMethod(method, args: args)
+            let result = await handleMethod(method, args: args, callId: callId)
+
+            // Deferred results (streaming) are resolved by the handler, not here
+            if let dict = result as? [String: Any], dict["__deferred__"] as? Bool == true {
+                return
+            }
+
             let jsonData = try? JSONSerialization.data(withJSONObject: result)
             let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
             _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
@@ -62,7 +153,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
     // MARK: - Method Routing
 
     @MainActor
-    private func handleMethod(_ method: String, args: [Any]) async -> Any {
+    private func handleMethod(_ method: String, args: [Any], callId: Int = 0) async -> Any {
+        // Permission guard
+        let allowed = await checkPermission(for: method)
+        if !allowed {
+            return ["error": "permission denied"]
+        }
+
         guard let state = state else { return ["error": "no app state"] }
 
         switch method {
@@ -99,6 +196,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                 ]
             }
             return NSNull()
+
+        // port42.companions.invoke(id, prompt)
+        case "companions.invoke":
+            return await handleCompanionInvoke(args: args, callId: callId, state: state)
 
         // port42.messages.recent(n)
         case "messages.recent":
@@ -180,6 +281,22 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
             if let creator = createdBy { info["createdBy"] = creator }
             if let cid = channelId { info["channelId"] = cid }
             return info
+
+        // port42.ai.complete(prompt, options?)
+        case "ai.complete":
+            return await handleAIComplete(args: args, callId: callId, state: state)
+
+        // port42.ai.cancel(callId)
+        case "ai.cancel":
+            guard let targetId = args.first as? Int else {
+                return ["error": "ai.cancel requires a callId"]
+            }
+            if let handler = activeStreams[targetId] {
+                handler.engine.cancel()
+                removeStream(targetId)
+                return ["ok": true]
+            }
+            return ["error": "no active stream for callId \(targetId)"]
 
         // port42.storage.set(key, value, options?)
         // options: { scope: 'global', shared: true }
@@ -276,6 +393,147 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
+    // MARK: - AI Complete
+
+    @MainActor
+    private func handleAIComplete(args: [Any], callId: Int, state: AppState) async -> Any {
+        guard let prompt = args.first as? String, !prompt.isEmpty else {
+            return ["error": "ai.complete requires a prompt"]
+        }
+
+        let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+        let model = opts?["model"] as? String ?? resolveDefaultModel(state: state)
+        let systemPrompt = opts?["systemPrompt"] as? String ?? "You are a helpful assistant."
+        let maxTokens = opts?["maxTokens"] as? Int ?? 4096
+
+        let handler = PortAIHandler(callId: callId, bridge: self)
+        activeStreams[callId] = handler
+
+        let messages: [[String: String]] = [
+            ["role": "user", "content": prompt]
+        ]
+
+        do {
+            try handler.engine.send(
+                messages: messages,
+                systemPrompt: systemPrompt,
+                model: model,
+                maxTokens: maxTokens,
+                delegate: handler
+            )
+        } catch {
+            removeStream(callId)
+            return ["error": error.localizedDescription]
+        }
+
+        return ["__deferred__": true]
+    }
+
+    // MARK: - Companion Invoke
+
+    @MainActor
+    private func handleCompanionInvoke(args: [Any], callId: Int, state: AppState) async -> Any {
+        guard let identifier = args.first as? String, !identifier.isEmpty else {
+            return ["error": "companions.invoke requires a companion id or name"]
+        }
+        let prompt = (args.count > 1 ? args[1] as? String : nil) ?? ""
+
+        // Resolve companion by ID or by name (case-insensitive)
+        let companion = state.companions.first(where: { $0.id == identifier })
+            ?? state.companions.first(where: { $0.displayName.lowercased() == identifier.lowercased() })
+
+        guard let companion else {
+            return ["error": "companion not found: \(identifier)"]
+        }
+
+        guard companion.mode == .llm else {
+            return ["error": "companion '\(companion.displayName)' is not an LLM companion"]
+        }
+
+        // Model resolution: explicit option (not used for invoke) -> companion config -> creating companion -> system default
+        let model = companion.model ?? resolveDefaultModel(state: state)
+        let companionSystemPrompt = companion.systemPrompt ?? "You are a helpful companion."
+
+        // Build channel context messages (recent conversation)
+        var messages: [[String: String]] = []
+        let recent = state.messages.suffix(20)
+        for msg in recent {
+            if msg.isSystem { continue }
+            if msg.content.isEmpty || msg.content.hasPrefix("[error:") { continue }
+            if msg.senderId == companion.id {
+                messages.append(["role": "assistant", "content": msg.content])
+            } else if msg.isAgent {
+                let ownerNote = msg.senderOwner.map { " (belonging to \($0))" } ?? ""
+                messages.append(["role": "user", "content": "(companion \(msg.senderName)\(ownerNote) said): \(msg.content)"])
+            } else {
+                messages.append(["role": "user", "content": "[\(msg.senderName)]: \(msg.content)"])
+            }
+        }
+
+        // Append the port's prompt as the final user message
+        if !prompt.isEmpty {
+            messages.append(["role": "user", "content": prompt])
+        }
+
+        // Ensure messages alternate and start with user
+        messages = cleanAlternation(messages)
+        guard !messages.isEmpty else {
+            return ["error": "no messages to send"]
+        }
+
+        let handler = PortAIHandler(callId: callId, bridge: self)
+        activeStreams[callId] = handler
+
+        do {
+            try handler.engine.send(
+                messages: messages,
+                systemPrompt: companionSystemPrompt,
+                model: model,
+                maxTokens: 4096,
+                delegate: handler
+            )
+        } catch {
+            removeStream(callId)
+            return ["error": error.localizedDescription]
+        }
+
+        return ["__deferred__": true]
+    }
+
+    // MARK: - Helpers
+
+    /// Resolve the default model from the creating companion or system default.
+    private func resolveDefaultModel(state: AppState) -> String {
+        // Try the creating companion's model
+        if let creator = createdBy,
+           let companion = state.companions.first(where: { $0.displayName.lowercased() == creator.lowercased() }),
+           let model = companion.model {
+            return model
+        }
+        return "claude-sonnet-4-6"
+    }
+
+    /// Ensure messages alternate user/assistant and start with user.
+    /// Merges consecutive same-role messages.
+    private func cleanAlternation(_ messages: [[String: String]]) -> [[String: String]] {
+        guard !messages.isEmpty else { return [] }
+        var result: [[String: String]] = []
+        for msg in messages {
+            if let last = result.last, last["role"] == msg["role"] {
+                // Merge consecutive same-role messages
+                let merged = (last["content"] ?? "") + "\n" + (msg["content"] ?? "")
+                result[result.count - 1] = ["role": msg["role"] ?? "user", "content": merged]
+            } else {
+                result.append(msg)
+            }
+        }
+        // Must start with user
+        if result.first?["role"] == "assistant" {
+            result.insert(["role": "user", "content": "(context)"], at: 0)
+        }
+        return result
+    }
+
     // MARK: - Storage Helpers
 
     /// Resolve storage scope and creator from JS options.
@@ -317,6 +575,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
         let _callId = 0;
         const _pending = {};
         const _listeners = {};
+        const _tokenCallbacks = {};
 
         // Connection health tracking
         let _lastHeartbeat = Date.now();
@@ -356,6 +615,18 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                     resolve(data);
                 }
             },
+            _reject: function(callId, error) {
+                const resolve = _pending[callId];
+                if (resolve) {
+                    delete _pending[callId];
+                    delete _tokenCallbacks[callId];
+                    resolve({"error": error});
+                }
+            },
+            _tokenCallback: function(callId, token) {
+                const cb = _tokenCallbacks[callId];
+                if (cb) try { cb(token); } catch(e) { console.error(e); }
+            },
             _emit: function(event, data) {
                 const cbs = _listeners[event] || [];
                 cbs.forEach(cb => { try { cb(data); } catch(e) { console.error(e); } });
@@ -369,9 +640,38 @@ public final class PortBridge: NSObject, WKScriptMessageHandler {
                 }
             },
 
+            ai: {
+                complete: function(prompt, opts) {
+                    opts = opts || {};
+                    const id = _callId + 1;
+                    if (opts.onToken) _tokenCallbacks[id] = opts.onToken;
+                    return call('ai.complete', [prompt, {
+                        model: opts.model,
+                        systemPrompt: opts.systemPrompt,
+                        maxTokens: opts.maxTokens
+                    }]).then(function(r) {
+                        delete _tokenCallbacks[id];
+                        if (r && r.error) throw new Error(r.error);
+                        if (opts.onDone) opts.onDone(r);
+                        return r;
+                    });
+                },
+                cancel: function(callId) { return call('ai.cancel', [callId]); }
+            },
             companions: {
                 list: () => call('companions.list'),
-                get: (id) => call('companions.get', [id])
+                get: (id) => call('companions.get', [id]),
+                invoke: function(id, prompt, opts) {
+                    opts = opts || {};
+                    const cid = _callId + 1;
+                    if (opts.onToken) _tokenCallbacks[cid] = opts.onToken;
+                    return call('companions.invoke', [id, prompt]).then(function(r) {
+                        delete _tokenCallbacks[cid];
+                        if (r && r.error) throw new Error(r.error);
+                        if (opts.onDone) opts.onDone(r);
+                        return r;
+                    });
+                }
             },
             messages: {
                 recent: (n) => call('messages.recent', [n || 20]),

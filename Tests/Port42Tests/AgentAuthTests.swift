@@ -56,11 +56,13 @@ struct AgentAuthTests {
         switch oauth {
         case .claudeCodeOAuth: break // expected
         case .apiKey: Issue.record("Should be OAuth")
+        case .claudeManualToken: Issue.record("Should be OAuth")
         }
 
         switch apiKey {
         case .apiKey(let key): #expect(key == "sk-test")
         case .claudeCodeOAuth: Issue.record("Should be API key")
+        case .claudeManualToken: Issue.record("Should be API key")
         }
     }
 

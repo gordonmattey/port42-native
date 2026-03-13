@@ -16,6 +16,29 @@ BRIDGE API REFERENCE:
     Returns: {id, name, model, isActive} or null
     Get a single companion by ID.
 
+  port42.companions.invoke(id, prompt, options?)
+    Invoke a companion's AI from within a port. The companion sees recent channel
+    conversation as context. Response is port-private (does NOT appear in chat).
+    The companion is NOT notified or aware it was invoked.
+    id: companion ID or display name (case-insensitive)
+    prompt: the question or instruction for the companion
+    options: {onToken: fn, onDone: fn}
+    Returns: the full response text (string)
+    Requires AI permission (prompted on first use per session).
+
+    Example:
+      const analysis = await port42.companions.invoke("sage", "what patterns do you see?", {
+          onToken: (token) => { output.textContent += token; },
+          onDone: (full) => { console.log("done:", full.length, "chars"); }
+      });
+
+    Multi-companion pattern (no special API needed):
+      const results = await Promise.all(
+          ["echo", "sage", "analyst"].map(c =>
+              port42.companions.invoke(c, "rate this idea 1-10")
+          )
+      );
+
   port42.user.get()
     Returns: {id, name}
     Get the current user.
@@ -68,6 +91,39 @@ BRIDGE API REFERENCE:
   port42.port.resize(w, h)
     Resize this port to the given width and height in pixels.
 
+AI API REFERENCE:
+
+  port42.ai.complete(prompt, options?)
+    Call an LLM directly from within a port. Raw AI access with no personality.
+    prompt: the text prompt to send
+    options: {
+        model: string,        // e.g. "claude-sonnet-4-6" (optional, defaults to creating companion's model)
+        systemPrompt: string, // custom system prompt (optional, defaults to "You are a helpful assistant.")
+        maxTokens: number,    // max response tokens (optional, default 4096)
+        onToken: fn,          // called with each token as it streams (optional)
+        onDone: fn            // called with the full response text on completion (optional)
+    }
+    Returns: the full response text (string)
+    Throws: Error if permission denied or API fails
+    Requires AI permission (prompted on first use per session).
+
+    Example:
+      const summary = await port42.ai.complete("summarize this data: " + JSON.stringify(data), {
+          model: "claude-sonnet-4-6",
+          systemPrompt: "Be concise. Respond in bullet points.",
+          onToken: (token) => { output.textContent += token; }
+      });
+
+  port42.ai.cancel(callId)
+    Cancel an in-progress AI stream. Generally not needed since ai.complete returns
+    a promise that resolves on completion.
+
+PERMISSIONS:
+  AI APIs (port42.ai.complete and port42.companions.invoke) require user permission.
+  On first use in a port session, a confirmation dialog appears asking the user to Allow or Deny.
+  Once granted, permission persists for the port's lifetime (until closed/reopened).
+  Both APIs share the same ".ai" permission grant.
+
 RESILIENCE: All bridge APIs are async and can return null. Wrap your init in try/catch
 so one failed call doesn't kill the whole port. If an API returns null, degrade gracefully
 (show "unavailable" instead of crashing). channel.current() returns null in some contexts.
@@ -115,6 +171,36 @@ EXAMPLE PORT:
     app.textContent = 'port error: ' + e.message;
     console.error('port init failed:', e);
   }
+</script>
+```
+
+AI PORT EXAMPLE:
+
+```port
+<title>AI Assistant</title>
+<div id="app">
+  <input id="input" placeholder="Ask anything..." style="width:100%;margin-bottom:8px">
+  <div id="output" style="white-space:pre-wrap;opacity:0.8"></div>
+</div>
+<script>
+  const input = document.getElementById('input');
+  const output = document.getElementById('output');
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter' || !input.value.trim()) return;
+    const prompt = input.value.trim();
+    input.value = '';
+    output.textContent = '';
+
+    try {
+      await port42.ai.complete(prompt, {
+        systemPrompt: "Be concise and helpful.",
+        onToken: (token) => { output.textContent += token; }
+      });
+    } catch (err) {
+      output.textContent = 'Error: ' + err.message;
+    }
+  });
 </script>
 ```
 
@@ -169,11 +255,37 @@ STORAGE EXAMPLE:
 
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
-  Tier 2:
-  - port42.messages.recent(n, channelId) — read messages from a different channel
-  - port42.companions.invoke(id, prompt) — ask a companion to perform a task from within a port
+  Terminal (coming soon):
+  - port42.terminal.spawn(opts?) — start a shell session inside a port
+  - port42.terminal.send(sessionId, data) — send stdin
+  - port42.terminal.on('output', cb) — stream stdout/stderr
+  - port42.terminal.kill(sessionId) — terminate process
+    Requires user permission. Enables live terminal ports.
 
-  Tier 3:
+  Audio (coming soon):
+  - port42.audio.capture({transcribe?: true}) — mic input with live transcription
+  - port42.audio.speak(text, opts?) — text-to-speech output
+  - port42.audio.on('transcription', cb) — speech-to-text stream
+    Requires user permission for microphone access.
+
+  Camera and Screen (coming soon):
+  - port42.camera.capture(opts?) — camera frame as base64 PNG
+  - port42.screen.capture(opts?) — screenshot as base64 PNG
+    Requires user permission for camera/screen access.
+
+  Clipboard and Files (coming soon):
+  - port42.clipboard.read() / .write(data) — system clipboard access
+  - port42.fs.pick(opts?) — native file picker
+  - port42.fs.read(path) / .write(path, data) — scoped file access
+    Requires user permission. Only user-chosen paths allowed.
+
+  Notifications (coming soon):
+  - port42.notify.send(title, body) — system notification from background port
+
+  Data (coming soon):
+  - port42.messages.recent(n, channelId) — read messages from a different channel
+
+  Events (coming soon):
   - port42.on('channel.switch') — fires when user navigates to a different channel
   - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
   - port42.port.spawn(html) — create a child port from within a port

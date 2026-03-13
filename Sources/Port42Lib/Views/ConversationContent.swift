@@ -718,7 +718,7 @@ struct InlinePortView: View {
     let createdBy: String?
     @State private var height: CGFloat = 100
     @State private var showCode = false
-    let bridge: PortBridge
+    @ObservedObject var bridge: PortBridge
 
     init(html: String, appState: AppState, messageId: String? = nil, createdBy: String? = nil) {
         self.html = html
@@ -789,6 +789,19 @@ struct InlinePortView: View {
         )
         .onAppear {
             appState.registerPortBridge(bridge)
+        }
+        .confirmationDialog(
+            bridge.pendingPermission?.permissionDescription.title ?? "Permission",
+            isPresented: Binding(
+                get: { bridge.pendingPermission != nil },
+                set: { if !$0 { bridge.denyPermission() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Allow") { bridge.grantPermission() }
+            Button("Deny", role: .cancel) { bridge.denyPermission() }
+        } message: {
+            Text(bridge.pendingPermission?.permissionDescription.message ?? "")
         }
     }
 

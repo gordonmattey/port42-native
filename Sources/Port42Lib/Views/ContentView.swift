@@ -82,6 +82,28 @@ public struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .helpRequested)) { _ in
             showHelp.toggle()
         }
+        .overlay(alignment: .bottom) {
+            if let message = appState.toastMessage {
+                Text(message)
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(Port42Theme.bgPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Port42Theme.accent)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.3), radius: 8)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                appState.toastMessage = nil
+                            }
+                        }
+                    }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.toastMessage)
     }
 }
 
@@ -297,5 +319,18 @@ struct DockedPortView: View {
             }
         }
         .background(Port42Theme.bgPrimary)
+        .confirmationDialog(
+            panel.bridge.pendingPermission?.permissionDescription.title ?? "Permission",
+            isPresented: Binding(
+                get: { panel.bridge.pendingPermission != nil },
+                set: { if !$0 { panel.bridge.denyPermission() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Allow") { panel.bridge.grantPermission() }
+            Button("Deny", role: .cancel) { panel.bridge.denyPermission() }
+        } message: {
+            Text(panel.bridge.pendingPermission?.permissionDescription.message ?? "")
+        }
     }
 }
