@@ -1,8 +1,8 @@
 # Ports Spec
 
-**Last updated:** 2026-03-12
+**Last updated:** 2026-03-13
 
-**Status:** Phase 1 complete, Phase 2 next
+**Status:** Phase 1 + Phase 2 complete, Phase 3 in progress (AI bridge + AI permissions done)
 
 ---
 
@@ -101,9 +101,11 @@ Every companion can open a port. Every port is alive.
 
 ## Build Phases
 
-### Phase 1: Inline Ports (Flows 1 + 2)
-### Phase 2: Pop Out and Dock (Flows 3 + 4)
-### Phase 3: Generative Ports (Flow 5)
+### Phase 1: Inline Ports (Flows 1 + 2) ✅
+### Phase 2: Pop Out and Dock (Flows 3 + 4) ✅
+### Phase 3: Generative Ports (Flow 5) — in progress
+### Phase 4: Advanced Bridge APIs
+### Phase 5: Device APIs (Flows 6 + 7)
 
 ---
 
@@ -167,7 +169,33 @@ Port calls port42.ai.complete() through the bridge
 
 Target: Ports are not just interactive, they are intelligent.
 
-### Flow 6: Port42 Is a Port
+### Flow 6: Terminal Port
+
+```
+Companion creates a terminal port
+→ Port renders a live shell (xterm.js or equivalent)
+→ Companion runs commands, streams output in real time
+→ User sees exactly what's happening
+→ Companion reasons about output with Bridge AI
+→ "Run the tests, if they fail, fix it, run again"
+```
+
+Target: The gap between "here's a command to try" and actually running it disappears.
+
+### Flow 7: Sensory Port
+
+```
+Port requests camera/mic/screen access
+→ User approves via permission prompt (same pattern as AI calls)
+→ Port captures image/audio/screen
+→ Companion analyzes via Bridge AI
+→ "Show me what's on your screen" just works
+→ "Read this document to me" just works
+```
+
+Target: Every device capability becomes a companion capability. No separate apps.
+
+### Flow 8: Port42 Is a Port
 
 ```
 Port42's own UI (sidebar, chat, message renderer) is rebuilt as ports
@@ -248,10 +276,13 @@ Target: The ouroboros. The fish swims in itself.
 
 ### Phase 3: Generative Ports
 
-| ID | Feature | Description | Priority | Done When |
-|----|---------|-------------|----------|-----------|
-| P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming | High | Port can call AI and stream response |
-| P-301 | Port Permissions | Permission prompts for AI calls. Reads/sends allowed by default | High | User approves before AI actions |
+| ID | Feature | Description | Priority | Status |
+|----|---------|-------------|----------|--------|
+| P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming. `port42.ai.models()` for model listing. `port42.companions.invoke()` for companion-scoped AI. JS callback API with `onToken` and `onDone`. | High | ✅ Done |
+| P-301 | Bridge: Write Ops | `port42.messages.send`, `port42.channel.*`, `port42.storage.*` | ✅ Done | ✅ Moved to Phase 1 |
+| P-302a | AI Permissions | Permission prompt on first `ai.complete` or `companions.invoke` call. Stored per port session, reset on close. | High | ✅ Done |
+| P-302b | Device Permissions | Extend permission model to terminal, microphone, camera, screen, clipboard, filesystem. Same prompt pattern as AI. | High | Next |
+| P-303 | Companion AI Context | Update companion system prompt with AI bridge docs and device API docs so companions know they can build self-thinking ports. | Medium | Partial (AI docs done, device docs pending) |
 
 ### Phase 4: Advanced Bridge APIs
 
@@ -261,6 +292,20 @@ Target: The ouroboros. The fish swims in itself.
 | P-401 | Cross-Channel Reads | `port42.messages.recent(n, channelId?)` and `port42.messages.search(query)` across channels | Medium | Port can read messages from any channel |
 | P-402 | Structured Message Metadata | Extend messages with `model`, `responseTime`, `tokenCount`, `similarity`, `tags` | Medium | Analytics ports can compare companion performance |
 | P-403 | Convergence Detection | `port42.convergence.detect(messages)` with similarity scoring and wave detection | Low | Convergence events surfaced as signal |
+
+### Phase 5: Device APIs
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-500 | Terminal | `port42.terminal.*` — shell session inside a port. Spawn process, stream stdout/stderr, send stdin. Companion can reason about output with Bridge AI. | High | Port renders a live terminal, companion runs commands |
+| P-501 | Audio Input | `port42.audio.capture(opts?)` — microphone access with permission. Returns audio stream or transcribed text via native Speech framework. | High | Port can listen and transcribe speech |
+| P-502 | Audio Output | `port42.audio.speak(text, opts?)` — text-to-speech via AVSpeechSynthesizer. `port42.audio.play(data)` for generated audio. | Medium | Port can speak and play audio |
+| P-503 | Camera | `port42.camera.capture(opts?)` — camera frame or continuous feed. Returns base64 image data. Companion can analyze via Bridge AI. | Medium | Port can see through the camera |
+| P-504 | Screen Capture | `port42.screen.capture(opts?)` — screenshot or region. Returns base64 image. "Look at this and tell me what's wrong." | Medium | Port can see the screen |
+| P-505 | Clipboard | `port42.clipboard.read()` / `.write(data)` — system clipboard access with permission. Seamless data flow in and out of ports. | Medium | Port can read/write clipboard |
+| P-506 | File System | `port42.fs.read(path)` / `.write(path, data)` / `.pick()` — scoped file access. Native file picker for user-chosen paths. Drag-and-drop support. | Medium | Port can load and save files |
+| P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | Background port can notify the user |
+| P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
 
 ---
 
@@ -292,7 +337,7 @@ in a full document with the base theme pre-injected.
 
 ### Bridge API (Implemented)
 
-15 methods across 7 namespaces. All async, all return JSON.
+21 methods across 9 namespaces. All async, all return JSON.
 
 ```
 port42.user
@@ -301,6 +346,8 @@ port42.user
 port42.companions
   .list()                         → [{ id, name, model, isActive }]
   .get(id)                        → { id, name, model, isActive } | null
+  .invoke(id, prompt, opts?)      → full response text (string) 🔒 AI permission
+                                    opts: { onToken, onDone }
 
 port42.messages
   .recent(n?)                     → [{ id, sender, content, timestamp, isCompanion }]
@@ -310,6 +357,12 @@ port42.channel
   .current()                      → { id, name, type, members: [{ name, type }] } | null
   .list()                         → [{ id, name, type, isCurrent }]
   .switchTo(id)                   → { ok: true } | { error }
+
+port42.ai                         🔒 AI permission (prompted on first use)
+  .models()                       → [{ id, name, tier }]
+  .complete(prompt, opts?)        → full response text (string)
+                                    opts: { model?, systemPrompt?, maxTokens?, onToken, onDone }
+  .cancel(callId)                 → cancel in-progress stream
 
 port42.storage
   .set(key, value, opts?)         → true
@@ -358,6 +411,28 @@ Future events: See P-212 through P-217 in Phase 2 feature table.
 Native pushes heartbeat every 5s via `port42._heartbeat()`. JS checks
 every 3s. If no heartbeat for 10s, status flips to `'disconnected'`.
 `port42.connection.onStatusChange(cb)` fires on transitions.
+
+### Permissions (Implemented)
+
+Permission model gates sensitive bridge APIs. First call to a protected
+method shows a SwiftUI alert. Permission stored per port session (reset
+on close). Each capability is a separate grant.
+
+```
+Implemented:
+  .ai          → gates ai.complete, ai.cancel, companions.invoke
+
+Planned (P-302b):
+  .terminal    → gates terminal.spawn, terminal.send, terminal.kill
+  .microphone  → gates audio.capture
+  .camera      → gates camera.capture, camera.stream
+  .screen      → gates screen.capture
+  .clipboard   → gates clipboard.read, clipboard.write
+  .filesystem  → gates fs.read, fs.write, fs.pick
+```
+
+Read APIs (user.get, companions.list, messages.recent, channel.*, storage.*)
+and messages.send are allowed by default since the companion created the port.
 
 ### Sandbox
 
@@ -492,3 +567,102 @@ port42.ports
 
 Enables "commander" ports that manage other ports. Prior art: CLI/gateway era
 window tracker + "window commander" tool for dynamic terminal retiling.
+
+### P-500: Terminal
+
+```
+port42.terminal
+  .spawn(opts?)              → { sessionId } — start a shell process
+                               opts: { shell?, cwd?, env?, cols?, rows? }
+  .send(sessionId, data)     → send stdin to process
+  .resize(sessionId, c, r)   → resize terminal (cols, rows)
+  .kill(sessionId)           → terminate process
+  .on('output', cb)          → stdout/stderr stream { sessionId, data }
+  .on('exit', cb)            → process exited { sessionId, code }
+```
+
+Native side: `Process()` with pseudo-terminal (PTY) via `forkpty()`.
+Streams stdout/stderr through EventPusher. Port renders with xterm.js
+or a minimal terminal emulator in the webview.
+
+Permission: First `spawn()` call shows "This port wants to run terminal
+commands. Allow?" Approved per port session. Combined with Bridge AI,
+a companion can run commands and reason about the output autonomously.
+
+### P-501/P-502: Audio
+
+```
+port42.audio
+  .capture(opts?)            → start mic capture
+                               opts: { transcribe?: true, language?, sampleRate? }
+  .stopCapture()             → stop mic capture
+  .on('transcription', cb)   → live transcription { text, isFinal }
+  .on('audio', cb)           → raw audio data { samples, sampleRate }
+  .speak(text, opts?)        → text-to-speech via AVSpeechSynthesizer
+                               opts: { voice?, rate?, pitch? }
+  .play(data, opts?)         → play audio buffer
+  .stop()                    → stop playback
+```
+
+Native side: AVAudioEngine for capture, Speech framework for transcription,
+AVSpeechSynthesizer for TTS. Permission via macOS microphone authorization.
+
+### P-503/P-504: Camera and Screen
+
+```
+port42.camera
+  .capture(opts?)            → { image } base64 PNG
+                               opts: { width?, height?, facing? }
+  .stream(opts?)             → start continuous feed
+  .stopStream()              → stop feed
+  .on('frame', cb)           → { image, timestamp }
+
+port42.screen
+  .capture(opts?)            → { image } base64 PNG
+                               opts: { region?, scale? }
+```
+
+Native side: AVCaptureSession for camera, CGWindowListCreateImage for
+screen. Permission via macOS camera/screen recording authorization.
+
+### P-505: Clipboard
+
+```
+port42.clipboard
+  .read()                    → { text?, html?, image? }
+  .write(data)               → write to clipboard
+                               data: { text?, html?, image? }
+  .on('change', cb)          → clipboard changed notification
+```
+
+### P-506: File System
+
+```
+port42.fs
+  .pick(opts?)               → native file picker, returns [{ path, name, size }]
+                               opts: { multiple?, types?, directory? }
+  .read(path)                → { data, encoding } — only user-picked paths
+  .write(path, data)         → save to user-picked path
+  .drop(cb)                  → register drag-and-drop handler { files: [{ name, data }] }
+```
+
+Scoped: ports can only access paths the user explicitly selects via the
+native file picker or drag-and-drop. No arbitrary filesystem traversal.
+
+### P-507: Notifications
+
+```
+port42.notify
+  .send(title, body, opts?)  → show system notification
+                               opts: { sound?, badge?, action? }
+  .on('clicked', cb)         → user clicked the notification
+```
+
+### P-508: Location
+
+```
+port42.location
+  .get(opts?)                → { latitude, longitude, accuracy }
+                               opts: { accuracy? }
+  .on('change', cb)          → location changed
+```

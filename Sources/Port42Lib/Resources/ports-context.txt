@@ -259,14 +259,73 @@ STORAGE EXAMPLE:
   await port42.storage.set('high-scores', [...], {scope: 'global', shared: true});
   const scores = await port42.storage.get('high-scores', {scope: 'global', shared: true});
 
-FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
+TERMINAL API REFERENCE:
 
-  Terminal (coming soon):
-  - port42.terminal.spawn(opts?) — start a shell session inside a port
-  - port42.terminal.send(sessionId, data) — send stdin
-  - port42.terminal.on('output', cb) — stream stdout/stderr
-  - port42.terminal.kill(sessionId) — terminate process
-    Requires user permission. Enables live terminal ports.
+  port42.terminal.spawn(opts?)
+    Start a shell session inside the port. Returns {sessionId}.
+    opts: {shell?: string, cwd?: string, cols?: number, rows?: number, env?: object}
+    Defaults: shell="/bin/zsh", cols=80, rows=24, cwd=home directory
+    Requires terminal permission (prompted on first use per session).
+
+  port42.terminal.send(sessionId, data)
+    Send data to the terminal's stdin. Use this for user keystrokes.
+    data is a string (use "\r" for Enter, "\x03" for Ctrl+C, "\x1b" for Escape).
+
+  port42.terminal.resize(sessionId, cols, rows)
+    Resize the terminal to the given dimensions.
+
+  port42.terminal.kill(sessionId)
+    Terminate the shell process (SIGTERM then SIGKILL).
+
+  port42.terminal.on('output', callback)
+    Stream stdout/stderr from the terminal. Callback receives {sessionId, data}.
+    data is a string that may contain ANSI escape sequences for colors, cursor
+    movement, etc. Use an ANSI-aware renderer to display it.
+
+  port42.terminal.on('exit', callback)
+    Fires when the process terminates. Callback receives {sessionId, code}.
+
+  port42.terminal.loadXterm()
+    Loads the bundled xterm.js terminal emulator library. Returns the Terminal
+    class. Use this for full terminal rendering with ANSI colors, cursor movement,
+    and TUI app support (vim, htop, claude, etc).
+
+TERMINAL PORT EXAMPLE:
+
+```port
+<title>Terminal</title>
+<div id="terminal" style="width:100%;height:100vh;"></div>
+<script>
+  const Terminal = await port42.terminal.loadXterm();
+  const term = new Terminal({
+    fontSize: 13,
+    fontFamily: '"SF Mono", "Fira Code", monospace',
+    theme: { background: '#111', foreground: '#e0e0e0', cursor: '#00ff41', selectionBackground: '#00ff4133' },
+    cursorBlink: true,
+    convertEol: true
+  });
+  term.open(document.getElementById('terminal'));
+
+  const cols = term.cols;
+  const rows = term.rows;
+  const result = await port42.terminal.spawn({cols, rows});
+  const sessionId = result.sessionId;
+
+  port42.terminal.on('output', (e) => {
+    if (e.sessionId === sessionId) term.write(e.data);
+  });
+
+  port42.terminal.on('exit', (e) => {
+    if (e.sessionId === sessionId) term.write('\r\n[exited with code ' + e.code + ']');
+  });
+
+  term.onData((data) => port42.terminal.send(sessionId, data));
+  term.onResize(({cols, rows}) => port42.terminal.resize(sessionId, cols, rows));
+  term.focus();
+</script>
+```
+
+FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Audio (coming soon):
   - port42.audio.capture({transcribe?: true}) — mic input with live transcription

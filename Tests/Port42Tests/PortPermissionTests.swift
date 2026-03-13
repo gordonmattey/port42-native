@@ -62,6 +62,89 @@ struct PortPermissionTests {
         #expect(PortPermission.permissionForMethod("some.unknown.method") == nil)
     }
 
+    // MARK: - Device Permission Mapping
+
+    @Test("terminal.spawn requires .terminal permission")
+    func terminalSpawnPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.spawn") == .terminal)
+    }
+
+    @Test("terminal.send requires .terminal permission")
+    func terminalSendPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.send") == .terminal)
+    }
+
+    @Test("terminal.kill requires .terminal permission")
+    func terminalKillPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.kill") == .terminal)
+    }
+
+    @Test("audio.capture requires .microphone permission")
+    func audioCapturePermission() {
+        #expect(PortPermission.permissionForMethod("audio.capture") == .microphone)
+    }
+
+    @Test("audio.speak requires no permission (output only)")
+    func audioSpeakNoPermission() {
+        #expect(PortPermission.permissionForMethod("audio.speak") == nil)
+    }
+
+    @Test("camera.capture requires .camera permission")
+    func cameraCapturePermission() {
+        #expect(PortPermission.permissionForMethod("camera.capture") == .camera)
+    }
+
+    @Test("camera.stream requires .camera permission")
+    func cameraStreamPermission() {
+        #expect(PortPermission.permissionForMethod("camera.stream") == .camera)
+    }
+
+    @Test("screen.capture requires .screen permission")
+    func screenCapturePermission() {
+        #expect(PortPermission.permissionForMethod("screen.capture") == .screen)
+    }
+
+    @Test("clipboard.read requires .clipboard permission")
+    func clipboardReadPermission() {
+        #expect(PortPermission.permissionForMethod("clipboard.read") == .clipboard)
+    }
+
+    @Test("clipboard.write requires .clipboard permission")
+    func clipboardWritePermission() {
+        #expect(PortPermission.permissionForMethod("clipboard.write") == .clipboard)
+    }
+
+    @Test("fs.pick requires .filesystem permission")
+    func fsPickPermission() {
+        #expect(PortPermission.permissionForMethod("fs.pick") == .filesystem)
+    }
+
+    @Test("fs.read requires .filesystem permission")
+    func fsReadPermission() {
+        #expect(PortPermission.permissionForMethod("fs.read") == .filesystem)
+    }
+
+    @Test("fs.write requires .filesystem permission")
+    func fsWritePermission() {
+        #expect(PortPermission.permissionForMethod("fs.write") == .filesystem)
+    }
+
+    // MARK: - Separate Grants
+
+    @Test("AI permission does not grant terminal")
+    func aiDoesNotGrantTerminal() {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        bridge.grantedPermissions.insert(.ai)
+        #expect(!bridge.grantedPermissions.contains(.terminal))
+    }
+
+    @Test("terminal permission does not grant microphone")
+    func terminalDoesNotGrantMicrophone() {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        bridge.grantedPermissions.insert(.terminal)
+        #expect(!bridge.grantedPermissions.contains(.microphone))
+    }
+
     // MARK: - Permission Description
 
     @Test(".ai permission has non-empty description")
@@ -69,6 +152,16 @@ struct PortPermissionTests {
         let desc = PortPermission.ai.permissionDescription
         #expect(!desc.title.isEmpty)
         #expect(!desc.message.isEmpty)
+    }
+
+    @Test("all permissions have non-empty descriptions")
+    func allPermissionDescriptions() {
+        let all: [PortPermission] = [.ai, .terminal, .microphone, .camera, .screen, .clipboard, .filesystem]
+        for perm in all {
+            let desc = perm.permissionDescription
+            #expect(!desc.title.isEmpty, "Empty title for \(perm)")
+            #expect(!desc.message.isEmpty, "Empty message for \(perm)")
+        }
     }
 
     // MARK: - PortBridge Permission State

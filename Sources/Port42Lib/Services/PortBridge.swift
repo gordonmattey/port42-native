@@ -30,12 +30,22 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Continuation for the pending permission prompt.
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
 
+    /// Terminal sessions owned by this port. Created lazily on first terminal.spawn call.
+    private var terminalBridge: TerminalBridge?
+
     public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
         self.messageId = messageId
         self.createdBy = createdBy
         super.init()
+    }
+
+    deinit {
+        let tb = terminalBridge
+        if let tb {
+            Task { @MainActor in tb.killAll() }
+        }
     }
 
     /// Attach this bridge to a WKWebView configuration before content loads
@@ -395,6 +405,72 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "port.resize":
             return ["ok": true]
 
+        // MARK: Resources
+
+        case "terminal.xtermjs":
+            // Serve bundled xterm.js + CSS for terminal ports
+            let js = PortBridge.bundledXtermJS ?? ""
+            let css = PortBridge.bundledXtermCSS ?? ""
+            return ["js": js, "css": css]
+
+        // MARK: Terminal
+
+        case "terminal.spawn":
+            let opts = args.first as? [String: Any] ?? [:]
+            let shell = opts["shell"] as? String ?? "/bin/zsh"
+            let cwd = opts["cwd"] as? String
+            let cols = UInt16(opts["cols"] as? Int ?? 80)
+            let rows = UInt16(opts["rows"] as? Int ?? 24)
+            let env = opts["env"] as? [String: String]
+            NSLog("[Port42] terminal.spawn requested: shell=%@, cols=%d, rows=%d", shell, cols, rows)
+
+            if terminalBridge == nil {
+                terminalBridge = TerminalBridge(bridge: self)
+            }
+            if let sessionId = terminalBridge?.spawn(shell: shell, cwd: cwd, cols: cols, rows: rows, env: env) {
+                NSLog("[Port42] terminal.spawn succeeded: %@", sessionId)
+                return ["sessionId": sessionId]
+            } else {
+                NSLog("[Port42] terminal.spawn failed")
+                return ["error": "failed to spawn terminal"]
+            }
+
+        case "terminal.send":
+            guard let sessionId = args.first as? String,
+                  let data = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "terminal.send requires sessionId and data"]
+            }
+            let ok = terminalBridge?.send(sessionId: sessionId, data: data) ?? false
+            if ok {
+                return ["ok": true]
+            } else {
+                return ["error": "session not found or not running"]
+            }
+
+        case "terminal.resize":
+            guard let sessionId = args.first as? String,
+                  let cols = args.count > 1 ? args[1] as? Int : nil,
+                  let rows = args.count > 2 ? args[2] as? Int : nil else {
+                return ["error": "terminal.resize requires sessionId, cols, rows"]
+            }
+            let ok = terminalBridge?.resize(sessionId: sessionId, cols: UInt16(cols), rows: UInt16(rows)) ?? false
+            if ok {
+                return ["ok": true]
+            } else {
+                return ["error": "session not found or not running"]
+            }
+
+        case "terminal.kill":
+            guard let sessionId = args.first as? String else {
+                return ["error": "terminal.kill requires sessionId"]
+            }
+            let ok = terminalBridge?.kill(sessionId: sessionId) ?? false
+            if ok {
+                return ["ok": true]
+            } else {
+                return ["error": "session not found"]
+            }
+
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
             return ["error": "unknown method: \(method)"]
@@ -597,6 +673,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         webView?.evaluateJavaScript("port42._heartbeat()") { _, _ in }
     }
 
+    // MARK: - Bundled Resources
+
+    /// Bundled xterm.js library for terminal ports
+    static let bundledXtermJS: String? = {
+        guard let url = Bundle.module.url(forResource: "xterm", withExtension: "js") else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }()
+
+    /// Bundled xterm.css for terminal ports
+    static let bundledXtermCSS: String? = {
+        guard let url = Bundle.module.url(forResource: "xterm", withExtension: "css") else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }()
+
     // MARK: - Injected JavaScript
 
     /// The port42.* namespace injected into every port webview
@@ -738,7 +828,33 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     document.body.style.height = h + 'px';
                     window.webkit.messageHandlers.portHeight.postMessage(h);
                 }
-            }
+            },
+            terminal: {
+                spawn: (opts) => call('terminal.spawn', [opts || {}]),
+                send: (sessionId, data) => call('terminal.send', [sessionId, data]),
+                resize: (sessionId, cols, rows) => call('terminal.resize', [sessionId, cols, rows]),
+                kill: (sessionId) => call('terminal.kill', [sessionId]),
+                on: function(event, callback) {
+                    const fullEvent = 'terminal.' + event;
+                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                    _listeners[fullEvent].push(callback);
+                },
+                loadXterm: async function() {
+                    const res = await call('terminal.xtermjs');
+                    if (res && res.js) {
+                        const style = document.createElement('style');
+                        style.textContent = res.css || '';
+                        document.head.appendChild(style);
+                        const script = document.createElement('script');
+                        script.textContent = res.js;
+                        document.head.appendChild(script);
+                        // xterm.js exports to window.Terminal
+                        return window.Terminal;
+                    }
+                    return null;
+                }
+            },
+            viewport: { width: window.innerWidth || 600, height: window.innerHeight || 400 }
         };
     })();
     """

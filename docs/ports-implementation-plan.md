@@ -1,6 +1,6 @@
 # Ports Implementation Plan
 
-**Last updated:** 2026-03-12
+**Last updated:** 2026-03-13
 
 **Constraint:** No breaking changes. All existing chat, swim, and sync
 functionality must continue working at every step.
@@ -289,185 +289,57 @@ These apply across all Phase 2 steps:
 
 ---
 
-### Step 7a: PortWindowManager + Pop-Out Button (P-200)
+### Step 7a: PortWindowManager + Pop-Out Button (P-200) ✅
 
-**Goal:** User clicks pop out, port detaches from chat into a floating panel.
-
-**Files to create:**
-- `Sources/Port42Lib/Views/PortWindowManager.swift` — manages floating/docked port panels
-
-**Files to modify:**
-- `Sources/Port42Lib/Views/ConversationContent.swift` — add pop-out button to InlinePortView
-- `Sources/Port42Lib/Views/ContentView.swift` — overlay floating panels
-
-**What to build:**
-
-1. `PortPanel` struct: `{ id, html, bridge, position, size, isDocked, title, channelId, createdBy, messageId }`.
-   Title extracted from `<title>` tag in HTML, fallback "port".
-
-2. `PortWindowManager` as `@Published` property on AppState (or standalone
-   ObservableObject). Holds `panels: [PortPanel]`.
-
-3. "↗" pop-out button in top-right corner of InlinePortView. On click:
-   - Creates PortPanel from current inline port state
-   - Transfers bridge reference (not recreated)
-   - Inline port collapses to a placeholder ("port popped out")
-
-4. ContentView overlays floating panels via `.overlay { ForEach(panels) { ... } }`.
-   Same pattern already used for QuickSwitcher and HelpOverlay.
-
-**Unit tests:**
-- `testPortWindowManagerAdd` — adding panel increases count
-- `testPortWindowManagerRemove` — removing panel decreases count
-- `testPortPanelTitleExtraction` — title parsed from HTML `<title>` tag
-- `testPortPanelTitleFallback` — no title tag returns "port"
-
-**User test:**
-- Render inline port, click ↗, verify panel appears floating
-- Verify inline port shows "popped out" placeholder
-- Verify chat still scrolls normally underneath
+Pop-out button on inline ports. PortWindowManager holds floating panels.
+WebView transferred (not recreated) to preserve JS state.
 
 ---
 
-### Step 7b: Draggable + Resizable Panel (P-201)
+### Step 7b: Draggable + Resizable Panel (P-201) ✅
 
-**Goal:** Floating panel feels like a real window inside port42.
-
-**Files to modify:**
-- `Sources/Port42Lib/Views/PortWindowManager.swift` — FloatingPortView
-
-**What to build:**
-
-1. FloatingPortView with title bar: drag handle area, title text, close button.
-   DragGesture on title bar updates panel position.
-
-2. Resize handle in bottom-right corner. DragGesture updates panel size.
-   Minimum size: 200x150. Maximum: parent bounds.
-
-3. Close button removes from PortWindowManager. Bridge cleaned up via
-   weak reference pattern (automatic).
-
-4. Z-ordering: clicking a panel brings it to front (reorder in array).
-
-**User test:**
-- Drag panel by title bar, verify smooth repositioning
-- Resize from corner, verify content reflows
-- Close panel, verify clean removal
-- Multiple panels, click one to bring to front
+Floating panels with title bar drag, resize handles, close button, z-ordering.
 
 ---
 
-### Step 8: Docking (P-202)
+### Step 8: Docking (P-202) ✅
 
-**Goal:** Snap floating port to right edge, splitting the view.
-
-**Files to modify:**
-- `Sources/Port42Lib/Views/ContentView.swift` — conditional HSplitView layout
-- `Sources/Port42Lib/Views/PortWindowManager.swift` — dock/undock state
-
-**What to build:**
-
-1. Dock button in floating panel title bar (or drag-to-edge snap).
-   Sets `panel.isDocked = true`. Only one panel can be docked at a time.
-
-2. ContentView detail pane becomes conditional:
-   ```
-   if dockedPanel exists:
-     HSplitView { ChatView() | DockedPortView }
-   else:
-     ChatView()
-   ```
-   HSplitView nested inside NavigationSplitView detail pane (confirmed compatible).
-
-3. Undock button in docked port header. Returns to floating.
-
-4. Resizable divider between chat and docked port (HSplitView default behavior).
-
-5. ScrollViewReader preserves chat scroll position across layout transitions.
-
-**Unit tests:**
-- `testDockRight` — sets isDocked, only one docked at a time
-- `testUndock` — clears isDocked, returns to floating with position
-- `testDockReplacesExisting` — docking new port undocks previous
-
-**User test:**
-- Pop out a port, click dock button, verify it snaps to right
-- Verify chat resizes, divider is draggable
-- Click undock, verify it floats again
-- Dock a different port, verify first one undocks
-- Verify sidebar, channels, companions all unaffected
+Dock button snaps floating port to right side. HStack layout with draggable
+divider. Only one docked at a time. Undock returns to floating.
 
 ---
 
-### Step 9: Persistence, Update, Close, Multiple (P-203 through P-206)
+### Step 9: Persistence, Update, Close, Multiple (P-203 through P-206) ✅
 
-**Goal:** Ports survive channel switches, update in place, close cleanly, coexist.
+Panels survive channel switch (AppState owned). Same-companion port updates
+replace existing panel HTML. Close removes cleanly. Multiple floating panels
+coexist with click-to-front z-ordering.
 
-**What to build:**
+---
 
-1. **Persistence:** PortWindowManager lives on AppState. Panels survive channel
-   switch. Bridge stays bound to original channel context (channelId captured at
-   pop-out time). When switching back to port's channel, events resume normally.
+### Step 9b: Unified Port Title Bar ✅
 
-2. **Update:** New ```port from same companion (createdBy) in same channel updates
-   existing popped/docked port HTML via `webView.loadHTMLString()`. Otherwise
-   creates new inline. Bridge and JS state preserved where possible.
-
-3. **Close:** Close button removes from manager. If inline source message still
-   visible, it un-collapses back to inline port (or stays as code preview).
-
-4. **Multiple floating:** Array of panels. All float independently. Only one
-   can be docked. Z-ordering managed by click-to-front.
-
-**Unit tests:**
-- `testPortSurvivesChannelSwitch` — switch channel, port panel still exists
-- `testPortUpdateReplacesContent` — same companion sends new port, content updates
-- `testPortClose` — close removes from manager
-- `testMultiplePorts` — two floating ports coexist
-- `testDockOnlyOne` — docking second port undocks first
-
-**User test:**
-- Open port, switch channels, switch back, port still docked
-- Ask companion to update the port, verify it refreshes in place
-- Close port, verify clean removal
-- Open two ports, verify both visible and functional
+Source/Run toggle and pop-out button appear consistently across all three port
+states (inline, docked, floating). Green dot + title + Source/Run + controls.
+Fixed height jitter when toggling source/run on inline ports.
 
 ---
 
 ## Phase 3: Generative Ports (P-300 through P-303)
 
-### Step 10: Bridge AI (P-300)
+### Step 10: Bridge AI (P-300) ✅
 
-**Goal:** Ports can call LLMs through the bridge.
-
-**What to build:**
-
-1. `port42.ai.complete(prompt, options)` routes through BridgeHandler to
-   LLMEngine. Streams tokens back via evaluateJavaScript callback.
-
-2. Options: { model?, maxTokens?, systemPrompt? }. Uses companion auth.
-
-3. JS API with streaming callback:
-   ```js
-   port42.ai.complete("summarize", {
-     onToken: (t) => append(t),
-     onDone: (full) => done(full)
-   })
-   ```
-
-**Unit tests:**
-- `testAICompleteRouting` — verify bridge routes to LLMEngine
-- `testAICompleteStreaming` — tokens arrive via callback
-- `testAICompleteError` — auth failure returns error, no crash
-
-**User test:**
-- Port with a text input and "summarize" button that calls port42.ai.complete()
-- Verify streaming tokens appear in the port
-- Verify existing companion chat streaming unaffected
+**Implemented:**
+- `port42.ai.complete(prompt, options)` with streaming via `onToken`/`onDone` callbacks
+- `port42.ai.models()` returns available models with id, name, tier
+- `port42.ai.cancel(callId)` cancels in-progress streams
+- `port42.companions.invoke(id, prompt, options)` for companion-scoped AI calls
+- `PortAIHandler` bridges LLMEngine streams to JS context via PortBridge
+- Options: `{ model?, maxTokens?, systemPrompt?, onToken, onDone }`
 
 ---
 
-### Step 11: Bridge Write Operations (P-301, P-302) ✅
+### Step 11: Bridge Write Operations (P-301) ✅
 
 Already implemented ahead of schedule during Phase 1:
 
@@ -479,26 +351,196 @@ Already implemented ahead of schedule during Phase 1:
 
 ---
 
-### Step 12: Permissions (P-303)
+### Step 12a: AI Permissions (P-302a) ✅
 
-**Goal:** User approves before ports take AI actions.
+**Implemented:**
+- `PortPermission` enum with `.ai` case (gates `ai.complete`, `ai.cancel`, `companions.invoke`)
+- `permissionForMethod()` maps bridge method names to required permissions
+- First call shows SwiftUI alert with human-readable description
+- Permission stored per port session in `PortBridge.grantedPermissions: Set<PortPermission>`
+- Reset on close. Read APIs and messages.send allowed by default.
+
+---
+
+### Step 12b: Device Permissions (P-302b) ← NEXT
+
+**Goal:** Extend permission model to all device APIs.
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortPermission.swift` — uncomment and wire device cases
 
 **What to build:**
 
-1. First call to `port42.ai.complete()` shows SwiftUI alert:
-   "This port wants to use AI. Allow?"
-2. Permission stored per port session. Reset on close.
-3. Read APIs and messages.send are allowed by default (companion created the port).
+1. Add permission cases: `.terminal`, `.microphone`, `.camera`, `.screen`,
+   `.clipboard`, `.filesystem`. Each maps to its bridge method prefix.
+
+2. Add `permissionDescription` for each with human-readable title and message:
+   - terminal: "This port wants to run terminal commands."
+   - microphone: "This port wants to access your microphone."
+   - camera: "This port wants to use your camera."
+   - screen: "This port wants to capture your screen."
+   - clipboard: "This port wants to access your clipboard."
+   - filesystem: "This port wants to access files on your computer."
+
+3. Wire `permissionForMethod()` to map device bridge methods to permissions.
+
+**Note:** The permission infrastructure is already in place from P-302a. This
+step just adds the enum cases and method mappings. The actual device bridge
+handlers (P-500 through P-508) will use these permissions when implemented.
+
+---
+
+### Step 12c: Companion Device Context (P-303)
+
+**Goal:** Companions know they can create ports that use AI and device APIs.
+
+**Files to modify:**
+- `Sources/Port42Lib/Resources/ports-context.txt` — AI docs already added, device API docs pending
+
+**Status:** AI bridge docs and example port are in ports-context.txt. Device API
+docs are listed as "FUTURE BRIDGE APIs (not yet implemented)". Will be updated
+as each device API ships.
+
+**Remaining work:**
+- Update companion context as device APIs ship (P-500+)
+- Add example ports for each device capability
+
+---
+
+## Phase 5: Device APIs (P-500 through P-508)
+
+### Design Decisions
+
+1. **Permission model extends P-301.** Same pattern as AI permissions. First
+   call to any device API shows a SwiftUI prompt. Permission stored per port
+   session. Reset on close. Each capability is a separate permission grant
+   (terminal, mic, camera, screen, clipboard, fs).
+
+2. **Bridge namespace per device.** Each device API gets its own namespace
+   (`port42.terminal.*`, `port42.audio.*`, etc.) and its own Swift handler
+   class implementing a common `BridgeCapability` protocol.
+
+3. **Sandbox preserved.** Device APIs go through the bridge, not through
+   relaxed CSP. The webview still has no network access. All device data
+   flows through native Swift and is pushed to JS via the bridge.
+
+4. **Companion context updated.** System prompt includes available device
+   APIs so companions know what they can do. Same pattern as Step 6 (P-107).
+
+---
+
+### Step 13: Terminal Port (P-500)
+
+**Goal:** A port can spawn a shell and stream output.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/TerminalBridge.swift` — PTY management, process lifecycle
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — route `terminal.*` methods
+
+**What to build:**
+
+1. `TerminalBridge` wrapping `forkpty()` to create a pseudo-terminal. Spawn
+   a shell process (`/bin/zsh` by default). Read stdout/stderr in a background
+   thread, push chunks to the port via EventPusher.
+
+2. `port42.terminal.spawn(opts?)` — creates PTY, starts process, returns
+   sessionId. Permission prompt on first call.
+
+3. `port42.terminal.send(sessionId, data)` — writes to stdin.
+
+4. `port42.terminal.resize(sessionId, cols, rows)` — `TIOCSWINSZ` ioctl.
+
+5. `port42.terminal.kill(sessionId)` — SIGTERM then SIGKILL.
+
+6. Events: `'output'` streams stdout/stderr chunks, `'exit'` fires on
+   process termination with exit code.
+
+7. Port-side rendering via xterm.js (inlined in port HTML, no network needed)
+   or a minimal terminal emulator.
 
 **Unit tests:**
-- `testPermissionPromptOnFirstAI` — first AI call triggers prompt
-- `testPermissionCached` — second AI call skips prompt
-- `testPermissionResetOnClose` — new port session requires new approval
+- `testTerminalSpawn` — process starts, sessionId returned
+- `testTerminalSendReceive` — send stdin, receive stdout
+- `testTerminalKill` — process terminated cleanly
+- `testTerminalPermission` — first spawn triggers permission prompt
 
 **User test:**
-- Port tries AI call — verify alert appears
-- Approve — verify response streams
-- Close port, reopen — verify prompt appears again
+- Ask companion "open a terminal" — verify live shell appears in port
+- Type commands, see output in real time
+- Combined with Bridge AI: companion runs a command and explains the output
+
+---
+
+### Step 14: Audio APIs (P-501, P-502)
+
+**Goal:** Ports can listen through the mic and speak through the speaker.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/AudioBridge.swift` — mic capture, TTS, playback
+
+**What to build:**
+
+1. Mic capture via AVAudioEngine. Push audio buffers or transcribed text
+   (via Speech framework) to port via EventPusher.
+
+2. `port42.audio.capture({ transcribe: true })` — starts mic with live
+   transcription. `'transcription'` events stream partial and final results.
+
+3. `port42.audio.speak(text, opts?)` — AVSpeechSynthesizer TTS.
+
+4. Permission via macOS microphone authorization (system dialog).
+
+**User test:**
+- Port with a "listen" button that transcribes speech in real time
+- Port that reads messages aloud via TTS
+- Companion that responds to voice commands
+
+---
+
+### Step 15: Camera and Screen (P-503, P-504)
+
+**Goal:** Ports can see through the camera and capture the screen.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/CameraBridge.swift` — camera capture, screen capture
+
+**What to build:**
+
+1. Camera capture via AVCaptureSession. Single frame or continuous stream.
+   Returns base64 PNG via bridge callback.
+
+2. Screen capture via CGWindowListCreateImage. Whole screen or region.
+
+3. Permission via macOS camera and screen recording authorization.
+
+4. Combined with Bridge AI: "look at this screenshot and tell me what's wrong."
+
+**User test:**
+- Port that shows a live camera preview
+- "Take a screenshot" — companion analyzes the image via Bridge AI
+
+---
+
+### Step 16: Clipboard, File System, Notifications (P-505, P-506, P-507)
+
+**Goal:** Ports can move data in and out of the system.
+
+**What to build:**
+
+1. **Clipboard:** NSPasteboard read/write. Permission on first access.
+
+2. **File System:** NSOpenPanel/NSSavePanel for user-chosen paths only.
+   Drag-and-drop via WKWebView's drop target support. No arbitrary traversal.
+
+3. **Notifications:** UNUserNotificationCenter for background alerts.
+   Port registers for notification click callbacks.
+
+**User test:**
+- Paste an image into a port from clipboard
+- Drag a CSV onto a port, port parses and visualizes it
+- Background port notifies when a long-running task completes
 
 ---
 
@@ -514,16 +556,49 @@ Step 6:  Companion context                  → companions know about ports ✅
   bonus: channel APIs, messages.send, storage, viewport, console, modules ✅
 Phase 1 complete ─────────────────────────────────────────────────────────
 
-Step 7a: PortWindowManager + pop-out + drag + dock → ports detach from chat ✅
-Step 7b: Resize handles + polish            → ports feel like windows     ← NEXT
-Step 8:  Persistence + update + close       → ports are managed
-Step 9:  Persistence + update + close       → ports are managed
-Phase 2 ──────────────────────────────────────────────────────────────────
+Step 7a: PortWindowManager + pop-out        → ports detach from chat     ✅
+Step 7b: Draggable + resizable panels       → ports feel like windows    ✅
+Step 8:  Docking                            → snap to right side         ✅
+Step 9:  Persistence + update + close       → ports are managed          ✅
+Step 9b: Unified title bar (source/run)     → consistent controls        ✅
+Phase 2 complete ─────────────────────────────────────────────────────────
 
-Step 10: Bridge AI                          → ports think
-Step 11: Bridge write ops                   → DONE (moved to Phase 1)    ✅
-Step 12: Permissions                        → user controls AI calls
+Step 10:  Bridge AI (P-300)                 → ports think                ✅
+Step 11:  Bridge write ops (P-301)          → DONE (moved to Phase 1)    ✅
+Step 12a: AI permissions (P-302a)           → user approves AI calls     ✅
+Step 12b: Device permissions (P-302b)       → user approves device APIs  ← NEXT
+Step 12c: Companion device context (P-303)  → companions know about APIs
 Phase 3 ──────────────────────────────────────────────────────────────────
+
+Phase 2.5 (polish, no new infra):
+  P-210: Close to preview                   → non-destructive close
+  P-211: Inline port update                 → companion updates in-place
+  P-209: Port channel context               → follow/pin channel control
+
+Phase 2.5 (new events):
+  P-212: Event: port.docked
+  P-213: Event: port.undocked
+  P-214: Event: channel.switch
+  P-215: Event: companion.joined
+  P-216: Event: companion.left
+  P-217: Event: presence
+
+Phase 2.5 (infrastructure):
+  P-206: Multiple dock zones                → vertical split for 2+ docked
+  P-207: Cursor states                      → green circle, resize cursors
+  P-208: Port UDIDs                         → stable IDs across lifecycle
+
+Phase 4 (advanced APIs):
+  P-400: Port window management API         → ports manage other ports
+  P-401: Cross-channel reads                → read any channel
+  P-402: Structured message metadata        → model, tokens, timing
+  P-403: Convergence detection              → similarity scoring
+
+Step 13: Terminal                           → ports run commands
+Step 14: Audio (mic + TTS)                  → ports listen and speak
+Step 15: Camera + screen                    → ports see
+Step 16: Clipboard + files + notifications  → ports move data
+Phase 5 (device APIs) ───────────────────────────────────────────────
 ```
 
 ## First Demo
