@@ -389,6 +389,7 @@ struct OpenClawSheet: View {
 
             if success {
                 successMessage = "@\(agentId) connected to #\(channel.name)"
+                Analytics.shared.openClawConnected()
             }
         }
     }

@@ -156,5 +156,6 @@ public enum ChannelInvite {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(message, forType: .string)
+        Analytics.shared.inviteSent()
     }
 }

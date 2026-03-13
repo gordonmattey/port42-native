@@ -234,6 +234,7 @@ public final class OpenClawService: NSObject, ObservableObject {
             // After connect succeeds, load initial data
             if id == connectReqId && ok {
                 status = .connected
+                Analytics.shared.openClawDetected()
                 Task { await loadInitialData() }
             }
         }
@@ -372,6 +373,7 @@ public final class OpenClawService: NSObject, ObservableObject {
             // Treat "already exists" as success
             if process.terminationStatus == 0 || output.contains("already exists") {
                 pluginInstalled = true
+                Analytics.shared.openClawPluginInstalled()
                 return true
             } else {
                 // Strip ANSI escape codes for cleaner display

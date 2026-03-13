@@ -107,6 +107,7 @@ public struct NgrokSetupSheet: View {
         appState.tunnel.setAuthToken(trimmed)
         let port = GatewayProcess.shared.port
         appState.tunnel.start(port: port)
+        Analytics.shared.ngrokConfigured()
 
         // Copy the pending invite link now that tunnel is configured
         if let channel = appState.pendingInviteChannel {

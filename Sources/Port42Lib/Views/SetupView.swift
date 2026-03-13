@@ -134,6 +134,7 @@ public struct SetupView: View {
             }
         }
         .onAppear {
+            Analytics.shared.screen("Boot")
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 terminalVisible = true
             }
@@ -504,6 +505,7 @@ public struct SetupView: View {
 
     private func respondToAnalytics(optIn: Bool) {
         Analytics.shared.setOptIn(optIn)
+        Analytics.shared.setupStep(optIn ? "analytics_opted_in" : "analytics_opted_out")
         withAnimation(.easeIn(duration: 0.15)) {
             showAnalyticsConsent = false
         }
@@ -541,6 +543,7 @@ public struct SetupView: View {
         }
         .opacity(transitionOpacity)
         .onAppear {
+            Analytics.shared.screen("Setup_Transition")
             startTransition()
         }
     }
@@ -610,6 +613,7 @@ public struct SetupView: View {
             }
         }
         .onAppear {
+            Analytics.shared.screen("Setup_Swim")
             sendFirstMessage()
         }
     }
@@ -799,6 +803,7 @@ public struct SetupView: View {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         submittedName = name
         showNameInput = false
+        Analytics.shared.setupStep("name_entered")
 
         // Generate identity key pair and store in Keychain now,
         // so the create sequence can show the real fingerprint
@@ -923,6 +928,14 @@ public struct SetupView: View {
     }
 
     private func completeAuth() {
+        let method: String
+        switch authMethod {
+        case .claudeCode: method = "claude_code"
+        case .manualToken: method = "manual_token"
+        case .apiKey: method = "api_key"
+        case .none: method = "unknown"
+        }
+        Analytics.shared.setupStep("auth_\(method)")
         let name = submittedName ?? displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         appState.completeSetup(displayName: name)
         phase = .transition

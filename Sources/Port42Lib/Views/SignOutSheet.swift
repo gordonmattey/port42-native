@@ -479,9 +479,11 @@ public struct SignOutSheet: View {
     private func toggleTunnel() {
         if appState.tunnel.isRunning {
             appState.tunnel.stop()
+            Analytics.shared.ngrokToggled(enabled: false)
         } else {
             let port = GatewayProcess.shared.port
             appState.tunnel.start(port: port)
+            Analytics.shared.ngrokToggled(enabled: true)
         }
     }
 

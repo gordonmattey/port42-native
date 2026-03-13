@@ -198,7 +198,7 @@ public final class PortWindowManager: ObservableObject {
 
         // Create native floating window
         createWindow(for: panel, in: bounds)
-        Analytics.shared.capture("port_popped_out", properties: ["title": title])
+        Analytics.shared.portPoppedOut()
     }
 
     /// Close a panel by ID.
@@ -210,7 +210,7 @@ public final class PortWindowManager: ObservableObject {
         windows.removeValue(forKey: id)
         destroyWebView(id)
         unpersistPanel(id)
-        Analytics.shared.capture("port_closed")
+        Analytics.shared.portClosed()
         panels.removeAll { $0.id == id }
     }
 
@@ -236,7 +236,7 @@ public final class PortWindowManager: ObservableObject {
             panels[i].isDocked = (panels[i].id == id)
         }
         persistPanel(id)
-        Analytics.shared.capture("port_docked")
+        Analytics.shared.portDocked()
     }
 
     /// Undock a panel back to floating.
@@ -244,7 +244,7 @@ public final class PortWindowManager: ObservableObject {
         if let idx = panels.firstIndex(where: { $0.id == id }) {
             panels[idx].isDocked = false
             persistPanel(id)
-            Analytics.shared.capture("port_undocked")
+            Analytics.shared.portUndocked()
             // Detach webview from docked view so it can be reparented into NSPanel
             webViews[id]?.removeFromSuperview()
             createWindowForExistingPanel(panels[idx])

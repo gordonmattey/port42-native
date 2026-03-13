@@ -288,6 +288,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 createdAt: Date(),
                 senderOwner: appState.currentUser?.displayName
             )
+            // Track port creation if this response contains a port fence
+            if content.contains("```port") {
+                Analytics.shared.portCreated()
+            }
+
             do {
                 try appState.db.saveMessage(finalMessage)
                 appState.sync.sendMessage(finalMessage)
@@ -485,7 +490,7 @@ public final class AppState: ObservableObject {
             if let user = currentUser {
                 configureSyncIfNeeded(userId: user.id)
                 Analytics.shared.configure(userId: user.id)
-                Analytics.shared.capture("app_opened")
+                Analytics.shared.appOpened()
             }
 
             // Restore last view: swim or channel
@@ -831,7 +836,7 @@ public final class AppState: ObservableObject {
             activeSwimSession = session
 
             Analytics.shared.configure(userId: user.id)
-            Analytics.shared.capture("setup_completed")
+            Analytics.shared.setupCompleted()
 
             // Start gateway and sync now (don't wait for next app launch)
             configureSyncIfNeeded(userId: user.id)
@@ -864,6 +869,8 @@ public final class AppState: ObservableObject {
 
         currentChannel = channel
         lastReadDates[channel.id] = Date()
+        Analytics.shared.channelSwitched()
+        Analytics.shared.screen("Channel")
         syncJoinChannel(channel.id)
 
         // Send read receipt so remote peers know we've seen their messages
@@ -895,7 +902,7 @@ public final class AppState: ObservableObject {
             channels = try db.getAllChannels()
             syncJoinChannel(channel.id)
             selectChannel(channel)
-            Analytics.shared.capture("channel_created")
+            Analytics.shared.channelCreated()
         } catch {
             print("[Port42] Failed to create channel: \(error)")
         }
@@ -963,6 +970,7 @@ public final class AppState: ObservableObject {
         }
 
         selectChannel(channel)
+        Analytics.shared.inviteJoined()
         print("[Port42] Joined channel from invite: #\(invite.channelName) via \(invite.gateway)")
 
         // Don't prompt ngrok setup on join — only needed when sharing invite links
@@ -1029,7 +1037,7 @@ public final class AppState: ObservableObject {
             try db.saveMessage(message)
             // Send to relay if connected
             sync.sendMessage(message)
-            Analytics.shared.capture("message_sent")
+            Analytics.shared.messageSent()
         } catch {
             print("[Port42] Failed to send message: \(error)")
         }
@@ -1051,7 +1059,7 @@ public final class AppState: ObservableObject {
         do {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()
-            Analytics.shared.capture("companion_created")
+            Analytics.shared.companionCreated()
         } catch {
             print("[Port42] Failed to save companion: \(error)")
         }
@@ -1063,6 +1071,7 @@ public final class AppState: ObservableObject {
             if currentChannel?.id == channel.id {
                 channelCompanions = try db.getAgentsForChannel(channelId: channel.id)
             }
+            Analytics.shared.companionAddedToChannel()
         } catch {
             print("[Port42] Failed to add companion to channel: \(error)")
         }
@@ -1151,7 +1160,8 @@ public final class AppState: ObservableObject {
             swimSessions[companion.id] = session
             activeSwimSession = session
         }
-        Analytics.shared.capture("swim_started")
+        Analytics.shared.swimStarted()
+        Analytics.shared.screen("Swim")
     }
 
     public func exitSwim() {
@@ -1182,7 +1192,7 @@ public final class AppState: ObservableObject {
         showDreamscape = false
         // Show any restored floating port panels now that lock screen is gone
         portWindows.showRestoredFloatingPanels()
-        Analytics.shared.capture("app_opened")
+        Analytics.shared.appOpened()
         // Restore last view if already set up
         if isSetupComplete {
             // If a swim was active, restore it

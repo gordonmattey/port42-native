@@ -67,6 +67,7 @@ public struct LockScreenView: View {
             }
         }
         .onAppear {
+            Analytics.shared.screen("LockScreen")
             startRipples()
         }
         .onAppear {

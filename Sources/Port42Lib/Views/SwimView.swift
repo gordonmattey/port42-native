@@ -51,6 +51,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         draft = ""
         error = nil
         messages.append(SwimMessage(role: .user, content: text))
+        Analytics.shared.messageSent()
 
         // Build API messages from conversation history (exclude empty placeholders)
         // Resolve file paths in user messages so companions can see file contents
@@ -158,6 +159,9 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
             // Replace the empty placeholder with the complete response
             if let last = self.messages.last, last.role == .assistant {
                 self.messages[self.messages.count - 1].content = fullResponse
+            }
+            if fullResponse.contains("```port") {
+                Analytics.shared.portCreated()
             }
             self.persistMessages()
         }
