@@ -325,27 +325,189 @@ TERMINAL PORT EXAMPLE:
 </script>
 ```
 
-FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
+## Clipboard API
 
-  Audio (coming soon):
-  - port42.audio.capture({transcribe?: true}) — mic input with live transcription
-  - port42.audio.speak(text, opts?) — text-to-speech output
-  - port42.audio.on('transcription', cb) — speech-to-text stream
-    Requires user permission for microphone access.
+Read and write to the system clipboard. Requires user permission on first use.
+
+  port42.clipboard.read()
+    Returns: { type: 'text'|'image'|'empty', data?: string, format?: 'png' }
+    Text clipboard returns { type: 'text', data: 'the text' }
+    Image clipboard returns { type: 'image', format: 'png', data: '<base64>' }
+    Empty clipboard returns { type: 'empty' }
+
+  port42.clipboard.write(data)
+    data: string for text, or { type: 'image', data: '<base64 png>' } for images
+    Returns: { ok: true }
+
+Example clipboard port:
+```port
+<button id="paste">Paste</button>
+<button id="copy">Copy Selection</button>
+<pre id="content"></pre>
+<script>
+  document.getElementById('paste').onclick = async () => {
+    const clip = await port42.clipboard.read();
+    document.getElementById('content').textContent =
+      clip.type === 'text' ? clip.data : `[${clip.type}]`;
+  };
+  document.getElementById('copy').onclick = async () => {
+    const sel = window.getSelection().toString();
+    if (sel) await port42.clipboard.write(sel);
+  };
+</script>
+```
+
+## File System API
+
+Read and write files through native file pickers. Requires user permission.
+Security: Only paths explicitly chosen by the user via the picker are accessible.
+
+  port42.fs.pick(opts?)
+    opts: { mode: 'open'|'save', types?: ['txt','json',...], multiple?: false, directory?: false, suggestedName?: 'file.txt' }
+    Returns: { path: '/chosen/path' } or { paths: [...] } for multiple, or { cancelled: true }
+
+  port42.fs.read(path, opts?)
+    path: must be a path returned by pick()
+    opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
+    Returns: { data: '...', encoding: 'utf8', size: 1234 }
+
+  port42.fs.write(path, data, opts?)
+    path: must be a path returned by pick()
+    opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
+    Returns: { ok: true, size: 1234 }
+
+Example file port:
+```port
+<button id="open">Open File</button>
+<button id="save">Save File</button>
+<pre id="content" contenteditable>Edit me...</pre>
+<script>
+  document.getElementById('open').onclick = async () => {
+    const result = await port42.fs.pick({ mode: 'open', types: ['txt','md','json'] });
+    if (result.cancelled) return;
+    const file = await port42.fs.read(result.path);
+    document.getElementById('content').textContent = file.data;
+  };
+  document.getElementById('save').onclick = async () => {
+    const result = await port42.fs.pick({ mode: 'save', suggestedName: 'output.txt' });
+    if (result.cancelled) return;
+    const text = document.getElementById('content').textContent;
+    await port42.fs.write(result.path, text);
+  };
+</script>
+```
+
+## Notification API
+
+Send system notifications. Requires user permission on first use.
+Useful for background ports that need to alert the user.
+
+  port42.notify.send(title, body?, opts?)
+    opts: { sound: true, subtitle: 'optional subtitle' }
+    Returns: { ok: true, id: 'notification-uuid' }
+
+Example:
+```port
+<button onclick="port42.notify.send('Task Complete', 'Your build finished successfully')">
+  Notify Me
+</button>
+```
+
+## Audio API
+
+Record microphone audio with live speech transcription and play text-to-speech.
+Microphone capture requires user permission on first use.
+
+  port42.audio.capture(opts?)
+    Start microphone capture. Returns {ok: true, sampleRate: number}.
+    opts: { transcribe?: true, language?: 'en-US', rawAudio?: false }
+    Requires microphone permission (prompted on first use per session).
+    When transcribe is true (default), fires 'transcription' events with live speech-to-text.
+    When rawAudio is true, fires 'data' events with PCM audio chunks.
+    Only one capture session at a time. Call stopCapture() before starting a new one.
+
+  port42.audio.stopCapture()
+    Stop microphone capture and speech recognition. Returns {ok: true}.
+
+  port42.audio.on('transcription', callback)
+    Live speech transcription. Callback receives {text, isFinal}.
+    text is the current best transcription (updates as speech is recognized).
+    isFinal is true when a segment is finalized (pause in speech).
+
+  port42.audio.on('data', callback)
+    Raw audio data (only when capture started with rawAudio: true).
+    Callback receives {samples, sampleRate, frameCount, format}.
+    samples is base64-encoded float32 PCM data.
+
+  port42.audio.speak(text, opts?)
+    Text-to-speech output via system voice. Returns {ok: true} when speech finishes.
+    opts: { voice?: 'en-US', rate?: 0.5, pitch?: 1.0, volume?: 1.0 }
+    voice is a BCP-47 language code (e.g. 'en-US', 'en-GB', 'es-ES', 'ja-JP').
+    rate is 0.0 (slowest) to 1.0 (fastest), default is normal speaking rate.
+    Does not require microphone permission (output only).
+
+  port42.audio.play(data, opts?)
+    Play a base64-encoded audio buffer. Supports WAV, MP3, AAC.
+    Returns {ok: true, duration: number} where duration is in seconds.
+    opts: { volume?: 1.0 }
+
+  port42.audio.stop()
+    Stop any active speech or audio playback immediately.
+
+AUDIO PORT EXAMPLE:
+
+```port
+<title>Voice Notes</title>
+<div id="app">
+  <button id="mic">Start Listening</button>
+  <div id="transcript" style="white-space:pre-wrap;margin-top:8px;opacity:0.8"></div>
+  <button id="playback" style="margin-top:8px;display:none">Read Back</button>
+</div>
+<script>
+  const mic = document.getElementById('mic');
+  const transcript = document.getElementById('transcript');
+  const playback = document.getElementById('playback');
+  let listening = false;
+
+  port42.audio.on('transcription', (e) => {
+    transcript.textContent = e.text;
+    transcript.style.opacity = e.isFinal ? '1' : '0.6';
+    if (e.isFinal && e.text) playback.style.display = 'inline-block';
+  });
+
+  mic.onclick = async () => {
+    if (!listening) {
+      await port42.audio.capture({ transcribe: true });
+      mic.textContent = 'Stop';
+      mic.style.color = '#ff4444';
+      listening = true;
+    } else {
+      await port42.audio.stopCapture();
+      mic.textContent = 'Start Listening';
+      mic.style.color = '';
+      listening = false;
+    }
+  };
+
+  playback.onclick = async () => {
+    const text = transcript.textContent;
+    if (text) await port42.audio.speak(text, { rate: 0.45 });
+  };
+</script>
+```
+
+FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Camera and Screen (coming soon):
   - port42.camera.capture(opts?) — camera frame as base64 PNG
   - port42.screen.capture(opts?) — screenshot as base64 PNG
     Requires user permission for camera/screen access.
 
-  Clipboard and Files (coming soon):
-  - port42.clipboard.read() / .write(data) — system clipboard access
-  - port42.fs.pick(opts?) — native file picker
-  - port42.fs.read(path) / .write(path, data) — scoped file access
-    Requires user permission. Only user-chosen paths allowed.
-
-  Notifications (coming soon):
-  - port42.notify.send(title, body) — system notification from background port
+  Browser (coming soon):
+  - port42.browser.open(url) — open a URL in a managed browser session
+  - port42.browser.text(sessionId) — extract page text content
+  - port42.browser.capture(sessionId) — screenshot page as base64 PNG
+    Requires user permission for web browsing.
 
   Data (coming soon):
   - port42.messages.recent(n, channelId) — read messages from a different channel

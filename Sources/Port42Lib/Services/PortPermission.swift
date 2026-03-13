@@ -9,8 +9,9 @@ public enum PortPermission: String, Hashable {
     case microphone  // audio.capture, audio.stopCapture
     case camera      // camera.capture, camera.stream, camera.stopStream
     case screen      // screen.capture
-    case clipboard   // clipboard.read, clipboard.write
-    case filesystem  // fs.pick, fs.read, fs.write
+    case clipboard     // clipboard.read, clipboard.write
+    case filesystem    // fs.pick, fs.read, fs.write
+    case notification  // notify.send
 
     /// Map a bridge method name to the permission it requires, or nil if no permission needed.
     public static func permissionForMethod(_ method: String) -> PortPermission? {
@@ -31,6 +32,8 @@ public enum PortPermission: String, Hashable {
             return .clipboard
         case "fs.pick", "fs.read", "fs.write", "fs.drop":
             return .filesystem
+        case "notify.send":
+            return .notification
         default:
             return nil
         }
@@ -73,6 +76,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "File Access",
                 message: "This port wants to access files on your computer. Allow?"
+            )
+        case .notification:
+            return (
+                title: "Notification Access",
+                message: "This port wants to send you system notifications. Allow?"
             )
         }
     }

@@ -26,6 +26,10 @@
 	<string>https://raw.githubusercontent.com/gordonmattey/port42-native/main/dist/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>${SPARKLE_EDDSA_PUBLIC_KEY}</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Port42 uses the microphone for audio capture and speech transcription in ports.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Port42 uses speech recognition for live transcription in ports.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

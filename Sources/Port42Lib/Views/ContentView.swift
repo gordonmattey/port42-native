@@ -253,6 +253,7 @@ struct DockDivider: View {
 struct DockedPortView: View {
     let panel: PortPanel
     @ObservedObject var manager: PortWindowManager
+    @EnvironmentObject var appState: AppState
     @State private var showCode = false
 
     var body: some View {
@@ -319,18 +320,10 @@ struct DockedPortView: View {
             }
         }
         .background(Port42Theme.bgPrimary)
-        .confirmationDialog(
-            panel.bridge.pendingPermission?.permissionDescription.title ?? "Permission",
-            isPresented: Binding(
-                get: { panel.bridge.pendingPermission != nil },
-                set: { if !$0 { panel.bridge.denyPermission() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Allow") { panel.bridge.grantPermission() }
-            Button("Deny", role: .cancel) { panel.bridge.denyPermission() }
-        } message: {
-            Text(panel.bridge.pendingPermission?.permissionDescription.message ?? "")
+        .onChange(of: panel.bridge.pendingPermission) { _, perm in
+            if perm != nil {
+                appState.activePermissionBridge = panel.bridge
+            }
         }
     }
 }

@@ -362,48 +362,18 @@ Already implemented ahead of schedule during Phase 1:
 
 ---
 
-### Step 12b: Device Permissions (P-302b) ← NEXT
+### Step 12b: Device Permissions (P-302b) ✅
 
-**Goal:** Extend permission model to all device APIs.
-
-**Files to modify:**
-- `Sources/Port42Lib/Services/PortPermission.swift` — uncomment and wire device cases
-
-**What to build:**
-
-1. Add permission cases: `.terminal`, `.microphone`, `.camera`, `.screen`,
-   `.clipboard`, `.filesystem`. Each maps to its bridge method prefix.
-
-2. Add `permissionDescription` for each with human-readable title and message:
-   - terminal: "This port wants to run terminal commands."
-   - microphone: "This port wants to access your microphone."
-   - camera: "This port wants to use your camera."
-   - screen: "This port wants to capture your screen."
-   - clipboard: "This port wants to access your clipboard."
-   - filesystem: "This port wants to access files on your computer."
-
-3. Wire `permissionForMethod()` to map device bridge methods to permissions.
-
-**Note:** The permission infrastructure is already in place from P-302a. This
-step just adds the enum cases and method mappings. The actual device bridge
-handlers (P-500 through P-508) will use these permissions when implemented.
+Implemented device permission cases (`.terminal`, `.microphone`, `.camera`, `.screen`,
+`.clipboard`, `.filesystem`) with human-readable descriptions and method mappings.
 
 ---
 
-### Step 12c: Companion Device Context (P-303)
+### Step 12c: Companion Device Context (P-303) ✅
 
-**Goal:** Companions know they can create ports that use AI and device APIs.
-
-**Files to modify:**
-- `Sources/Port42Lib/Resources/ports-context.txt` — AI docs already added, device API docs pending
-
-**Status:** AI bridge docs and example port are in ports-context.txt. Device API
-docs are listed as "FUTURE BRIDGE APIs (not yet implemented)". Will be updated
-as each device API ships.
-
-**Remaining work:**
-- Update companion context as device APIs ship (P-500+)
-- Add example ports for each device capability
+Companion context (ports-context.txt) is updated incrementally as each device
+API ships. AI bridge docs and terminal docs are live. New device API docs added
+alongside each implementation step.
 
 ---
 
@@ -429,47 +399,10 @@ as each device API ships.
 
 ---
 
-### Step 13: Terminal Port (P-500)
+### Step 13: Terminal Port (P-500) ✅
 
-**Goal:** A port can spawn a shell and stream output.
-
-**Files to create:**
-- `Sources/Port42Lib/Services/TerminalBridge.swift` — PTY management, process lifecycle
-
-**Files to modify:**
-- `Sources/Port42Lib/Services/PortBridge.swift` — route `terminal.*` methods
-
-**What to build:**
-
-1. `TerminalBridge` wrapping `forkpty()` to create a pseudo-terminal. Spawn
-   a shell process (`/bin/zsh` by default). Read stdout/stderr in a background
-   thread, push chunks to the port via EventPusher.
-
-2. `port42.terminal.spawn(opts?)` — creates PTY, starts process, returns
-   sessionId. Permission prompt on first call.
-
-3. `port42.terminal.send(sessionId, data)` — writes to stdin.
-
-4. `port42.terminal.resize(sessionId, cols, rows)` — `TIOCSWINSZ` ioctl.
-
-5. `port42.terminal.kill(sessionId)` — SIGTERM then SIGKILL.
-
-6. Events: `'output'` streams stdout/stderr chunks, `'exit'` fires on
-   process termination with exit code.
-
-7. Port-side rendering via xterm.js (inlined in port HTML, no network needed)
-   or a minimal terminal emulator.
-
-**Unit tests:**
-- `testTerminalSpawn` — process starts, sessionId returned
-- `testTerminalSendReceive` — send stdin, receive stdout
-- `testTerminalKill` — process terminated cleanly
-- `testTerminalPermission` — first spawn triggers permission prompt
-
-**User test:**
-- Ask companion "open a terminal" — verify live shell appears in port
-- Type commands, see output in real time
-- Combined with Bridge AI: companion runs a command and explains the output
+Implemented TerminalBridge with forkpty(), PTY management, stdin/stdout streaming,
+resize, kill, and xterm.js rendering. Permission prompt on first spawn.
 
 ---
 
@@ -544,6 +477,48 @@ as each device API ships.
 
 ---
 
+### Step 17: Browser (P-509)
+
+**Goal:** Ports can browse the web, extract content, and take screenshots of pages.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/BrowserBridge.swift` — managed WKWebView sessions, content extraction
+
+**What to build:**
+
+1. `port42.browser.open(url, opts?)` — create a new WKWebView session (separate
+   from the port's own webview). Full network access. Optional visible mode
+   renders the browser inline in the port. Hidden mode for headless research.
+
+2. `port42.browser.navigate(sessionId, url)` — navigate to a new URL.
+
+3. `port42.browser.capture(sessionId, opts?)` — screenshot the page as base64 PNG.
+   Uses WKWebView's `takeSnapshot`. Full page or region.
+
+4. `port42.browser.text(sessionId, opts?)` — extract text content via
+   `evaluateJavaScript("document.body.innerText")`. Optional CSS selector to
+   scope extraction.
+
+5. `port42.browser.html(sessionId, opts?)` — extract HTML content. Optional selector.
+
+6. `port42.browser.execute(sessionId, js)` — run arbitrary JavaScript in the
+   browsed page context. Returns the result.
+
+7. `port42.browser.close(sessionId)` — close the session, deallocate the webview.
+
+8. Events: `'load'` fires when page finishes loading. `'error'` fires on
+   navigation failure.
+
+9. Permission: `.browser` gates all methods. "This port wants to browse the web. Allow?"
+
+**User test:**
+- Port with a URL input that loads and screenshots any webpage
+- Companion that researches a topic by browsing multiple pages and summarizing
+- "Read this URL and explain it" using browser.text + AI.complete
+- Port that monitors a webpage for changes
+
+---
+
 ## Build Order Summary
 
 ```
@@ -566,14 +541,19 @@ Phase 2 complete ─────────────────────
 Step 10:  Bridge AI (P-300)                 → ports think                ✅
 Step 11:  Bridge write ops (P-301)          → DONE (moved to Phase 1)    ✅
 Step 12a: AI permissions (P-302a)           → user approves AI calls     ✅
-Step 12b: Device permissions (P-302b)       → user approves device APIs  ← NEXT
+Step 12b: Device permissions (P-302b)       → user approves device APIs  ✅
 Step 12c: Companion device context (P-303)  → companions know about APIs
-Phase 3 ──────────────────────────────────────────────────────────────────
+Step 12c: Companion device context (P-303)  → companions know about APIs ✅
+Phase 3 complete ─────────────────────────────────────────────────────────
+
+Phase 3b (deferred):
+  P-310: Remote agent port context           → OpenClaw agents learn port APIs
 
 Phase 2.5 (polish, no new infra):
   P-210: Close to preview                   → non-destructive close
   P-211: Inline port update                 → companion updates in-place
   P-209: Port channel context               → follow/pin channel control
+  P-218: Port resize handles                → user drags to resize inline/docked ports
 
 Phase 2.5 (new events):
   P-212: Event: port.docked
@@ -594,10 +574,11 @@ Phase 4 (advanced APIs):
   P-402: Structured message metadata        → model, tokens, timing
   P-403: Convergence detection              → similarity scoring
 
-Step 13: Terminal                           → ports run commands
-Step 14: Audio (mic + TTS)                  → ports listen and speak
+Step 13: Terminal (P-500)                   → ports run commands          ✅
+Step 14: Audio (mic + TTS)                  → ports listen and speak      ← NEXT
 Step 15: Camera + screen                    → ports see
-Step 16: Clipboard + files + notifications  → ports move data
+Step 16: Clipboard + files + notifications  → ports move data            ✅
+Step 17: Browser (P-509)                    → ports browse the web
 Phase 5 (device APIs) ───────────────────────────────────────────────
 ```
 

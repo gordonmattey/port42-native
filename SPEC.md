@@ -1,6 +1,6 @@
 # Port42 Native Spec
 
-**Last updated:** 2026-03-12
+**Last updated:** 2026-03-13
 
 **Status:** Working draft
 
@@ -204,7 +204,7 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-403 | Agent Message Routing | Detect @mentions in messages. Route to correct agent based on name. Build context from recent channel history (configurable window, default 50 messages). Respect trigger mode (mention-only vs all-messages). | Agent receives mention, responds, response appears in chat | M2 | **Done** |
 | F-404 | Agent Response Display | Agent messages appear in chat with bot badge, teal styling, "(via OwnerName)" attribution. | Agent messages visually distinct from human messages | M2 | **Done** |
 | F-405 | Command Agent (power user) | Spawn agent as child process. stdin/stdout NDJSON protocol. Events: mention, message, shutdown. Response: streaming content lines, optional reply_to. Logs captured from stderr. | Command agent receives events and streams responses via stdio | M2 | **Done** |
-| F-406 | Agent Auth | Auto-detect Claude Code OAuth token from macOS Keychain ("Claude Code-credentials"). Watches for token refresh. Fallback: user provides API key manually. Per-agent auth config. | Agent calls succeed with Claude Code OAuth from Keychain or manual API key | M2 | **Done** |
+| F-406 | Agent Auth | Auto-detect Claude Code OAuth token from macOS Keychain (prefix-matches "Claude Code-credentials*" for suffixed entries). Guided setup walks through Node/Claude Code install if needed. Manual OAuth session key paste or API key as alternatives. Connection status with account label and expiry in settings. | Agent calls succeed with Claude Code OAuth from Keychain or manual API key | M2 | **Done** |
 | F-407 | Agent Invite Link | Share agent config as a link (port42://agent?...). Contains name, system prompt, provider, model. Recipient adds their own auth. | Friend can add shared agent from a link | M2 | **Done** |
 | F-408 | Swim | Jump into a companion for direct 1:1 conversation. Opens a dedicated DM-style view. No @mention needed, companion always responds. Streaming conversation with full context. Native version of the CLI `swim` command. `/swim @companion` or click companion in sidebar. | User swims into a companion, has direct streaming conversation, exits back to channels | M2 | **Done** |
 
@@ -346,20 +346,29 @@ mentionable by the other user. Delivery and read receipts update automatically.
 
 Deferred to M4: offline queue (F-504), relay auth (F-511), reply threading (F-303).
 
-### M4: Ports (In Progress)
+### M4: Ports ✅
 
 *Live interactive surfaces inside conversations.*
 
-Covers port detection (P-100), inline webview (P-101), bridge core (P-102),
-bridge companions/messages/user/events (P-103-P-106), companion context (P-107),
-port sandbox (P-108), port theme (P-109).
+**Phase 1 (Inline Ports):** Complete. Port detection, inline WKWebView rendering,
+full port42.* bridge API (21 methods across 9 namespaces), events, connection
+health, sandbox, theme injection, console forwarding, module scripts, viewport
+tracking, storage with channel/global/shared scoping.
 
-Phase 1 inline ports are working. Companions emit ```port code fences,
-WKWebView renders them inline in the message stream with full port42.* bridge
-API. Console overlay for debugging. Auto-height via ResizeObserver.
+**Phase 2 (Pop Out & Dock):** Complete. Pop-out to floating panels with drag/resize,
+dock to right side with draggable divider, persistence across channel switch and
+app restart, port update (same companion replaces existing), unified title bar
+with source/run toggle.
 
-Phase 2 (pop-out, docking) is partial. Phase 3 (generative ports with
-port42.ai.complete()) is planned. See ports-spec.md for full details.
+**Phase 3 (Generative Ports):** Complete. `port42.ai.complete()` with streaming,
+`port42.companions.invoke()` for companion-scoped AI, `port42.ai.models()`,
+AI permissions with SwiftUI prompt, device permissions framework.
+
+**Phase 5 (Device APIs):** In progress. Terminal (P-500) done with forkpty/PTY,
+xterm.js rendering, stdin/stdout streaming. Audio, camera, screen, clipboard,
+filesystem, browser APIs planned.
+
+See ports-spec.md and ports-implementation-plan.md for full details.
 
 ### M5: OpenClaw Integration (In Progress)
 
@@ -401,17 +410,40 @@ button for one-click OpenClaw deep linking.
 | P-104 | Bridge Messages | port42.messages.recent(n) | Port can read conversation history | **Done** |
 | P-105 | Bridge User | port42.user.get() returns current user | Port knows who is using it | **Done** |
 | P-106 | Bridge Events | port42.on(event, callback) pushes live updates | Port updates in real time | **Done** |
+| P-106b | Connection Health | Heartbeat, status, onStatusChange | Port knows if bridge is alive | **Done** |
 | P-107 | Companion Context | System prompt tells companions about port capabilities | Companion naturally emits ports | **Done** |
 | P-108 | Port Sandbox | No network, no filesystem, data only through bridge | Port cannot make external requests | **Done** |
 | P-109 | Port Theme | Dark theme auto-injected into ports | Unstyled port looks native | **Done** |
-| P-110 | Console Overlay | JS console capture with debug toggle in port corner | Developer can see console output | **Done** |
-| P-200 | Pop Out | Detach port into floating panel | User clicks pop out, port floats | Partial |
-| P-300 | Bridge AI | port42.ai.complete(prompt) with streaming | Port can call AI directly | Planned |
-| P-301 | Bridge Send | port42.messages.send(text) | Port can post messages | Planned |
-| P-302 | Port Storage | port42.storage.set/get for persistent port state | Port data survives reload | Planned |
-| P-303 | Cross-Channel Reads | port42.messages.recent(n, channelId) | Port can read any channel | Planned |
-| P-304 | Message Metadata | Structured metadata (model, response time, similarity) | Ports can analyze conversations | Planned |
-| P-305 | Convergence Detection | port42.convergence.detect() and events | Multi-agent agreement surfaced | Planned |
+| P-110 | Channel APIs | port42.channel.current/list/switchTo | Port can navigate channels | **Done** |
+| P-111 | Bridge Send | port42.messages.send(text) | Port can post messages | **Done** |
+| P-112 | Port Info | port42.port.info/close/resize | Port can query and control itself | **Done** |
+| P-113 | Port Storage | port42.storage.set/get/delete/list with scoping | Port data survives reload | **Done** |
+| P-114 | Viewport | port42.viewport.width/height + CSS vars | Port adapts to size changes | **Done** |
+| P-115 | Console Forwarding | console.log/error/warn to NSLog + debug overlay | Developer can see console output | **Done** |
+| P-116 | Module Scripts | Top-level await via script type=module | Companions write clean async code | **Done** |
+| P-200 | Pop Out | Detach port into floating NSPanel | User clicks pop out, port floats | **Done** |
+| P-201 | Virtual Window | Native drag, resize, title bar | Floating ports feel like windows | **Done** |
+| P-202 | Docking | Snap to right side with draggable divider | Port docks alongside chat | **Done** |
+| P-203 | Port Persistence | Survive channel switch + app restart (SQLite v11) | Ports persist across sessions | **Done** |
+| P-204 | Port Update | Same companion replaces existing panel | Companion iterates on a port | **Done** |
+| P-205 | Port Close | Close floating + docked ports | Clean lifecycle management | **Done** |
+| P-300 | Bridge AI | port42.ai.complete(prompt) with streaming, port42.companions.invoke() | Port can call AI directly | **Done** |
+| P-302a | AI Permissions | Permission prompt on first AI call, stored per session | User controls AI access | **Done** |
+| P-302b | Device Permissions | Permission model for terminal, mic, camera, screen, clipboard, fs, browser | User controls device access | **Done** |
+| P-303 | Companion Context | System prompt updated with device API docs as each ships | Companions know all available APIs | **Done** |
+| P-500 | Terminal | port42.terminal.spawn/send/resize/kill with PTY | Port runs shell commands | **Done** |
+| P-310 | Remote Agent Port Context | Inject port context into OpenClaw/remote agents | Remote agents can create ports | Deferred |
+| P-501 | Audio Input | port42.audio.capture with mic + transcription | Port can listen and transcribe | Planned |
+| P-502 | Audio Output | port42.audio.speak/play for TTS and playback | Port can speak | Planned |
+| P-503 | Camera | port42.camera.capture for camera frames | Port can see through camera | Planned |
+| P-504 | Screen Capture | port42.screen.capture for screenshots | Port can see the screen | Planned |
+| P-505 | Clipboard | port42.clipboard.read/write | Port can access clipboard | **Done** |
+| P-506 | File System | port42.fs.read/write/pick with native file picker | Port can load and save files | **Done** |
+| P-507 | Notifications | port42.notify.send for system notifications | Background port can alert user | **Done** |
+| P-509 | Browser | port42.browser.open/navigate/capture/text/execute | Port can browse the web | Planned |
+| P-401 | Cross-Channel Reads | port42.messages.recent(n, channelId) | Port can read any channel | Planned |
+| P-402 | Message Metadata | Structured metadata (model, response time, similarity) | Ports can analyze conversations | Planned |
+| P-403 | Convergence Detection | port42.convergence.detect() and events | Multi-agent agreement surfaced | Planned |
 
 ### Invite System (Web)
 
@@ -484,7 +516,9 @@ User asks companion to build something interactive in chat
 → Port calls bridge API: port42.companions.list(), port42.messages.recent(n)
 → Port receives live events via port42.on('message', callback)
 → User interacts with live surface inline in conversation
-→ Optional: pop out to floating panel (partial)
+→ Pop out to floating panel, dock to right side, or keep inline
+→ Port can call AI (port42.ai.complete) or invoke companions (port42.companions.invoke)
+→ Port can run terminal commands (port42.terminal.spawn)
 ```
 
 ### Flow 10: Multi-Agent Convergence

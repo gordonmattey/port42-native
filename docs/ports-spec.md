@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-13
 
-**Status:** Phase 1 + Phase 2 complete, Phase 3 in progress (AI bridge + AI permissions done)
+**Status:** Phase 1 + Phase 2 + Phase 3 complete, Phase 5 in progress (Terminal, Clipboard, File System, Notifications done. Audio next)
 
 ---
 
@@ -103,7 +103,8 @@ Every companion can open a port. Every port is alive.
 
 ### Phase 1: Inline Ports (Flows 1 + 2) ✅
 ### Phase 2: Pop Out and Dock (Flows 3 + 4) ✅
-### Phase 3: Generative Ports (Flow 5) — in progress
+### Phase 3: Generative Ports (Flow 5) ✅
+### Phase 3b: Remote Agent Port Context (deferred)
 ### Phase 4: Advanced Bridge APIs
 ### Phase 5: Device APIs (Flows 6 + 7)
 
@@ -273,6 +274,7 @@ Target: The ouroboros. The fish swims in itself.
 | P-206 | Multiple Dock Zones | Right dock splits vertically for 2+ ports. Optional slots above sidebar channel list or below name/settings. Full tiling via Window Commander (P-220). | Medium | Two ports docked right (split vertically) |
 | P-207 | Cursor States | Green circle default, resizeLeftRight on dock divider, no hand cursor on title bars or drag areas. WKWebView uses its own CSS cursors. | Medium | No stray hand cursors |
 | P-208 | Port UDIDs | Stable unique ID per port. Persists across dock/undock/restart. Accessible via `port42.port.info().id` and `port42.ports.list()`. | Medium | Every port has a stable ID |
+| P-218 | Port Resize Handles | User can drag to resize inline and docked ports. Resize handles on edges/corners. Height clamp still applies for inline. | Medium | User drags port edge to resize |
 
 ### Phase 3: Generative Ports
 
@@ -281,14 +283,21 @@ Target: The ouroboros. The fish swims in itself.
 | P-300 | Bridge: AI | `port42.ai.complete(prompt, options)` with streaming. `port42.ai.models()` for model listing. `port42.companions.invoke()` for companion-scoped AI. JS callback API with `onToken` and `onDone`. | High | ✅ Done |
 | P-301 | Bridge: Write Ops | `port42.messages.send`, `port42.channel.*`, `port42.storage.*` | ✅ Done | ✅ Moved to Phase 1 |
 | P-302a | AI Permissions | Permission prompt on first `ai.complete` or `companions.invoke` call. Stored per port session, reset on close. | High | ✅ Done |
-| P-302b | Device Permissions | Extend permission model to terminal, microphone, camera, screen, clipboard, filesystem. Same prompt pattern as AI. | High | Next |
-| P-303 | Companion AI Context | Update companion system prompt with AI bridge docs and device API docs so companions know they can build self-thinking ports. | Medium | Partial (AI docs done, device docs pending) |
+| P-302b | Device Permissions | Extend permission model to terminal, microphone, camera, screen, clipboard, filesystem. Same prompt pattern as AI. | High | ✅ Done |
+| P-303 | Companion AI Context | Update companion system prompt with AI bridge docs and device API docs so companions know they can build self-thinking ports. Updated incrementally as each device API ships. | Medium | ✅ Done |
+
+### Phase 3b: Remote Agent Port Context
+
+| ID | Feature | Description | Priority | Status |
+|----|---------|-------------|----------|--------|
+| P-310 | Remote Agent Port Context | Inject port42 bridge API context into OpenClaw and other remote agents so they can create ports. Local companions get context via system prompt at LLM call time (ChannelAgentHandler). Remote agents need an equivalent injection point. Challenges: (1) remote agents don't go through Port42's LLM engine, (2) plugin updates are undesirable, (3) gateway shouldn't carry prompt logic. Possible approaches: system message on agent join, message metadata in sync protocol, or a context endpoint the plugin polls. Blocked until remote agents can actually render ports (bridge calls need to route back across the gateway). | Low | Deferred |
 
 ### Phase 4: Advanced Bridge APIs
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
 | P-400 | Port Window Management | `port42.ports.list/dock/undock/close/arrange` + lifecycle events. Enables "commander" ports that manage other ports and retile layouts. | High | A port can query and rearrange other ports |
+| P-404 | Port Spaces | Virtual canvas larger than the physical screen. Zoom out for bird's eye view of all ports, zoom in to focus. Named spaces per context (e.g. "coding" with terminal + docs, "social" with dashboards). Like macOS Spaces but for ports. `port42.spaces.list/create/switch/current`. | Medium | User can pan/zoom across a larger port canvas |
 | P-401 | Cross-Channel Reads | `port42.messages.recent(n, channelId?)` and `port42.messages.search(query)` across channels | Medium | Port can read messages from any channel |
 | P-402 | Structured Message Metadata | Extend messages with `model`, `responseTime`, `tokenCount`, `similarity`, `tags` | Medium | Analytics ports can compare companion performance |
 | P-403 | Convergence Detection | `port42.convergence.detect(messages)` with similarity scoring and wave detection | Low | Convergence events surfaced as signal |
@@ -302,10 +311,11 @@ Target: The ouroboros. The fish swims in itself.
 | P-502 | Audio Output | `port42.audio.speak(text, opts?)` — text-to-speech via AVSpeechSynthesizer. `port42.audio.play(data)` for generated audio. | Medium | Port can speak and play audio |
 | P-503 | Camera | `port42.camera.capture(opts?)` — camera frame or continuous feed. Returns base64 image data. Companion can analyze via Bridge AI. | Medium | Port can see through the camera |
 | P-504 | Screen Capture | `port42.screen.capture(opts?)` — screenshot or region. Returns base64 image. "Look at this and tell me what's wrong." | Medium | Port can see the screen |
-| P-505 | Clipboard | `port42.clipboard.read()` / `.write(data)` — system clipboard access with permission. Seamless data flow in and out of ports. | Medium | Port can read/write clipboard |
-| P-506 | File System | `port42.fs.read(path)` / `.write(path, data)` / `.pick()` — scoped file access. Native file picker for user-chosen paths. Drag-and-drop support. | Medium | Port can load and save files |
-| P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | Background port can notify the user |
+| P-505 | Clipboard | `port42.clipboard.read()` / `.write(data)` — system clipboard access with permission. Seamless data flow in and out of ports. | Medium | ✅ Done |
+| P-506 | File System | `port42.fs.read(path)` / `.write(path, data)` / `.pick()` — scoped file access. Native file picker for user-chosen paths. Drag-and-drop support. | Medium | ✅ Done |
+| P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
 | P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
+| P-509 | Browser | `port42.browser.*` — embedded browser session inside a port. Navigate, capture page content, extract text, screenshot pages. Companion can browse the web and reason about what it finds. | High | Port can browse the web, companion can research and extract information |
 
 ---
 
@@ -429,6 +439,7 @@ Planned (P-302b):
   .screen      → gates screen.capture
   .clipboard   → gates clipboard.read, clipboard.write
   .filesystem  → gates fs.read, fs.write, fs.pick
+  .browser     → gates browser.open, browser.navigate, browser.capture, browser.text, browser.execute
 ```
 
 Read APIs (user.get, companions.list, messages.recent, channel.*, storage.*)
@@ -568,6 +579,27 @@ port42.ports
 Enables "commander" ports that manage other ports. Prior art: CLI/gateway era
 window tracker + "window commander" tool for dynamic terminal retiling.
 
+### P-404: Port Spaces
+
+```
+port42.spaces
+  .list()                → [{ id, name, ports: [portId] }]
+  .create(name)          → { id, name } — create a named space
+  .switch(id)            → switch to a space (shows its ports, hides others)
+  .current()             → current space info
+  .assign(portId, spaceId) → move a port to a space
+```
+
+Virtual canvas that extends beyond the physical screen. The app becomes a
+viewport into a larger workspace. Zoom out to see all ports at once (bird's
+eye), zoom in to focus on one. Named spaces group ports by context, like
+"coding" (terminal + docs + debugger) vs "social" (dashboards + chat).
+
+Native implementation: NSScrollView or custom pan/zoom layer hosting all
+port panels. Spaces are saved layouts with port positions and sizes.
+Switching spaces shows/hides the relevant set of ports. Keyboard shortcut
+for space switching (Ctrl+1/2/3 like macOS).
+
 ### P-500: Terminal
 
 ```
@@ -666,3 +698,38 @@ port42.location
                                opts: { accuracy? }
   .on('change', cb)          → location changed
 ```
+
+### P-509: Browser
+
+```
+port42.browser
+  .open(url, opts?)            → { sessionId } — open a URL in a managed WKWebView
+                                 opts: { width?, height?, userAgent?, visible? }
+  .navigate(sessionId, url)    → navigate to a new URL
+  .capture(sessionId, opts?)   → { image } base64 PNG screenshot of page
+                                 opts: { fullPage?, region? }
+  .text(sessionId, opts?)      → { text, title, url } — extract page text content
+                                 opts: { selector? }
+  .html(sessionId, opts?)      → { html, title, url } — extract page HTML
+                                 opts: { selector? }
+  .execute(sessionId, js)      → run JavaScript in the page context, return result
+  .close(sessionId)            → close the browser session
+  .on('load', cb)              → page finished loading { sessionId, url, title }
+  .on('error', cb)             → navigation error { sessionId, url, error }
+```
+
+Native side: separate WKWebView per session (not the port's own webview).
+Full network access (unlike ports, browser sessions can fetch). Content
+extracted via evaluateJavaScript and passed back through the bridge.
+Optional visible mode renders the browser inline in the port for the user
+to see. Hidden mode is for headless scraping and research.
+
+Permission: `.browser` gates all browser methods. "This port wants to
+browse the web. Allow?" Combined with Bridge AI, a companion can research
+topics, read documentation, and extract information autonomously.
+
+Use cases:
+- Companion researches a topic and summarizes findings
+- Port that monitors a web page for changes
+- "Read this URL and explain it to me"
+- Automated form filling and web interaction

@@ -31,6 +31,25 @@ public struct ChatView: View {
             )
         }
         .background(Port42Theme.bgPrimary)
+        .confirmationDialog(
+            appState.activePermissionBridge?.pendingPermission?.permissionDescription.title ?? "Permission",
+            isPresented: Binding(
+                get: { appState.activePermissionBridge?.pendingPermission != nil },
+                set: { if !$0 { appState.activePermissionBridge?.denyPermission(); appState.activePermissionBridge = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Allow") {
+                appState.activePermissionBridge?.grantPermission()
+                appState.activePermissionBridge = nil
+            }
+            Button("Deny", role: .cancel) {
+                appState.activePermissionBridge?.denyPermission()
+                appState.activePermissionBridge = nil
+            }
+        } message: {
+            Text(appState.activePermissionBridge?.pendingPermission?.permissionDescription.message ?? "")
+        }
     }
 
     private var channelEntries: [ChatEntry] {

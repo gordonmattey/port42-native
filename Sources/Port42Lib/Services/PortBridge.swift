@@ -10,7 +10,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     private weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
     private let channelId: String?
-    private let messageId: String?
+    public let messageId: String?
     private let createdBy: String?
 
     /// Accessor for AppState (cast from AnyObject to avoid circular dependency)
@@ -33,18 +33,49 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Terminal sessions owned by this port. Created lazily on first terminal.spawn call.
     private var terminalBridge: TerminalBridge?
 
+    /// Clipboard bridge. Created lazily on first clipboard call.
+    private var clipboardBridge: ClipboardBridge?
+
+    /// File bridge. Created lazily on first fs call.
+    private var fileBridge: FileBridge?
+
+    /// Notification bridge. Created lazily on first notify call.
+    private var notificationBridge: NotificationBridge?
+
+    /// Audio bridge. Created lazily on first audio call.
+    private var audioBridge: AudioBridge?
+
     public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
         self.messageId = messageId
         self.createdBy = createdBy
         super.init()
+
+        // Restore cached permissions immediately so they're in place before the webview
+        // loads and JS executes. This prevents permission prompts from re-firing when
+        // LazyVStack recycles inline port views.
+        if let mid = messageId {
+            if let state = appState as? AppState,
+               let cached = state.cachedPortPermissions[mid] {
+                grantedPermissions = cached
+                NSLog("[Port42] Bridge init: restored %d cached permissions for %@", cached.count, mid)
+            } else {
+                NSLog("[Port42] Bridge init: no cached permissions for %@ (state=%@)", mid, appState == nil ? "nil" : "present")
+            }
+        } else {
+            NSLog("[Port42] Bridge init: no messageId")
+        }
     }
 
     deinit {
         let tb = terminalBridge
         if let tb {
             Task { @MainActor in tb.killAll() }
+        }
+        let ab = audioBridge
+        if let ab {
+            Task { @MainActor in ab.cleanup() }
         }
     }
 
@@ -75,6 +106,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         pendingPermission = nil
         permissionContinuation?.resume(returning: true)
         permissionContinuation = nil
+
+        // Cache on AppState so permission survives LazyVStack view recycling
+        if let mid = messageId {
+            NSLog("[Port42] grantPermission: caching %d permissions for %@: %@", grantedPermissions.count, mid, grantedPermissions.map { $0.rawValue }.joined(separator: ","))
+            state?.cachePortPermissions(messageId: mid, permissions: grantedPermissions)
+        } else {
+            NSLog("[Port42] grantPermission: no messageId, cannot cache")
+        }
     }
 
     /// Deny the pending permission and resume the waiting method with false.
@@ -89,8 +128,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     @MainActor
     private func checkPermission(for method: String) async -> Bool {
         guard let perm = PortPermission.permissionForMethod(method) else { return true }
-        if grantedPermissions.contains(perm) { return true }
+        if grantedPermissions.contains(perm) {
+            NSLog("[Port42] checkPermission: %@ already granted (msg=%@)", perm.rawValue, messageId ?? "nil")
+            return true
+        }
 
+        NSLog("[Port42] checkPermission: PROMPTING for %@ (msg=%@, granted=%@)", perm.rawValue, messageId ?? "nil", grantedPermissions.map { $0.rawValue }.joined(separator: ","))
         // Ask the user
         return await withCheckedContinuation { continuation in
             permissionContinuation = continuation
@@ -470,6 +513,89 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             } else {
                 return ["error": "session not found"]
             }
+
+        // MARK: Clipboard
+
+        case "clipboard.read":
+            if clipboardBridge == nil { clipboardBridge = ClipboardBridge() }
+            return clipboardBridge!.read()
+
+        case "clipboard.write":
+            if clipboardBridge == nil { clipboardBridge = ClipboardBridge() }
+            return clipboardBridge!.write(args)
+
+        // MARK: File System
+
+        case "fs.pick":
+            if fileBridge == nil { fileBridge = FileBridge() }
+            let opts = args.first as? [String: Any] ?? [:]
+            // H1: Check if key window exists before presenting panel
+            NSLog("[Port42] fs.pick: keyWindow=%@, callId=%d", NSApp.keyWindow?.description ?? "nil", callId)
+            let pickResult = await fileBridge!.pick(opts: opts)
+            // H3: Check if webview is still alive after picker
+            NSLog("[Port42] fs.pick: result=%@, webView=%@", String(describing: pickResult), webView == nil ? "GONE" : "alive")
+            return pickResult
+
+        case "fs.read":
+            guard let path = args.first as? String else {
+                return ["error": "fs.read requires a path"]
+            }
+            // H2: Check if fileBridge survived LazyVStack recycling
+            NSLog("[Port42] fs.read: fileBridge=%@, path=%@", fileBridge == nil ? "NIL" : "exists(\(fileBridge!.allowedPathCount) paths)", path)
+            if fileBridge == nil { return ["error": "no file has been picked yet"] }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            return fileBridge!.read(path: path, opts: opts)
+
+        case "fs.write":
+            guard let path = args.first as? String,
+                  let data = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "fs.write requires path and data"]
+            }
+            // H2: Check if fileBridge survived
+            NSLog("[Port42] fs.write: fileBridge=%@, path=%@", fileBridge == nil ? "NIL" : "exists(\(fileBridge!.allowedPathCount) paths)", path)
+            if fileBridge == nil { return ["error": "no file has been picked yet"] }
+            let opts = args.count > 2 ? args[2] as? [String: Any] : nil
+            return fileBridge!.write(path: path, data: data, opts: opts)
+
+        // MARK: Notifications
+
+        case "notify.send":
+            guard let title = args.first as? String else {
+                return ["error": "notify.send requires a title"]
+            }
+            let body = args.count > 1 ? args[1] as? String ?? "" : ""
+            let opts = args.count > 2 ? args[2] as? [String: Any] : nil
+            if notificationBridge == nil { notificationBridge = NotificationBridge() }
+            return await notificationBridge!.send(title: title, body: body, opts: opts)
+
+        // MARK: Audio
+
+        case "audio.capture":
+            let opts = args.first as? [String: Any] ?? [:]
+            if audioBridge == nil { audioBridge = AudioBridge(bridge: self) }
+            return await audioBridge!.capture(opts: opts)
+
+        case "audio.stopCapture":
+            return audioBridge?.stopCapture() ?? ["error": "no active capture"]
+
+        case "audio.speak":
+            guard let text = args.first as? String, !text.isEmpty else {
+                return ["error": "audio.speak requires non-empty text"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            if audioBridge == nil { audioBridge = AudioBridge(bridge: self) }
+            return await audioBridge!.speak(text: text, opts: opts)
+
+        case "audio.play":
+            guard let data = args.first as? String, !data.isEmpty else {
+                return ["error": "audio.play requires base64 audio data"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            if audioBridge == nil { audioBridge = AudioBridge(bridge: self) }
+            return audioBridge!.play(data: data, opts: opts)
+
+        case "audio.stop":
+            return audioBridge?.stop() ?? ["ok": true]
 
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
@@ -852,6 +978,30 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                         return window.Terminal;
                     }
                     return null;
+                }
+            },
+            clipboard: {
+                read: () => call('clipboard.read'),
+                write: (data) => call('clipboard.write', [data])
+            },
+            fs: {
+                pick: (opts) => call('fs.pick', [opts || {}]),
+                read: (path, opts) => call('fs.read', [path, opts || {}]),
+                write: (path, data, opts) => call('fs.write', [path, data, opts || {}])
+            },
+            notify: {
+                send: (title, body, opts) => call('notify.send', [title, body || '', opts || {}])
+            },
+            audio: {
+                capture: (opts) => call('audio.capture', [opts || {}]),
+                stopCapture: () => call('audio.stopCapture'),
+                speak: (text, opts) => call('audio.speak', [text, opts || {}]),
+                play: (data, opts) => call('audio.play', [data, opts || {}]),
+                stop: () => call('audio.stop'),
+                on: function(event, callback) {
+                    var fullEvent = 'audio.' + event;
+                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                    _listeners[fullEvent].push(callback);
                 }
             },
             viewport: { width: window.innerWidth || 600, height: window.innerHeight || 400 }

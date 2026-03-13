@@ -534,7 +534,7 @@ struct PortWebViewHost: NSViewRepresentable {
     let webView: WKWebView
 
     func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+        let container = PortWebViewContainer()
         webView.removeFromSuperview()
         container.addSubview(webView)
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -656,6 +656,24 @@ struct PortPanelTitleBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(PortDragArea())
+    }
+}
+
+// MARK: - WebView Container (preserves first responder on click)
+
+/// NSView container that ensures clicks inside the webview don't trigger
+/// app-level focus changes. Accepts first mouse so clicks go through
+/// without a focus-first click.
+class PortWebViewContainer: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        // Let the webview handle clicks directly
+        super.mouseDown(with: event)
+        // Ensure the webview stays first responder
+        if let webView = subviews.first {
+            window?.makeFirstResponder(webView)
+        }
     }
 }
 

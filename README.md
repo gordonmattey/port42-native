@@ -145,6 +145,12 @@ Requires macOS 15+, Swift 6, and Go 1.21+.
 
 Always use `./build.sh`, not raw `swift build` or `go build`.
 
+## Contributing
+
+Bug fixes and small improvements: just open a PR. New features and major changes require a [Port42 Proposal (P42P)](CONTRIBUTING.md) before any code is written.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guidelines and P42P template.
+
 ## License
 
 Free and open source. See [LICENSE](LICENSE) for details.
