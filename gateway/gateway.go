@@ -87,6 +87,8 @@ type Gateway struct {
 	// pendingNonces tracks nonces issued to connections awaiting identify.
 	// Keyed by nonce value for lookup during verify.
 	pendingNonces map[string]bool
+	// messageStore persists messages to SQLite for history replay on join. Nil disables history.
+	messageStore *MessageStore
 }
 
 func NewGateway() *Gateway {
@@ -374,6 +376,20 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 		g.broadcastPresence(ctx, channelID, cID, "online")
 	}
 
+	// Replay channel history for new/returning joiners
+	if g.messageStore != nil {
+		history, err := g.messageStore.GetHistory(channelID, 200)
+		if err != nil {
+			log.Printf("[gateway] history fetch error for channel %s: %v", channelID[:min(8, len(channelID))], err)
+		} else if len(history) > 0 {
+			for _, henv := range history {
+				henv.Type = "history"
+				p.Send(ctx, henv)
+			}
+			log.Printf("[gateway] replayed %d history messages for %s in %s", len(history), p.ID, channelID[:min(8, len(channelID))])
+		}
+	}
+
 	log.Printf("[gateway] peer %s joined channel %s with %d companions", p.ID, channelID, len(companionIDs))
 	return nil
 }
@@ -563,6 +579,11 @@ func (g *Gateway) routeMessage(ctx context.Context, sender *Peer, env Envelope) 
 		} else {
 			g.storeForPeer(id, env)
 		}
+	}
+
+	// Persist for history replay
+	if g.messageStore != nil {
+		g.messageStore.Store(env)
 	}
 
 	// Send ack (gateway received) then delivered (peer received) if applicable

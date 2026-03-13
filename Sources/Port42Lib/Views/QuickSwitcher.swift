@@ -80,6 +80,11 @@ public struct QuickSwitcher: View {
                     Text("press enter to join #\(inviteInfo.channelName)")
                         .font(Port42Theme.mono(12))
                         .foregroundStyle(Port42Theme.accent)
+                    if let host = inviteInfo.hostName {
+                        Text("hosted by \(host)")
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                    }
                     Spacer()
                 }
                 .padding(.horizontal, 16)
@@ -240,31 +245,39 @@ public struct QuickSwitcher: View {
                 return ChannelInvite.parse(url: url)
             }
 
-            // HTTPS invite page link (e.g. https://xxx.ngrok.io/invite?id=...&name=...&key=...)
+            // HTTPS invite page link (e.g. https://port42.ai/invite.html?gateway=wss://...&id=...&name=...)
+            // Also supports legacy format where the invite page IS the gateway host
             if let url = URL(string: candidate),
                let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                (components.scheme == "https" || components.scheme == "http"),
-               components.path == "/invite" {
+               (components.path == "/invite" || components.path == "/invite.html") {
                 let items = components.queryItems ?? []
                 let dict = Dictionary(items.compactMap { item in
                     item.value.map { (item.name, $0) }
                 }, uniquingKeysWith: { _, last in last })
 
                 guard let channelId = dict["id"],
-                      let name = dict["name"],
-                      let host = components.host else { continue }
+                      let name = dict["name"] else { continue }
 
-                // Build the gateway WSS URL from the invite page host
-                let scheme = components.scheme == "https" ? "wss" : "ws"
-                let port = components.port.map { ":\($0)" } ?? ""
-                let gateway = "\(scheme)://\(host)\(port)"
+                // Prefer explicit gateway param (new format via port42.ai)
+                // Fall back to deriving from the invite page host (legacy self-hosted format)
+                let gateway: String
+                if let gw = dict["gateway"], !gw.isEmpty {
+                    gateway = gw
+                } else {
+                    guard let host = components.host else { continue }
+                    let scheme = components.scheme == "https" ? "wss" : "ws"
+                    let port = components.port.map { ":\($0)" } ?? ""
+                    gateway = "\(scheme)://\(host)\(port)"
+                }
 
                 return ChannelInviteData(
                     gateway: gateway,
                     channelId: channelId,
                     channelName: name,
                     encryptionKey: dict["key"],
-                    token: dict["token"]
+                    token: dict["token"],
+                    hostName: dict["host"]
                 )
             }
         }

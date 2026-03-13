@@ -7,6 +7,7 @@ public struct ChannelInviteData {
     public let channelName: String
     public let encryptionKey: String?
     public let token: String?
+    public let hostName: String?
 }
 
 public enum ChannelInvite {
@@ -98,32 +99,30 @@ public enum ChannelInvite {
             return nil
         }
 
-        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name, encryptionKey: dict["key"], token: dict["token"])
+        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name, encryptionKey: dict["key"], token: dict["token"], hostName: dict["host"])
     }
 
-    /// Build an HTTPS invite URL served by the gateway's /invite endpoint.
-    /// If connected to a remote gateway, the invite URL points to that host's
-    /// landing page so the link always leads back to the channel's origin.
+    /// Build an HTTPS invite URL on port42.ai that constructs the deep link
+    /// client-side. The gateway WSS address is passed as a query param so the
+    /// page can build the port42:// link without hosting its own gateway.
     @MainActor
     public static func generateInviteURL(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) -> String? {
-        // If connected to a remote gateway, build the invite URL from that
-        let baseURL: String
+        let gatewayWSS: String
         if let gw = syncGatewayURL, !gw.contains("localhost"), !gw.contains("127.0.0.1") {
-            baseURL = gw
-                .replacingOccurrences(of: "wss://", with: "https://")
-                .replacingOccurrences(of: "ws://", with: "http://")
-                .replacingOccurrences(of: "/ws", with: "")
+            gatewayWSS = gw.replacingOccurrences(of: "/ws", with: "")
         } else if let tunnelURL = TunnelService.shared.publicURL {
-            baseURL = tunnelURL
-                .replacingOccurrences(of: "wss://", with: "https://")
-                .replacingOccurrences(of: "ws://", with: "http://")
+            // Tunnel URLs are HTTPS; convert to WSS for the gateway param
+            gatewayWSS = tunnelURL
+                .replacingOccurrences(of: "https://", with: "wss://")
+                .replacingOccurrences(of: "http://", with: "ws://")
                 .replacingOccurrences(of: "/ws", with: "")
         } else {
             return nil
         }
 
-        var components = URLComponents(string: baseURL + "/invite")
+        var components = URLComponents(string: "https://port42.ai/invite.html")
         var items = [
+            URLQueryItem(name: "gateway", value: gatewayWSS),
             URLQueryItem(name: "id", value: channel.id),
             URLQueryItem(name: "name", value: channel.name),
         ]

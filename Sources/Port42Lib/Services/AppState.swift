@@ -356,6 +356,7 @@ public final class AppState: ObservableObject {
     @Published public var showNgrokSetup = false
     @Published public var showOpenClawSheet = false
     @Published public var openClawAvailable = false
+    @Published public var toastMessage: String?
     /// Channel waiting for ngrok setup to complete before copying invite link
     public var pendingInviteChannel: Channel?
     /// Channel for the OpenClaw agent connection sheet
@@ -920,6 +921,23 @@ public final class AppState: ObservableObject {
                     print("[Port42] Failed to update channel key: \(error)")
                 }
             }
+
+            // If invite points to a different gateway, switch to it
+            let currentGW = sync.gatewayURL ?? ""
+            if !isOwnGateway(invite.gateway) && currentGW != invite.gateway, let user = currentUser {
+                UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
+                #if !RELEASE
+                sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db, appleAuth: appleAuth, appleUserID: user.appleUserID)
+                #else
+                sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db)
+                #endif
+                sync.connect()
+                for ch in channels {
+                    syncJoinChannel(ch.id)
+                }
+                syncJoinChannel(existing.id, token: invite.token)
+            }
+
             selectChannel(existing)
             return
         }

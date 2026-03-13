@@ -389,6 +389,19 @@ public final class DatabaseService {
         }
     }
 
+    /// Save a message only if it doesn't already exist (for history replay deduplication).
+    /// Returns true if the message was inserted, false if it already existed.
+    @discardableResult
+    public func saveMessageIfNotExists(_ message: Message) throws -> Bool {
+        try dbQueue.write { db in
+            if try Message.fetchOne(db, id: message.id) != nil {
+                return false
+            }
+            try message.save(db)
+            return true
+        }
+    }
+
     public func updateSyncStatus(messageId: String, status: String) throws {
         try dbQueue.write { db in
             try db.execute(

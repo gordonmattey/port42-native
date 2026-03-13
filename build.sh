@@ -311,6 +311,17 @@ EOF
 	<string>15.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.port42.peer.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>port42</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
 PLIST_EOF

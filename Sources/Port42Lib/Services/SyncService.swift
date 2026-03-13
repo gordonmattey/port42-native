@@ -338,6 +338,9 @@ public final class SyncService: NSObject, ObservableObject {
         case "message":
             handleIncomingMessage(envelope)
 
+        case "history":
+            handleHistoryMessage(envelope)
+
         case "ack":
             handleAck(envelope)
 
@@ -423,6 +426,57 @@ public final class SyncService: NSObject, ObservableObject {
             onMessageReceived?(channelId, message)
         } catch {
             print("[sync] failed to save incoming message: \(error)")
+        }
+    }
+
+    private func handleHistoryMessage(_ envelope: SyncEnvelope) {
+        guard let channelId = envelope.channelId,
+              let senderId = envelope.senderId,
+              let messageId = envelope.messageId,
+              let payload = envelope.payload else {
+            return
+        }
+
+        // Decrypt if encrypted
+        let resolvedPayload: SyncPayload
+        if payload.encrypted == true {
+            guard let key = try? db?.getChannelKey(channelId: channelId),
+                  let decrypted = ChannelCrypto.decrypt(blob: payload.content, keyBase64: key) else {
+                return
+            }
+            resolvedPayload = decrypted
+        } else {
+            resolvedPayload = payload
+        }
+
+        let timestamp: Date
+        if let ts = envelope.timestamp {
+            timestamp = Date(timeIntervalSince1970: Double(ts) / 1000.0)
+        } else {
+            timestamp = Date()
+        }
+
+        let message = Message(
+            id: messageId,
+            channelId: channelId,
+            senderId: senderId,
+            senderName: resolvedPayload.senderName,
+            senderType: resolvedPayload.senderType,
+            content: resolvedPayload.content,
+            timestamp: timestamp,
+            replyToId: resolvedPayload.replyToId,
+            syncStatus: "synced",
+            createdAt: Date(),
+            senderOwner: resolvedPayload.senderOwner
+        )
+
+        do {
+            let inserted = try db?.saveMessageIfNotExists(message) ?? false
+            if inserted {
+                print("[sync] history: restored message from \(resolvedPayload.senderName)")
+            }
+        } catch {
+            print("[sync] failed to save history message: \(error)")
         }
     }
 
