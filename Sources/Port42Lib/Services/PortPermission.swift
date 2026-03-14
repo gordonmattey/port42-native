@@ -13,22 +13,29 @@ public enum PortPermission: String, Hashable {
     case clipboard     // clipboard.read, clipboard.write
     case filesystem    // fs.pick, fs.read, fs.write
     case notification  // notify.send
+    case automation    // automation.runAppleScript, automation.runJXA
 
     /// Map a bridge method name to the permission it requires, or nil if no permission needed.
     public static func permissionForMethod(_ method: String) -> PortPermission? {
         switch method {
         case "ai.complete", "ai.cancel", "companions.invoke":
             return .ai
-        case "terminal.spawn", "terminal.send", "terminal.resize", "terminal.kill":
+        case "terminal.spawn":
             return .terminal
+        case "terminal.send", "terminal.resize", "terminal.kill":
+            return nil // operations on already-permitted sessions
         case "audio.capture", "audio.stopCapture":
             return .microphone
         case "audio.speak", "audio.play", "audio.stop":
             return nil // audio output doesn't need mic permission
-        case "camera.capture", "camera.stream", "camera.stopStream":
+        case "camera.capture", "camera.stream":
             return .camera
-        case "screen.capture", "screen.windows":
+        case "camera.stopStream":
+            return nil // stopping already-permitted stream
+        case "screen.capture", "screen.windows", "screen.stream":
             return .screen
+        case "screen.stopStream":
+            return nil // stopping already-permitted stream
         case "browser.open", "browser.navigate", "browser.capture", "browser.text", "browser.html", "browser.execute", "browser.close":
             return .browser
         case "clipboard.read", "clipboard.write":
@@ -37,6 +44,8 @@ public enum PortPermission: String, Hashable {
             return .filesystem
         case "notify.send":
             return .notification
+        case "automation.runAppleScript", "automation.runJXA":
+            return .automation
         default:
             return nil
         }
@@ -89,6 +98,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Notification Access",
                 message: "This port wants to send you system notifications. Allow?"
+            )
+        case .automation:
+            return (
+                title: "Automation Access",
+                message: "This port wants to control other apps on your Mac using automation scripts. It can send commands to Finder, Mail, and other scriptable applications. Allow?"
             )
         }
     }

@@ -51,6 +51,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Browser bridge. Created lazily on first browser call.
     private var browserBridge: BrowserBridge?
 
+    /// Automation bridge. Created lazily on first automation call.
+    private var automationBridge: AutomationBridge?
+
+    /// Camera bridge. Created lazily on first camera call.
+    private var cameraBridge: CameraBridge?
+
     public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
@@ -86,6 +92,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let bb = browserBridge
         if let bb {
             Task { @MainActor in bb.cleanup() }
+        }
+        let cb = cameraBridge
+        if let cb {
+            Task { @MainActor in cb.cleanup() }
+        }
+        let sb = screenBridge
+        if let sb {
+            Task { @MainActor in sb.cleanup() }
         }
     }
 
@@ -124,6 +138,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         } else {
             NSLog("[Port42] grantPermission: no messageId, cannot cache")
         }
+        // Persist to DB so permissions survive app restart
+        state?.portWindows.persistPermissions(for: self)
     }
 
     /// Deny the pending permission and resume the waiting method with false.
@@ -144,6 +160,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
 
         NSLog("[Port42] checkPermission: PROMPTING for %@ (msg=%@, granted=%@)", perm.rawValue, messageId ?? "nil", grantedPermissions.map { $0.rawValue }.joined(separator: ","))
+        // Deny any previous pending permission to avoid leaking its continuation
+        if let prev = permissionContinuation {
+            prev.resume(returning: false)
+            permissionContinuation = nil
+        }
         // Ask the user
         return await withCheckedContinuation { continuation in
             permissionContinuation = continuation
@@ -610,13 +631,37 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // MARK: Screen Capture
 
         case "screen.windows":
-            if screenBridge == nil { screenBridge = ScreenBridge() }
+            if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
             return await screenBridge!.windows()
 
         case "screen.capture":
             let opts = args.first as? [String: Any] ?? [:]
-            if screenBridge == nil { screenBridge = ScreenBridge() }
+            if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
             return await screenBridge!.capture(opts: opts)
+
+        case "screen.stream":
+            let opts = args.first as? [String: Any] ?? [:]
+            if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
+            return await screenBridge!.stream(opts: opts)
+
+        case "screen.stopStream":
+            if screenBridge == nil { return ["error": "Not streaming"] }
+            return await screenBridge!.stopStream()
+
+        // MARK: Camera
+
+        case "camera.capture":
+            let opts = args.first as? [String: Any] ?? [:]
+            if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
+            return await cameraBridge!.capture(opts: opts)
+
+        case "camera.stream":
+            let opts = args.first as? [String: Any] ?? [:]
+            if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
+            return await cameraBridge!.stream(opts: opts)
+
+        case "camera.stopStream":
+            return cameraBridge?.stopStream() ?? ["error": "no active camera"]
 
         // MARK: Browser
 
@@ -674,6 +719,24 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             guard let bb = browserBridge else { return ["error": "no browser sessions"] }
             return bb.close(sessionId: sessionId)
+
+        // MARK: Automation
+
+        case "automation.runAppleScript":
+            guard let source = args.first as? String, !source.isEmpty else {
+                return ["error": "automation.runAppleScript requires source code"]
+            }
+            if automationBridge == nil { automationBridge = AutomationBridge() }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            return await automationBridge!.runAppleScript(source: source, opts: opts)
+
+        case "automation.runJXA":
+            guard let source = args.first as? String, !source.isEmpty else {
+                return ["error": "automation.runJXA requires source code"]
+            }
+            if automationBridge == nil { automationBridge = AutomationBridge() }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            return await automationBridge!.runJXA(source: source, opts: opts)
 
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
@@ -1108,7 +1171,25 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
             screen: {
                 windows: () => call('screen.windows'),
-                capture: (opts) => call('screen.capture', [opts || {}])
+                capture: (opts) => call('screen.capture', [opts || {}]),
+                stream: (opts) => call('screen.stream', [opts || {}]),
+                stopStream: () => call('screen.stopStream'),
+                on: function(event, callback) {
+                    if (event === 'frame') {
+                        window.__port42_listeners = window.__port42_listeners || {};
+                        window.__port42_listeners['screen.frame'] = callback;
+                    }
+                }
+            },
+            camera: {
+                capture: (opts) => call('camera.capture', [opts || {}]),
+                stream: (opts) => call('camera.stream', [opts || {}]),
+                stopStream: () => call('camera.stopStream'),
+                on: function(event, callback) {
+                    var fullEvent = 'camera.' + event;
+                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                    _listeners[fullEvent].push(callback);
+                }
             },
             browser: {
                 open: (url, opts) => call('browser.open', [url, opts || {}]),
@@ -1124,7 +1205,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     _listeners[fullEvent].push(callback);
                 }
             },
-            viewport: { width: window.innerWidth || 600, height: window.innerHeight || 400 }
+            automation: {
+                runAppleScript: (source, opts) => call('automation.runAppleScript', [source, opts || {}]),
+                runJXA: (source, opts) => call('automation.runJXA', [source, opts || {}])
+            },
+            viewport: {
+                width: window.innerWidth || 600,
+                height: window.innerHeight || 400,
+                on: function(event, callback) {
+                    if (event === 'resize') {
+                        window.__port42_listeners = window.__port42_listeners || {};
+                        window.__port42_listeners['viewport.resize'] = callback;
+                    }
+                }
+            }
         };
     })();
     """

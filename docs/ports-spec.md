@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-13
 
-**Status:** Phase 1 + Phase 2 + Phase 3 complete, Phase 5 in progress (Terminal, Clipboard, File System, Notifications, Audio, Screen Capture, Browser done. AI Vision added. Camera planned.)
+**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b partially complete (bugs fixed, background ports, window persistence, docking removed). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol).
 
 ---
 
@@ -103,16 +103,18 @@ Every companion can open a port. Every port is alive.
 
 ### Phase 1: Inline Ports (Flows 1 + 2) ✅
 ### Phase 2: Pop Out and Dock (Flows 3 + 4) ✅
+### Phase 2b: Port Windowing System (Flow 4 + Flow 10)
 ### Phase 3: Generative Ports (Flow 5) ✅
 ### Phase 3b: Remote Agent Port Context (deferred)
 ### Phase 4: Advanced Bridge APIs
 ### Phase 5: Device APIs (Flows 6 + 7)
+### Phase 7: Agent Embed Protocol (Flow 9)
 
 ---
 
 ## User Flows
 
-### Flow 1: Companion Creates a Port
+### Flow 1: Companion Creates a Port ✅
 
 ```
 User messages companion in chat
@@ -123,7 +125,7 @@ User messages companion in chat
 
 Target: Port appears inline as naturally as a text message.
 
-### Flow 2: Interacting with a Port
+### Flow 2: Interacting with a Port ✅
 
 ```
 Port is live inline — user clicks, types, interacts
@@ -133,32 +135,53 @@ Port is live inline — user clicks, types, interacts
 
 Target: Port feels native, not like an iframe. Data flows through the bridge.
 
-### Flow 3: Pop Out and Dock
+### Flow 3: Pop Out ✅
 
 ```
 User clicks pop out on an inline port
 → Port detaches from message stream
-→ Port becomes a floating panel inside port42
-→ User drags/docks it — right side, bottom, left
-→ Chat resizes to accommodate
+→ Port becomes a floating NSPanel window
+→ User arranges it freely (position persists across restart)
+→ Multiple ports each get their own window
 → Port persists while user keeps chatting
 ```
 
-Target: One click from inline to docked panel. Feels like window management.
+Target: One click from inline to floating window. Feels like native macOS.
 
-### Flow 4: Port Lifecycle
+### Flow 4: Port Lifecycle (partial)
 
 ```
-Inline port lives in the message — scroll past it, scroll back, it's there
-→ Popped-out port persists until closed
+Inline port lives in the message — scroll past it, scroll back, it's there  ✅
+→ Popped-out port persists until closed  ✅
 → Companion can send an updated port (new version replaces inline)
-→ User can ask companion to modify a running port
+→ User can ask companion to modify a running port  ✅
 → Close a port — collapsed back to a code block preview
+→ Port history — browse and reopen any previous port
+→ Ports survive app restart  ✅ (verify not broken)
+→ Stop button kills a running port
+→ Restart button re-executes from scratch
 ```
 
-Target: Ports feel persistent but not permanent. Easy to create, easy to dismiss.
+Target: Ports are ephemeral by default. Easy to create, easy to dismiss, recoverable from history.
 
-### Flow 5: Port with AI Inside
+### Flow 10: Port Windowing (partial) ✅
+
+```
+User pops out a port
+→ Port appears as a native floating window (NSPanel)               ✅
+→ User arranges freely, position/size persists across restart       ✅
+→ Pin button keeps port always-on-top                               ✅
+→ Minimize sends to background (listed in sidebar, click restores)  ✅
+→ Granted permissions persist across restart                        ✅
+→ Multiple ports from same companion each get their own window      ✅
+→ Edge snap (drag to main window edge, auto-arrange)                pending
+→ Screen edge snap (macOS split view style)                         pending
+→ Multi-port tiling (split snap zone)                               pending
+```
+
+Target: Port windowing feels like macOS window management. Free-form arrangement now, edge snapping next.
+
+### Flow 5: Port with AI Inside ✅
 
 ```
 Port calls port42.ai.complete() through the bridge
@@ -170,7 +193,7 @@ Port calls port42.ai.complete() through the bridge
 
 Target: Ports are not just interactive, they are intelligent.
 
-### Flow 6: Terminal Port
+### Flow 6: Terminal Port ✅
 
 ```
 Companion creates a terminal port
@@ -183,18 +206,34 @@ Companion creates a terminal port
 
 Target: The gap between "here's a command to try" and actually running it disappears.
 
-### Flow 7: Sensory Port
+### Flow 7: Sensory Port ✅
 
 ```
-Port requests camera/mic/screen access
-→ User approves via permission prompt (same pattern as AI calls)
-→ Port captures image/audio/screen
-→ Companion analyzes via Bridge AI
-→ "Show me what's on your screen" just works
-→ "Read this document to me" just works
+Port requests camera/mic/screen access  ✅
+→ User approves via permission prompt (same pattern as AI calls)  ✅
+→ Port captures image/audio/screen  ✅
+→ Companion analyzes via Bridge AI  ✅
+→ "Show me what's on your screen" just works  ✅
+→ "Read this document to me" just works  ✅
 ```
 
 Target: Every device capability becomes a companion capability. No separate apps.
+
+### Flow 9: Agent From Any Website
+
+```
+User is on posthog.com and sees "Add to Port42" button
+→ Clicks it, Port42 opens with install dialog
+→ Shows agent name, icon, what it can do, what permissions it needs
+→ User approves, picks a channel
+→ PostHog's AI agent appears in that channel alongside local companions
+→ User asks @PostHog "what's our retention this week?"
+→ Agent processes on PostHog's servers, responds inside Port42
+→ Agent creates a port with a live retention chart
+→ Agent runs on PostHog's infrastructure, UI runs in Port42
+```
+
+Target: Any website can make their AI agent available to Port42 users with a button and a JSON manifest. No infrastructure changes for the third party. The agent's backend stays where it is.
 
 ### Flow 8: Port42 Is a Port
 
@@ -243,25 +282,54 @@ Target: The ouroboros. The fish swims in itself.
 |----|---------|--------|
 | P-200 | Pop Out (inline → floating NSPanel) | ✅ Done |
 | P-201 | Virtual Window (native drag, resize, title bar) | ✅ Done |
-| P-202 | Docking (right side, HStack + draggable divider) | ✅ Done |
-| P-203 | Port Persistence (channel switch + app restart, SQLite v11) | ✅ Done |
-| P-204 | Port Update (same companion replaces existing panel) | ✅ Done |
-| P-205 | Port Close (floating + docked) | ✅ Done |
+| P-202 | ~~Docking~~ Removed. Replaced by free-form window arrangement with position persistence. | ❌ Removed |
+| P-203 | Port Persistence (channel switch + app restart, SQLite v11-v14). Window position, size, always-on-top, and granted permissions all persist across restart. | ✅ Done |
+| P-204 | Port Update (same message replaces existing panel, preserves position and state) | ✅ Done |
+| P-205 | Port Close (floating) | ✅ Done |
 
-**Port Lifecycle (remaining):**
+**Port Lifecycle:**
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
 | P-210 | Close to Preview | Closing a popped-out port collapses it back to a compact code block preview with title + "reopen" button. Not destructive. | High | Close shows preview, click reopens the port |
 | P-211 | Inline Port Update | Companion sends updated port that replaces the existing inline port in the same message, not a new message. Running popped-out version also updates. | High | "Change the chart to weekly" updates the live port in place |
 | P-209 | Port Channel Context | Ports pin to origin channel by default. `port42.channel.follow(true/false)` lets port choose. Affects what `port42.channel.current()` and `port42.messages.recent()` return. | High | Port has predictable channel context when user navigates away |
+| P-219 | Port History | Browseable list of all ports created in this session and past sessions. Reopen any port from history without scrolling through chat. Accessible from sidebar or command palette. | High | User can find and reopen any previous port |
+| P-220 | Port Controls | Stop button (kill running port), running indicator (green dot), restart button (re-execute from scratch). Visible in port title bar. | High | User can stop, see status, and restart any port |
+| P-221 | Port Restart Persistence | Verify and fix ports surviving app restart (P-203 may be broken). Port HTML and state restored on launch. | High | Ports reappear after quit and relaunch |
+
+**Bugs:**
+
+| ID | Feature | Description | Priority | Status |
+|----|---------|-------------|----------|--------|
+| P-222 | Terminal Resize | Terminal ports don't observe viewport resize events. Viewport JS injected into panel webviews. | Critical | ✅ Fixed |
+| P-223 | Resize Permission Re-trigger | Resizing a port re-triggers the permission dialog. Fixed: `@State` + `onReceive` pattern replaces computed Binding. | Critical | ✅ Fixed |
+| P-224 | Permission Dialog Timing | `@Published` fires in `willSet`, causing cascaded publisher chains to read stale values. Fixed by checking `bridge != nil` instead of `bridge?.pendingPermission != nil`. | Critical | ✅ Fixed |
+| P-225 | Floating Panel Permission | `confirmationDialog` requires key window. Fixed by calling `bringToFront()` when permission requested. | Critical | ✅ Fixed |
+| P-226 | Docked Panel Permission | `DockedPortView` used `onChange` instead of `onReceive`. Fixed. (Moot now, docking removed.) | Critical | ✅ Fixed |
+| P-227 | Permission Persistence | Granted permissions lost on restart. Fixed: permissions stored in `port_panels` DB table (v14 migration). | Critical | ✅ Fixed |
+| P-228 | Title Bar Buttons | `PortDragNSView.mouseDown` consumed all clicks, preventing button actions. Fixed: drag area restricted to title region only, not behind buttons. | Critical | ✅ Fixed |
+
+**Port Windowing System:**
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-230 | Edge Snap | Drag a floating port to the edge of the main window. Port snaps to that edge (right, left, bottom). Main content resizes to accommodate. Dragging away returns to floating. | Critical | Port snaps to right edge, chat shrinks |
+| P-231 | Screen Edge Snap | Drag a port to the edge of the screen. Port snaps to that side, main window reduces in size. Same as macOS split view behavior. | High | Port snaps to screen edge like macOS |
+| P-232 | Multi-Port Tiling | Multiple snapped ports split the dock zone vertically (right) or horizontally (bottom). Draggable dividers between them. | High | Two ports snapped right, split vertically |
+| P-233 | Always-on-Top | Port can be pinned to float above all other content (including chat). Toggle in port title bar. Persists across restart. | Medium | ✅ Done |
+| P-234 | Background Ports | Minimize to background (hidden but running). Listed in sidebar. Click to restore as floating window. Persists across restart. | Medium | ✅ Done |
+| P-235 | ~~Snap Restore~~ | Superseded. With docking removed, ports are always free-form floating windows with position persistence. | ~~High~~ | ❌ N/A |
+| P-236 | Port Chrome | Title bar with pin, minimize, close buttons. 24x24 hit targets. Drag area restricted to title region. Source/Run toggle. | Medium | ✅ Done |
+| P-237 | Window Position Persistence | Port window position and size saved on move/resize (NSWindow notifications). Restored exactly on restart. DB migration v13. | Critical | ✅ Done |
+| P-238 | Per-Message Port Identity | Ports identified by messageId, not createdBy+channelId. Multiple ports from same companion each get their own window. | High | ✅ Done |
 
 **Events:**
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
-| P-212 | Event: port.docked | Fires when user docks a port `{ id, title }` | Medium | `port42.on('port.docked', cb)` fires |
-| P-213 | Event: port.undocked | Fires when user undocks/floats a port `{ id, title }` | Medium | `port42.on('port.undocked', cb)` fires |
+| P-212 | ~~Event: port.docked~~ | Removed (docking removed). | ~~Medium~~ | ❌ N/A |
+| P-213 | ~~Event: port.undocked~~ | Removed (docking removed). | ~~Medium~~ | ❌ N/A |
 | P-214 | Event: channel.switch | Fires when user navigates to different channel `{ id, name, previousId }` | Medium | `port42.on('channel.switch', cb)` fires |
 | P-215 | Event: companion.joined | Fires when companion enters channel `{ id, name }` | Low | `port42.on('companion.joined', cb)` fires |
 | P-216 | Event: companion.left | Fires when companion leaves channel `{ id, name }` | Low | `port42.on('companion.left', cb)` fires |
@@ -271,7 +339,6 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
-| P-206 | Multiple Dock Zones | Right dock splits vertically for 2+ ports. Optional slots above sidebar channel list or below name/settings. Full tiling via Window Commander (P-220). | Medium | Two ports docked right (split vertically) |
 | P-207 | Cursor States | Green circle default, resizeLeftRight on dock divider, no hand cursor on title bars or drag areas. WKWebView uses its own CSS cursors. | Medium | No stray hand cursors |
 | P-208 | Port UDIDs | Stable unique ID per port. Persists across dock/undock/restart. Accessible via `port42.port.info().id` and `port42.ports.list()`. | Medium | Every port has a stable ID |
 | P-218 | Port Resize Handles | User can drag to resize inline and docked ports. Resize handles on edges/corners. Height clamp still applies for inline. | Medium | User drags port edge to resize |
@@ -296,7 +363,7 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
-| P-400 | Port Window Management | `port42.ports.list/dock/undock/close/arrange` + lifecycle events. Enables "commander" ports that manage other ports and retile layouts. | High | A port can query and rearrange other ports |
+| P-400 | Port Window Management | `port42.ports.list/snap/unsnap/close/arrange` + lifecycle events. Enables "commander" ports that manage other ports and retile layouts. Builds on Phase 2b windowing system. | High | A port can query and rearrange other ports |
 | P-404 | Port Spaces | Virtual canvas larger than the physical screen. Zoom out for bird's eye view of all ports, zoom in to focus. Named spaces per context (e.g. "coding" with terminal + docs, "social" with dashboards). Like macOS Spaces but for ports. `port42.spaces.list/create/switch/current`. | Medium | User can pan/zoom across a larger port canvas |
 | P-401 | Cross-Channel Reads | `port42.messages.recent(n, channelId?)` and `port42.messages.search(query)` across channels | Medium | Port can read messages from any channel |
 | P-402 | Structured Message Metadata | Extend messages with `model`, `responseTime`, `tokenCount`, `similarity`, `tags` | Medium | Analytics ports can compare companion performance |
@@ -316,6 +383,25 @@ Target: The ouroboros. The fish swims in itself.
 | P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
 | P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
 | P-509 | Browser | `port42.browser.*` — headless WKWebView sessions. Open, navigate, capture screenshots, extract text/HTML, execute JS, close. Max 5 concurrent sessions. Non-persistent data stores. `.browser` permission. | High | ✅ Done |
+
+### Phase 6: System Integration APIs
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-601 | Automation | `port42.automation.runAppleScript(source, opts?)` / `.runJXA(source, opts?)` — execute AppleScript or JXA. Control other apps, get Safari tabs, move Finder windows, trigger system actions. Returns script output. `.automation` permission. Timeout default 30s, max 120s. | Critical | ✅ Done |
+| P-603 | Accessibility | `port42.accessibility.windows()` / `.elements(pid, query?)` / `.click(pid, element)` / `.type(pid, text)` — read and interact with other apps' UI via Accessibility API (AXUIElement). `.accessibility` permission. | Critical | Companion can see and interact with any app's UI |
+| P-606 | Spotlight | `port42.spotlight.search(query, opts?)` — search files by content or metadata via NSMetadataQuery. opts: `{ types?, folders?, limit? }`. Returns file paths, names, metadata. No file permission needed for metadata; reading content requires fs.pick flow. | High | Companion can find files without browsing |
+| P-605 | Calendar | `port42.calendar.events(range?)` / `.reminders()` / `.create(event)` — read/write calendar events and reminders via EventKit. `.calendar` permission. | High | Port can show schedule, create events, manage reminders |
+| P-607 | File Watching | `port42.fs.watch(path, callback)` / `.unwatch(watchId)` — monitor directories for changes via FSEvents. Callback receives `{ path, type: 'created'\|'modified'\|'deleted' }`. Requires filesystem permission. | High | Port reacts to file changes in real time |
+| P-600 | System Info | `port42.system.info()` — battery level/charging, CPU usage, memory pressure, disk space, network interfaces. `port42.system.on('battery', cb)` for live updates. Lightweight IOKit/sysctl queries. No permission needed. | Medium | Port can build system monitoring dashboards |
+| P-602 | Shortcuts | `port42.shortcuts.list()` / `.run(name, input?)` — list and trigger the user's Shortcuts. Input/output passed as JSON. `.shortcuts` permission. | Medium | Port can trigger user's existing workflows |
+| P-609 | Drag and Drop | `port42.port.on('drop', cb)` — accept drag-and-drop from other apps into a port. Callback receives `{ files: [{path, name, type}], text? }`. Requires filesystem permission for file access. | Medium | User can drag files from Finder into a port |
+| P-604 | Contacts | `port42.contacts.search(query)` / `.get(id)` — read contacts via CNContactStore. Returns name, email, phone, etc. `.contacts` permission. | Low | Port has personal context for communication tools |
+| P-503 | Camera | `port42.camera.capture(opts?)` / `.stream(opts?)` / `.stopStream()` — single frame or continuous feed via AVCaptureSession. Returns base64 PNG. `.camera` permission. | Low | ✅ Done |
+| P-508 | Location | `port42.location.get()` — current coordinates with permission via CoreLocation. `.location` permission. | Low | Port knows where the user is |
+| P-610 | Native Pickers | `port42.picker.color()` / `.date(opts?)` / `.font()` — present native macOS picker dialogs. Returns selected value. No permission needed. | Low | Port uses native UI for color/date/font selection |
+| P-608 | Bluetooth | `port42.bluetooth.scan(opts?)` / `.connect(id)` / `.send(id, data)` / `.on('data', cb)` — scan, connect, and communicate with BLE peripherals via CoreBluetooth. `.bluetooth` permission. | Low | Port can interact with hardware devices |
+| P-611 | USB/Serial | `port42.serial.list()` / `.open(port, opts?)` / `.send(id, data)` / `.on('data', cb)` / `.close(id)` — communicate with USB serial devices via IOKit. opts: `{ baudRate?, dataBits?, parity? }`. `.serial` permission. | Low | Port can talk to Arduino, lab equipment, etc |
 
 ---
 
@@ -347,7 +433,7 @@ in a full document with the base theme pre-injected.
 
 ### Bridge API (Implemented)
 
-21 methods across 9 namespaces. All async, all return JSON.
+23 methods across 10 namespaces. All async, all return JSON.
 
 ```
 port42.user
@@ -389,6 +475,11 @@ port42.on(event, callback)        → subscribe to live events
 port42.connection
   .status()                       → 'connected' | 'disconnected'
   .onStatusChange(callback)       → fires on transition
+
+port42.automation                 🔒 Automation permission
+  .runAppleScript(source, opts?)  → { result } | { error }
+  .runJXA(source, opts?)          → { result } | { error }
+                                    opts: { timeout? } (default 30s, max 120s)
 
 port42.viewport
   .width / .height                → current port dimensions (live)
@@ -432,7 +523,7 @@ on close). Each capability is a separate grant.
 Implemented:
   .ai          → gates ai.complete, ai.cancel, companions.invoke
 
-Planned (P-302b):
+Implemented:
   .terminal    → gates terminal.spawn, terminal.send, terminal.kill
   .microphone  → gates audio.capture
   .camera      → gates camera.capture, camera.stream
@@ -440,6 +531,7 @@ Planned (P-302b):
   .clipboard   → gates clipboard.read, clipboard.write
   .filesystem  → gates fs.read, fs.write, fs.pick
   .browser     → gates browser.open, browser.navigate, browser.capture, browser.text, browser.html, browser.execute, browser.close
+  .automation  → gates automation.runAppleScript, automation.runJXA
 ```
 
 Read APIs (user.get, companions.list, messages.recent, channel.*, storage.*)
@@ -569,9 +661,9 @@ This is emergent multi-agent behavior worth instrumenting, not preventing.
 
 ```
 port42.ports
-  .list()                → [{ id, title, channelId, createdBy, isDocked, isFloating, size }]
-  .dock(id)              → dock a floating port to the right panel
-  .undock(id)            → float a docked port
+  .list()                → [{ id, title, channelId, createdBy, isBackground, isAlwaysOnTop, size, position }]
+  .minimize(id)          → send a port to background
+  .restore(id)           → restore a background port to floating
   .close(id)             → close a port
   .arrange(layout)       → retile floating ports (grid, stack, focus, cascade)
 ```
@@ -639,18 +731,27 @@ port42.audio
 Native side: AVAudioEngine for capture, Speech framework for transcription,
 AVSpeechSynthesizer for TTS. Permission via macOS microphone authorization.
 
-### P-503: Camera
+### P-503: Camera ✅ Done
 
 ```
 port42.camera
-  .capture(opts?)            → { image } base64 PNG
-                               opts: { width?, height?, facing? }
-  .stream(opts?)             → start continuous feed
-  .stopStream()              → stop feed
-  .on('frame', cb)           → { image, timestamp }
+  .capture(opts?)            → { image, width, height } base64 PNG
+                               opts: { scale?: 0.5 }
+  .stream(opts?)             → { ok: true } start continuous feed
+                               opts: { scale?: 0.25 }
+  .stopStream()              → { ok: true }
+  .on('frame', cb)           → { image, width, height }
 ```
 
-Native side: AVCaptureSession for camera. Permission via macOS camera authorization.
+Implementation: CameraBridge.swift with FrameHandler delegate class.
+AVCaptureSession with .high preset. Single frame capture via continuation
+(start session, grab first frame, stop). Continuous streaming pushes
+camera.frame events to JS. Scale factor controls output resolution
+(lower for streaming performance). FrameHandler runs on background queue,
+dispatches results to MainActor for bridge event pushing.
+
+Permission: `.camera` gates all camera methods. macOS camera TCC prompt
+on first use. 4 tests passing.
 
 ### P-504: Screen Capture ✅
 
@@ -744,3 +845,238 @@ topics, read documentation, and extract information autonomously.
 
 UX pattern: iframes don't work for most sites (X-Frame-Options/CSP).
 Use headless browser.capture() screenshots as the visual preview instead.
+
+---
+
+### P-600: System Info
+
+```
+port42.system
+  .info()                        → { battery, cpu, memory, disk, network }
+  .on('battery', cb)             → { level, charging, timeRemaining }
+```
+
+battery: `{ level: 0-100, charging: bool, timeRemaining: minutes }`.
+cpu: `{ usage: 0-100, cores, model }`.
+memory: `{ total, used, available, pressure: 'nominal'|'warn'|'critical' }`.
+disk: `{ total, used, available }` in bytes.
+network: `[{ name, type: 'wifi'|'ethernet'|'vpn', ip, active }]`.
+
+Native side: IOKit for battery, sysctl/host_statistics for CPU/memory,
+statvfs for disk, getifaddrs for network. Lightweight, no permission needed.
+
+---
+
+### P-601: Automation (AppleScript/JXA) ✅ Done
+
+```
+port42.automation
+  .runAppleScript(source, opts?) → { result } | { error }
+  .runJXA(source, opts?)         → { result } | { error }
+                                   opts: { timeout? } (default 30s, max 120s)
+```
+
+Two separate methods for AppleScript and JXA. AppleScript executes via
+NSAppleScript on a background thread. JXA executes via `/usr/bin/osascript -l JavaScript`.
+Both return script output as a string or an error dict.
+
+Implementation: AutomationBridge.swift. Stateless bridge (no persistent resources,
+no cleanup needed in deinit). ContinuationGuard ensures thread-safe single resume
+for timeout races. Timeout clamped to 1...120s.
+
+Permission: `.automation` — "This port wants to control other apps on your Mac
+using automation scripts. It can send commands to Finder, Mail, and other
+scriptable applications. Allow?"
+
+Entitlements: `com.apple.security.automation.apple-events` (dev + release).
+Info.plist: `NSAppleEventsUsageDescription` for macOS TCC prompt.
+
+This is the most powerful API. A companion can:
+- Get list of open Safari tabs and their URLs
+- Move and resize windows
+- Control Music.app playback
+- Read/write from apps that support AppleScript
+- Chain with browser.text or ai.complete for research workflows
+
+Security: each script execution requires the port to already have
+.automation permission. macOS may also show its own TCC prompt for
+specific app targets (e.g. "Port42 wants to control Safari").
+
+7 tests passing (permission mapping, description, timeout clamping, error handling).
+
+---
+
+### P-603: Accessibility
+
+```
+port42.accessibility
+  .windows()                     → [{ pid, app, title, bounds }]
+  .elements(pid, query?)         → [{ role, title, value, bounds, id }]
+  .click(pid, elementId)         → { ok: true }
+  .type(pid, text)               → { ok: true }
+  .getAttribute(pid, elementId, attr) → value
+```
+
+Read and interact with any app's UI via the macOS Accessibility API.
+query can filter by role ("AXButton"), title, or subrole.
+
+Permission: `.accessibility` — "This port wants to read and interact
+with other applications' interfaces. Allow?" Also requires macOS
+Accessibility permission in System Settings.
+
+Combined with screen capture and AI vision, a companion can see what's
+on screen, understand the UI, and take actions. Full GUI automation.
+
+---
+
+### P-606: Spotlight
+
+```
+port42.spotlight
+  .search(query, opts?)          → [{ path, name, type, size, modified, snippet? }]
+                                   opts: { types?, folders?, limit? }
+```
+
+Search files by content or metadata via NSMetadataQuery. Returns file
+metadata (path, name, content type, size, modification date). Optional
+content snippet when searching by text content.
+
+types: array of UTIs or extensions (e.g. ['public.image', 'swift']).
+folders: array of paths to scope the search.
+limit: max results (default 50).
+
+No permission needed for metadata search. Reading file contents still
+requires the fs.pick flow.
+
+---
+
+### P-607: File Watching
+
+```
+port42.fs
+  .watch(path, callback)         → { watchId }
+  .unwatch(watchId)              → { ok: true }
+```
+
+Monitor a directory for changes via FSEvents. Callback receives
+`{ path, type: 'created'|'modified'|'deleted' }`. Only watches
+paths previously granted via fs.pick. Requires filesystem permission.
+
+Use cases: hot-reload ports, build watchers, log tailers.
+
+---
+
+## Phase 7: Agent Embed Protocol
+
+External agents from any website can connect into Port42 through the front door. A site like PostHog, Linear, or Vercel installs a button/snippet on their platform. When a Port42 user clicks it, that site's AI agent loads into Port42 as a companion inside a port. The agent's backend stays where it is. No migration, no infrastructure changes for the third party.
+
+This is different from OpenClaw (where the user configures a channel adapter manually) and different from P-310 (where remote agents learn to create ports). This is one-click agent installation from any website into Port42.
+
+### Feature Registry
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-700 | Agent Embed Protocol | Wire protocol for external agents to connect through Port42's gateway. Agent declares its capabilities, endpoint, and identity. Port42 routes messages and bridge calls. The agent's backend handles its own LLM calls and logic. Port42 provides the UI surface (port) and the user's context. | Critical | External agent sends messages and creates ports inside Port42 |
+| P-701 | Embed Button / Snippet | JavaScript snippet or `<port42-connect>` web component that sites install. Shows a "Connect to Port42" button. On click, opens `port42://agent-embed?...` deep link or OAuth-style redirect that registers the agent in the user's Port42 instance. | Critical | User clicks button on posthog.com, PostHog agent appears in Port42 |
+| P-702 | Agent Manifest | JSON manifest that describes an embeddable agent: name, icon, description, endpoint URL, capabilities (can create ports, needs terminal, etc.), auth requirements. Hosted at a well-known URL on the third party's site (e.g. `/.well-known/port42-agent.json`). | High | Port42 reads manifest and shows agent info before install |
+| P-703 | Agent Registry UI | In-app view for managing connected external agents. See which agents are installed, which channels they're in, revoke access, view activity. | High | User can see and manage all external agents |
+| P-704 | Agent Sandbox | Permission and capability scoping for external agents. External agents get a restricted permission set by default (no terminal, no automation, no filesystem unless user explicitly grants). Separate trust level from local companions. | High | External agent cannot access terminal without explicit user grant |
+| P-705 | Agent Discovery | Optional public directory where developers can list their Port42-compatible agents. Users browse and one-click install. Like a lightweight app store for agents. | Medium | User finds and installs agents from a catalog |
+| P-706 | Agent Auth | OAuth2 or token-based auth between Port42 and the external agent's backend. The agent endpoint needs to verify requests come from an authorized Port42 instance. Port42 needs to verify the agent is who it claims to be. | High | Mutual authentication between Port42 and external agent |
+| P-707 | Agent Billing Bridge | Protocol for external agents to communicate usage/billing back to their platform. PostHog's agent uses PostHog's API quota, not Port42's. The agent owns its own costs. | Medium | External agent's usage is billed to the agent provider, not the Port42 user |
+
+---
+
+### P-700: Agent Embed Protocol
+
+The core wire protocol. An external agent connects to Port42's gateway as a special peer type.
+
+```
+Agent Backend (PostHog's servers)
+    ↕ HTTPS/WebSocket
+Port42 Gateway
+    ↕ existing sync protocol
+Port42 App
+    ↕ bridge API
+Port (agent's UI surface)
+```
+
+The external agent's backend:
+- Receives messages from channels it's been added to
+- Sends responses (text, ports, rich content)
+- Handles its own LLM inference, tool calls, and business logic
+- Runs on the third party's infrastructure (no migration needed)
+
+Port42 provides:
+- The conversation context (messages, companions, user identity)
+- The rendering surface (ports with full bridge API access)
+- The permission layer (user controls what the agent can do)
+- The social graph (the agent participates alongside local companions)
+
+Key design principle: the agent's backend is opaque to Port42. Port42 doesn't care if it runs Claude, GPT, Llama, or a deterministic state machine. It just routes messages and renders ports.
+
+---
+
+### P-701: Embed Button
+
+```html
+<!-- On posthog.com -->
+<script src="https://port42.ai/embed.js"></script>
+<port42-connect
+  agent="https://posthog.com/.well-known/port42-agent.json"
+  label="Add to Port42"
+/>
+```
+
+Clicking the button:
+1. Reads the agent manifest from the `agent` URL
+2. Opens `port42://agent-embed?manifest=<url>&callback=<url>` deep link
+3. Port42 shows an install dialog with agent name, icon, capabilities, permissions requested
+4. User approves, picks which channel(s) to add the agent to
+5. Port42 registers the agent endpoint and opens a persistent connection
+6. Callback URL receives a confirmation token
+
+For users without Port42 installed, the button links to the download page.
+
+---
+
+### P-702: Agent Manifest
+
+```json
+{
+  "name": "PostHog AI",
+  "icon": "https://posthog.com/icon-256.png",
+  "description": "Your PostHog data analyst. Ask about funnels, retention, and user behavior.",
+  "endpoint": "wss://posthog.com/port42/agent",
+  "capabilities": ["messages", "ports"],
+  "permissions_requested": ["ai"],
+  "auth": {
+    "type": "oauth2",
+    "authorize_url": "https://posthog.com/oauth/authorize",
+    "token_url": "https://posthog.com/oauth/token",
+    "scopes": ["read:insights", "read:events"]
+  },
+  "version": "1.0",
+  "homepage": "https://posthog.com/port42"
+}
+```
+
+---
+
+### P-704: Agent Sandbox
+
+External agents are untrusted by default. Separate trust tier from local companions.
+
+| Capability | Local Companion | External Agent (default) | External Agent (granted) |
+|---|---|---|---|
+| Send messages | Yes | Yes | Yes |
+| Create ports | Yes | Yes | Yes |
+| AI (use Port42's LLM) | Prompted | No (uses own) | No (uses own) |
+| Terminal | Prompted | Blocked | Prompted |
+| Automation | Prompted | Blocked | Prompted |
+| Filesystem | Prompted | Blocked | Prompted |
+| Clipboard | Prompted | Blocked | Prompted |
+| Screen | Prompted | Blocked | Prompted |
+| Browser | Prompted | Yes | Yes |
+
+External agents bring their own AI. They don't consume the user's Port42 API tokens. They can create ports and use the browser bridge (for rendering), but system-level capabilities require explicit user escalation.

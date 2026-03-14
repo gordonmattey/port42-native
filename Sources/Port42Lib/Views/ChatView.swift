@@ -3,52 +3,55 @@ import SwiftUI
 public struct ChatView: View {
     public init() {}
     @EnvironmentObject var appState: AppState
+    @State private var activePerm: PortPermission?
 
     public var body: some View {
-        VStack(spacing: 0) {
-            // Channel header
-            ChannelHeader()
+        ZStack {
+            VStack(spacing: 0) {
+                // Channel header
+                ChannelHeader()
 
-            Divider()
-                .background(Port42Theme.border)
+                Divider()
+                    .background(Port42Theme.border)
 
-            // Shared conversation content
-            ConversationContent(
-                entries: channelEntries,
-                placeholder: "chat with your reality... (press ? for help)",
-                typingNames: Array(appState.typingAgentNames.union(
-                    appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
-                )),
-                mentionCandidates: buildMentionCandidates(),
-                localOwner: appState.currentUser?.displayName,
-                onSend: { content in appState.sendMessage(content: content) },
-                onTypingChanged: { isTyping in
-                    if let channelId = appState.currentChannel?.id,
-                       let userName = appState.currentUser?.displayName {
-                        appState.sync.sendTyping(channelId: channelId, senderName: userName, isTyping: isTyping)
+                // Shared conversation content
+                ConversationContent(
+                    entries: channelEntries,
+                    placeholder: "chat with your reality... (press ? for help)",
+                    typingNames: Array(appState.typingAgentNames.union(
+                        appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
+                    )),
+                    mentionCandidates: buildMentionCandidates(),
+                    localOwner: appState.currentUser?.displayName,
+                    channelId: appState.currentChannel?.id,
+                    onSend: { content in appState.sendMessage(content: content) },
+                    onTypingChanged: { isTyping in
+                        if let channelId = appState.currentChannel?.id,
+                           let userName = appState.currentUser?.displayName {
+                            appState.sync.sendTyping(channelId: channelId, senderName: userName, isTyping: isTyping)
+                        }
                     }
-                }
-            )
+                )
+            }
+
+            // Inline permission overlay for inline ports
+            if let perm = activePerm {
+                PortPermissionOverlay(
+                    permission: perm,
+                    onAllow: {
+                        appState.activePermissionBridge?.grantPermission()
+                        appState.activePermissionBridge = nil
+                    },
+                    onDeny: {
+                        appState.activePermissionBridge?.denyPermission()
+                        appState.activePermissionBridge = nil
+                    }
+                )
+            }
         }
         .background(Port42Theme.bgPrimary)
-        .confirmationDialog(
-            appState.activePermissionBridge?.pendingPermission?.permissionDescription.title ?? "Permission",
-            isPresented: Binding(
-                get: { appState.activePermissionBridge?.pendingPermission != nil },
-                set: { if !$0 { appState.activePermissionBridge?.denyPermission(); appState.activePermissionBridge = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Allow") {
-                appState.activePermissionBridge?.grantPermission()
-                appState.activePermissionBridge = nil
-            }
-            Button("Deny", role: .cancel) {
-                appState.activePermissionBridge?.denyPermission()
-                appState.activePermissionBridge = nil
-            }
-        } message: {
-            Text(appState.activePermissionBridge?.pendingPermission?.permissionDescription.message ?? "")
+        .onReceive(appState.$activePermissionBridge) { bridge in
+            activePerm = bridge?.pendingPermission
         }
     }
 

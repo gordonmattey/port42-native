@@ -260,7 +260,7 @@ functionality must continue working at every step.
 
 ---
 
-## Phase 2: Pop Out and Dock (P-200 through P-206)
+## Phase 2: Pop Out (P-200 through P-205)
 
 ### Design Decisions
 
@@ -274,18 +274,18 @@ These apply across all Phase 2 steps:
    away. For popped ports, PortWindowManager owns the PortPanel which holds the
    bridge reference. Same weak-ref cleanup pattern, longer lifetime.
 
-3. **Single dock slot first.** One docked port (right side only). Multiple docks
-   and bottom docking are future work. Keep it simple.
+3. **Free-form floating windows.** Each port gets its own NSPanel. No docking.
+   Users arrange windows freely. Position/size persists across restart.
 
 4. **Popped port is independent.** Once popped, it lives outside the message
    stream. Source message deletion does not kill it.
 
-5. **Port update matching.** New ```port from same companion in same channel
-   replaces the existing popped port's HTML rather than creating a duplicate.
-   Matching key: (createdBy, channelId).
+5. **Port update matching.** New ```port from same message replaces the existing
+   popped port's HTML rather than creating a duplicate. Matching key: messageId.
+   Different ports from the same companion each get their own window.
 
-6. **Scroll preservation.** When ChatView transitions to HSplitView for docking,
-   use ScrollViewReader to preserve chat scroll position.
+6. **Permission persistence.** Granted permissions (terminal, AI, etc.) persist
+   in the port_panels DB table. No re-prompting on restart.
 
 ---
 
@@ -302,9 +302,10 @@ Floating panels with title bar drag, resize handles, close button, z-ordering.
 
 ---
 
-### Step 8: Docking (P-202) ✅
+### Step 8: ~~Docking (P-202)~~ Removed
 
-Dock button snaps floating port to right side. HStack layout with draggable
+Docking was removed in favor of free-form window arrangement with position
+persistence. Previously: dock button snaps floating port to right side. HStack layout with draggable
 divider. Only one docked at a time. Undock returns to floating.
 
 ---
@@ -322,6 +323,126 @@ coexist with click-to-front z-ordering.
 Source/Run toggle and pop-out button appear consistently across all three port
 states (inline, docked, floating). Green dot + title + Source/Run + controls.
 Fixed height jitter when toggling source/run on inline ports.
+
+---
+
+## Phase 2b: Port Windowing System (P-220 through P-236)
+
+### Design Decisions
+
+1. **Ports are ephemeral by default.** Creating a port is cheap, closing is normal.
+   History makes them recoverable, not persistence. Don't fight the transience.
+
+2. **Edge snap over manual docking.** User drags to an edge and it snaps. No dock
+   button, no menu. The gesture is the UI. Same mental model as macOS window tiling.
+
+3. **Main content always yields.** When a port snaps to an edge, chat shrinks.
+   When the port closes, chat restores. The port owns the space it claims.
+
+4. **Windowing is geometry, not hierarchy.** A snapped port and a floating port are
+   the same object in different positions. No state machine for "docked" vs "floating"
+   vs "snapped." Just position + constraints.
+
+5. **Port chrome follows macOS conventions where possible.** Red close, yellow minimize
+   (background), green zoom (expand). Plus port-specific controls: stop, restart.
+
+---
+
+### Build Order
+
+Priority order based on user impact:
+
+1. ~~**P-222 + P-223: Bug fixes**~~ ✅ (terminal resize, permission re-trigger)
+2. **P-230: Edge Snap** (drag to edge of main window, snap right/left/bottom)
+3. ~~**P-235: Snap Restore**~~ N/A (replaced by free-form window arrangement)
+4. **P-232: Multi-Port Tiling** (multiple ports split the snap zone)
+5. ~~**P-233: Always-on-Top**~~ ✅ (pin a port above everything)
+6. **P-220: Port Controls** (stop, running indicator, restart)
+7. **P-219: Port History** (browse and reopen previous ports)
+8. ~~**P-234: Background Ports**~~ ✅ (hidden but running)
+9. **P-231: Screen Edge Snap** (snap to screen edge, main window resizes)
+10. ~~**P-236: Port Chrome**~~ ✅ (reconcile macOS buttons with port controls)
+11. **P-210: Close to Preview** (collapse to compact preview)
+12. ~~**P-221: Restart Persistence**~~ ✅ (ports survive app restart, including position and permissions)
+
+---
+
+### Step 9c: Bug Fixes (P-222, P-223, P-224 through P-228) ✅
+
+**P-222: Terminal Resize** ✅ Fixed.
+
+**P-223: Resize Permission Re-trigger** ✅ Fixed.
+
+**P-224: Port Overwrite** ✅ Fixed. Changed reuse matching from `createdBy + channelId`
+to `messageId` so different ports from the same companion don't overwrite each other.
+
+**P-225: Title Bar Buttons Unresponsive** ✅ Fixed. Root cause was `PortDragArea` as
+background of entire HStack making all content draggable. Scoped drag area to title
+text region only.
+
+**P-226: Permission Dialog Not Showing** ✅ Fixed. Floating panels need key window
+status for `confirmationDialog`. Added `bringToFront()` on permission prompt.
+
+**P-227: Permission Not Persisting** ✅ Fixed. Added `grantedPermissions` column
+(v14 migration), serialize/restore on app restart.
+
+**P-228: Window Position Not Persisting** ✅ Fixed. Added `posX`, `posY` columns
+(v13 migration), observe NSWindow move/resize notifications, restore on restart.
+
+---
+
+### Step 9d: Edge Snap (P-230, P-235)
+
+**Goal:** Drag a floating port to the right/left/bottom edge of the main window.
+Port snaps to that edge. Main content (chat) shrinks to accommodate. Closing the
+snapped port restores main content to full size.
+
+**Approach:**
+
+1. Detect drag near edge (within ~20pt threshold) during port panel drag
+2. Show a snap preview (highlight zone) when hovering near an edge
+3. On drop in snap zone, transition port from floating to snapped:
+   - Remove from floating panels
+   - Add to snap layout (right: HStack, bottom: VStack, left: HStack reversed)
+   - Animate main content resize
+4. Draggable divider between snapped port and main content
+5. Drag away from snap zone returns to floating at previous size
+6. Close snapped port: animate main content back to full width
+
+**Files to modify:**
+- `PortWindowManager.swift` — snap zone detection, layout management
+- `ContentView.swift` — conditional HStack/VStack layout for snapped ports
+- `PortPanel.swift` — drag gesture recognizer with snap detection
+
+---
+
+### Step 9e: Multi-Port Tiling (P-232)
+
+Multiple ports snapped to the same edge split the zone. Right edge: vertical
+split. Bottom edge: horizontal split. Draggable dividers between ports. Same
+close-restores-space behavior.
+
+---
+
+### Step 9f: Always-on-Top (P-233) ✅
+
+Pin button in port title bar. Pinned ports use `.floating` NSWindow level to stay
+above all content. Toggle on/off. Persisted to DB across restart.
+
+---
+
+### Step 9g: Port Controls and History (P-220, P-219)
+
+**Port Controls (P-220):**
+- Stop button: kills the port's webview, shows "stopped" state
+- Running indicator: green dot when port JS is executing
+- Restart button: tears down webview and re-injects original HTML
+
+**Port History (P-219):**
+- Store port metadata (title, HTML, companion, channel, timestamp) in SQLite
+- History view accessible from sidebar or Quick Switcher
+- Reopen recreates the port from stored HTML
+- Search by title or companion name
 
 ---
 
@@ -406,29 +527,14 @@ resize, kill, and xterm.js rendering. Permission prompt on first spawn.
 
 ---
 
-### Step 14: Audio APIs (P-501, P-502)
+### Step 14: Audio APIs (P-501, P-502) ✅
 
-**Goal:** Ports can listen through the mic and speak through the speaker.
-
-**Files to create:**
-- `Sources/Port42Lib/Services/AudioBridge.swift` — mic capture, TTS, playback
-
-**What to build:**
-
-1. Mic capture via AVAudioEngine. Push audio buffers or transcribed text
-   (via Speech framework) to port via EventPusher.
-
-2. `port42.audio.capture({ transcribe: true })` — starts mic with live
-   transcription. `'transcription'` events stream partial and final results.
-
-3. `port42.audio.speak(text, opts?)` — AVSpeechSynthesizer TTS.
-
-4. Permission via macOS microphone authorization (system dialog).
-
-**User test:**
-- Port with a "listen" button that transcribes speech in real time
-- Port that reads messages aloud via TTS
-- Companion that responds to voice commands
+**Implemented:**
+- AudioBridge.swift with AVAudioEngine mic capture, SFSpeechRecognizer transcription,
+  AVSpeechSynthesizer TTS, audio playback
+- 5 methods: capture, stopCapture, speak, play, stop
+- 2 events: transcription, data
+- `.microphone` permission for capture, output requires no permission
 
 ---
 
@@ -446,10 +552,13 @@ resize, kill, and xterm.js rendering. Permission prompt on first spawn.
 - `LLMEngine.send` updated to accept `[[String: Any]]` for multimodal messages
 - 4 tests passing
 
-**P-503 Camera: Planned**
+**P-503 Camera: ✅ Done**
 
-- Camera capture via AVCaptureSession. Single frame or continuous stream.
-- Permission via macOS camera authorization.
+- `Sources/Port42Lib/Services/CameraBridge.swift` with FrameHandler delegate
+- `port42.camera.capture(opts?)` for single frame, `.stream(opts?)` for continuous
+- AVCaptureSession with .high preset, scale factor for output resolution
+- FrameHandler on background queue, MainActor dispatch for events
+- `.camera` permission, 4 tests passing
 
 **User test:**
 - Port with window picker dropdown that screenshots selected window
@@ -457,24 +566,13 @@ resize, kill, and xterm.js rendering. Permission prompt on first spawn.
 
 ---
 
-### Step 16: Clipboard, File System, Notifications (P-505, P-506, P-507)
+### Step 16: Clipboard, File System, Notifications (P-505, P-506, P-507) ✅
 
-**Goal:** Ports can move data in and out of the system.
-
-**What to build:**
-
-1. **Clipboard:** NSPasteboard read/write. Permission on first access.
-
-2. **File System:** NSOpenPanel/NSSavePanel for user-chosen paths only.
-   Drag-and-drop via WKWebView's drop target support. No arbitrary traversal.
-
-3. **Notifications:** UNUserNotificationCenter for background alerts.
-   Port registers for notification click callbacks.
-
-**User test:**
-- Paste an image into a port from clipboard
-- Drag a CSV onto a port, port parses and visualizes it
-- Background port notifies when a long-running task completes
+**Implemented:**
+- ClipboardBridge.swift — NSPasteboard read/write (text + image). `.clipboard` permission.
+- FileBridge.swift — NSOpenPanel/NSSavePanel for user-chosen paths. Read/write with
+  encoding options. Security-scoped bookmarks. `.filesystem` permission.
+- NotificationBridge.swift — UNUserNotificationCenter. `.notification` permission.
 
 ---
 
@@ -507,9 +605,11 @@ Phase 1 complete ─────────────────────
 
 Step 7a: PortWindowManager + pop-out        → ports detach from chat     ✅
 Step 7b: Draggable + resizable panels       → ports feel like windows    ✅
-Step 8:  Docking                            → snap to right side         ✅
+Step 8:  ~~Docking~~                         → removed (free-form windows)
 Step 9:  Persistence + update + close       → ports are managed          ✅
 Step 9b: Unified title bar (source/run)     → consistent controls        ✅
+Step 9c: Bug fixes (P-222–P-228)            → buttons, perms, position   ✅
+Step 9f: Always-on-Top (P-233)              → pin above everything       ✅
 Phase 2 complete ─────────────────────────────────────────────────────────
 
 Step 10:  Bridge AI (P-300)                 → ports think                ✅
@@ -527,18 +627,18 @@ Phase 2.5 (polish, no new infra):
   P-210: Close to preview                   → non-destructive close
   P-211: Inline port update                 → companion updates in-place
   P-209: Port channel context               → follow/pin channel control
-  P-218: Port resize handles                → user drags to resize inline/docked ports
+  P-218: Port resize handles                → user drags to resize inline ports
 
 Phase 2.5 (new events):
-  P-212: Event: port.docked
-  P-213: Event: port.undocked
+  P-212: ~~Event: port.docked~~             → N/A (docking removed)
+  P-213: ~~Event: port.undocked~~           → N/A (docking removed)
   P-214: Event: channel.switch
   P-215: Event: companion.joined
   P-216: Event: companion.left
   P-217: Event: presence
 
 Phase 2.5 (infrastructure):
-  P-206: Multiple dock zones                → vertical split for 2+ docked
+  P-206: ~~Multiple dock zones~~            → N/A (docking removed)
   P-207: Cursor states                      → green circle, resize cursors
   P-208: Port UDIDs                         → stable IDs across lifecycle
 
@@ -550,11 +650,309 @@ Phase 4 (advanced APIs):
 
 Step 13: Terminal (P-500)                   → ports run commands          ✅
 Step 14: Audio (mic + TTS)                  → ports listen and speak      ✅
-Step 15: Camera + screen                    → ports see                   ✅ (screen done, camera planned)
+Step 15: Camera + screen                    → ports see                   ✅
 Step 16: Clipboard + files + notifications  → ports move data            ✅
 Step 17: Browser (P-509)                    → ports browse the web       ✅
 Phase 5 (device APIs) ───────────────────────────────────────────────
+
+Step 18: Automation (P-601)                 → ports control other apps    ✅
+Step 19: Accessibility (P-603)              → ports interact with any UI
+Step 20: Spotlight (P-606)                  → ports find files
+Step 21: Calendar (P-605)                   → ports know your schedule
+Step 22: File watching (P-607)              → ports react to changes
+Step 23: System info (P-600)                → ports monitor the system
+Step 24: Shortcuts (P-602)                  → ports trigger workflows
+Step 25: Drag and drop (P-609)              → ports accept drops
+Step 26: Remaining (P-503/504/508/610/608/611) → camera, contacts, location, pickers, hardware
+Phase 6 (system integration) ───────────────────────────────────────
+
+Step 27: Agent embed protocol (P-700)          → external agents connect through the front door
+Step 28: Embed button / snippet (P-701)        → one-click install from any website
+Step 29: Agent manifest (P-702)                → agents describe themselves
+Step 30: Agent registry UI (P-703)             → manage connected external agents
+Step 31: Agent sandbox (P-704)                 → permission scoping for untrusted agents
+Step 32: Agent auth (P-706)                    → mutual authentication
+Step 33: Agent discovery (P-705)               → browsable agent catalog
+Step 34: Agent billing bridge (P-707)          → agents own their own costs
+Phase 7 (agent embed protocol) ─────────────────────────────────────
 ```
+
+## Phase 6: System Integration (P-600 through P-611)
+
+### Design Decisions
+
+1. **Same bridge pattern.** Each API gets its own Swift bridge class, lazy-init
+   in PortBridge, permission-gated, cleanup in deinit. Same as Phase 5.
+
+2. **Automation is the highest-leverage API.** AppleScript/JXA gives broad
+   action across the entire OS. Combined with screen capture + AI vision,
+   the agent can perceive, reason, and act. This is the bridge from "smart
+   dashboard" to "actual agent."
+
+3. **Accessibility complements automation.** AppleScript works with apps that
+   support it (most Apple apps, many third-party). Accessibility works with
+   everything via the UI tree. Together they cover nearly all interaction.
+
+4. **Permission escalation model.** Automation and accessibility are the most
+   powerful permissions. Their prompts should be clear about the scope:
+   automation can run scripts that control apps, accessibility can read and
+   click any UI element.
+
+---
+
+### Step 18: Automation (P-601) ✅
+
+**Implemented:**
+- `Sources/Port42Lib/Services/AutomationBridge.swift` — stateless bridge with two methods
+- `port42.automation.runAppleScript(source, opts?)` via NSAppleScript on background thread
+- `port42.automation.runJXA(source, opts?)` via `/usr/bin/osascript -l JavaScript`
+- Timeout enforcement: default 30s, max 120s, clamped via ContinuationGuard
+- `.automation` permission with descriptive prompt
+- `com.apple.security.automation.apple-events` entitlement (added to dev, already in release)
+- `NSAppleEventsUsageDescription` in Info.plist for macOS TCC
+- JS namespace: `port42.automation.runAppleScript(source, opts?)` / `.runJXA(source, opts?)`
+- 7 tests passing (permission mapping, description, timeout, error handling)
+- Companion context updated with Automation API docs
+
+---
+
+### Step 19: Accessibility (P-603)
+
+**Goal:** Ports can read and interact with any application's UI.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/AccessibilityBridge.swift` — AXUIElement wrapper
+
+**What to build:**
+
+1. `port42.accessibility.windows()` — list all windows with pid, app, title, bounds
+2. `port42.accessibility.elements(pid, query?)` — query UI tree for elements
+3. `port42.accessibility.click(pid, elementId)` — perform click action
+4. `port42.accessibility.type(pid, text)` — type text into focused element
+5. Permission: `.accessibility` plus macOS Accessibility permission in System Settings
+
+**User test:**
+- Port that reads the UI tree of a running app
+- Companion that clicks a button in another app based on screen + AI vision
+- Automated form filling
+
+---
+
+### Step 20: Spotlight (P-606)
+
+**Goal:** Ports can search for files by content or metadata.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/SpotlightBridge.swift` — NSMetadataQuery wrapper
+
+**What to build:**
+
+1. `port42.spotlight.search(query, opts?)` — async search returning file
+   metadata. No permission needed for metadata. Content requires fs.pick.
+
+**User test:**
+- "Find all PDFs I downloaded this week"
+- Companion that locates relevant files for a project
+
+---
+
+### Step 21: Calendar (P-605)
+
+**Goal:** Ports can read and create calendar events and reminders.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/CalendarBridge.swift` — EventKit wrapper
+
+**What to build:**
+
+1. `port42.calendar.events(range?)` — list events in date range
+2. `port42.calendar.reminders()` — list reminders
+3. `port42.calendar.create(event)` — create event or reminder
+4. Permission: `.calendar` plus EventKit authorization
+
+**User test:**
+- Daily agenda port showing today's schedule
+- Companion that creates calendar events from conversation
+
+---
+
+### Step 22: File Watching (P-607)
+
+**Goal:** Ports can monitor directories for changes.
+
+**What to build:**
+
+1. `port42.fs.watch(path, callback)` — FSEvents stream for a directory
+2. `port42.fs.unwatch(watchId)` — stop watching
+3. Only paths previously granted via fs.pick. Requires filesystem permission.
+
+**User test:**
+- Hot-reload port that re-renders when a file changes
+- Log tailer that processes new entries in real time
+
+---
+
+### Step 23: System Info (P-600)
+
+**Goal:** Ports can read system state.
+
+**Files to create:**
+- `Sources/Port42Lib/Services/SystemBridge.swift` — IOKit/sysctl queries
+
+**What to build:**
+
+1. `port42.system.info()` — battery, CPU, memory, disk, network
+2. `port42.system.on('battery', cb)` — live battery updates
+3. No permission needed (read-only system info)
+
+**User test:**
+- System monitoring dashboard port
+- Battery-aware companion that defers heavy tasks on low power
+
+---
+
+## Phase 7: Agent Embed Protocol (P-700 through P-707)
+
+### Design Decisions
+
+1. **Front door, not side door.** External agents connect through the same gateway
+   protocol that local companions and OpenClaw agents use. No new transport layer.
+   The gateway gains a new peer type ("agent-embed") with metadata about the
+   external endpoint, but the message routing is identical.
+
+2. **Agent owns its backend.** Port42 never runs the external agent's inference.
+   PostHog's agent runs on PostHog's servers, uses PostHog's models, costs PostHog
+   money. Port42 is the UI and context layer, not the compute layer.
+
+3. **One-click install via deep link.** The embed button on a website opens
+   `port42://agent-embed?manifest=<url>`. Port42 fetches the manifest, shows
+   an install dialog, and registers the agent. No config files, no CLI, no tokens
+   to copy-paste.
+
+4. **Untrusted by default.** External agents get a restricted permission set.
+   They can send messages and create ports, but system capabilities (terminal,
+   automation, filesystem) are blocked until the user explicitly grants them.
+   This is a different trust tier from local companions.
+
+5. **Builds on OpenClaw adapter.** The wire protocol extends the existing gateway
+   sync protocol. An external agent is essentially an always-on remote peer with
+   its own LLM backend. The OpenClaw channel adapter is a precursor to this.
+
+---
+
+### Step 27: Agent Embed Protocol (P-700)
+
+**Goal:** Define the wire protocol for external agents connecting through the gateway.
+
+**What to build:**
+
+1. New peer type `"agent-embed"` in the gateway identify handshake. Carries
+   additional metadata: manifest URL, endpoint URL, capabilities declared.
+
+2. Gateway routes messages to/from agent-embed peers identically to regular
+   peers. No special handling beyond the metadata.
+
+3. Port42 app recognizes agent-embed peers and displays them with a distinct
+   badge (external agent vs local companion).
+
+4. Agent backend connects via WebSocket to the gateway and follows the
+   identify/welcome/join protocol. Messages flow bidirectionally.
+
+**User test:**
+- External agent connects to gateway, sends a message, it appears in Port42
+- External agent sends a ```port block, it renders inline
+
+---
+
+### Step 28: Embed Button (P-701)
+
+**Goal:** Websites can add a button that installs their agent into Port42.
+
+**What to build:**
+
+1. `port42://agent-embed?manifest=<url>&callback=<url>` deep link handler
+   in Port42. Fetches manifest, shows install dialog.
+
+2. `https://port42.ai/embed.js` script that renders a `<port42-connect>`
+   web component. Handles deep link with fallback to download page.
+
+3. Install dialog shows agent name, icon, description, permissions requested.
+   User picks channel(s) and approves.
+
+4. Callback URL receives confirmation so the website knows the agent was installed.
+
+**User test:**
+- Click "Add to Port42" button on a test website
+- Port42 opens with install dialog
+- Approve, agent appears in chosen channel
+
+---
+
+### Step 29: Agent Manifest (P-702)
+
+**Goal:** Agents describe themselves in a standard JSON format.
+
+**What to build:**
+
+1. JSON schema for agent manifest at `/.well-known/port42-agent.json`
+2. Port42 fetches and validates manifest during install
+3. Manifest fields: name, icon, description, endpoint, capabilities,
+   permissions_requested, auth config, version, homepage
+
+**User test:**
+- Port42 fetches manifest from URL, displays agent info correctly
+- Invalid manifest shows clear error
+
+---
+
+### Step 30: Agent Registry UI (P-703)
+
+**Goal:** Users can see and manage connected external agents.
+
+**What to build:**
+
+1. Settings panel listing all installed external agents
+2. Per-agent: name, icon, source website, channels, permissions granted, activity
+3. Revoke access (disconnect agent, remove from channels)
+4. Modify permissions per agent
+
+**User test:**
+- View all installed agents, revoke one, verify it disconnects
+
+---
+
+### Step 31: Agent Sandbox (P-704)
+
+**Goal:** External agents have restricted permissions by default.
+
+**What to build:**
+
+1. `PortPermission` gains a trust tier: `.local` vs `.external`
+2. External agents blocked from terminal, automation, filesystem, clipboard,
+   screen by default. User can escalate per agent.
+3. External agents use their own AI (no Port42 LLM token consumption)
+4. Bridge methods check trust tier before permission prompt
+
+**User test:**
+- External agent tries to call `terminal.spawn`, gets blocked
+- User grants terminal permission to specific agent, it works
+
+---
+
+### Step 32: Agent Auth (P-706)
+
+**Goal:** Mutual authentication between Port42 and external agent backends.
+
+**What to build:**
+
+1. OAuth2 flow for agents that require user auth on their platform
+2. Token exchange during install (user authorizes Port42 on the agent's platform)
+3. Signed requests between Port42 gateway and agent endpoint
+
+**User test:**
+- Install agent that requires OAuth, complete the flow, agent connects
+
+---
 
 ## First Demo
 

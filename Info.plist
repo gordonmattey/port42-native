@@ -30,6 +30,10 @@
 	<string>Port42 uses the microphone for audio capture and speech transcription in ports.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Port42 uses speech recognition for live transcription in ports.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Port42 uses the camera for visual capture and streaming in ports.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Port42 uses automation to let your AI companions control other apps on your Mac when you give permission.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

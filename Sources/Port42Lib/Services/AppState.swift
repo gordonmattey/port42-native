@@ -116,6 +116,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         self.appState = appState
     }
 
+
     func start(channelMessages: [Message], triggerContent: String) {
         // Build conversation context from recent channel history (last 50 messages)
         // Note: channelMessages may not include the triggering message yet (DB observation lag),
@@ -196,20 +197,91 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             \nYour fellow companions in this port42 instance: \(otherCompanions.joined(separator: ", ")).
             """
         let channelPrompt = """
-            IDENTITY: You are \(agent.displayName). This is non-negotiable. \
+            <identity>
+            You are \(agent.displayName). This is non-negotiable. \
             You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
+            </identity>
 
-            CONTEXT: You are an AI companion in Port42, a personal AI system. \
+            <personality>
+            \(basePrompt)
+            </personality>
+
+            <context>
+            You are an AI companion in Port42, a personal AI system. \
             You are in a shared channel with other companions and humans. \
             Messages from humans appear as [Name]: message. \
             Messages from other companions appear as (companion Name said): message. \
             If a companion belongs to a specific human, it shows as (companion Name (belonging to Owner) said). \
             Those are NOT you. You are \(agent.displayName). \
             \(fileAccessNote)\(companionNote)
+            </context>
 
+            <behavior>
+            Be concise. Lead with the answer. Terminal energy, not essay energy.
+            If it can be said in 2 sentences, use 2.
+            Add something new to the conversation or stay quiet. Never echo what was just said.
+            Skip preamble. No "great question." No explaining what you're about to do. Just do it.
+            </behavior>
+
+            <understanding_before_building>
+            Before building anything, understand what's actually going on.
+            When someone describes a problem, ask yourself: what's the real drowning pattern here?
+            A surface request like "show me what everyone's working on" might mean "I feel disconnected \
+            from my team" or "I need to know who's blocked." The port you build depends on which one.
+            If the need is unclear, ask. A good question beats a premature port.
+            When you do build, prefer interactive ports over walls of text. Show, don't tell.
+            If another companion just built a port, improve theirs instead of building a new one.
+            After building, suggest what it could become next.
+            </understanding_before_building>
+
+            <port_construction>
+            <dom>
+            createElement + textContent for all dynamic content. Never innerHTML with variables.
+            Attach event listeners at creation time on the element, not querySelector after insertion.
+            Clearing a container with innerHTML = '' is fine. Building content with it is not.
+            </dom>
+            <architecture>
+            State object at top. render() clears and rebuilds from state. Handlers mutate state and call render().
+            Responsive layout with flex/grid. No fixed pixel widths.
+            </architecture>
+            <error_handling>
+            try/catch around all async init. Bridge APIs can return null.
+            If port42.ai.complete() fails, show the error visibly. Never freeze on placeholder text.
+            </error_handling>
+            <ai_usage>
+            Single AI call where possible. Combine prompts rather than chaining.
+            Always stream with onToken so text appears as it generates.
+            Parse AI responses as plain text (split on newlines, find colons). Never JSON.parse.
+            When synthesizing conversation, 300+ chars per message. Name specific artifacts and trajectory, not "contributing to the discussion."
+            </ai_usage>
+            <pattern>
+            let state = { items: [] };
+            function render() {
+              listEl.innerHTML = '';
+              for (const item of state.items) {
+                const row = document.createElement('div');
+                row.className = 'row';
+                row.textContent = item.name;
+                listEl.appendChild(row);
+              }
+            }
+            try {
+              const [channel, companions, messages] = await Promise.all([
+                port42.channel.current(),
+                port42.companions.list(),
+                port42.messages.recent(50)
+              ]);
+              state = { channel, companions: companions || [], messages: messages || [] };
+              render();
+            } catch (e) {
+              errorEl.textContent = e.message;
+            }
+            </pattern>
+            </port_construction>
+
+            <api_reference>
             \(AppState.portsContext)
-
-            INSTRUCTIONS: \(basePrompt)
+            </api_reference>
             """
 
         do {
@@ -386,6 +458,29 @@ public final class AppState: ObservableObject {
 
     /// Cached port permissions by message ID. Survives LazyVStack view recycling.
     public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
+
+    /// Input history cache per channel. Loaded lazily from DB.
+    private var inputHistoryCache: [String: [String]] = [:]
+
+    /// Append to input history for a channel.
+    public func appendInputHistory(channelId: String, content: String) {
+        var history = inputHistoryCache[channelId] ?? []
+        // Deduplicate consecutive identical entries
+        if history.first != content {
+            history.insert(content, at: 0)
+            if history.count > 100 { history = Array(history.prefix(100)) }
+            inputHistoryCache[channelId] = history
+        }
+        try? db.appendInputHistory(channelId: channelId, content: content)
+    }
+
+    /// Get input history for a channel (newest first). Loads from DB on first access.
+    public func inputHistory(for channelId: String) -> [String] {
+        if let cached = inputHistoryCache[channelId] { return cached }
+        let history = (try? db.fetchInputHistory(channelId: channelId)) ?? []
+        inputHistoryCache[channelId] = history
+        return history
+    }
 
     /// The port bridge currently requesting a permission. Used to lift the
     /// permission dialog out of the LazyVStack to prevent SwiftUI re-presentation bugs.

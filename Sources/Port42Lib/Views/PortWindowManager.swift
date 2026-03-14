@@ -14,7 +14,9 @@ public struct PortPanel: Identifiable {
     public let messageId: String?
     public let title: String
     public var size: CGSize
-    public var isDocked: Bool = false
+    public var position: CGPoint?
+    public var isAlwaysOnTop: Bool = false
+    public var isBackground: Bool = false
 
     /// Extract title from HTML <title> tag, fallback to "port"
     static func extractTitle(from html: String) -> String {
@@ -56,9 +58,9 @@ public final class PortWindowManager: ObservableObject {
     /// Navigation delegates kept alive for WKWebView.
     private var navDelegates: [String: PortNavigationBlocker] = [:]
 
-    /// The single docked panel (right side), if any.
-    public var dockedPanel: PortPanel? {
-        panels.first(where: { $0.isDocked })
+    /// Panels running in the background (hidden but alive).
+    public var backgroundPanels: [PortPanel] {
+        panels.filter { $0.isBackground }
     }
 
     /// Set database reference for persistence.
@@ -76,6 +78,13 @@ public final class PortWindowManager: ObservableObject {
             let saved = try db.fetchPortPanels()
             for row in saved {
                 let bridge = PortBridge(appState: appState, channelId: row.channelId, messageId: row.messageId, createdBy: row.createdBy)
+                // Restore previously granted permissions so the user isn't re-prompted
+                if let permsStr = row.grantedPermissions {
+                    let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
+                    bridge.grantedPermissions = perms
+                }
+                let pos: CGPoint? = (row.posX != nil && row.posY != nil)
+                    ? CGPoint(x: row.posX!, y: row.posY!) : nil
                 let panel = PortPanel(
                     id: row.id,
                     html: row.html,
@@ -85,12 +94,13 @@ public final class PortWindowManager: ObservableObject {
                     messageId: row.messageId,
                     title: row.title,
                     size: CGSize(width: row.width, height: row.height),
-                    isDocked: row.isDocked
+                    position: pos,
+                    isAlwaysOnTop: row.isAlwaysOnTop,
+                    isBackground: row.isBackground
                 )
                 panels.append(panel)
                 createPortWebView(for: panel)
 
-                // Docked panels are rendered by ContentView, no NSPanel needed.
                 // Floating windows are NOT created here; they appear after
                 // the lock screen dismisses via showRestoredFloatingPanels().
             }
@@ -105,9 +115,18 @@ public final class PortWindowManager: ObservableObject {
     /// Create floating windows for any restored panels that don't have windows yet.
     /// Called after the lock screen dismisses, with a brief delay for the transition.
     public func showRestoredFloatingPanels() {
+        NSLog("[Port42] showRestoredFloatingPanels: %d total panels", panels.count)
+        for p in panels {
+            let px = p.position.map { String(Int($0.x)) } ?? "nil"
+            let py = p.position.map { String(Int($0.y)) } ?? "nil"
+            NSLog("[Port42]   panel=%@ bg=%@ hasWindow=%@ pos=(%@,%@)",
+                  p.title, p.isBackground ? "Y" : "N",
+                  windows[p.id] != nil ? "Y" : "N", px, py)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self = self else { return }
-            for panel in self.panels where !panel.isDocked && self.windows[panel.id] == nil {
+            for panel in self.panels where !panel.isBackground && self.windows[panel.id] == nil {
+                NSLog("[Port42] Creating restored window for: %@", panel.title)
                 let bounds = NSApp.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
                 self.createWindow(for: panel, in: bounds)
             }
@@ -127,11 +146,27 @@ public final class PortWindowManager: ObservableObject {
         }
     }
 
+    /// Persist permissions for a bridge after a grant, so they survive restart.
+    public func persistPermissions(for bridge: PortBridge) {
+        if let panel = panels.first(where: { $0.bridge === bridge }) {
+            persistPanel(panel.id)
+        }
+    }
+
     /// Persist a panel to the database.
     private func persistPanel(_ id: String) {
-        guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }
+        guard let db = db, let panel = panels.first(where: { $0.id == id }) else {
+            NSLog("[Port42] persistPanel: SKIP id=%@ db=%@ found=%@", id, db == nil ? "nil" : "ok", panels.contains(where: { $0.id == id }) ? "yes" : "no")
+            return
+        }
         do {
-            try db.savePortPanel(PersistedPortPanel(from: panel))
+            let record = PersistedPortPanel(from: panel)
+            NSLog("[Port42] persistPanel: id=%@ title=%@ pos=(%@,%@) perms=%@",
+                  id, panel.title,
+                  record.posX.map { String($0) } ?? "nil",
+                  record.posY.map { String($0) } ?? "nil",
+                  record.grantedPermissions ?? "none")
+            try db.savePortPanel(record)
         } catch {
             NSLog("[Port42] Failed to persist port panel: %@", error.localizedDescription)
         }
@@ -149,10 +184,10 @@ public final class PortWindowManager: ObservableObject {
 
     /// Pop a port out from inline into a floating panel.
     public func popOut(html: String, bridge: PortBridge, channelId: String?, createdBy: String?, messageId: String?, in bounds: CGSize) {
-        // Check for existing panel from same companion in same channel and update it
-        if let idx = panels.firstIndex(where: { $0.createdBy == createdBy && $0.channelId == channelId && createdBy != nil }) {
+        // Check for existing panel from the same message and update it
+        if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
             let existingId = panels[idx].id
-            let wasDocked = panels[idx].isDocked
+            let wasBackground = panels[idx].isBackground
             panels[idx] = PortPanel(
                 id: existingId,
                 html: html,
@@ -162,14 +197,20 @@ public final class PortWindowManager: ObservableObject {
                 messageId: messageId,
                 title: PortPanel.extractTitle(from: html),
                 size: panels[idx].size,
-                isDocked: wasDocked
+                position: panels[idx].position,
+                isAlwaysOnTop: panels[idx].isAlwaysOnTop,
+                isBackground: wasBackground
             )
             // Recreate webview with new HTML content
             destroyWebView(existingId)
             createPortWebView(for: panels[idx])
             persistPanel(existingId)
-            // Update existing window content if floating
-            if !wasDocked, let window = windows[existingId] {
+            // If backgrounded, restore it since new content was created
+            if wasBackground {
+                panels[idx].isBackground = false
+                persistPanel(existingId)
+                createWindowForExistingPanel(panels[idx])
+            } else if let window = windows[existingId] {
                 updateWindowContent(window, panel: panels[idx])
                 window.makeKeyAndOrderFront(nil)
             }
@@ -214,43 +255,6 @@ public final class PortWindowManager: ObservableObject {
         panels.removeAll { $0.id == id }
     }
 
-    /// Dock a panel (undocks any previously docked panel).
-    public func dock(_ id: String) {
-        // Detach onClose before closing so it doesn't remove the panel
-        if let window = windows[id] as? PortNSPanel {
-            window.onClose = nil
-            window.close()
-        }
-        windows.removeValue(forKey: id)
-
-        // Detach webview from the NSPanel's view hierarchy so it can be reparented
-        webViews[id]?.removeFromSuperview()
-
-        for i in panels.indices {
-            if panels[i].id != id && panels[i].isDocked {
-                // Previously docked panel becomes floating again
-                panels[i].isDocked = false
-                persistPanel(panels[i].id)
-                createWindowForExistingPanel(panels[i])
-            }
-            panels[i].isDocked = (panels[i].id == id)
-        }
-        persistPanel(id)
-        Analytics.shared.portDocked()
-    }
-
-    /// Undock a panel back to floating.
-    public func undock(_ id: String) {
-        if let idx = panels.firstIndex(where: { $0.id == id }) {
-            panels[idx].isDocked = false
-            persistPanel(id)
-            Analytics.shared.portUndocked()
-            // Detach webview from docked view so it can be reparented into NSPanel
-            webViews[id]?.removeFromSuperview()
-            createWindowForExistingPanel(panels[idx])
-        }
-    }
-
     /// Resize a panel.
     public func resize(_ id: String, to size: CGSize) {
         if let idx = panels.firstIndex(where: { $0.id == id }) {
@@ -259,6 +263,49 @@ public final class PortWindowManager: ObservableObject {
                 height: max(150, size.height)
             )
         }
+    }
+
+    /// Toggle always-on-top for a floating panel.
+    public func toggleAlwaysOnTop(_ id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].isAlwaysOnTop.toggle()
+        let pinned = panels[idx].isAlwaysOnTop
+        if let window = windows[id] {
+            window.level = pinned ? .floating : .normal
+        }
+    }
+
+    /// Send a port to the background (hidden but still running).
+    public func minimize(_ id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+
+        // Hide the window but keep webview alive
+        if let window = windows[id] as? PortNSPanel {
+            window.onClose = nil
+            window.close()
+        }
+        windows.removeValue(forKey: id)
+        webViews[id]?.removeFromSuperview()
+
+        panels[idx].isBackground = true
+        persistPanel(id)
+        NSLog("[Port42] Port minimized to background: %@", panels[idx].title)
+    }
+
+    /// Restore a background port to a floating window.
+    public func restore(_ id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }), panels[idx].isBackground else { return }
+        panels[idx].isBackground = false
+        persistPanel(id)
+
+        // Recreate the floating window
+        createWindowForExistingPanel(panels[idx])
+        NSLog("[Port42] Port restored from background: %@", panels[idx].title)
+    }
+
+    /// Bring a floating panel to front and make it key.
+    public func bringToFront(_ id: String) {
+        windows[id]?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - WebView Lifecycle
@@ -283,6 +330,14 @@ public final class PortWindowManager: ObservableObject {
         config.userContentController.addUserScript(consoleScript)
         config.userContentController.add(handler, name: "portConsole")
         consoleHandlers[panel.id] = handler
+
+        // Viewport tracking script (fires resize events for terminal reflow etc.)
+        let viewportScript = WKUserScript(
+            source: PortWebViewFactory.viewportJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(viewportScript)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         let navDelegate = PortNavigationBlocker()
@@ -312,14 +367,19 @@ public final class PortWindowManager: ObservableObject {
     // MARK: - Native Window Management
 
     private func createWindow(for panel: PortPanel, in bounds: CGSize) {
-        let offset = CGFloat(windows.count % 5) * 24
-
-        // Position relative to the main window
-        var windowFrame = CGRect(x: 100 + offset, y: 100 + offset, width: panel.size.width, height: panel.size.height)
-        if let mainWindow = NSApp.keyWindow {
-            let mainFrame = mainWindow.frame
-            windowFrame.origin.x = mainFrame.midX - panel.size.width / 2 + offset
-            windowFrame.origin.y = mainFrame.midY - panel.size.height / 2 - offset
+        var windowFrame: CGRect
+        if let pos = panel.position {
+            // Restore saved position
+            windowFrame = CGRect(origin: pos, size: panel.size)
+        } else {
+            // Position relative to the main window
+            let offset = CGFloat(windows.count % 5) * 24
+            windowFrame = CGRect(x: 100 + offset, y: 100 + offset, width: panel.size.width, height: panel.size.height)
+            if let mainWindow = NSApp.keyWindow {
+                let mainFrame = mainWindow.frame
+                windowFrame.origin.x = mainFrame.midX - panel.size.width / 2 + offset
+                windowFrame.origin.y = mainFrame.midY - panel.size.height / 2 - offset
+            }
         }
 
         let window = PortNSPanel(
@@ -331,7 +391,7 @@ public final class PortWindowManager: ObservableObject {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = false
-        window.level = .normal
+        window.level = panel.isAlwaysOnTop ? .floating : .normal
         window.isReleasedWhenClosed = false
         window.animationBehavior = .utilityWindow
         window.minSize = NSSize(width: 200, height: 150)
@@ -342,10 +402,27 @@ public final class PortWindowManager: ObservableObject {
             self?.panelWindowClosed(panelId)
         }
 
+        // Observe move/resize to persist position
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: window, queue: .main
+        ) { [weak self] _ in self?.windowFrameChanged(panelId) }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: window, queue: .main
+        ) { [weak self] _ in self?.windowFrameChanged(panelId) }
+
         updateWindowContent(window, panel: panel)
 
         windows[panel.id] = window
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func windowFrameChanged(_ id: String) {
+        guard let window = windows[id],
+              let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        let frame = window.frame
+        panels[idx].size = frame.size
+        panels[idx].position = frame.origin
+        persistPanel(id)
     }
 
     private func createWindowForExistingPanel(_ panel: PortPanel) {
@@ -501,6 +578,30 @@ enum PortWebViewFactory {
         });
     })();
     """
+
+    /// Viewport tracking JS injected at document end.
+    /// Updates CSS custom properties and fires viewport.resize events on window resize.
+    static let viewportJS = """
+    (function() {
+        function updateViewport() {
+            const w = document.documentElement.clientWidth;
+            const h = document.documentElement.clientHeight;
+            document.documentElement.style.setProperty('--port-width', w + 'px');
+            document.documentElement.style.setProperty('--port-height', h + 'px');
+            if (window.port42 && window.port42.viewport) {
+                window.port42.viewport.width = w;
+                window.port42.viewport.height = h;
+            }
+            if (window.__port42_listeners && window.__port42_listeners['viewport.resize']) {
+                window.__port42_listeners['viewport.resize']({ width: w, height: h });
+            }
+        }
+        window.addEventListener('load', updateViewport);
+        window.addEventListener('resize', updateViewport);
+        new ResizeObserver(updateViewport).observe(document.body);
+        setTimeout(updateViewport, 100);
+    })();
+    """
 }
 
 // MARK: - Console Handler
@@ -562,6 +663,7 @@ class PortNSPanel: NSPanel {
         onClose?()
         super.close()
     }
+
 }
 
 // MARK: - Panel Content View (rendered inside NSPanel)
@@ -570,39 +672,108 @@ struct PortPanelContentView: View {
     let panel: PortPanel
     let manager: PortWindowManager
     @State private var showCode = false
+    @State private var pendingPerm: PortPermission?
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Custom title bar (draggable)
-            PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode)
+        ZStack {
+            VStack(spacing: 0) {
+                // Custom title bar (draggable)
+                PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode)
 
-            if showCode {
-                ScrollView(.vertical) {
-                    Text(panel.html)
-                        .font(Port42Theme.mono(12))
-                        .foregroundColor(Port42Theme.textSecondary)
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if showCode {
+                    ScrollView(.vertical) {
+                        Text(panel.html)
+                            .font(Port42Theme.mono(12))
+                            .foregroundColor(Port42Theme.textSecondary)
+                            .textSelection(.enabled)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else if let webView = manager.webViews[panel.id] {
+                    PortWebViewHost(webView: webView)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else if let webView = manager.webViews[panel.id] {
-                PortWebViewHost(webView: webView)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            // Inline permission overlay (no dependency on window key status)
+            if let perm = pendingPerm {
+                PortPermissionOverlay(
+                    permission: perm,
+                    onAllow: { panel.bridge.grantPermission() },
+                    onDeny: { panel.bridge.denyPermission() }
+                )
             }
         }
         .background(Port42Theme.bgPrimary)
-        .confirmationDialog(
-            panel.bridge.pendingPermission?.permissionDescription.title ?? "Permission",
-            isPresented: Binding(
-                get: { panel.bridge.pendingPermission != nil },
-                set: { if !$0 { panel.bridge.denyPermission() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Allow") { panel.bridge.grantPermission() }
-            Button("Deny", role: .cancel) { panel.bridge.denyPermission() }
-        } message: {
-            Text(panel.bridge.pendingPermission?.permissionDescription.message ?? "")
+        .onReceive(panel.bridge.$pendingPermission) { perm in
+            pendingPerm = perm
+        }
+    }
+}
+
+// MARK: - Permission Overlay
+
+/// Inline permission prompt rendered directly in the view hierarchy.
+/// Unlike confirmationDialog (which requires key window status to present as a sheet),
+/// this always renders reliably regardless of window state.
+struct PortPermissionOverlay: View {
+    let permission: PortPermission
+    let onAllow: () -> Void
+    let onDeny: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Text(permission.permissionDescription.title)
+                    .font(Port42Theme.mono(14))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Port42Theme.textPrimary)
+
+                Text(permission.permissionDescription.message)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    Button(action: onDeny) {
+                        Text("Deny")
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 80, height: 28)
+                            .background(Port42Theme.bgSecondary)
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Port42Theme.border, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onAllow) {
+                        Text("Allow")
+                            .font(Port42Theme.mono(12))
+                            .fontWeight(.medium)
+                            .foregroundStyle(.black)
+                            .frame(width: 80, height: 28)
+                            .background(Port42Theme.accent)
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Port42Theme.bgPrimary)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Port42Theme.border, lineWidth: 1)
+                    )
+            )
         }
     }
 }
@@ -616,15 +787,20 @@ struct PortPanelTitleBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 6))
-                .foregroundStyle(Port42Theme.accent)
-            Text(panel.title)
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(Port42Theme.textPrimary)
-                .lineLimit(1)
-            Spacer()
+            // Draggable title area
+            HStack(spacing: 8) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(Port42Theme.accent)
+                Text(panel.title)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .background(PortDragArea())
 
+            // Buttons (not draggable)
             Button(action: { showCode.toggle() }) {
                 HStack(spacing: 4) {
                     Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
@@ -637,25 +813,39 @@ struct PortPanelTitleBar: View {
             .buttonStyle(.plain)
             .help(showCode ? "Run port" : "View source")
 
-            Button(action: { manager.dock(panel.id) }) {
-                Image(systemName: "sidebar.right")
+            Button(action: { manager.toggleAlwaysOnTop(panel.id) }) {
+                Image(systemName: panel.isAlwaysOnTop ? "pin.fill" : "pin")
                     .font(.system(size: 10))
-                    .foregroundStyle(Port42Theme.textSecondary)
+                    .foregroundStyle(panel.isAlwaysOnTop ? Port42Theme.accent : Port42Theme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Dock right")
+            .help(panel.isAlwaysOnTop ? "Unpin" : "Always on top")
+
+            Button(action: { manager.minimize(panel.id) }) {
+                Image(systemName: "minus")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Background")
 
             Button(action: { manager.close(panel.id) }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10))
                     .foregroundStyle(Port42Theme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Close")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(PortDragArea())
+        .background(Port42Theme.bgSecondary)
     }
 }
 
@@ -665,6 +855,8 @@ struct PortPanelTitleBar: View {
 /// app-level focus changes. Accepts first mouse so clicks go through
 /// without a focus-first click.
 class PortWebViewContainer: NSView {
+    private var lastSize: NSSize = .zero
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
@@ -673,6 +865,18 @@ class PortWebViewContainer: NSView {
         // Ensure the webview stays first responder
         if let webView = subviews.first {
             window?.makeFirstResponder(webView)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let size = bounds.size
+        guard size.width > 0 && size.height > 0 && size != lastSize else { return }
+        lastSize = size
+        // WKWebView doesn't reliably fire JS window.resize on frame changes via Auto Layout.
+        // Dispatch it from native so existing viewportJS listeners pick it up.
+        if let webView = subviews.first as? WKWebView {
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('resize'))") { _, _ in }
         }
     }
 }
@@ -690,8 +894,5 @@ struct PortDragArea: NSViewRepresentable {
 
 class PortDragNSView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

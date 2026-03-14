@@ -243,6 +243,7 @@ public struct SwimView: View {
                 isStreaming: session.isStreaming,
                 error: session.error,
                 typingNames: session.isStreaming ? [session.companion.displayName] : [],
+                channelId: "swim-\(session.companion.id)",
                 onSend: { content in session.send(content) },
                 onStop: { session.stop() },
                 onRetry: { session.retry() },

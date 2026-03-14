@@ -214,6 +214,35 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v12-port-background") { db in
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "isBackground", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("v13-port-position") { db in
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "posX", .double)
+                t.add(column: "posY", .double)
+                t.add(column: "isAlwaysOnTop", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("v14-port-permissions") { db in
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "grantedPermissions", .text)
+            }
+        }
+
+        migrator.registerMigration("v15-input-history") { db in
+            try db.create(table: "input_history") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("channelId", .text).notNull().indexed()
+                t.column("content", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -657,6 +686,43 @@ public final class DatabaseService {
             try PersistedPortPanel.fetchAll(db)
         }
     }
+
+    // MARK: - Input History
+
+    /// Append a sent message to input history for a channel. Caps at 100 per channel.
+    public func appendInputHistory(channelId: String, content: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO input_history (channelId, content, createdAt) VALUES (?, ?, ?)",
+                arguments: [channelId, content, Date()]
+            )
+            // Keep only the most recent 100 entries per channel
+            try db.execute(
+                sql: """
+                    DELETE FROM input_history WHERE id IN (
+                        SELECT id FROM input_history
+                        WHERE channelId = ?
+                        ORDER BY createdAt DESC
+                        LIMIT -1 OFFSET 100
+                    )
+                    """,
+                arguments: [channelId]
+            )
+        }
+    }
+
+    /// Fetch input history for a channel, newest first.
+    public func fetchInputHistory(channelId: String) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT content FROM input_history
+                WHERE channelId = ?
+                ORDER BY createdAt DESC
+                """,
+                arguments: [channelId]
+            )
+        }
+    }
 }
 
 // MARK: - Persisted Port Panel Record
@@ -673,6 +739,11 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var width: Double
     public var height: Double
     public var isDocked: Bool
+    public var isBackground: Bool
+    public var isAlwaysOnTop: Bool
+    public var posX: Double?
+    public var posY: Double?
+    public var grantedPermissions: String?
     public var createdAt: Date
 
     public init(from panel: PortPanel) {
@@ -684,7 +755,13 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.title = panel.title
         self.width = Double(panel.size.width)
         self.height = Double(panel.size.height)
-        self.isDocked = panel.isDocked
+        self.isDocked = false
+        self.isBackground = panel.isBackground
+        self.isAlwaysOnTop = panel.isAlwaysOnTop
+        self.posX = panel.position.map { Double($0.x) }
+        self.posY = panel.position.map { Double($0.y) }
+        let perms = panel.bridge.grantedPermissions
+        self.grantedPermissions = perms.isEmpty ? nil : perms.map { $0.rawValue }.joined(separator: ",")
         self.createdAt = Date()
     }
 }

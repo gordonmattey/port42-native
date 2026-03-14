@@ -52,7 +52,14 @@ public struct PortView: NSViewRepresentable {
                     const h = document.documentElement.clientHeight;
                     document.documentElement.style.setProperty('--port-width', w + 'px');
                     document.documentElement.style.setProperty('--port-height', h + 'px');
-                    if (window.port42) window.port42.viewport = { width: w, height: h };
+                    if (window.port42 && window.port42.viewport) {
+                        window.port42.viewport.width = w;
+                        window.port42.viewport.height = h;
+                    }
+                    // Fire viewport.resize event for ports that need it (e.g. terminals)
+                    if (window.__port42_listeners && window.__port42_listeners['viewport.resize']) {
+                        window.__port42_listeners['viewport.resize']({ width: w, height: h });
+                    }
                 }
                 window.addEventListener('load', function() {
                     reportHeight();

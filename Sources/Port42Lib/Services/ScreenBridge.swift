@@ -1,13 +1,24 @@
 import Foundation
 import ScreenCaptureKit
 import AppKit
+import CoreMedia
 
 // MARK: - Screen Bridge (P-504)
 
-/// Captures screenshots via ScreenCaptureKit for ports.
-/// Stateless: each capture call is self-contained.
+/// Captures screenshots and streams screen content via ScreenCaptureKit for ports.
 @MainActor
 public final class ScreenBridge {
+
+    private weak var bridge: PortBridge?
+    private var stream: SCStream?
+    private var streamDelegate: ScreenStreamDelegate?
+    private var isStreaming = false
+
+    public init() {}
+
+    public init(bridge: PortBridge) {
+        self.bridge = bridge
+    }
 
     /// List visible windows with metadata.
     func windows() async -> [String: Any] {
@@ -170,6 +181,112 @@ public final class ScreenBridge {
         ]
     }
 
+    // MARK: - Stream
+
+    /// Start continuous screen streaming. Frames pushed as screen.frame events.
+    func stream(opts: [String: Any]) async -> [String: Any] {
+        if isStreaming { return ["error": "Already streaming"] }
+
+        let scale = min(2.0, max(0.1, opts["scale"] as? Double ?? 0.5))
+        let fps = min(10.0, max(1.0, opts["fps"] as? Double ?? 4.0))
+        let includeSelf = opts["includeSelf"] as? Bool ?? false
+        let windowIdOpt = opts["windowId"] as? UInt32
+
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            return handleTCCError(error, method: "screen.stream")
+        }
+
+        let filter: SCContentFilter
+        let captureWidth: Int
+        let captureHeight: Int
+
+        if let windowId = windowIdOpt {
+            guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
+                return ["error": "window not found"]
+            }
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            captureWidth = Int(window.frame.width * scale)
+            captureHeight = Int(window.frame.height * scale)
+        } else {
+            guard let display = content.displays.first else {
+                return ["error": "no displays available"]
+            }
+            if includeSelf {
+                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+            } else {
+                let excludedApps = content.applications.filter {
+                    $0.bundleIdentifier == Bundle.main.bundleIdentifier
+                }
+                filter = SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: [])
+            }
+            captureWidth = Int(Double(display.width) * scale)
+            captureHeight = Int(Double(display.height) * scale)
+        }
+
+        let config = SCStreamConfiguration()
+        config.width = captureWidth
+        config.height = captureHeight
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.showsCursor = true
+        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
+
+        let delegate = ScreenStreamDelegate(bridge: bridge, scale: scale)
+        let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
+
+        do {
+            try scStream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: DispatchQueue(label: "com.port42.screen.stream", qos: .userInitiated))
+            try await scStream.startCapture()
+        } catch {
+            NSLog("[Port42] screen.stream: failed to start: %@", error.localizedDescription)
+            return ["error": "screen stream failed: \(error.localizedDescription)"]
+        }
+
+        self.stream = scStream
+        self.streamDelegate = delegate
+        self.isStreaming = true
+
+        NSLog("[Port42] screen.stream: started %dx%d @ %.0f fps", captureWidth, captureHeight, fps)
+        return ["ok": true, "width": captureWidth, "height": captureHeight]
+    }
+
+    /// Stop screen streaming.
+    func stopStream() async -> [String: Any] {
+        guard isStreaming, let scStream = stream else {
+            return ["error": "Not streaming"]
+        }
+
+        do {
+            try await scStream.stopCapture()
+        } catch {
+            NSLog("[Port42] screen.stopStream: error: %@", error.localizedDescription)
+        }
+
+        self.stream = nil
+        self.streamDelegate = nil
+        self.isStreaming = false
+
+        NSLog("[Port42] screen.stream: stopped")
+        return ["ok": true]
+    }
+
+    // MARK: - Cleanup
+
+    public func cleanup() {
+        if let scStream = stream {
+            Task {
+                try? await scStream.stopCapture()
+            }
+        }
+        stream = nil
+        streamDelegate = nil
+        isStreaming = false
+    }
+
+    // MARK: - Private
+
     private func handleTCCError(_ error: Error, method: String) -> [String: Any] {
         let nsError = error as NSError
         if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamError" ||
@@ -180,5 +297,46 @@ public final class ScreenBridge {
         }
         NSLog("[Port42] %@: failed to get shareable content: %@", method, error.localizedDescription)
         return ["error": "screen capture failed: \(error.localizedDescription)"]
+    }
+}
+
+// MARK: - Screen Stream Delegate
+
+private final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
+    weak var bridge: PortBridge?
+    let scale: Double
+
+    init(bridge: PortBridge?, scale: Double) {
+        self.bridge = bridge
+        self.scale = scale
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .screen else { return }
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+
+        guard let cgImage = context.createCGImage(ciImage, from: CGRect(x: 0, y: 0, width: width, height: height)) else { return }
+
+        let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
+        // Use JPEG for streaming (much smaller than PNG, faster encode)
+        guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) else { return }
+
+        let frameData: [String: Any] = [
+            "image": jpegData.base64EncodedString(),
+            "width": width,
+            "height": height,
+            "format": "jpeg"
+        ]
+
+        let bridgeRef = bridge
+        Task { @MainActor in
+            bridgeRef?.pushEvent("screen.frame", data: frameData)
+        }
     }
 }

@@ -215,6 +215,30 @@ Headless web browsing. Requires browser permission. Max 5 concurrent sessions.
 
 Open options: `{ width, height, userAgent }`. Text/HTML options: `{ selector }` for CSS-scoped extraction. Sessions use non-persistent data stores. Only http/https/data URIs allowed.
 
+### port42.camera
+
+Camera capture via AVCaptureSession. Requires camera permission.
+
+```
+.capture(opts?)                 → { image, width, height }
+.stream(opts?)                  → { ok: true }
+.stopStream()                   → { ok: true }
+.on('frame', cb)                → { image, width, height }
+```
+
+Capture options: `{ scale: 0.5 }`. Stream options: `{ scale: 0.25 }` (lower default for performance). `image` is base64 PNG. Use `capture()` for single frames, `stream()` for continuous feed. Combine with `ai.complete({ images: [frame.image] })` for vision workflows.
+
+### port42.automation
+
+Control other Mac apps via AppleScript and JXA. Requires automation permission.
+
+```
+.runAppleScript(source, opts?)      → { result } | { error }
+.runJXA(source, opts?)              → { result } | { error }
+```
+
+Options: `{ timeout: number }` (default 30s, max 120s). AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. macOS may show additional TCC prompts for specific target apps on first use.
+
 ### Events
 
 ```
@@ -238,11 +262,13 @@ Sensitive APIs require user permission on first use per port session. Permission
 | AI | `ai.complete`, `companions.invoke` |
 | Terminal | `terminal.spawn` |
 | Microphone | `audio.capture`, `audio.stopCapture` |
+| Camera | `camera.capture`, `camera.stream`, `camera.stopStream` |
 | Screen | `screen.windows`, `screen.capture` |
 | Browser | `browser.open`, `browser.navigate`, `browser.capture`, `browser.text`, `browser.html`, `browser.execute`, `browser.close` |
 | Clipboard | `clipboard.read`, `clipboard.write` |
 | Filesystem | `fs.pick`, `fs.read`, `fs.write` |
 | Notification | `notify.send` |
+| Automation | `automation.runAppleScript`, `automation.runJXA` |
 
 No permission required: `audio.speak`, `audio.play`, `audio.stop`, all read-only APIs.
 

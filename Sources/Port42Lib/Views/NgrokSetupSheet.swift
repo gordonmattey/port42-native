@@ -114,6 +114,7 @@ public struct NgrokSetupSheet: View {
             Task {
                 let token = try? await appState.sync.requestToken(channelId: channel.id)
                 ChannelInvite.copyToClipboard(channel: channel, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                appState.toastMessage = "Copied to clipboard"
             }
             appState.pendingInviteChannel = nil
         }

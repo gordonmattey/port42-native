@@ -121,6 +121,35 @@ public struct SidebarView: View {
                     }
                 }
                 .padding(.vertical, 8)
+
+                // Background ports
+                let bgPorts = appState.portWindows.backgroundPanels
+                if !bgPorts.isEmpty {
+                    Divider()
+                        .background(Port42Theme.border)
+                        .padding(.horizontal, 12)
+
+                    ForEach(bgPorts) { panel in
+                        Button(action: { appState.portWindows.restore(panel.id) }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "eye.slash")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Port42Theme.textSecondary)
+                                Text(panel.title)
+                                    .font(Port42Theme.mono(12))
+                                    .foregroundStyle(Port42Theme.textSecondary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "arrow.up.forward.square")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
 
             Spacer()

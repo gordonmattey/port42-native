@@ -154,6 +154,7 @@ public struct ConversationContent: View {
     let typingNames: [String]
     let mentionCandidates: [MentionSuggestion]
     let localOwner: String?
+    let channelId: String?
     let onSend: (String) -> Void
     let onStop: (() -> Void)?
     let onRetry: (() -> Void)?
@@ -161,8 +162,11 @@ public struct ConversationContent: View {
     let onOpenSettings: (() -> Void)?
     let onTypingChanged: ((Bool) -> Void)?
 
+    @EnvironmentObject var appState: AppState
     @State private var draft = ""
     @State private var selectedSuggestionIndex = 0
+    @State private var historyIndex = -1  // -1 = not browsing history
+    @State private var savedDraft = ""    // draft before entering history
     @FocusState private var isInputFocused: Bool
     @State private var isNearBottom = true
     @State private var unreadCount = 0
@@ -181,6 +185,7 @@ public struct ConversationContent: View {
         typingNames: [String] = [],
         mentionCandidates: [MentionSuggestion] = [],
         localOwner: String? = nil,
+        channelId: String? = nil,
         onSend: @escaping (String) -> Void,
         onStop: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
@@ -195,6 +200,7 @@ public struct ConversationContent: View {
         self.typingNames = typingNames
         self.mentionCandidates = mentionCandidates
         self.localOwner = localOwner
+        self.channelId = channelId
         self.onSend = onSend
         self.onStop = onStop
         self.onRetry = onRetry
@@ -433,13 +439,38 @@ public struct ConversationContent: View {
                         }
                     }
                     .onKeyPress(.upArrow) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        selectedSuggestionIndex = max(0, selectedSuggestionIndex - 1)
+                        if !suggestions.isEmpty {
+                            selectedSuggestionIndex = max(0, selectedSuggestionIndex - 1)
+                            return .handled
+                        }
+                        // Browse input history when draft is empty or already in history
+                        guard let cid = channelId else { return .ignored }
+                        let history = appState.inputHistory(for: cid)
+                        guard !history.isEmpty else { return .ignored }
+                        if historyIndex == -1 {
+                            savedDraft = draft
+                            historyIndex = 0
+                        } else if historyIndex < history.count - 1 {
+                            historyIndex += 1
+                        } else {
+                            return .handled
+                        }
+                        draft = history[historyIndex]
                         return .handled
                     }
                     .onKeyPress(.downArrow) {
-                        guard !suggestions.isEmpty else { return .ignored }
-                        selectedSuggestionIndex = min(suggestions.count - 1, selectedSuggestionIndex + 1)
+                        if !suggestions.isEmpty {
+                            selectedSuggestionIndex = min(suggestions.count - 1, selectedSuggestionIndex + 1)
+                            return .handled
+                        }
+                        guard historyIndex >= 0 else { return .ignored }
+                        historyIndex -= 1
+                        if historyIndex < 0 {
+                            draft = savedDraft
+                        } else {
+                            let history = appState.inputHistory(for: channelId ?? "")
+                            draft = history[historyIndex]
+                        }
                         return .handled
                     }
                     .onKeyPress(.escape) {
@@ -522,8 +553,13 @@ public struct ConversationContent: View {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
         onTypingChanged?(false)
+        if let cid = channelId {
+            appState.appendInputHistory(channelId: cid, content: content)
+        }
         onSend(content)
         draft = ""
+        historyIndex = -1
+        savedDraft = ""
         isInputFocused = true
     }
 
@@ -798,8 +834,10 @@ struct InlinePortView: View {
         .onAppear {
             appState.registerPortBridge(bridge)
         }
-        .onChange(of: bridge.pendingPermission) { _, perm in
-            if perm != nil {
+        .onReceive(bridge.$pendingPermission) { perm in
+            // Only route to ChatView dialog if this port isn't in a floating/docked panel
+            // (panels handle their own permission dialog)
+            if perm != nil && !appState.portWindows.panels.contains(where: { $0.bridge === bridge }) {
                 appState.activePermissionBridge = bridge
             }
         }

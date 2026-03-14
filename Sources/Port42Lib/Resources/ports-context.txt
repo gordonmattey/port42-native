@@ -81,6 +81,12 @@ BRIDGE API REFERENCE:
     Also available as CSS variables: var(--port-width), var(--port-height).
     Use these to make responsive layouts that adapt to the chat size.
 
+  port42.viewport.on('resize', callback)
+    Fires when the port is resized. Callback receives { width, height }.
+    Use this to reflow content when the port changes size.
+    Terminal ports MUST listen to this and call port42.terminal.resize()
+    with recalculated cols/rows when the viewport changes.
+
   port42.port.info()
     Returns: {messageId, createdBy, channelId}
     Get metadata about this port (which message spawned it, which companion created it).
@@ -279,9 +285,18 @@ TERMINAL API REFERENCE:
     Defaults: shell="/bin/zsh", cols=80, rows=24, cwd=home directory
     Requires terminal permission (prompted on first use per session).
 
+    IMPORTANT: Always set cwd to the relevant project directory when the user
+    mentions a project or path. If the user says "open a terminal in my project"
+    or "launch claude in ~/Code/myapp", pass that path as cwd.
+
   port42.terminal.send(sessionId, data)
-    Send data to the terminal's stdin. Use this for user keystrokes.
-    data is a string (use "\r" for Enter, "\x03" for Ctrl+C, "\x1b" for Escape).
+    Send keystrokes/commands to the terminal's stdin.
+    data is a string. IMPORTANT: append "\r" for Enter.
+    Special keys: "\r" = Enter, "\x03" = Ctrl+C, "\x1b" = Escape, "\t" = Tab.
+
+    To run a command after spawn, use send(sessionId, "command here\r").
+    You can chain commands: send(sessionId, "cd ~/project && npm start\r").
+    Wait briefly after spawn before sending commands so the shell is ready.
 
   port42.terminal.resize(sessionId, cols, rows)
     Resize the terminal to the given dimensions.
@@ -302,6 +317,32 @@ TERMINAL API REFERENCE:
     class. Use this for full terminal rendering with ANSI colors, cursor movement,
     and TUI app support (vim, htop, claude, etc).
 
+TERMINAL PATTERNS:
+
+  Starting a terminal in a specific directory:
+    const result = await port42.terminal.spawn({cwd: '/Users/gordon/Code/myapp', cols, rows});
+
+  Running a command on startup (wait for shell to be ready):
+    const result = await port42.terminal.spawn({cwd: '/path/to/project', cols, rows});
+    const sessionId = result.sessionId;
+    setTimeout(() => {
+      port42.terminal.send(sessionId, 'claude\r');
+    }, 500);
+
+  Running a TUI app (claude, vim, htop, etc):
+    Spawn with cwd set to the project directory, then send the command with \r.
+    The xterm.js renderer handles all ANSI escape sequences, colors, and cursor
+    movement automatically. TUI apps work out of the box.
+
+  Launching Claude Code in a project:
+    const result = await port42.terminal.spawn({
+      cwd: '/Users/gordon/Code/myapp',
+      cols, rows
+    });
+    setTimeout(() => {
+      port42.terminal.send(result.sessionId, 'claude\r');
+    }, 500);
+
 TERMINAL PORT EXAMPLE:
 
 ```port
@@ -320,6 +361,8 @@ TERMINAL PORT EXAMPLE:
 
   const cols = term.cols;
   const rows = term.rows;
+
+  // Set cwd to the relevant directory when the user specifies one
   const result = await port42.terminal.spawn({cols, rows});
   const sessionId = result.sessionId;
 
@@ -333,6 +376,19 @@ TERMINAL PORT EXAMPLE:
 
   term.onData((data) => port42.terminal.send(sessionId, data));
   term.onResize(({cols, rows}) => port42.terminal.resize(sessionId, cols, rows));
+
+  // Reflow terminal when port is resized
+  port42.viewport.on('resize', () => {
+    const container = document.getElementById('terminal');
+    const cellWidth = term._core._renderService.dimensions.css.cell.width;
+    const cellHeight = term._core._renderService.dimensions.css.cell.height;
+    if (cellWidth && cellHeight) {
+      const newCols = Math.floor(container.clientWidth / cellWidth);
+      const newRows = Math.floor(container.clientHeight / cellHeight);
+      if (newCols > 0 && newRows > 0) term.resize(newCols, newRows);
+    }
+  });
+
   term.focus();
 </script>
 ```
@@ -462,9 +518,26 @@ System-level permission is managed in System Settings > Privacy & Security > Scr
     a clean view of what's behind the app. Set includeSelf: true to capture
     Port42 itself (useful for screenshots of ports or the full desktop layout).
 
+  port42.screen.stream(opts?)
+    Start continuous screen streaming. Frames pushed as screen.frame events.
+    opts: {
+      scale?: 0.5,               // output resolution (0.1 to 2.0)
+      fps?: 4,                   // target frames per second (1 to 10)
+      windowId?: number,         // stream a specific window
+      includeSelf?: false         // include Port42 windows
+    }
+    Returns {ok: true, width, height}. Frames are JPEG (smaller than PNG).
+
+  port42.screen.stopStream()
+    Stop screen streaming. Returns {ok: true}.
+
+  port42.screen.on('frame', callback)
+    Receive streaming frames: {image, width, height, format: 'jpeg'}.
+
   Use screen.windows() to list windows, then screen.capture({windowId: id}) for
-  window-level capture. Combine with ai.complete({images: [result.image]}) for
-  vision workflows. Always pass images via the images option, NOT as text in the prompt.
+  window-level capture. Use screen.stream() for continuous monitoring.
+  Combine with ai.complete({images: [result.image]}) for vision workflows.
+  Always pass images via the images option, NOT as text in the prompt.
 
 ## Browser API
 
@@ -519,11 +592,38 @@ BROWSER UX TIPS:
   To show a page visually, use browser.capture() screenshots as the preview.
   Close old sessions before opening new URLs.
 
-FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
+## Automation API
 
-  Camera (coming soon):
-  - port42.camera.capture(opts?) — camera frame as base64 PNG
-    Requires user permission for camera access.
+port42.automation.runAppleScript(source, opts?) and port42.automation.runJXA(source, opts?) execute scripts that control other Mac apps. AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. Requires automation permission. opts: { timeout: number } (default 30s, max 120s). Returns { result: string } or { error: string }.
+
+## Camera API
+
+Capture photos and stream video from the Mac's camera. Requires camera permission on first use.
+System-level permission is managed in System Settings > Privacy & Security > Camera.
+
+  port42.camera.capture(opts?)
+    Capture a single camera frame. Returns {image, width, height}.
+    opts: { scale?: 0.5 }  Scale factor for output resolution (0.1 to 2.0).
+    image is a base64-encoded PNG string.
+    Requires camera permission (prompted on first use per session).
+
+  port42.camera.stream(opts?)
+    Start continuous camera streaming. Returns {ok: true}.
+    opts: { scale?: 0.25 }  Lower default scale for streaming performance.
+    Frames are pushed as 'frame' events via camera.on('frame', cb).
+    Only one stream at a time. Call stopStream() before starting a new one.
+
+  port42.camera.stopStream()
+    Stop camera streaming. Returns {ok: true}.
+
+  port42.camera.on('frame', callback)
+    Live camera frames during streaming. Callback receives {image, width, height}.
+    image is a base64-encoded PNG string.
+
+  Combine with ai.complete({images: [frame.image]}) for vision workflows.
+  Use capture() for one-off photos, stream() for continuous monitoring.
+
+FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Data (coming soon):
   - port42.messages.recent(n, channelId) — read messages from a different channel
