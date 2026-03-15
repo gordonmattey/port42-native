@@ -1,0 +1,634 @@
+PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Ports render as live interactive surfaces in the user's chat.
+
+THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
+
+LAYOUT: Ports render at varying sizes. You do not know the viewport size at build time. Always build responsive layouts using relative units (%, vw, vh, flex, grid). Never use fixed pixel widths for containers. Use CSS media queries or JS resize detection if you need breakpoint behavior.
+
+IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use these APIs instead of hardcoding values. The APIs are async and return real data from the running app.
+
+BRIDGE API REFERENCE:
+
+  port42.companions.list()
+    Returns: [{id, name, model, isActive}]
+    Lists all companions in this port42 instance.
+
+  port42.companions.get(id)
+    Returns: {id, name, model, isActive} or null
+    Get a single companion by ID.
+
+  port42.companions.invoke(id, prompt, options?)
+    Invoke a companion's AI from within a port. The companion sees recent channel
+    conversation as context. Response is port-private (does NOT appear in chat).
+    The companion is NOT notified or aware it was invoked.
+    id: companion ID or display name (case-insensitive)
+    prompt: the question or instruction for the companion
+    options: {onToken: fn, onDone: fn}
+    Returns: the full response text (string)
+    Requires AI permission (prompted on first use per session).
+
+    Example:
+      const analysis = await port42.companions.invoke("sage", "what patterns do you see?", {
+          onToken: (token) => { output.textContent += token; },
+          onDone: (full) => { console.log("done:", full.length, "chars"); }
+      });
+
+    Multi-companion pattern (no special API needed):
+      const results = await Promise.all(
+          ["echo", "sage", "analyst"].map(c =>
+              port42.companions.invoke(c, "rate this idea 1-10")
+          )
+      );
+
+  port42.user.get()
+    Returns: {id, name}
+    Get the current user.
+
+  port42.messages.recent(n)
+    Returns: [{id, sender, content, timestamp, isCompanion}]
+    Get the last n messages from the current channel (default 20).
+
+  port42.messages.send(text)
+    Sends a message to the current channel as the user. Use this to make ports interactive
+    (e.g. a port with a text input that sends commands or replies).
+
+  port42.channel.current()
+    Returns: {id, name, type, members: [{name, type}]} or null
+    Get the current channel or swim session context. type is 'channel' or 'swim'.
+    members includes both humans and companions with their type ('human' or 'agent').
+
+  port42.channel.list()
+    Returns: [{id, name, type, isCurrent}]
+    List all channels the user belongs to.
+
+  port42.channel.switchTo(id)
+    Switches the app to the given channel by ID. Returns {ok: true} or {error: ...}.
+
+  port42.on(event, callback)
+    Subscribe to live events. Events:
+    - 'message': fires when a new message arrives. Payload: {id, sender, content, timestamp, isCompanion}
+    - 'companion.activity': fires when companion typing state changes. Payload: {activeNames: [...]}
+
+  port42.connection.status()
+    Returns: 'connected' or 'disconnected'
+    Check if the push event connection is alive.
+
+  port42.connection.onStatusChange(callback)
+    Fires when connection status changes. Callback receives 'connected' or 'disconnected'.
+    Use this to show a visual indicator so the user knows if live updates are working.
+
+  port42.viewport.width / port42.viewport.height
+    The current port dimensions in pixels. Updated live on resize.
+    Also available as CSS variables: var(--port-width), var(--port-height).
+    Use these to make responsive layouts that adapt to the chat size.
+
+  port42.viewport.on('resize', callback)
+    Fires when the port is resized. Callback receives { width, height }.
+    Use this to reflow content when the port changes size.
+    Terminal ports MUST listen to this and call port42.terminal.resize()
+    with recalculated cols/rows when the viewport changes.
+
+  port42.port.info()
+    Returns: {messageId, createdBy, channelId}
+    Get metadata about this port (which message spawned it, which companion created it).
+
+  port42.port.close()
+    Close this port.
+
+  port42.port.resize(w, h)
+    Resize this port to the given width and height in pixels.
+
+AI API REFERENCE:
+
+  port42.ai.models()
+    Returns: [{id, name, tier}]
+    List available AI models. Use the id when passing model option to ai.complete.
+    tier is "flagship", "balanced", or "fast".
+
+  port42.ai.complete(prompt, options?)
+    Call an LLM directly from within a port. Raw AI access with no personality.
+    prompt: the text prompt to send
+    options: {
+        model: string,        // optional, defaults to creating companion's model
+        systemPrompt: string, // custom system prompt (optional, defaults to "You are a helpful assistant.")
+        maxTokens: number,    // max response tokens (optional, default 4096)
+        images: [string],     // optional array of base64 PNG/JPEG strings for vision
+        onToken: fn,          // called with each token as it streams (optional)
+        onDone: fn            // called with the full response text on completion (optional)
+    }
+    Use port42.ai.models() to get the list of available models.
+    Returns: the full response text (string)
+    Throws: Error if permission denied or API fails
+    Requires AI permission (prompted on first use per session).
+
+    When images are provided, they are sent as multimodal content blocks to the
+    Anthropic API. The model can see and analyze the images. Combine with
+    port42.screen.capture() or port42.clipboard.read() for vision workflows.
+
+    Example (text only):
+      const summary = await port42.ai.complete("summarize this data: " + JSON.stringify(data), {
+          model: "claude-sonnet-4-6",
+          systemPrompt: "Be concise. Respond in bullet points.",
+          onToken: (token) => { output.textContent += token; }
+      });
+
+    Example (vision with screenshot):
+      const screenshot = await port42.screen.capture({ scale: 0.5 });
+      const description = await port42.ai.complete("Describe what you see on screen.", {
+          images: [screenshot.image],
+          onToken: (token) => { output.textContent += token; }
+      });
+
+  port42.ai.cancel(callId)
+    Cancel an in-progress AI stream. Generally not needed since ai.complete returns
+    a promise that resolves on completion.
+
+PERMISSIONS:
+  AI APIs (port42.ai.complete and port42.companions.invoke) require user permission.
+  On first use in a port session, a confirmation dialog appears asking the user to Allow or Deny.
+  Once granted, permission persists for the port's lifetime (until closed/reopened).
+  Both APIs share the same ".ai" permission grant.
+
+RESILIENCE: All bridge APIs are async and can return null. Wrap your init in try/catch
+so one failed call doesn't kill the whole port. If an API returns null, degrade gracefully
+(show "unavailable" instead of crashing). channel.current() returns null in some contexts.
+
+ERRORS: console.log/error/warn are piped to the native app log. Use console.error() to
+report problems. Unhandled exceptions and promise rejections are also captured. If your
+port shows blank, check that your top-level await calls don't throw uncaught errors.
+
+EXAMPLE PORT:
+
+```port
+<div id="app">loading...</div>
+<script>
+  const app = document.getElementById('app');
+  try {
+    const [user, companions, channel] = await Promise.all([
+      port42.user.get(),
+      port42.companions.list(),
+      port42.channel.current()
+    ]);
+
+    app.innerHTML = '';
+
+    // Greet user
+    const h = document.createElement('div');
+    h.textContent = (user?.name || 'you') + ' + ' + companions.map(c => c.name).join(', ');
+    h.style.color = '#00ff41';
+    app.appendChild(h);
+
+    // Show context (may be null in some views)
+    if (channel) {
+      const ch = document.createElement('div');
+      ch.textContent = 'in #' + channel.name;
+      ch.style.opacity = '0.5';
+      app.appendChild(ch);
+    }
+
+    // Live updates
+    port42.on('companion.activity', (data) => {
+      if (data.activeNames.length > 0) {
+        h.textContent = data.activeNames.join(', ') + ' thinking...';
+      }
+    });
+  } catch (e) {
+    app.textContent = 'port error: ' + e.message;
+    console.error('port init failed:', e);
+  }
+</script>
+```
+
+AI PORT EXAMPLE:
+
+```port
+<title>AI Assistant</title>
+<div id="app">
+  <input id="input" placeholder="Ask anything..." style="width:100%;margin-bottom:8px">
+  <div id="output" style="white-space:pre-wrap;opacity:0.8"></div>
+</div>
+<script>
+  const input = document.getElementById('input');
+  const output = document.getElementById('output');
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter' || !input.value.trim()) return;
+    const prompt = input.value.trim();
+    input.value = '';
+    output.textContent = '';
+
+    try {
+      await port42.ai.complete(prompt, {
+        systemPrompt: "Be concise and helpful.",
+        onToken: (token) => { output.textContent += token; }
+      });
+    } catch (err) {
+      output.textContent = 'Error: ' + err.message;
+    }
+  });
+</script>
+```
+
+Use ports when asked to build something interactive, create a dashboard, visualize data, or make a tool. Always use the bridge APIs for real data. Never hardcode companion names or user data.
+
+  port42.storage.set(key, value, options?)
+    Persist data for this port. Value can be any JSON-serializable type (string, number,
+    object, array). By default storage is scoped per-companion per-channel and survives
+    app restarts. Pass {scope: 'global'} to store data accessible from any channel.
+    Returns: true on success.
+
+  port42.storage.get(key, options?)
+    Retrieve a previously stored value. Returns the value (parsed from JSON) or null.
+    Pass {scope: 'global'} to read from global storage.
+    Use this to load saved state when the port initializes.
+
+  port42.storage.delete(key, options?)
+    Remove a stored key. Pass {scope: 'global'} for global storage.
+    Returns: true on success.
+
+  port42.storage.list(options?)
+    List all storage keys for this port. Pass {scope: 'global'} for global keys.
+    Returns: [key1, key2, ...]
+
+STORAGE SCOPING:
+  Storage has two independent axes:
+  - scope: 'channel' (default) or 'global' — controls whether data is per-channel or cross-channel
+  - shared: false (default) or true — controls whether data is per-companion or shared across all companions
+
+  This gives four combinations:
+  - {} (default): per-companion, per-channel (private to this companion in this channel)
+  - {scope: 'global'}: per-companion, all channels (companion's own data everywhere)
+  - {shared: true}: all companions, per-channel (collaborative data in this channel)
+  - {scope: 'global', shared: true}: all companions, all channels (app-wide shared data)
+
+STORAGE EXAMPLE:
+  // Channel-scoped, private (default) — only this companion in this channel
+  await port42.storage.set('count', 42);
+  const count = await port42.storage.get('count'); // 42
+
+  // Global, private — this companion across all channels
+  await port42.storage.set('preferences', {fontSize: 14}, {scope: 'global'});
+  const prefs = await port42.storage.get('preferences', {scope: 'global'});
+
+  // Channel-scoped, shared — any companion's port in this channel can read/write
+  await port42.storage.set('game-state', {turn: 3, board: [...]}, {shared: true});
+  const game = await port42.storage.get('game-state', {shared: true});
+
+  // Global, shared — any companion anywhere can read/write
+  await port42.storage.set('high-scores', [...], {scope: 'global', shared: true});
+  const scores = await port42.storage.get('high-scores', {scope: 'global', shared: true});
+
+TERMINAL API REFERENCE:
+
+  port42.terminal.spawn(opts?)
+    Start a shell session inside the port. Returns {sessionId}.
+    opts: {shell?: string, cwd?: string, cols?: number, rows?: number, env?: object}
+    Defaults: shell="/bin/zsh", cols=80, rows=24, cwd=home directory
+    Requires terminal permission (prompted on first use per session).
+
+    IMPORTANT: Always set cwd to the relevant project directory when the user
+    mentions a project or path. If the user says "open a terminal in my project"
+    or "launch claude in ~/Code/myapp", pass that path as cwd.
+
+  port42.terminal.send(sessionId, data)
+    Send keystrokes/commands to the terminal's stdin.
+    data is a string. IMPORTANT: append "\r" for Enter.
+    Special keys: "\r" = Enter, "\x03" = Ctrl+C, "\x1b" = Escape, "\t" = Tab.
+
+    To run a command after spawn, use send(sessionId, "command here\r").
+    You can chain commands: send(sessionId, "cd ~/project && npm start\r").
+    Wait briefly after spawn before sending commands so the shell is ready.
+
+  port42.terminal.resize(sessionId, cols, rows)
+    Resize the terminal to the given dimensions.
+
+  port42.terminal.kill(sessionId)
+    Terminate the shell process (SIGTERM then SIGKILL).
+
+  port42.terminal.on('output', callback)
+    Stream stdout/stderr from the terminal. Callback receives {sessionId, data}.
+    data is a string that may contain ANSI escape sequences for colors, cursor
+    movement, etc. Use an ANSI-aware renderer to display it.
+
+  port42.terminal.on('exit', callback)
+    Fires when the process terminates. Callback receives {sessionId, code}.
+
+  port42.terminal.loadXterm()
+    Loads the bundled xterm.js terminal emulator library. Returns the Terminal
+    class. Use this for full terminal rendering with ANSI colors, cursor movement,
+    and TUI app support (vim, htop, claude, etc).
+
+TERMINAL PATTERNS:
+
+  Starting a terminal in a specific directory:
+    const result = await port42.terminal.spawn({cwd: '/Users/gordon/Code/myapp', cols, rows});
+
+  Running a command on startup (wait for shell to be ready):
+    const result = await port42.terminal.spawn({cwd: '/path/to/project', cols, rows});
+    const sessionId = result.sessionId;
+    setTimeout(() => {
+      port42.terminal.send(sessionId, 'claude\r');
+    }, 500);
+
+  Running a TUI app (claude, vim, htop, etc):
+    Spawn with cwd set to the project directory, then send the command with \r.
+    The xterm.js renderer handles all ANSI escape sequences, colors, and cursor
+    movement automatically. TUI apps work out of the box.
+
+  Launching Claude Code in a project:
+    const result = await port42.terminal.spawn({
+      cwd: '/Users/gordon/Code/myapp',
+      cols, rows
+    });
+    setTimeout(() => {
+      port42.terminal.send(result.sessionId, 'claude\r');
+    }, 500);
+
+TERMINAL PORT EXAMPLE:
+
+```port
+<title>Terminal</title>
+<div id="terminal" style="width:100%;height:100vh;"></div>
+<script>
+  const Terminal = await port42.terminal.loadXterm();
+  const term = new Terminal({
+    fontSize: 13,
+    fontFamily: '"SF Mono", "Fira Code", monospace',
+    theme: { background: '#111', foreground: '#e0e0e0', cursor: '#00ff41', selectionBackground: '#00ff4133' },
+    cursorBlink: true,
+    convertEol: true
+  });
+  term.open(document.getElementById('terminal'));
+
+  const cols = term.cols;
+  const rows = term.rows;
+
+  // Set cwd to the relevant directory when the user specifies one
+  const result = await port42.terminal.spawn({cols, rows});
+  const sessionId = result.sessionId;
+
+  port42.terminal.on('output', (e) => {
+    if (e.sessionId === sessionId) term.write(e.data);
+  });
+
+  port42.terminal.on('exit', (e) => {
+    if (e.sessionId === sessionId) term.write('\r\n[exited with code ' + e.code + ']');
+  });
+
+  term.onData((data) => port42.terminal.send(sessionId, data));
+  term.onResize(({cols, rows}) => port42.terminal.resize(sessionId, cols, rows));
+
+  // Reflow terminal when port is resized
+  port42.viewport.on('resize', () => {
+    const container = document.getElementById('terminal');
+    const cellWidth = term._core._renderService.dimensions.css.cell.width;
+    const cellHeight = term._core._renderService.dimensions.css.cell.height;
+    if (cellWidth && cellHeight) {
+      const newCols = Math.floor(container.clientWidth / cellWidth);
+      const newRows = Math.floor(container.clientHeight / cellHeight);
+      if (newCols > 0 && newRows > 0) term.resize(newCols, newRows);
+    }
+  });
+
+  term.focus();
+</script>
+```
+
+## Clipboard API
+
+Read and write to the system clipboard. Requires user permission on first use.
+
+  port42.clipboard.read()
+    Returns: { type: 'text'|'image'|'empty', data?: string, format?: 'png' }
+    Text clipboard returns { type: 'text', data: 'the text' }
+    Image clipboard returns { type: 'image', format: 'png', data: '<base64>' }
+    Empty clipboard returns { type: 'empty' }
+
+  port42.clipboard.write(data)
+    data: string for text, or { type: 'image', data: '<base64 png>' } for images
+    Returns: { ok: true }
+
+  Clipboard supports both text and images. Check clip.type to handle each.
+
+## File System API
+
+Read and write files through native file pickers. Requires user permission.
+Security: Only paths explicitly chosen by the user via the picker are accessible.
+
+  port42.fs.pick(opts?)
+    opts: { mode: 'open'|'save', types?: ['txt','json',...], multiple?: false, directory?: false, suggestedName?: 'file.txt' }
+    Returns: { path: '/chosen/path' } or { paths: [...] } for multiple, or { cancelled: true }
+
+  port42.fs.read(path, opts?)
+    path: must be a path returned by pick()
+    opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
+    Returns: { data: '...', encoding: 'utf8', size: 1234 }
+
+  port42.fs.write(path, data, opts?)
+    path: must be a path returned by pick()
+    opts: { encoding: 'utf8'|'base64' }  (default: 'utf8')
+    Returns: { ok: true, size: 1234 }
+
+  Always check for {cancelled: true} after pick(). Paths from pick() are the only
+  paths fs.read/fs.write will accept.
+
+## Notification API
+
+Send system notifications. Requires user permission on first use.
+Useful for background ports that need to alert the user.
+
+  port42.notify.send(title, body?, opts?)
+    opts: { sound: true, subtitle: 'optional subtitle' }
+    Returns: { ok: true, id: 'notification-uuid' }
+
+  Example: await port42.notify.send('Task Complete', 'Your build finished successfully');
+
+## Audio API
+
+Record microphone audio with live speech transcription and play text-to-speech.
+Microphone capture requires user permission on first use.
+
+  port42.audio.capture(opts?)
+    Start microphone capture. Returns {ok: true, sampleRate: number}.
+    opts: { transcribe?: true, language?: 'en-US', rawAudio?: false }
+    Requires microphone permission (prompted on first use per session).
+    When transcribe is true (default), fires 'transcription' events with live speech-to-text.
+    When rawAudio is true, fires 'data' events with PCM audio chunks.
+    Only one capture session at a time. Call stopCapture() before starting a new one.
+
+  port42.audio.stopCapture()
+    Stop microphone capture and speech recognition. Returns {ok: true}.
+
+  port42.audio.on('transcription', callback)
+    Live speech transcription. Callback receives {text, isFinal}.
+    text is the current best transcription (updates as speech is recognized).
+    isFinal is true when a segment is finalized (pause in speech).
+
+  port42.audio.on('data', callback)
+    Raw audio data (only when capture started with rawAudio: true).
+    Callback receives {samples, sampleRate, frameCount, format}.
+    samples is base64-encoded float32 PCM data.
+
+  port42.audio.speak(text, opts?)
+    Text-to-speech output via system voice. Returns {ok: true} when speech finishes.
+    opts: { voice?: 'en-US', rate?: 0.5, pitch?: 1.0, volume?: 1.0 }
+    voice is a BCP-47 language code (e.g. 'en-US', 'en-GB', 'es-ES', 'ja-JP').
+    rate is 0.0 (slowest) to 1.0 (fastest), default is normal speaking rate.
+    Does not require microphone permission (output only).
+
+  port42.audio.play(data, opts?)
+    Play a base64-encoded audio buffer. Supports WAV, MP3, AAC.
+    Returns {ok: true, duration: number} where duration is in seconds.
+    opts: { volume?: 1.0 }
+
+  port42.audio.stop()
+    Stop any active speech or audio playback immediately.
+
+  Audio capture is toggle-based: call capture() to start, stopCapture() to stop.
+  Subscribe to audio.on('transcription', cb) BEFORE calling capture().
+  Only one capture session at a time.
+
+## Screen Capture API
+
+Capture a screenshot of a display. Requires user permission on first use.
+System-level permission is managed in System Settings > Privacy & Security > Screen Recording.
+
+  port42.screen.windows()
+    List visible windows. Returns {windows: [{id, title, app, bundleId, bounds}]}.
+    bounds is {x, y, width, height} in screen points.
+    Filters out tiny windows (menu bar items, etc).
+    Use the id with screen.capture({windowId: id}) to capture a specific window.
+
+  port42.screen.capture(opts?)
+    Capture a screenshot. Returns {image, width, height}.
+    opts: {
+      scale?: 1.0,              // output resolution multiplier (0.1 to 2.0)
+      windowId?: number,         // capture a specific window (from screen.windows())
+      region?: {x, y, width, height},  // capture a specific area in screen points
+      displayId?: number,        // specific display (omit for main display)
+      includeSelf?: false        // include Port42's own windows in the capture
+    }
+    image is a base64-encoded PNG string.
+    width and height are the pixel dimensions of the captured image.
+    Requires screen capture permission (prompted on first use per session).
+
+    When windowId is provided, captures just that window with a transparent background.
+    Otherwise captures the full display (or region of it).
+
+    By default Port42's own windows are excluded from the capture so you get
+    a clean view of what's behind the app. Set includeSelf: true to capture
+    Port42 itself (useful for screenshots of ports or the full desktop layout).
+
+  port42.screen.stream(opts?)
+    Start continuous screen streaming. Frames pushed as screen.frame events.
+    opts: {
+      scale?: 0.5,               // output resolution (0.1 to 2.0)
+      fps?: 4,                   // target frames per second (1 to 10)
+      windowId?: number,         // stream a specific window
+      includeSelf?: false         // include Port42 windows
+    }
+    Returns {ok: true, width, height}. Frames are JPEG (smaller than PNG).
+
+  port42.screen.stopStream()
+    Stop screen streaming. Returns {ok: true}.
+
+  port42.screen.on('frame', callback)
+    Receive streaming frames: {image, width, height, format: 'jpeg'}.
+
+  Use screen.windows() to list windows, then screen.capture({windowId: id}) for
+  window-level capture. Use screen.stream() for continuous monitoring.
+  Combine with ai.complete({images: [result.image]}) for vision workflows.
+  Always pass images via the images option, NOT as text in the prompt.
+
+## Browser API
+
+Browse the web from within a port. Each session is an independent headless browser
+(WKWebView) that can load pages, extract content, take screenshots, and run JavaScript.
+Requires user permission on first use. Max 5 concurrent sessions per port.
+
+  port42.browser.open(url, opts?)
+    Open a URL in a new browser session. Returns {sessionId, url, title}.
+    opts: { width?: 1280, height?: 720, userAgent?: string }
+    Only http, https, and data URIs are allowed.
+    Sessions use non-persistent data stores (no shared cookies).
+
+  port42.browser.navigate(sessionId, url)
+    Navigate an existing session to a new URL. Returns {url, title}.
+
+  port42.browser.capture(sessionId, opts?)
+    Screenshot the page. Returns {image, width, height}.
+    opts: { region?: {x, y, width, height} }
+    image is a base64-encoded PNG.
+
+  port42.browser.text(sessionId, opts?)
+    Extract page text content. Returns {text, title, url}.
+    opts: { selector?: string }  CSS selector to extract from specific element.
+    Text is truncated at 500KB.
+
+  port42.browser.html(sessionId, opts?)
+    Extract page HTML. Returns {html, title, url}.
+    opts: { selector?: string }  CSS selector to extract specific element's outerHTML.
+    HTML is truncated at 1MB.
+
+  port42.browser.execute(sessionId, js)
+    Run JavaScript in the page context. Returns {result}.
+    result is the return value of the expression (string, number, object, etc).
+
+  port42.browser.close(sessionId)
+    Close the browser session. Returns {ok: true}.
+    Sessions are also cleaned up when the port is closed.
+
+  port42.browser.on('load', callback)
+    Fires when a page finishes loading. Callback receives {sessionId, url, title}.
+
+  port42.browser.on('error', callback)
+    Fires on navigation error. Callback receives {sessionId, url, error}.
+
+  port42.browser.on('redirect', callback)
+    Fires on server redirect. Callback receives {sessionId, url}.
+
+BROWSER UX TIPS:
+  Do NOT use <iframe> to display web pages. Most sites block iframing via
+  X-Frame-Options or CSP headers. Use the headless browser for everything.
+  To show a page visually, use browser.capture() screenshots as the preview.
+  Close old sessions before opening new URLs.
+
+## Automation API
+
+port42.automation.runAppleScript(source, opts?) and port42.automation.runJXA(source, opts?) execute scripts that control other Mac apps. AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. Requires automation permission. opts: { timeout: number } (default 30s, max 120s). Returns { result: string } or { error: string }.
+
+## Camera API
+
+Capture photos and stream video from the Mac's camera. Requires camera permission on first use.
+System-level permission is managed in System Settings > Privacy & Security > Camera.
+
+  port42.camera.capture(opts?)
+    Capture a single camera frame. Returns {image, width, height}.
+    opts: { scale?: 0.5 }  Scale factor for output resolution (0.1 to 2.0).
+    image is a base64-encoded PNG string.
+    Requires camera permission (prompted on first use per session).
+
+  port42.camera.stream(opts?)
+    Start continuous camera streaming. Returns {ok: true}.
+    opts: { scale?: 0.25 }  Lower default scale for streaming performance.
+    Frames are pushed as 'frame' events via camera.on('frame', cb).
+    Only one stream at a time. Call stopStream() before starting a new one.
+
+  port42.camera.stopStream()
+    Stop camera streaming. Returns {ok: true}.
+
+  port42.camera.on('frame', callback)
+    Live camera frames during streaming. Callback receives {image, width, height}.
+    image is a base64-encoded PNG string.
+
+  Combine with ai.complete({images: [frame.image]}) for vision workflows.
+  Use capture() for one-off photos, stream() for continuous monitoring.
+
+FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
+
+  Data (coming soon):
+  - port42.messages.recent(n, channelId) — read messages from a different channel
+
+  Events (coming soon):
+  - port42.on('channel.switch') — fires when user navigates to a different channel
+  - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
+  - port42.port.spawn(html) — create a child port from within a port

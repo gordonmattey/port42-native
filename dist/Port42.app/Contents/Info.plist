@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Port42</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.port42.app</string>
+	<key>CFBundleName</key>
+	<string>Port42</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.4.17</string>
+	<key>CFBundleVersion</key>
+	<string>843</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>POSTHOG_API_KEY</key>
+	<string>phc_EcrvbclKr2C2FZzgFDA6jiXhPdssHgVhxDMPNg5joS5</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/gordonmattey/port42-native/main/dist/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>EEYKlz615G7M8R6PHmaGnvHZS2sl/sSrjBPhIXP3fbI=</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Port42 uses the microphone for audio capture and speech transcription in ports.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Port42 uses speech recognition for live transcription in ports.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Port42 uses the camera for visual capture and streaming in ports.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Port42 uses automation to let your AI companions control other apps on your Mac when you give permission.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.port42.agent-invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>port42</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
