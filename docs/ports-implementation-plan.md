@@ -1,6 +1,6 @@
 # Ports Implementation Plan
 
-**Last updated:** 2026-03-13
+**Last updated:** 2026-03-14
 
 **Constraint:** No breaking changes. All existing chat, swim, and sync
 functionality must continue working at every step.
@@ -333,18 +333,22 @@ Fixed height jitter when toggling source/run on inline ports.
 1. **Ports are ephemeral by default.** Creating a port is cheap, closing is normal.
    History makes them recoverable, not persistence. Don't fight the transience.
 
-2. **Edge snap over manual docking.** User drags to an edge and it snaps. No dock
-   button, no menu. The gesture is the UI. Same mental model as macOS window tiling.
+2. **Manual arrangement first.** Users arrange windows themselves. No auto-snap
+   or tiling for now. Free-form floating windows with position persistence.
 
-3. **Main content always yields.** When a port snaps to an edge, chat shrinks.
-   When the port closes, chat restores. The port owns the space it claims.
+3. **Startup maximizes, sign-in restores.** Main window fills the screen on launch.
+   After sign-in, main window and port panels restore to their saved positions/sizes.
 
-4. **Windowing is geometry, not hierarchy.** A snapped port and a floating port are
-   the same object in different positions. No state machine for "docked" vs "floating"
-   vs "snapped." Just position + constraints.
+4. **Window sets per context (future).** Ports will associate with the channel or
+   swim they were created in. Switching context shows/hides the relevant ports.
+   This replaces the virtual canvas concept from P-404 with something grounded
+   in how people actually use Port42.
 
 5. **Port chrome follows macOS conventions where possible.** Red close, yellow minimize
    (background), green zoom (expand). Plus port-specific controls: stop, restart.
+
+6. **Smart tiling is future work.** Grid snapping, edge snap, and auto-arrange
+   will come later once manual arrangement patterns are understood.
 
 ---
 
@@ -353,17 +357,19 @@ Fixed height jitter when toggling source/run on inline ports.
 Priority order based on user impact:
 
 1. ~~**P-222 + P-223: Bug fixes**~~ ✅ (terminal resize, permission re-trigger)
-2. **P-230: Edge Snap** (drag to edge of main window, snap right/left/bottom)
+2. ~~**P-230: Edge Snap**~~ N/A (replaced by manual arrangement, smart tiling deferred)
 3. ~~**P-235: Snap Restore**~~ N/A (replaced by free-form window arrangement)
-4. **P-232: Multi-Port Tiling** (multiple ports split the snap zone)
+4. ~~**P-232: Multi-Port Tiling**~~ N/A (replaced by manual arrangement, smart tiling deferred)
 5. ~~**P-233: Always-on-Top**~~ ✅ (pin a port above everything)
 6. **P-220: Port Controls** (stop, running indicator, restart)
 7. **P-219: Port History** (browse and reopen previous ports)
 8. ~~**P-234: Background Ports**~~ ✅ (hidden but running)
-9. **P-231: Screen Edge Snap** (snap to screen edge, main window resizes)
+9. ~~**P-231: Screen Edge Snap**~~ N/A (replaced by manual arrangement, smart tiling deferred)
 10. ~~**P-236: Port Chrome**~~ ✅ (reconcile macOS buttons with port controls)
 11. **P-210: Close to Preview** (collapse to compact preview)
 12. ~~**P-221: Restart Persistence**~~ ✅ (ports survive app restart, including position and permissions)
+13. **P-239: Startup Window Behavior** (main window fills screen on launch, restores saved position after sign-in)
+14. **P-240: Window Sets** (future: ports associate with channel/swim context, switching context shows/hides ports)
 
 ---
 
@@ -391,36 +397,45 @@ status for `confirmationDialog`. Added `bringToFront()` on permission prompt.
 
 ---
 
-### Step 9d: Edge Snap (P-230, P-235)
+### ~~Step 9d: Edge Snap (P-230, P-235)~~ Removed
 
-**Goal:** Drag a floating port to the right/left/bottom edge of the main window.
-Port snaps to that edge. Main content (chat) shrinks to accommodate. Closing the
-snapped port restores main content to full size.
-
-**Approach:**
-
-1. Detect drag near edge (within ~20pt threshold) during port panel drag
-2. Show a snap preview (highlight zone) when hovering near an edge
-3. On drop in snap zone, transition port from floating to snapped:
-   - Remove from floating panels
-   - Add to snap layout (right: HStack, bottom: VStack, left: HStack reversed)
-   - Animate main content resize
-4. Draggable divider between snapped port and main content
-5. Drag away from snap zone returns to floating at previous size
-6. Close snapped port: animate main content back to full width
-
-**Files to modify:**
-- `PortWindowManager.swift` — snap zone detection, layout management
-- `ContentView.swift` — conditional HStack/VStack layout for snapped ports
-- `PortPanel.swift` — drag gesture recognizer with snap detection
+Replaced by manual window arrangement. Users position ports freely. Smart tiling
+(grid snap, edge snap, auto-arrange) is deferred to a future phase once manual
+arrangement patterns are understood.
 
 ---
 
-### Step 9e: Multi-Port Tiling (P-232)
+### ~~Step 9e: Multi-Port Tiling (P-232)~~ Removed
 
-Multiple ports snapped to the same edge split the zone. Right edge: vertical
-split. Bottom edge: horizontal split. Draggable dividers between ports. Same
-close-restores-space behavior.
+Replaced by manual window arrangement. See Step 9d.
+
+---
+
+### Step 9h: Startup Window Behavior (P-239)
+
+**Goal:** Main window fills the screen on launch (setup/sign-in screen benefits
+from the full canvas). After sign-in, main window and port panels restore to
+their saved positions and sizes.
+
+**What to build:**
+
+1. On app launch, set main window frame to the screen's visible frame (full screen
+   minus menu bar and dock).
+2. Persist main window position/size to UserDefaults on move/resize.
+3. After sign-in (setup complete), restore main window to saved frame.
+4. Port panels already restore from SQLite (P-237). Ensure they restore after
+   the main window has settled.
+
+---
+
+### Step 9i: Window Sets (P-240) — Future
+
+**Goal:** Ports associate with the channel or swim they were created in. Switching
+channel/swim context shows the relevant ports and hides others.
+
+This replaces the virtual canvas concept from P-404 with something grounded in
+real usage. The channel/swim is the natural grouping. No new UI needed beyond
+what already exists (channel list in sidebar).
 
 ---
 
@@ -637,6 +652,13 @@ Phase 2.5 (new events):
   P-216: Event: companion.left
   P-217: Event: presence
 
+Phase 2.5 (windowing):
+  P-230: ~~Edge Snap~~                      → N/A (manual arrangement, smart tiling deferred)
+  P-231: ~~Screen Edge Snap~~               → N/A (manual arrangement, smart tiling deferred)
+  P-232: ~~Multi-Port Tiling~~              → N/A (manual arrangement, smart tiling deferred)
+  P-239: Startup window behavior            → maximize on launch, restore on sign-in
+  P-240: Window sets (future)               → ports grouped by channel/swim context
+
 Phase 2.5 (infrastructure):
   P-206: ~~Multiple dock zones~~            → N/A (docking removed)
   P-207: Cursor states                      → green circle, resize cursors
@@ -644,6 +666,7 @@ Phase 2.5 (infrastructure):
 
 Phase 4 (advanced APIs):
   P-400: Port window management API         → ports manage other ports
+  ~~P-404: Port Spaces~~                    → superseded by P-240 Window Sets
   P-401: Cross-channel reads                → read any channel
   P-402: Structured message metadata        → model, tokens, timing
   P-403: Convergence detection              → similarity scoring

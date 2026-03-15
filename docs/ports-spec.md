@@ -1,8 +1,8 @@
 # Ports Spec
 
-**Last updated:** 2026-03-13
+**Last updated:** 2026-03-14
 
-**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b partially complete (bugs fixed, background ports, window persistence, docking removed). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol).
+**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b partially complete (bugs fixed, background ports, window persistence, docking removed, edge snap/tiling removed in favor of manual arrangement). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol).
 
 ---
 
@@ -174,9 +174,9 @@ User pops out a port
 → Minimize sends to background (listed in sidebar, click restores)  ✅
 → Granted permissions persist across restart                        ✅
 → Multiple ports from same companion each get their own window      ✅
-→ Edge snap (drag to main window edge, auto-arrange)                pending
-→ Screen edge snap (macOS split view style)                         pending
-→ Multi-port tiling (split snap zone)                               pending
+→ Manual arrangement (users tile windows freely)                    ✅
+→ Startup maximized, restore positions after sign-in                pending (P-239)
+→ Window sets per channel/swim context                              future (P-240)
 ```
 
 Target: Port windowing feels like macOS window management. Free-form arrangement now, edge snapping next.
@@ -291,11 +291,13 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
+| P-241 | Inline Port Compact Block | Inline ports in the message stream render as a compact block (icon + title) rather than a full-width live webview. Click to expand inline or pop out. Reduces visual noise when scrolling through chat. | High | Inline port shows as a small titled block, not a full webview |
 | P-210 | Close to Preview | Closing a popped-out port collapses it back to a compact code block preview with title + "reopen" button. Not destructive. | High | Close shows preview, click reopens the port |
 | P-211 | Inline Port Update | Companion sends updated port that replaces the existing inline port in the same message, not a new message. Running popped-out version also updates. | High | "Change the chart to weekly" updates the live port in place |
 | P-209 | Port Channel Context | Ports pin to origin channel by default. `port42.channel.follow(true/false)` lets port choose. Affects what `port42.channel.current()` and `port42.messages.recent()` return. | High | Port has predictable channel context when user navigates away |
 | P-219 | Port History | Browseable list of all ports created in this session and past sessions. Reopen any port from history without scrolling through chat. Accessible from sidebar or command palette. | High | User can find and reopen any previous port |
 | P-220 | Port Controls | Stop button (kill running port), running indicator (green dot), restart button (re-execute from scratch). Visible in port title bar. | High | User can stop, see status, and restart any port |
+| P-242 | Port Title Attribution | Port title bar shows the port name (from `<title>` tag) and the companion that created it (e.g. "channel pulse · engineer"). Applies to inline blocks, floating panels, and background port list. | High | User can see at a glance what a port is and who made it |
 | P-221 | Port Restart Persistence | Verify and fix ports surviving app restart (P-203 may be broken). Port HTML and state restored on launch. | High | Ports reappear after quit and relaunch |
 
 **Bugs:**
@@ -314,9 +316,11 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
-| P-230 | Edge Snap | Drag a floating port to the edge of the main window. Port snaps to that edge (right, left, bottom). Main content resizes to accommodate. Dragging away returns to floating. | Critical | Port snaps to right edge, chat shrinks |
-| P-231 | Screen Edge Snap | Drag a port to the edge of the screen. Port snaps to that side, main window reduces in size. Same as macOS split view behavior. | High | Port snaps to screen edge like macOS |
-| P-232 | Multi-Port Tiling | Multiple snapped ports split the dock zone vertically (right) or horizontally (bottom). Draggable dividers between them. | High | Two ports snapped right, split vertically |
+| P-230 | ~~Edge Snap~~ | Removed. Replaced by manual window arrangement. Smart tiling (grid snap, edge snap, auto-arrange) deferred to future phase. | ~~Critical~~ | ❌ N/A |
+| P-231 | ~~Screen Edge Snap~~ | Removed. See P-230. | ~~High~~ | ❌ N/A |
+| P-232 | ~~Multi-Port Tiling~~ | Removed. See P-230. | ~~High~~ | ❌ N/A |
+| P-239 | Startup Window Behavior | Main window fills screen on launch. After sign-in, main window and port panels restore to saved positions/sizes. | High | App starts maximized, restores after sign-in |
+| P-240 | Window Sets | Ports associate with channel/swim context. Switching context shows/hides relevant ports. Supersedes P-404 Port Spaces with a grounded design. | Medium | Switch channel, see that channel's ports |
 | P-233 | Always-on-Top | Port can be pinned to float above all other content (including chat). Toggle in port title bar. Persists across restart. | Medium | ✅ Done |
 | P-234 | Background Ports | Minimize to background (hidden but running). Listed in sidebar. Click to restore as floating window. Persists across restart. | Medium | ✅ Done |
 | P-235 | ~~Snap Restore~~ | Superseded. With docking removed, ports are always free-form floating windows with position persistence. | ~~High~~ | ❌ N/A |
@@ -341,7 +345,7 @@ Target: The ouroboros. The fish swims in itself.
 |----|---------|-------------|----------|-----------|
 | P-207 | Cursor States | Green circle default, resizeLeftRight on dock divider, no hand cursor on title bars or drag areas. WKWebView uses its own CSS cursors. | Medium | No stray hand cursors |
 | P-208 | Port UDIDs | Stable unique ID per port. Persists across dock/undock/restart. Accessible via `port42.port.info().id` and `port42.ports.list()`. | Medium | Every port has a stable ID |
-| P-218 | Port Resize Handles | User can drag to resize inline and docked ports. Resize handles on edges/corners. Height clamp still applies for inline. | Medium | User drags port edge to resize |
+| P-218 | Port Resize Handles | User can drag to resize inline and docked ports. Resize handles on edges/corners. Height clamp still applies for inline. | Medium | ✅ Done |
 
 ### Phase 3: Generative Ports
 
@@ -363,8 +367,8 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
-| P-400 | Port Window Management | `port42.ports.list/snap/unsnap/close/arrange` + lifecycle events. Enables "commander" ports that manage other ports and retile layouts. Builds on Phase 2b windowing system. | High | A port can query and rearrange other ports |
-| P-404 | Port Spaces | Virtual canvas larger than the physical screen. Zoom out for bird's eye view of all ports, zoom in to focus. Named spaces per context (e.g. "coding" with terminal + docs, "social" with dashboards). Like macOS Spaces but for ports. `port42.spaces.list/create/switch/current`. | Medium | User can pan/zoom across a larger port canvas |
+| P-400 | Port Window Management | `port42.ports.list/close/arrange/resize/position` + lifecycle events. Enables "commander" ports that manage other ports and retile layouts. | High | A port can query and rearrange other ports |
+| P-404 | ~~Port Spaces~~ | Superseded by P-240 Window Sets. Instead of a virtual canvas, ports associate with channel/swim context. Switching context shows/hides ports. Grounded in actual usage patterns rather than abstract spatial metaphor. | ~~Medium~~ | ❌ Superseded |
 | P-401 | Cross-Channel Reads | `port42.messages.recent(n, channelId?)` and `port42.messages.search(query)` across channels | Medium | Port can read messages from any channel |
 | P-402 | Structured Message Metadata | Extend messages with `model`, `responseTime`, `tokenCount`, `similarity`, `tags` | Medium | Analytics ports can compare companion performance |
 | P-403 | Convergence Detection | `port42.convergence.detect(messages)` with similarity scoring and wave detection | Low | Convergence events surfaced as signal |
@@ -382,7 +386,9 @@ Target: The ouroboros. The fish swims in itself.
 | P-506 | File System | `port42.fs.read(path)` / `.write(path, data)` / `.pick()` — scoped file access. Native file picker for user-chosen paths. Drag-and-drop support. | Medium | ✅ Done |
 | P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
 | P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
-| P-509 | Browser | `port42.browser.*` — headless WKWebView sessions. Open, navigate, capture screenshots, extract text/HTML, execute JS, close. Max 5 concurrent sessions. Non-persistent data stores. `.browser` permission. | High | ✅ Done |
+| P-509 | Browser (Headless) | `port42.browser.*` — headless WKWebView sessions. Open, navigate, capture screenshots, extract text/HTML, execute JS, close. Max 5 concurrent sessions. Non-persistent data stores. `.browser` permission. | High | ✅ Done |
+| P-510 | Browser (Visible) | `port42.browser.open(url, { visible: true })` opens a navigable WKWebView panel (no sandbox, no CSP). User can browse and interact with the page directly. Companion can still observe/control via bridge (screenshot, extract, navigate, execute JS). Shared cookie/session state between visible and headless sessions. | High | Pending |
+| P-511 | Browser Auth / OAuth | Shared authentication system for browser sessions. User authenticates once (Google, Microsoft, Slack, GitHub, etc.) and sessions share that auth state. OAuth flow management with token storage in Keychain. Companions can request auth for specific services. | High | Pending |
 
 ### Phase 6: System Integration APIs
 
@@ -671,28 +677,34 @@ port42.ports
 Enables "commander" ports that manage other ports. Prior art: CLI/gateway era
 window tracker + "window commander" tool for dynamic terminal retiling.
 
-### P-404: Port Spaces
+### ~~P-404: Port Spaces~~ → Superseded by P-240: Window Sets
+
+The virtual canvas concept is superseded by **Window Sets** (P-240), which ties
+port visibility to the channel or swim context. When you switch channels, the
+ports associated with that channel appear and others hide. This is grounded in
+how people actually use Port42 rather than introducing a new spatial metaphor.
+
+Future API (P-240):
 
 ```
-port42.spaces
-  .list()                → [{ id, name, ports: [portId] }]
-  .create(name)          → { id, name } — create a named space
-  .switch(id)            → switch to a space (shows its ports, hides others)
-  .current()             → current space info
-  .assign(portId, spaceId) → move a port to a space
+port42.windowSet
+  .current()             → { contextId, contextType, ports: [portId] }
+  .list()                → [{ contextId, contextType, ports: [portId] }]
 ```
 
-Virtual canvas that extends beyond the physical screen. The app becomes a
+~~Original P-404 spec preserved for reference:~~
+
+~~Virtual canvas that extends beyond the physical screen. The app becomes a
 viewport into a larger workspace. Zoom out to see all ports at once (bird's
 eye), zoom in to focus on one. Named spaces group ports by context, like
-"coding" (terminal + docs + debugger) vs "social" (dashboards + chat).
+"coding" (terminal + docs + debugger) vs "social" (dashboards + chat).~~
 
-Native implementation: NSScrollView or custom pan/zoom layer hosting all
+~~Native implementation: NSScrollView or custom pan/zoom layer hosting all
 port panels. Spaces are saved layouts with port positions and sizes.
 Switching spaces shows/hides the relevant set of ports. Keyboard shortcut
-for space switching (Ctrl+1/2/3 like macOS).
+for space switching (Ctrl+1/2/3 like macOS).~~
 
-### P-500: Terminal
+### P-500: Terminal✅
 
 ```
 port42.terminal
@@ -770,7 +782,7 @@ SCContentFilter(desktopIndependentWindow:) with transparent background.
 AI vision: combine with `port42.ai.complete(prompt, { images: [screenshot.image] })`
 to have AI analyze what's on screen.
 
-### P-505: Clipboard
+### P-505: Clipboard✅
 
 ```
 port42.clipboard
@@ -780,7 +792,7 @@ port42.clipboard
   .on('change', cb)          → clipboard changed notification
 ```
 
-### P-506: File System
+### P-506: File System✅
 
 ```
 port42.fs
@@ -1080,3 +1092,4 @@ External agents are untrusted by default. Separate trust tier from local compani
 | Browser | Prompted | Yes | Yes |
 
 External agents bring their own AI. They don't consume the user's Port42 API tokens. They can create ports and use the browser bridge (for rendering), but system-level capabilities require explicit user escalation.
+

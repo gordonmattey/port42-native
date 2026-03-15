@@ -213,7 +213,7 @@ public struct ConversationContent: View {
     /// Cached to avoid scanning all entries on every body evaluation (keystroke)
     private func recomputeActivePortIDs() {
         let portEntries = entries.filter { $0.containsPort }
-        let recent = portEntries.suffix(3)
+        let recent = portEntries.suffix(1)
         cachedActivePortIDs = Set(recent.map { $0.id })
         lastEntryCount = entries.count
     }
@@ -714,27 +714,25 @@ struct MessageRow: View, Equatable {
                         if portIsActive || portActivatedManually {
                             InlinePortView(html: portHTML, appState: appState, messageId: entry.id, createdBy: entry.senderName)
                         } else {
-                            // Collapsed port (older than last 3)
-                            Button {
-                                portActivatedManually = true
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 10))
-                                    Text("run port")
-                                        .font(Port42Theme.mono(11))
+                            // Compact port block (icon + title + creator)
+                            PortCompactBlock(
+                                html: portHTML,
+                                createdBy: entry.senderName,
+                                onRun: { portActivatedManually = true },
+                                onPopOut: {
+                                    guard let window = NSApp.keyWindow else { return }
+                                    let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+                                    let bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: entry.id, createdBy: entry.senderName)
+                                    appState.portWindows.popOut(
+                                        html: portHTML,
+                                        bridge: bridge,
+                                        channelId: appState.currentChannel?.id,
+                                        createdBy: entry.senderName,
+                                        messageId: entry.id,
+                                        in: bounds
+                                    )
                                 }
-                                .foregroundColor(Port42Theme.accent)
-                                .padding(8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Port42Theme.bgSecondary)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Port42Theme.border, lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
+                            )
                         }
                         if let after = entry.textAfterPort {
                             Text(after)
@@ -751,6 +749,9 @@ struct MessageRow: View, Equatable {
                 }
             }
         }
+        .onChange(of: portIsActive) { _, isActive in
+            if !isActive { portActivatedManually = false }
+        }
     }
 }
 
@@ -763,6 +764,7 @@ struct InlinePortView: View {
     let createdBy: String?
     @State private var height: CGFloat = 100
     @State private var showCode = false
+    @State private var restartToken = UUID()
     @StateObject var bridge: PortBridge
 
     init(html: String, appState: AppState, messageId: String? = nil, createdBy: String? = nil) {
@@ -777,26 +779,65 @@ struct InlinePortView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Title bar (matches docked/floating style)
             HStack(spacing: 8) {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 6))
+                Image(systemName: "circle")
+                    .font(.system(size: 8))
                     .foregroundStyle(Port42Theme.accent)
                 Text(PortPanel.extractTitle(from: html))
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
                     .lineLimit(1)
+                if let creator = createdBy {
+                    Text("·")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Text(creator)
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .lineLimit(1)
+                }
                 Spacer()
 
-                Button(action: { showCode.toggle() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
+                if showCode {
+                    Button(action: { showCode = false }) {
+                        Image(systemName: "play.fill")
                             .font(.system(size: 10))
-                        Text(showCode ? "Run" : "Source")
-                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.accent)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
-                    .foregroundStyle(Port42Theme.accent)
+                    .buttonStyle(.plain)
+                    .help("Run port")
+                } else {
+                    Button(action: { showCode = true }) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop")
+
+                    Button(action: restart) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Restart")
+
+                    Button(action: { showCode = true }) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("View source")
                 }
-                .buttonStyle(.plain)
-                .help(showCode ? "Run port" : "View source")
 
                 Button(action: popOut) {
                     Image(systemName: "macwindow")
@@ -824,6 +865,7 @@ struct InlinePortView: View {
             } else {
                 PortView(html: html, bridge: bridge, height: $height)
                     .frame(height: max(height, 100))
+                    .id(restartToken)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -843,6 +885,10 @@ struct InlinePortView: View {
         }
     }
 
+    private func restart() {
+        restartToken = UUID()
+    }
+
     private func popOut() {
         guard let window = NSApp.keyWindow else { return }
         let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
@@ -853,6 +899,68 @@ struct InlinePortView: View {
             createdBy: createdBy,
             messageId: messageId,
             in: bounds
+        )
+    }
+}
+
+// MARK: - Port Compact Block
+
+/// Collapsed port shown as a small block with icon, title, and creator name.
+/// Click to expand inline or pop out to a floating window.
+struct PortCompactBlock: View {
+    let html: String
+    let createdBy: String?
+    let onRun: () -> Void
+    let onPopOut: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image("port42-logo", bundle: Bundle.port42)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 32, height: 32)
+
+            Text(PortPanel.extractTitle(from: html))
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .lineLimit(1)
+
+            if let creator = createdBy {
+                Text(creator)
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 12) {
+                Button(action: onRun) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.accent)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Run port")
+
+                Button(action: onPopOut) {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Pop out")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Port42Theme.bgSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Port42Theme.border, lineWidth: 1)
         )
     }
 }

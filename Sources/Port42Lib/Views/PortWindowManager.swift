@@ -303,6 +303,27 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port restored from background: %@", panels[idx].title)
     }
 
+    /// Stop a port by destroying its webview (keeps window open).
+    public func stop(_ id: String) {
+        guard panels.contains(where: { $0.id == id }) else { return }
+        destroyWebView(id)
+        if let window = windows[id], let panel = panels.first(where: { $0.id == id }) {
+            updateWindowContent(window, panel: panel)
+        }
+        NSLog("[Port42] Port stopped: %@", panels.first(where: { $0.id == id })?.title ?? id)
+    }
+
+    /// Restart a port by reloading its HTML content.
+    public func restart(_ id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        destroyWebView(id)
+        createPortWebView(for: panels[idx])
+        if let window = windows[id] {
+            updateWindowContent(window, panel: panels[idx])
+        }
+        NSLog("[Port42] Port restarted: %@", panels[idx].title)
+    }
+
     /// Bring a floating panel to front and make it key.
     public func bringToFront(_ id: String) {
         windows[id]?.makeKeyAndOrderFront(nil)
@@ -394,7 +415,7 @@ public final class PortWindowManager: ObservableObject {
         window.level = panel.isAlwaysOnTop ? .floating : .normal
         window.isReleasedWhenClosed = false
         window.animationBehavior = .utilityWindow
-        window.minSize = NSSize(width: 200, height: 150)
+        window.minSize = NSSize(width: 100, height: 50)
         window.backgroundColor = NSColor(Port42Theme.bgPrimary)
 
         let panelId = panel.id
@@ -705,6 +726,7 @@ struct PortPanelContentView: View {
             }
         }
         .background(Port42Theme.bgPrimary)
+        .ignoresSafeArea()
         .onReceive(panel.bridge.$pendingPermission) { perm in
             pendingPerm = perm
         }
@@ -787,31 +809,71 @@ struct PortPanelTitleBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Draggable title area
+            // Draggable title area (padded to clear macOS traffic light buttons)
             HStack(spacing: 8) {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 6))
+                Image(systemName: "circle")
+                    .font(.system(size: 8))
                     .foregroundStyle(Port42Theme.accent)
+                    .padding(.leading, 60)
                 Text(panel.title)
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
                     .lineLimit(1)
+                if let creator = panel.createdBy {
+                    Text("·")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Text(creator)
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .lineLimit(1)
+                }
                 Spacer()
             }
             .background(PortDragArea())
 
-            // Buttons (not draggable)
-            Button(action: { showCode.toggle() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: showCode ? "play.fill" : "chevron.left.forwardslash.chevron.right")
+            // Buttons (not draggable) — mode-dependent
+            if showCode {
+                Button(action: { showCode = false }) {
+                    Image(systemName: "play.fill")
                         .font(.system(size: 10))
-                    Text(showCode ? "Run" : "Source")
-                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.accent)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
-                .foregroundStyle(Port42Theme.accent)
+                .buttonStyle(.plain)
+                .help("Run port")
+            } else {
+                Button(action: { showCode = true }) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Stop")
+
+                Button(action: { manager.restart(panel.id) }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Restart")
+
+                Button(action: { showCode = true }) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("View source")
             }
-            .buttonStyle(.plain)
-            .help(showCode ? "Run port" : "View source")
 
             Button(action: { manager.toggleAlwaysOnTop(panel.id) }) {
                 Image(systemName: panel.isAlwaysOnTop ? "pin.fill" : "pin")
@@ -844,7 +906,8 @@ struct PortPanelTitleBar: View {
             .help("Close")
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.top, 3)
+        .padding(.bottom, 6)
         .background(Port42Theme.bgSecondary)
     }
 }

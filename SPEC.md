@@ -60,6 +60,24 @@ F-301: Type and send first message (local only)
 
 Target: Under 30 seconds from open to first message.
 
+### Flow 1b: Meet Your First Companion
+
+```
+Boot sequence completes -->
+Echo (default companion) greets you in a swim session -->
+Echo shows you a port (your first live interactive surface) -->
+Echo introduces what companions can do -->
+User is offered the builder swarm: engineer, muse, analyst, sage, etc. -->
+User picks which companions to add (or skips) -->
+Selected companions appear in sidebar, ready to help build your Port42 experience
+```
+
+The template companions exist to help you build Port42 into what you need.
+They're not generic assistants. They're the construction crew for your
+custom environment. You can always add more later or remove ones you don't use.
+
+Target: First port seen within 60 seconds. Swarm optional, zero pressure.
+
 ### Flow 2: Add an LLM Agent
 
 ```
@@ -172,6 +190,8 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-100 | Identity Generation | Generate Ed25519 key pair on first launch, store in macOS Keychain. Identity is the key pair, no accounts. | Key pair generated, stored, and retrievable across app restarts | M1 | **Done** |
 | F-101 | Profile Setup | Set display name and optional avatar image. Stored locally. | Name and avatar display in sidebar and on sent messages | M1 | **Done** |
 | F-102 | Default Channel | Create a local #general channel on first launch with a welcome message. | App opens to a usable chat on first run | M1 | **Done** |
+| F-103 | First Companion (Echo) | After setup, user swims into Echo automatically. Echo greets them and introduces what companions can do. Future: Echo shows a port as part of the intro. | New user meets their first companion within 60 seconds of setup | | **Done** |
+| F-104 | Builder Swarm Onboarding | After meeting Echo, user is offered a set of template companions (engineer, muse, analyst, sage, etc.) designed to help build their custom Port42 experience. User picks which to add or skips. | Selected companions appear in sidebar ready to use | | |
 
 ### Sidebar & Navigation
 
@@ -193,6 +213,10 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-304 | Message Status | Sent, delivered, read indicators (checkmarks or similar). | Status updates as relay confirms delivery and recipient reads | M3 | **Done** |
 | F-305 | Typing Indicators | Show "Name is typing..." when another user is composing. | Typing state broadcasts and displays within 500ms | M3 | **Done** |
 | F-306 | /Commands | Support /swarm and extensible command registry. | Commands parse and route to appropriate handlers | M8 | |
+| F-307 | Text Search (Cmd+F) | Search message content in the current channel/swim. Overlay with search input, result count, next/previous navigation. Jump to matching message in the scroll view. | Search finds text, arrows navigate results, scroll jumps to match | | |
+| F-308 | Quick Switcher Search | Extend Cmd+K Quick Switcher to also search message content alongside channels/companions/friends. Results show message snippet with context. Select to jump to that message. | Cmd+K shows message matches with snippets | | |
+| F-309 | Copy Message | Copy a single message's content to the clipboard. Right-click context menu or button on hover. | User can copy any message text | | |
+| F-310 | Forward Message | Forward a message or companion response to another channel or swim. Pick destination from channel/swim list. Message appears with attribution ("forwarded from #channel by @user"). | Message appears in target with forwarded attribution | | |
 
 ### BYOA (Bring Your Own Agent)
 
@@ -200,6 +224,8 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 |----|---------|-------------|-----------|-----------|--------|
 | F-400 | Agent Config UI | Settings > Agents > Add. Two modes: LLM (name + system prompt + provider + model) and Command (name + command path + args + env). Channels and trigger mode for both. | User can configure and save an agent | M2 | **Done** |
 | F-401 | LLM Agent Engine | Port42 calls LLM API directly with channel context as conversation history and agent's system prompt. Supports Anthropic (Claude). Streams tokens to chat as they arrive. No subprocess needed. | @mention triggers streaming API call, tokens appear live in chat | M2 | **Done** |
+| F-409 | Multi-Provider LLM Support | Support LLM providers beyond Anthropic: OpenAI, Google (Gemini), Mistral, Ollama (local), OpenRouter, etc. Provider-specific API adapters behind a common streaming interface. User picks provider + model per companion. | Companion can use GPT-4, Gemini, local Llama, etc. | | |
+| F-410 | Token Usage Tracking | Track token consumption per companion, per channel, per provider. Store in SQLite. Surface usage in companion settings and a usage dashboard. Input/output tokens, estimated percentage of subscription cap used (e.g. Claude Pro/Max usage limits), API cost for pay-per-token plans. Helps users understand how much of their subscription they're burning through companions. | User can see token usage per companion and how much of their subscription cap is consumed | | |
 | F-402 | Agent Sidebar Presence | Agents appear in COMPANIONS sidebar section with status indicator. Bot badge on messages. | Agents visible in sidebar with correct status | M2 | **Done** |
 | F-403 | Agent Message Routing | Detect @mentions in messages. Route to correct agent based on name. Build context from recent channel history (configurable window, default 50 messages). Respect trigger mode (mention-only vs all-messages). | Agent receives mention, responds, response appears in chat | M2 | **Done** |
 | F-404 | Agent Response Display | Agent messages appear in chat with bot badge, teal styling, "(via OwnerName)" attribution. | Agent messages visually distinct from human messages | M2 | **Done** |
@@ -667,7 +693,6 @@ work, everything documented.
 - Message editing after send
 - Message deletion
 - Reactions / emoji responses
-- Search across messages
 - User profiles beyond name and avatar
 - Admin / moderation tools
 - Public channel discovery
