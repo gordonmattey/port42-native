@@ -400,6 +400,8 @@ Target: The ouroboros. The fish swims in itself.
 | P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
 | P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
 | P-509 | Browser (Headless) | `port42.browser.*` — headless WKWebView sessions. Open, navigate, capture screenshots, extract text/HTML, execute JS, close. Max 5 concurrent sessions. Non-persistent data stores. `.browser` permission. | High | ✅ Done |
+| P-512 | Named Terminals | Terminal sessions can be registered with a name (e.g. "claude-code"). Any companion or port can send input to a named terminal via `terminal_send(name, data)`. Enables companions to push prompts into a running Claude Code session from chat. Sessions stored in a shared registry on AppState, accessible from both ports (JS) and tool use (conversation). | High | Pending |
+| P-513 | Terminal Output Bridge | Terminal output from a named session is parsed, ANSI-stripped, and meaningful content is posted to the channel as system messages. Companions can react to what Claude Code is doing without copy-pasting. Signal extractor filters TUI chrome (cursor moves, redraws) and surfaces file edits, tool calls, completions, and response text. | High | Pending |
 | P-510 | Browser (Visible) | `port42.browser.open(url, { visible: true })` opens a navigable WKWebView panel (no sandbox, no CSP). User can browse and interact with the page directly. Companion can still observe/control via bridge (screenshot, extract, navigate, execute JS). Shared cookie/session state between visible and headless sessions. | High | Pending |
 | P-511 | Browser Auth / OAuth | Shared authentication system for browser sessions. User authenticates once (Google, Microsoft, Slack, GitHub, etc.) and sessions share that auth state. OAuth flow management with token storage in Keychain. Companions can request auth for specific services. | High | Pending |
 
@@ -737,6 +739,64 @@ or a minimal terminal emulator in the webview.
 Permission: First `spawn()` call shows "This port wants to run terminal
 commands. Allow?" Approved per port session. Combined with Bridge AI,
 a companion can run commands and reason about the output autonomously.
+
+### P-512: Named Terminals
+
+```
+port42.terminal
+  .spawn(opts?)              → { sessionId } — opts gains `name?` field
+                               name: "claude-code" — registers in shared registry
+  .list()                    → [{ sessionId, name?, pid, isRunning }]
+  .send(name, data)          → send stdin by name (not just sessionId)
+  .get(name)                 → { sessionId, pid, isRunning } — lookup by name
+```
+
+Terminal sessions move from per-PortBridge to a shared registry on AppState.
+Any companion or port can interact with any named terminal. This enables:
+
+- Port spawns Claude Code terminal, registers as "claude-code"
+- Companion in chat calls `terminal_send(name: "claude-code", data: "fix the auth bug\n")`
+- Claude Code receives the prompt and starts working
+- Another companion watching the output can react
+
+Tool use additions:
+- `terminal_send` — send data to a named terminal session
+- `terminal_list` — list all active terminal sessions
+- `terminal_get` — get session info by name
+
+### P-513: Terminal Output Bridge
+
+```
+port42.terminal
+  .bridge(sessionId, opts?)  → start bridging output to channel
+                               opts: { channelId?, filter?: "smart"|"all"|"none" }
+  .unbridge(sessionId)       → stop bridging
+```
+
+Two streams:
+
+**Terminal → Channel:**
+1. Raw PTY output passes through an ANSI stripper (remove escape sequences,
+   cursor movements, color codes, screen redraws)
+2. Signal extractor identifies meaningful content:
+   - File edits: "wrote Sources/Port42Lib/..." → post to channel
+   - Tool calls: "Running terminal command..." → post to channel
+   - Response text: the actual assistant response → post to channel
+   - Filters out: thinking indicators, progress bars, TUI chrome
+3. Extracted signals posted to channel as system messages with terminal attribution
+
+**Channel → Terminal:**
+Already works via `terminal.send()` / `terminal_send` tool. Companions or
+humans type in the channel, message routes to the terminal's stdin.
+
+Signal extraction patterns (Claude Code specific):
+- Lines starting with `⏺` are tool headers
+- Lines between `⎿` markers are tool output
+- Markdown-formatted text blocks are the response
+- ANSI color sequences indicate status (green = success, red = error)
+
+Smart filter mode skips redundant output (repeated status lines, cursor
+repositioning, blank redraws) and only surfaces state changes.
 
 ### P-501/P-502: Audio
 
