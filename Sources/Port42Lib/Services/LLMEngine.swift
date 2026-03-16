@@ -6,14 +6,14 @@ public protocol LLMStreamDelegate: AnyObject {
     func llmDidReceiveToken(_ token: String)
     func llmDidFinish(fullResponse: String)
     func llmDidError(_ error: Error)
-    /// Called when the model wants to use a tool. Implementer should execute the tool
-    /// and call `continueWithToolResult` on the engine.
-    func llmDidRequestToolUse(id: String, name: String, input: [String: Any])
+    /// Called when the model wants to use tools. Implementer should execute all tools
+    /// and call `continueWithToolResults` on the engine.
+    func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])])
 }
 
 /// Default implementation so existing delegates don't break.
 public extension LLMStreamDelegate {
-    func llmDidRequestToolUse(id: String, name: String, input: [String: Any]) {}
+    func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])]) {}
 }
 
 // MARK: - Errors
@@ -57,6 +57,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     /// Needed to reconstruct the assistant message for tool result continuation.
     private(set) var assistantContentBlocks: [[String: Any]] = []
     private var stopReason: String?
+    private var isContinuation = false
 
     public init(authResolver: AgentAuthResolver = .shared) {
         self.authResolver = authResolver
@@ -90,7 +91,9 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
 
         self.delegate = delegate
         self.buffer = ""
-        self.fullResponse = ""
+        if !isContinuation {
+            self.fullResponse = ""
+        }
         self.hasRetriedAuth = false
         self.lastSendArgs = (messages, systemPrompt, model, maxTokens, authConfig, tools)
         self.currentToolUseId = nil
@@ -99,6 +102,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         self.pendingToolCalls = []
         self.assistantContentBlocks = []
         self.stopReason = nil
+        self.isContinuation = false
 
         // Build request body
         // OAuth requires the system prompt to be an array
@@ -124,6 +128,11 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
+        if let debugStr = String(data: jsonData, encoding: .utf8) {
+            let msgCount = (messages as? [[String: Any]])?.count ?? 0
+            let hasTools = tools != nil
+            NSLog("[Port42] LLM request: %d messages, tools=%@, body=%@", msgCount, hasTools ? "yes" : "no", String(debugStr.prefix(1000)))
+        }
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -148,11 +157,10 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         currentTask?.resume()
     }
 
-    /// Continue the conversation after a tool result.
-    /// Called by the delegate after executing a tool.
-    public func continueWithToolResult(
-        toolUseId: String,
-        result: [[String: Any]],
+    /// Continue the conversation after tool execution.
+    /// Called by the delegate after executing all tools.
+    public func continueWithToolResults(
+        results: [(toolUseId: String, content: [[String: Any]])],
         messages: [[String: Any]],
         systemPrompt: String,
         model: String,
@@ -160,25 +168,37 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         authConfig: AgentAuthConfig?,
         tools: [[String: Any]]?
     ) throws {
+        // Save content blocks accumulated during streaming (before send() resets them)
+        let previousBlocks = assistantContentBlocks
+
         // Build the full message history:
-        // original messages + assistant message (with tool_use) + user message (with tool_result)
+        // original messages + assistant message (with tool_use blocks) + user message (with all tool_results)
         var allMessages = messages
 
         // Add the assistant message with accumulated content blocks
-        allMessages.append(["role": "assistant", "content": assistantContentBlocks])
+        allMessages.append(["role": "assistant", "content": previousBlocks])
 
-        // Add the tool result as a user message
+        // Add all tool results in a single user message
+        var toolResultBlocks: [[String: Any]] = []
+        for result in results {
+            let toolResultContent: Any
+            if result.content.count == 1, let first = result.content.first, first["type"] as? String == "text" {
+                toolResultContent = first["text"] as? String ?? ""
+            } else {
+                toolResultContent = result.content
+            }
+            toolResultBlocks.append([
+                "type": "tool_result",
+                "tool_use_id": result.toolUseId,
+                "content": toolResultContent
+            ])
+        }
         allMessages.append([
             "role": "user",
-            "content": [
-                [
-                    "type": "tool_result",
-                    "tool_use_id": toolUseId,
-                    "content": result
-                ] as [String: Any]
-            ]
-        ])
+            "content": toolResultBlocks
+        ] as [String: Any])
 
+        isContinuation = true
         try send(
             messages: allMessages,
             systemPrompt: systemPrompt,
@@ -240,6 +260,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
                 return
             }
             let errorMsg = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
+            NSLog("[Port42] LLM HTTP %d error: %@", http.statusCode, String(errorMsg.prefix(500)))
             DispatchQueue.main.async { [weak self] in
                 if http.statusCode == 401 {
                     self?.delegate?.llmDidError(LLMEngineError.authExpired)
@@ -265,9 +286,10 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if self.stopReason == "tool_use", let call = self.pendingToolCalls.last {
-                    NSLog("[Port42] Tool use requested: %@ with input %@", call.name, String(describing: call.input))
-                    self.delegate?.llmDidRequestToolUse(id: call.id, name: call.name, input: call.input)
+                if self.stopReason == "tool_use", !self.pendingToolCalls.isEmpty {
+                    let calls = self.pendingToolCalls.map { (id: $0.id, name: $0.name, input: $0.input) }
+                    NSLog("[Port42] Tool use requested: %d calls (%@)", calls.count, calls.map(\.name).joined(separator: ", "))
+                    self.delegate?.llmDidRequestToolUse(calls: calls)
                 } else {
                     self.delegate?.llmDidFinish(fullResponse: self.fullResponse)
                 }

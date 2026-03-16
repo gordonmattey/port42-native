@@ -393,23 +393,26 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         }
     }
 
-    nonisolated func llmDidRequestToolUse(id: String, name: String, input: [String: Any]) {
-        NSLog("[Port42] Tool use requested: %@ (id=%@)", name, id)
+    nonisolated func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])]) {
+        NSLog("[Port42] Tool use requested: %d calls (%@)", calls.count, calls.map(\.name).joined(separator: ", "))
         Task { @MainActor in
             guard let toolExecutor = self.toolExecutor else {
                 NSLog("[Port42] No tool executor available")
                 return
             }
 
-            // Execute the tool
-            let result = await toolExecutor.execute(name: name, input: input)
-            NSLog("[Port42] Tool %@ executed, result blocks: %d", name, result.count)
+            // Execute all tools
+            var results: [(toolUseId: String, content: [[String: Any]])] = []
+            for call in calls {
+                let result = await toolExecutor.execute(name: call.name, input: call.input)
+                NSLog("[Port42] Tool %@ executed, result blocks: %d", call.name, result.count)
+                results.append((toolUseId: call.id, content: result))
+            }
 
-            // Continue the conversation with the tool result
+            // Continue the conversation with all tool results
             do {
-                try self.engine.continueWithToolResult(
-                    toolUseId: id,
-                    result: result,
+                try self.engine.continueWithToolResults(
+                    results: results,
                     messages: self.savedMessages,
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,

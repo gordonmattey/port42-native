@@ -188,21 +188,24 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         }
     }
 
-    nonisolated public func llmDidRequestToolUse(id: String, name: String, input: [String: Any]) {
-        p42log("[Port42] Swim tool use requested: \(name)")
+    nonisolated public func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])]) {
+        p42log("[Port42] Swim tool use requested: \(calls.count) calls (\(calls.map(\.name).joined(separator: ", ")))")
         Task { @MainActor in
             guard let toolExecutor else {
                 p42log("[Port42] No tool executor for swim session")
                 return
             }
 
-            let result = await toolExecutor.execute(name: name, input: input)
-            p42log("[Port42] Swim tool \(name) executed, result blocks: \(result.count)")
+            var results: [(toolUseId: String, content: [[String: Any]])] = []
+            for call in calls {
+                let result = await toolExecutor.execute(name: call.name, input: call.input)
+                p42log("[Port42] Swim tool \(call.name) executed, result blocks: \(result.count)")
+                results.append((toolUseId: call.id, content: result))
+            }
 
             do {
-                try self.engine.continueWithToolResult(
-                    toolUseId: id,
-                    result: result,
+                try self.engine.continueWithToolResults(
+                    results: results,
                     messages: self.savedApiMessages,
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,
