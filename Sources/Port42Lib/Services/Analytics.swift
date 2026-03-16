@@ -52,6 +52,8 @@ public final class Analytics {
         config.captureScreenViews = false
         config.captureApplicationLifecycleEvents = false
         config.preloadFeatureFlags = false
+        config.flushAt = 10
+        config.flushIntervalSeconds = 10
         PostHogSDK.shared.setup(config)
         PostHogSDK.shared.identify(userId)
 
