@@ -789,14 +789,21 @@ Two streams:
 Already works via `terminal.send()` / `terminal_send` tool. Companions or
 humans type in the channel, message routes to the terminal's stdin.
 
-Signal extraction patterns (Claude Code specific):
+Works with any CLI tool, not just Claude Code. A `npm run dev` terminal
+bridges build output to the channel. A `docker logs -f` terminal surfaces
+container events. A `vim` session lets companions see what you're editing.
+
+Filter modes:
+- **all**: post every non-empty line (after ANSI strip)
+- **smart** (default): debounce rapid output, skip repeated lines,
+  collapse progress bars, surface state changes
+- **none**: no bridging, manual only via tool use
+
+Claude Code specific patterns (auto-detected when process is `claude`):
 - Lines starting with `⏺` are tool headers
 - Lines between `⎿` markers are tool output
 - Markdown-formatted text blocks are the response
 - ANSI color sequences indicate status (green = success, red = error)
-
-Smart filter mode skips redundant output (repeated status lines, cursor
-repositioning, blank redraws) and only surfaces state changes.
 
 ### P-501/P-502: Audio
 
