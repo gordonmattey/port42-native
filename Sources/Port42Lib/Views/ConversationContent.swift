@@ -1021,9 +1021,9 @@ struct TypingIndicator: View {
             // Only tooling
             let sorted = pureTooling.sorted()
             switch sorted.count {
-            case 1: return "\(sorted[0]) is tooling up"
-            case 2: return "\(sorted[0]) and \(sorted[1]) are tooling up"
-            default: return "\(sorted[0]) and \(sorted.count - 1) others are tooling up"
+            case 1: return "\(sorted[0]) is porting"
+            case 2: return "\(sorted[0]) and \(sorted[1]) are porting"
+            default: return "\(sorted[0]) and \(sorted.count - 1) others are porting"
             }
         } else if pureTooling.isEmpty && !pureTyping.isEmpty {
             // Only typing
@@ -1037,7 +1037,7 @@ struct TypingIndicator: View {
             // Both or overlapping
             let all = allNames
             switch all.count {
-            case 1: return "\(all[0]) is tooling up"
+            case 1: return "\(all[0]) is porting"
             default: return "\(all.count) companions active"
             }
         }
