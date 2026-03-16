@@ -95,6 +95,19 @@ conversation. Not a code block. Not a screenshot. A running thing. HTML/CSS/JS
 rendered in a sandboxed webview, with access to port42 data and AI through the
 port42.* bridge API.
 
+## The Unified API
+
+The port42 bridge API has two surfaces but is one API:
+
+1. **Ports** (JS in webview): `port42.clipboard.read()` called from JavaScript
+2. **Tool use** (LLM conversation): `clipboard_read` called as a tool during chat
+
+Same methods. Same permissions. Same data. A companion can read your clipboard
+from a port or from a conversation. Take a screenshot from a floating panel or
+from a swim. Run a terminal command from an interactive terminal port or by
+asking in chat. The API is the capability layer. The surface is just how you
+access it.
+
 Every companion can open a port. Every port is alive.
 
 ---

@@ -678,6 +678,13 @@ Step 16: Clipboard + files + notifications  → ports move data            ✅
 Step 17: Browser (P-509)                    → ports browse the web       ✅
 Phase 5 (device APIs) ───────────────────────────────────────────────
 
+Step 17b: Tool use (F-411)                → same API via conversation    ✅
+  The port42 bridge API is now also exposed as LLM tool definitions.
+  Same API, two surfaces: JS in webview (ports) and tool use (chat/swim).
+  Companions can clipboard, screenshot, terminal, files, automation
+  directly from conversation without creating a port.
+Unified API ─────────────────────────────────────────────────────────
+
 Step 18: Automation (P-601)                 → ports control other apps    ✅
 Step 19: Accessibility (P-603)              → ports interact with any UI
 Step 20: Spotlight (P-606)                  → ports find files

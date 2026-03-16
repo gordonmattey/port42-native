@@ -48,7 +48,9 @@ port42-native/
       TunnelService.swift    # Ngrok tunnel management
       ChannelInvite.swift    # Invite link generation and parsing (port42:// and HTTPS)
       ChannelCrypto.swift    # AES-256-GCM per-channel encryption
-      LLMEngine.swift        # Claude API streaming for companions
+      LLMEngine.swift        # Claude API streaming with tool use support
+      ToolDefinitions.swift  # port42 bridge APIs as Anthropic tool schemas
+      ToolExecutor.swift     # Executes tool calls against bridge instances
       AgentRouting.swift     # MentionParser + AgentRouter
       AgentAuth.swift        # Claude Code OAuth (Keychain) + API key resolver
       AgentInvite.swift      # port42://agent? invite link generate/parse
@@ -88,6 +90,8 @@ Port42.app/Contents/
 **Gateway** runs as a subprocess inside the app bundle on port 4242. Self-hosted by default, remote gateway supported via UserDefaults "gatewayURL".
 
 **Sync** uses WebSocket protocol: identify -> welcome -> join channels -> message routing. Messages are encrypted with per-channel AES-256-GCM keys before transmission.
+
+**Unified API** The port42 bridge API has two surfaces: JS in webviews (ports) and LLM tool use (chat/swim conversations). Same methods, same permissions. Companions can access clipboard, screenshots, terminal, files, automation, etc. from either surface. `ToolDefinitions.swift` maps bridge methods to Anthropic tool schemas. `ToolExecutor.swift` executes tool calls against bridge instances.
 
 ## Build Commands
 
@@ -178,3 +182,4 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 - **M1 (Local Chat Shell)**: Done
 - **M2 (Companions)**: Done (LLM agents, command agents, channel membership, invite links, Quick Switcher)
 - **M3 (Sync)**: In progress. Done: gateway, WebSocket sync, E2E encryption, typing indicators, remote identity, sender attribution, member list, cross-peer mentions, invite system, channel join tokens. Remaining: presence dots (F-505), relay auth (F-511), join/leave announcements bugfix (F-515), reply threading (F-303), message status (F-304), offline queue (F-504 partial)
+- **Ports**: Done (Phase 1-5). Inline ports, pop-out floating panels, generative ports, device APIs (terminal, audio, camera, screen, clipboard, files, notifications, browser, automation). Unified API: same bridge methods accessible from ports (JS) and conversation (tool use). Compact port blocks with controls.
