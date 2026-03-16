@@ -51,6 +51,22 @@ public enum PortPermission: String, Hashable {
         }
     }
 
+    /// SF Symbol icon name for the permission type.
+    public var iconName: String {
+        switch self {
+        case .ai: return "brain"
+        case .terminal: return "terminal"
+        case .microphone: return "mic"
+        case .camera: return "camera"
+        case .screen: return "rectangle.on.rectangle"
+        case .browser: return "globe"
+        case .clipboard: return "doc.on.clipboard"
+        case .filesystem: return "folder"
+        case .notification: return "bell"
+        case .automation: return "gearshape.2"
+        }
+    }
+
     /// Human-readable title and message for the permission prompt.
     public var permissionDescription: (title: String, message: String) {
         switch self {

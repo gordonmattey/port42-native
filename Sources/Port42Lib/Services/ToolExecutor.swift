@@ -31,11 +31,17 @@ public final class ToolExecutor {
     /// Returns an array of content blocks (text or image).
     func execute(name: String, input: [String: Any]) async -> [[String: Any]] {
         NSLog("[Port42] ToolExecutor: executing %@", name)
-        // TODO: Permission UI not wired yet. Auto-grant for now.
-        // When permission UI is added, check and prompt here.
         if let perm = ToolDefinitions.permission(for: name) {
-            NSLog("[Port42] ToolExecutor: auto-granting %@ permission for %@", perm.rawValue, name)
-            grantedPermissions.insert(perm)
+            if !grantedPermissions.contains(perm) {
+                NSLog("[Port42] ToolExecutor: requesting %@ permission for %@", perm.rawValue, name)
+                let granted = await requestPermission(perm)
+                if !granted {
+                    NSLog("[Port42] ToolExecutor: %@ permission denied for %@", perm.rawValue, name)
+                    return [["type": "text", "text": "Permission denied: \(perm.rawValue)"]]
+                }
+                grantedPermissions.insert(perm)
+                NSLog("[Port42] ToolExecutor: %@ permission granted for %@", perm.rawValue, name)
+            }
         }
 
         do {
@@ -49,6 +55,7 @@ public final class ToolExecutor {
     /// Grant the pending permission (called from UI).
     func grantPermission() {
         pendingPermission = nil
+        appState?.activeToolExecutor = nil
         permissionContinuation?.resume(returning: true)
         permissionContinuation = nil
     }
@@ -56,6 +63,7 @@ public final class ToolExecutor {
     /// Deny the pending permission (called from UI).
     func denyPermission() {
         pendingPermission = nil
+        appState?.activeToolExecutor = nil
         permissionContinuation?.resume(returning: false)
         permissionContinuation = nil
     }
@@ -66,6 +74,8 @@ public final class ToolExecutor {
         return await withCheckedContinuation { continuation in
             self.permissionContinuation = continuation
             self.pendingPermission = perm
+            // Surface to AppState so the UI can show the prompt
+            self.appState?.activeToolExecutor = self
         }
     }
 

@@ -96,6 +96,83 @@ public struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: appState.toastMessage)
+        .overlay {
+            if let executor = appState.activeToolExecutor, let perm = executor.pendingPermission {
+                ToolPermissionOverlay(
+                    permission: perm,
+                    onAllow: { executor.grantPermission() },
+                    onDeny: { executor.denyPermission() }
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Tool Permission Overlay
+
+/// System-level permission prompt for tool use (covers the whole app).
+struct ToolPermissionOverlay: View {
+    let permission: PortPermission
+    let onAllow: () -> Void
+    let onDeny: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Image(systemName: permission.iconName)
+                    .font(.system(size: 28))
+                    .foregroundStyle(Port42Theme.accent)
+
+                Text(permission.permissionDescription.title)
+                    .font(Port42Theme.monoBold(14))
+                    .foregroundStyle(Port42Theme.textPrimary)
+
+                Text(permission.permissionDescription.message)
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    Button(action: onDeny) {
+                        Text("Deny")
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 80, height: 28)
+                            .background(Port42Theme.bgSecondary)
+                            .cornerRadius(6)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Port42Theme.border, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onAllow) {
+                        Text("Allow")
+                            .font(Port42Theme.mono(12))
+                            .fontWeight(.medium)
+                            .foregroundStyle(.black)
+                            .frame(width: 80, height: 28)
+                            .background(Port42Theme.accent)
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Port42Theme.bgPrimary)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Port42Theme.border, lineWidth: 1)
+                    )
+            )
+        }
     }
 }
 

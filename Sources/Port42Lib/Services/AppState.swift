@@ -538,6 +538,9 @@ public final class AppState: ObservableObject {
     /// permission dialog out of the LazyVStack to prevent SwiftUI re-presentation bugs.
     @Published public var activePermissionBridge: PortBridge?
 
+    /// The tool executor currently requesting a permission (for tool use in chat/swim).
+    @Published public var activeToolExecutor: ToolExecutor?
+
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?
