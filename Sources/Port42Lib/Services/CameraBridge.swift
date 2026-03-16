@@ -20,7 +20,7 @@ public final class CameraBridge: NSObject {
     /// Thread-safe state shared with the delegate callback.
     private let frameHandler = FrameHandler()
 
-    public init(bridge: PortBridge) {
+    public init(bridge: PortBridge? = nil) {
         self.bridge = bridge
     }
 

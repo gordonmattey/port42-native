@@ -25,7 +25,7 @@ public final class AudioBridge {
     // Playback state
     private var audioPlayer: AVAudioPlayer?
 
-    public init(bridge: PortBridge) {
+    public init(bridge: PortBridge? = nil) {
         self.bridge = bridge
     }
 

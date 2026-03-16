@@ -23,6 +23,7 @@ private func p42log(_ msg: String) {
 public final class SwimSession: ObservableObject, LLMStreamDelegate {
     @Published public var messages: [SwimMessage] = []
     @Published public var isStreaming = false
+    @Published public var isTooling = false
     @Published public var draft = ""
     @Published public var error: String?
 
@@ -196,12 +197,14 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
                 return
             }
 
+            self.isTooling = true
             var results: [(toolUseId: String, content: [[String: Any]])] = []
             for call in calls {
                 let result = await toolExecutor.execute(name: call.name, input: call.input)
                 p42log("[Port42] Swim tool \(call.name) executed, result blocks: \(result.count)")
                 results.append((toolUseId: call.id, content: result))
             }
+            self.isTooling = false
 
             do {
                 try self.engine.continueWithToolResults(
@@ -296,6 +299,7 @@ public struct SwimView: View {
                 isStreaming: session.isStreaming,
                 error: session.error,
                 typingNames: session.isStreaming ? [session.companion.displayName] : [],
+                toolingNames: session.isTooling ? [session.companion.displayName] : [],
                 channelId: "swim-\(session.companion.id)",
                 onSend: { content in session.send(content) },
                 onStop: { session.stop() },

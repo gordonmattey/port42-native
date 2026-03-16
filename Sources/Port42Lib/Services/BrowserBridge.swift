@@ -17,7 +17,7 @@ public final class BrowserBridge {
     /// Maximum concurrent sessions per port.
     private let maxSessions = 5
 
-    init(bridge: PortBridge) {
+    init(bridge: PortBridge? = nil) {
         self.bridge = bridge
     }
 

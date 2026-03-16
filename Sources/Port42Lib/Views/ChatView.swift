@@ -21,6 +21,7 @@ public struct ChatView: View {
                     typingNames: Array(appState.typingAgentNames.union(
                         appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
                     )),
+                    toolingNames: Array(appState.toolingAgentNames),
                     mentionCandidates: buildMentionCandidates(),
                     localOwner: appState.currentUser?.displayName,
                     channelId: appState.currentChannel?.id,

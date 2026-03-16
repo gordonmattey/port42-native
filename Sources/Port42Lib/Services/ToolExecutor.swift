@@ -21,6 +21,9 @@ public final class ToolExecutor {
     private lazy var fileBridge = FileBridge()
     private lazy var automationBridge = AutomationBridge()
     private lazy var notificationBridge = NotificationBridge()
+    private lazy var browserBridge = BrowserBridge()
+    private lazy var audioBridge = AudioBridge()
+    private lazy var cameraBridge = CameraBridge()
 
     init(appState: AppState, channelId: String?) {
         self.appState = appState
@@ -260,9 +263,39 @@ public final class ToolExecutor {
             let result = await automationBridge.runJXA(source: source, opts: ["timeout": timeout])
             return [textBlock(jsonString(result))]
 
-        // MARK: Browser (not available in tool use yet, needs PortBridge)
-        case "browser_open", "browser_text", "browser_capture", "browser_close":
-            return [textBlock("Browser tools are not yet available in tool use. Create a port to use browser APIs.")]
+        // MARK: Browser
+        case "browser_open":
+            guard let url = input["url"] as? String else {
+                return [textBlock("Error: missing 'url' parameter")]
+            }
+            let result = await browserBridge.open(url: url, opts: [:])
+            return [textBlock(jsonString(result))]
+
+        case "browser_text":
+            guard let sessionId = input["sessionId"] as? String else {
+                return [textBlock("Error: missing 'sessionId' parameter")]
+            }
+            let selector = input["selector"] as? String
+            let opts: [String: Any] = selector.map { ["selector": $0] } ?? [:]
+            let result = await browserBridge.text(sessionId: sessionId, opts: opts)
+            return [textBlock(jsonString(result))]
+
+        case "browser_capture":
+            guard let sessionId = input["sessionId"] as? String else {
+                return [textBlock("Error: missing 'sessionId' parameter")]
+            }
+            let result = await browserBridge.capture(sessionId: sessionId, opts: [:])
+            if let base64 = result["image"] as? String {
+                return [imageBlock(base64: base64, mediaType: "image/png")]
+            }
+            return [textBlock(jsonString(result))]
+
+        case "browser_close":
+            guard let sessionId = input["sessionId"] as? String else {
+                return [textBlock("Error: missing 'sessionId' parameter")]
+            }
+            let result = browserBridge.close(sessionId: sessionId)
+            return [textBlock(jsonString(result))]
 
         // MARK: Notifications
         case "notify_send":
@@ -273,9 +306,15 @@ public final class ToolExecutor {
             let _ = await notificationBridge.send(title: title, body: body, opts: [:])
             return [textBlock(jsonString(["ok": true]))]
 
-        // MARK: Audio (not available in tool use yet, needs PortBridge)
+        // MARK: Audio
         case "audio_speak":
-            return [textBlock("Audio tools are not yet available in tool use. Create a port to use audio APIs.")]
+            guard let text = input["text"] as? String else {
+                return [textBlock("Error: missing 'text' parameter")]
+            }
+            let rate = input["rate"] as? Double
+            let opts: [String: Any] = rate.map { ["rate": $0] } ?? [:]
+            let result = await audioBridge.speak(text: text, opts: opts)
+            return [textBlock(jsonString(result))]
 
         default:
             return [textBlock("Unknown tool: \(name)")]

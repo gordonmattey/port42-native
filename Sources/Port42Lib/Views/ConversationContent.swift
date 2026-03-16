@@ -152,6 +152,7 @@ public struct ConversationContent: View {
     let isStreaming: Bool
     let error: String?
     let typingNames: [String]
+    let toolingNames: [String]
     let mentionCandidates: [MentionSuggestion]
     let localOwner: String?
     let channelId: String?
@@ -183,6 +184,7 @@ public struct ConversationContent: View {
         isStreaming: Bool = false,
         error: String? = nil,
         typingNames: [String] = [],
+        toolingNames: [String] = [],
         mentionCandidates: [MentionSuggestion] = [],
         localOwner: String? = nil,
         channelId: String? = nil,
@@ -198,6 +200,7 @@ public struct ConversationContent: View {
         self.isStreaming = isStreaming
         self.error = error
         self.typingNames = typingNames
+        self.toolingNames = toolingNames
         self.mentionCandidates = mentionCandidates
         self.localOwner = localOwner
         self.channelId = channelId
@@ -251,8 +254,8 @@ public struct ConversationContent: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
 
-                        if !typingNames.isEmpty {
-                            TypingIndicator(names: typingNames)
+                        if !typingNames.isEmpty || !toolingNames.isEmpty {
+                            TypingIndicator(names: typingNames, toolingNames: toolingNames)
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 4)
                         }
@@ -969,19 +972,29 @@ struct PortCompactBlock: View {
 
 struct TypingIndicator: View {
     let names: [String]
+    let toolingNames: [String]
     @State private var dotPhase = 0
+
+    init(names: [String], toolingNames: [String] = []) {
+        self.names = names
+        self.toolingNames = toolingNames
+    }
+
+    private var allNames: [String] {
+        Array(Set(names + toolingNames)).sorted()
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             HStack(spacing: -3) {
-                ForEach(names.prefix(3), id: \.self) { name in
+                ForEach(allNames.prefix(3), id: \.self) { name in
                     Circle()
                         .fill(Port42Theme.agentColor(for: name))
                         .frame(width: 6, height: 6)
                 }
             }
 
-            Text(typingText)
+            Text(statusText)
                 .font(Port42Theme.mono(11))
                 .foregroundStyle(Port42Theme.textSecondary)
 
@@ -998,12 +1011,35 @@ struct TypingIndicator: View {
         .onAppear { animateDots() }
     }
 
-    private var typingText: String {
-        let sorted = names.sorted()
-        switch sorted.count {
-        case 1: return "\(sorted[0]) is typing"
-        case 2: return "\(sorted[0]) and \(sorted[1]) are typing"
-        default: return "\(sorted[0]) and \(sorted.count - 1) others are typing"
+    private var statusText: String {
+        // Names that are only tooling (not also typing)
+        let pureTooling = Set(toolingNames).subtracting(Set(names))
+        // Names that are only typing (not also tooling)
+        let pureTyping = Set(names).subtracting(Set(toolingNames))
+
+        if !pureTooling.isEmpty && pureTyping.isEmpty {
+            // Only tooling
+            let sorted = pureTooling.sorted()
+            switch sorted.count {
+            case 1: return "\(sorted[0]) is tooling up"
+            case 2: return "\(sorted[0]) and \(sorted[1]) are tooling up"
+            default: return "\(sorted[0]) and \(sorted.count - 1) others are tooling up"
+            }
+        } else if pureTooling.isEmpty && !pureTyping.isEmpty {
+            // Only typing
+            let sorted = pureTyping.sorted()
+            switch sorted.count {
+            case 1: return "\(sorted[0]) is typing"
+            case 2: return "\(sorted[0]) and \(sorted[1]) are typing"
+            default: return "\(sorted[0]) and \(sorted.count - 1) others are typing"
+            }
+        } else {
+            // Both or overlapping
+            let all = allNames
+            switch all.count {
+            case 1: return "\(all[0]) is tooling up"
+            default: return "\(all.count) companions active"
+            }
         }
     }
 

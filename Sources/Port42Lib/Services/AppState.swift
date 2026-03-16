@@ -396,10 +396,13 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     nonisolated func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])]) {
         NSLog("[Port42] Tool use requested: %d calls (%@)", calls.count, calls.map(\.name).joined(separator: ", "))
         Task { @MainActor in
-            guard let toolExecutor = self.toolExecutor else {
+            guard let toolExecutor = self.toolExecutor, let appState = self.appState else {
                 NSLog("[Port42] No tool executor available")
                 return
             }
+
+            // Show "tooling up" indicator
+            appState.toolingAgentNames.insert(self.agent.displayName)
 
             // Execute all tools
             var results: [(toolUseId: String, content: [[String: Any]])] = []
@@ -408,6 +411,9 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 NSLog("[Port42] Tool %@ executed, result blocks: %d", call.name, result.count)
                 results.append((toolUseId: call.id, content: result))
             }
+
+            // Clear "tooling up" indicator
+            appState.toolingAgentNames.remove(self.agent.displayName)
 
             // Continue the conversation with all tool results
             do {
@@ -487,6 +493,8 @@ public final class AppState: ObservableObject {
     public var openClawChannel: Channel?
     /// Agent names currently typing in channels (for typing indicators)
     @Published public var typingAgentNames: Set<String> = []
+    /// Agent names currently executing tools (for "tooling up" indicator)
+    @Published public var toolingAgentNames: Set<String> = []
     private var swimSessions: [String: SwimSession] = [:]
     var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
