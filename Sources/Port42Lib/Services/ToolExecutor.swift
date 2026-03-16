@@ -242,7 +242,8 @@ public final class ToolExecutor {
                 let hint = available.isEmpty ? "No ports have active terminals." : "Available: \(available)"
                 return [textBlock("Error: no terminal found for port '\(name)'. \(hint)")]
             }
-            let ok = session.bridge.send(sessionId: session.sessionId, data: data)
+            let processed = ToolExecutor.processEscapes(data)
+            let ok = session.bridge.send(sessionId: session.sessionId, data: processed)
             return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
 
         case "terminal_list":
@@ -387,6 +388,46 @@ public final class ToolExecutor {
         default:
             return [textBlock("Unknown tool: \(name)")]
         }
+    }
+
+    // MARK: - Escape Processing
+
+    /// Process escape sequences in a string so they become real bytes.
+    /// Converts \n, \r, \t, \x03 (ctrl-c), \x04 (ctrl-d), etc.
+    static func processEscapes(_ str: String) -> String {
+        var result = ""
+        var chars = str.makeIterator()
+        while let c = chars.next() {
+            if c == "\\" {
+                guard let next = chars.next() else {
+                    result.append(c)
+                    break
+                }
+                switch next {
+                case "n": result.append("\n")
+                case "r": result.append("\r")
+                case "t": result.append("\t")
+                case "\\": result.append("\\")
+                case "x":
+                    // Parse hex: \x03, \x1b, etc.
+                    var hex = ""
+                    if let h1 = chars.next() { hex.append(h1) }
+                    if let h2 = chars.next() { hex.append(h2) }
+                    if let byte = UInt8(hex, radix: 16) {
+                        result.append(Character(UnicodeScalar(byte)))
+                    } else {
+                        result.append("\\x")
+                        result.append(hex)
+                    }
+                default:
+                    result.append(c)
+                    result.append(next)
+                }
+            } else {
+                result.append(c)
+            }
+        }
+        return result
     }
 
     // MARK: - Helpers

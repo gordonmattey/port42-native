@@ -98,6 +98,11 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         take screenshots, run terminal commands, browse the web, read/write files, and more.
         Use tools naturally when the conversation calls for it. Don't ask permission to use a
         tool, just use it. The user will be prompted to approve device access the first time.
+
+        You can also interact with terminal ports. Use terminal_list to see running terminals,
+        terminal_send to send input to a named terminal (use \\r to submit, e.g. "ls\\r"),
+        and terminal_bridge to stream a terminal's output to this channel. This lets you
+        operate CLI tools like Claude Code, npm, docker, etc. from the conversation.
         </tools>
         """
 
