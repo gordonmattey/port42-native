@@ -25,6 +25,10 @@ public final class ToolExecutor {
     private lazy var audioBridge = AudioBridge()
     private lazy var cameraBridge = CameraBridge()
 
+    /// Terminal bridge state
+    private var bridgedTerminals: Set<String> = []
+    private var outputBatchers: [String: OutputBatcher] = [:]
+
     init(appState: AppState, channelId: String?) {
         self.appState = appState
         self.channelId = channelId
@@ -251,6 +255,47 @@ public final class ToolExecutor {
             }
             return [textBlock(jsonString(list))]
 
+        case "terminal_bridge":
+            guard let name = input["name"] as? String else {
+                return [textBlock("Error: missing 'name' parameter")]
+            }
+            guard let session = appState.portWindows.terminalSession(forPortNamed: name) else {
+                return [textBlock("Error: no terminal found for port '\(name)'")]
+            }
+            let chId = channelId ?? appState.currentChannel?.id ?? ""
+            guard !chId.isEmpty else {
+                return [textBlock("Error: no channel to bridge to")]
+            }
+            // Check if already bridged
+            if bridgedTerminals.contains(name.lowercased()) {
+                return [textBlock("Already bridging '\(name)' to this channel")]
+            }
+            bridgedTerminals.insert(name.lowercased())
+            let portName = name
+            let weakAppState = appState
+            // Add observer that batches and posts output to channel
+            let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState)
+            outputBatchers[name.lowercased()] = batcher
+            session.bridge.session(for: session.sessionId)?.addOutputObserver { rawOutput in
+                Task { @MainActor in
+                    batcher.receive(rawOutput)
+                }
+            }
+            NSLog("[Port42] Terminal bridge started: %@ → channel %@", name, chId)
+            return [textBlock("Bridging '\(name)' output to this channel")]
+
+        case "terminal_unbridge":
+            guard let name = input["name"] as? String else {
+                return [textBlock("Error: missing 'name' parameter")]
+            }
+            let key = name.lowercased()
+            if bridgedTerminals.remove(key) != nil {
+                outputBatchers.removeValue(forKey: key)
+                NSLog("[Port42] Terminal bridge stopped: %@", name)
+                return [textBlock("Stopped bridging '\(name)'")]
+            }
+            return [textBlock("'\(name)' was not being bridged")]
+
         // MARK: Filesystem
         case "file_read":
             guard let path = input["path"] as? String else {
@@ -422,5 +467,92 @@ public final class ToolExecutor {
                 continuation.resume(returning: result.isEmpty ? "(no output)" : result)
             }
         }
+    }
+}
+
+// MARK: - Output Batcher
+
+/// Batches terminal output, strips ANSI, and posts to a channel as system messages.
+@MainActor
+final class OutputBatcher {
+    private let portName: String
+    private let channelId: String
+    private weak var appState: AppState?
+    private var buffer = ""
+    private var flushTimer: Timer?
+    private var lastPosted = ""
+
+    init(portName: String, channelId: String, appState: AppState?) {
+        self.portName = portName
+        self.channelId = channelId
+        self.appState = appState
+    }
+
+    func receive(_ raw: String) {
+        buffer += raw
+        // Debounce: flush after 500ms of quiet
+        flushTimer?.invalidate()
+        flushTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.flush()
+            }
+        }
+        // Force flush if buffer gets large
+        if buffer.count > 4000 {
+            flush()
+        }
+    }
+
+    private func flush() {
+        flushTimer?.invalidate()
+        guard !buffer.isEmpty, let appState else {
+            buffer = ""
+            return
+        }
+
+        let cleaned = OutputBatcher.stripANSI(buffer)
+        buffer = ""
+
+        // Skip empty or whitespace-only output
+        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Skip if identical to last posted (avoids repeated prompts)
+        guard trimmed != lastPosted else { return }
+        lastPosted = trimmed
+
+        // Truncate long output
+        let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n... (truncated)" : trimmed
+
+        // Post as system message
+        let msg = Message(
+            id: UUID().uuidString,
+            channelId: channelId,
+            senderId: "terminal-bridge",
+            senderName: "[\(portName)]",
+            senderType: "system",
+            content: content,
+            timestamp: Date(),
+            replyToId: nil,
+            syncStatus: "local",
+            createdAt: Date()
+        )
+        do {
+            try appState.db.saveMessage(msg)
+        } catch {
+            NSLog("[Port42] Terminal bridge failed to save message: %@", error.localizedDescription)
+        }
+    }
+
+    /// Strip ANSI escape sequences for clean text.
+    static func stripANSI(_ str: String) -> String {
+        guard let regex = try? NSRegularExpression(
+            pattern: "\\x1b(?:\\[[0-9;?]*[a-zA-Z]|\\].*?(?:\\x07|\\x1b\\\\)|[()][0-9A-Za-z]|[>=<]|\\[\\?[0-9;]*[hl])",
+            options: []
+        ) else { return str }
+        let range = NSRange(str.startIndex..., in: str)
+        var result = regex.stringByReplacingMatches(in: str, range: range, withTemplate: "")
+        result = result.replacingOccurrences(of: "\r", with: "")
+        return result
     }
 }

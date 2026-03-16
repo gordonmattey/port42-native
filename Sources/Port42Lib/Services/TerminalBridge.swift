@@ -17,11 +17,18 @@ public final class TerminalBridge {
         let pid: pid_t
         private(set) var isRunning: Bool = true
         private var readThread: Thread?
+        /// Additional output observers (for terminal bridge to channel).
+        private var outputObservers: [(String) -> Void] = []
 
         init(id: String, fd: Int32, pid: pid_t) {
             self.id = id
             self.fileDescriptor = fd
             self.pid = pid
+        }
+
+        /// Add an output observer. Called on the read thread with raw output chunks.
+        func addOutputObserver(_ observer: @escaping (String) -> Void) {
+            outputObservers.append(observer)
         }
 
         /// Start reading output in a background thread. Calls `onOutput` with chunks
@@ -35,12 +42,15 @@ public final class TerminalBridge {
                 while true {
                     let bytesRead = read(self.fileDescriptor, buffer, bufferSize)
                     if bytesRead <= 0 { break }
-                    if let str = String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .utf8) {
-                        onOutput(str)
+                    let str: String
+                    if let utf8 = String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .utf8) {
+                        str = utf8
                     } else {
-                        // Fall back to latin1 for binary-ish output
-                        let str = String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .isoLatin1) ?? ""
-                        onOutput(str)
+                        str = String(bytes: UnsafeBufferPointer(start: buffer, count: bytesRead), encoding: .isoLatin1) ?? ""
+                    }
+                    onOutput(str)
+                    for observer in self.outputObservers {
+                        observer(str)
                     }
                 }
 
@@ -243,5 +253,10 @@ public final class TerminalBridge {
     /// First active session ID, or nil.
     public var firstActiveSessionId: String? {
         sessions.first(where: { $0.value.isRunning })?.key
+    }
+
+    /// Get a session by ID (for adding observers).
+    public func session(for id: String) -> Session? {
+        sessions[id]
     }
 }

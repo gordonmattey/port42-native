@@ -175,6 +175,28 @@ enum ToolDefinitions {
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
+            "name": "terminal_bridge",
+            "description": "Start bridging a port terminal's output to the current channel. Output is ANSI-stripped and posted as messages so companions can see what the terminal is doing.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "The port title/name containing the terminal"]
+                ],
+                "required": ["name"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "terminal_unbridge",
+            "description": "Stop bridging a port terminal's output to the channel.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "The port title/name to stop bridging"]
+                ],
+                "required": ["name"]
+            ] as [String: Any]
+        ],
+        [
             "name": "file_read",
             "description": "Read the contents of a file. Path must have been previously approved by the user via file picker.",
             "input_schema": [
@@ -299,7 +321,7 @@ enum ToolDefinitions {
         switch toolName {
         case "clipboard_read", "clipboard_write": return .clipboard
         case "screen_capture", "screen_windows": return .screen
-        case "terminal_exec", "terminal_send", "terminal_list": return .terminal
+        case "terminal_exec", "terminal_send", "terminal_list", "terminal_bridge", "terminal_unbridge": return .terminal
         case "file_read", "file_write": return .filesystem
         case "run_applescript", "run_jxa": return .automation
         case "browser_open", "browser_text", "browser_capture", "browser_close": return .browser
