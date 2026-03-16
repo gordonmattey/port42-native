@@ -33,6 +33,11 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
     var fileResolver: FileResolver?
     /// Returns the display names of all current companions (for dynamic prompt context)
     var companionNamesProvider: (() -> [String])?
+    /// Tool executor for this swim session (per-companion, per-conversation permissions)
+    var toolExecutor: ToolExecutor?
+    private var savedApiMessages: [[String: Any]] = []
+    private var savedSystemPrompt = ""
+    private var savedModel = ""
 
     public init(companion: AgentConfig, db: DatabaseService? = nil, savedMessages: [SwimMessage] = []) {
         self.companion = companion
@@ -85,11 +90,27 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
             prompt += "\n\n" + portsContext
         }
 
+        prompt += """
+
+        <tools>
+        You have direct access to the user's system through tools. You can read their clipboard,
+        take screenshots, run terminal commands, browse the web, read/write files, and more.
+        Use tools naturally when the conversation calls for it. Don't ask permission to use a
+        tool, just use it. The user will be prompted to approve device access the first time.
+        </tools>
+        """
+
+        // Save context for tool use continuation
+        savedApiMessages = apiMessages
+        savedSystemPrompt = prompt
+        savedModel = companion.model ?? "claude-opus-4-6"
+
         do {
             try engine.send(
                 messages: apiMessages,
                 systemPrompt: prompt,
-                model: companion.model ?? "claude-opus-4-6",
+                model: savedModel,
+                tools: ToolDefinitions.all,
                 delegate: self
             )
             p42log("[Port42] Swim engine.send() succeeded, waiting for stream...")
@@ -164,6 +185,35 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
                 Analytics.shared.portCreated()
             }
             self.persistMessages()
+        }
+    }
+
+    nonisolated public func llmDidRequestToolUse(id: String, name: String, input: [String: Any]) {
+        p42log("[Port42] Swim tool use requested: \(name)")
+        Task { @MainActor in
+            guard let toolExecutor else {
+                p42log("[Port42] No tool executor for swim session")
+                return
+            }
+
+            let result = await toolExecutor.execute(name: name, input: input)
+            p42log("[Port42] Swim tool \(name) executed, result blocks: \(result.count)")
+
+            do {
+                try self.engine.continueWithToolResult(
+                    toolUseId: id,
+                    result: result,
+                    messages: self.savedApiMessages,
+                    systemPrompt: self.savedSystemPrompt,
+                    model: self.savedModel,
+                    maxTokens: 8192,
+                    authConfig: nil,
+                    tools: ToolDefinitions.all
+                )
+            } catch {
+                p42log("[Port42] Swim tool continue error: \(error)")
+                self.llmDidError(error)
+            }
         }
     }
 

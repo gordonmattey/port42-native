@@ -6,6 +6,14 @@ public protocol LLMStreamDelegate: AnyObject {
     func llmDidReceiveToken(_ token: String)
     func llmDidFinish(fullResponse: String)
     func llmDidError(_ error: Error)
+    /// Called when the model wants to use a tool. Implementer should execute the tool
+    /// and call `continueWithToolResult` on the engine.
+    func llmDidRequestToolUse(id: String, name: String, input: [String: Any])
+}
+
+/// Default implementation so existing delegates don't break.
+public extension LLMStreamDelegate {
+    func llmDidRequestToolUse(id: String, name: String, input: [String: Any]) {}
 }
 
 // MARK: - Errors
@@ -38,7 +46,17 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     private var fullResponse = ""
     private var currentTask: URLSessionDataTask?
     private var hasRetriedAuth = false
-    private var lastSendArgs: (messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int, authConfig: AgentAuthConfig?)?
+    private var lastSendArgs: (messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int, authConfig: AgentAuthConfig?, tools: [[String: Any]]?)?
+
+    // Tool use tracking
+    private var currentToolUseId: String?
+    private var currentToolUseName: String?
+    private var currentToolInputJSON = ""
+    private var pendingToolCalls: [(id: String, name: String, input: [String: Any])] = []
+    /// Content blocks accumulated during streaming (text + tool_use).
+    /// Needed to reconstruct the assistant message for tool result continuation.
+    private(set) var assistantContentBlocks: [[String: Any]] = []
+    private var stopReason: String?
 
     public init(authResolver: AgentAuthResolver = .shared) {
         self.authResolver = authResolver
@@ -52,6 +70,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         model: String = "claude-opus-4-6",
         maxTokens: Int = 8192,
         authConfig: AgentAuthConfig? = nil,
+        tools: [[String: Any]]? = nil,
         delegate: LLMStreamDelegate
     ) throws {
         // Clean up any existing session before starting a new one
@@ -73,7 +92,13 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         self.buffer = ""
         self.fullResponse = ""
         self.hasRetriedAuth = false
-        self.lastSendArgs = (messages, systemPrompt, model, maxTokens, authConfig)
+        self.lastSendArgs = (messages, systemPrompt, model, maxTokens, authConfig, tools)
+        self.currentToolUseId = nil
+        self.currentToolUseName = nil
+        self.currentToolInputJSON = ""
+        self.pendingToolCalls = []
+        self.assistantContentBlocks = []
+        self.stopReason = nil
 
         // Build request body
         // OAuth requires the system prompt to be an array
@@ -86,13 +111,17 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             systemValue = systemPrompt
         }
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": maxTokens,
             "stream": true,
             "system": systemValue,
             "messages": messages
         ]
+
+        if let tools, !tools.isEmpty {
+            body["tools"] = tools
+        }
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
 
@@ -117,6 +146,48 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
 
         currentTask = session?.dataTask(with: request)
         currentTask?.resume()
+    }
+
+    /// Continue the conversation after a tool result.
+    /// Called by the delegate after executing a tool.
+    public func continueWithToolResult(
+        toolUseId: String,
+        result: [[String: Any]],
+        messages: [[String: Any]],
+        systemPrompt: String,
+        model: String,
+        maxTokens: Int,
+        authConfig: AgentAuthConfig?,
+        tools: [[String: Any]]?
+    ) throws {
+        // Build the full message history:
+        // original messages + assistant message (with tool_use) + user message (with tool_result)
+        var allMessages = messages
+
+        // Add the assistant message with accumulated content blocks
+        allMessages.append(["role": "assistant", "content": assistantContentBlocks])
+
+        // Add the tool result as a user message
+        allMessages.append([
+            "role": "user",
+            "content": [
+                [
+                    "type": "tool_result",
+                    "tool_use_id": toolUseId,
+                    "content": result
+                ] as [String: Any]
+            ]
+        ])
+
+        try send(
+            messages: allMessages,
+            systemPrompt: systemPrompt,
+            model: model,
+            maxTokens: maxTokens,
+            authConfig: authConfig,
+            tools: tools,
+            delegate: delegate!
+        )
     }
 
     public func cancel() {
@@ -159,6 +230,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
                             model: args.model,
                             maxTokens: args.maxTokens,
                             authConfig: args.authConfig,
+                            tools: args.tools,
                             delegate: del
                         )
                     } catch {
@@ -193,7 +265,12 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.delegate?.llmDidFinish(fullResponse: self.fullResponse)
+                if self.stopReason == "tool_use", let call = self.pendingToolCalls.last {
+                    NSLog("[Port42] Tool use requested: %@ with input %@", call.name, String(describing: call.input))
+                    self.delegate?.llmDidRequestToolUse(id: call.id, name: call.name, input: call.input)
+                } else {
+                    self.delegate?.llmDidFinish(fullResponse: self.fullResponse)
+                }
             }
         }
         self.session = nil
@@ -230,13 +307,70 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         }
 
         switch eventType {
-        case "content_block_delta":
-            if let delta = json["delta"] as? [String: Any],
-               let text = delta["text"] as? String {
-                fullResponse += text
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.llmDidReceiveToken(text)
+        case "content_block_start":
+            if let block = json["content_block"] as? [String: Any],
+               let type = block["type"] as? String {
+                if type == "tool_use" {
+                    currentToolUseId = block["id"] as? String
+                    currentToolUseName = block["name"] as? String
+                    currentToolInputJSON = ""
+                } else if type == "text" {
+                    // Text block starting, nothing special needed
                 }
+            }
+
+        case "content_block_delta":
+            if let delta = json["delta"] as? [String: Any] {
+                if let text = delta["text"] as? String {
+                    // Text delta
+                    fullResponse += text
+                    DispatchQueue.main.async { [weak self] in
+                        self?.delegate?.llmDidReceiveToken(text)
+                    }
+                } else if let partialJSON = delta["partial_json"] as? String {
+                    // Tool use input delta
+                    currentToolInputJSON += partialJSON
+                }
+            }
+
+        case "content_block_stop":
+            if let toolId = currentToolUseId, let toolName = currentToolUseName {
+                // Finalize tool call
+                let input: [String: Any]
+                if let data = currentToolInputJSON.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    input = parsed
+                } else {
+                    input = [:]
+                }
+                pendingToolCalls.append((id: toolId, name: toolName, input: input))
+
+                // Add to assistant content blocks for conversation history
+                assistantContentBlocks.append([
+                    "type": "tool_use",
+                    "id": toolId,
+                    "name": toolName,
+                    "input": input
+                ])
+
+                currentToolUseId = nil
+                currentToolUseName = nil
+                currentToolInputJSON = ""
+            } else if !fullResponse.isEmpty {
+                // Text block stopped, capture it if we have text
+                // Only add if we haven't already added a text block with this content
+                let lastTextBlock = assistantContentBlocks.last(where: { ($0["type"] as? String) == "text" })
+                if lastTextBlock == nil || (lastTextBlock?["text"] as? String) != fullResponse {
+                    // Remove any previous partial text block and add the full one
+                    assistantContentBlocks.removeAll { ($0["type"] as? String) == "text" }
+                    assistantContentBlocks.append(["type": "text", "text": fullResponse])
+                }
+            }
+
+        case "message_delta":
+            if let delta = json["delta"] as? [String: Any],
+               let reason = delta["stop_reason"] as? String {
+                stopReason = reason
             }
 
         case "error":
@@ -248,7 +382,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             }
 
         default:
-            break // message_start, content_block_start, content_block_stop, message_delta, message_stop
+            break // message_start, message_stop
         }
     }
 }

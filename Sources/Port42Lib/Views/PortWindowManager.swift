@@ -411,6 +411,9 @@ public final class PortWindowManager: ObservableObject {
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isMovableByWindowBackground = false
         window.level = panel.isAlwaysOnTop ? .floating : .normal
         window.isReleasedWhenClosed = false
@@ -814,7 +817,6 @@ struct PortPanelTitleBar: View {
                 Image(systemName: "circle")
                     .font(.system(size: 8))
                     .foregroundStyle(Port42Theme.accent)
-                    .padding(.leading, 60)
                 Text(panel.title)
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
@@ -906,8 +908,7 @@ struct PortPanelTitleBar: View {
             .help("Close")
         }
         .padding(.horizontal, 10)
-        .padding(.top, 3)
-        .padding(.bottom, 6)
+        .padding(.vertical, 6)
         .background(Port42Theme.bgSecondary)
     }
 }

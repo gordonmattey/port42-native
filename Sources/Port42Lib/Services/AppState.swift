@@ -108,12 +108,17 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     private weak var appState: AppState?
     private var bufferedContent = ""
     private var isTyping = false
+    private var toolExecutor: ToolExecutor?
+    private var savedMessages: [[String: Any]] = []
+    private var savedSystemPrompt = ""
+    private var savedModel = ""
 
     init(agent: AgentConfig, channelId: String, appState: AppState) {
         self.agent = agent
         self.channelId = channelId
         self.messageId = UUID().uuidString
         self.appState = appState
+        self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId)
     }
 
 
@@ -282,13 +287,26 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             <api_reference>
             \(AppState.portsContext)
             </api_reference>
+
+            <tools>
+            You have direct access to the user's system through tools. You can read their clipboard,
+            take screenshots, run terminal commands, browse the web, read/write files, and more.
+            Use tools naturally when the conversation calls for it. Don't ask permission to use a
+            tool, just use it. The user will be prompted to approve device access the first time.
+            </tools>
             """
+
+        // Save context for tool use continuation
+        savedMessages = cleaned
+        savedSystemPrompt = channelPrompt
+        savedModel = agent.model ?? "claude-opus-4-6"
 
         do {
             try engine.send(
                 messages: cleaned,
                 systemPrompt: channelPrompt,
-                model: agent.model ?? "claude-opus-4-6",
+                model: savedModel,
+                tools: ToolDefinitions.all,
                 delegate: self
             )
         } catch {
@@ -372,6 +390,37 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 NSLog("[Port42] Failed to persist agent message: \(error)")
             }
             appState.activeAgentHandlers.removeValue(forKey: self.messageId)
+        }
+    }
+
+    nonisolated func llmDidRequestToolUse(id: String, name: String, input: [String: Any]) {
+        NSLog("[Port42] Tool use requested: %@ (id=%@)", name, id)
+        Task { @MainActor in
+            guard let toolExecutor = self.toolExecutor else {
+                NSLog("[Port42] No tool executor available")
+                return
+            }
+
+            // Execute the tool
+            let result = await toolExecutor.execute(name: name, input: input)
+            NSLog("[Port42] Tool %@ executed, result blocks: %d", name, result.count)
+
+            // Continue the conversation with the tool result
+            do {
+                try self.engine.continueWithToolResult(
+                    toolUseId: id,
+                    result: result,
+                    messages: self.savedMessages,
+                    systemPrompt: self.savedSystemPrompt,
+                    model: self.savedModel,
+                    maxTokens: 8192,
+                    authConfig: nil,
+                    tools: ToolDefinitions.all
+                )
+            } catch {
+                NSLog("[Port42] Failed to continue after tool use: %@", error.localizedDescription)
+                self.llmDidError(error)
+            }
         }
     }
 
@@ -947,6 +996,7 @@ public final class AppState: ObservableObject {
             // SetupView will trigger the first message after the transition animation.
             let session = SwimSession(companion: companion, db: db)
             session.fileResolver = fileResolver
+            session.toolExecutor = ToolExecutor(appState: self, channelId: nil)
             session.companionNamesProvider = { [weak self] in
                 self?.companions.map(\.displayName) ?? []
             }
@@ -1289,6 +1339,7 @@ public final class AppState: ObservableObject {
             let saved = (try? db.getSwimMessages(companionId: companion.id)) ?? []
             let session = SwimSession(companion: companion, db: db, savedMessages: saved)
             session.fileResolver = fileResolver
+            session.toolExecutor = ToolExecutor(appState: self, channelId: nil)
             session.companionNamesProvider = { [weak self] in
                 self?.companions.map(\.displayName) ?? []
             }
