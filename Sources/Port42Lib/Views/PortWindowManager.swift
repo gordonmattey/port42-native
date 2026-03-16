@@ -329,6 +329,35 @@ public final class PortWindowManager: ObservableObject {
         windows[id]?.makeKeyAndOrderFront(nil)
     }
 
+    // MARK: - Terminal Lookup
+
+    /// Find a port's terminal session by port title (case-insensitive).
+    /// Returns the terminal bridge and first active session ID.
+    public func terminalSession(forPortNamed name: String) -> (bridge: TerminalBridge, sessionId: String)? {
+        let lowered = name.lowercased()
+        for panel in panels {
+            if panel.title.lowercased() == lowered || panel.title.lowercased().contains(lowered) {
+                if let tb = panel.bridge.terminalBridge, let sid = tb.firstActiveSessionId {
+                    return (bridge: tb, sessionId: sid)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// List all ports that have active terminal sessions.
+    public func portsWithTerminals() -> [(name: String, sessionId: String, createdBy: String?)] {
+        var result: [(name: String, sessionId: String, createdBy: String?)] = []
+        for panel in panels {
+            if let tb = panel.bridge.terminalBridge {
+                for sid in tb.activeSessionIds {
+                    result.append((name: panel.title, sessionId: sid, createdBy: panel.createdBy))
+                }
+            }
+        }
+        return result
+    }
+
     // MARK: - WebView Lifecycle
 
     /// Create and configure a WKWebView for a panel. Called once per pop-out.

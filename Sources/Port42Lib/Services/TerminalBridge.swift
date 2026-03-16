@@ -234,4 +234,14 @@ public final class TerminalBridge {
     public func isRunning(sessionId: String) -> Bool {
         sessions[sessionId]?.isRunning ?? false
     }
+
+    /// List all active session IDs.
+    public var activeSessionIds: [String] {
+        sessions.filter { $0.value.isRunning }.map { $0.key }
+    }
+
+    /// First active session ID, or nil.
+    public var firstActiveSessionId: String? {
+        sessions.first(where: { $0.value.isRunning })?.key
+    }
 }

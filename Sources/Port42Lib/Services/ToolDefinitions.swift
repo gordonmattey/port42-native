@@ -158,6 +158,23 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "terminal_send",
+            "description": "Send input to a named port's terminal session. Use this to interact with running CLI tools like Claude Code, npm, docker, etc.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "The port title/name containing the terminal"],
+                    "data": ["type": "string", "description": "The text to send as stdin (include \\n for enter)"]
+                ],
+                "required": ["name", "data"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "terminal_list",
+            "description": "List all ports that have active terminal sessions, showing port name and session status",
+            "input_schema": ["type": "object", "properties": [String: Any]()]
+        ],
+        [
             "name": "file_read",
             "description": "Read the contents of a file. Path must have been previously approved by the user via file picker.",
             "input_schema": [
@@ -282,7 +299,7 @@ enum ToolDefinitions {
         switch toolName {
         case "clipboard_read", "clipboard_write": return .clipboard
         case "screen_capture", "screen_windows": return .screen
-        case "terminal_exec": return .terminal
+        case "terminal_exec", "terminal_send", "terminal_list": return .terminal
         case "file_read", "file_write": return .filesystem
         case "run_applescript", "run_jxa": return .automation
         case "browser_open", "browser_text", "browser_capture", "browser_close": return .browser

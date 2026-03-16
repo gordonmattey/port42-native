@@ -228,6 +228,29 @@ public final class ToolExecutor {
             let result = await executeCommand(command, cwd: cwd, timeout: timeout)
             return [textBlock(result)]
 
+        case "terminal_send":
+            guard let name = input["name"] as? String,
+                  let data = input["data"] as? String else {
+                return [textBlock("Error: missing 'name' or 'data' parameter")]
+            }
+            guard let session = appState.portWindows.terminalSession(forPortNamed: name) else {
+                let available = appState.portWindows.portsWithTerminals().map(\.name).joined(separator: ", ")
+                let hint = available.isEmpty ? "No ports have active terminals." : "Available: \(available)"
+                return [textBlock("Error: no terminal found for port '\(name)'. \(hint)")]
+            }
+            let ok = session.bridge.send(sessionId: session.sessionId, data: data)
+            return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
+
+        case "terminal_list":
+            let terminals = appState.portWindows.portsWithTerminals()
+            if terminals.isEmpty {
+                return [textBlock("No ports have active terminal sessions.")]
+            }
+            let list = terminals.map { t -> [String: Any] in
+                ["name": t.name, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
+            }
+            return [textBlock(jsonString(list))]
+
         // MARK: Filesystem
         case "file_read":
             guard let path = input["path"] as? String else {

@@ -31,7 +31,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
 
     /// Terminal sessions owned by this port. Created lazily on first terminal.spawn call.
-    private var terminalBridge: TerminalBridge?
+    private(set) var terminalBridge: TerminalBridge?
 
     /// Clipboard bridge. Created lazily on first clipboard call.
     private var clipboardBridge: ClipboardBridge?
