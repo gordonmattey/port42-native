@@ -64,6 +64,18 @@ enum ToolDefinitions {
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
+            "name": "port_manage",
+            "description": "Manage a port window. Actions: focus (bring to front), close, minimize (hide but keep running), restore (show a minimized port).",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID or title"],
+                    "action": ["type": "string", "description": "One of: focus, close, minimize, restore"]
+                ],
+                "required": ["id", "action"]
+            ] as [String: Any]
+        ],
+        [
             "name": "port_update",
             "description": "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
             "input_schema": [

@@ -143,6 +143,31 @@ public final class ToolExecutor {
             }
             return [textBlock(jsonString(list))]
 
+        case "port_manage":
+            guard let id = input["id"] as? String,
+                  let action = input["action"] as? String else {
+                return [textBlock("Error: missing 'id' or 'action' parameter")]
+            }
+            guard let panel = appState.portWindows.findPort(by: id) else {
+                return [textBlock("Error: no port found for '\(id)'")]
+            }
+            switch action {
+            case "focus":
+                appState.portWindows.bringToFront(panel.id)
+                return [textBlock("Focused '\(panel.title)'")]
+            case "close":
+                appState.portWindows.close(panel.id)
+                return [textBlock("Closed '\(panel.title)'")]
+            case "minimize":
+                appState.portWindows.minimize(panel.id)
+                return [textBlock("Minimized '\(panel.title)'")]
+            case "restore":
+                appState.portWindows.restore(panel.id)
+                return [textBlock("Restored '\(panel.title)'")]
+            default:
+                return [textBlock("Error: unknown action '\(action)'. Use: focus, close, minimize, restore")]
+            }
+
         case "port_update":
             guard let id = input["id"] as? String,
                   let html = input["html"] as? String else {
