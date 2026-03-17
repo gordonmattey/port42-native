@@ -1026,7 +1026,9 @@ public final class AppState: ObservableObject {
             // SetupView will trigger the first message after the transition animation.
             let session = SwimSession(companion: companion, db: db)
             session.fileResolver = fileResolver
-            session.toolExecutor = ToolExecutor(appState: self, channelId: nil)
+            let executor = ToolExecutor(appState: self, channelId: nil)
+            executor.swimSession = session
+            session.toolExecutor = executor
             session.companionNamesProvider = { [weak self] in
                 self?.companions.map(\.displayName) ?? []
             }
@@ -1369,7 +1371,9 @@ public final class AppState: ObservableObject {
             let saved = (try? db.getSwimMessages(companionId: companion.id)) ?? []
             let session = SwimSession(companion: companion, db: db, savedMessages: saved)
             session.fileResolver = fileResolver
-            session.toolExecutor = ToolExecutor(appState: self, channelId: nil)
+            let executor = ToolExecutor(appState: self, channelId: nil)
+            executor.swimSession = session
+            session.toolExecutor = executor
             session.companionNamesProvider = { [weak self] in
                 self?.companions.map(\.displayName) ?? []
             }

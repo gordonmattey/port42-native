@@ -7,6 +7,8 @@ import AppKit
 public final class ToolExecutor {
     private weak var appState: AppState?
     private let channelId: String?
+    /// Swim session reference for terminal bridge output in swims
+    weak var swimSession: SwimSession?
 
     /// Granted permissions for this conversation (per-companion, per-conversation).
     private var grantedPermissions: Set<PortPermission> = []
@@ -312,30 +314,29 @@ public final class ToolExecutor {
             guard let name = input["name"] as? String else {
                 return [textBlock("Error: missing 'name' parameter")]
             }
-            guard let session = appState.portWindows.terminalSession(forPortNamed: name) else {
+            guard let termSession = appState.portWindows.terminalSession(forPortNamed: name) else {
                 return [textBlock("Error: no terminal found for port '\(name)'")]
-            }
-            let chId = channelId ?? appState.currentChannel?.id ?? ""
-            guard !chId.isEmpty else {
-                return [textBlock("Error: no channel to bridge to")]
             }
             // Check if already bridged
             if bridgedTerminals.contains(name.lowercased()) {
-                return [textBlock("Already bridging '\(name)' to this channel")]
+                return [textBlock("Already bridging '\(name)' to this conversation")]
             }
             bridgedTerminals.insert(name.lowercased())
             let portName = name
             let weakAppState = appState
-            // Add observer that batches and posts output to channel
-            let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState)
+            let weakSwim = swimSession
+            let chId = channelId ?? appState.currentChannel?.id ?? ""
+            // Add observer that batches and posts output
+            let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState, swimSession: weakSwim)
             outputBatchers[name.lowercased()] = batcher
-            session.bridge.session(for: session.sessionId)?.addOutputObserver { rawOutput in
+            termSession.bridge.session(for: termSession.sessionId)?.addOutputObserver { rawOutput in
                 Task { @MainActor in
                     batcher.receive(rawOutput)
                 }
             }
-            NSLog("[Port42] Terminal bridge started: %@ → channel %@", name, chId)
-            return [textBlock("Bridging '\(name)' output to this channel")]
+            let dest = weakSwim != nil ? "swim" : "channel \(chId)"
+            NSLog("[Port42] Terminal bridge started: %@ → %@", name, dest)
+            return [textBlock("Bridging '\(name)' output to this conversation")]
 
         case "terminal_unbridge":
             guard let name = input["name"] as? String else {
@@ -565,20 +566,22 @@ public final class ToolExecutor {
 
 // MARK: - Output Batcher
 
-/// Batches terminal output, strips ANSI, and posts to a channel as system messages.
+/// Batches terminal output, strips ANSI, and posts to a channel or swim as messages.
 @MainActor
 final class OutputBatcher {
     private let portName: String
     private let channelId: String
     private weak var appState: AppState?
+    private weak var swimSession: SwimSession?
     private var buffer = ""
     private var flushTimer: Timer?
     private var lastPosted = ""
 
-    init(portName: String, channelId: String, appState: AppState?) {
+    init(portName: String, channelId: String, appState: AppState?, swimSession: SwimSession? = nil) {
         self.portName = portName
         self.channelId = channelId
         self.appState = appState
+        self.swimSession = swimSession
     }
 
     func receive(_ raw: String) {
@@ -598,7 +601,7 @@ final class OutputBatcher {
 
     private func flush() {
         flushTimer?.invalidate()
-        guard !buffer.isEmpty, let appState else {
+        guard !buffer.isEmpty else {
             buffer = ""
             return
         }
@@ -617,13 +620,20 @@ final class OutputBatcher {
         // Truncate long output
         let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n... (truncated)" : trimmed
 
-        // Post as system message
+        // Post to swim session if available
+        if let swim = swimSession {
+            swim.messages.append(SwimMessage(role: .assistant, content: "[\(portName)] \(content)"))
+            return
+        }
+
+        // Otherwise post as channel message
+        guard let appState else { return }
         let msg = Message(
             id: UUID().uuidString,
             channelId: channelId,
             senderId: "terminal-bridge",
             senderName: "[\(portName)]",
-            senderType: "system",
+            senderType: "agent",
             content: content,
             timestamp: Date(),
             replyToId: nil,
