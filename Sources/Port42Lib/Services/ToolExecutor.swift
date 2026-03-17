@@ -306,7 +306,7 @@ public final class ToolExecutor {
                 return [textBlock("No ports have active terminal sessions.")]
             }
             let list = terminals.map { t -> [String: Any] in
-                ["name": t.name, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
+                ["name": t.name, "portId": t.portId, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
             }
             return [textBlock(jsonString(list))]
 

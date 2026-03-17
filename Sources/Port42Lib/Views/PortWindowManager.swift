@@ -352,12 +352,12 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// List all ports that have active terminal sessions.
-    public func portsWithTerminals() -> [(name: String, sessionId: String, createdBy: String?)] {
-        var result: [(name: String, sessionId: String, createdBy: String?)] = []
+    public func portsWithTerminals() -> [(name: String, portId: String, sessionId: String, createdBy: String?)] {
+        var result: [(name: String, portId: String, sessionId: String, createdBy: String?)] = []
         for panel in panels {
             if let tb = panel.bridge.terminalBridge {
                 for sid in tb.activeSessionIds {
-                    result.append((name: panel.title, sessionId: sid, createdBy: panel.createdBy))
+                    result.append((name: panel.title, portId: panel.udid, sessionId: sid, createdBy: panel.createdBy))
                 }
             }
         }
