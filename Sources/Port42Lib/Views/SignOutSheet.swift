@@ -453,7 +453,9 @@ public struct SignOutSheet: View {
             withAnimation(.easeIn(duration: 0.1)) {
                 selectedAuthMode = mode
                 authSaved = false
-                authCredentialInput = ""
+                // Pre-fill with saved credential if available
+                let account = mode == .manualToken ? "manualToken" : "apiKey"
+                authCredentialInput = Port42AuthStore.shared.loadCredential(account: account) ?? ""
             }
             Port42AuthStore.shared.saveMode(mode)
             if mode == .autoDetect {
