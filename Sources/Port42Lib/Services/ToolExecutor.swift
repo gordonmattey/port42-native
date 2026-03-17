@@ -306,7 +306,9 @@ public final class ToolExecutor {
                 return [textBlock("No ports have active terminal sessions.")]
             }
             let list = terminals.map { t -> [String: Any] in
-                ["name": t.name, "portId": t.portId, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
+                var info: [String: Any] = ["name": t.name, "portId": t.portId, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
+                info["bridged"] = bridgedTerminals.contains(t.name.lowercased())
+                return info
             }
             return [textBlock(jsonString(list))]
 
