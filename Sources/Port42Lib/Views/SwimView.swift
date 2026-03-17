@@ -64,6 +64,7 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         let swimChannelId = "swim-\(companion.id)"
         let apiMessages = messages.compactMap { msg -> [String: String]? in
             guard !msg.content.isEmpty else { return nil }
+            guard msg.role != .system else { return nil } // Don't send bridge output to API
             let content = msg.role == .user
                 ? (fileResolver?.resolve(msg.content, channelId: swimChannelId) ?? msg.content)
                 : msg.content
@@ -168,8 +169,9 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
             if msg.role == .assistant && msg.content.isEmpty { return nil }
             return ChatEntry(
                 id: msg.id.uuidString,
-                senderName: msg.role == .user ? userName : companion.displayName,
+                senderName: msg.role == .user ? userName : (msg.role == .system ? "" : companion.displayName),
                 content: msg.content,
+                isSystem: msg.role == .system,
                 isAgent: msg.role == .assistant,
                 isPlaceholder: false
             )
@@ -258,6 +260,7 @@ public struct SwimMessage: Identifiable {
     public enum Role {
         case user
         case assistant
+        case system
     }
 }
 

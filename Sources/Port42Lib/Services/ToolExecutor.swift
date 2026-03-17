@@ -622,7 +622,7 @@ final class OutputBatcher {
 
         // Post to swim session if available
         if let swim = swimSession {
-            swim.messages.append(SwimMessage(role: .assistant, content: "[\(portName)] \(content)"))
+            swim.messages.append(SwimMessage(role: .system, content: "[\(portName)] \(content)"))
             return
         }
 
@@ -633,7 +633,7 @@ final class OutputBatcher {
             channelId: channelId,
             senderId: "terminal-bridge",
             senderName: "[\(portName)]",
-            senderType: "agent",
+            senderType: "system",
             content: content,
             timestamp: Date(),
             replyToId: nil,
