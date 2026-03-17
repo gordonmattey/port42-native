@@ -181,6 +181,23 @@ generated UUIDs on migration.
 
 ---
 
+## Components Changed
+
+| Component | File(s) | What changes |
+|---|---|---|
+| **PortPanel struct** | `PortWindowManager.swift` | Add `udid: String` field |
+| **Database** | `DatabaseService.swift` | New migration: `udid` column on `port_panels`, backfill existing rows |
+| **Inline port tracking** | `ConversationContent.swift` | Assign UDIDs to inline ports on render, maintain lookup table |
+| **Port update tool** | `ToolDefinitions.swift`, `ToolExecutor.swift` | New `port_update(id, html)` tool definition + executor |
+| **Ports list tool** | `ToolDefinitions.swift`, `ToolExecutor.swift` | New `ports_list()` tool definition + executor |
+| **Port update logic** | `PortWindowManager.swift` | New `updatePort(udid:, html:)` method handling inline/windowed/minimized |
+| **JS bridge** | `PortBridge.swift` | `port42.port.info()` returns `id` field |
+| **API docs** | `ports-context.txt` | Document `ports_list` and `port_update` |
+| **System prompt** | `AppState.swift`, `SwimView.swift` | Tell companions about port updates |
+| **Analytics** | `Analytics.swift` | New `port_updated` event |
+
+---
+
 ## Build Order
 
 ```
@@ -193,17 +210,22 @@ Step 6: Companion context + system prompt          → companions know about upd
 Step 7: Analytics port_updated event               → track iteration
 ```
 
+---
+
 ## Verification
 
-1. Companion creates a port (gets UDID assigned)
-2. Call `ports_list` — port appears with UDID and title
-3. User: "update that port to add a search bar"
-4. Companion calls `port_update(id, newHtml)`
-5. Inline port updates in place (no new message)
-6. Pop out the port to a window
-7. User: "now add dark mode"
-8. Companion calls `port_update(id, newHtml)` again
-9. Windowed port reloads with new HTML, same position/size
-10. Check analytics: port_created (1) + port_updated (2)
-11. Restart app, port still has its UDID
-12. Old ports without UDIDs still work (graceful migration)
+| Test | Steps | Expected |
+|---|---|---|
+| **UDID assigned on create** | Ask companion to create a port. Call `ports_list`. | Port appears with a UDID and title |
+| **ports_list discovery** | Create 3 ports with different titles. Call `ports_list`. | All 3 listed with UDIDs, titles, createdBy |
+| **Update inline port** | Create a port. Say "update that port to add a button". Companion calls `port_update`. | Same message re-renders with new HTML. No new message created. |
+| **Update windowed port** | Pop out a port. Ask to update it. | Window reloads with new HTML. Position and size preserved. |
+| **Update minimized port** | Minimize a port. Ask to update it. Restore it. | Shows updated HTML on restore. |
+| **Title fallback** | Ask "update the dashboard" without knowing UDID. | Companion matches by title, updates correct port. |
+| **Ambiguous title** | Create two ports named "dashboard". Ask to update "the dashboard". | Companion asks which one or picks most recent. |
+| **No match** | Ask to update a port that doesn't exist. | Companion creates a new port instead or says not found. |
+| **UDID persists restart** | Create a port, pop out, restart app. Call `ports_list`. | Same UDID as before restart. |
+| **Migration** | Run on DB with existing ports (no udid column). | Migration adds column, backfills UUIDs. App works. |
+| **JS bridge** | Inside a port, call `port42.port.info()`. | Returns `{id: "...", messageId: "...", ...}` |
+| **Analytics** | Create a port, then update it twice. Check PostHog. | 1 `port_created` + 2 `port_updated` events |
+| **Old ports** | Existing ports from before the update. | Render fine, get UDID on first interaction |
