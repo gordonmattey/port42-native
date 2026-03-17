@@ -242,6 +242,7 @@ public final class AgentAuthResolver {
         cachedExpiresAt = nil
         keychainDenied = false
         hasReadKeychain = false
+        lastKeychainReadTime = nil
         activeService = nil
         resolvedService = nil
         UserDefaults.standard.removeObject(forKey: AgentAuthResolver.selectedServiceKey)
@@ -305,6 +306,7 @@ public final class AgentAuthResolver {
         cachedExpiresAt = nil
         keychainDenied = false
         hasReadKeychain = false
+        lastKeychainReadTime = nil
         activeService = entry.serviceName
         UserDefaults.standard.set(entry.serviceName, forKey: AgentAuthResolver.selectedServiceKey)
         // Pre-warm the cache with a single read so no further prompts are needed
@@ -358,6 +360,10 @@ public final class AgentAuthResolver {
 
     // MARK: - Private
 
+    /// Track when last keychain read happened to prevent infinite re-read loops
+    private var lastKeychainReadTime: Date?
+    private static let minKeychainReadInterval: TimeInterval = 30 // Don't re-read more than once per 30s
+
     private func readClaudeCodeToken() throws -> String {
         NSLog("[Port42:auth] readClaudeCodeToken: cachedToken=%@, hasReadKeychain=%@, keychainDenied=%@, expiresAt=%@",
               cachedToken != nil ? "yes" : "nil", hasReadKeychain ? "true" : "false", keychainDenied ? "true" : "false",
@@ -366,13 +372,17 @@ public final class AgentAuthResolver {
         // Return cached token if available and not expired
         if let cached = cachedToken {
             if let exp = cachedExpiresAt, exp < Date().addingTimeInterval(60) {
-                // Token expires within 60s, force re-read from Keychain
+                // Token expires within 60s, but don't re-read if we just read
+                if let lastRead = lastKeychainReadTime,
+                   Date().timeIntervalSince(lastRead) < Self.minKeychainReadInterval {
+                    NSLog("[Port42:auth] Token expired but keychain was read %.0fs ago, using expired token", Date().timeIntervalSince(lastRead))
+                    return cached  // Use expired token rather than infinite loop
+                }
                 cachedToken = nil
                 cachedExpiresAt = nil
-                hasReadKeychain = false  // allow re-read for expired tokens
+                hasReadKeychain = false
                 NSLog("[Port42:auth] OAuth token expired or expiring soon, re-reading from Keychain")
             } else {
-                NSLog("[Port42:auth] returning cached token")
                 return cached
             }
         }
@@ -383,12 +393,15 @@ public final class AgentAuthResolver {
             throw AgentAuthError.tokenNotFound
         }
 
-        // If we already read from Keychain successfully this session but the token
-        // was cleared (e.g. 401 retry), don't re-read. The Keychain data hasn't
-        // changed and re-reading would trigger another permission prompt.
+        // Throttle keychain reads to prevent flood
         if hasReadKeychain {
-            NSLog("[Port42:auth] BLOCKED: hasReadKeychain=true, skipping re-read. This is the suspected bug.")
-            throw AgentAuthError.tokenNotFound
+            if let lastRead = lastKeychainReadTime,
+               Date().timeIntervalSince(lastRead) < Self.minKeychainReadInterval {
+                NSLog("[Port42:auth] Throttled: keychain read %.0fs ago, skipping", Date().timeIntervalSince(lastRead))
+                throw AgentAuthError.tokenNotFound
+            }
+            // Enough time has passed, allow re-read
+            NSLog("[Port42:auth] Allowing keychain re-read after throttle period")
         }
 
         // Test path: read from JSON file
@@ -401,6 +414,7 @@ public final class AgentAuthResolver {
         // Production path: read from macOS Keychain
         let data = try readKeychainData()
         hasReadKeychain = true
+        lastKeychainReadTime = Date()
         guard let data else {
             keychainDenied = true
             NSLog("[Port42] Claude Code Keychain entry not found, caching denial for session")
