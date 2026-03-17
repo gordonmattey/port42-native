@@ -228,13 +228,16 @@ public final class AgentAuthResolver {
     /// Call this on 401 errors to pick up refreshed tokens.
     /// Does NOT reset keychainDenied to avoid repeated Keychain prompts on bad tokens.
     public func clearCache() {
+        NSLog("[Port42:auth] clearCache() called. hasReadKeychain=%@, hadToken=%@", hasReadKeychain ? "true" : "false", cachedToken != nil ? "true" : "false")
         cachedToken = nil
         cachedExpiresAt = nil
+        hasReadKeychain = false
     }
 
     /// Full reset including keychainDenied. Use only when the user explicitly
     /// changes auth settings or selects a new Keychain entry.
     public func resetAuth() {
+        NSLog("[Port42:auth] resetAuth() called. hasReadKeychain=%@, hadToken=%@, activeService=%@", hasReadKeychain ? "true" : "false", cachedToken != nil ? "true" : "false", activeService ?? "nil")
         cachedToken = nil
         cachedExpiresAt = nil
         keychainDenied = false
@@ -297,6 +300,7 @@ public final class AgentAuthResolver {
     /// Use a specific Keychain entry (by service name) for token resolution.
     /// This triggers a single Keychain data fetch (one permission prompt).
     public func selectEntry(_ entry: ClaudeKeychainEntry) {
+        NSLog("[Port42:auth] selectEntry() called: %@", entry.serviceName)
         cachedToken = nil
         cachedExpiresAt = nil
         keychainDenied = false
@@ -305,6 +309,7 @@ public final class AgentAuthResolver {
         UserDefaults.standard.set(entry.serviceName, forKey: AgentAuthResolver.selectedServiceKey)
         // Pre-warm the cache with a single read so no further prompts are needed
         _ = try? readClaudeCodeToken()
+        NSLog("[Port42:auth] selectEntry() done: cachedToken=%@, activeService=%@", cachedToken != nil ? "yes" : "nil", activeService ?? "nil")
     }
 
     public func resolve(config: AgentAuthConfig) throws -> ResolvedAuth {
@@ -326,6 +331,7 @@ public final class AgentAuthResolver {
     public func autoDetect() -> AgentAuthConfig? {
         // Check if user has explicitly configured auth in Port42
         if let stored = Port42AuthStore.shared.resolveStoredConfig() {
+            NSLog("[Port42:auth] autoDetect: using stored config: %@", String(describing: stored))
             return stored
         }
 
@@ -336,20 +342,27 @@ public final class AgentAuthResolver {
 
         // If we already have a cached token, we know OAuth is available
         if cachedToken != nil {
+            NSLog("[Port42:auth] autoDetect: returning cached OAuth token")
             return .claudeCodeOAuth
         }
 
         // Try to read and cache the token in one shot (single Keychain prompt)
         if let _ = try? readClaudeCodeToken() {
+            NSLog("[Port42:auth] autoDetect: read fresh OAuth token from keychain")
             return .claudeCodeOAuth
         }
 
+        NSLog("[Port42:auth] autoDetect: no auth found")
         return nil
     }
 
     // MARK: - Private
 
     private func readClaudeCodeToken() throws -> String {
+        NSLog("[Port42:auth] readClaudeCodeToken: cachedToken=%@, hasReadKeychain=%@, keychainDenied=%@, expiresAt=%@",
+              cachedToken != nil ? "yes" : "nil", hasReadKeychain ? "true" : "false", keychainDenied ? "true" : "false",
+              cachedExpiresAt.map { String(describing: $0) } ?? "nil")
+
         // Return cached token if available and not expired
         if let cached = cachedToken {
             if let exp = cachedExpiresAt, exp < Date().addingTimeInterval(60) {
@@ -357,14 +370,16 @@ public final class AgentAuthResolver {
                 cachedToken = nil
                 cachedExpiresAt = nil
                 hasReadKeychain = false  // allow re-read for expired tokens
-                NSLog("[Port42] OAuth token expired or expiring soon, re-reading from Keychain")
+                NSLog("[Port42:auth] OAuth token expired or expiring soon, re-reading from Keychain")
             } else {
+                NSLog("[Port42:auth] returning cached token")
                 return cached
             }
         }
 
         // If we already failed to read from Keychain this session, don't prompt again
         if keychainDenied {
+            NSLog("[Port42:auth] keychain was denied this session, throwing tokenNotFound")
             throw AgentAuthError.tokenNotFound
         }
 
@@ -372,7 +387,7 @@ public final class AgentAuthResolver {
         // was cleared (e.g. 401 retry), don't re-read. The Keychain data hasn't
         // changed and re-reading would trigger another permission prompt.
         if hasReadKeychain {
-            NSLog("[Port42] Keychain already read this session, skipping re-read to avoid prompt")
+            NSLog("[Port42:auth] BLOCKED: hasReadKeychain=true, skipping re-read. This is the suspected bug.")
             throw AgentAuthError.tokenNotFound
         }
 
