@@ -27,9 +27,8 @@ public final class ToolExecutor {
     private lazy var audioBridge = AudioBridge()
     private lazy var cameraBridge = CameraBridge()
 
-    /// Terminal bridge state
-    private var bridgedTerminals: Set<String> = []
-    private var outputBatchers: [String: OutputBatcher] = [:]
+    /// Output batchers for active terminal bridges (keyed by lowercased port name)
+    private static var outputBatchers: [String: OutputBatcher] = [:]
 
     init(appState: AppState, channelId: String?) {
         self.appState = appState
@@ -307,7 +306,7 @@ public final class ToolExecutor {
             }
             let list = terminals.map { t -> [String: Any] in
                 var info: [String: Any] = ["name": t.name, "portId": t.portId, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
-                info["bridged"] = bridgedTerminals.contains(t.name.lowercased())
+                info["bridged"] = appState.bridgedTerminalNames.contains(t.name.lowercased())
                 return info
             }
             return [textBlock(jsonString(list))]
@@ -320,17 +319,17 @@ public final class ToolExecutor {
                 return [textBlock("Error: no terminal found for port '\(name)'")]
             }
             // Check if already bridged
-            if bridgedTerminals.contains(name.lowercased()) {
+            if appState.bridgedTerminalNames.contains(name.lowercased()) {
                 return [textBlock("Already bridging '\(name)' to this conversation")]
             }
-            bridgedTerminals.insert(name.lowercased())
+            appState.bridgedTerminalNames.insert(name.lowercased())
             let portName = name
             let weakAppState = appState
             let weakSwim = swimSession
             let chId = channelId ?? appState.currentChannel?.id ?? ""
             // Add observer that batches and posts output
             let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState, swimSession: weakSwim)
-            outputBatchers[name.lowercased()] = batcher
+            Self.outputBatchers[name.lowercased()] = batcher
             termSession.bridge.session(for: termSession.sessionId)?.addOutputObserver { rawOutput in
                 Task { @MainActor in
                     batcher.receive(rawOutput)
@@ -345,8 +344,8 @@ public final class ToolExecutor {
                 return [textBlock("Error: missing 'name' parameter")]
             }
             let key = name.lowercased()
-            if bridgedTerminals.remove(key) != nil {
-                outputBatchers.removeValue(forKey: key)
+            if appState.bridgedTerminalNames.remove(key) != nil {
+                Self.outputBatchers.removeValue(forKey: key)
                 NSLog("[Port42] Terminal bridge stopped: %@", name)
                 return [textBlock("Stopped bridging '\(name)'")]
             }
