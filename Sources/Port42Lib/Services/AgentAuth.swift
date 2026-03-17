@@ -426,15 +426,21 @@ public final class AgentAuthResolver {
             // Primary path: nested under claudeAiOauth
             if let oauthObj = json["claudeAiOauth"] as? [String: Any],
                let accessToken = oauthObj["accessToken"] as? String {
-                cachedToken = accessToken
-                // Cache expiry so we can proactively refresh
+                // Check expiry before caching
                 if let expiresMs = oauthObj["expiresAt"] as? Double {
-                    cachedExpiresAt = Date(timeIntervalSince1970: expiresMs / 1000.0)
-                    let remaining = cachedExpiresAt!.timeIntervalSince(Date())
+                    let expiresAt = Date(timeIntervalSince1970: expiresMs / 1000.0)
+                    let remaining = expiresAt.timeIntervalSince(Date())
+                    if remaining < 0 {
+                        NSLog("[Port42:auth] Token from keychain already expired (%.0f minutes ago), skipping", -remaining / 60)
+                        // Don't cache expired tokens, let caller try another entry
+                        throw AgentAuthError.tokenNotFound
+                    }
+                    cachedExpiresAt = expiresAt
                     NSLog("[Port42] OAuth token read from Keychain, expires in %.0f minutes (%.1f hours)", remaining / 60, remaining / 3600)
                 } else {
                     NSLog("[Port42] OAuth token read from Keychain, no expiry set")
                 }
+                cachedToken = accessToken
                 return accessToken
             }
             // Fallback: flat structure
