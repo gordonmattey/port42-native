@@ -59,6 +59,23 @@ enum ToolDefinitions {
 
     static let actionTools: [[String: Any]] = [
         [
+            "name": "ports_list",
+            "description": "List all active ports (popped-out interactive surfaces) with their IDs, titles, and status",
+            "input_schema": ["type": "object", "properties": [String: Any]()]
+        ],
+        [
+            "name": "port_update",
+            "description": "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID or title to identify which port to update"],
+                    "html": ["type": "string", "description": "The new HTML content for the port (full HTML, not a diff)"]
+                ],
+                "required": ["id", "html"]
+            ] as [String: Any]
+        ],
+        [
             "name": "messages_send",
             "description": "Send a message to the current channel",
             "input_schema": [

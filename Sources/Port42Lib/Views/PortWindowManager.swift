@@ -7,7 +7,8 @@ import WebKit
 /// A port that has been popped out of the inline message stream.
 public struct PortPanel: Identifiable {
     public let id: String
-    public let html: String
+    public let udid: String
+    public var html: String
     public let bridge: PortBridge
     public let channelId: String?
     public let createdBy: String?
@@ -87,6 +88,7 @@ public final class PortWindowManager: ObservableObject {
                     ? CGPoint(x: row.posX!, y: row.posY!) : nil
                 let panel = PortPanel(
                     id: row.id,
+                    udid: row.udid ?? row.id,
                     html: row.html,
                     bridge: bridge,
                     channelId: row.channelId,
@@ -187,9 +189,11 @@ public final class PortWindowManager: ObservableObject {
         // Check for existing panel from the same message and update it
         if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
             let existingId = panels[idx].id
+            let existingUdid = panels[idx].udid
             let wasBackground = panels[idx].isBackground
             panels[idx] = PortPanel(
                 id: existingId,
+                udid: existingUdid,
                 html: html,
                 bridge: bridge,
                 channelId: channelId,
@@ -221,8 +225,10 @@ public final class PortWindowManager: ObservableObject {
         let w: CGFloat = min(400, bounds.width * 0.45)
         let h: CGFloat = min(350, bounds.height * 0.5)
 
+        let newUdid = UUID().uuidString
         let panel = PortPanel(
-            id: UUID().uuidString,
+            id: newUdid,
+            udid: newUdid,
             html: html,
             bridge: bridge,
             channelId: channelId,
@@ -356,6 +362,62 @@ public final class PortWindowManager: ObservableObject {
             }
         }
         return result
+    }
+
+    // MARK: - Port Update
+
+    /// Find a port by UDID or title (case-insensitive).
+    public func findPort(by idOrTitle: String) -> PortPanel? {
+        // Try UDID first
+        if let panel = panels.first(where: { $0.udid == idOrTitle }) {
+            return panel
+        }
+        // Fall back to title match
+        let lowered = idOrTitle.lowercased()
+        return panels.first(where: { $0.title.lowercased() == lowered || $0.title.lowercased().contains(lowered) })
+    }
+
+    /// Update a port's HTML by UDID or title. Works for windowed and minimized ports.
+    /// Returns true if the port was found and updated.
+    public func updatePort(idOrTitle: String, html: String) -> Bool {
+        guard let idx = panels.firstIndex(where: { $0.udid == idOrTitle }) ??
+              panels.firstIndex(where: {
+                  let l = idOrTitle.lowercased()
+                  return $0.title.lowercased() == l || $0.title.lowercased().contains(l)
+              }) else {
+            return false
+        }
+
+        let panelId = panels[idx].id
+        let newTitle = PortPanel.extractTitle(from: html)
+        panels[idx].html = html
+
+        // Update the webview if it exists
+        if let webView = webViews[panelId] {
+            let wrappedHTML = PortWebViewFactory.wrapHTML(html)
+            webView.loadHTMLString(wrappedHTML, baseURL: URL(string: "http://port42.local/"))
+            NSLog("[Port42] Port updated (webview reloaded): %@ (%@)", newTitle, panelId)
+        } else {
+            NSLog("[Port42] Port updated (stored, no webview): %@ (%@)", newTitle, panelId)
+        }
+
+        // Persist to database
+        if let db = db {
+            var record = PersistedPortPanel(from: panels[idx])
+            record.html = html
+            record.title = newTitle
+            try? db.savePortPanel(record)
+        }
+
+        return true
+    }
+
+    /// List all ports (for ports_list tool).
+    public func allPorts() -> [(udid: String, title: String, createdBy: String?, hasTerminal: Bool)] {
+        panels.map { panel in
+            let hasTerminal = panel.bridge.terminalBridge?.firstActiveSessionId != nil
+            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, hasTerminal: hasTerminal)
+        }
     }
 
     // MARK: - WebView Lifecycle

@@ -424,6 +424,15 @@ Target: The ouroboros. The fish swims in itself.
 | P-608 | Bluetooth | `port42.bluetooth.scan(opts?)` / `.connect(id)` / `.send(id, data)` / `.on('data', cb)` — scan, connect, and communicate with BLE peripherals via CoreBluetooth. `.bluetooth` permission. | Low | Port can interact with hardware devices |
 | P-611 | USB/Serial | `port42.serial.list()` / `.open(port, opts?)` / `.send(id, data)` / `.on('data', cb)` / `.close(id)` — communicate with USB serial devices via IOKit. opts: `{ baudRate?, dataBits?, parity? }`. `.serial` permission. | Low | Port can talk to Arduino, lab equipment, etc |
 
+### Phase 7: Port Lifecycle
+
+| ID | Feature | Description | Priority | Done When |
+|----|---------|-------------|----------|-----------|
+| P-700 | Port Update | `port_update(id, html)` tool. Companions update an existing port's HTML by UDID or title. Works for windowed and minimized ports. `ports_list()` tool for discovery. No fence syntax change. | Critical | Companion updates a port in place without creating a new one |
+| P-701 | Port UDIDs | Every port gets a stable UUID on creation. Persisted in DB. Accessible via `port42.port.info().id` from JS and `ports_list` from tool use. Migration backfills existing ports. | Critical | Every port has a stable identity across its lifecycle |
+| P-702 | Daemon Ports | Ports that run continuously in the background without being manually opened. Start on app launch, run on a schedule, or trigger on events. A companion can create a daemon port that monitors a URL, polls an API, watches a directory, or runs periodic tasks. Survives app restart. Managed via `port42.daemon.create(opts)` / `.list()` / `.stop(id)`. | High | A port runs a background task that persists across restarts without user intervention |
+| P-703 | Scheduled Ports | Extension of daemon ports with cron-like scheduling. `port42.daemon.create({ schedule: "*/5 * * * *", html: "..." })` runs a port every 5 minutes. The port executes, does its work (fetch data, send notification, update storage), then sleeps until next run. Lightweight alternative to always-on background ports. | Medium | A port runs on a schedule like a cron job |
+
 ---
 
 ## Port Protocol

@@ -130,6 +130,33 @@ public final class ToolExecutor {
                 "systemPrompt": c.systemPrompt ?? ""
             ]))]
 
+        // MARK: Ports
+        case "ports_list":
+            let ports = appState.portWindows.allPorts()
+            if ports.isEmpty {
+                return [textBlock("No active ports.")]
+            }
+            let list = ports.map { p -> [String: Any] in
+                var info: [String: Any] = ["id": p.udid, "title": p.title, "hasTerminal": p.hasTerminal]
+                if let creator = p.createdBy { info["createdBy"] = creator }
+                return info
+            }
+            return [textBlock(jsonString(list))]
+
+        case "port_update":
+            guard let id = input["id"] as? String,
+                  let html = input["html"] as? String else {
+                return [textBlock("Error: missing 'id' or 'html' parameter")]
+            }
+            let updated = appState.portWindows.updatePort(idOrTitle: id, html: html)
+            if updated {
+                Analytics.shared.portUpdated()
+                return [textBlock("Port updated")]
+            }
+            let available = appState.portWindows.allPorts().map(\.title).joined(separator: ", ")
+            let hint = available.isEmpty ? "No active ports." : "Available: \(available)"
+            return [textBlock("Error: no port found for '\(id)'. \(hint)")]
+
         case "messages_recent":
             let count = min(input["count"] as? Int ?? 20, 100)
             let chId = channelId ?? appState.currentChannel?.id ?? ""

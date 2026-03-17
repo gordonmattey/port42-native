@@ -243,6 +243,14 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v16-port-udid") { db in
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "udid", .text)
+            }
+            // Backfill existing ports: use their id as the udid
+            try db.execute(sql: "UPDATE port_panels SET udid = id WHERE udid IS NULL")
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -731,6 +739,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public static let databaseTableName = "port_panels"
 
     public var id: String
+    public var udid: String?
     public var html: String
     public var channelId: String?
     public var createdBy: String?
@@ -748,6 +757,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
 
     public init(from panel: PortPanel) {
         self.id = panel.id
+        self.udid = panel.udid
         self.html = panel.html
         self.channelId = panel.channelId
         self.createdBy = panel.createdBy
