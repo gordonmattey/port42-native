@@ -196,6 +196,8 @@ public struct TransitionRoot: View {
             diveProgress = 1.0
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            // Restore main window frame and port panels together at peak opacity
+            restoreWindowFrame()
             appState.unlock()
             withAnimation(.easeOut(duration: 1.2)) {
                 diveProgress = 0.0
@@ -204,6 +206,20 @@ public struct TransitionRoot: View {
                 isDiving = false
             }
         }
+    }
+
+    private func restoreWindowFrame() {
+        guard let frameString = UserDefaults.standard.string(forKey: "p42MainWindowFrame"),
+              let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
+        let frame = NSRectFromString(frameString)
+        guard frame.width > 100 && frame.height > 100 else { return }
+        // Skip restore if the saved frame is essentially the same as full screen
+        // (first-time user who hasn't arranged their window yet)
+        if let screen = window.screen ?? NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            if abs(frame.width - screenFrame.width) < 20 && abs(frame.height - screenFrame.height) < 20 { return }
+        }
+        window.setFrame(frame, display: true, animate: false)
     }
 
     private func startEnterAquariumTransition() {

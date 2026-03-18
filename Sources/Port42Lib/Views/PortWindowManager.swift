@@ -115,23 +115,12 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// Create floating windows for any restored panels that don't have windows yet.
-    /// Called after the lock screen dismisses, with a brief delay for the transition.
+    /// Called at the same moment as the main window frame restore, so everything appears together.
     public func showRestoredFloatingPanels() {
-        NSLog("[Port42] showRestoredFloatingPanels: %d total panels", panels.count)
-        for p in panels {
-            let px = p.position.map { String(Int($0.x)) } ?? "nil"
-            let py = p.position.map { String(Int($0.y)) } ?? "nil"
-            NSLog("[Port42]   panel=%@ bg=%@ hasWindow=%@ pos=(%@,%@)",
-                  p.title, p.isBackground ? "Y" : "N",
-                  windows[p.id] != nil ? "Y" : "N", px, py)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            guard let self = self else { return }
-            for panel in self.panels where !panel.isBackground && self.windows[panel.id] == nil {
-                NSLog("[Port42] Creating restored window for: %@", panel.title)
-                let bounds = NSApp.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-                self.createWindow(for: panel, in: bounds)
-            }
+        for panel in panels where !panel.isBackground && windows[panel.id] == nil {
+            NSLog("[Port42] Creating restored window for: %@", panel.title)
+            let bounds = NSApp.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+            createWindow(for: panel, in: bounds)
         }
     }
 
