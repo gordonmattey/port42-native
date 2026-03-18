@@ -7,31 +7,33 @@ public struct ContentView: View {
     @State private var showQuickSwitcher = false
     @State private var showHelp = false
     public var body: some View {
-        NavigationSplitView {
+        HSplitView {
             SidebarView(showNewChannel: $showNewChannel)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-        } detail: {
-            if let session = appState.activeSwimSession {
-                SwimView(
-                    session: session,
-                    userName: appState.currentUser?.displayName ?? "You",
-                    onExit: { appState.exitSwim() }
-                )
-                .id(session.companion.id)
-            } else if let channel = appState.currentChannel {
-                ChatView()
-                    .id(channel.id)
-            } else {
-                VStack {
-                    Text("Select a channel")
-                        .font(Port42Theme.mono(14))
-                        .foregroundStyle(Port42Theme.textSecondary)
+                .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
+
+            Group {
+                if let session = appState.activeSwimSession {
+                    SwimView(
+                        session: session,
+                        userName: appState.currentUser?.displayName ?? "You",
+                        onExit: { appState.exitSwim() }
+                    )
+                    .id(session.companion.id)
+                } else if let channel = appState.currentChannel {
+                    ChatView()
+                        .id(channel.id)
+                } else {
+                    VStack {
+                        Text("Select a channel")
+                            .font(Port42Theme.mono(14))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Port42Theme.bgPrimary)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Port42Theme.bgPrimary)
             }
+            .frame(maxWidth: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showNewChannel) {
             NewChannelSheet(isPresented: $showNewChannel)
         }
