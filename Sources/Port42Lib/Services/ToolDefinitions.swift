@@ -65,12 +65,12 @@ enum ToolDefinitions {
         ],
         [
             "name": "port_manage",
-            "description": "Manage a port window. Actions: focus (bring to front), close, minimize (hide but keep running), restore (show a minimized port).",
+            "description": "Manage a port window. Actions: focus (bring to front), close, minimize/dock (hide but keep running in background), restore/undock (show a docked port as floating window). Check the status field from ports_list — use restore/undock for 'docked' ports, focus for 'floating' ports.",
             "input_schema": [
                 "type": "object",
                 "properties": [
                     "id": ["type": "string", "description": "The port's UDID or title"],
-                    "action": ["type": "string", "description": "One of: focus, close, minimize, restore"]
+                    "action": ["type": "string", "description": "One of: focus, close, minimize, dock, restore, undock"]
                 ],
                 "required": ["id", "action"]
             ] as [String: Any]

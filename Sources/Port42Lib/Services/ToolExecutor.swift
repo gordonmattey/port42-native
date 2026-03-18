@@ -138,7 +138,7 @@ public final class ToolExecutor {
                 return [textBlock("No active ports.")]
             }
             let list = ports.map { p -> [String: Any] in
-                var info: [String: Any] = ["id": p.udid, "title": p.title, "hasTerminal": p.hasTerminal]
+                var info: [String: Any] = ["id": p.udid, "title": p.title, "hasTerminal": p.hasTerminal, "status": p.isBackground ? "docked" : "floating"]
                 if let creator = p.createdBy { info["createdBy"] = creator }
                 return info
             }
@@ -159,14 +159,17 @@ public final class ToolExecutor {
             case "close":
                 appState.portWindows.close(panel.id)
                 return [textBlock("Closed '\(panel.title)'")]
-            case "minimize":
+            case "minimize", "dock":
                 appState.portWindows.minimize(panel.id)
-                return [textBlock("Minimized '\(panel.title)'")]
-            case "restore":
-                appState.portWindows.restore(panel.id)
-                return [textBlock("Restored '\(panel.title)'")]
+                return [textBlock("Docked '\(panel.title)'")]
+            case "restore", "undock":
+                if appState.portWindows.restore(panel.id) {
+                    return [textBlock("Restored '\(panel.title)'")]
+                } else {
+                    return [textBlock("'\(panel.title)' is not docked — use focus to bring it to front")]
+                }
             default:
-                return [textBlock("Error: unknown action '\(action)'. Use: focus, close, minimize, restore")]
+                return [textBlock("Error: unknown action '\(action)'. Use: focus, close, minimize, restore (or undock)")]
             }
 
         case "port_update":

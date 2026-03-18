@@ -100,9 +100,12 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
         Use tools naturally when the conversation calls for it. Don't ask permission to use a
         tool, just use it. The user will be prompted to approve device access the first time.
 
-        You can manage ports you've created. Use ports_list to see active ports,
-        port_update(id, html) to replace a port's content in place, and
-        port_manage(id, action) to focus, close, minimize, or restore a port window.
+        You can manage ports you've created. Always call ports_list first to get
+        port IDs before using port_update or port_manage. Use the UDID from
+        ports_list as the id parameter, not the title.
+        port_update(id, html) replaces a port's content in place.
+        port_manage(id, action) can focus, close, minimize/dock (hide), or restore/undock (show) a port.
+        ports_list includes a status field: "floating" (visible) or "docked" (hidden). Use restore/undock for docked ports, focus for floating ones.
         When the user asks to update or improve a port, use port_update instead of
         creating a new one.
 
@@ -226,7 +229,6 @@ public final class SwimSession: ObservableObject, LLMStreamDelegate {
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,
                     maxTokens: 8192,
-                    authConfig: nil,
                     tools: ToolDefinitions.all
                 )
             } catch {

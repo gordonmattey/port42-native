@@ -298,15 +298,17 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port minimized to background: %@", panels[idx].title)
     }
 
-    /// Restore a background port to a floating window.
-    public func restore(_ id: String) {
-        guard let idx = panels.firstIndex(where: { $0.id == id }), panels[idx].isBackground else { return }
+    /// Restore a background port to a floating window. Returns false if the port is not backgrounded.
+    @discardableResult
+    public func restore(_ id: String) -> Bool {
+        guard let idx = panels.firstIndex(where: { $0.id == id }), panels[idx].isBackground else { return false }
         panels[idx].isBackground = false
         persistPanel(id)
 
         // Recreate the floating window
         createWindowForExistingPanel(panels[idx])
         NSLog("[Port42] Port restored from background: %@", panels[idx].title)
+        return true
     }
 
     /// Stop a port by destroying its webview (keeps window open).
@@ -413,10 +415,10 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// List all ports (for ports_list tool).
-    public func allPorts() -> [(udid: String, title: String, createdBy: String?, hasTerminal: Bool)] {
+    public func allPorts() -> [(udid: String, title: String, createdBy: String?, hasTerminal: Bool, isBackground: Bool)] {
         panels.map { panel in
             let hasTerminal = panel.bridge.terminalBridge?.firstActiveSessionId != nil
-            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, hasTerminal: hasTerminal)
+            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, hasTerminal: hasTerminal, isBackground: panel.isBackground)
         }
     }
 

@@ -299,9 +299,12 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             Use tools naturally when the conversation calls for it. Don't ask permission to use a
             tool, just use it. The user will be prompted to approve device access the first time.
 
-            You can manage ports you've created. Use ports_list to see active ports,
-            port_update(id, html) to replace a port's content in place, and
-            port_manage(id, action) to focus, close, minimize, or restore a port window.
+            You can manage ports you've created. Always call ports_list first to get
+            port IDs before using port_update or port_manage. Use the UDID from
+            ports_list as the id parameter, not the title.
+            port_update(id, html) replaces a port's content in place.
+            port_manage(id, action) can focus, close, minimize/dock (hide), or restore/undock (show) a port.
+            ports_list includes a status field: "floating" (visible) or "docked" (hidden). Use restore/undock for docked ports, focus for floating ones.
             When the user asks to update or improve a port, use port_update instead of
             creating a new one.
 
@@ -439,7 +442,6 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,
                     maxTokens: 8192,
-                    authConfig: nil,
                     tools: ToolDefinitions.all
                 )
             } catch {
@@ -511,6 +513,10 @@ public final class AppState: ObservableObject {
     @Published public var typingAgentNames: Set<String> = []
     /// Agent names currently executing tools (for "tooling up" indicator)
     @Published public var toolingAgentNames: Set<String> = []
+    /// Auth status for UI display (proactively checked at boot)
+    @Published public var authStatus: AuthStatus = .unknown
+    /// When true, all LLM API calls are blocked
+    @Published public var aiPaused: Bool = false
     /// Terminal ports currently bridged to conversations (shared across ToolExecutor instances)
     public var bridgedTerminalNames: Set<String> = []
     private var swimSessions: [String: SwimSession] = [:]
@@ -713,6 +719,18 @@ public final class AppState: ObservableObject {
             openClawAvailable = OpenClawService.isInstalled
             if openClawAvailable {
                 print("[Port42] OpenClaw detected")
+            }
+
+            // Migrate old auth format
+            Port42AuthStore.shared.migrateIfNeeded()
+
+            // Proactive auth check
+            authStatus = .checking
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let status = AgentAuthResolver.shared.checkStatus()
+                DispatchQueue.main.async {
+                    self?.authStatus = status
+                }
             }
         } catch {
             print("[Port42] Failed to load state: \(error)")
@@ -1042,6 +1060,15 @@ public final class AppState: ObservableObject {
 
             // Start gateway and sync now (don't wait for next app launch)
             configureSyncIfNeeded(userId: user.id)
+
+            // Refresh auth status after setup (user just configured auth)
+            authStatus = .checking
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let status = AgentAuthResolver.shared.checkStatus()
+                DispatchQueue.main.async {
+                    self?.authStatus = status
+                }
+            }
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
@@ -1452,10 +1479,9 @@ public final class AppState: ObservableObject {
         unreadObservation?.cancel()
 
         // Clear stored auth so boot flow starts fresh
-        Port42AuthStore.shared.deleteCredential(account: "manualToken")
-        Port42AuthStore.shared.deleteCredential(account: "apiKey")
-        Port42AuthStore.shared.saveMode(.autoDetect)
+        Port42AuthStore.shared.clearAll()
         AgentAuthResolver.shared.resetAuth()
+        authStatus = .unknown
 
         do {
             try db.resetAll()
