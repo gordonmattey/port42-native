@@ -1,8 +1,8 @@
 # Ports Spec
 
-**Last updated:** 2026-03-14
+**Last updated:** 2026-03-17
 
-**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b partially complete (bugs fixed, background ports, window persistence, docking removed, edge snap/tiling removed in favor of manual arrangement). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol).
+**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b complete (bugs fixed, background ports, window persistence, UDIDs, port_update, ports_list, dock/undock, docking removed, edge snap/tiling removed in favour of manual arrangement). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol).
 
 ---
 
@@ -305,7 +305,6 @@ Target: The ouroboros. The fish swims in itself.
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
 | P-241 | Inline Port Compact Block | Inline ports in the message stream render as a compact block (icon + title) rather than a full-width live webview. Click to expand inline or pop out. Reduces visual noise when scrolling through chat. | High | Inline port shows as a small titled block, not a full webview |
-| P-210 | Close to Preview | Closing a popped-out port collapses it back to a compact code block preview with title + "reopen" button. Not destructive. | High | Close shows preview, click reopens the port |
 | P-211 | Inline Port Update | Companion sends updated port that replaces the existing inline port in the same message, not a new message. Running popped-out version also updates. | High | "Change the chart to weekly" updates the live port in place |
 | P-209 | Port Channel Context | Ports pin to origin channel by default. `port42.channel.follow(true/false)` lets port choose. Affects what `port42.channel.current()` and `port42.messages.recent()` return. | High | Port has predictable channel context when user navigates away |
 | P-219 | Port History | Browseable list of all ports created in this session and past sessions. Reopen any port from history without scrolling through chat. Accessible from sidebar or command palette. | High | User can find and reopen any previous port |
@@ -1181,4 +1180,38 @@ External agents are untrusted by default. Separate trust tier from local compani
 | Browser | Prompted | Yes | Yes |
 
 External agents bring their own AI. They don't consume the user's Port42 API tokens. They can create ports and use the browser bridge (for rendering), but system-level capabilities require explicit user escalation.
+
+---
+
+## Future Features
+
+### P-800: Share a Port
+
+Share a live port with another Port42 user over an encrypted channel. The recipient sees the port rendered in their app, with full interactivity — not a screenshot, a live session.
+
+**Sharing mechanisms:**
+
+- **Channel share**: Post a port to a shared channel. All members see the live port inline in their message history, each with their own bridge context (independent JS runtime, shared port HTML/JS source).
+- **Direct share link**: Generate a `port42://port?id=<udid>&channel=<id>` deep link. Recipient clicks it, port opens in their app. Works over ngrok for cross-machine sharing.
+- **Clone to channel**: Recipient can pin a shared port to their own channel, creating their own independent instance seeded from the same HTML/JS source.
+
+**API additions (in the port's JS runtime):**
+
+```
+port42.port
+  .share(opts?)              → { link } — generate a shareable deep link
+                               opts: { channelId? } — share into specific channel
+  .clone()                   → { portId } — clone this port's source into a new port
+```
+
+**Native side:**
+
+- Port HTML/JS source stored alongside the message in the database (already the case for generative ports)
+- Sync service transmits port source as part of the message payload (E2E encrypted)
+- Recipient's app reconstructs the port from source and loads it in a fresh WKWebView
+- Each recipient gets an independent JS runtime — state is not shared, only the source
+
+**Permission model:** sharing a port exposes its HTML/JS source to the recipient. No extra permission needed (the source is already visible to the user who created it). System-level bridge permissions (terminal, automation, etc.) are re-prompted for each new recipient's instance.
+
+**Priority:** Medium. Enables collaborative port workflows and is the natural complement to channel sync.
 
