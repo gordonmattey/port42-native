@@ -1,47 +1,149 @@
 import Foundation
 import Security
 
-// MARK: - Auth Config
+// MARK: - Token Detection
 
-public enum AgentAuthConfig: Equatable {
-    case claudeCodeOAuth
-    case claudeManualToken(String)
-    case apiKey(String)
+/// Token type detected from content, not storage slot
+public enum CredentialType: String, Codable, Equatable {
+    case oauthToken    // sk-ant-oat01-...
+    case apiKey        // sk-ant-api03-...
+    case unknown
 }
 
-// MARK: - Stored Auth Mode
+/// Pure function: prefix → type
+public enum TokenDetector {
+    /// Detect credential type from token prefix
+    public static func detect(_ token: String) -> CredentialType {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("sk-ant-oat") { return .oauthToken }
+        if trimmed.hasPrefix("sk-ant-api") { return .apiKey }
+        // Future: OpenAI prefixes etc.
+        return .unknown
+    }
 
-/// Which auth mode the user selected (persisted in UserDefaults)
-public enum StoredAuthMode: String {
-    case autoDetect = "autoDetect"
-    case manualToken = "manualToken"
-    case apiKey = "apiKey"
+    /// Human-readable label for a credential type
+    public static func humanLabel(_ type: CredentialType) -> String {
+        switch type {
+        case .oauthToken: return "OAuth session token"
+        case .apiKey: return "API key"
+        case .unknown: return "unrecognized token format"
+        }
+    }
 }
 
-/// Manages Port42's own stored credentials in Keychain
+// MARK: - Auth Credential
+
+/// Resolved credential ready for use
+public struct AuthCredential: Equatable {
+    public let token: String
+    public let type: CredentialType
+    public let source: CredentialSource
+
+    public enum CredentialSource: String, Codable, Equatable {
+        case claudeCodeKeychain  // auto-detected from Claude Code
+        case manual              // user pasted
+    }
+
+    public init(token: String, type: CredentialType, source: CredentialSource) {
+        self.token = token
+        self.type = type
+        self.source = source
+    }
+
+    /// Whether this credential should use OAuth Bearer headers.
+    /// Source is authoritative: anything from Claude Code Keychain is always OAuth.
+    /// For manual tokens, we use the detected type.
+    public var useOAuthHeaders: Bool {
+        switch source {
+        case .claudeCodeKeychain: return true
+        case .manual: return type == .oauthToken
+        }
+    }
+}
+
+// MARK: - Auth Preference
+
+/// User's preference per provider (persisted in UserDefaults)
+public enum AuthPreference: String, Codable {
+    case autoDetect    // try Claude Code Keychain
+    case manualEntry   // user pasted a token
+}
+
+// MARK: - Auth Status
+
+/// Published auth status for UI
+public enum AuthStatus: Equatable {
+    case unknown
+    case checking
+    case connected(type: CredentialType, expiresIn: String?)
+    case noCredential
+    case error(String)
+}
+
+// MARK: - Keychain Entry
+
+/// A discovered Claude Code credential in the Keychain.
+public struct ClaudeKeychainEntry: Identifiable, Equatable {
+    public var id: String { serviceName }
+    public let serviceName: String
+    public let created: Date
+    public let label: String
+    public let expiresAt: Date?
+
+    public var suffix: String? {
+        let prefix = "Claude Code-credentials"
+        guard serviceName.count > prefix.count else { return nil }
+        let rest = String(serviceName.dropFirst(prefix.count))
+        return rest.hasPrefix("-") ? String(rest.dropFirst()) : rest
+    }
+}
+
+// MARK: - Errors
+
+public enum AgentAuthError: Error, LocalizedError {
+    case tokenNotFound
+    case keychainError(OSStatus)
+    case invalidTokenData
+
+    public var errorDescription: String? {
+        switch self {
+        case .tokenNotFound:
+            return "Token expired or not found. Run /login in Claude Code to refresh."
+        case .invalidTokenData:
+            return "Invalid token data in Keychain. Re-authenticate with /login in Claude Code."
+        case .keychainError(let status):
+            return "Keychain error (\(status)). Try re-authenticating with /login in Claude Code."
+        }
+    }
+}
+
+// MARK: - Provider-Keyed Store
+
+/// Manages Port42's own stored credentials in Keychain, keyed by provider.
 public final class Port42AuthStore {
     public static let shared = Port42AuthStore()
 
     private let service = "Port42-credentials"
 
-    /// Save the user's chosen auth mode
-    public func saveMode(_ mode: StoredAuthMode) {
-        UserDefaults.standard.set(mode.rawValue, forKey: "port42AuthMode")
+    /// Save the user's auth preference for a provider
+    public func savePreference(provider: String = "anthropic", pref: AuthPreference) {
+        UserDefaults.standard.set(pref.rawValue, forKey: "port42AuthPref-\(provider)")
     }
 
-    /// Load the stored auth mode
-    public func loadMode() -> StoredAuthMode {
-        guard let raw = UserDefaults.standard.string(forKey: "port42AuthMode"),
-              let mode = StoredAuthMode(rawValue: raw) else {
-            return .autoDetect
+    /// Load the auth preference for a provider
+    public func loadPreference(provider: String = "anthropic") -> AuthPreference {
+        // Check new key first
+        if let raw = UserDefaults.standard.string(forKey: "port42AuthPref-\(provider)"),
+           let pref = AuthPreference(rawValue: raw) {
+            return pref
         }
-        return mode
+        return .autoDetect
     }
 
-    /// Save a credential to Keychain (manual token or API key)
-    public func saveCredential(_ value: String, account: String) {
+    /// Save a credential to Keychain for a provider (e.g. "manual-anthropic")
+    public func saveCredential(_ value: String, provider: String = "anthropic") {
+        let account = "manual-\(provider)"
         let data = value.data(using: .utf8)!
-        // Delete existing first
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -61,8 +163,61 @@ public final class Port42AuthStore {
         }
     }
 
-    /// Load a credential from Keychain
-    public func loadCredential(account: String) -> String? {
+    /// Load a credential from Keychain for a provider
+    public func loadCredential(provider: String = "anthropic") -> String? {
+        return loadKeychainValue(account: "manual-\(provider)")
+    }
+
+    /// Delete a credential from Keychain for a provider
+    public func deleteCredential(provider: String = "anthropic") {
+        deleteKeychainValue(account: "manual-\(provider)")
+    }
+
+    /// Clear all stored auth for a reset
+    public func clearAll() {
+        deleteKeychainValue(account: "manual-anthropic")
+        // Legacy cleanup
+        deleteKeychainValue(account: "manualToken")
+        deleteKeychainValue(account: "apiKey")
+        UserDefaults.standard.removeObject(forKey: "port42AuthPref-anthropic")
+        UserDefaults.standard.removeObject(forKey: "port42AuthMode")
+    }
+
+    // MARK: - Migration
+
+    /// Migrate from old auth format to new provider-keyed format.
+    /// Safe to call multiple times (idempotent).
+    public func migrateIfNeeded() {
+        let migrated = UserDefaults.standard.bool(forKey: "authMigratedV2")
+        guard !migrated else { return }
+
+        let oldMode = UserDefaults.standard.string(forKey: "port42AuthMode")
+        if oldMode == "manualToken" {
+            // Copy old "manualToken" → "manual-anthropic"
+            if let token = loadKeychainValue(account: "manualToken") {
+                saveCredential(token, provider: "anthropic")
+                savePreference(provider: "anthropic", pref: .manualEntry)
+            }
+        } else if oldMode == "apiKey" {
+            // Copy old "apiKey" → "manual-anthropic"
+            if let key = loadKeychainValue(account: "apiKey") {
+                saveCredential(key, provider: "anthropic")
+                savePreference(provider: "anthropic", pref: .manualEntry)
+            }
+        }
+
+        // Delete old accounts
+        deleteKeychainValue(account: "manualToken")
+        deleteKeychainValue(account: "apiKey")
+        UserDefaults.standard.removeObject(forKey: "port42AuthMode")
+
+        UserDefaults.standard.set(true, forKey: "authMigratedV2")
+        NSLog("[Port42:auth] Migration complete (oldMode=%@)", oldMode ?? "nil")
+    }
+
+    // MARK: - Private
+
+    private func loadKeychainValue(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -79,8 +234,7 @@ public final class Port42AuthStore {
         return str
     }
 
-    /// Delete a credential from Keychain
-    public func deleteCredential(account: String) {
+    private func deleteKeychainValue(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -88,109 +242,39 @@ public final class Port42AuthStore {
         ]
         SecItemDelete(query as CFDictionary)
     }
-
-    /// Resolve the stored auth config (returns nil if not configured or auto-detect)
-    public func resolveStoredConfig() -> AgentAuthConfig? {
-        switch loadMode() {
-        case .autoDetect:
-            return nil // let AgentAuthResolver.autoDetect() handle it
-        case .manualToken:
-            if let token = loadCredential(account: "manualToken") {
-                return .claudeManualToken(token)
-            }
-            return nil
-        case .apiKey:
-            if let key = loadCredential(account: "apiKey") {
-                return .apiKey(key)
-            }
-            return nil
-        }
-    }
-}
-
-// MARK: - Resolved Auth
-
-public struct ResolvedAuth {
-    public let token: String
-    public let source: AuthSource
-
-    public enum AuthSource: Equatable {
-        case claudeCodeOAuth
-        case apiKey
-    }
-
-    public init(token: String, source: AuthSource) {
-        self.token = token
-        self.source = source
-    }
-}
-
-// MARK: - Keychain Entry
-
-/// A discovered Claude Code credential in the Keychain.
-public struct ClaudeKeychainEntry: Identifiable, Equatable {
-    public var id: String { serviceName }
-    public let serviceName: String
-    public let created: Date
-    public let label: String        // human-readable: subscription type or suffix
-    public let expiresAt: Date?
-
-    /// Suffix after "Claude Code-credentials", if any.
-    public var suffix: String? {
-        let prefix = "Claude Code-credentials"
-        guard serviceName.count > prefix.count else { return nil }
-        let rest = String(serviceName.dropFirst(prefix.count))
-        return rest.hasPrefix("-") ? String(rest.dropFirst()) : rest
-    }
-}
-
-// MARK: - Errors
-
-public enum AgentAuthError: Error {
-    case tokenNotFound
-    case keychainError(OSStatus)
-    case invalidTokenData
 }
 
 // MARK: - Resolver
 
 public final class AgentAuthResolver {
-    /// Shared instance so all LLMEngine instances reuse the same cached token (one Keychain prompt).
     public static let shared = AgentAuthResolver()
 
     private let keychainService: String
     private let keychainAccount: String?
     private var cachedToken: String?
     private var cachedExpiresAt: Date?
+    private var cachedRefreshToken: String?
     private var keychainDenied: Bool = false
-    /// True after we successfully read from Keychain once. Prevents re-reads
-    /// (and repeated permission prompts) until the user explicitly calls resetAuth().
     private var hasReadKeychain: Bool = false
 
     private static let selectedServiceKey = "port42SelectedKeychainService"
 
-    /// Default init reads from the real Claude Code keychain entry.
-    /// Pass custom service/account for testing.
     public init(
         keychainService: String = "Claude Code-credentials",
         keychainAccount: String? = nil
     ) {
         self.keychainService = keychainService
         self.keychainAccount = keychainAccount
-        // Restore previously selected Keychain entry across app restarts
         self.activeService = UserDefaults.standard.string(forKey: AgentAuthResolver.selectedServiceKey)
     }
 
-    /// For test compatibility: init with a mock directory (reads JSON file instead of Keychain)
     public convenience init(claudeConfigDir: String) {
-        // Use the dir path as a sentinel service name so tests can inject mock tokens
         self.init(keychainService: "test-\(claudeConfigDir)")
         self._testConfigDir = claudeConfigDir
     }
 
     private var _testConfigDir: String?
 
-    /// Human-readable description of cached token expiry, if available.
     public var cachedExpiryDescription: String? {
         guard let exp = cachedExpiresAt else { return nil }
         let remaining = exp.timeIntervalSince(Date())
@@ -203,14 +287,9 @@ public final class AgentAuthResolver {
         return "\(minutes)m"
     }
 
-    /// The service name currently in use (may be overridden by user picking a specific entry).
     private var activeService: String?
-
-    /// The service name that was actually resolved from Keychain (may differ from activeService
-    /// when auto-detect found via prefix match).
     private var resolvedService: String?
 
-    /// Human-readable label of the active Keychain entry.
     public var activeAccountLabel: String? {
         guard let svc = resolvedService ?? activeService else { return nil }
         let prefix = keychainService
@@ -224,22 +303,19 @@ public final class AgentAuthResolver {
         return "Default"
     }
 
-    /// Clear the cached token so next resolve() re-reads from Keychain.
-    /// Call this on 401 errors to pick up refreshed tokens.
-    /// Does NOT reset keychainDenied to avoid repeated Keychain prompts on bad tokens.
     public func clearCache() {
-        NSLog("[Port42:auth] clearCache() called. hasReadKeychain=%@, hadToken=%@", hasReadKeychain ? "true" : "false", cachedToken != nil ? "true" : "false")
+        NSLog("[Port42:auth] clearCache()")
         cachedToken = nil
         cachedExpiresAt = nil
+        cachedRefreshToken = nil
         hasReadKeychain = false
     }
 
-    /// Full reset including keychainDenied. Use only when the user explicitly
-    /// changes auth settings or selects a new Keychain entry.
     public func resetAuth() {
-        NSLog("[Port42:auth] resetAuth() called. hasReadKeychain=%@, hadToken=%@, activeService=%@", hasReadKeychain ? "true" : "false", cachedToken != nil ? "true" : "false", activeService ?? "nil")
+        NSLog("[Port42:auth] resetAuth()")
         cachedToken = nil
         cachedExpiresAt = nil
+        cachedRefreshToken = nil
         keychainDenied = false
         hasReadKeychain = false
         lastKeychainReadTime = nil
@@ -248,9 +324,7 @@ public final class AgentAuthResolver {
         UserDefaults.standard.removeObject(forKey: AgentAuthResolver.selectedServiceKey)
     }
 
-    /// List all Claude Code credential entries in the Keychain.
-    /// Only queries attributes (no data) so this triggers zero Keychain permission prompts.
-    /// Data is fetched later when the user selects an entry or on single-entry auto-select.
+    /// List all Claude Code credential entries in the Keychain (attributes only, no prompts).
     public func listKeychainEntries() -> [ClaudeKeychainEntry] {
         let prefix = keychainService
 
@@ -267,41 +341,31 @@ public final class AgentAuthResolver {
             return []
         }
 
-        let entries = items.compactMap { item -> ClaudeKeychainEntry? in
+        return items.compactMap { item -> ClaudeKeychainEntry? in
             guard let svc = item[kSecAttrService as String] as? String,
                   svc.hasPrefix(prefix) else { return nil }
             let created = item[kSecAttrCreationDate as String] as? Date ?? .distantPast
             let account = item[kSecAttrAccount as String] as? String
 
-            // Build label from suffix or account name (no data fetch needed)
             var label: String
+            let acctName = account.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }
             if svc.count > prefix.count {
-                let suffix = String(svc.dropFirst(prefix.count + 1))
-                label = "Account \(suffix.prefix(8))"
+                let suffix = String(svc.dropFirst(prefix.count + 1)).prefix(8)
+                label = acctName.map { "\($0) (\(suffix))" } ?? "Account \(suffix)"
             } else {
-                label = "Default"
-            }
-            // Use account name if available and meaningful
-            if let acct = account, !acct.isEmpty, acct != "default" {
-                label = acct
+                label = acctName ?? "Default"
             }
 
             return ClaudeKeychainEntry(
-                serviceName: svc,
-                created: created,
-                label: label,
-                expiresAt: nil  // unknown until data is fetched on selection
+                serviceName: svc, created: created, label: label, expiresAt: nil
             )
         }
         .sorted { $0.created > $1.created }
-
-        return entries
     }
 
-    /// Use a specific Keychain entry (by service name) for token resolution.
-    /// This triggers a single Keychain data fetch (one permission prompt).
+    /// Use a specific Keychain entry for token resolution.
     public func selectEntry(_ entry: ClaudeKeychainEntry) {
-        NSLog("[Port42:auth] selectEntry() called: %@", entry.serviceName)
+        NSLog("[Port42:auth] selectEntry: %@", entry.serviceName)
         cachedToken = nil
         cachedExpiresAt = nil
         keychainDenied = false
@@ -309,163 +373,148 @@ public final class AgentAuthResolver {
         lastKeychainReadTime = nil
         activeService = entry.serviceName
         UserDefaults.standard.set(entry.serviceName, forKey: AgentAuthResolver.selectedServiceKey)
-        // Pre-warm the cache with a single read so no further prompts are needed
         _ = try? readClaudeCodeToken()
-        NSLog("[Port42:auth] selectEntry() done: cachedToken=%@, activeService=%@", cachedToken != nil ? "yes" : "nil", activeService ?? "nil")
+        NSLog("[Port42:auth] selectEntry done: service=%@, cachedExpiry=%@, tokenPrefix=%@",
+              entry.serviceName,
+              cachedExpiryDescription ?? "nil",
+              cachedToken.map { String($0.prefix(20)) } ?? "nil")
     }
 
-    public func resolve(config: AgentAuthConfig) throws -> ResolvedAuth {
-        switch config {
-        case .claudeCodeOAuth:
+    /// Resolve credentials for a provider. Returns an AuthCredential ready to use.
+    public func resolve(provider: String = "anthropic") throws -> AuthCredential {
+        let store = Port42AuthStore.shared
+        let pref = store.loadPreference(provider: provider)
+
+        switch pref {
+        case .manualEntry:
+            guard let token = store.loadCredential(provider: provider) else {
+                throw AgentAuthError.tokenNotFound
+            }
+            let type = TokenDetector.detect(token)
+            return AuthCredential(token: token, type: type, source: .manual)
+
+        case .autoDetect:
             let token = try readClaudeCodeToken()
-            return ResolvedAuth(token: token, source: .claudeCodeOAuth)
-
-        case .claudeManualToken(let token):
-            return ResolvedAuth(token: token, source: .claudeCodeOAuth)
-
-        case .apiKey(let key):
-            return ResolvedAuth(token: key, source: .apiKey)
+            let type = TokenDetector.detect(token)
+            return AuthCredential(token: token, type: type, source: .claudeCodeKeychain)
         }
     }
 
-    /// Auto-detect available auth. Returns the best available config, or nil.
-    /// Checks Port42's stored auth first, then falls back to Claude Code Keychain.
-    public func autoDetect() -> AgentAuthConfig? {
-        // Check if user has explicitly configured auth in Port42
-        if let stored = Port42AuthStore.shared.resolveStoredConfig() {
-            NSLog("[Port42:auth] autoDetect: using stored config: %@", String(describing: stored))
-            return stored
-        }
+    /// Check auth status without throwing. Used for boot check and UI display.
+    public func checkStatus(provider: String = "anthropic") -> AuthStatus {
+        let store = Port42AuthStore.shared
+        let pref = store.loadPreference(provider: provider)
 
-        if let dir = _testConfigDir {
-            let credPath = (dir as NSString).appendingPathComponent("credentials.json")
-            return FileManager.default.fileExists(atPath: credPath) ? .claudeCodeOAuth : nil
-        }
+        switch pref {
+        case .manualEntry:
+            guard let token = store.loadCredential(provider: provider) else {
+                return .noCredential
+            }
+            let type = TokenDetector.detect(token)
+            return .connected(type: type, expiresIn: nil)
 
-        // If we already have a cached token, we know OAuth is available
-        if cachedToken != nil {
-            NSLog("[Port42:auth] autoDetect: returning cached OAuth token")
-            return .claudeCodeOAuth
+        case .autoDetect:
+            if let _ = try? readClaudeCodeToken() {
+                let type: CredentialType = cachedToken.map { TokenDetector.detect($0) } ?? .oauthToken
+                return .connected(type: type, expiresIn: cachedExpiryDescription)
+            }
+            return .noCredential
         }
-
-        // Try to read and cache the token in one shot (single Keychain prompt)
-        if let _ = try? readClaudeCodeToken() {
-            NSLog("[Port42:auth] autoDetect: read fresh OAuth token from keychain")
-            return .claudeCodeOAuth
-        }
-
-        NSLog("[Port42:auth] autoDetect: no auth found")
-        return nil
     }
 
     // MARK: - Private
 
-    /// Track when last keychain read happened to prevent infinite re-read loops
     private var lastKeychainReadTime: Date?
-    private static let minKeychainReadInterval: TimeInterval = 30 // Don't re-read more than once per 30s
+    private static let minKeychainReadInterval: TimeInterval = 30
 
     private func readClaudeCodeToken() throws -> String {
-        NSLog("[Port42:auth] readClaudeCodeToken: cachedToken=%@, hasReadKeychain=%@, keychainDenied=%@, expiresAt=%@",
-              cachedToken != nil ? "yes" : "nil", hasReadKeychain ? "true" : "false", keychainDenied ? "true" : "false",
-              cachedExpiresAt.map { String(describing: $0) } ?? "nil")
-
         // Return cached token if available and not expired
         if let cached = cachedToken {
             if let exp = cachedExpiresAt, exp < Date().addingTimeInterval(60) {
-                // Token expires within 60s, but don't re-read if we just read
                 if let lastRead = lastKeychainReadTime,
                    Date().timeIntervalSince(lastRead) < Self.minKeychainReadInterval {
-                    NSLog("[Port42:auth] Token expired but keychain was read %.0fs ago, using expired token", Date().timeIntervalSince(lastRead))
-                    return cached  // Use expired token rather than infinite loop
+                    return cached
                 }
                 cachedToken = nil
                 cachedExpiresAt = nil
                 hasReadKeychain = false
-                NSLog("[Port42:auth] OAuth token expired or expiring soon, re-reading from Keychain")
             } else {
                 return cached
             }
         }
 
-        // If we already failed to read from Keychain this session, don't prompt again
         if keychainDenied {
-            NSLog("[Port42:auth] keychain was denied this session, throwing tokenNotFound")
             throw AgentAuthError.tokenNotFound
         }
 
-        // Throttle keychain reads to prevent flood
         if hasReadKeychain {
             if let lastRead = lastKeychainReadTime,
                Date().timeIntervalSince(lastRead) < Self.minKeychainReadInterval {
-                NSLog("[Port42:auth] Throttled: keychain read %.0fs ago, skipping", Date().timeIntervalSince(lastRead))
                 throw AgentAuthError.tokenNotFound
             }
-            // Enough time has passed, allow re-read
-            NSLog("[Port42:auth] Allowing keychain re-read after throttle period")
         }
 
-        // Test path: read from JSON file
         if let dir = _testConfigDir {
             let token = try readFromTestFile(dir: dir)
             cachedToken = token
             return token
         }
 
-        // Production path: read from macOS Keychain
         let data = try readKeychainData()
         hasReadKeychain = true
         lastKeychainReadTime = Date()
         guard let data else {
             keychainDenied = true
-            NSLog("[Port42] Claude Code Keychain entry not found, caching denial for session")
             throw AgentAuthError.tokenNotFound
         }
 
-        // Claude Code stores credentials as JSON: {"claudeAiOauth":{"accessToken":"sk-ant-oat01-...",...}}
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            // Primary path: nested under claudeAiOauth
             if let oauthObj = json["claudeAiOauth"] as? [String: Any],
                let accessToken = oauthObj["accessToken"] as? String {
-                // Check expiry before caching
+                let refreshToken = oauthObj["refreshToken"] as? String
                 if let expiresMs = oauthObj["expiresAt"] as? Double {
                     let expiresAt = Date(timeIntervalSince1970: expiresMs / 1000.0)
                     let remaining = expiresAt.timeIntervalSince(Date())
                     if remaining < 0 {
-                        NSLog("[Port42:auth] Token from keychain already expired (%.0f minutes ago), skipping", -remaining / 60)
-                        // Don't cache expired tokens, let caller try another entry
+                        // Access token expired — attempt silent refresh if we have a refresh token
+                        if let rt = refreshToken ?? cachedRefreshToken {
+                            NSLog("[Port42:auth] Access token expired, attempting silent refresh")
+                            if let refreshed = try? refreshAccessToken(using: rt) {
+                                cachedToken = refreshed.accessToken
+                                cachedExpiresAt = refreshed.expiresAt
+                                if let newRt = refreshed.refreshToken {
+                                    cachedRefreshToken = newRt
+                                }
+                                NSLog("[Port42:auth] Silent refresh succeeded, expires %@",
+                                      refreshed.expiresAt?.debugDescription ?? "unknown")
+                                return refreshed.accessToken
+                            }
+                        }
                         throw AgentAuthError.tokenNotFound
                     }
                     cachedExpiresAt = expiresAt
-                    NSLog("[Port42] OAuth token read from Keychain, expires in %.0f minutes (%.1f hours)", remaining / 60, remaining / 3600)
-                } else {
-                    NSLog("[Port42] OAuth token read from Keychain, no expiry set")
                 }
+                cachedRefreshToken = refreshToken
                 cachedToken = accessToken
                 return accessToken
             }
-            // Fallback: flat structure
             if let token = json["oauth_token"] as? String ?? json["token"] as? String {
                 cachedToken = token
                 return token
             }
         }
 
-        // Fallback: maybe the raw data is the token string
         guard let token = String(data: data, encoding: .utf8), !token.isEmpty else {
             keychainDenied = true
-            NSLog("[Port42] Keychain entry found but no valid token, caching denial for session")
             throw AgentAuthError.invalidTokenData
         }
         cachedToken = token
         return token
     }
 
-    /// Read credential data from Keychain, trying exact service match first then prefix search.
-    /// If the user selected a specific entry via `selectEntry(_:)`, that service name is used directly.
     private func readKeychainData() throws -> Data? {
         let service = activeService ?? keychainService
 
-        // Fast path: exact service name match
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -484,14 +533,10 @@ public final class AgentAuthResolver {
             return data
         }
 
-        // If user explicitly selected an entry and it wasn't found, don't broaden
         if activeService != nil {
             return nil
         }
 
-        // Slow path: Claude Code may store under suffixed names like
-        // "Claude Code-credentials-d53625db". Query attributes (no data) to find
-        // matching service names, then fetch the newest one's data individually.
         guard status == errSecItemNotFound else {
             throw AgentAuthError.keychainError(status)
         }
@@ -511,7 +556,6 @@ public final class AgentAuthResolver {
             return nil
         }
 
-        // Find matching service names with creation dates, pick newest
         let matches = items.compactMap { item -> (String, Date)? in
             guard let svc = item[kSecAttrService as String] as? String,
                   svc.hasPrefix(prefix) else { return nil }
@@ -523,7 +567,6 @@ public final class AgentAuthResolver {
             return nil
         }
 
-        // Fetch data for the newest matching entry
         let dataQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: best.0,
@@ -537,8 +580,72 @@ public final class AgentAuthResolver {
         }
 
         resolvedService = best.0
-        NSLog("[Port42] Found Claude Code credential via prefix match: %@", best.0)
         return data
+    }
+
+    // MARK: - Token Refresh
+
+    private static let tokenRefreshURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
+    private static let oauthClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+
+    private struct RefreshResult {
+        let accessToken: String
+        let refreshToken: String?
+        let expiresAt: Date?
+    }
+
+    /// Exchange a refresh token for a new access token.
+    /// Blocks the calling thread (uses a semaphore) — call only from a background context.
+    private func refreshAccessToken(using refreshToken: String) throws -> RefreshResult {
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "grant_type", value: "refresh_token"),
+            URLQueryItem(name: "refresh_token", value: refreshToken),
+            URLQueryItem(name: "client_id", value: Self.oauthClientId),
+        ]
+        guard let bodyData = components.percentEncodedQuery?.data(using: .utf8) else {
+            throw AgentAuthError.invalidTokenData
+        }
+
+        var request = URLRequest(url: Self.tokenRefreshURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = bodyData
+        request.timeoutInterval = 15
+
+        var refreshResult: Result<RefreshResult, Error>?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            defer { semaphore.signal() }
+            if let error = error {
+                refreshResult = .failure(error)
+                return
+            }
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let accessToken = json["access_token"] as? String else {
+                refreshResult = .failure(AgentAuthError.invalidTokenData)
+                return
+            }
+            var expiresAt: Date?
+            if let expiresIn = json["expires_in"] as? Double {
+                expiresAt = Date().addingTimeInterval(expiresIn)
+            }
+            let newRefreshToken = json["refresh_token"] as? String
+            refreshResult = .success(RefreshResult(
+                accessToken: accessToken,
+                refreshToken: newRefreshToken,
+                expiresAt: expiresAt
+            ))
+        }.resume()
+
+        semaphore.wait()
+
+        switch refreshResult! {
+        case .success(let r): return r
+        case .failure(let e): throw e
+        }
     }
 
     private func readFromTestFile(dir: String) throws -> String {
