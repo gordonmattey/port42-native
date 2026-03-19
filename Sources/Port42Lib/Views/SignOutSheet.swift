@@ -9,17 +9,27 @@ public struct SignOutSheet: View {
     @State private var ngrokDomain: String = UserDefaults.standard.string(forKey: "ngrokDomain") ?? ""
     @State private var editingToken = false
     @State private var autoUpdatesEnabled: Bool = UserDefaults.standard.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
-    @State private var selectedAuthMode: StoredAuthMode = Port42AuthStore.shared.loadMode()
+    @State private var selectedAuthPref: AuthPreference = Port42AuthStore.shared.loadPreference()
     @State private var authCredentialInput = ""
     @State private var authSaved = false
+    @State private var detectedType: CredentialType = .unknown
+    @State private var testResult: TestConnectionResult = .idle
     @StateObject private var claudeSetup = ClaudeCodeSetup()
     @State private var autoDetectStatus: AutoDetectStatus = .unknown
+    @State private var currentCheckId: UUID?
 
     enum AutoDetectStatus: Equatable {
         case unknown
         case checking
         case connected(expiresIn: String?, account: String?)
         case notFound
+    }
+
+    enum TestConnectionResult: Equatable {
+        case idle
+        case testing
+        case success
+        case failure(String)
     }
 
     public init(isPresented: Binding<Bool>) {
@@ -100,35 +110,37 @@ public struct SignOutSheet: View {
                 }
                 .buttonStyle(.plain)
 
-                Button(action: doOff) {
-                    VStack(spacing: 2) {
-                        Text("off")
-                            .font(Port42Theme.monoBold(14))
-                        Text("keep data, boot from scratch")
-                            .font(Port42Theme.mono(10))
+                HStack(spacing: 10) {
+                    Button(action: doOff) {
+                        VStack(spacing: 2) {
+                            Text("off")
+                                .font(Port42Theme.monoBold(14))
+                            Text("reboot")
+                                .font(Port42Theme.mono(10))
+                        }
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Port42Theme.textSecondary.opacity(0.15))
+                        .cornerRadius(6)
                     }
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Port42Theme.textSecondary.opacity(0.15))
-                    .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                Button(action: doReset) {
-                    VStack(spacing: 2) {
-                        Text("reset")
-                            .font(Port42Theme.monoBold(14))
-                        Text("erase everything, start fresh")
-                            .font(Port42Theme.mono(10))
+                    Button(action: doReset) {
+                        VStack(spacing: 2) {
+                            Text("reset")
+                                .font(Port42Theme.monoBold(14))
+                            Text("erase all")
+                                .font(Port42Theme.mono(10))
+                        }
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(6)
                     }
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(6)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 Button("stay") {
                     isPresented = false
@@ -316,18 +328,24 @@ public struct SignOutSheet: View {
             Spacer()
         }
 
-        // Mode picker
+        // Two mode buttons
         HStack(spacing: 6) {
-            authModeButton(.autoDetect, label: "auto")
-            authModeButton(.manualToken, label: "session key")
-            authModeButton(.apiKey, label: "API key")
+            authPrefButton(.autoDetect, label: "auto")
+            authPrefButton(.manualEntry, label: "manual")
         }
 
         // Auto-detect status and guided setup
-        Group { if selectedAuthMode == .autoDetect {
+        Group { if selectedAuthPref == .autoDetect {
             switch autoDetectStatus {
             case .unknown:
-                EmptyView()
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 12, height: 12)
+                    Text("checking...")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
 
             case .checking:
                 HStack(spacing: 6) {
@@ -341,33 +359,47 @@ public struct SignOutSheet: View {
 
             case .connected(let expiresIn, let account):
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 6, height: 6)
-                    Text("connected via Claude Code OAuth")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textPrimary)
                     if let account {
                         Text(account)
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                    }
+                    if let exp = expiresIn {
+                        Text("expires in \(exp)")
                             .font(Port42Theme.mono(10))
                             .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
                     }
                 }
-                if let exp = expiresIn {
-                    Text("session key expires in \(exp)")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                HStack(spacing: 8) {
+                    Button(action: doTestConnection) {
+                        Text("test")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.accent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Port42Theme.accent.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: refreshAutoDetect) {
+                        Text("refresh")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.accent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Port42Theme.accent.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+
+                    testResultView
                 }
-                Button(action: refreshAutoDetect) {
-                    Text("refresh")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.accent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Port42Theme.accent.opacity(0.1))
-                        .cornerRadius(4)
+
+                // Account switcher when multiple entries exist
+                if case .multipleTokens = claudeSetup.state {
+                    ClaudeCodeSetupView(setup: claudeSetup)
                 }
-                .buttonStyle(.plain)
 
             case .notFound:
                 HStack(spacing: 6) {
@@ -385,36 +417,28 @@ public struct SignOutSheet: View {
                             claudeSetup.diagnose()
                         }
                     }
-                    .onChange(of: claudeSetup.state) { _, newState in
-                        if newState == .success {
-                            checkAutoDetect()
-                        }
-                    }
             }
 
-            // Account picker (shown when multiple entries exist, even if connected)
-            if case .multipleTokens = claudeSetup.state {
-                ClaudeCodeSetupView(setup: claudeSetup)
-                    .onChange(of: claudeSetup.state) { _, newState in
-                        if newState == .success {
-                            checkAutoDetect()
-                        }
-                    }
-            }
         } }
+        .onChange(of: claudeSetup.state) { _, newState in
+            if newState == .success {
+                // Invalidate any in-flight async check so it won't overwrite
+                currentCheckId = nil
+                let resolver = AgentAuthResolver.shared
+                let exp = resolver.cachedExpiryDescription
+                let acct = resolver.activeAccountLabel
+                autoDetectStatus = .connected(expiresIn: exp, account: acct)
+            }
+        }
         .onAppear {
-            if selectedAuthMode == .autoDetect, autoDetectStatus == .unknown {
+            if selectedAuthPref == .autoDetect {
                 checkAutoDetect()
             }
         }
 
-        // Credential input for manual modes
-        if selectedAuthMode == .manualToken || selectedAuthMode == .apiKey {
-            let placeholder = selectedAuthMode == .manualToken
-                ? "paste OAuth session key"
-                : "paste Anthropic API key (sk-ant-...)"
-
-            SecureField(placeholder, text: $authCredentialInput)
+        // Manual mode: single input field with live type detection
+        if selectedAuthPref == .manualEntry {
+            SecureField("paste API key or OAuth session key", text: $authCredentialInput)
                 .textFieldStyle(.plain)
                 .font(Port42Theme.mono(12))
                 .foregroundStyle(Port42Theme.textPrimary)
@@ -422,10 +446,33 @@ public struct SignOutSheet: View {
                 .padding(.vertical, 6)
                 .background(Port42Theme.bgPrimary)
                 .cornerRadius(4)
-                .onSubmit { saveAuthCredential() }
+                .onSubmit { saveManualCredential() }
+                .onChange(of: authCredentialInput) { _, newValue in
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
+                    testResult = .idle
+                }
+
+            // Live detection label
+            if !authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                HStack(spacing: 6) {
+                    if detectedType == .unknown {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                    } else {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.green)
+                    }
+                    Text("detected: \(TokenDetector.humanLabel(detectedType))")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(detectedType == .unknown ? .orange : Port42Theme.textSecondary)
+                }
+            }
 
             HStack(spacing: 8) {
-                Button(action: saveAuthCredential) {
+                Button(action: saveManualCredential) {
                     Text(authCredentialInput.isEmpty ? "clear" : "save")
                         .font(Port42Theme.monoBold(12))
                         .foregroundStyle(Port42Theme.accent)
@@ -436,55 +483,95 @@ public struct SignOutSheet: View {
                 }
                 .buttonStyle(.plain)
 
-                if authSaved {
-                    Text("saved")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(.green)
-                        .transition(.opacity)
+                Button(action: doTestConnection) {
+                    Text("test")
+                        .font(Port42Theme.monoBold(12))
+                        .foregroundStyle(Port42Theme.accent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Port42Theme.accent.opacity(0.1))
+                        .cornerRadius(4)
                 }
+                .buttonStyle(.plain)
+
+                testResultView
 
                 Spacer()
             }
         }
     }
 
-    private func authModeButton(_ mode: StoredAuthMode, label: String) -> some View {
+    @ViewBuilder
+    private var testResultView: some View {
+        switch testResult {
+        case .idle:
+            EmptyView()
+        case .testing:
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 12, height: 12)
+        case .success:
+            Text("connected")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(.green)
+                .transition(.opacity)
+        case .failure(let msg):
+            Text(msg)
+                .font(Port42Theme.mono(10))
+                .foregroundStyle(.red)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .transition(.opacity)
+        }
+    }
+
+    private func authPrefButton(_ pref: AuthPreference, label: String) -> some View {
         Button(action: {
             withAnimation(.easeIn(duration: 0.1)) {
-                selectedAuthMode = mode
+                selectedAuthPref = pref
                 authSaved = false
-                // Pre-fill with saved credential if available
-                let account = mode == .manualToken ? "manualToken" : "apiKey"
-                authCredentialInput = Port42AuthStore.shared.loadCredential(account: account) ?? ""
+                testResult = .idle
+                // Pre-fill with saved credential when switching to manual
+                if pref == .manualEntry {
+                    authCredentialInput = Port42AuthStore.shared.loadCredential() ?? ""
+                    let trimmed = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
+                }
             }
-            Port42AuthStore.shared.saveMode(mode)
-            if mode == .autoDetect {
-                AgentAuthResolver.shared.resetAuth()
+            Port42AuthStore.shared.savePreference(pref: pref)
+            if pref == .autoDetect {
+                AgentAuthResolver.shared.clearCache()
                 checkAutoDetect()
             } else {
                 claudeSetup.cancel()
             }
+            // Update global auth status
+            appState.authStatus = .checking
+            DispatchQueue.global(qos: .userInitiated).async {
+                let status = AgentAuthResolver.shared.checkStatus()
+                DispatchQueue.main.async {
+                    appState.authStatus = status
+                }
+            }
         }) {
             Text(label)
                 .font(Port42Theme.mono(11))
-                .foregroundStyle(selectedAuthMode == mode ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.5))
+                .foregroundStyle(selectedAuthPref == pref ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.5))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(selectedAuthMode == mode ? Port42Theme.accent.opacity(0.15) : Port42Theme.bgPrimary)
+                .background(selectedAuthPref == pref ? Port42Theme.accent.opacity(0.15) : Port42Theme.bgPrimary)
                 .cornerRadius(4)
         }
         .buttonStyle(.plain)
     }
 
-    private func saveAuthCredential() {
+    private func saveManualCredential() {
         let value = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let account = selectedAuthMode == .manualToken ? "manualToken" : "apiKey"
 
         if value.isEmpty {
-            // Clear credential
-            Port42AuthStore.shared.deleteCredential(account: account)
+            Port42AuthStore.shared.deleteCredential()
         } else {
-            Port42AuthStore.shared.saveCredential(value, account: account)
+            Port42AuthStore.shared.saveCredential(value)
         }
         AgentAuthResolver.shared.resetAuth()
 
@@ -494,6 +581,39 @@ public struct SignOutSheet: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             withAnimation(.easeOut(duration: 0.3)) {
                 authSaved = false
+            }
+        }
+
+        // Update global auth status
+        appState.authStatus = .checking
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = AgentAuthResolver.shared.checkStatus()
+            DispatchQueue.main.async {
+                appState.authStatus = status
+            }
+        }
+    }
+
+    private func doTestConnection() {
+        testResult = .testing
+        Task {
+            let error = await LLMEngine.testConnection()
+            await MainActor.run {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    if let error {
+                        testResult = .failure(error)
+                    } else {
+                        testResult = .success
+                    }
+                }
+                // Auto-clear success after 5s
+                if testResult == .success {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            if testResult == .success { testResult = .idle }
+                        }
+                    }
+                }
             }
         }
     }
@@ -568,25 +688,22 @@ public struct SignOutSheet: View {
 
     private func checkAutoDetect() {
         autoDetectStatus = .checking
+        let checkId = UUID()
+        currentCheckId = checkId
         DispatchQueue.global(qos: .userInitiated).async {
             let resolver = AgentAuthResolver.shared
-
-            // Check stored credentials first (no Keychain prompt)
-            if let _ = Port42AuthStore.shared.resolveStoredConfig() {
-                DispatchQueue.main.async {
-                    autoDetectStatus = .connected(expiresIn: nil, account: nil)
-                }
-                return
-            }
-
-            // Attributes-only query (zero Keychain prompts)
             let entries = resolver.listKeychainEntries()
-            let hasCached = resolver.autoDetect() != nil
+            let status = resolver.checkStatus()
 
             DispatchQueue.main.async {
+                // Stale check: a selection happened while we were async
+                guard self.currentCheckId == checkId else { return }
+
+                let isConnected: Bool
+                if case .connected = status { isConnected = true } else { isConnected = false }
+
                 if entries.count > 1 {
-                    // Multiple entries: show picker even if one is cached
-                    if hasCached {
+                    if isConnected {
                         let expiresIn = resolver.cachedExpiryDescription
                         let account = resolver.activeAccountLabel
                         autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
@@ -595,7 +712,6 @@ public struct SignOutSheet: View {
                     }
                     claudeSetup.state = .multipleTokens(entries)
                 } else if entries.count == 1 {
-                    // Single entry: select on background thread (one Keychain prompt)
                     autoDetectStatus = .checking
                     DispatchQueue.global(qos: .userInitiated).async {
                         resolver.selectEntry(entries[0])
@@ -605,8 +721,7 @@ public struct SignOutSheet: View {
                             autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
                         }
                     }
-                } else if hasCached {
-                    // Token cached from boot (e.g. prefix-match found it)
+                } else if isConnected {
                     let expiresIn = resolver.cachedExpiryDescription
                     let account = resolver.activeAccountLabel
                     autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
@@ -618,7 +733,8 @@ public struct SignOutSheet: View {
     }
 
     private func refreshAutoDetect() {
-        AgentAuthResolver.shared.resetAuth()
+        AgentAuthResolver.shared.clearCache()
+        testResult = .idle
         checkAutoDetect()
     }
 
