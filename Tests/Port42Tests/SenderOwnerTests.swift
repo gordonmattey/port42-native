@@ -171,7 +171,7 @@ struct SenderOwnerTests {
     func senderOwnerInDB() throws {
         let db = try DatabaseService(inMemory: true)
 
-        let user = AppUser.createLocal(displayName: "Gordon")
+        let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
 
         let channel = Channel.create(name: "general")
@@ -195,7 +195,7 @@ struct SenderOwnerTests {
     func humanSenderOwnerInDB() throws {
         let db = try DatabaseService(inMemory: true)
 
-        let user = AppUser.createLocal(displayName: "Alice")
+        let user = AppUser.createForTesting(displayName: "Alice")
         try db.saveUser(user)
 
         let channel = Channel.create(name: "general")
@@ -244,7 +244,7 @@ struct SenderOwnerTests {
     func channelMembersFromDB() throws {
         let db = try DatabaseService(inMemory: true)
 
-        let user = AppUser.createLocal(displayName: "Gordon")
+        let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
 
         let channel = Channel.create(name: "general")

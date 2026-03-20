@@ -30,6 +30,21 @@ public struct AppUser: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.createdAt = createdAt
     }
 
+    /// Test-only factory: creates a user without touching the Keychain.
+    public static func createForTesting(displayName: String) -> AppUser {
+        let key = P256.Signing.PrivateKey()
+        let pubKeyHex = key.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined()
+        return AppUser(
+            id: UUID().uuidString,
+            displayName: displayName,
+            avatarData: nil,
+            isLocal: true,
+            publicKey: pubKeyHex,
+            privateKey: nil,
+            createdAt: Date()
+        )
+    }
+
     public static func createLocal(displayName: String) -> AppUser {
         let key = P256.Signing.PrivateKey()
         let pubKeyHex = key.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined()

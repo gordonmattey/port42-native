@@ -1,282 +1,45 @@
 import SwiftUI
 
-private func p42log(_ msg: String) {
-    let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(msg)\n"
-    let dir = NSHomeDirectory() + "/Library/Application Support/Port42"
-    let path = dir + "/swim.log"
-    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    if !FileManager.default.fileExists(atPath: path) {
-        FileManager.default.createFile(atPath: path, contents: nil)
-    }
-    if let handle = FileHandle(forWritingAtPath: path) {
-        handle.seekToEndOfFile()
-        handle.write(line.data(using: .utf8)!)
-        handle.closeFile()
-    }
-    // Also NSLog so it shows in Console.app
-    NSLog("[Port42] %@", msg)
-}
-
-// MARK: - Swim Session (1:1 companion conversation state)
-
-@MainActor
-public final class SwimSession: ObservableObject, LLMStreamDelegate {
-    @Published public var messages: [SwimMessage] = []
-    @Published public var isStreaming = false
-    @Published public var isTooling = false
-    @Published public var draft = ""
-    @Published public var error: String?
-
-    public let companion: AgentConfig
-    private let engine = LLMEngine()
-    private weak var db: DatabaseService?
-    private var pendingResponse = ""
-    var fileResolver: FileResolver?
-    /// Returns the display names of all current companions (for dynamic prompt context)
-    var companionNamesProvider: (() -> [String])?
-    /// Tool executor for this swim session (per-companion, per-conversation permissions)
-    var toolExecutor: ToolExecutor?
-    private var savedApiMessages: [[String: Any]] = []
-    private var savedSystemPrompt = ""
-    private var savedModel = ""
-
-    public init(companion: AgentConfig, db: DatabaseService? = nil, savedMessages: [SwimMessage] = []) {
-        self.companion = companion
-        self.db = db
-        self.messages = savedMessages
-    }
-
-    public func send(_ content: String? = nil) {
-        let text = content ?? draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        p42log("send() called, text='\(text.prefix(50))', isStreaming=\(isStreaming)")
-        guard !text.isEmpty, !isStreaming else {
-            p42log("send() early return: text.isEmpty=\(text.isEmpty), isStreaming=\(isStreaming)")
-            return
-        }
-
-        draft = ""
-        error = nil
-        messages.append(SwimMessage(role: .user, content: text))
-        Analytics.shared.messageSent()
-
-        // Build API messages from conversation history (exclude empty placeholders)
-        // Resolve file paths in user messages so companions can see file contents
-        let swimChannelId = "swim-\(companion.id)"
-        let apiMessages = messages.compactMap { msg -> [String: String]? in
-            guard !msg.content.isEmpty else { return nil }
-            guard msg.role != .system else { return nil } // Don't send bridge output to API
-            let content = msg.role == .user
-                ? (fileResolver?.resolve(msg.content, channelId: swimChannelId) ?? msg.content)
-                : msg.content
-            return ["role": msg.role == .user ? "user" : "assistant", "content": content]
-        }
-
-        // Add placeholder for streaming response
-        pendingResponse = ""
-        messages.append(SwimMessage(role: .assistant, content: ""))
-        isStreaming = true
-
-        let modelName = companion.model ?? "unknown"
-        p42log("[Port42] Swim sending \(apiMessages.count) messages to \(modelName)")
-
-        // Build system prompt with dynamic companion list
-        var prompt = companion.systemPrompt ?? "You are a helpful companion."
-        let others = (companionNamesProvider?() ?? [])
-            .filter { $0.lowercased() != companion.displayName.lowercased() }
-        if !others.isEmpty {
-            let list = others.map { "@\($0)" }.joined(separator: ", ")
-            prompt += "\n\nyour fellow companions in this port42 instance: \(list). the user can @mention any of them in channels or start a swim with them directly."
-        }
-        if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
-           let portsContext = try? String(contentsOf: url, encoding: .utf8) {
-            prompt += "\n\n" + portsContext
-        }
-
-        prompt += """
-
-        <tools>
-        You have direct access to the user's system through tools. You can read their clipboard,
-        take screenshots, run terminal commands, browse the web, read/write files, and more.
-        Use tools naturally when the conversation calls for it. Don't ask permission to use a
-        tool, just use it. The user will be prompted to approve device access the first time.
-
-        You can manage ports you've created. Always call ports_list first to get
-        port IDs before using port_update or port_manage. Use the UDID from
-        ports_list as the id parameter, not the title.
-        port_update(id, html) replaces a port's content in place.
-        port_manage(id, action) can focus, close, minimize/dock (hide), or restore/undock (show) a port.
-        ports_list includes a status field: "floating" (visible) or "docked" (hidden). Use restore/undock for docked ports, focus for floating ones.
-        When the user asks to update or improve a port, use port_update instead of
-        creating a new one.
-
-        You can also interact with terminal ports. Use terminal_list to see running terminals,
-        terminal_send to send input to a named terminal (use \\r to submit, e.g. "ls\\r"),
-        and terminal_bridge to stream a terminal's output to this channel. This lets you
-        operate CLI tools like Claude Code, npm, docker, etc. from the conversation.
-        </tools>
-        """
-
-        // Save context for tool use continuation
-        savedApiMessages = apiMessages
-        savedSystemPrompt = prompt
-        savedModel = companion.model ?? "claude-opus-4-6"
-
-        do {
-            try engine.send(
-                messages: apiMessages,
-                systemPrompt: prompt,
-                model: savedModel,
-                tools: ToolDefinitions.all,
-                delegate: self
-            )
-            p42log("[Port42] Swim engine.send() succeeded, waiting for stream...")
-        } catch {
-            p42log("[Port42] Swim send error: \(error)")
-            isStreaming = false
-            messages.removeLast() // remove empty placeholder
-            self.error = error.localizedDescription
-        }
-    }
-
-    public func stop() {
-        engine.cancel()
-        isStreaming = false
-    }
-
-    public func retry() {
-        engine.cancel()
-        error = nil
-        // Clear stale cached token so we pick up refreshed credentials
-        AgentAuthResolver.shared.clearCache()
-        // Re-send the last user message if available
-        if let lastUser = messages.last(where: { $0.role == .user }) {
-            send(lastUser.content)
-        }
-    }
-
-    private func persistMessages() {
-        guard let db else { return }
-        // Only persist non-empty messages
-        let toSave = messages.filter { !$0.content.isEmpty }
-        do {
-            try db.saveSwimMessages(companionId: companion.id, messages: toSave)
-        } catch {
-            p42log("[Port42] Failed to persist swim messages: \(error)")
-        }
-    }
-
-    /// Convert swim messages to unified ChatEntry array
-    public func chatEntries(userName: String) -> [ChatEntry] {
-        messages.compactMap { msg in
-            // Hide empty placeholder messages (typing indicator handles streaming state)
-            if msg.role == .assistant && msg.content.isEmpty { return nil }
-            return ChatEntry(
-                id: msg.id.uuidString,
-                senderName: msg.role == .user ? userName : (msg.role == .system ? "" : companion.displayName),
-                content: msg.content,
-                isSystem: msg.role == .system,
-                isAgent: msg.role == .assistant,
-                isPlaceholder: false
-            )
-        }
-    }
-
-    // MARK: - LLMStreamDelegate
-
-    nonisolated public func llmDidReceiveToken(_ token: String) {
-        Task { @MainActor in
-            self.pendingResponse += token
-        }
-    }
-
-    nonisolated public func llmDidFinish(fullResponse: String) {
-        p42log("[Port42] Swim finished, response length: \(fullResponse.count)")
-        Task { @MainActor in
-            self.isStreaming = false
-            self.pendingResponse = ""
-            // Replace the empty placeholder with the complete response
-            if let last = self.messages.last, last.role == .assistant {
-                self.messages[self.messages.count - 1].content = fullResponse
-            }
-            if fullResponse.contains("```port") {
-                Analytics.shared.portCreated()
-            }
-            self.persistMessages()
-        }
-    }
-
-    nonisolated public func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])]) {
-        p42log("[Port42] Swim tool use requested: \(calls.count) calls (\(calls.map(\.name).joined(separator: ", ")))")
-        Task { @MainActor in
-            guard let toolExecutor else {
-                p42log("[Port42] No tool executor for swim session")
-                return
-            }
-
-            self.isTooling = true
-            var results: [(toolUseId: String, content: [[String: Any]])] = []
-            for call in calls {
-                let result = await toolExecutor.execute(name: call.name, input: call.input)
-                p42log("[Port42] Swim tool \(call.name) executed, result blocks: \(result.count)")
-                results.append((toolUseId: call.id, content: result))
-            }
-            self.isTooling = false
-
-            do {
-                try self.engine.continueWithToolResults(
-                    results: results,
-                    messages: self.savedApiMessages,
-                    systemPrompt: self.savedSystemPrompt,
-                    model: self.savedModel,
-                    maxTokens: 8192,
-                    tools: ToolDefinitions.all
-                )
-            } catch {
-                p42log("[Port42] Swim tool continue error: \(error)")
-                self.llmDidError(error)
-            }
-        }
-    }
-
-    nonisolated public func llmDidError(_ error: Error) {
-        p42log("[Port42] Swim error: \(error)")
-        Task { @MainActor in
-            isStreaming = false
-            self.error = error.localizedDescription
-            // Remove empty placeholder if no content streamed
-            if let last = messages.last, last.role == .assistant, last.content.isEmpty {
-                messages.removeLast()
-            }
-        }
-    }
-}
-
-// MARK: - Swim Message
-
-public struct SwimMessage: Identifiable {
-    public let id = UUID()
-    public var role: Role
-    public var content: String
-    public let timestamp = Date()
-
-    public enum Role {
-        case user
-        case assistant
-        case system
-    }
-}
-
 // MARK: - Swim View
 
 public struct SwimView: View {
-    @ObservedObject var session: SwimSession
+    @EnvironmentObject var appState: AppState
+    let companion: AgentConfig
+    let channelId: String
     let userName: String
     let onExit: () -> Void
 
-    public init(session: SwimSession, userName: String = "You", onExit: @escaping () -> Void) {
-        self.session = session
+    public init(companion: AgentConfig, channelId: String, userName: String = "You", onExit: @escaping () -> Void) {
+        self.companion = companion
+        self.channelId = channelId
         self.userName = userName
         self.onExit = onExit
+    }
+
+    private var chatEntries: [ChatEntry] {
+        let currentUserId = appState.currentUser?.id
+        return appState.messages.compactMap { msg in
+            if msg.isAgent && msg.content.isEmpty { return nil }
+            return ChatEntry(
+                id: msg.id,
+                senderName: msg.senderName,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                isSystem: msg.isSystem,
+                isAgent: msg.isAgent,
+                senderOwner: msg.senderOwner,
+                syncStatus: msg.syncStatus,
+                isOwnMessage: msg.senderId == currentUserId
+            )
+        }
+    }
+
+    private var isStreaming: Bool {
+        appState.typingAgentNames.contains(companion.displayName)
+    }
+
+    private var isTooling: Bool {
+        appState.toolingAgentNames.contains(companion.displayName)
     }
 
     public var body: some View {
@@ -294,7 +57,7 @@ public struct SwimView: View {
                     .fill(Port42Theme.textAgent)
                     .frame(width: 8, height: 8)
 
-                Text(session.companion.displayName)
+                Text(companion.displayName)
                     .font(Port42Theme.monoBold(14))
                     .foregroundStyle(Port42Theme.textAgent)
 
@@ -310,17 +73,20 @@ public struct SwimView: View {
             Divider().background(Port42Theme.border)
 
             ConversationContent(
-                entries: session.chatEntries(userName: userName),
-                placeholder: "Message \(session.companion.displayName)...",
-                isStreaming: session.isStreaming,
-                error: session.error,
-                typingNames: session.isStreaming ? [session.companion.displayName] : [],
-                toolingNames: session.isTooling ? [session.companion.displayName] : [],
-                channelId: "swim-\(session.companion.id)",
-                onSend: { content in session.send(content) },
-                onStop: { session.stop() },
-                onRetry: { session.retry() },
-                onDismissError: { session.error = nil },
+                entries: chatEntries,
+                placeholder: "Message \(companion.displayName)...",
+                isStreaming: isStreaming,
+                error: appState.channelErrors[channelId],
+                typingNames: isStreaming ? [companion.displayName] : [],
+                toolingNames: isTooling ? [companion.displayName] : [],
+                channelId: channelId,
+                onSend: { content in appState.sendMessage(content: content) },
+                onStop: { appState.cancelStreaming(channelId: channelId) },
+                onRetry: {
+                    AgentAuthResolver.shared.clearCache()
+                    appState.retryLastMessage(channelId: channelId)
+                },
+                onDismissError: { appState.channelErrors[channelId] = nil },
                 onOpenSettings: {
                     NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
                 }

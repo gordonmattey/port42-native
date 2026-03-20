@@ -88,7 +88,7 @@ struct AgentConfigTests {
     @Test("Save and retrieve LLM agent")
     func saveAndGetLLM() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Test")
+        let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
         let agent = AgentConfig.createLLM(
@@ -113,7 +113,7 @@ struct AgentConfigTests {
     @Test("Save and retrieve command agent")
     func saveAndGetCommand() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Test")
+        let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
         let agent = AgentConfig.createCommand(
@@ -138,7 +138,7 @@ struct AgentConfigTests {
     @Test("Delete agent")
     func deleteAgent() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Test")
+        let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
         let agent = AgentConfig.createLLM(
@@ -156,7 +156,7 @@ struct AgentConfigTests {
     @Test("Update agent")
     func updateAgent() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Test")
+        let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
         var agent = AgentConfig.createLLM(
@@ -179,7 +179,7 @@ struct AgentConfigTests {
     @Test("Multiple agents for same user")
     func multipleAgents() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Test")
+        let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
         try db.saveAgent(AgentConfig.createLLM(

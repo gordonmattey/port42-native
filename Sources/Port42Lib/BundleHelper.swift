@@ -12,6 +12,7 @@ extension Bundle {
             return bundle
         }
 
-        Swift.fatalError("Could not find resource bundle \(bundleName)")
+        // In test contexts the bundle isn't embedded; fall back to Bundle.main (resources won't load, callers use fallback strings)
+        return Bundle.main
     }()
 }

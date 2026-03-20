@@ -302,14 +302,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // port42.channel.current()
         case "channel.current":
             // Check if we're in a swim
-            if let swim = state.activeSwimSession {
+            if let companion = state.activeSwimCompanion,
+               let channel = state.currentChannel, channel.isSwim {
                 return [
-                    "id": "swim-\(swim.companion.id)",
-                    "name": swim.companion.displayName,
+                    "id": channel.id,
+                    "name": companion.displayName,
                     "type": "swim",
                     "members": [
                         ["name": state.currentUser?.displayName ?? "you", "type": "human"],
-                        ["name": swim.companion.displayName, "type": "companion"]
+                        ["name": companion.displayName, "type": "companion"]
                     ]
                 ] as [String: Any]
             }
@@ -832,8 +833,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Build system prompt with identity and channel context
         let userName = state.currentUser?.displayName ?? "someone"
         let contextDescription: String
-        if let swim = state.activeSwimSession {
-            contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(swim.companion.displayName)."
+        if let companion = state.activeSwimCompanion,
+           let ch = state.currentChannel, ch.isSwim {
+            contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(companion.displayName)."
         } else if let cid = channelId, let ch = state.channels.first(where: { $0.id == cid }) {
             contextDescription = "You are in the #\(ch.name) channel."
         } else if let ch = state.currentChannel {

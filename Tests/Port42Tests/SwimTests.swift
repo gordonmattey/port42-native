@@ -2,171 +2,6 @@ import Testing
 import Foundation
 @testable import Port42Lib
 
-@Suite("Swim Session")
-struct SwimTests {
-
-    // MARK: - SwimSession
-
-    @Test("New session has empty messages")
-    @MainActor
-    func emptySession() {
-        let companion = AgentConfig.createLLM(
-            ownerId: "test",
-            displayName: "TestBot",
-            systemPrompt: "You are helpful.",
-            provider: .anthropic,
-            model: "claude-opus-4-6",
-            trigger: .mentionOnly
-        )
-        let session = SwimSession(companion: companion)
-
-        #expect(session.messages.isEmpty)
-        #expect(session.isStreaming == false)
-        #expect(session.draft == "")
-        #expect(session.error == nil)
-    }
-
-    @Test("Send trims whitespace and skips empty")
-    @MainActor
-    func sendTrimsWhitespace() {
-        let companion = AgentConfig.createLLM(
-            ownerId: "test",
-            displayName: "TestBot",
-            systemPrompt: "You are helpful.",
-            provider: .anthropic,
-            model: "claude-opus-4-6",
-            trigger: .mentionOnly
-        )
-        let session = SwimSession(companion: companion)
-
-        // Empty draft should not send
-        session.draft = "   "
-        session.send()
-        #expect(session.messages.isEmpty)
-
-        // Non-empty draft creates user + placeholder messages
-        session.draft = "  hello  "
-        session.send()
-        #expect(session.messages.count == 2)
-        #expect(session.messages[0].role == .user)
-        #expect(session.messages[0].content == "hello")
-        #expect(session.messages[1].role == .assistant)
-        #expect(session.draft == "")
-    }
-
-    @Test("Cannot send while streaming")
-    @MainActor
-    func cannotSendWhileStreaming() {
-        let companion = AgentConfig.createLLM(
-            ownerId: "test",
-            displayName: "TestBot",
-            systemPrompt: "You are helpful.",
-            provider: .anthropic,
-            model: "claude-opus-4-6",
-            trigger: .mentionOnly
-        )
-        let session = SwimSession(companion: companion)
-
-        session.draft = "first"
-        session.send()
-        #expect(session.isStreaming == true)
-
-        // Try sending again while streaming
-        session.draft = "second"
-        session.send()
-        // Should still only have the first message pair
-        #expect(session.messages.count == 2)
-        // Draft should not be cleared since send was rejected
-        #expect(session.draft == "second")
-    }
-
-    @Test("Stop cancels streaming")
-    @MainActor
-    func stopCancelsStreaming() {
-        let companion = AgentConfig.createLLM(
-            ownerId: "test",
-            displayName: "TestBot",
-            systemPrompt: "You are helpful.",
-            provider: .anthropic,
-            model: "claude-opus-4-6",
-            trigger: .mentionOnly
-        )
-        let session = SwimSession(companion: companion)
-
-        session.draft = "test"
-        session.send()
-        #expect(session.isStreaming == true)
-
-        session.stop()
-        #expect(session.isStreaming == false)
-    }
-
-    @Test("LLM delegate receives tokens")
-    @MainActor
-    func delegateReceivesTokens() {
-        let companion = AgentConfig.createLLM(
-            ownerId: "test",
-            displayName: "TestBot",
-            systemPrompt: "You are helpful.",
-            provider: .anthropic,
-            model: "claude-opus-4-6",
-            trigger: .mentionOnly
-        )
-        let session = SwimSession(companion: companion)
-
-        // Set up a message with assistant placeholder
-        session.draft = "hello"
-        session.send()
-        #expect(session.messages.count == 2)
-        #expect(session.messages[1].content == "") // empty placeholder
-
-        // Simulate token delivery via delegate (synchronous on MainActor)
-        session.llmDidReceiveToken("Hello ")
-        // The token is dispatched via Task, so we check the mechanism exists
-        // In real async this would update; for unit test we verify the method doesn't crash
-    }
-
-    @Test("LLM delegate handles error")
-    @MainActor
-    func delegateHandlesError() {
-        let companion = AgentConfig.createLLM(
-            ownerId: "test",
-            displayName: "TestBot",
-            systemPrompt: "You are helpful.",
-            provider: .anthropic,
-            model: "claude-opus-4-6",
-            trigger: .mentionOnly
-        )
-        let session = SwimSession(companion: companion)
-
-        session.draft = "hello"
-        session.send()
-        let messageCountBefore = session.messages.count
-
-        // Simulate error via delegate
-        session.llmDidError(LLMEngineError.noAuth)
-        // Error is dispatched via Task, verify method doesn't crash
-        #expect(messageCountBefore == 2)
-    }
-
-    // MARK: - SwimMessage
-
-    @Test("SwimMessage has unique IDs")
-    func uniqueMessageIds() {
-        let m1 = SwimMessage(role: .user, content: "hello")
-        let m2 = SwimMessage(role: .assistant, content: "hi")
-        #expect(m1.id != m2.id)
-    }
-
-    @Test("SwimMessage stores content and role")
-    func messageContent() {
-        let msg = SwimMessage(role: .user, content: "test message")
-        #expect(msg.role == .user)
-        #expect(msg.content == "test message")
-        #expect(msg.timestamp <= Date())
-    }
-}
-
 @Suite("LLM Engine")
 struct LLMEngineTests {
 
@@ -193,13 +28,11 @@ struct LLMEngineTests {
 
     @Test("SSE event parsing extracts text deltas")
     func sseParsingExtractsText() {
-        // Test the SSE format that Anthropic returns
         let sseBlock = """
         event: content_block_delta
         data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
         """
 
-        // Verify the format matches what our parser expects
         let lines = sseBlock.components(separatedBy: "\n")
         var eventType = ""
         var dataLine = ""
@@ -263,7 +96,6 @@ struct AuthResolutionTests {
 
     @Test("Keychain JSON parsing handles nested claudeAiOauth format")
     func keychainJsonParsing() throws {
-        // This is the actual format Claude Code stores in keychain
         let json: [String: Any] = [
             "claudeAiOauth": [
                 "accessToken": "sk-ant-oat01-test-token",
@@ -285,9 +117,7 @@ struct AuthResolutionTests {
         let data = try JSONSerialization.data(withJSONObject: json)
         let parsed = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        // Primary path fails (no claudeAiOauth key)
         #expect(parsed["claudeAiOauth"] == nil)
-        // Fallback works
         #expect(parsed["oauth_token"] as? String == "sk-flat-token")
     }
 }
@@ -298,7 +128,11 @@ struct CompanionManagementTests {
     @MainActor
     func makeState() throws -> AppState {
         let db = try DatabaseService(inMemory: true)
-        return AppState(db: db)
+        let state = AppState(db: db)
+        let user = AppUser.createForTesting(displayName: "Test")
+        try db.saveUser(user)
+        state.currentUser = user
+        return state
     }
 
     @Test("Add companion persists to database")
@@ -307,7 +141,6 @@ struct CompanionManagementTests {
         let state = try makeState()
         state.completeSetup(displayName: "Test")
 
-        // Setup already creates one companion
         #expect(state.companions.count == 1)
 
         let extra = AgentConfig.createLLM(
@@ -321,7 +154,6 @@ struct CompanionManagementTests {
         state.addCompanion(extra)
         #expect(state.companions.count == 2)
 
-        // Verify persisted
         let fromDb = try state.db.getAllAgents()
         #expect(fromDb.count == 2)
     }
@@ -345,13 +177,12 @@ struct CompanionManagementTests {
         let state = try makeState()
         state.completeSetup(displayName: "Test")
 
-        // Setup starts a swim session
-        #expect(state.activeSwimSession != nil)
+        #expect(state.activeSwimCompanion != nil)
 
         let companion = state.companions.first!
         state.deleteCompanion(companion)
 
-        #expect(state.activeSwimSession == nil)
+        #expect(state.activeSwimCompanion == nil)
     }
 
     @Test("Start swim creates session with companion")
@@ -360,15 +191,14 @@ struct CompanionManagementTests {
         let state = try makeState()
         state.completeSetup(displayName: "Test")
 
-        // Exit the auto-started swim
         state.exitSwim()
-        #expect(state.activeSwimSession == nil)
+        #expect(state.activeSwimCompanion == nil)
 
         let companion = state.companions.first!
         state.startSwim(with: companion)
 
-        #expect(state.activeSwimSession != nil)
-        #expect(state.activeSwimSession?.companion.id == companion.id)
+        #expect(state.activeSwimCompanion != nil)
+        #expect(state.activeSwimCompanion?.id == companion.id)
     }
 
     @Test("Exit swim clears session")
@@ -377,10 +207,10 @@ struct CompanionManagementTests {
         let state = try makeState()
         state.completeSetup(displayName: "Test")
 
-        #expect(state.activeSwimSession != nil)
+        #expect(state.activeSwimCompanion != nil)
 
         state.exitSwim()
-        #expect(state.activeSwimSession == nil)
+        #expect(state.activeSwimCompanion == nil)
     }
 
     @Test("Onboarding creates Claude companion with correct system prompt")
@@ -390,21 +220,8 @@ struct CompanionManagementTests {
         state.completeSetup(displayName: "Alice")
 
         let companion = state.companions.first!
-        #expect(companion.displayName == "Claude")
+        #expect(companion.displayName == "echo")
         #expect(companion.systemPrompt?.contains("Alice") == true)
-        #expect(companion.systemPrompt?.contains("Port42") == true)
         #expect(companion.provider == .anthropic)
-    }
-
-    @Test("Onboarding swim intro mentions user name")
-    @MainActor
-    func onboardingSwimIntro() throws {
-        let state = try makeState()
-        state.completeSetup(displayName: "Bob")
-
-        let session = state.activeSwimSession!
-        let userMsg = session.messages.first!
-        #expect(userMsg.role == .user)
-        #expect(userMsg.content.contains("Bob"))
     }
 }

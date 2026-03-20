@@ -2,13 +2,11 @@ import Foundation
 import AppKit
 
 /// Executes tool calls from LLM companions against port42 bridge APIs.
-/// One instance per conversation (channel handler or swim session).
+/// One instance per conversation (channel or swim channel).
 @MainActor
 public final class ToolExecutor {
     private weak var appState: AppState?
     private let channelId: String?
-    /// Swim session reference for terminal bridge output in swims
-    weak var swimSession: SwimSession?
 
     /// Granted permissions for this conversation (per-companion, per-conversation).
     private var grantedPermissions: Set<PortPermission> = []
@@ -328,17 +326,16 @@ public final class ToolExecutor {
             appState.bridgedTerminalNames.insert(name.lowercased())
             let portName = name
             let weakAppState = appState
-            let weakSwim = swimSession
             let chId = channelId ?? appState.currentChannel?.id ?? ""
             // Add observer that batches and posts output
-            let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState, swimSession: weakSwim)
+            let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState)
             Self.outputBatchers[name.lowercased()] = batcher
             termSession.bridge.session(for: termSession.sessionId)?.addOutputObserver { rawOutput in
                 Task { @MainActor in
                     batcher.receive(rawOutput)
                 }
             }
-            let dest = weakSwim != nil ? "swim" : "channel \(chId)"
+            let dest = "channel \(chId)"
             NSLog("[Port42] Terminal bridge started: %@ → %@", name, dest)
             return [textBlock("Bridging '\(name)' output to this conversation")]
 
@@ -576,16 +573,14 @@ final class OutputBatcher {
     private let portName: String
     private let channelId: String
     private weak var appState: AppState?
-    private weak var swimSession: SwimSession?
     private var buffer = ""
     private var flushTimer: Timer?
     private var lastPosted = ""
 
-    init(portName: String, channelId: String, appState: AppState?, swimSession: SwimSession? = nil) {
+    init(portName: String, channelId: String, appState: AppState?) {
         self.portName = portName
         self.channelId = channelId
         self.appState = appState
-        self.swimSession = swimSession
     }
 
     func receive(_ raw: String) {
@@ -624,13 +619,7 @@ final class OutputBatcher {
         // Truncate long output
         let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n... (truncated)" : trimmed
 
-        // Post to swim session if available
-        if let swim = swimSession {
-            swim.messages.append(SwimMessage(role: .system, content: "[\(portName)] \(content)"))
-            return
-        }
-
-        // Otherwise post as channel message
+        // Post as channel message
         guard let appState else { return }
         let msg = Message(
             id: UUID().uuidString,

@@ -251,6 +251,54 @@ public final class DatabaseService {
             try db.execute(sql: "UPDATE port_panels SET udid = id WHERE udid IS NULL")
         }
 
+        migrator.registerMigration("v17-swim-unification") { db in
+            // Backup tables for rollback safety
+            try db.execute(sql: "CREATE TABLE channels_backup_v17 AS SELECT * FROM channels")
+            try db.execute(sql: "CREATE TABLE messages_backup_v17 AS SELECT * FROM messages")
+            try db.execute(sql: "CREATE TABLE swimMessages_backup_v17 AS SELECT * FROM swimMessages")
+
+            // Add syncEnabled and isSwim to channels
+            try db.alter(table: "channels") { t in
+                t.add(column: "syncEnabled", .integer).notNull().defaults(to: 1)
+                t.add(column: "isSwim", .integer).notNull().defaults(to: 0)
+            }
+
+            // Insert swim channel records for each companion that has swim messages
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO channels (id, name, type, createdAt, syncEnabled, isSwim)
+                SELECT
+                    'swim-' || a.id,
+                    a.displayName,
+                    'direct',
+                    MIN(sm.timestamp),
+                    0,
+                    1
+                FROM swimMessages sm
+                JOIN agents a ON a.id = sm.companionId
+                GROUP BY a.id
+            """)
+
+            // Copy swimMessages into messages
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO messages (id, channelId, senderId, senderName, senderType, content, timestamp, replyToId, syncStatus, createdAt)
+                SELECT
+                    sm.id,
+                    'swim-' || sm.companionId,
+                    CASE sm.role WHEN 'user' THEN (SELECT id FROM users WHERE isLocal = 1 LIMIT 1)
+                                 ELSE sm.companionId END,
+                    CASE sm.role WHEN 'user' THEN (SELECT displayName FROM users WHERE isLocal = 1 LIMIT 1)
+                                 ELSE a.displayName END,
+                    CASE sm.role WHEN 'user' THEN 'human' ELSE 'agent' END,
+                    sm.content,
+                    sm.timestamp,
+                    NULL,
+                    'local',
+                    sm.timestamp
+                FROM swimMessages sm
+                JOIN agents a ON a.id = sm.companionId
+            """)
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -276,9 +324,25 @@ public final class DatabaseService {
         }
     }
 
+    /// Insert or update a channel (used for swim channel creation).
+    public func upsertChannel(_ channel: Channel) throws {
+        try dbQueue.write { db in
+            try channel.upsert(db)
+        }
+    }
+
     public func getAllChannels() throws -> [Channel] {
         try dbQueue.read { db in
             try Channel.order(Column("createdAt").asc).fetchAll(db)
+        }
+    }
+
+    /// Non-swim channels only — use this for appState.channels.
+    public func getRegularChannels() throws -> [Channel] {
+        try dbQueue.read { db in
+            try Channel.filter(Column("isSwim") == false)
+                .order(Column("createdAt").asc)
+                .fetchAll(db)
         }
     }
 
@@ -357,51 +421,6 @@ public final class DatabaseService {
                 arguments: [agentId]
             )
             return Set(rows.map { $0["channelId"] as String })
-        }
-    }
-
-    // MARK: - Swim Messages
-
-    public func saveSwimMessages(companionId: String, messages: [SwimMessage]) throws {
-        try dbQueue.write { db in
-            // Clear existing messages for this companion
-            try db.execute(
-                sql: "DELETE FROM swimMessages WHERE companionId = ?",
-                arguments: [companionId]
-            )
-            // Insert current messages
-            for msg in messages {
-                try db.execute(
-                    sql: """
-                        INSERT INTO swimMessages (id, companionId, role, content, timestamp)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
-                        msg.id.uuidString, companionId,
-                        msg.role == .user ? "user" : "assistant",
-                        msg.content, msg.timestamp
-                    ]
-                )
-            }
-        }
-    }
-
-    public func getSwimMessages(companionId: String) throws -> [SwimMessage] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                    SELECT id, role, content, timestamp FROM swimMessages
-                    WHERE companionId = ? ORDER BY timestamp ASC
-                    """,
-                arguments: [companionId]
-            )
-            return rows.map { row in
-                SwimMessage(
-                    role: row["role"] == "user" ? .user : .assistant,
-                    content: row["content"]
-                )
-            }
         }
     }
 
@@ -551,12 +570,7 @@ public final class DatabaseService {
 
     /// Returns the timestamp of the most recent swim message for a companion.
     public func getLastSwimTime(companionId: String) throws -> Date? {
-        try dbQueue.read { db in
-            try Date.fetchOne(db, sql: """
-                SELECT MAX(timestamp) FROM swimMessages
-                WHERE companionId = ?
-                """, arguments: [companionId])
-        }
+        try getLastMessageTime(channelId: "swim-\(companionId)")
     }
 
     /// Find an existing DM channel for a specific remote user, or nil if none exists.
@@ -576,7 +590,9 @@ public final class DatabaseService {
     ) -> AnyDatabaseCancellable {
         ValueObservation
             .tracking { db in
-                try Channel.order(Column("createdAt").asc).fetchAll(db)
+                try Channel.filter(Column("isSwim") == false)
+                    .order(Column("createdAt").asc)
+                    .fetchAll(db)
             }
             .start(in: dbQueue, onError: { error in
                 print("[Port42] Channel observation error: \(error)")

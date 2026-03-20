@@ -9,7 +9,7 @@ struct ModelTests {
 
     @Test("Create local user")
     func createLocalUser() {
-        let user = AppUser.createLocal(displayName: "Gordon")
+        let user = AppUser.createForTesting(displayName: "Gordon")
         #expect(user.displayName == "Gordon")
         #expect(user.isLocal == true)
         #expect(user.avatarData == nil)
@@ -18,21 +18,21 @@ struct ModelTests {
 
     @Test("New user has nil appleUserID")
     func newUserNoAppleID() {
-        let user = AppUser.createLocal(displayName: "Gordon")
+        let user = AppUser.createForTesting(displayName: "Gordon")
         #expect(user.appleUserID == nil)
     }
 
     @Test("AppUser stores appleUserID")
     func userWithAppleID() {
-        var user = AppUser.createLocal(displayName: "Gordon")
+        var user = AppUser.createForTesting(displayName: "Gordon")
         user.appleUserID = "001234.abcdef1234567890.1234"
         #expect(user.appleUserID == "001234.abcdef1234567890.1234")
     }
 
     @Test("Two users get unique IDs")
     func uniqueUserIds() {
-        let a = AppUser.createLocal(displayName: "Alice")
-        let b = AppUser.createLocal(displayName: "Bob")
+        let a = AppUser.createForTesting(displayName: "Alice")
+        let b = AppUser.createForTesting(displayName: "Bob")
         #expect(a.id != b.id)
     }
 

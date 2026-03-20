@@ -102,7 +102,7 @@ final class FileResolver {
 @MainActor
 final class ChannelAgentHandler: LLMStreamDelegate {
     private let agent: AgentConfig
-    private let channelId: String
+    let channelId: String
     let messageId: String
     private let engine = LLMEngine()
     private weak var appState: AppState?
@@ -465,6 +465,10 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             appState.activeAgentHandlers.removeValue(forKey: self.messageId)
         }
     }
+
+    func cancelEngine() {
+        engine.cancel()
+    }
 }
 
 // MARK: - Weak Bridge Wrapper
@@ -499,7 +503,6 @@ public final class AppState: ObservableObject {
     @Published public var companions: [AgentConfig] = []
     @Published public var channelCompanions: [AgentConfig] = []
     @Published public var friends: [ChannelMember] = []
-    @Published public var activeSwimSession: SwimSession?
     @Published public var showDreamscape = true
     @Published public var showNgrokSetup = false
     @Published public var showOpenClawSheet = false
@@ -513,13 +516,18 @@ public final class AppState: ObservableObject {
     @Published public var typingAgentNames: Set<String> = []
     /// Agent names currently executing tools (for "tooling up" indicator)
     @Published public var toolingAgentNames: Set<String> = []
+    /// Error messages keyed by channelId, shown as error bars in chat views.
+    @Published public var channelErrors: [String: String] = [:]
+    /// Cached last-activity dates keyed by channelId (regular and swim). Avoids DB reads during render.
+    @Published public var lastActivityTimes: [String: Date] = [:]
     /// Auth status for UI display (proactively checked at boot)
     @Published public var authStatus: AuthStatus = .unknown
     /// When true, all LLM API calls are blocked
     @Published public var aiPaused: Bool = false
     /// Terminal ports currently bridged to conversations (shared across ToolExecutor instances)
     public var bridgedTerminalNames: Set<String> = []
-    private var swimSessions: [String: SwimSession] = [:]
+    /// The companion whose swim channel is currently open. Nil when showing a regular channel.
+    @Published public var activeSwimCompanion: AgentConfig?
     var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
     /// Tracks last AI-triggered response time per agent per channel to prevent loops
@@ -684,9 +692,9 @@ public final class AppState: ObservableObject {
         do {
             currentUser = try db.getLocalUser()
             isSetupComplete = currentUser != nil
-            channels = try db.getAllChannels()
-
+            channels = try db.getRegularChannels()
             companions = try db.getAllAgents()
+            refreshActivityTimes()
             if let userId = currentUser?.id {
                 friends = (try? db.getKnownFriends(excludingUserId: userId)) ?? []
             }
@@ -1019,7 +1027,7 @@ public final class AppState: ObservableObject {
             )
             try db.saveMessage(welcome)
 
-            channels = try db.getAllChannels()
+            channels = try db.getRegularChannels()
             selectChannel(general)
             startChannelObservation()
 
@@ -1042,18 +1050,9 @@ public final class AppState: ObservableObject {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()
 
-            // Start a swim session but don't send yet.
+            // Open swim but don't send yet.
             // SetupView will trigger the first message after the transition animation.
-            let session = SwimSession(companion: companion, db: db)
-            session.fileResolver = fileResolver
-            let executor = ToolExecutor(appState: self, channelId: nil)
-            executor.swimSession = session
-            session.toolExecutor = executor
-            session.companionNamesProvider = { [weak self] in
-                self?.companions.map(\.displayName) ?? []
-            }
-            swimSessions[companion.id] = session
-            activeSwimSession = session
+            startSwim(with: companion)
 
             Analytics.shared.configure(userId: user.id)
             Analytics.shared.setupCompleted()
@@ -1078,13 +1077,14 @@ public final class AppState: ObservableObject {
 
     /// Join a channel on the gateway, including companion IDs for cross-instance presence
     private func syncJoinChannel(_ channelId: String, token: String? = nil) {
+        if let channel = channels.first(where: { $0.id == channelId }), !channel.syncEnabled { return }
         let companionIds = ((try? db.getAgentsForChannel(channelId: channelId)) ?? []).map { $0.id }
         sync.joinChannel(channelId, companionIds: companionIds, token: token)
     }
 
     public func selectChannel(_ channel: Channel) {
-        // Hide swim session so ChatView renders (session stays cached)
-        activeSwimSession = nil
+        // Clear swim companion when navigating to a non-swim channel
+        if !channel.isSwim { activeSwimCompanion = nil }
 
         // Remember last selected channel for next launch
         UserDefaults.standard.set(channel.id, forKey: "lastSelectedChannelId")
@@ -1128,7 +1128,7 @@ public final class AppState: ObservableObject {
         let channel = Channel.create(name: cleaned)
         do {
             try db.saveChannel(channel)
-            channels = try db.getAllChannels()
+            channels = try db.getRegularChannels()
             syncJoinChannel(channel.id)
             selectChannel(channel)
             Analytics.shared.channelCreated()
@@ -1144,7 +1144,7 @@ public final class AppState: ObservableObject {
                 existing.encryptionKey = newKey
                 do {
                     try db.saveChannel(existing)
-                    channels = try db.getAllChannels()
+                    channels = try db.getRegularChannels()
                 } catch {
                     print("[Port42] Failed to update channel key: \(error)")
                 }
@@ -1180,7 +1180,7 @@ public final class AppState: ObservableObject {
         )
         do {
             try db.saveChannel(channel)
-            channels = try db.getAllChannels()
+            channels = try db.getRegularChannels()
         } catch {
             print("[Port42] Failed to save invited channel: \(error)")
             return
@@ -1231,7 +1231,7 @@ public final class AppState: ObservableObject {
         updated.encryptionKey = ChannelCrypto.generateKey()
         do {
             try db.saveChannel(updated)
-            channels = try db.getAllChannels()
+            channels = try db.getRegularChannels()
             if currentChannel?.id == channel.id {
                 currentChannel = updated
             }
@@ -1244,13 +1244,13 @@ public final class AppState: ObservableObject {
     public func deleteChannel(_ channel: Channel) {
         do {
             try db.deleteChannel(id: channel.id)
-            channels = try db.getAllChannels()
+            channels = try db.getRegularChannels()
 
             // If we deleted the last channel, create a fresh general
             if channels.isEmpty {
                 let general = Channel.create(name: "general")
                 try db.saveChannel(general)
-                channels = try db.getAllChannels()
+                channels = try db.getRegularChannels()
             }
 
             if currentChannel?.id == channel.id {
@@ -1264,6 +1264,22 @@ public final class AppState: ObservableObject {
     }
 
     // MARK: - Messages
+
+    /// Stop all active LLM streams in the given channel.
+    public func cancelStreaming(channelId: String) {
+        let toCancel = activeAgentHandlers.filter { $0.value.channelId == channelId }
+        for (id, handler) in toCancel {
+            handler.cancelEngine()
+            activeAgentHandlers.removeValue(forKey: id)
+        }
+    }
+
+    /// Re-send the last human message in the given channel (clears error state first).
+    public func retryLastMessage(channelId: String) {
+        channelErrors[channelId] = nil
+        guard let lastUserMsg = messages.last(where: { $0.channelId == channelId && $0.senderType == "human" }) else { return }
+        sendMessage(content: lastUserMsg.content)
+    }
 
     public func sendMessage(content: String) {
         guard let user = currentUser,
@@ -1291,6 +1307,8 @@ public final class AppState: ObservableObject {
         // Route to agents via @mention detection + channel membership
         let channelAgentIds = Set(channelCompanions.map { $0.id })
         let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName)
+        // Show typing immediately — before API latency
+        for agent in targets { typingAgentNames.insert(agent.displayName) }
         launchAgents(
             targets, channelId: channel.id, channelAgentIds: channelAgentIds,
             channelMessages: messages, triggerContent: trimmed,
@@ -1347,10 +1365,8 @@ public final class AppState: ObservableObject {
         do {
             try db.deleteAgent(id: companion.id)
             companions = try db.getAllAgents()
-            swimSessions[companion.id]?.stop()
-            swimSessions.removeValue(forKey: companion.id)
-            if activeSwimSession?.companion.id == companion.id {
-                activeSwimSession = nil
+            if activeSwimCompanion?.id == companion.id {
+                exitSwim()
             }
         } catch {
             print("[Port42] Failed to delete companion: \(error)")
@@ -1382,7 +1398,7 @@ public final class AppState: ObservableObject {
         )
         do {
             try db.saveChannel(channel)
-            channels = try db.getAllChannels()
+            channels = try db.getRegularChannels()
             selectChannel(channel)
             syncJoinChannel(channel.id)
         } catch {
@@ -1393,44 +1409,40 @@ public final class AppState: ObservableObject {
     public func startSwim(with companion: AgentConfig) {
         UserDefaults.standard.set(companion.id, forKey: "lastActiveSwimCompanionId")
         UserDefaults.standard.removeObject(forKey: "lastSelectedChannelId")
-        if let cached = swimSessions[companion.id] {
-            activeSwimSession = cached
-        } else {
-            // Load persisted messages if any
-            let saved = (try? db.getSwimMessages(companionId: companion.id)) ?? []
-            let session = SwimSession(companion: companion, db: db, savedMessages: saved)
-            session.fileResolver = fileResolver
-            let executor = ToolExecutor(appState: self, channelId: nil)
-            executor.swimSession = session
-            session.toolExecutor = executor
-            session.companionNamesProvider = { [weak self] in
-                self?.companions.map(\.displayName) ?? []
-            }
-            swimSessions[companion.id] = session
-            activeSwimSession = session
+
+        let swimChannel = Channel.swim(companion: companion)
+        do {
+            try db.upsertChannel(swimChannel)
+            try db.assignAgentToChannel(agentId: companion.id, channelId: swimChannel.id)
+            channels = try db.getRegularChannels()
+        } catch {
+            print("[Port42] Failed to create swim channel: \(error)")
         }
+        activeSwimCompanion = companion
+        selectChannel(swimChannel)
+
         Analytics.shared.swimStarted()
         Analytics.shared.screen("Swim")
     }
 
     public func exitSwim() {
-        // Just hide the session, keep it cached
-        activeSwimSession = nil
+        activeSwimCompanion = nil
+        currentChannel = nil
     }
 
     // MARK: - Lock / Reset
 
     public func lockApp() {
-        for session in swimSessions.values { session.stop() }
-        activeSwimSession = nil
+        cancelStreaming(channelId: currentChannel?.id ?? "")
+        activeSwimCompanion = nil
         portWindows.hideFloatingPanels()
         showDreamscape = true
     }
 
     /// Power off: keep data but require bootloader (name entry) on next launch.
     public func powerOff() {
-        for session in swimSessions.values { session.stop() }
-        activeSwimSession = nil
+        cancelStreaming(channelId: currentChannel?.id ?? "")
+        activeSwimCompanion = nil
         currentUser = nil
         isSetupComplete = false
         portWindows.hideFloatingPanels()
@@ -1457,9 +1469,7 @@ public final class AppState: ObservableObject {
     }
 
     public func resetApp() {
-        for session in swimSessions.values { session.stop() }
-        swimSessions.removeAll()
-        activeSwimSession = nil
+        activeSwimCompanion = nil
         portWindows.hideFloatingPanels()
         currentChannel = nil
         currentUser = nil
@@ -1533,7 +1543,32 @@ public final class AppState: ObservableObject {
                     }
                     self.messages = merged
                 }
+                // Update cached activity time for this channel
+                if let last = dbMessages.last(where: { $0.senderType != "system" }) {
+                    self.lastActivityTimes[channelId] = last.timestamp
+                }
             }
+        }
+    }
+
+    /// Refresh cached last-activity times for all channels and companion swim channels.
+    private func refreshActivityTimes() {
+        let allChannels = try? db.getAllChannels()
+        let allCompanions = companions
+        Task { @MainActor in
+            var times: [String: Date] = self.lastActivityTimes
+            for ch in allChannels ?? [] {
+                if let t = try? self.db.getLastMessageTime(channelId: ch.id) {
+                    times[ch.id] = t
+                }
+            }
+            for companion in allCompanions {
+                let swimId = "swim-\(companion.id)"
+                if let t = try? self.db.getLastMessageTime(channelId: swimId) {
+                    times[swimId] = t
+                }
+            }
+            self.lastActivityTimes = times
         }
     }
 

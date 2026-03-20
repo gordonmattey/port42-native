@@ -178,7 +178,7 @@ public struct TransitionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: .enterAquariumRequested)) { _ in
             startEnterAquariumTransition()
         }
-        .onChange(of: appState.activeSwimSession != nil) { _, hasSession in
+        .onChange(of: appState.activeSwimCompanion != nil) { _, hasSession in
             if hasSession && !appState.isSetupComplete && useBreakoutVideo {
                 preWarmBreakoutVideo = true
             }

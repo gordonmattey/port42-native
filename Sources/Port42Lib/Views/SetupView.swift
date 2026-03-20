@@ -690,7 +690,26 @@ public struct SetupView: View {
             // Blue tint matching the dive transition, lets dreamscape video show through
             Color(red: 0.0, green: 0.15, blue: 0.3).opacity(0.3).ignoresSafeArea()
 
-            if let session = appState.activeSwimSession {
+            if let companion = appState.activeSwimCompanion,
+               let channel = appState.currentChannel, channel.isSwim {
+                let channelId = channel.id
+                let userName = submittedName ?? displayName
+                let isStreaming = appState.typingAgentNames.contains(companion.displayName)
+                let currentUserId = appState.currentUser?.id
+                let entries: [ChatEntry] = appState.messages.compactMap { msg in
+                    if msg.isAgent && msg.content.isEmpty { return nil }
+                    return ChatEntry(
+                        id: msg.id,
+                        senderName: msg.senderName,
+                        content: msg.content,
+                        timestamp: msg.timestamp,
+                        isSystem: msg.isSystem,
+                        isAgent: msg.isAgent,
+                        senderOwner: msg.senderOwner,
+                        syncStatus: msg.syncStatus,
+                        isOwnMessage: msg.senderId == currentUserId
+                    )
+                }
                 VStack(spacing: 0) {
                     // Branded top bar for first swim
                     HStack {
@@ -698,7 +717,7 @@ public struct SetupView: View {
                             .fill(Port42Theme.textAgent)
                             .frame(width: 8, height: 8)
 
-                        Text(session.companion.displayName)
+                        Text(companion.displayName)
                             .font(Port42Theme.monoBold(14))
                             .foregroundStyle(Port42Theme.textAgent)
 
@@ -732,37 +751,36 @@ public struct SetupView: View {
 
                     Divider().background(Port42Theme.border.opacity(0.5))
 
-                    // Chat content (same as SwimView internals)
                     ConversationContent(
-                        entries: session.chatEntries(userName: submittedName ?? displayName),
-                        placeholder: "Message \(session.companion.displayName)...",
-                        isStreaming: session.isStreaming,
-                        error: session.error,
-                        typingNames: session.isStreaming ? [session.companion.displayName] : [],
-                        onSend: { content in session.send(content) },
-                        onStop: { session.stop() },
-                        onRetry: { session.retry() },
-                        onDismissError: { session.error = nil },
-                        onOpenSettings: {
-                            showSettings = true
-                        }
+                        entries: entries,
+                        placeholder: "Message \(companion.displayName)...",
+                        isStreaming: isStreaming,
+                        error: appState.channelErrors[channelId],
+                        typingNames: isStreaming ? [companion.displayName] : [],
+                        onSend: { content in appState.sendMessage(content: content) },
+                        onStop: { appState.cancelStreaming(channelId: channelId) },
+                        onRetry: {
+                            AgentAuthResolver.shared.clearCache()
+                            appState.retryLastMessage(channelId: channelId)
+                        },
+                        onDismissError: { appState.channelErrors[channelId] = nil },
+                        onOpenSettings: { showSettings = true }
                     )
+                    .environmentObject(appState)
                 }
+                .onAppear { sendFirstMessage(userName: userName) }
             }
         }
         .onAppear {
             Analytics.shared.screen("Setup_Swim")
-            sendFirstMessage()
         }
     }
 
-    private func sendFirstMessage() {
-        guard let session = appState.activeSwimSession,
-              session.messages.isEmpty else { return }
-        let name = submittedName ?? displayName
+    private func sendFirstMessage(userName: String) {
+        guard appState.messages.isEmpty else { return }
         // Small delay so the swim view renders before the stream starts
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            session.send("hey, i'm \(name). where am i?")
+            appState.sendMessage(content: "hey, i'm \(userName). where am i?")
         }
     }
 

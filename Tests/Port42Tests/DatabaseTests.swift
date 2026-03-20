@@ -14,7 +14,7 @@ struct DatabaseTests {
     @Test("Save and retrieve local user")
     func saveAndGetUser() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Gordon")
+        let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
 
         let fetched = try db.getLocalUser()
@@ -34,7 +34,7 @@ struct DatabaseTests {
     @Test("AppUser appleUserID persists across save/load")
     func appleUserIDPersists() throws {
         let db = try makeDB()
-        var user = AppUser.createLocal(displayName: "Gordon")
+        var user = AppUser.createForTesting(displayName: "Gordon")
         user.appleUserID = "001234.abcdef1234567890.1234"
         try db.saveUser(user)
 
@@ -45,7 +45,7 @@ struct DatabaseTests {
     @Test("AppUser without appleUserID loads as nil")
     func appleUserIDNilByDefault() throws {
         let db = try makeDB()
-        let user = AppUser.createLocal(displayName: "Gordon")
+        let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
 
         let fetched = try db.getLocalUser()

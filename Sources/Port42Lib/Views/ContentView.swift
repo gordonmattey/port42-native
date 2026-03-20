@@ -12,13 +12,16 @@ public struct ContentView: View {
                 .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
 
             Group {
-                if let session = appState.activeSwimSession {
+                if let companion = appState.activeSwimCompanion,
+                   let channel = appState.currentChannel, channel.isSwim {
                     SwimView(
-                        session: session,
+                        companion: companion,
+                        channelId: channel.id,
                         userName: appState.currentUser?.displayName ?? "You",
                         onExit: { appState.exitSwim() }
                     )
-                    .id(session.companion.id)
+                    .environmentObject(appState)
+                    .id(companion.id)
                 } else if let channel = appState.currentChannel {
                     ChatView()
                         .id(channel.id)

@@ -46,27 +46,26 @@ public struct SidebarView: View {
     }
 
     /// Build a sorted list of all sidebar items ordered by most recent activity.
+    /// Uses cached lastActivityTimes — no DB reads during render.
     private var sortedItems: [SidebarItem] {
         var items: [(SidebarItem, Date)] = []
 
         for channel in appState.channels {
-            // Skip DM channels from the channel list (they show as friend rows)
             if channel.type == "dm" { continue }
-            let lastMsg = (try? appState.db.getLastMessageTime(channelId: channel.id)) ?? channel.createdAt
-            items.append((.channel(channel), lastMsg))
+            let t = appState.lastActivityTimes[channel.id] ?? channel.createdAt
+            items.append((.channel(channel), t))
         }
 
         for companion in appState.companions {
-            let lastSwim = (try? appState.db.getLastSwimTime(companionId: companion.id)) ?? companion.createdAt
-            items.append((.companion(companion), lastSwim))
+            let swimId = "swim-\(companion.id)"
+            let t = appState.lastActivityTimes[swimId] ?? companion.createdAt
+            items.append((.companion(companion), t))
         }
 
         for friend in appState.friends {
-            // Check if a DM channel exists for activity time
             let dmId = "dm-\(friend.senderId)"
-            let lastDM = (try? appState.db.getLastMessageTime(channelId: dmId)) ?? Date.distantPast
-            // Also check when they last appeared in any channel
-            items.append((.friend(friend), lastDM))
+            let t = appState.lastActivityTimes[dmId] ?? Date.distantPast
+            items.append((.friend(friend), t))
         }
 
         items.sort { $0.1 > $1.1 }
@@ -230,7 +229,7 @@ public struct SidebarView: View {
         Button(action: { appState.selectChannel(channel) }) {
             ChannelRow(
                 channel: channel,
-                isActive: appState.activeSwimSession == nil
+                isActive: appState.activeSwimCompanion == nil
                     && appState.currentChannel?.id == channel.id,
                 unreadCount: appState.unreadCounts[channel.id] ?? 0,
                 companionNames: companionNames,
@@ -296,7 +295,7 @@ public struct SidebarView: View {
         Button(action: { appState.startSwim(with: companion) }) {
             CompanionRow(
                 companion: companion,
-                isActive: appState.activeSwimSession?.companion.id == companion.id
+                isActive: appState.activeSwimCompanion?.id == companion.id
             )
         }
         .buttonStyle(.plain)
@@ -313,7 +312,7 @@ public struct SidebarView: View {
     @ViewBuilder
     private func friendRow(_ friend: ChannelMember) -> some View {
         let dmId = "dm-\(friend.senderId)"
-        let isActive = appState.activeSwimSession == nil
+        let isActive = appState.activeSwimCompanion == nil
             && appState.currentChannel?.id == dmId
         let displayName = friend.displayName(localOwner: appState.currentUser?.displayName)
         Button(action: { appState.startDM(with: friend) }) {
@@ -408,6 +407,8 @@ public struct ChannelRow: View {
                     : Port42Theme.textSecondary
                 )
                 .fontWeight(unreadCount > 0 ? .bold : .regular)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             if isEncrypted {
                 Image(systemName: "lock.fill")
