@@ -137,6 +137,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     // Thinking block tracking (for tool continuation with adaptive thinking)
     private var currentThinkingIndex: Int?
     private var currentThinkingContent = ""
+    private var currentThinkingSignature = ""
 
     public init(authResolver: AgentAuthResolver = .shared) {
         self.authResolver = authResolver
@@ -397,14 +398,22 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
                     currentToolInputJSON += partialJSON
                 } else if let thinkingDelta = delta["thinking"] as? String {
                     currentThinkingContent += thinkingDelta
+                } else if (delta["type"] as? String) == "signature_delta",
+                          let sig = delta["signature"] as? String {
+                    currentThinkingSignature = sig
                 }
             }
 
         case "content_block_stop":
             if let _ = currentThinkingIndex {
-                assistantContentBlocks.append(["type": "thinking", "thinking": currentThinkingContent])
+                var block: [String: Any] = ["type": "thinking", "thinking": currentThinkingContent]
+                if !currentThinkingSignature.isEmpty {
+                    block["signature"] = currentThinkingSignature
+                }
+                assistantContentBlocks.append(block)
                 currentThinkingIndex = nil
                 currentThinkingContent = ""
+                currentThinkingSignature = ""
             } else if let toolId = currentToolUseId, let toolName = currentToolUseName {
                 let input: [String: Any]
                 if let data = currentToolInputJSON.data(using: .utf8),
