@@ -1,5 +1,11 @@
 # F-511 Relay Auth: Sign in with Apple
 
+DONE
+
+but doesnt work for Deevloper Id build for some reason.
+
+
+
 ## Problem
 
 The gateway trusts whatever `sender_id` a client sends in the `identify` message. Anyone who knows or guesses a user's UUID can impersonate them. There is no cryptographic proof of identity.

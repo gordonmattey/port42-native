@@ -36,6 +36,15 @@ public struct SidebarView: View {
         self._showNewChannel = showNewChannel
     }
 
+    private var authDotColor: Color {
+        switch appState.authStatus {
+        case .connected: return .green
+        case .checking, .unknown: return Port42Theme.accent
+        case .noCredential: return .orange
+        case .error: return .red
+        }
+    }
+
     /// Build a sorted list of all sidebar items ordered by most recent activity.
     private var sortedItems: [SidebarItem] {
         var items: [(SidebarItem, Date)] = []
@@ -160,12 +169,22 @@ public struct SidebarView: View {
                     .background(Port42Theme.border)
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(Port42Theme.accent)
+                        .fill(authDotColor)
                         .frame(width: 8, height: 8)
                     Text(user.displayName)
                         .font(Port42Theme.mono(12))
                         .foregroundStyle(Port42Theme.textPrimary)
                     Spacer()
+                    Button(action: {
+                        appState.aiPaused.toggle()
+                        LLMEngine.paused = appState.aiPaused
+                    }) {
+                        Image(systemName: appState.aiPaused ? "pause.circle.fill" : "pause.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(appState.aiPaused ? .red : Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(appState.aiPaused ? "AI paused. Click to resume." : "Pause all AI calls")
                     Button(action: { showSignOut = true }) {
                         Image(systemName: "gearshape")
                             .font(.system(size: 12))

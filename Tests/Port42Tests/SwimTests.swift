@@ -182,7 +182,7 @@ struct LLMEngineTests {
         }
 
         let delegate = MockDelegate()
-        #expect(throws: LLMEngineError.self) {
+        #expect(throws: AgentAuthError.self) {
             try engine.send(
                 messages: [["role": "user", "content": "hi"]],
                 systemPrompt: "test",
@@ -245,14 +245,20 @@ struct LLMEngineTests {
 @Suite("Auth Resolution")
 struct AuthResolutionTests {
 
-    @Test("OAuth token uses Bearer header, API key uses x-api-key")
+    @Test("OAuth credential sets Bearer header, API key sets x-api-key")
     func authHeaderDifference() {
-        let oauth = ResolvedAuth(token: "sk-ant-oat01-xxx", source: .claudeCodeOAuth)
-        let apiKey = ResolvedAuth(token: "sk-ant-api03-xxx", source: .apiKey)
+        let oauth = AuthCredential(token: "sk-ant-oat01-xxx", type: .oauthToken, source: .claudeCodeKeychain)
+        let apiKey = AuthCredential(token: "sk-ant-api03-xxx", type: .apiKey, source: .manual)
 
-        #expect(oauth.source == .claudeCodeOAuth)
-        #expect(apiKey.source == .apiKey)
-        #expect(oauth.source != apiKey.source)
+        var oauthReq = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        oauthReq.applyAuth(oauth)
+        #expect(oauthReq.value(forHTTPHeaderField: "Authorization") == "Bearer sk-ant-oat01-xxx")
+        #expect(oauthReq.value(forHTTPHeaderField: "x-api-key") == nil)
+
+        var apiReq = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        apiReq.applyAuth(apiKey)
+        #expect(apiReq.value(forHTTPHeaderField: "x-api-key") == "sk-ant-api03-xxx")
+        #expect(apiReq.value(forHTTPHeaderField: "Authorization") == nil)
     }
 
     @Test("Keychain JSON parsing handles nested claudeAiOauth format")

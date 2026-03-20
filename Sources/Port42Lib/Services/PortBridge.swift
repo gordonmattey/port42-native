@@ -374,6 +374,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 ["id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "tier": "fast"]
             ]
 
+        // port42.ai.status() — check if AI calls are available
+        case "ai.status":
+            return ["paused": LLMEngine.paused]
+
         // port42.ai.complete(prompt, options?)
         case "ai.complete":
             return await handleAIComplete(args: args, callId: callId, state: state)
@@ -1051,6 +1055,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
 
             ai: {
+                status: () => call('ai.status'),
                 models: () => call('ai.models'),
                 complete: function(prompt, opts) {
                     opts = opts || {};

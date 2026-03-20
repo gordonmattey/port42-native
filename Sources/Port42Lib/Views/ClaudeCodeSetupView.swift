@@ -163,19 +163,9 @@ public struct ClaudeCodeSetupView: View {
                     .foregroundStyle(Port42Theme.textPrimary)
 
                 if let exp = entry.expiresAt {
-                    let remaining = exp.timeIntervalSince(Date())
-                    let desc = remaining > 0
-                        ? "expires in \(Int(remaining / 3600))h"
-                        : "expired"
-                    Text(desc)
+                    Text(expiryLabel(exp))
                         .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                }
-
-                if let suffix = entry.suffix {
-                    Text(suffix.prefix(8))
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+                        .foregroundStyle(exp > Date() ? Port42Theme.textSecondary.opacity(0.6) : .orange.opacity(0.8))
                 }
 
                 Spacer()
@@ -190,6 +180,13 @@ public struct ClaudeCodeSetupView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func expiryLabel(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMM d, HH:mm"
+        let dateStr = fmt.string(from: date)
+        return date > Date() ? "expires \(dateStr)" : "expired \(dateStr)"
     }
 
     private func actionButton(_ label: String, action: @escaping () -> Void) -> some View {

@@ -1,5 +1,7 @@
 # OpenClaw Channel Adapter for Port42
 
+DONE ✅
+
 ## Overview
 
 A channel adapter that allows OpenClaw agents (running locally or on a remote server) to participate in Port42 channels as peers. Users paste a Port42 invite link into their OpenClaw config and their agents appear in the channel alongside humans and other companions.

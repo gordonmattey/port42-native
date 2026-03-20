@@ -345,6 +345,7 @@ public final class AgentAuthResolver {
             guard let svc = item[kSecAttrService as String] as? String,
                   svc.hasPrefix(prefix) else { return nil }
             let created = item[kSecAttrCreationDate as String] as? Date ?? .distantPast
+            let modified = item[kSecAttrModificationDate as String] as? Date
             let account = item[kSecAttrAccount as String] as? String
 
             var label: String
@@ -356,11 +357,14 @@ public final class AgentAuthResolver {
                 label = acctName ?? "Default"
             }
 
+            // Approximate expiry: modification date + 1 hour (OAuth tokens last ~1h from refresh)
+            let approxExpiry = modified.map { $0.addingTimeInterval(3600) }
+
             return ClaudeKeychainEntry(
-                serviceName: svc, created: created, label: label, expiresAt: nil
+                serviceName: svc, created: created, label: label, expiresAt: approxExpiry
             )
         }
-        .sorted { $0.created > $1.created }
+        .sorted { ($0.expiresAt ?? $0.created) > ($1.expiresAt ?? $1.created) }
     }
 
     /// Use a specific Keychain entry for token resolution.

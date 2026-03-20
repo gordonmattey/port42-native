@@ -1,5 +1,7 @@
 # E2E Encryption Plan
 
+DONE ✅
+
 ## Overview
 
 Per-channel AES-256-GCM symmetric encryption. Messages are encrypted before

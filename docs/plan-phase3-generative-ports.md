@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-12
 
-**Status:** Planning
+**Status:** DONE
 
 **Branch:** `phase3-generative-ports`
 

@@ -39,7 +39,7 @@ public final class ClaudeCodeSetup: ObservableObject {
             var hasToken = false
             var entries: [ClaudeKeychainEntry] = []
             if hasClaude {
-                hasToken = resolver.autoDetect() != nil
+                hasToken = { if case .connected = resolver.checkStatus() { return true }; return false }()
                 if !hasToken {
                     // Check for multiple entries that need user selection
                     entries = resolver.listKeychainEntries()
@@ -187,7 +187,8 @@ public final class ClaudeCodeSetup: ObservableObject {
     public func retryDetection() {
         AgentAuthResolver.shared.resetAuth()
         DispatchQueue.global(qos: .userInitiated).async {
-            let found = AgentAuthResolver.shared.autoDetect() != nil
+            let resolver = AgentAuthResolver.shared
+            let found = { if case .connected = resolver.checkStatus() { return true }; return false }()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if found {

@@ -1,6 +1,6 @@
 # Ports Implementation Plan
 
-**Last updated:** 2026-03-14
+**Last updated:** 2026-03-17
 
 **Constraint:** No breaking changes. All existing chat, swim, and sync
 functionality must continue working at every step.
@@ -366,7 +366,7 @@ Priority order based on user impact:
 8. ~~**P-234: Background Ports**~~ ✅ (hidden but running)
 9. ~~**P-231: Screen Edge Snap**~~ N/A (replaced by manual arrangement, smart tiling deferred)
 10. ~~**P-236: Port Chrome**~~ ✅ (reconcile macOS buttons with port controls)
-11. **P-210: Close to Preview** (collapse to compact preview)
+11. ~~**P-210: Close to Preview**~~ → removed
 12. ~~**P-221: Restart Persistence**~~ ✅ (ports survive app restart, including position and permissions)
 13. **P-239: Startup Window Behavior** (main window fills screen on launch, restores saved position after sign-in)
 14. **P-240: Window Sets** (future: ports associate with channel/swim context, switching context shows/hides ports)
@@ -639,7 +639,7 @@ Phase 3b (deferred):
   P-310: Remote agent port context           → OpenClaw agents learn port APIs
 
 Phase 2.5 (polish, no new infra):
-  P-210: Close to preview                   → non-destructive close
+  ~~P-210: Close to preview~~               → removed
   P-211: Inline port update                 → companion updates in-place
   P-209: Port channel context               → follow/pin channel control
   P-218: Port resize handles                → user drags to resize inline ports
@@ -662,7 +662,7 @@ Phase 2.5 (windowing):
 Phase 2.5 (infrastructure):
   P-206: ~~Multiple dock zones~~            → N/A (docking removed)
   P-207: Cursor states                      → green circle, resize cursors
-  P-208: Port UDIDs                         → stable IDs across lifecycle
+  P-208: Port UDIDs                         → stable IDs across lifecycle ✅
 
 Phase 4 (advanced APIs):
   P-400: Port window management API         → ports manage other ports
@@ -684,6 +684,24 @@ Step 17b: Tool use (F-411)                → same API via conversation    ✅
   Companions can clipboard, screenshot, terminal, files, automation
   directly from conversation without creating a port.
 Unified API ─────────────────────────────────────────────────────────
+
+Port Updates + UDIDs (P-204, P-208, P-211)  ✅
+  - Every port gets a UDID on creation (UUID, persisted in port_panels)
+  - port_update(id, html) — companions update inline/windowed/minimized ports
+  - ports_list() → [{id, title, status, createdBy, hasTerminal}]
+    status field: "floating" | "docked"
+  - port_manage: dock/undock added as aliases for minimize/restore
+  - port_manage restore/undock returns error if port is not docked (was silent no-op)
+  - JS bridge port42.port.info() returns id field
+  - Companion context updated: check status before acting, use restore/undock for docked ports
+Port Management ────────────────────────────────────────────────────
+
+AI Kill Switch  ✅
+  - LLMEngine.paused static bool — stops all API calls app-wide
+  - Pause button in sidebar next to settings icon
+  - port42.ai.status() bridge method — ports can check { paused: bool }
+  - ai.complete() returns standard error when paused
+AI Control ─────────────────────────────────────────────────────────
 
 Step 18: Automation (P-601)                 → ports control other apps    ✅
 Step 19: Accessibility (P-603)              → ports interact with any UI

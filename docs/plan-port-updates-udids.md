@@ -2,7 +2,9 @@
 
 **Features:** P-204 (Port Update), P-208 (Port UDIDs), P-211 (Inline Port Update)
 
-**Last updated:** 2026-03-16
+**Status: DONE**
+
+**Last updated:** 2026-03-17
 
 ---
 
@@ -229,3 +231,8 @@ Step 7: Analytics port_updated event               → track iteration
 | **JS bridge** | Inside a port, call `port42.port.info()`. | Returns `{id: "...", messageId: "...", ...}` |
 | **Analytics** | Create a port, then update it twice. Check PostHog. | 1 `port_created` + 2 `port_updated` events |
 | **Old ports** | Existing ports from before the update. | Render fine, get UDID on first interaction |
+
+
+
+
+

@@ -341,7 +341,17 @@ public struct SetupView: View {
                     subOptionButton(
                         selected: authSelected == .claudeCode && selectedTokenIndex == idx,
                         label: entry.label,
-                        hint: entry.suffix.map { String($0.prefix(8)) }
+                        hint: {
+                            var parts: [String] = []
+                            if let suf = entry.suffix { parts.append(String(suf.prefix(8))) }
+                            if let exp = entry.expiresAt {
+                                let fmt = DateFormatter()
+                                fmt.dateFormat = "MMM d, HH:mm"
+                                let label = exp > Date() ? "exp \(fmt.string(from: exp))" : "expired \(fmt.string(from: exp))"
+                                parts.append(label)
+                            }
+                            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+                        }()
                     ) {
                         selectTokenEntry(idx)
                     }
@@ -1004,8 +1014,8 @@ public struct SetupView: View {
         authError = nil
         isCheckingAuth = true
 
-        Port42AuthStore.shared.saveCredential(token, account: "manualToken")
-        Port42AuthStore.shared.saveMode(.manualToken)
+        Port42AuthStore.shared.saveCredential(token)
+        Port42AuthStore.shared.savePreference(pref: .manualEntry)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             isCheckingAuth = false
@@ -1027,7 +1037,8 @@ public struct SetupView: View {
             let resolver = AgentAuthResolver.shared
 
             // Check Port42's own stored credentials first (no Keychain prompt)
-            if let _ = Port42AuthStore.shared.resolveStoredConfig() {
+            if Port42AuthStore.shared.loadPreference() == .manualEntry,
+               Port42AuthStore.shared.loadCredential() != nil {
                 DispatchQueue.main.async {
                     isCheckingAuth = false
                     completeAuth()
@@ -1064,8 +1075,8 @@ public struct SetupView: View {
         authError = nil
         isCheckingAuth = true
 
-        Port42AuthStore.shared.saveCredential(key, account: "apiKey")
-        Port42AuthStore.shared.saveMode(.apiKey)
+        Port42AuthStore.shared.saveCredential(key)
+        Port42AuthStore.shared.savePreference(pref: .manualEntry)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             isCheckingAuth = false

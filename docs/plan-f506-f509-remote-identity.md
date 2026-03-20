@@ -1,5 +1,7 @@
 # Implementation Plan: F-506 Remote Identity + F-509 Sender Attribution
 
+DONE✅
+
 ## Problem
 
 In shared channels, there's no way to tell who owns which AI. Two users with
