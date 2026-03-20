@@ -457,11 +457,13 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             guard let appState = self.appState else { return }
             appState.typingAgentNames.remove(self.agent.displayName)
             appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
-            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
-                if appState.messages[idx].content.isEmpty {
-                    appState.messages[idx].content = "[error: \(error.localizedDescription)]"
-                }
+            // Remove empty placeholder message
+            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }),
+               appState.messages[idx].content.isEmpty {
+                appState.messages.remove(at: idx)
             }
+            // Surface error in the channel error bar
+            appState.channelErrors[self.channelId] = error.localizedDescription
             appState.activeAgentHandlers.removeValue(forKey: self.messageId)
         }
     }
@@ -1287,6 +1289,8 @@ public final class AppState: ObservableObject {
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        channelErrors[channel.id] = nil
 
         let message = Message.create(
             channelId: channel.id,
