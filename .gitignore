@@ -2,6 +2,11 @@
 .build/
 dist/Port42.app/
 port42-gateway
+Port42.app/
+gateway/gateway
+
+# Xcode / SwiftPM
+.swiftpm/
 
 # macOS
 .DS_Store
