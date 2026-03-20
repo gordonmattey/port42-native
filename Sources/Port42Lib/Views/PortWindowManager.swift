@@ -41,6 +41,9 @@ public final class PortWindowManager: ObservableObject {
 
     @Published public var panels: [PortPanel] = []
 
+    /// Panel IDs where the mouse is currently hovering (drives title bar visibility).
+    @Published public var hoveredPanels: Set<String> = []
+
     /// Database for persisting port panel state across restarts.
     private weak var db: DatabaseService?
 
@@ -507,6 +510,13 @@ public final class PortWindowManager: ObservableObject {
         window.onClose = { [weak self] in
             self?.panelWindowClosed(panelId)
         }
+        window.hoverHandler = { [weak self] hovering in
+            if hovering {
+                self?.hoveredPanels.insert(panelId)
+            } else {
+                self?.hoveredPanels.remove(panelId)
+            }
+        }
 
         // Observe move/resize to persist position
         NotificationCenter.default.addObserver(
@@ -517,6 +527,8 @@ public final class PortWindowManager: ObservableObject {
         ) { [weak self] _ in self?.windowFrameChanged(panelId) }
 
         updateWindowContent(window, panel: panel)
+        // Install hover tracking AFTER contentView is set by updateWindowContent
+        window.installHoverTracking()
 
         windows[panel.id] = window
         window.makeKeyAndOrderFront(nil)
@@ -762,46 +774,106 @@ struct PortWebViewHost: NSViewRepresentable {
 // MARK: - Native Panel Window
 
 /// NSPanel subclass with close callback and custom drag region.
+/// Also owns the window-level hover tracking area so mouseEntered/mouseExited
+/// fire reliably regardless of key window status — bypasses hitTest entirely.
 class PortNSPanel: NSPanel {
     var onClose: (() -> Void)?
+    var hoverHandler: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
 
     override func close() {
         onClose?()
         super.close()
     }
 
+    /// Add tracking area to contentView with self (the NSPanel) as owner.
+    /// NSPanel is an NSResponder so it receives mouseEntered/mouseExited directly —
+    /// no hitTest involvement, works for non-key windows with .activeAlways.
+    func installHoverTracking() {
+        guard let cv = contentView else { return }
+        if let old = hoverTrackingArea { cv.removeTrackingArea(old) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        cv.addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverHandler?(true)
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverHandler?(false)
+        super.mouseExited(with: event)
+    }
+
+    // Prevent Escape from closing the panel (default NSPanel behaviour)
+    override func cancelOperation(_ sender: Any?) {}
 }
 
 // MARK: - Panel Content View (rendered inside NSPanel)
 
 struct PortPanelContentView: View {
     let panel: PortPanel
-    let manager: PortWindowManager
+    @ObservedObject var manager: PortWindowManager
     @State private var showCode = false
     @State private var pendingPerm: PortPermission?
+    @State private var nsWindow: NSWindow? = nil
+    @State private var isKeyWindow = false
+    @State private var showBar = false
+    @State private var hideTask: DispatchWorkItem? = nil
+
+    private var isHovered: Bool { manager.hoveredPanels.contains(panel.id) }
+
+    /// Show the title bar then schedule it to hide after `duration` seconds.
+    private func flashBar(for duration: Double = 2.5) {
+        hideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { showBar = true }
+        let task = DispatchWorkItem {
+            withAnimation(.easeInOut(duration: 0.4)) { showBar = false }
+        }
+        hideTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: task)
+    }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                // Custom title bar (draggable)
-                PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode)
-
-                if showCode {
-                    ScrollView(.vertical) {
-                        Text(panel.html)
-                            .font(Port42Theme.mono(12))
-                            .foregroundColor(Port42Theme.textSecondary)
-                            .textSelection(.enabled)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else if let webView = manager.webViews[panel.id] {
-                    PortWebViewHost(webView: webView)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack(alignment: .top) {
+            // Content fills edge to edge
+            if showCode {
+                ScrollView(.vertical) {
+                    Text(panel.html)
+                        .font(Port42Theme.mono(12))
+                        .foregroundColor(Port42Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let webView = manager.webViews[panel.id] {
+                PortWebViewHost(webView: webView)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            // Inline permission overlay (no dependency on window key status)
+            // Always-present invisible drag strip — drag works even when title bar is hidden
+            VStack(spacing: 0) {
+                PortDragArea()
+                    .frame(height: 36)
+                    .allowsHitTesting(true)
+                Spacer()
+            }
+
+            // Title bar overlay — timed flash on hover/focus, always on for code view
+            if showBar || showCode {
+                PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode)
+                    .transition(.opacity)
+            }
+
+            // Inline permission overlay
             if let perm = pendingPerm {
                 PortPermissionOverlay(
                     permission: perm,
@@ -809,12 +881,56 @@ struct PortPanelContentView: View {
                     onDeny: { panel.bridge.denyPermission() }
                 )
             }
+
+            // Window border glow: bright when key, dim when hovering, off otherwise
+            Rectangle()
+                .stroke(Port42Theme.accent.opacity(isKeyWindow ? 0.6 : isHovered ? 0.3 : 0), lineWidth: 1)
+                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.5 : isHovered ? 0.2 : 0), radius: isKeyWindow ? 12 : 8)
+                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.3 : 0), radius: 24)
+                .animation(.easeInOut(duration: 0.25), value: isKeyWindow)
+                .animation(.easeInOut(duration: 0.3), value: isHovered)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
         }
         .background(Port42Theme.bgPrimary)
         .ignoresSafeArea()
+        .background(WindowRefAccessor { w in nsWindow = w })
+        .onAppear {
+            flashBar(for: 2.0)
+        }
+        .onChange(of: manager.hoveredPanels.contains(panel.id)) { _, hovered in
+            if hovered {
+                flashBar()
+            } else {
+                hideTask?.cancel()
+                withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            if let w = nsWindow, note.object as? NSWindow == w {
+                isKeyWindow = true
+                flashBar(for: 1.5)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
+            if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = false }
+        }
         .onReceive(panel.bridge.$pendingPermission) { perm in
             pendingPerm = perm
         }
+    }
+}
+
+/// Grabs the NSWindow from the SwiftUI view hierarchy without consuming any space or events.
+struct WindowRefAccessor: NSViewRepresentable {
+    let callback: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { self.callback(v.window) }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { self.callback(nsView.window) }
     }
 }
 
@@ -889,7 +1005,7 @@ struct PortPermissionOverlay: View {
 
 struct PortPanelTitleBar: View {
     let panel: PortPanel
-    let manager: PortWindowManager
+    @ObservedObject var manager: PortWindowManager
     @Binding var showCode: Bool
 
     var body: some View {
@@ -1041,4 +1157,28 @@ struct PortDragArea: NSViewRepresentable {
 class PortDragNSView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.openHand.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        NSCursor.closedHand.set()
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        NSCursor.openHand.set()
+    }
 }

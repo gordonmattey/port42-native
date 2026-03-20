@@ -12,6 +12,8 @@ public struct TransitionRoot: View {
         self.useBreakoutVideo = useBreakoutVideo
     }
 
+    @State private var isKeyWindow = false
+    @State private var nsWindow: NSWindow? = nil
     @State private var transitionPhase: TransitionPhase = .none
     @State private var prevSetupComplete = false
     @State private var diveProgress: CGFloat = 0.0  // 0 = surface, 1 = submerged
@@ -182,6 +184,22 @@ public struct TransitionRoot: View {
             if hasSession && !appState.isSetupComplete && useBreakoutVideo {
                 preWarmBreakoutVideo = true
             }
+        }
+        .overlay(
+            Rectangle()
+                .stroke(Port42Theme.accent.opacity(isKeyWindow ? 0.6 : 0), lineWidth: 1)
+                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.5 : 0), radius: 12)
+                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.3 : 0), radius: 24)
+                .animation(.easeInOut(duration: 0.25), value: isKeyWindow)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        )
+        .background(WindowRefAccessor { w in nsWindow = w })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
+            if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: .handleDeepLink)) { note in
             if let url = note.object as? URL {
