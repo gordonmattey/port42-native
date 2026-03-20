@@ -24,9 +24,9 @@ A swim is a 1:1 channel between the user and one companion, with sync disabled. 
 
 ---
 
-## Question: Why not keep SwimSession as a thin wrapper?
+## Why not keep SwimSession as a thin wrapper?
 
-We shouldn't. SwimSession's responsibilities map cleanly onto existing channel infrastructure:
+SwimSession's responsibilities map cleanly onto existing channel infrastructure:
 
 | SwimSession does | Channel equivalent |
 |---|---|
@@ -39,25 +39,11 @@ We shouldn't. SwimSession's responsibilities map cleanly onto existing channel i
 | `retry()` | Add `AppState.retryLastMessage(channelId:)` |
 | `chatEntries(userName:)` | `AppState.channelEntries` (already converts `Message` → `ChatEntry`) |
 
-Keeping a wrapper means maintaining two code paths forever. Full elimination is cleaner.
+Keeping a wrapper means maintaining two code paths forever for no benefit.
 
 ---
 
-## DB Schema Changes
-
-### swimMessages vs messages field mapping
-
-| swimMessages | messages equivalent |
-|---|---|
-| `id` | `id` |
-| `companionId` | `channelId` = `"swim-{companionId}"` |
-| `role` = "user" | `senderType` = "human", `senderId` = user.id |
-| `role` = "assistant" | `senderType` = "agent", `senderId` = companionId |
-| `content` | `content` |
-| `timestamp` | `timestamp`, `createdAt` = same value |
-| — | `senderName` = displayName (looked up from users/agents) |
-| — | `replyToId` = NULL |
-| — | `syncStatus` = "local" |
+## DB Schema
 
 ### New columns on `channels`
 
@@ -70,89 +56,60 @@ isSwim      INTEGER NOT NULL DEFAULT 0   -- 1 for swim channels
 
 `"swim-{companionId}"` — stable, deterministic, no collision with regular UUIDs.
 
----
+### swimMessages → messages field mapping
 
-## Migration Strategy
-
-Two separate migrations for safety:
-
-### v17-swim-unification
-
-```sql
--- 1. Backup current tables (for rollback / testing)
-CREATE TABLE channels_backup_v17 AS SELECT * FROM channels;
-CREATE TABLE messages_backup_v17 AS SELECT * FROM messages;
-CREATE TABLE swimMessages_backup_v17 AS SELECT * FROM swimMessages;
-
--- 2. Add new columns to channels
-ALTER TABLE channels ADD COLUMN syncEnabled INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE channels ADD COLUMN isSwim INTEGER NOT NULL DEFAULT 0;
-
--- 3. Create swim channel records for each companion that has swim messages
---    (INSERT OR IGNORE so re-running is safe)
-INSERT OR IGNORE INTO channels (id, name, type, createdAt, syncEnabled, isSwim)
-SELECT
-    'swim-' || companionId,
-    (SELECT displayName FROM agents WHERE agents.id = swimMessages.companionId),
-    'direct',
-    MIN(timestamp),
-    0,
-    1
-FROM swimMessages
-GROUP BY companionId;
-
--- 4. Copy swim messages into messages table
-INSERT OR IGNORE INTO messages
-    (id, channelId, senderId, senderName, senderType, content,
-     timestamp, replyToId, syncStatus, createdAt)
-SELECT
-    sm.id,
-    'swim-' || sm.companionId,
-    CASE sm.role
-        WHEN 'user'      THEN (SELECT id FROM users WHERE isLocal = 1 LIMIT 1)
-        WHEN 'assistant' THEN sm.companionId
-    END,
-    CASE sm.role
-        WHEN 'user'      THEN (SELECT displayName FROM users WHERE isLocal = 1 LIMIT 1)
-        WHEN 'assistant' THEN (SELECT displayName FROM agents WHERE agents.id = sm.companionId)
-    END,
-    CASE sm.role
-        WHEN 'user'      THEN 'human'
-        WHEN 'assistant' THEN 'agent'
-    END,
-    sm.content,
-    sm.timestamp,
-    NULL,
-    'local',
-    sm.timestamp
-FROM swimMessages sm;
-```
-
-### v18-drop-swim-messages
-
-```sql
--- Only runs after v17 confirmed stable in production
-DROP INDEX IF EXISTS idx_swim_messages_companion;
-DROP TABLE swimMessages;
-```
-
-Keep v17 and v18 as separate registered migrations. Ship v17 first, validate in production, add v18 in a follow-up release. The backup tables (`_backup_v17`) stay in the DB and can be dropped manually once confident.
+| swimMessages | messages |
+|---|---|
+| `id` | `id` |
+| `companionId` | `channelId` = `"swim-{companionId}"` |
+| `role` = "user" | `senderType` = "human", `senderId` = local user id |
+| `role` = "assistant" | `senderType` = "agent", `senderId` = companionId |
+| `content` | `content` |
+| `timestamp` | `timestamp` + `createdAt` |
+| — | `senderName` = looked up from users/agents |
+| — | `replyToId` = NULL |
+| — | `syncStatus` = "local" |
 
 ---
 
-## Model Changes
+## Steps (each independently testable)
 
-### Channel
+### Step 1 — v17 Migration
 
-Add two fields:
+**Files:** `DatabaseService.swift` only
+
+**What changes:**
+- Register `"v17-swim-unification"` migration:
+  1. Create backup tables: `channels_backup_v17`, `messages_backup_v17`, `swimMessages_backup_v17`
+  2. Add `syncEnabled` (default 1) and `isSwim` (default 0) columns to `channels`
+  3. Insert swim channel records into `channels` for each companionId in `swimMessages` (INSERT OR IGNORE, type = "direct", syncEnabled = 0, isSwim = 1)
+  4. Copy all `swimMessages` rows into `messages` (role → senderType/senderId mapping above)
+- `swimMessages` table left intact (not dropped until Step 6)
+
+**Nothing else changes.** App behaviour is identical to before — `SwimSession` still reads from `swimMessages`, channels still use `messages`. The migration just prepares the data.
+
+**How to test:**
+- Run app, open any DB browser (e.g. DB Browser for SQLite at `~/Library/Application Support/Port42/port42.sqlite`)
+- Verify `channels_backup_v17`, `messages_backup_v17`, `swimMessages_backup_v17` exist with correct row counts
+- Verify swim channel rows exist in `channels` (id = `"swim-{companionId}"`, isSwim = 1, syncEnabled = 0)
+- Verify swim messages copied into `messages` with correct channelId, senderType, content
+- Verify existing channels and messages unaffected
+- Verify swim still works end-to-end (still reading from old `swimMessages` path — no regression)
+
+---
+
+### Step 2 — Channel model + SyncService filter
+
+**Files:** `Models/Channel.swift`, `Services/SyncService.swift`
+
+**What changes:**
+
+`Channel` gains two new fields:
 ```swift
 var syncEnabled: Bool = true
 var isSwim: Bool = false
 ```
-
-GRDB coding keys updated to include both. `Channel.create(name:)` factory unchanged (defaults to syncEnabled=true, isSwim=false).
-
-Factory for swim channels:
+GRDB coding keys updated. `Channel.swim(companion:)` factory added:
 ```swift
 static func swim(companion: AgentConfig) -> Channel {
     Channel(id: "swim-\(companion.id)", name: companion.displayName,
@@ -160,143 +117,169 @@ static func swim(companion: AgentConfig) -> Channel {
 }
 ```
 
-### Message
+`SyncService` filters by `syncEnabled` when joining channels on connect and when routing outbound messages:
+```swift
+let syncableChannels = channels.filter { $0.syncEnabled }
+```
 
-No changes needed — `messages` table already has all required fields.
-
-### Remove SwimMessage
-
-`SwimMessage` struct deleted. All references replaced with `Message`.
+**How to test:**
+- Run app — all existing channels still sync normally
+- Swim channels (now in `channels` table from Step 1) do not appear in WebSocket sync traffic (check gateway logs)
+- New swim channel records load correctly via `DatabaseService.getChannels()`
+- Swim still works end-to-end (still on old `SwimSession` path — no regression)
 
 ---
 
-## AppState Changes
+### Step 3 — AppState additions (additive only, nothing removed)
 
-### Remove
+**Files:** `Services/AppState.swift`
 
-- `private var swimSessions: [String: SwimSession]`
-- `@Published public var activeSwimSession: SwimSession?`
-- `openSwim(companion:)` → replaced
-- `closeSwim()` → replaced
-- All `swimSessions[...]` access
+**What changes:**
 
-### Add
-
+Add alongside existing state — nothing removed yet:
 ```swift
-// Per-channel error state (used by swim and eventually regular channels too)
 @Published public var channelErrors: [String: String] = [:]
 
-// Cancel in-flight LLM stream for a channel
-public func cancelStreaming(channelId: String)
+public func cancelStreaming(channelId: String) {
+    // cancel the active LLMEngine for companions in this channel
+}
 
-// Retry last user message in a channel
-public func retryLastMessage(channelId: String)
-```
-
-### openSwim replacement
-
-```swift
-public func openSwim(companion: AgentConfig) {
-    // Ensure swim channel exists in DB
-    let swimChannel = Channel.swim(companion: companion)
-    try? db.upsertChannel(swimChannel)
-
-    // Select the swim channel (same path as selecting any channel)
-    selectChannel(swimChannel.id)
-
-    // Ensure companion is assigned to the swim channel
-    try? db.assignAgentToChannel(agentId: companion.id, channelId: swimChannel.id)
+public func retryLastMessage(channelId: String) {
+    // re-send the last user message in the channel
 }
 ```
 
-### Streaming/error routing
+Also add `upsertChannel` to `DatabaseService` if not already present (needed for Step 4's `openSwim` replacement).
 
-LLM responses for swim go through `AgentRouter` (same as companions in channels). The existing `streamingAgentNames` / `toolingAgentNames` already handles display. `channelErrors` is set when `AgentRouter` gets an error, cleared on next send.
+**How to test:**
+- Build succeeds, no existing behaviour changes
+- `channelErrors`, `cancelStreaming`, `retryLastMessage` exist and are callable
+- Swim and channels both work as before
 
 ---
 
-## SyncService Changes
+### Step 4 — Rewire SwimView + remove SwimSession (atomic)
 
-Exclude swim channels from sync:
+**Files:** `Views/SwimView.swift`, `Services/AppState.swift`
 
+This is the only step that must be done atomically — `SwimSession` is deleted and `SwimView` rewired in the same commit since they're inseparable.
+
+**What changes:**
+
+`AppState`:
+- Remove `private var swimSessions: [String: SwimSession]`
+- Remove `@Published public var activeSwimSession: SwimSession?`
+- Replace `openSwim(companion:)`:
+  ```swift
+  public func openSwim(companion: AgentConfig) {
+      let swimChannel = Channel.swim(companion: companion)
+      try? db.upsertChannel(swimChannel)
+      try? db.assignAgentToChannel(agentId: companion.id, channelId: swimChannel.id)
+      selectChannel(swimChannel.id)
+  }
+  ```
+- Replace `closeSwim()` with `deselectSwim()` (just deselects the swim channel, same as navigating away)
+
+`SwimView`:
+- Remove `@ObservedObject var session: SwimSession`
+- Wire to AppState channel state:
+  - `session.chatEntries(userName:)` → `appState.channelEntries(channelId: swimChannelId)`
+  - `session.isStreaming` → `appState.streamingAgentNames.contains(companion.displayName)`
+  - `session.isTooling` → `appState.toolingAgentNames.contains(companion.displayName)`
+  - `session.error` → `appState.channelErrors[swimChannelId]`
+  - `session.send()` → `appState.sendMessage(content:)`
+  - `session.stop()` → `appState.cancelStreaming(channelId: swimChannelId)`
+  - `session.retry()` → `appState.retryLastMessage(channelId: swimChannelId)`
+  - `session.dismiss error` → `appState.channelErrors[swimChannelId] = nil`
+
+`SwimSession` class and `SwimMessage` struct deleted.
+
+**How to test:**
+- Open swim with a companion — header appears, history loads from DB
+- Send a message — companion responds, streaming indicator shows
+- Stop mid-stream — stops cleanly
+- Trigger error (e.g. bad model) — error bar appears with retry button
+- Restart app — open swim again, old messages still there
+- Regular channels unaffected
+- Swim messages no longer written to `swimMessages` table (now writes to `messages`)
+
+---
+
+### Step 5 — Unified error display in ChatView
+
+**Files:** `Views/ChatView.swift`
+
+**What changes:**
+
+Pass the new AppState error state into `ConversationContent` for regular channels too:
 ```swift
-// When joining channels on connect:
-let syncableChannels = channels.filter { $0.syncEnabled }
-
-// When sending messages:
-guard channel.syncEnabled else { return }
+ConversationContent(
+    // existing params...
+    error: appState.channelErrors[channel.id],
+    onStop: { appState.cancelStreaming(channelId: channel.id) },
+    onRetry: { appState.retryLastMessage(channelId: channel.id) },
+    onDismissError: { appState.channelErrors[channel.id] = nil }
+)
 ```
 
-This is the only SyncService change needed — swim channels simply never participate in WebSocket sync.
+`ConversationContent` already supports all these — no changes needed there.
+
+**How to test:**
+- Trigger an error in a regular channel (e.g. remove API key mid-conversation)
+- Verify same error bar + retry/dismiss UI appears as in swim
+- Dismiss error — clears correctly
+- Retry — re-sends last message
 
 ---
 
-## View Changes
+### Step 6 — v18 Migration (drop swimMessages)
 
-### SwimView
+**Files:** `DatabaseService.swift` only
 
-- Header stays exactly as-is (teal dot, companion name, back button — intentionally simpler than ChannelHeader)
-- Body: replace `session.chatEntries(userName:)` with `appState.channelEntries(channelId:)`
-- Replace `session.isStreaming` with `appState.streamingAgentNames.contains(companionName)`
-- Replace `session.error` with `appState.channelErrors[channelId]`
-- Replace `session.send()` with `appState.sendMessage(content:)`
-- Replace `session.stop()` with `appState.cancelStreaming(channelId:)`
-- Replace `session.retry()` with `appState.retryLastMessage(channelId:)`
-- Remove `@ObservedObject var session`
+**What changes:**
 
-### ChatView
+Register `"v18-drop-swim-messages"` migration:
+```sql
+DROP INDEX IF EXISTS idx_swim_messages_companion;
+DROP TABLE swimMessages;
+```
 
-- Pass `appState.channelErrors[channelId]` as `error` to `ConversationContent`
-- Pass `onStop` / `onRetry` / `onDismissError` handlers so channel chat gets the same error UI as swim
-- This is the error display unification
+Ship this as a separate release after Step 4 has been in production for at least one release cycle and confirmed stable.
 
-### ConversationContent
-
-No changes needed — it already supports all these optional callbacks.
-
----
-
-## Files Touched
-
-| File | Change |
-|---|---|
-| `DatabaseService.swift` | Add v17, v18 migrations. Add `upsertChannel`. Remove swim-specific methods. |
-| `Models/Channel.swift` | Add `syncEnabled`, `isSwim` fields + `swim(companion:)` factory |
-| `Models/Message.swift` | No change |
-| `Services/AppState.swift` | Remove SwimSession references. Add `channelErrors`, `cancelStreaming`, `retryLastMessage`, new `openSwim` |
-| `Services/SyncService.swift` | Filter by `syncEnabled` |
-| `Services/AgentRouting.swift` | Ensure swim channel route works (likely no change needed) |
-| `Views/SwimView.swift` | Remove SwimSession dependency, wire to channel state |
-| `Views/ChatView.swift` | Pass error/stop/retry to ConversationContent |
-| `Views/ConversationContent.swift` | No change |
-| ~~`SwimSession` (in SwimView.swift)~~ | Deleted |
+**How to test:**
+- Run app — `swimMessages` table no longer exists
+- Swim works correctly (reads from `messages` since Step 4)
+- No crash on fresh install (migration skipped cleanly if `swimMessages` never existed)
+- Backup tables `_backup_v17` still present (drop manually when fully confident)
 
 ---
 
 ## Rollback
 
-If v17 produces bad state, the backup tables allow recovery:
+If v17 produces bad state, backup tables allow recovery before v18 ships:
 
 ```sql
--- Restore channels
-DELETE FROM channels;
-INSERT INTO channels SELECT id, name, type, createdAt FROM channels_backup_v17;
+DELETE FROM channels WHERE isSwim = 1;  -- remove newly inserted swim channels
+DELETE FROM messages WHERE channelId LIKE 'swim-%';  -- remove migrated swim messages
+-- swimMessages untouched until v18, so old path still works
+```
 
--- Restore messages
-DELETE FROM messages;
-INSERT INTO messages SELECT * FROM messages_backup_v17;
-
--- SwimMessages never dropped until v18
--- So swimMessages is still intact for app rollback
+Full restore if needed:
+```sql
+DELETE FROM channels; INSERT INTO channels SELECT id, name, type, createdAt FROM channels_backup_v17;
+DELETE FROM messages; INSERT INTO messages SELECT * FROM messages_backup_v17;
 ```
 
 ---
 
-## Ship Order
+## Files Touched Summary
 
-1. Land v17 migration + model changes + AppState refactor + view changes in one PR
-2. Test: open swim, send messages, restart app, verify history loads
-3. Test: regular channels unaffected, sync still works
-4. Test: swim channels don't appear in sync traffic
-5. If stable after one release cycle, add v18 (drop swimMessages) in follow-up PR
-6. Backup tables can be dropped manually post-v18 validation
+| File | Step | Change |
+|---|---|---|
+| `DatabaseService.swift` | 1, 3, 6 | v17 migration, upsertChannel, v18 migration |
+| `Models/Channel.swift` | 2 | `syncEnabled`, `isSwim`, `swim(companion:)` factory |
+| `Services/SyncService.swift` | 2 | Filter by `syncEnabled` |
+| `Services/AppState.swift` | 3, 4 | Add channelErrors/cancel/retry, replace openSwim, remove SwimSession refs |
+| `Views/SwimView.swift` | 4 | Rewire to AppState, delete SwimSession + SwimMessage |
+| `Views/ChatView.swift` | 5 | Pass error/stop/retry to ConversationContent |
+| `Views/ConversationContent.swift` | — | No changes needed |
