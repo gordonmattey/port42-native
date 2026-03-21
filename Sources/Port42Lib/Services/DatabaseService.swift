@@ -299,6 +299,17 @@ public final class DatabaseService {
             """)
         }
 
+        migrator.registerMigration("v18-port-versions") { db in
+            try db.create(table: "port_versions") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("portUdid", .text).notNull().indexed()
+                t.column("version", .integer).notNull()
+                t.column("html", .text).notNull()
+                t.column("createdBy", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -711,6 +722,36 @@ public final class DatabaseService {
         }
     }
 
+    // MARK: - Port Versions
+
+    public func savePortVersion(portUdid: String, html: String, createdBy: String?) throws {
+        try dbQueue.write { db in
+            let nextVersion = try Int.fetchOne(db,
+                sql: "SELECT COALESCE(MAX(version), 0) + 1 FROM port_versions WHERE portUdid = ?",
+                arguments: [portUdid]) ?? 1
+            try db.execute(
+                sql: "INSERT INTO port_versions (portUdid, version, html, createdBy, createdAt) VALUES (?, ?, ?, ?, ?)",
+                arguments: [portUdid, nextVersion, html, createdBy, Date()]
+            )
+        }
+    }
+
+    public func fetchPortVersions(portUdid: String) throws -> [PortVersion] {
+        try dbQueue.read { db in
+            try PortVersion.fetchAll(db,
+                sql: "SELECT * FROM port_versions WHERE portUdid = ? ORDER BY version ASC",
+                arguments: [portUdid])
+        }
+    }
+
+    public func fetchPortHtml(udid: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db,
+                sql: "SELECT html FROM port_panels WHERE udid = ?",
+                arguments: [udid])
+        }
+    }
+
     // MARK: - Input History
 
     /// Append a sent message to input history for a channel. Caps at 100 per channel.
@@ -750,6 +791,16 @@ public final class DatabaseService {
 }
 
 // MARK: - Persisted Port Panel Record
+
+public struct PortVersion: Codable, FetchableRecord {
+    public static let databaseTableName = "port_versions"
+    public var id: Int64
+    public var portUdid: String
+    public var version: Int
+    public var html: String
+    public var createdBy: String?
+    public var createdAt: Date
+}
 
 public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public static let databaseTableName = "port_panels"

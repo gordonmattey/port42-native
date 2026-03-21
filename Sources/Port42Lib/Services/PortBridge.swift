@@ -67,26 +67,18 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Restore cached permissions immediately so they're in place before the webview
         // loads and JS executes. This prevents permission prompts from re-firing when
         // LazyVStack recycles inline port views.
-        NSLog("[Port42] Bridge init: createdBy=%@ channelId=%@ messageId=%@", createdBy ?? "nil", channelId ?? "nil", messageId ?? "nil")
         if let state = appState as? AppState {
             // 1. Message-level cache (survives view recycling within session)
             if let mid = messageId, let cached = state.cachedPortPermissions[mid] {
                 grantedPermissions = cached
-                NSLog("[Port42] Bridge init: restored %d message-level permissions for %@", cached.count, mid)
             }
             // 2. Companion-level persistence (P-260): auto-restore permissions for same companion+channel
             if let by = createdBy, let cid = channelId {
                 let companionPerms = state.companionPermissions(createdBy: by, channelId: cid)
-                NSLog("[Port42] Bridge init: companion perms for %@/%@ = %@", by, cid, companionPerms.map { $0.rawValue }.joined(separator: ","))
                 if !companionPerms.isEmpty {
                     grantedPermissions.formUnion(companionPerms)
-                    NSLog("[Port42] Bridge init: auto-restored %d companion-level permissions for %@", companionPerms.count, by)
                 }
-            } else {
-                NSLog("[Port42] Bridge init: skipping companion perms — createdBy or channelId nil")
             }
-        } else {
-            NSLog("[Port42] Bridge init: no AppState (messageId=%@)", messageId ?? "nil")
         }
     }
 
@@ -143,17 +135,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // Cache on AppState so permission survives LazyVStack view recycling
         if let mid = messageId {
-            NSLog("[Port42] grantPermission: caching %d permissions for %@: %@", grantedPermissions.count, mid, grantedPermissions.map { $0.rawValue }.joined(separator: ","))
             state?.cachePortPermissions(messageId: mid, permissions: grantedPermissions)
-        } else {
-            NSLog("[Port42] grantPermission: no messageId, cannot cache")
         }
         // Persist to DB so permissions survive app restart
         state?.portWindows.persistPermissions(for: self)
         // Companion-level persistence (P-260): save so future ports by same companion auto-grant
         if let by = createdBy, let cid = channelId {
             state?.saveCompanionPermissions(grantedPermissions, createdBy: by, channelId: cid)
-            NSLog("[Port42] grantPermission: saved companion-level permissions for %@ in %@", by, cid)
         }
     }
 
@@ -170,11 +158,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     private func checkPermission(for method: String) async -> Bool {
         guard let perm = PortPermission.permissionForMethod(method) else { return true }
         if grantedPermissions.contains(perm) {
-            NSLog("[Port42] checkPermission: %@ already granted (msg=%@)", perm.rawValue, messageId ?? "nil")
             return true
         }
-
-        NSLog("[Port42] checkPermission: PROMPTING for %@ (msg=%@, granted=%@)", perm.rawValue, messageId ?? "nil", grantedPermissions.map { $0.rawValue }.joined(separator: ","))
         // Deny any previous pending permission to avoid leaking its continuation
         if let prev = permissionContinuation {
             prev.resume(returning: false)
@@ -516,13 +501,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let cols = UInt16(opts["cols"] as? Int ?? 80)
             let rows = UInt16(opts["rows"] as? Int ?? 24)
             let env = opts["env"] as? [String: String]
-            NSLog("[Port42] terminal.spawn requested: shell=%@, cols=%d, rows=%d", shell, cols, rows)
-
             if terminalBridge == nil {
                 terminalBridge = TerminalBridge(bridge: self)
             }
             if let sessionId = terminalBridge?.spawn(shell: shell, cwd: cwd, cols: cols, rows: rows, env: env) {
-                NSLog("[Port42] terminal.spawn succeeded: %@", sessionId)
                 return ["sessionId": sessionId]
             } else {
                 NSLog("[Port42] terminal.spawn failed")
@@ -580,19 +562,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "fs.pick":
             if fileBridge == nil { fileBridge = FileBridge() }
             let opts = args.first as? [String: Any] ?? [:]
-            // H1: Check if key window exists before presenting panel
-            NSLog("[Port42] fs.pick: keyWindow=%@, callId=%d", NSApp.keyWindow?.description ?? "nil", callId)
             let pickResult = await fileBridge!.pick(opts: opts)
-            // H3: Check if webview is still alive after picker
-            NSLog("[Port42] fs.pick: result=%@, webView=%@", String(describing: pickResult), webView == nil ? "GONE" : "alive")
             return pickResult
 
         case "fs.read":
             guard let path = args.first as? String else {
                 return ["error": "fs.read requires a path"]
             }
-            // H2: Check if fileBridge survived LazyVStack recycling
-            NSLog("[Port42] fs.read: fileBridge=%@, path=%@", fileBridge == nil ? "NIL" : "exists(\(fileBridge!.allowedPathCount) paths)", path)
             if fileBridge == nil { return ["error": "no file has been picked yet"] }
             let opts = args.count > 1 ? args[1] as? [String: Any] : nil
             return fileBridge!.read(path: path, opts: opts)
@@ -602,8 +578,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                   let data = args.count > 1 ? args[1] as? String : nil else {
                 return ["error": "fs.write requires path and data"]
             }
-            // H2: Check if fileBridge survived
-            NSLog("[Port42] fs.write: fileBridge=%@, path=%@", fileBridge == nil ? "NIL" : "exists(\(fileBridge!.allowedPathCount) paths)", path)
             if fileBridge == nil { return ["error": "no file has been picked yet"] }
             let opts = args.count > 2 ? args[2] as? [String: Any] : nil
             return fileBridge!.write(path: path, data: data, opts: opts)

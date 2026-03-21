@@ -147,20 +147,13 @@ public final class PortWindowManager: ObservableObject {
         }
     }
 
-    /// Persist a panel to the database.
+    /// Persist a panel to the database and snapshot a version.
     private func persistPanel(_ id: String) {
-        guard let db = db, let panel = panels.first(where: { $0.id == id }) else {
-            NSLog("[Port42] persistPanel: SKIP id=%@ db=%@ found=%@", id, db == nil ? "nil" : "ok", panels.contains(where: { $0.id == id }) ? "yes" : "no")
-            return
-        }
+        guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }
         do {
             let record = PersistedPortPanel(from: panel)
-            NSLog("[Port42] persistPanel: id=%@ title=%@ pos=(%@,%@) perms=%@",
-                  id, panel.title,
-                  record.posX.map { String($0) } ?? "nil",
-                  record.posY.map { String($0) } ?? "nil",
-                  record.grantedPermissions ?? "none")
             try db.savePortPanel(record)
+            try db.savePortVersion(portUdid: panel.udid, html: panel.html, createdBy: panel.createdBy)
         } catch {
             NSLog("[Port42] Failed to persist port panel: %@", error.localizedDescription)
         }
@@ -395,12 +388,13 @@ public final class PortWindowManager: ObservableObject {
             NSLog("[Port42] Port updated (stored, no webview): %@ (%@)", newTitle, panelId)
         }
 
-        // Persist to database
+        // Persist to database and snapshot version
         if let db = db {
             var record = PersistedPortPanel(from: panels[idx])
             record.html = html
             record.title = newTitle
             try? db.savePortPanel(record)
+            try? db.savePortVersion(portUdid: panels[idx].udid, html: html, createdBy: panels[idx].createdBy)
         }
 
         return true

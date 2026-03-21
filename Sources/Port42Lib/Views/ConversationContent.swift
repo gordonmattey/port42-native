@@ -144,6 +144,7 @@ public struct ConversationContent: View {
     let error: String?
     let typingNames: [String]
     let toolingNames: [String]
+    let bridgeNames: [String]
     let mentionCandidates: [MentionSuggestion]
     let localOwner: String?
     let channelId: String?
@@ -176,6 +177,7 @@ public struct ConversationContent: View {
         error: String? = nil,
         typingNames: [String] = [],
         toolingNames: [String] = [],
+        bridgeNames: [String] = [],
         mentionCandidates: [MentionSuggestion] = [],
         localOwner: String? = nil,
         channelId: String? = nil,
@@ -192,6 +194,7 @@ public struct ConversationContent: View {
         self.error = error
         self.typingNames = typingNames
         self.toolingNames = toolingNames
+        self.bridgeNames = bridgeNames
         self.mentionCandidates = mentionCandidates
         self.localOwner = localOwner
         self.channelId = channelId
@@ -203,12 +206,10 @@ public struct ConversationContent: View {
         self.onTypingChanged = onTypingChanged
     }
 
-    /// IDs of the last 3 port-containing entries (only these render live)
-    /// Cached to avoid scanning all entries on every body evaluation (keystroke)
+    /// All port-containing entries render live (LazyVStack ensures only visible ones load)
     private func recomputeActivePortIDs() {
         let portEntries = entries.filter { $0.containsPort }
-        let recent = portEntries.suffix(1)
-        cachedActivePortIDs = Set(recent.map { $0.id })
+        cachedActivePortIDs = Set(portEntries.map { $0.id })
         lastEntryCount = entries.count
     }
 
@@ -245,8 +246,8 @@ public struct ConversationContent: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
 
-                        if !typingNames.isEmpty || !toolingNames.isEmpty {
-                            TypingIndicator(names: typingNames, toolingNames: toolingNames)
+                        if !typingNames.isEmpty || !toolingNames.isEmpty || !bridgeNames.isEmpty {
+                            TypingIndicator(names: typingNames, toolingNames: toolingNames, bridgeNames: bridgeNames)
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 4)
                         }
@@ -962,11 +963,13 @@ struct PortCompactBlock: View {
 struct TypingIndicator: View {
     let names: [String]
     let toolingNames: [String]
+    let bridgeNames: [String]
     @State private var dotPhase = 0
 
-    init(names: [String], toolingNames: [String] = []) {
+    init(names: [String], toolingNames: [String] = [], bridgeNames: [String] = []) {
         self.names = names
         self.toolingNames = toolingNames
+        self.bridgeNames = bridgeNames
     }
 
     private var allNames: [String] {
@@ -1001,13 +1004,19 @@ struct TypingIndicator: View {
     }
 
     private var statusText: String {
-        // Names that are only tooling (not also typing)
+        // Bridge-only — no companions typing or porting
+        if allNames.isEmpty && !bridgeNames.isEmpty {
+            let sorted = bridgeNames.sorted()
+            switch sorted.count {
+            case 1: return "bridge active: \(sorted[0])"
+            default: return "\(sorted.count) bridges active"
+            }
+        }
+
         let pureTooling = Set(toolingNames).subtracting(Set(names))
-        // Names that are only typing (not also tooling)
         let pureTyping = Set(names).subtracting(Set(toolingNames))
 
         if !pureTooling.isEmpty && pureTyping.isEmpty {
-            // Only tooling
             let sorted = pureTooling.sorted()
             switch sorted.count {
             case 1: return "\(sorted[0]) is porting"
@@ -1015,7 +1024,6 @@ struct TypingIndicator: View {
             default: return "\(sorted[0]) and \(sorted.count - 1) others are porting"
             }
         } else if pureTooling.isEmpty && !pureTyping.isEmpty {
-            // Only typing
             let sorted = pureTyping.sorted()
             switch sorted.count {
             case 1: return "\(sorted[0]) is typing"
@@ -1023,7 +1031,6 @@ struct TypingIndicator: View {
             default: return "\(sorted[0]) and \(sorted.count - 1) others are typing"
             }
         } else {
-            // Both or overlapping
             let all = allNames
             switch all.count {
             case 1: return "\(all[0]) is porting"

@@ -97,6 +97,28 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "port_get_html",
+            "description": "Read the current HTML of an existing port by its UDID. Use this before port_update to inspect what's already rendered — avoids overwriting work you didn't intend to replace.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "port_history",
+            "description": "List all saved versions of a port by its UDID. Each version includes a version number, who created it, and when. Use port_get_html to retrieve the HTML of the current version.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
             "name": "messages_send",
             "description": "Send a message to the current channel",
             "input_schema": [
@@ -197,7 +219,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_send",
-            "description": "Send input to a terminal port. Automatically bridges output back to this channel — follow up with messages_recent to read what the terminal printed. Use the port's id (UDID from ports_list) for reliable routing. Include \\n to execute commands. Do NOT use screen_capture to read terminal output — use terminal_send + messages_recent instead.",
+            "description": "Send input to a terminal port. Commands are automatically executed (\\r appended if not present — no need to include it). Automatically bridges output back to this channel — follow up with messages_recent to read what the terminal printed. Use the port's id (UDID from ports_list) for reliable routing. Do NOT use screen_capture to read terminal output — use terminal_send + messages_recent instead.",
             "input_schema": [
                 "type": "object",
                 "properties": [

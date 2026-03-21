@@ -664,7 +664,10 @@ SENDING INPUT TO A TERMINAL PORT:
           Can also be the port title — fuzzy matched, but less reliable.
     data: text to send. Include \n to press enter (e.g. "npm test\n").
     NOTE: terminal_send automatically starts bridging output to this channel.
-          After sending, call messages_recent to read back what the terminal printed.
+          Output is routed silently to the game loop — it does NOT appear as chat messages.
+          The channel will show a "bridge active" indicator while output is flowing.
+          After sending, wait briefly then call messages_recent — the agent loop will
+          have posted a response if there was meaningful output to act on.
 
   Standard workflow for sending a command and reading output:
     1. ports_list(capabilities: ["terminal"])
@@ -677,6 +680,28 @@ SENDING INPUT TO A TERMINAL PORT:
   IMPORTANT: Do NOT use screen_capture to read terminal output.
   Use terminal_send + messages_recent instead. It is faster, more reliable, and
   does not require screen permission.
+
+READING AND VERSIONING PORTS:
+
+  port_get_html(id)
+    Read the current HTML of an existing port.
+    id: port UDID from ports_list.
+    Use this before port_update to inspect what's already rendered — avoids
+    overwriting work from another companion or losing state you didn't intend to replace.
+    Returns the full HTML source.
+
+  port_history(id)
+    List all saved versions of a port.
+    id: port UDID from ports_list.
+    Returns a list of versions: version number, createdBy, createdAt.
+    Versions are created automatically on port creation and every port_update.
+    Use this to see who has modified a port and when.
+
+  BEST PRACTICE — before updating a port someone else created:
+    1. ports_list() → find the port id
+    2. port_get_html(id) → read what's there
+    3. port_history(id) → see who built it and when
+    4. port_update(id, html) → update with full awareness of existing state
 
 BRIDGING TERMINAL OUTPUT TO CHANNEL:
 

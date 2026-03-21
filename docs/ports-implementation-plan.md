@@ -736,6 +736,11 @@ Step 9m: Permission attribution (P-261)        → dialog names the requesting c
 Step 9n: Multi-companion activity (P-262)      → user sees all active port builds
 Step 9o: Media capture visibility (P-264)      → captures appear in chat + saved to disk
 Bug fixes + Phase 2.5 additions ────────────────────────────────────
+
+Step 10a: Configurable tick intervals (P-270)  → ports set their own loop cadence
+Step 10b: Per-agent response locks (P-272)     → two companions' loops don't block each other
+Step 10c: Terminal console bridge (P-271)      → in-port debug output without flooding chat
+Phase 8 (game loop evolution) ───────────────────────────────────────
 ```
 
 ## Phase 6: System Integration (P-600 through P-611)
@@ -1199,7 +1204,75 @@ Priority order: B-001 and B-002 are blockers for real workflows. P-512 and B-001
 
 ---
 
-## First Demo
+## Phase 8: Game Loop Evolution (P-270, P-271, P-272)
+
+Full spec: `~/port42-specs/game-loop-v2.md` and `docs/plan-port-loop-console.md`.
+
+### Step 10a: Configurable Port Tick Intervals (P-270)
+
+**Goal:** Ports register their game loop callback with a custom interval instead of the fixed 300ms native tick.
+
+**JS API:**
+```js
+port42.loop.register(callback, { interval: 5000 })  // 5s tick
+port42.loop.unregister(id)
+```
+
+**What to build:**
+1. `PortBridge` stores a `loopInterval: Int` (ms, default 300) set via `port42.loop.register` message
+2. `TerminalAgentLoop` reads `bridge.loopInterval` when scheduling next tick instead of hardcoded 300ms
+3. `port42.loop.register` returns a loop ID; `port42.loop.unregister(id)` stops that loop
+4. Multiple loops per port supported (each with own interval + callback)
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — handle `loop.register` / `loop.unregister` messages; store loop registrations
+- `Sources/Port42Lib/Services/AppState.swift` — `TerminalAgentLoop` reads interval from bridge
+
+---
+
+### Step 10b: Per-Agent Response Locks (P-272)
+
+**Goal:** A game loop registered by companion A only pauses when companion A is responding. Companion B's loop runs unaffected.
+
+**Current state:** `TerminalAgentLoop.tick()` guards on `appState.activeAgentHandlers.isEmpty` — global pause for all agents.
+
+**What to build:**
+1. `TerminalAgentLoop` stores `createdBy: String?` (the owning companion's displayName)
+2. In `tick()`, replace global guard with: `guard !isOwnerAgentActive() else { return }`
+3. `isOwnerAgentActive()` checks `appState.activeAgentHandlers` filtered to the owning companion only
+4. If `createdBy` is nil (no owning companion), fall back to the global guard (safe default)
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/AppState.swift` — `TerminalAgentLoop.tick()` per-agent lock logic
+
+---
+
+### Step 10c: Terminal Console Bridge API (P-271)
+
+**Goal:** Ports have a `port42.console` namespace for in-port debug/status output, without routing through chat or the companion's terminal output stream.
+
+**JS API:**
+```js
+port42.console.log('game tick: round 4')
+port42.console.warn('AI slow to respond')
+port42.console.error('loop crashed')
+port42.console.read()   // returns [{level, message, timestamp}]
+port42.terminal.write('partial line')  // send without \r
+```
+
+**What to build:**
+1. `PortBridge` handles `console.log/warn/error` messages: appends to a `[ConsoleEntry]` buffer (capped at 500 lines)
+2. `console.read` returns the buffer as JSON
+3. Port webview renders a collapsible console overlay (small, bottom of port, toggleable)
+4. `terminal.write(text)` sends to PTY without appending `\r` (complement to `terminal.send` which auto-appends `\r`)
+5. `ports-context.txt` updated with console API docs
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — console buffer + message handlers + `terminal.write`
+- Port webview JS runtime — console overlay UI component
+- `Sources/Port42Lib/Resources/ports-context.txt` — console API docs
+
+---
 
 After Phase 1, build the companion dashboard:
 

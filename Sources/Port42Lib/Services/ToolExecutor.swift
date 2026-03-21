@@ -126,8 +126,8 @@ public final class ToolExecutor {
                 batcher?.receive(rawOutput)
             }
         }
-        // Start the game loop for this channel so the agent reacts to output
-        appState.startTerminalLoop(channelId: chId, portTitle: portTitle)
+        // Start the game loop — scoped to the owning companion so only they react
+        appState.startTerminalLoop(channelId: chId, portTitle: portTitle, createdBy: createdBy)
         NSLog("[Port42] Auto-bridged terminal '%@' → channel %@", portTitle, chId)
     }
 
@@ -245,6 +245,30 @@ public final class ToolExecutor {
             let hint = available.isEmpty ? "No active ports." : "Available: \(available)"
             return [textBlock("Error: no port found for '\(id)'. \(hint)")]
 
+        case "port_get_html":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: missing 'id' parameter")]
+            }
+            if let html = try? appState.db.fetchPortHtml(udid: id) {
+                return [textBlock(html)]
+            }
+            return [textBlock("Error: no port found for id '\(id)'")]
+
+        case "port_history":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: missing 'id' parameter")]
+            }
+            let versions = (try? appState.db.fetchPortVersions(portUdid: id)) ?? []
+            if versions.isEmpty {
+                return [textBlock("No version history for port '\(id)'")]
+            }
+            let lines = versions.map { v -> String in
+                let ts = ISO8601DateFormatter().string(from: v.createdAt)
+                let author = v.createdBy ?? "unknown"
+                return "version: \(v.version)\ncreatedBy: \(author)\ncreatedAt: \(ts)"
+            }
+            return [textBlock("\(versions.count) version\(versions.count == 1 ? "" : "s"):\n\n" + lines.joined(separator: "\n\n"))]
+
         case "messages_recent":
             let count = min(input["count"] as? Int ?? 20, 100)
             let chId = channelId ?? appState.currentChannel?.id ?? ""
@@ -352,7 +376,11 @@ public final class ToolExecutor {
                   let data = input["data"] as? String else {
                 return [textBlock("Error: missing 'name' or 'data' parameter")]
             }
-            let processed = ToolExecutor.processEscapes(data)
+            var processed = ToolExecutor.processEscapes(data)
+            // Ensure commands are executed — append \r if not already present
+            if !processed.hasSuffix("\r") && !processed.hasSuffix("\n") {
+                processed += "\r"
+            }
             // 1. UDID lookup (preferred — use id from ports_list)
             if let panel = appState.portWindows.findPort(by: name),
                let tb = panel.bridge.terminalBridge {
@@ -668,6 +696,11 @@ final class OutputBatcher {
 
     func receive(_ raw: String) {
         buffer += raw
+        // Show bridge indicator immediately when data arrives
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.appState?.noteBridgeActivity(channelId: self.channelId, portName: self.portName)
+        }
         // Debounce: flush after 10s of quiet
         flushTimer?.invalidate()
         flushTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
@@ -701,27 +734,11 @@ final class OutputBatcher {
         // Truncate long output
         let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n… (truncated)" : trimmed
 
-        // Post as channel message
         guard let appState else { return }
-        let msg = Message(
-            id: UUID().uuidString,
-            channelId: channelId,
-            senderId: "terminal-bridge",
-            senderName: "[\(portName)]",
-            senderType: "system",
-            content: content,
-            timestamp: Date(),
-            replyToId: nil,
-            syncStatus: "local",
-            createdAt: Date()
-        )
-        do {
-            try appState.db.saveMessage(msg)
-            // Feed cleaned output to the game loop (drives the agent↔terminal loop)
-            appState.terminalLoop(for: channelId)?.receiveOutput(content)
-        } catch {
-            NSLog("[Port42] Terminal bridge failed to save message: %@", error.localizedDescription)
-        }
+        // Show bridge-active indicator in chat (silent — no message posted)
+        appState.noteBridgeActivity(channelId: channelId, portName: portName)
+        // Feed cleaned output to the game loop (drives the agent↔terminal loop)
+        appState.terminalLoop(for: channelId)?.receiveOutput(content)
     }
 
     /// Collapse \r overwrites (simulate terminal line rewriting) then filter noise lines.
