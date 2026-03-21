@@ -59,6 +59,17 @@ public struct ChatEntry: Identifiable, Equatable {
         return senderName
     }
 
+    // MARK: - Capture Detection
+
+    /// If this is a capture system message, returns the file path. Format: [capture:type:path]
+    public var capturePath: String? {
+        guard isSystem, content.hasPrefix("[capture:") else { return nil }
+        let inner = content.dropFirst(1).dropLast(1) // strip [ ]
+        let parts = inner.split(separator: ":", maxSplits: 2)
+        guard parts.count == 3 else { return nil }
+        return String(parts[2])
+    }
+
     // MARK: - Port Detection
 
     /// Whether this message contains a ```port code fence (complete or truncated)
@@ -431,6 +442,9 @@ public struct ConversationContent: View {
                             }
                         }
                     }
+                    .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in
+                        isInputFocused = true
+                    }
                     .onKeyPress(.upArrow) {
                         if !suggestions.isEmpty {
                             selectedSuggestionIndex = max(0, selectedSuggestionIndex - 1)
@@ -654,10 +668,14 @@ struct MessageRow: View, Equatable {
     private var messageContent: some View {
         Group {
             if entry.isSystem {
-                Text(entry.content)
-                    .font(Port42Theme.mono(12))
-                    .foregroundColor(Port42Theme.textSecondary)
-                    .textSelection(.enabled)
+                if let capturePath = entry.capturePath {
+                    CaptureMessageView(senderName: entry.senderName, path: capturePath)
+                } else {
+                    Text(entry.content)
+                        .font(Port42Theme.mono(12))
+                        .foregroundColor(Port42Theme.textSecondary)
+                        .textSelection(.enabled)
+                }
             } else {
                 let agentColor = Port42Theme.agentColor(for: entry.senderName, owner: entry.senderOwner)
                 let nameColor: Color = entry.isAgent ? agentColor : Port42Theme.textPrimary
@@ -953,6 +971,52 @@ struct PortCompactBlock: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Port42Theme.border, lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Capture Message View
+
+/// Renders an inline image card for screen/camera captures posted by companions.
+struct CaptureMessageView: View {
+    let senderName: String
+    let path: String
+
+    private var image: NSImage? { NSImage(contentsOfFile: path) }
+    private var filename: String { URL(fileURLWithPath: path).lastPathComponent }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "camera")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Text(senderName)
+                    .font(Port42Theme.monoBold(11))
+                    .foregroundStyle(Port42Theme.agentColor(for: senderName, owner: nil))
+                Text("captured")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+            if let img = image {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 480, maxHeight: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Port42Theme.border, lineWidth: 1)
+                    )
+                    .onTapGesture {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    }
+            } else {
+                Text(filename)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

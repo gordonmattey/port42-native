@@ -356,7 +356,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             guard let text = args.first as? String, !text.isEmpty else {
                 return ["error": "messages.send requires a non-empty text argument"]
             }
-            state.sendMessage(content: text)
+            // If this port is owned by a companion, attribute the message to that companion
+            if let name = createdBy,
+               let companion = state.companions.first(where: { $0.displayName.lowercased() == name.lowercased() }),
+               let cid = channelId {
+                state.sendMessageAsCompanion(companion, content: text, channelId: cid)
+            } else {
+                state.sendMessage(content: text)
+            }
             return ["ok": true]
 
         // port42.port.info()
@@ -631,7 +638,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "screen.capture":
             let opts = args.first as? [String: Any] ?? [:]
             if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
-            return await screenBridge!.capture(opts: opts)
+            let screenResult = await screenBridge!.capture(opts: opts)
+            if let dict = screenResult as? [String: Any], let b64 = dict["image"] as? String {
+                postCapture(base64PNG: b64, type: "screen")
+            }
+            return screenResult
 
         case "screen.stream":
             let opts = args.first as? [String: Any] ?? [:]
@@ -647,7 +658,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "camera.capture":
             let opts = args.first as? [String: Any] ?? [:]
             if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
-            return await cameraBridge!.capture(opts: opts)
+            let cameraResult = await cameraBridge!.capture(opts: opts)
+            if let dict = cameraResult as? [String: Any], let b64 = dict["image"] as? String {
+                postCapture(base64PNG: b64, type: "camera")
+            }
+            return cameraResult
 
         case "camera.stream":
             let opts = args.first as? [String: Any] ?? [:]
@@ -735,6 +750,45 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
             return ["error": "unknown method: \(method)"]
+        }
+    }
+
+    // MARK: - Capture Persistence
+
+    /// Save a captured PNG to disk and post an inline system message to the channel.
+    @MainActor
+    private func postCapture(base64PNG: String, type: String) {
+        guard let state = state, let channelId = channelId else { return }
+
+        // Resolve captures directory
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let capturesDir = appSupport.appendingPathComponent("Port42/captures", isDirectory: true)
+        try? FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        let stamp = fmt.string(from: Date())
+        let companion = (createdBy ?? "port")
+            .replacingOccurrences(of: " ", with: "-")
+            .lowercased()
+        let filename = "\(stamp)-\(companion)-\(type).png"
+        let fileURL = capturesDir.appendingPathComponent(filename)
+
+        if let data = Data(base64Encoded: base64PNG) {
+            try? data.write(to: fileURL)
+        }
+
+        let msg = Message.create(
+            channelId: channelId,
+            senderId: createdBy ?? "system",
+            senderName: createdBy ?? "system",
+            content: "[capture:\(type):\(fileURL.path)]",
+            senderType: "system"
+        )
+        do {
+            try state.db.saveMessage(msg)
+        } catch {
+            NSLog("[Port42] Failed to save capture message: %@", error.localizedDescription)
         }
     }
 

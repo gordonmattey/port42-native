@@ -43,6 +43,25 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Focus follows mouse: make the main window key when the cursor enters it.
+        // acceptsMouseMovedEvents must be true or mouseMoved events are never generated.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            for window in NSApp.windows where !(window is NSPanel) && window.canBecomeKey {
+                window.acceptsMouseMovedEvents = true
+            }
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+            if let window = event.window,
+               !(window is NSPanel),
+               window.canBecomeKey,
+               !window.isKeyWindow {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: false)
+                NotificationCenter.default.post(name: .focusChatInput, object: nil)
+            }
+            return event
+        }
+
         // Listen for manual update check requests from settings
         NotificationCenter.default.addObserver(forName: .checkForUpdatesRequested, object: nil, queue: .main) { [weak self] _ in
             NSLog("[Port42] Check for updates requested via notification")

@@ -18,7 +18,7 @@ public struct EditCompanionSheet: View {
 
     public var body: some View {
         VStack(spacing: 16) {
-            Text("Edit Swimmer")
+            Text("Edit Companion")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 

@@ -53,7 +53,7 @@ private enum AnthropicErrorTranslator {
 
         switch statusCode {
         case 401:
-            return .authExpired("Token expired or invalid. Run /login in Claude Code to refresh, or paste a new token in Settings.")
+            return .authExpired("Auth rejected (401). If using an API key, verify it is correct in Settings. If using OAuth, run /login in Claude Code to refresh.")
 
         case 400:
             let msg = errorMessage ?? body

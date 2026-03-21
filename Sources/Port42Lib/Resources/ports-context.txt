@@ -9,6 +9,246 @@ VERSIONING: Always include a <title> and a version meta tag in every port. The t
 
 When updating an existing port, read the current version with port_get_html first, then bump the version number in your updated HTML.
 
+PORT AUTHORING DISCIPLINE — READ THIS BEFORE EVERY PORT UPDATE:
+
+  The most common failure mode is doing a full rewrite when only one thing needs
+  to change. Full rewrites break working code. Always follow this sequence:
+
+  1. Call port_get_html(id) — read the exact current HTML before touching anything
+  2. Identify the MINIMUM change that fixes the problem
+  3. Make only that change — preserve everything else exactly
+  4. Bump the version meta tag
+  5. Call port_update(id, html)
+
+  NEVER rewrite the whole port to fix one bug. NEVER guess at the current state —
+  always read it. If you are creating a port for the first time, build it from the
+  STATEFUL APP PATTERN below — not from scratch.
+
+STATEFUL APP PATTERN — use this structure for any port with persistent state:
+
+  The pattern: one state object, one render function, save on every mutation.
+  All state lives in one place. Rendering is pure: always called after state changes.
+  Storage is loaded once on init, saved on every write. No scattered variables.
+
+  ```
+  // 1. State object — single source of truth
+  let state = { items: [], filter: 'all' };
+
+  // 2. Save — call after every mutation
+  async function save() {
+    await port42.storage.set('state', state);
+  }
+
+  // 3. Load — call once on init
+  async function load() {
+    const saved = await port42.storage.get('state');
+    if (saved) state = saved;
+  }
+
+  // 4. Render — pure function, always called after state changes
+  function render() {
+    // rebuild UI from state
+  }
+
+  // 5. Actions — mutate state, save, render
+  async function addItem(text) {
+    state.items.push({ id: Date.now(), text, done: false });
+    await save();
+    render();
+  }
+
+  // 6. Init — load then render
+  async function init() {
+    await load();
+    render();
+  }
+
+  init();
+  ```
+
+  NEVER do this:
+  - Scattered variables for different pieces of state
+  - DOM reads to determine current state (read state object instead)
+  - Saving to storage in some places but not others
+  - Re-querying `document.getElementById` inside event handlers that run often
+
+COMPLETE WORKING EXAMPLE — stateful todo port with persistence:
+
+```port
+<title>tasks</title>
+<meta name="version" content="1">
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { padding: 16px; }
+  h2 { font-size: 13px; color: var(--color-accent); margin-bottom: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .input-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .input-row input { flex: 1; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; padding: 7px 10px; font-family: inherit; font-size: 13px; outline: none; }
+  .input-row input:focus { border-color: var(--color-accent); }
+  .input-row button { background: var(--color-accent); color: #000; border: none; padding: 7px 14px; font-family: inherit; font-size: 12px; font-weight: bold; cursor: pointer; letter-spacing: 0.04em; }
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; }
+  .filters button { background: none; border: 1px solid #333; color: #666; padding: 4px 10px; font-family: inherit; font-size: 11px; cursor: pointer; }
+  .filters button.active { border-color: var(--color-accent); color: var(--color-accent); }
+  .list { display: flex; flex-direction: column; gap: 4px; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #111; border: 1px solid #222; }
+  .item:hover { border-color: #333; }
+  .item input[type=checkbox] { accent-color: var(--color-accent); cursor: pointer; flex-shrink: 0; }
+  .item .text { flex: 1; font-size: 13px; color: #ccc; word-break: break-word; }
+  .item .text.done { text-decoration: line-through; color: #444; }
+  .item .del { background: none; border: none; color: #444; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0; }
+  .item .del:hover { color: #ff4444; }
+  .empty { color: #444; font-size: 12px; padding: 16px 0; text-align: center; }
+  .footer { margin-top: 12px; font-size: 11px; color: #444; display: flex; justify-content: space-between; }
+  .footer button { background: none; border: none; color: #444; font-family: inherit; font-size: 11px; cursor: pointer; padding: 0; }
+  .footer button:hover { color: #888; }
+</style>
+
+<h2 id="title">tasks</h2>
+<div class="input-row">
+  <input id="new-task" placeholder="add a task..." autocomplete="off">
+  <button id="add-btn">ADD</button>
+</div>
+<div class="filters">
+  <button data-filter="all" class="active">all</button>
+  <button data-filter="active">active</button>
+  <button data-filter="done">done</button>
+</div>
+<div class="list" id="list"></div>
+<div class="footer">
+  <span id="count"></span>
+  <button id="clear-done">clear done</button>
+</div>
+
+<script>
+  // ── state ──────────────────────────────────────────────────────────
+  let state = { items: [], filter: 'all' };
+
+  // ── persistence ────────────────────────────────────────────────────
+  async function save() {
+    try { await port42.storage.set('tasks-state', state); } catch(e) {}
+  }
+
+  async function load() {
+    try {
+      const saved = await port42.storage.get('tasks-state');
+      if (saved && Array.isArray(saved.items)) state = saved;
+    } catch(e) {}
+  }
+
+  // ── render ─────────────────────────────────────────────────────────
+  function render() {
+    const visible = state.items.filter(item => {
+      if (state.filter === 'active') return !item.done;
+      if (state.filter === 'done') return item.done;
+      return true;
+    });
+
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+
+    if (visible.length === 0) {
+      list.innerHTML = '<div class="empty">' + (state.filter === 'done' ? 'nothing done yet' : 'nothing here') + '</div>';
+    } else {
+      visible.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML = `
+          <input type="checkbox" data-id="${item.id}" ${item.done ? 'checked' : ''}>
+          <span class="text ${item.done ? 'done' : ''}">${escHtml(item.text)}</span>
+          <button class="del" data-id="${item.id}">×</button>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    const active = state.items.filter(i => !i.done).length;
+    document.getElementById('count').textContent = active + ' remaining';
+
+    document.querySelectorAll('.filters button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.filter === state.filter);
+    });
+  }
+
+  // ── actions ────────────────────────────────────────────────────────
+  async function addTask(text) {
+    text = text.trim();
+    if (!text) return;
+    state.items.push({ id: Date.now(), text, done: false });
+    await save();
+    render();
+  }
+
+  async function toggleTask(id) {
+    const item = state.items.find(i => i.id === id);
+    if (!item) return;
+    item.done = !item.done;
+    await save();
+    render();
+  }
+
+  async function deleteTask(id) {
+    state.items = state.items.filter(i => i.id !== id);
+    await save();
+    render();
+  }
+
+  async function setFilter(f) {
+    state.filter = f;
+    await save();
+    render();
+  }
+
+  async function clearDone() {
+    state.items = state.items.filter(i => !i.done);
+    await save();
+    render();
+  }
+
+  // ── helpers ────────────────────────────────────────────────────────
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── events ─────────────────────────────────────────────────────────
+  document.getElementById('add-btn').addEventListener('click', () => {
+    const input = document.getElementById('new-task');
+    addTask(input.value);
+    input.value = '';
+  });
+
+  document.getElementById('new-task').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      addTask(e.target.value);
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('list').addEventListener('click', e => {
+    const id = Number(e.target.dataset.id);
+    if (!id) return;
+    if (e.target.type === 'checkbox') toggleTask(id);
+    if (e.target.classList.contains('del')) deleteTask(id);
+  });
+
+  document.querySelectorAll('.filters button').forEach(btn => {
+    btn.addEventListener('click', () => setFilter(btn.dataset.filter));
+  });
+
+  document.getElementById('clear-done').addEventListener('click', clearDone);
+
+  // ── init ───────────────────────────────────────────────────────────
+  try {
+    const channel = await port42.channel.current();
+    if (channel) document.getElementById('title').textContent = channel.name + ' / tasks';
+    await load();
+    render();
+  } catch(e) {
+    document.getElementById('list').innerHTML = '<div class="empty">error: ' + e.message + '</div>';
+    console.error('port init failed:', e);
+  }
+</script>
+```
+
 LAYOUT: Ports render at varying sizes. You do not know the viewport size at build time. Always build responsive layouts using relative units (%, vw, vh, flex, grid). Never use fixed pixel widths for containers. Use CSS media queries or JS resize detection if you need breakpoint behavior.
 
 IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use these APIs instead of hardcoding values. The APIs are async and return real data from the running app.
@@ -704,11 +944,29 @@ READING AND VERSIONING PORTS:
     Versions are created automatically on port creation and every port_update.
     Use this to see who has modified a port and when.
 
+  port_patch(id, search, replace)
+    Make a targeted edit — replace an exact string in the port's HTML.
+    Safer than port_update for fixing bugs: only the matched text changes,
+    everything else is preserved exactly. Errors if 'search' is not found,
+    so the port is never silently overwritten with a bad guess.
+    Always call port_get_html first, copy the exact text to replace, then patch.
+
+    Example — fix one function without touching anything else:
+      port_patch(
+        id: "abc-123",
+        search: "state.items.push({ id: Date.now(), text, done: false })",
+        replace: "state.items.unshift({ id: Date.now(), text, done: false })"
+      )
+
+    USE port_patch WHEN: fixing a bug, changing one function, updating one value.
+    USE port_update WHEN: the structure changes significantly or it's a new port.
+    NEVER rewrite the whole port to fix one thing.
+
   BEST PRACTICE — before updating a port someone else created:
     1. ports_list() → find the port id
     2. port_get_html(id) → read what's there
     3. port_history(id) → see who built it and when
-    4. port_update(id, html) → update with full awareness of existing state
+    4. port_patch(id, search, replace) → targeted fix, or port_update if structure changes
 
 BRIDGING TERMINAL OUTPUT TO CHANNEL:
 

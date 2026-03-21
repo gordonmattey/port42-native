@@ -8,6 +8,7 @@ public struct SignOutSheet: View {
     @State private var ngrokToken: String = UserDefaults.standard.string(forKey: "ngrokAuthToken") ?? ""
     @State private var ngrokDomain: String = UserDefaults.standard.string(forKey: "ngrokDomain") ?? ""
     @State private var editingToken = false
+    @FocusState private var apiKeyFieldFocused: Bool
     @State private var autoUpdatesEnabled: Bool = UserDefaults.standard.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
     @State private var selectedAuthPref: AuthPreference = Port42AuthStore.shared.loadPreference()
     @State private var authCredentialInput = ""
@@ -452,6 +453,10 @@ public struct SignOutSheet: View {
                     detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
                     testResult = .idle
                 }
+                .focused($apiKeyFieldFocused)
+                .onChange(of: apiKeyFieldFocused) { _, focused in
+                    if !focused { saveManualCredential() }
+                }
 
             // Live detection label
             if !authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -595,6 +600,10 @@ public struct SignOutSheet: View {
     }
 
     private func doTestConnection() {
+        // Commit any unsaved input before testing so the test uses what's on screen
+        if selectedAuthPref == .manualEntry {
+            saveManualCredential()
+        }
         testResult = .testing
         Task {
             let error = await LLMEngine.testConnection()

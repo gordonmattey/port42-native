@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// A unified sidebar entry that wraps channels and swimmers (companions + friends) for sorted display.
+/// A unified sidebar entry that wraps channels and companions (+ friends) for sorted display.
 private enum SidebarItem: Identifiable {
     case channel(Channel)
     case companion(AgentConfig)
@@ -99,7 +99,7 @@ public struct SidebarView: View {
                         Label("New Channel", systemImage: "number")
                     }
                     Button(action: { showNewCompanion = true }) {
-                        Label("New Swimmer", systemImage: "person.crop.circle.badge.plus")
+                        Label("New Companion", systemImage: "person.crop.circle.badge.plus")
                     }
                 } label: {
                     Image(systemName: "plus")
@@ -247,7 +247,7 @@ public struct SidebarView: View {
             let assignedIds = Set(assigned.map { $0.id })
             let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
 
-            Menu("Add Swimmer") {
+            Menu("Add Companion") {
                 if !unassigned.isEmpty {
                     Section("Local") {
                         ForEach(unassigned) { comp in
@@ -280,7 +280,7 @@ public struct SidebarView: View {
             }
 
             if !assigned.isEmpty {
-                Menu("Remove Swimmer") {
+                Menu("Remove Companion") {
                     ForEach(assigned) { comp in
                         Button("@\(comp.displayName)") {
                             appState.removeCompanionFromChannel(comp, channel: channel)
@@ -309,10 +309,10 @@ public struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Edit Swimmer") {
+            Button("Edit Companion") {
                 editingCompanion = companion
             }
-            Button("Delete Swimmer", role: .destructive) {
+            Button("Delete Companion", role: .destructive) {
                 appState.deleteCompanion(companion)
             }
         }

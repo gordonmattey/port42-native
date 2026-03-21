@@ -1,6 +1,6 @@
 # Ports Spec
 
-**Last updated:** 2026-03-20
+**Last updated:** 2026-03-20 (v0.5.13)
 
 **Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b complete (bugs fixed, background ports, window persistence, UDIDs, port_update, ports_list, dock/undock, docking removed, edge snap/tiling removed in favour of manual arrangement). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol). B-001 (terminal_send routing), B-003 (multiple ports per message), B-004 (capabilities metadata) all fixed. Permission attribution (P-261) and persistence per companion+channel (P-260) fixed. Port version history (P-219) and port HTML retrieval (P-263) shipped. Bridge-active indicator + silent terminal output shipped. All inline ports autoplay. Outstanding bugs: none. Pending: multi-companion activity (P-262). Phase 8 specced: configurable loop intervals (P-270), terminal console bridge (P-271), per-agent locks (P-272) — see ~/port42-specs/game-loop-v2.md.
 
@@ -90,10 +90,36 @@ DATA FLOW:
 
 ## What Ports Are
 
-A port is a live, interactive surface that a companion creates inside the
-conversation. Not a code block. Not a screenshot. A running thing. HTML/CSS/JS
-rendered in a sandboxed webview, with access to port42 data and AI through the
-port42.* bridge API.
+A port is a space.
+
+Not a widget. Not a panel. Not a code block you can interact with. A port is a
+custom space that a companion brings into existence inside the conversation —
+and that space can be anything.
+
+HTML/CSS/JS runs inside a sandboxed webview with full access to port42 data,
+device APIs, and AI through the `port42.*` bridge. But the rendering medium
+is just the default. A port can be a flat dashboard, a 3D scene using Three.js
+or WebGL, a canvas animation, an interactive simulation, a terminal session,
+a game, a data visualisation that responds to live channel events. The companion
+decides what the space is and what computation drives it.
+
+**The bridge is the only limit — and you own the bridge.** Any REST API, local
+database, hardware device, inter-process channel, or custom data stream can be
+wired in by adding a `case "thing.method":` in `PortBridge.swift` and
+`ToolExecutor.swift` and documenting it in `ports-context.txt`. Companions and
+ports both get access automatically via the unified API.
+
+Examples of what can be added:
+- **Any REST API** — wrap an HTTP client on the native side, expose as `port42.http.get(url, opts)`
+- **Local databases** — expose SQLite queries, Core Data, or any on-disk store
+- **Hardware** — serial ports, USB, Bluetooth, GPS (camera and mic are already wired)
+- **Inter-process** — talk to other apps via XPC, NSDistributedNotificationCenter, or unix sockets
+- **Custom data streams** — pipe stdout from any process the same way terminal output works now
+- **External services** — Stripe, Slack, Linear, GitHub, any authenticated API the user has access to
+
+The RPC pattern is always the same: JS calls a named method with JSON args,
+native executes, JSON result comes back, the port renders it. What the port
+renders is unconstrained.
 
 ## The Unified API
 
@@ -108,7 +134,9 @@ from a swim. Run a terminal command from an interactive terminal port or by
 asking in chat. The API is the capability layer. The surface is just how you
 access it.
 
-Every companion can open a port. Every port is alive.
+Every companion can open a port. Every port is a space. Every API is one bridge
+method away. Every rendering medium is available — flat, 3D, animated, reactive,
+whatever computation demands.
 
 ---
 
@@ -314,7 +342,8 @@ Target: The ouroboros. The fish swims in itself.
 | P-260 | Permission Persistence per Companion+Channel | Granted permissions are currently stored per port instance (messageId). Close a port, reopen it, and every permission is re-prompted. **Fix applied (2026-03-20):** On grant, permissions are saved to UserDefaults keyed by `portPerms.{createdBy}.{channelId}`. On bridge init, companion-level permissions are auto-restored via `formUnion` alongside message-level cache. No prompt shown on auto-restore. Denial not persisted (stays opt-in). | High | ✅ Fixed |
 | P-261 | Permission Attribution | The permission dialog currently says "This port wants to access your terminal." It should say which companion is asking. **Fix applied (2026-03-20):** `PortPermissionOverlay` now accepts `createdBy: String?` and shows the companion name in accent color above the permission title. Fixed in both inline port path (ChatView) and floating panel path (PortWindowManager). `createdBy` made public on PortBridge. Verified in production. | High | ✅ Fixed |
 | P-262 | Multi-Companion Port Activity | When multiple companions are simultaneously creating or updating ports, the user sees all of them listed: "engineer is building a port... analyst is updating dashboard..." Each active port-creation shows the companion name, a preview of what's being built (port title from the streaming fence if available), and progress state (streaming / rendering / ready). Visible in a small overlay or the sidebar's port section. | Medium | User sees all companions actively building ports at once |
-| P-263 | Port HTML Retrieval API | Companions can read the current HTML of an existing port via `port_get_html(id)` tool and `port42.port.html()` bridge method. This lets a companion inspect what's already rendered before deciding to update it. Without this, a companion updating a port is writing blind — it may overwrite work from another companion or miss state it should preserve. Also needed for the version history re-generation flow. | High | Companion can read existing port HTML before updating it |
+| P-263 | Port HTML Retrieval API | Companions can read the current HTML of an existing port via `port_get_html(id)` tool and `port42.port.html()` bridge method. This lets a companion inspect what's already rendered before deciding to update it. Without this, a companion updating a port is writing blind — it may overwrite work from another companion or miss state it should preserve. Also needed for the version history re-generation flow. | High | ✅ Done |
+| P-273 ✅ | Port Patch — Targeted Edit Tool | `port_patch(id, search, replace)` — targeted string replacement in a port's HTML. Safer than `port_update` for fixing bugs: only the matched text changes, everything else is preserved exactly. Errors if `search` is not found, so the port is never silently overwritten with a bad guess. Auto-snapshots the result the same as `port_update`. This mirrors how Claude Code's Edit tool works — companions can now fix one function without rewriting the entire port, eliminating the failure mode where fixing one thing breaks another. Documented in ports-context.txt with workflow guidance and the read-before-write discipline enforced via the turn protocol. | High | ✅ Done |
 | P-264 ✅ | Media Capture Visibility in Chat | When a companion calls a capture API (screen.capture, camera.capture, audio.capture) the result should appear inline in the chat thread — not just get returned to the companion silently. The image/audio should be shown as a message bubble attributed to the companion ("engineer captured your screen"), same visual weight as a regular message. Additionally the capture should be saved to disk (e.g. `~/Library/Application Support/Port42/captures/`) and recorded in a DB table so the user can find them later. Applies to: screen captures, camera frames, audio recordings. Does not apply to streaming camera frames or headless browser screenshots (too high frequency). | High | Companion calls screen.capture, image appears in chat and is saved to disk |
 | P-270 | Configurable Port Tick Intervals | The game loop tick rate (currently fixed at 300ms) should be configurable per port via `port42.loop.register(callback, { interval: ms })`. Ports that run heavy AI inference loops don't need 300ms ticks — they may want 5s or 30s. Ports doing real-time animation may want 100ms. The interval is set when the loop is registered and applies for the lifetime of that loop registration. Multiple loops can be registered with different intervals in the same port. The native `TerminalAgentLoop` should honour the interval stored in the bridge. See spec: `~/port42-specs/game-loop-v2.md`. | High | Port can register loop with custom interval; native loop honours it |
 | P-271 | Terminal Console Bridge API | Ports running game loops need to print debug/status output without relying on terminal output being bridged to the companion. `port42.console.log(msg)`, `.warn(msg)`, `.error(msg)` should write to a per-port console buffer that appears in-port (e.g. small collapsible overlay at the bottom) and is accessible via `port42.console.read()`. This replaces ad-hoc `terminal_send echo` patterns used for status output. Also exposes `port42.terminal.write(text)` — sends text to terminal without appending `\r`, for piping partial lines. See spec: `~/port42-specs/game-loop-v2.md`. | Medium | Port can call port42.console.log(); output appears in port UI without going through chat |

@@ -153,7 +153,7 @@ struct HelpOverlay: View {
                     ])
 
                     helpSection("chat", items: [
-                        ("@name", "mention a swimmer so only they respond"),
+                        ("@name", "mention a companion so only they respond"),
                         ("Tab", "accept @mention autocomplete"),
                     ])
 
@@ -163,8 +163,8 @@ struct HelpOverlay: View {
                     ])
 
                     helpSection("context menus", items: [
-                        ("right-click channel", "add swimmers, copy invite link"),
-                        ("right-click swimmer", "edit or delete"),
+                        ("right-click channel", "add companions, copy invite link"),
+                        ("right-click companion", "edit or delete"),
                     ])
                 }
                 .padding(20)

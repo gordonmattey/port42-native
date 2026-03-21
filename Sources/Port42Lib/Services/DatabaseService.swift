@@ -759,6 +759,15 @@ public final class DatabaseService {
         }
     }
 
+    /// Fetch the HTML for a specific version of a port. Returns nil if not found.
+    public func fetchPortVersionHtml(udid: String, version: Int) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db,
+                sql: "SELECT html FROM port_versions WHERE portUdid = ? AND version = ?",
+                arguments: [udid, version])
+        }
+    }
+
     // MARK: - Input History
 
     /// Append a sent message to input history for a channel. Caps at 100 per channel.

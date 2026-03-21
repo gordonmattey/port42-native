@@ -8,4 +8,5 @@ extension Notification.Name {
     public static let checkForUpdatesRequested = Notification.Name("checkForUpdatesRequested")
     public static let dismissAllSheets = Notification.Name("dismissAllSheets")
     public static let openSettingsRequested = Notification.Name("openSettingsRequested")
+    public static let focusChatInput = Notification.Name("focusChatInput")
 }

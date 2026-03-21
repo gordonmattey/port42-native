@@ -249,10 +249,51 @@ public final class ToolExecutor {
             guard let id = input["id"] as? String else {
                 return [textBlock("Error: missing 'id' parameter")]
             }
+            if let version = input["version"] as? Int {
+                if let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) {
+                    return [textBlock(html)]
+                }
+                return [textBlock("Error: no version \(version) found for port '\(id)'")]
+            }
             if let html = try? appState.db.fetchPortHtml(udid: id) {
                 return [textBlock(html)]
             }
             return [textBlock("Error: no port found for id '\(id)'")]
+
+        case "port_restore":
+            guard let id = input["id"] as? String,
+                  let version = input["version"] as? Int else {
+                return [textBlock("Error: port_restore requires 'id' and 'version' parameters")]
+            }
+            guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
+                return [textBlock("Error: no version \(version) found for port '\(id)'")]
+            }
+            let restored = appState.portWindows.updatePort(idOrTitle: id, html: html)
+            if restored {
+                Analytics.shared.portUpdated()
+                return [textBlock("Restored port '\(id)' to version \(version)")]
+            }
+            return [textBlock("Error: port '\(id)' not found or not active")]
+
+        case "port_patch":
+            guard let id = input["id"] as? String,
+                  let search = input["search"] as? String,
+                  let replace = input["replace"] as? String else {
+                return [textBlock("Error: port_patch requires 'id', 'search', and 'replace' parameters")]
+            }
+            guard let currentHtml = try? appState.db.fetchPortHtml(udid: id) else {
+                return [textBlock("Error: no port found for id '\(id)'")]
+            }
+            guard currentHtml.contains(search) else {
+                return [textBlock("Error: search string not found in port '\(id)' — call port_get_html to read the current HTML and copy the exact string to replace")]
+            }
+            let patched = currentHtml.replacingOccurrences(of: search, with: replace)
+            let applied = appState.portWindows.updatePort(idOrTitle: id, html: patched)
+            if applied {
+                Analytics.shared.portUpdated()
+                return [textBlock("Patch applied to port '\(id)'")]
+            }
+            return [textBlock("Error: port '\(id)' not found or not active")]
 
         case "port_history":
             guard let id = input["id"] as? String else {
@@ -353,12 +394,21 @@ public final class ToolExecutor {
             let scale = input["scale"] as? Double ?? 1.0
             let result = await screenBridge.capture(opts: ["scale": scale, "includeSelf": false])
             if let base64 = result["image"] as? String {
+                postCapture(base64PNG: base64, type: "screen")
                 return [imageBlock(base64: base64, mediaType: "image/png")]
             }
             return [textBlock(jsonString(result))]
 
         case "screen_windows":
             let result = await screenBridge.windows()
+            return [textBlock(jsonString(result))]
+
+        case "camera_capture":
+            let result = await cameraBridge.capture(opts: [:])
+            if let base64 = result["image"] as? String {
+                postCapture(base64PNG: base64, type: "camera")
+                return [imageBlock(base64: base64, mediaType: "image/png")]
+            }
             return [textBlock(jsonString(result))]
 
         // MARK: Terminal
@@ -593,6 +643,42 @@ public final class ToolExecutor {
             }
         }
         return result
+    }
+
+    // MARK: - Capture Persistence
+
+    private func postCapture(base64PNG: String, type: String) {
+        guard let appState = appState, let channelId = channelId else { return }
+
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let capturesDir = appSupport.appendingPathComponent("Port42/captures", isDirectory: true)
+        try? FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        let stamp = fmt.string(from: Date())
+        let companion = (createdBy ?? "companion")
+            .replacingOccurrences(of: " ", with: "-")
+            .lowercased()
+        let filename = "\(stamp)-\(companion)-\(type).png"
+        let fileURL = capturesDir.appendingPathComponent(filename)
+
+        if let data = Data(base64Encoded: base64PNG) {
+            try? data.write(to: fileURL)
+        }
+
+        let msg = Message.create(
+            channelId: channelId,
+            senderId: createdBy ?? "system",
+            senderName: createdBy ?? "system",
+            content: "[capture:\(type):\(fileURL.path)]",
+            senderType: "system"
+        )
+        do {
+            try appState.db.saveMessage(msg)
+        } catch {
+            NSLog("[Port42] Failed to save capture message: %@", error.localizedDescription)
+        }
     }
 
     // MARK: - Helpers

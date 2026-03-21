@@ -29,6 +29,15 @@ public struct PortPanel: Identifiable {
         }
         return "port"
     }
+
+    /// Extract version from HTML <meta name="version" content="..."> tag, returns nil if absent.
+    static func extractVersion(from html: String) -> String? {
+        guard let metaRange = html.range(of: #"<meta\s+name="version"\s+content=""#, options: .regularExpression) else { return nil }
+        let after = html[metaRange.upperBound...]
+        guard let end = after.range(of: "\"") else { return nil }
+        let v = String(after[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
 }
 
 // MARK: - Port Window Manager
@@ -1035,6 +1044,14 @@ struct PortPanelTitleBar: View {
                         .font(Port42Theme.mono(10))
                         .foregroundStyle(Port42Theme.textSecondary)
                         .lineLimit(1)
+                }
+                if let version = PortPanel.extractVersion(from: panel.html) {
+                    Text("·")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Text("v\(version)")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
                 }
                 Spacer()
             }

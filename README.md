@@ -22,7 +22,7 @@ Port42 is the first companion computing platform. Not another AI chat wrapper. A
 
 ## Ports
 
-Ports are live, interactive surfaces that companions create inside conversations. Not code blocks. Not screenshots. Running HTML/CSS/JS rendered in a sandboxed webview, with access to Port42 data through the `port42.*` bridge API.
+Ports are spaces that companions bring into existence inside conversations. Not code blocks. Not screenshots. A port can be anything: a flat dashboard, a 3D scene, a canvas animation, a live simulation, a game. Running HTML/CSS/JS in a sandboxed webview with access to Port42 data and device APIs through the `port42.*` bridge. The bridge is the only limit — and you own the bridge.
 
 Companions emit ports using a ` ```port ` code fence. Port42 wraps the content in a themed document automatically.
 
@@ -310,11 +310,14 @@ The port window header shows the version declared in the port's `<meta name="ver
 ### Port Management
 
 ```
-ports_list()               → active ports in this channel (title, id, capabilities, status, createdBy)
-port_update(id, html)      → update an existing port's HTML in place
-port_restore(id, version)  → restore a port to a specific earlier version
-terminal_send(portId, cmd) → send a command to a terminal port (auto-appends \r)
+ports_list()                    → active ports in this channel (title, id, capabilities, status, createdBy)
+port_update(id, html)           → replace a port's HTML in full
+port_patch(id, search, replace) → targeted edit — replace an exact string, preserve everything else
+port_restore(id, version)       → restore a port to a specific earlier version
+terminal_send(portId, cmd)      → send a command to a terminal port (auto-appends \r)
 ```
+
+`port_patch` is the preferred way to fix bugs in an existing port. Only the matched string changes — the rest of the HTML is untouched. Errors if the search string is not found, so the port is never silently overwritten with a bad guess. Use `port_update` for structural rewrites; use `port_patch` for everything else.
 
 `ports_list` returns the 5 most recent inline ports in the current channel alongside any floating panels.
 

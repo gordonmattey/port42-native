@@ -98,7 +98,19 @@ enum ToolDefinitions {
         ],
         [
             "name": "port_get_html",
-            "description": "Read the current HTML of an existing port by its UDID. Use this before port_update to inspect what's already rendered — avoids overwriting work you didn't intend to replace.",
+            "description": "Read the HTML of a port. Omit 'version' to get the current HTML. Pass 'version' (from port_history) to read a specific historical snapshot.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "version": ["type": "integer", "description": "Optional version number (from port_history). Omit for current HTML."]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "port_history",
+            "description": "List all saved versions of a port by its UDID. Returns version number, createdBy, and createdAt for each snapshot. Use port_get_html with a version number to read a specific snapshot, or port_restore to roll back.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -108,14 +120,28 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
-            "name": "port_history",
-            "description": "List all saved versions of a port by its UDID. Each version includes a version number, who created it, and when. Use port_get_html to retrieve the HTML of the current version.",
+            "name": "port_restore",
+            "description": "Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"]
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "version": ["type": "integer", "description": "The version number to restore to (from port_history)"]
                 ],
-                "required": ["id"]
+                "required": ["id", "version"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "port_patch",
+            "description": "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "search": ["type": "string", "description": "The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output."],
+                    "replace": ["type": "string", "description": "The string to replace it with."]
+                ],
+                "required": ["id", "search", "replace"]
             ] as [String: Any]
         ],
         [
@@ -202,6 +228,11 @@ enum ToolDefinitions {
         [
             "name": "screen_windows",
             "description": "List all visible windows with their titles, apps, and positions",
+            "input_schema": ["type": "object", "properties": [String: Any]()]
+        ],
+        [
+            "name": "camera_capture",
+            "description": "Capture a photo from the device camera. Returns a base64 PNG image.",
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
@@ -380,7 +411,7 @@ enum ToolDefinitions {
     static func permission(for toolName: String) -> PortPermission? {
         switch toolName {
         case "clipboard_read", "clipboard_write": return .clipboard
-        case "screen_capture", "screen_windows": return .screen
+        case "screen_capture", "screen_windows", "camera_capture": return .screen
         case "terminal_exec", "terminal_send", "terminal_list", "terminal_bridge", "terminal_unbridge": return .terminal
         case "file_read", "file_write": return .filesystem
         case "run_applescript", "run_jxa": return .automation

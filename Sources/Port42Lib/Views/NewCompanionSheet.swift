@@ -137,7 +137,7 @@ public struct NewCompanionSheet: View {
 
     public var body: some View {
         VStack(spacing: 16) {
-            Text("New Swimmer")
+            Text("New Companion")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 

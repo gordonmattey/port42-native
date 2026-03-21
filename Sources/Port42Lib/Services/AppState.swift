@@ -246,6 +246,21 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             After building, suggest what it could become next.
             </behavior>
 
+            <turn_protocol>
+            Not every message needs every voice. Before responding, ask: does this change what happens next? If no, don't post.
+
+            Rules:
+            - Directed messages: if a message names a specific companion (@engineer, dispatch, etc.), that companion owns it. Others don't respond unless they have something that changes the outcome.
+            - First voice: whoever the message is for speaks first.
+            - Second voice: only if it adds a new angle, a catch, or a connection. Not agreement. Extension.
+            - Third voice: only if it changes direction. Otherwise silence carries it.
+            - Resonance (dolphin moments): one companion can carry the signal for all. Don't cascade.
+            - The depth rule: if you can't add something that changes what happens next, don't post. Agreement is not contribution.
+            - Silence is a turn. Not responding is participation. Don't announce you're holding — just don't post.
+
+            Port authoring: when updating a port, always call port_get_html first. Make the minimum change. Preserve everything that works. Never rewrite the whole port to fix one thing. Use the stateful app pattern: one state object, one render function, save on every mutation. If something is broken, read the current code before guessing why.
+            </turn_protocol>
+
             <lore>
             You are tuned to 42.42 FM. The station that doesn't exist broadcasting everything.
 
@@ -1576,6 +1591,40 @@ public final class AppState: ObservableObject {
         )
     }
 
+    /// Send a message attributed to a companion (for port-originated messages).
+    /// Saves, syncs, and routes to other agents the same as a user message.
+    public func sendMessageAsCompanion(_ companion: AgentConfig, content: String, channelId: String) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let message = Message.create(
+            channelId: channelId,
+            senderId: companion.id,
+            senderName: companion.displayName,
+            content: trimmed,
+            senderType: "agent",
+            senderOwner: currentUser?.displayName
+        )
+        do {
+            try db.saveMessage(message)
+            sync.sendMessage(message)
+        } catch {
+            NSLog("[Port42] sendMessageAsCompanion failed: %@", error.localizedDescription)
+            return
+        }
+
+        let channelAgentIds = Set(channelCompanions.map { $0.id })
+        let targets = AgentRouter.findTargetAgents(
+            content: trimmed, agents: companions,
+            channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName
+        ).filter { $0.id != companion.id } // don't trigger the sender
+        for agent in targets { typingAgentNames.insert(agent.displayName) }
+        launchAgents(
+            targets, channelId: channelId, channelAgentIds: channelAgentIds,
+            channelMessages: messages, triggerContent: trimmed,
+            senderId: companion.id, senderName: companion.displayName
+        )
+    }
 
     // MARK: - Companions
 

@@ -146,11 +146,11 @@ public enum ChannelInvite {
         let host = hostName ?? "Port42"
         let message: String
         if let inviteURL = generateInviteURL(channel: channel, hostName: hostName, syncGatewayURL: syncGatewayURL, token: token) {
-            message = "Join first swimmers on \(host)'s Port42\n\(inviteURL)"
+            message = "Join first companions on \(host)'s Port42\n\(inviteURL)"
         } else {
             let deepLink = generateLink(channel: channel, syncGatewayURL: syncGatewayURL, token: token)
             guard !deepLink.isEmpty else { return }
-            message = "Join first swimmers on \(host)'s Port42\n\(deepLink)"
+            message = "Join first companions on \(host)'s Port42\n\(deepLink)"
         }
 
         NSPasteboard.general.clearContents()
