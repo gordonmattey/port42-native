@@ -1,6 +1,6 @@
 # Companion Architecture
 
-**Status:** Phase 1 complete ✅ | Phase 2 next
+**Status:** Phase 1 ✅ | Phase 2 ✅ | Phase 3 next
 **Last updated:** 2026-03-21
 **Context:** [ports-spec.md](ports-spec.md), [game-loop-v2.md](~/port42-specs/game-loop-v2.md)
 
