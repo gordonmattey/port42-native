@@ -69,14 +69,19 @@ struct PortPermissionTests {
         #expect(PortPermission.permissionForMethod("terminal.spawn") == .terminal)
     }
 
-    @Test("terminal.send requires .terminal permission")
-    func terminalSendPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.send") == .terminal)
+    @Test("terminal.send requires no permission (session already permitted via spawn)")
+    func terminalSendNoPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.send") == nil)
     }
 
-    @Test("terminal.kill requires .terminal permission")
-    func terminalKillPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.kill") == .terminal)
+    @Test("terminal.resize requires no permission (session already permitted via spawn)")
+    func terminalResizeNoPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.resize") == nil)
+    }
+
+    @Test("terminal.kill requires no permission (session already permitted via spawn)")
+    func terminalKillNoPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.kill") == nil)
     }
 
     @Test("audio.capture requires .microphone permission")
@@ -189,5 +194,75 @@ struct PortPermissionTests {
     func pendingPermissionNil() {
         let bridge = PortBridge(appState: NSObject(), channelId: nil)
         #expect(bridge.pendingPermission == nil)
+    }
+
+    // MARK: - Companion-Level Persistence (P-260)
+
+    @Test("companionPermissions returns empty set for unknown companion+channel")
+    @MainActor
+    func companionPermissionsUnknown() throws {
+        let db = try DatabaseService(inMemory: true)
+        let appState = AppState(db: db)
+        let perms = appState.companionPermissions(createdBy: "unknown-companion", channelId: "unknown-channel")
+        #expect(perms.isEmpty)
+    }
+
+    @Test("saveCompanionPermissions and companionPermissions round-trip")
+    @MainActor
+    func companionPermissionsRoundTrip() throws {
+        let db = try DatabaseService(inMemory: true)
+        let appState = AppState(db: db)
+        let key = "test-companion-\(UUID().uuidString)"
+        let channelId = "test-channel-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal, .ai], createdBy: key, channelId: channelId)
+        let restored = appState.companionPermissions(createdBy: key, channelId: channelId)
+        #expect(restored.contains(.terminal))
+        #expect(restored.contains(.ai))
+        #expect(!restored.contains(.camera))
+        // Cleanup
+        appState.saveCompanionPermissions([], createdBy: key, channelId: channelId)
+    }
+
+    @Test("companion permissions are scoped to channelId — different channel gets empty set")
+    @MainActor
+    func companionPermissionsScopedToChannel() throws {
+        let db = try DatabaseService(inMemory: true)
+        let appState = AppState(db: db)
+        let companion = "test-companion-\(UUID().uuidString)"
+        let channelA = "channel-a-\(UUID().uuidString)"
+        let channelB = "channel-b-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal], createdBy: companion, channelId: channelA)
+        let permsB = appState.companionPermissions(createdBy: companion, channelId: channelB)
+        #expect(permsB.isEmpty)
+        // Cleanup
+        appState.saveCompanionPermissions([], createdBy: companion, channelId: channelA)
+    }
+
+    @Test("companion permissions are scoped to createdBy — different companion gets empty set")
+    @MainActor
+    func companionPermissionsScopedToCompanion() throws {
+        let db = try DatabaseService(inMemory: true)
+        let appState = AppState(db: db)
+        let channelId = "test-channel-\(UUID().uuidString)"
+        let companionA = "companion-a-\(UUID().uuidString)"
+        let companionB = "companion-b-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal], createdBy: companionA, channelId: channelId)
+        let permsB = appState.companionPermissions(createdBy: companionB, channelId: channelId)
+        #expect(permsB.isEmpty)
+        // Cleanup
+        appState.saveCompanionPermissions([], createdBy: companionA, channelId: channelId)
+    }
+
+    @Test("saving empty permissions removes the entry")
+    @MainActor
+    func saveEmptyPermissionsRemoves() throws {
+        let db = try DatabaseService(inMemory: true)
+        let appState = AppState(db: db)
+        let companion = "test-companion-\(UUID().uuidString)"
+        let channelId = "test-channel-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal], createdBy: companion, channelId: channelId)
+        appState.saveCompanionPermissions([], createdBy: companion, channelId: channelId)
+        let perms = appState.companionPermissions(createdBy: companion, channelId: channelId)
+        #expect(perms.isEmpty)
     }
 }
