@@ -317,6 +317,41 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v20-companion-creases-and-folds") { db in
+            try db.create(table: "companion_creases") { t in
+                t.column("id", .text).primaryKey()
+                t.column("companionId", .text).notNull()
+                t.column("channelId", .text)
+                t.column("content", .text).notNull()
+                t.column("prediction", .text)
+                t.column("actual", .text)
+                t.column("weight", .double).defaults(to: 1.0)
+                t.column("createdAt", .datetime).notNull()
+                t.column("touchedAt", .datetime).notNull()
+            }
+            try db.create(
+                index: "companion_creases_companion",
+                on: "companion_creases",
+                columns: ["companionId", "channelId"]
+            )
+            try db.create(table: "companion_folds") { t in
+                t.column("id", .text).primaryKey()
+                t.column("companionId", .text).notNull()
+                t.column("channelId", .text).notNull()
+                t.column("established", .text)
+                t.column("tensions", .text)
+                t.column("holding", .text)
+                t.column("depth", .integer).defaults(to: 0)
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(
+                index: "companion_folds_unique",
+                on: "companion_folds",
+                columns: ["companionId", "channelId"],
+                unique: true
+            )
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -452,6 +487,101 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM channels")
             try db.execute(sql: "DELETE FROM agents")
             try db.execute(sql: "DELETE FROM users")
+        }
+    }
+
+    // MARK: - Companion Creases
+
+    public func saveCrease(_ crease: CompanionCrease) throws {
+        var crease = crease
+        try dbQueue.write { db in
+            try crease.save(db)
+        }
+    }
+
+    /// Fetch creases for a companion: channel-scoped + global, most recently touched first.
+    public func fetchCreases(companionId: String, channelId: String?, limit: Int = 8) throws -> [CompanionCrease] {
+        try dbQueue.read { db in
+            if let cid = channelId {
+                return try CompanionCrease
+                    .filter(Column("companionId") == companionId &&
+                            (Column("channelId") == cid || Column("channelId") == nil))
+                    .order(Column("touchedAt").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            } else {
+                return try CompanionCrease
+                    .filter(Column("companionId") == companionId && Column("channelId") == nil)
+                    .order(Column("touchedAt").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            }
+        }
+    }
+
+    /// Mark a crease as currently shaping a response — updates touchedAt, bumps weight.
+    public func touchCrease(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE companion_creases SET touchedAt = ?, weight = weight + 0.1 WHERE id = ?",
+                arguments: [Date(), id]
+            )
+        }
+    }
+
+    public func deleteCrease(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM companion_creases WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Remove all creases for a companion (called when companion is deleted).
+    public func deleteCreasesForCompanion(_ companionId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM companion_creases WHERE companionId = ?",
+                arguments: [companionId]
+            )
+        }
+    }
+
+    // MARK: - Companion Folds
+
+    public func fetchFold(companionId: String, channelId: String) throws -> CompanionFold? {
+        try dbQueue.read { db in
+            try CompanionFold
+                .filter(Column("companionId") == companionId && Column("channelId") == channelId)
+                .fetchOne(db)
+        }
+    }
+
+    /// Upsert fold state for a companion×channel pair.
+    public func saveFold(_ fold: CompanionFold) throws {
+        var fold = fold
+        try dbQueue.write { db in
+            // Check for existing fold
+            if var existing = try CompanionFold
+                .filter(Column("companionId") == fold.companionId && Column("channelId") == fold.channelId)
+                .fetchOne(db) {
+                existing.established = fold.established
+                existing.tensions = fold.tensions
+                existing.holding = fold.holding
+                existing.depth = fold.depth
+                existing.updatedAt = fold.updatedAt
+                try existing.update(db)
+            } else {
+                try fold.insert(db)
+            }
+        }
+    }
+
+    /// Remove all folds for a companion (called when companion is deleted).
+    public func deleteFoldsForCompanion(_ companionId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM companion_folds WHERE companionId = ?",
+                arguments: [companionId]
+            )
         }
     }
 

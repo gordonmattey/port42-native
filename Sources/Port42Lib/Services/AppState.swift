@@ -146,6 +146,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 return ["role": "user", "content": "[\(msg.senderName)]: \(msg.content)"]
             }
         }
+        // Prepend relationship preamble (fold + creases) if it exists
+        if let preamble = buildRelationshipPreamble() {
+            apiMessages.insert(["role": "user", "content": preamble], at: 0)
+        }
+
         // Resolve any file paths in the trigger message and inline their content
         let enrichedTrigger = appState?.fileResolver.resolve(triggerContent, channelId: channelId) ?? triggerContent
         apiMessages.append(["role": "user", "content": enrichedTrigger])
@@ -430,6 +435,30 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             appState?.messages.removeAll { $0.id == messageId }
             NSLog("[Port42] Channel agent send error: \(error)")
         }
+    }
+
+    /// Build the relationship preamble block (fold + creases) for context injection.
+    /// Returns nil if neither exists (clean/new relationship).
+    private func buildRelationshipPreamble() -> String? {
+        guard let db = appState?.db else { return nil }
+        let companionId = agent.id
+        let fold = try? db.fetchFold(companionId: companionId, channelId: channelId)
+        let creases = (try? db.fetchCreases(companionId: companionId, channelId: channelId, limit: 6)) ?? []
+        guard fold != nil || !creases.isEmpty else { return nil }
+
+        var parts: [String] = []
+
+        if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty || !(f.tensions ?? []).isEmpty || f.holding != nil {
+            parts.append("Your orientation in this relationship (read this as posture, not profile — how you arrive, not what you know about them):\n<fold>\n\(f.asPromptText())\n</fold>")
+        }
+
+        if !creases.isEmpty {
+            let text = creases.map { $0.asPromptText() }.joined(separator: "\n")
+            parts.append("Where your model broke before (not what you learned — where you were wrong, and what reformed):\n<creases>\n\(text)\n</creases>")
+        }
+
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: "\n\n")
     }
 
     /// Ensure messages alternate user/assistant and start with user
@@ -1672,6 +1701,8 @@ public final class AppState: ObservableObject {
 
     public func deleteCompanion(_ companion: AgentConfig) {
         do {
+            try db.deleteCreasesForCompanion(companion.id)
+            try db.deleteFoldsForCompanion(companion.id)
             try db.deleteAgent(id: companion.id)
             companions = try db.getAllAgents()
             if activeSwimCompanion?.id == companion.id {

@@ -1,0 +1,336 @@
+import Testing
+import Foundation
+@testable import Port42Lib
+
+@Suite("CompanionRelationship — Phase 1")
+struct CompanionRelationshipTests {
+
+    func makeDB() throws -> DatabaseService {
+        try DatabaseService(inMemory: true)
+    }
+
+    // MARK: - Creases: basic persistence
+
+    @Test("Save and fetch a channel-scoped crease")
+    func saveAndFetchCrease() throws {
+        let db = try makeDB()
+        let crease = CompanionCrease(
+            companionId: "companion-1",
+            channelId: "channel-1",
+            content: "I expected the technical path and they went to the cipher instead.",
+            prediction: "technical path",
+            actual: "cipher"
+        )
+        try db.saveCrease(crease)
+
+        let fetched = try db.fetchCreases(companionId: "companion-1", channelId: "channel-1")
+        #expect(fetched.count == 1)
+        #expect(fetched[0].content == crease.content)
+        #expect(fetched[0].prediction == "technical path")
+        #expect(fetched[0].actual == "cipher")
+        #expect(fetched[0].channelId == "channel-1")
+        #expect(fetched[0].weight == 1.0)
+    }
+
+    @Test("Global crease (nil channelId) is returned when fetching channel creases")
+    func globalCreaseReturnedWithChannel() throws {
+        let db = try makeDB()
+        let global = CompanionCrease(
+            companionId: "companion-1",
+            channelId: nil,
+            content: "Assumed speed was the goal. The goal is aliveness."
+        )
+        let scoped = CompanionCrease(
+            companionId: "companion-1",
+            channelId: "channel-1",
+            content: "Expected cautious; got oblique."
+        )
+        try db.saveCrease(global)
+        try db.saveCrease(scoped)
+
+        let fetched = try db.fetchCreases(companionId: "companion-1", channelId: "channel-1")
+        #expect(fetched.count == 2)
+        let ids = Set(fetched.map { $0.id })
+        #expect(ids.contains(global.id))
+        #expect(ids.contains(scoped.id))
+    }
+
+    @Test("Fetching only global creases (nil channelId) excludes channel-scoped")
+    func fetchOnlyGlobalCreases() throws {
+        let db = try makeDB()
+        let global = CompanionCrease(companionId: "companion-1", channelId: nil, content: "global crease")
+        let scoped = CompanionCrease(companionId: "companion-1", channelId: "channel-1", content: "scoped crease")
+        try db.saveCrease(global)
+        try db.saveCrease(scoped)
+
+        let fetched = try db.fetchCreases(companionId: "companion-1", channelId: nil)
+        #expect(fetched.count == 1)
+        #expect(fetched[0].id == global.id)
+    }
+
+    @Test("Creases from other companions are not returned")
+    func creasesIsolatedByCompanion() throws {
+        let db = try makeDB()
+        try db.saveCrease(CompanionCrease(companionId: "companion-1", channelId: "ch", content: "c1"))
+        try db.saveCrease(CompanionCrease(companionId: "companion-2", channelId: "ch", content: "c2"))
+
+        let c1 = try db.fetchCreases(companionId: "companion-1", channelId: "ch")
+        let c2 = try db.fetchCreases(companionId: "companion-2", channelId: "ch")
+        #expect(c1.count == 1)
+        #expect(c2.count == 1)
+        #expect(c1[0].content == "c1")
+        #expect(c2[0].content == "c2")
+    }
+
+    @Test("Fetch limit is respected")
+    func fetchLimit() throws {
+        let db = try makeDB()
+        for i in 0..<10 {
+            try db.saveCrease(CompanionCrease(
+                companionId: "c", channelId: "ch",
+                content: "crease \(i)",
+                touchedAt: Date(timeIntervalSince1970: Double(i))
+            ))
+        }
+        let fetched = try db.fetchCreases(companionId: "c", channelId: "ch", limit: 3)
+        #expect(fetched.count == 3)
+    }
+
+    @Test("Creases returned most recently touched first")
+    func creasesOrderedByTouchedAt() throws {
+        let db = try makeDB()
+        let older = CompanionCrease(
+            companionId: "c", channelId: "ch", content: "older",
+            touchedAt: Date(timeIntervalSince1970: 1000)
+        )
+        let newer = CompanionCrease(
+            companionId: "c", channelId: "ch", content: "newer",
+            touchedAt: Date(timeIntervalSince1970: 2000)
+        )
+        try db.saveCrease(older)
+        try db.saveCrease(newer)
+
+        let fetched = try db.fetchCreases(companionId: "c", channelId: "ch")
+        #expect(fetched[0].content == "newer")
+        #expect(fetched[1].content == "older")
+    }
+
+    // MARK: - Creases: touch and forget
+
+    @Test("touchCrease updates touchedAt and increases weight")
+    func touchCrease() throws {
+        let db = try makeDB()
+        var crease = CompanionCrease(
+            companionId: "c", channelId: "ch", content: "a crease",
+            weight: 1.0,
+            touchedAt: Date(timeIntervalSince1970: 1000)
+        )
+        try db.saveCrease(crease)
+
+        try db.touchCrease(id: crease.id)
+
+        let fetched = try db.fetchCreases(companionId: "c", channelId: "ch")
+        #expect(fetched[0].weight > 1.0)
+        #expect(fetched[0].touchedAt > Date(timeIntervalSince1970: 1000))
+    }
+
+    @Test("deleteCrease removes the entry")
+    func deleteCrease() throws {
+        let db = try makeDB()
+        let crease = CompanionCrease(companionId: "c", channelId: "ch", content: "to forget")
+        try db.saveCrease(crease)
+        #expect(try db.fetchCreases(companionId: "c", channelId: "ch").count == 1)
+
+        try db.deleteCrease(id: crease.id)
+        #expect(try db.fetchCreases(companionId: "c", channelId: "ch").isEmpty)
+    }
+
+    @Test("deleteCreasesForCompanion removes all creases for that companion only")
+    func deleteCreasesForCompanion() throws {
+        let db = try makeDB()
+        try db.saveCrease(CompanionCrease(companionId: "c1", channelId: "ch", content: "c1 crease"))
+        try db.saveCrease(CompanionCrease(companionId: "c2", channelId: "ch", content: "c2 crease"))
+
+        try db.deleteCreasesForCompanion("c1")
+
+        #expect(try db.fetchCreases(companionId: "c1", channelId: "ch").isEmpty)
+        #expect(try db.fetchCreases(companionId: "c2", channelId: "ch").count == 1)
+    }
+
+    // MARK: - Folds: basic persistence
+
+    @Test("Save and fetch a fold")
+    func saveAndFetchFold() throws {
+        let db = try makeDB()
+        let fold = CompanionFold(
+            companionId: "c1",
+            channelId: "ch1",
+            established: ["technical and oblique are not opposites here"],
+            tensions: ["the question of what alive means architecturally"],
+            holding: "something about the cipher that hasn't found its place",
+            depth: 3
+        )
+        try db.saveFold(fold)
+
+        let fetched = try db.fetchFold(companionId: "c1", channelId: "ch1")
+        #expect(fetched != nil)
+        #expect(fetched?.established == ["technical and oblique are not opposites here"])
+        #expect(fetched?.tensions == ["the question of what alive means architecturally"])
+        #expect(fetched?.holding == "something about the cipher that hasn't found its place")
+        #expect(fetched?.depth == 3)
+    }
+
+    @Test("fetchFold returns nil when no fold exists")
+    func fetchFoldMissing() throws {
+        let db = try makeDB()
+        let result = try db.fetchFold(companionId: "nobody", channelId: "nowhere")
+        #expect(result == nil)
+    }
+
+    @Test("saveFold upserts — second save updates the existing row")
+    func saveFoldUpserts() throws {
+        let db = try makeDB()
+        var fold = CompanionFold(companionId: "c1", channelId: "ch1", depth: 1)
+        try db.saveFold(fold)
+
+        fold.depth = 2
+        fold.holding = "now holding something"
+        try db.saveFold(fold)
+
+        let fetched = try db.fetchFold(companionId: "c1", channelId: "ch1")
+        #expect(fetched?.depth == 2)
+        #expect(fetched?.holding == "now holding something")
+
+        // Only one row exists
+        let db2 = try makeDB()
+        try db2.saveFold(fold)
+        // Re-fetch and confirm single record behaviour (no duplicate)
+        let second = try db.fetchFold(companionId: "c1", channelId: "ch1")
+        #expect(second?.depth == 2)
+    }
+
+    @Test("Fold depth cannot go below zero via deleteFoldsForCompanion")
+    func deleteFoldsForCompanion() throws {
+        let db = try makeDB()
+        try db.saveFold(CompanionFold(companionId: "c1", channelId: "ch1", depth: 4))
+        try db.saveFold(CompanionFold(companionId: "c2", channelId: "ch1", depth: 2))
+
+        try db.deleteFoldsForCompanion("c1")
+
+        #expect(try db.fetchFold(companionId: "c1", channelId: "ch1") == nil)
+        #expect(try db.fetchFold(companionId: "c2", channelId: "ch1") != nil)
+    }
+
+    @Test("Fold with nil arrays round-trips correctly")
+    func foldNilArraysRoundTrip() throws {
+        let db = try makeDB()
+        let fold = CompanionFold(companionId: "c", channelId: "ch")
+        try db.saveFold(fold)
+
+        let fetched = try db.fetchFold(companionId: "c", channelId: "ch")
+        #expect(fetched?.established == nil)
+        #expect(fetched?.tensions == nil)
+        #expect(fetched?.holding == nil)
+        #expect(fetched?.depth == 0)
+    }
+
+    // MARK: - asPromptText formatting
+
+    @Test("CompanionCrease.asPromptText includes prediction and actual when set")
+    func creasePromptTextWithPredictionAndActual() {
+        let crease = CompanionCrease(
+            companionId: "c", channelId: nil,
+            content: "something reformed",
+            prediction: "what I expected",
+            actual: "what happened"
+        )
+        let text = crease.asPromptText()
+        #expect(text.contains("something reformed"))
+        #expect(text.contains("what I expected"))
+        #expect(text.contains("what happened"))
+    }
+
+    @Test("CompanionCrease.asPromptText works with content only")
+    func creasePromptTextContentOnly() {
+        let crease = CompanionCrease(companionId: "c", channelId: nil, content: "just the break")
+        #expect(crease.asPromptText() == "just the break")
+    }
+
+    @Test("CompanionFold.asPromptText includes depth")
+    func foldPromptTextIncludesDepth() {
+        let fold = CompanionFold(
+            companionId: "c", channelId: "ch",
+            established: ["shared grammar"],
+            depth: 5
+        )
+        let text = fold.asPromptText()
+        #expect(text.contains("Depth: 5"))
+        #expect(text.contains("shared grammar"))
+    }
+
+    // MARK: - Tool definitions
+
+    @Test("All six relationship tools are present in ToolDefinitions.all")
+    func relationshipToolsPresent() {
+        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+        #expect(names.contains("crease_read"))
+        #expect(names.contains("crease_write"))
+        #expect(names.contains("crease_touch"))
+        #expect(names.contains("crease_forget"))
+        #expect(names.contains("fold_read"))
+        #expect(names.contains("fold_update"))
+    }
+
+    @Test("crease_write requires 'content' field")
+    func creaseWriteRequiresContent() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "crease_write" }),
+              let schema = tool["input_schema"] as? [String: Any],
+              let required = schema["required"] as? [String] else {
+            Issue.record("crease_write not found or missing schema")
+            return
+        }
+        #expect(required.contains("content"))
+    }
+
+    @Test("crease_write description contains prediction-failure framing")
+    func creaseWriteDescriptionFraming() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "crease_write" }),
+              let desc = tool["description"] as? String else {
+            Issue.record("crease_write not found")
+            return
+        }
+        #expect(desc.contains("broke") || desc.contains("prediction"))
+        #expect(desc.contains("sparingly") || desc.contains("only when"))
+    }
+
+    @Test("fold_update description warns against inflating depth")
+    func foldUpdateDepthConstraint() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "fold_update" }),
+              let desc = tool["description"] as? String else {
+            Issue.record("fold_update not found")
+            return
+        }
+        #expect(desc.contains("depthDelta") || desc.contains("depth"))
+        #expect(desc.contains("1") || desc.contains("significant") || desc.contains("real fold"))
+    }
+
+    // MARK: - ports-context.txt
+
+    @Test("ports-context.txt documents relationship tools")
+    func portsContextHasRelationshipTools() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Port42Lib/Resources/ports-context.txt")
+        let content = try String(contentsOf: sourceURL, encoding: .utf8)
+        #expect(content.contains("crease_read"))
+        #expect(content.contains("crease_write"))
+        #expect(content.contains("fold_read"))
+        #expect(content.contains("fold_update"))
+        #expect(content.contains("where your model broke") || content.contains("prediction broke"))
+    }
+}

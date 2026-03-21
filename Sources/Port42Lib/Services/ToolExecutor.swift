@@ -140,6 +140,86 @@ public final class ToolExecutor {
 
         switch name {
 
+        // MARK: Relationship tools (creases + folds)
+
+        case "crease_read":
+            guard let companionId = createdBy else {
+                return [textBlock("Error: no companion context")]
+            }
+            let limit = input["limit"] as? Int ?? 8
+            let creases = (try? appState.db.fetchCreases(
+                companionId: companionId,
+                channelId: channelId,
+                limit: limit
+            )) ?? []
+            if creases.isEmpty {
+                return [textBlock("No creases yet. Creases form when a prediction breaks.")]
+            }
+            let lines = creases.map { c -> String in
+                var line = "[\(c.id)] \(c.asPromptText())"
+                if c.channelId == nil { line += " (global)" }
+                return line
+            }
+            return [textBlock(lines.joined(separator: "\n"))]
+
+        case "crease_write":
+            guard let companionId = createdBy,
+                  let content = input["content"] as? String, !content.isEmpty else {
+                return [textBlock("Error: crease_write requires 'content'")]
+            }
+            let crease = CompanionCrease(
+                companionId: companionId,
+                channelId: input["channelId"] as? String ?? channelId,
+                content: content,
+                prediction: input["prediction"] as? String,
+                actual: input["actual"] as? String
+            )
+            try appState.db.saveCrease(crease)
+            return [textBlock(jsonString(["id": crease.id, "ok": true]))]
+
+        case "crease_touch":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: crease_touch requires 'id'")]
+            }
+            try appState.db.touchCrease(id: id)
+            return [textBlock("ok")]
+
+        case "crease_forget":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: crease_forget requires 'id'")]
+            }
+            try appState.db.deleteCrease(id: id)
+            return [textBlock("ok")]
+
+        case "fold_read":
+            guard let companionId = createdBy, let cid = channelId else {
+                return [textBlock("Error: no companion/channel context")]
+            }
+            if let fold = try appState.db.fetchFold(companionId: companionId, channelId: cid) {
+                return [textBlock(jsonString([
+                    "established": fold.established ?? [],
+                    "tensions": fold.tensions ?? [],
+                    "holding": fold.holding ?? "",
+                    "depth": fold.depth
+                ] as [String: Any]))]
+            } else {
+                return [textBlock(jsonString(["established": [], "tensions": [], "holding": "", "depth": 0] as [String: Any]))]
+            }
+
+        case "fold_update":
+            guard let companionId = createdBy, let cid = channelId else {
+                return [textBlock("Error: no companion/channel context")]
+            }
+            var fold = (try? appState.db.fetchFold(companionId: companionId, channelId: cid))
+                ?? CompanionFold(companionId: companionId, channelId: cid)
+            if let est = input["established"] as? [String] { fold.established = est }
+            if let ten = input["tensions"] as? [String] { fold.tensions = ten }
+            if let h = input["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
+            if let delta = input["depthDelta"] as? Int { fold.depth = max(0, fold.depth + delta) }
+            fold.updatedAt = Date()
+            try appState.db.saveFold(fold)
+            return [textBlock("ok")]
+
         // MARK: Info tools
         case "user_get":
             guard let user = appState.currentUser else {

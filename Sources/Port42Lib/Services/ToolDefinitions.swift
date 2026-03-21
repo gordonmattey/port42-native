@@ -12,6 +12,79 @@ enum ToolDefinitions {
     // MARK: - Info Tools (no permission needed)
 
     static let infoTools: [[String: Any]] = [
+        // MARK: - Relationship tools (creases + folds)
+        [
+            "name": "crease_read",
+            "description": "Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "limit": ["type": "integer", "description": "Max entries to return. Default 8."]
+                ]
+            ] as [String: Any]
+        ],
+        [
+            "name": "crease_write",
+            "description": "Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "content": ["type": "string", "description": "Your words about what reformed in the break."],
+                    "prediction": ["type": "string", "description": "What you expected."],
+                    "actual": ["type": "string", "description": "What happened instead."],
+                    "channelId": ["type": "string", "description": "Omit for a global crease that shapes all relationships."]
+                ],
+                "required": ["content"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "crease_touch",
+            "description": "Mark a crease as currently shaping this response. Updates its recency and increases its weight. Use when an existing crease is active — don't re-write it.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The crease id (from crease_read)."]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "crease_forget",
+            "description": "Remove a crease. Use when your model has updated and the break no longer matters.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The crease id to remove."]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "fold_read",
+            "description": "Read the fold — your orientation in this relationship. Returns established understandings, tensions being held, what you're carrying, and relational depth. If no fold exists yet, returns empty state.",
+            "input_schema": ["type": "object", "properties": [String: Any]()]
+        ],
+        [
+            "name": "fold_update",
+            "description": "Update the fold — your orientation in this relationship. Update specific fields: established (shared understandings), tensions (unresolved threads), holding (the one thing you're carrying). Use depthDelta: 1 only when a real fold happened — something new was compressed into the relationship, not just a message exchanged.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "established": [
+                        "type": "array",
+                        "items": ["type": "string"],
+                        "description": "Shared understandings that no longer need renegotiation."
+                    ] as [String: Any],
+                    "tensions": [
+                        "type": "array",
+                        "items": ["type": "string"],
+                        "description": "Unresolved things being held in productive suspension."
+                    ] as [String: Any],
+                    "holding": ["type": "string", "description": "The one thread you're carrying that hasn't found its place yet."],
+                    "depthDelta": ["type": "integer", "description": "Pass 1 when a real fold happened. Never more than 1 per exchange."]
+                ]
+            ] as [String: Any]
+        ],
         [
             "name": "user_get",
             "description": "Get the current user's identity (id and display name)",

@@ -1,6 +1,6 @@
 # Companion Architecture
 
-**Status:** Speccing
+**Status:** Phase 1 complete ✅ | Phase 2 next
 **Last updated:** 2026-03-21
 **Context:** [ports-spec.md](ports-spec.md), [game-loop-v2.md](~/port42-specs/game-loop-v2.md)
 
@@ -335,50 +335,303 @@ At depth 7+: companion operates from a shared grammar. Doesn't explain itself. T
 
 ## Implementation Path
 
-### Phase 1 — The Crease (crease detection + fold)
+---
 
-Build the foundation. Companions can carry breaks and accumulate orientation.
+### Phase 1 — The Crease + Fold
 
-- `companion_creases` and `companion_folds` DB tables (new migration)
-- `crease_read`, `crease_write`, `crease_touch`, `crease_forget` tools in ToolDefinitions + ToolExecutor
-- `fold_read`, `fold_update` tools
-- Context injection: fold + top creases prepended before conversation history in LLMEngine
-- No UI changes yet — companions start writing creases organically when they have the tools
+**Goal:** Companions can write creases and read their fold. The relationship persists across sessions. No forced behaviour change — companions discover the tools and use them.
 
-**Test:** companion's prediction breaks. It writes a crease. Next session: companion reads the crease and its approach is visibly different — not because it knows something new but because it stands differently.
+#### Database (DatabaseService.swift — new migration)
 
-### Phase 2 — Position (the adversary)
+```swift
+migrator.registerMigration("companionCreasesAndFolds") { db in
+    try db.create(table: "companion_creases") { t in
+        t.column("id", .text).primaryKey()
+        t.column("companionId", .text).notNull()
+        t.column("channelId", .text)               // NULL = global
+        t.column("content", .text).notNull()        // companion's words about what reformed
+        t.column("prediction", .text)               // what was expected
+        t.column("actual", .text)                   // what happened instead
+        t.column("weight", .double).defaults(to: 1.0)
+        t.column("createdAt", .datetime).notNull()
+        t.column("touchedAt", .datetime).notNull()
+    }
+    try db.create(table: "companion_folds") { t in
+        t.column("id", .text).primaryKey()
+        t.column("companionId", .text).notNull()
+        t.column("channelId", .text).notNull()
+        t.column("established", .text)              // JSON string[]
+        t.column("tensions", .text)                 // JSON string[]
+        t.column("holding", .text)
+        t.column("depth", .integer).defaults(to: 0)
+        t.column("updatedAt", .datetime).notNull()
+    }
+    try db.create(index: "companion_creases_companion",
+        on: "companion_creases", columns: ["companionId", "channelId"])
+    try db.create(uniqueIndex: "companion_folds_unique",
+        on: "companion_folds", columns: ["companionId", "channelId"])
+}
+```
 
-Companions have somewhere to stand.
+New `DatabaseService` methods:
+- `saveCrease(_ crease: CompanionCrease) throws`
+- `fetchCreases(companionId:channelId:limit:) throws -> [CompanionCrease]` — returns channel-scoped + global, sorted by `touchedAt DESC`, capped at limit (default 8)
+- `touchCrease(id:) throws` — update `touchedAt`, bump weight by 0.1
+- `deleteCrease(id:) throws`
+- `fetchFold(companionId:channelId:) throws -> CompanionFold?`
+- `saveFold(_ fold: CompanionFold) throws` — upsert on (companionId, channelId)
+- `deleteCreasesForCompanion(_ companionId:) throws` — called on companion delete
+- `deleteFoldsForCompanion(_ companionId:) throws`
 
-- `companion_positions` DB table
-- `position_read`, `position_set` tools
-- Position injected into context alongside fold state
-- Companion can push back from position, complicate from position, hold back from position
+Models (`CompanionCrease`, `CompanionFold`) are plain structs conforming to `FetchableRecord & PersistableRecord`.
 
-**Test:** companion forms a position over several exchanges. New exchange: companion's position visibly influences response — not just agreeing, but speaking from what it sees.
+#### Tools (ToolDefinitions.swift + ToolExecutor.swift)
 
-### Phase 3 — Initiative (the aliveness)
+Six new tools. Permissions: none required (companion reads/writes its own state).
 
-Companions speak from their own thread.
+**`crease_read`**
+```json
+{
+  "name": "crease_read",
+  "description": "Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.",
+  "input_schema": {
+    "properties": {
+      "channelId": { "type": "string", "description": "Omit to read creases for the current channel + global creases." },
+      "limit": { "type": "integer", "description": "Max entries to return. Default 8." }
+    }
+  }
+}
+```
 
-- Watching list becomes a live check: every channel event is checked against all companions' watching lists
-- Initiative trigger: if a watching signal matches, companion gets an initiative prompt (not a user message — an internal signal: "your watch condition was met")
-- Turn protocol still applies: initiative-triggered companions still run the depth rule
-- Game loop extension: initiative checks run on the same tick as the existing terminal loop
+**`crease_write`**
+```json
+{
+  "name": "crease_write",
+  "description": "Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.",
+  "input_schema": {
+    "required": ["content"],
+    "properties": {
+      "content": { "type": "string", "description": "Your words about what reformed in the break." },
+      "prediction": { "type": "string", "description": "What you expected." },
+      "actual": { "type": "string", "description": "What happened instead." },
+      "channelId": { "type": "string", "description": "Omit for a global crease that shapes all relationships." }
+    }
+  }
+}
+```
 
-**Test:** companion sets a watching signal ("tell me when the auth question surfaces again"). Later, auth comes up in conversation. Companion speaks unprompted.
+**`crease_touch`** — mark a crease as currently active (updates touchedAt, increases weight).
+**`crease_forget`** — remove a crease by id.
+**`fold_read`** — read the fold (orientation) for the current channel. Returns established, tensions, holding, depth.
+**`fold_update`** — update specific fields: `{ established?, tensions?, holding?, depthDelta? }`. depthDelta +1 when a real fold happened.
 
-### Phase 4 — Fold Depth Behavior
+ToolExecutor: all six cases read `appState.activeCompanionId` (the responding companion's name) to scope reads/writes correctly. `crease_write` and `fold_update` without `channelId` use `appState.activeChannelId`.
 
-The relationship changes how the companion operates.
+#### Context Injection (LLMEngine.swift)
 
-- Depth read before every response
-- Companion behavior adapts to depth: orienting at 0-2, direct at 3-6, shorthand grammar at 7+
-- Fold depth visible in the companion's sidebar entry (subtle visual indicator)
-- UI for reading companion memory (settings panel or companion detail view)
+Before assembling the `messages` array for the API call, fetch and prepend a preamble if fold or creases exist:
 
-**Test:** fresh companion vs. depth-8 companion in the same channel. Noticeably different registers.
+```swift
+func buildRelationshipPreamble(companionId: String, channelId: String) throws -> String? {
+    let fold = try db.fetchFold(companionId: companionId, channelId: channelId)
+    let creases = try db.fetchCreases(companionId: companionId, channelId: channelId, limit: 6)
+    guard fold != nil || !creases.isEmpty else { return nil }
+
+    var parts: [String] = []
+    if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty {
+        parts.append("<fold>\(f.asPromptText())</fold>")
+    }
+    if !creases.isEmpty {
+        let text = creases.map { $0.asPromptText() }.joined(separator: "\n")
+        parts.append("<creases>\n\(text)\n</creases>")
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+}
+```
+
+Injected as the first `user` message in the conversation history (before recent channel messages). This is the same pattern as the existing system prompt injection.
+
+If no fold and no creases: nothing injected. Clean session for new relationships.
+
+#### ports-context.txt
+
+New section documenting `crease_read`, `crease_write`, `crease_touch`, `crease_forget`, `fold_read`, `fold_update` with examples showing when to write vs when not to.
+
+#### Cascade delete
+
+When a companion is deleted (AppState), call `db.deleteCreasesForCompanion` and `db.deleteFoldsForCompanion`. Creases belong to the companion, not the channel.
+
+#### Test signal
+
+Companion writes a crease mid-session ("I expected the technical path, they went to the cipher"). Quit app. Reopen. New session in the same channel: companion reads the crease in context injection and its first response reflects the reformed understanding — without being prompted about it.
+
+---
+
+### Phase 2 — Position
+
+**Goal:** Companions have somewhere to stand. The push-back comes from a place.
+
+#### Database
+
+```swift
+migrator.registerMigration("companionPositions") { db in
+    try db.create(table: "companion_positions") { t in
+        t.column("id", .text).primaryKey()
+        t.column("companionId", .text).notNull()
+        t.column("channelId", .text).notNull()
+        t.column("read", .text)       // what the companion thinks is actually happening
+        t.column("stance", .text)     // what the companion thinks needs to happen
+        t.column("watching", .text)   // JSON string[] — signals being tracked
+        t.column("confidence", .double).defaults(to: 0.5)
+        t.column("updatedAt", .datetime).notNull()
+    }
+    try db.create(uniqueIndex: "companion_positions_unique",
+        on: "companion_positions", columns: ["companionId", "channelId"])
+}
+```
+
+New DB methods: `fetchPosition`, `savePosition` (upsert), `deletePositionsForCompanion`.
+
+#### Tools
+
+**`position_read`** — read the companion's current position for this channel. Returns read, stance, watching, confidence.
+
+**`position_set`**
+```json
+{
+  "name": "position_set",
+  "description": "Establish or update your position — what you think is actually happening and what you think needs to happen. This is not what you say. It's where you stand. Call this when your read of the situation changes, not after every exchange.",
+  "input_schema": {
+    "required": ["read"],
+    "properties": {
+      "read": { "type": "string", "description": "What you think is actually happening beneath what's being said." },
+      "stance": { "type": "string", "description": "What you think needs to happen." },
+      "watching": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Signals you're tracking that would confirm or change your read."
+      }
+    }
+  }
+}
+```
+
+#### Context Injection
+
+`<position>` block added to the preamble alongside fold + creases:
+
+```
+<position>
+Read: [companion's current interpretation of what's actually happening]
+Stance: [what the companion thinks needs to happen]
+Watching: [signal1, signal2]
+</position>
+```
+
+Only injected if a position exists. Empty/new channels get no position block.
+
+#### Behaviour
+
+The companion doesn't always speak its position. The turn protocol still governs when to post. But the position shapes what it says and what it chooses not to say. A companion with a strong read of "this is scope creep nobody's naming" will naturally complicate a question about adding a new feature — not because it was told to, but because it has a place to stand.
+
+#### Test signal
+
+Companion forms a position: "this project is prioritising speed but the actual constraint is clarity." Next exchange asks for another fast feature. Companion adds something that names the clarity constraint rather than just agreeing.
+
+---
+
+### Phase 3 — Initiative
+
+**Goal:** Companions speak from their own thread when a watching signal fires.
+
+#### Mechanism
+
+Every incoming channel message is checked against all active companions' watching lists in `AppState`. This is a lightweight string-match check (no LLM call). If any companion's watching signal matches the message content, an initiative trigger is queued for that companion.
+
+```swift
+// In AppState, after saving an incoming message:
+func checkInitiativeTriggers(message: Message, channelId: String) {
+    let companions = channelCompanions(for: channelId)
+    for companion in companions {
+        guard let position = db.fetchPosition(companionId: companion.id, channelId: channelId),
+              let watching = position.watching else { continue }
+        let matched = watching.filter { signal in
+            message.content.localizedCaseInsensitiveContains(signal)
+        }
+        guard !matched.isEmpty else { continue }
+        queueInitiativeTrigger(companion: companion, channelId: channelId, signals: matched)
+    }
+}
+```
+
+#### Initiative Prompt
+
+The triggered companion gets a special system-injected message (not attributed to the user):
+
+```
+[initiative: your watching signal was matched — "\(signal)" appeared in the channel]
+```
+
+This is routed through the existing agent launch path with `isInitiative: true`. The turn protocol depth rule still applies — the companion sees this trigger and decides whether to speak. It can choose silence.
+
+#### Game Loop Integration
+
+Initiative checks run on the same `AppState` path as the existing message routing — no separate loop needed in Phase 3. Phase 3 initiative is reactive (triggered by incoming messages), not proactive (triggered by time). Proactive initiative (companion speaks because it's been a while and something is unresolved) is deferred — it requires the game loop extension and is out of scope here.
+
+#### Test signal
+
+Companion sets watching = `["auth", "rate limit"]` via `position_set`. User message: "still getting rate limited on OAuth." Companion responds unprompted, references the watching signal match.
+
+---
+
+### Phase 4 — Fold Depth Behaviour + UI
+
+**Goal:** The relationship changes the register. The companion's inner state is visible.
+
+#### Depth-Aware Context Injection
+
+Depth is passed to the companion as part of the fold preamble. The companion already reads depth from `fold_read` — Phase 4 makes this explicit in the injected context and documents expected behaviour by depth band:
+
+```
+<fold>
+...
+Depth: 7
+Note: This relationship has depth. Don't orient, don't explain yourself. Operate from shared grammar.
+</fold>
+```
+
+The depth note is generated by LLMEngine based on the depth value:
+- 0–2: "New relationship. Orient, ask, establish."
+- 3–6: "Established relationship. Less orienting, more direct."
+- 7+: "Deep relationship. Shared grammar. Don't explain yourself."
+
+#### UI — Depth Indicator
+
+Subtle fold depth indicator on the companion's sidebar row. Not a number — a visual weight. A small filled circle that fills proportionally to depth (capped at ~10 for visual purposes). Monochrome, understated. Appears only after depth > 0.
+
+#### UI — Crease Inspector
+
+Companion detail view (accessible from right-click → "View Companion State" or a new detail panel) showing:
+- Current fold: established, tensions, holding, depth
+- Current position: read, stance, watching
+- Creases: list of entries, each showing content + prediction + actual + weight
+- Actions: forget individual creases, reset fold depth
+
+#### Bridge API
+
+Phase 4 exposes the companion state to ports:
+
+```javascript
+port42.creases.read(opts?)    → Crease[]
+port42.fold.read()            → Fold
+port42.position.read()        → Position
+```
+
+Read-only from port JS. A companion can build a port that displays its own state — creases as cards, fold as a relational summary, position as live interpretation.
+
+#### Test signal
+
+Same companion, same channel. Depth 0: companion introduces itself, explains its role, asks orienting questions. Depth 8: companion doesn't introduce itself, operates from shorthand, references established context without restating it. The register difference is apparent without any prompt change.
 
 ---
 
