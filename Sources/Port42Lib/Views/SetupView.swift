@@ -15,6 +15,9 @@ public struct SetupView: View {
     @State private var diamondVisible = false
     @State private var apiKeyInput = ""
     @State private var manualTokenInput = ""
+    @State private var geminiKeyInput = ""
+    @State private var compatibleBaseURLInput = ""
+    @State private var compatibleKeyInput = ""
     @State private var authMethod: AuthMethod?
     @State private var authError: String?
     @State private var isCheckingAuth = false
@@ -38,6 +41,8 @@ public struct SetupView: View {
         case claudeCode
         case manualToken
         case apiKey
+        case geminiApiKey
+        case compatibleEndpoint
     }
 
     enum SetupPhase {
@@ -425,6 +430,64 @@ public struct SetupView: View {
                 }
             }
 
+            Spacer().frame(height: 4)
+
+            // Option 3: Gemini API key
+            authOptionButton(.geminiApiKey, label: "Gemini API key", hint: "(from AI Studio)", action: selectGeminiKey)
+
+            if authMethod == .geminiApiKey {
+                Spacer().frame(height: 8)
+                SecureField("paste your Gemini API key", text: $geminiKeyInput)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .onSubmit { submitGeminiKey() }
+
+                if !geminiKeyInput.isEmpty {
+                    Button(action: submitGeminiKey) {
+                        Text("connect \u{21B5}")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+            }
+
+            Spacer().frame(height: 4)
+
+            // Option 4: Compatible endpoint (Ollama, xAI, LM Studio, etc.)
+            authOptionButton(.compatibleEndpoint, label: "Compatible endpoint", hint: "(Ollama, xAI, LM Studio…)", action: selectCompatibleEndpoint)
+
+            if authMethod == .compatibleEndpoint {
+                Spacer().frame(height: 8)
+                TextField("http://localhost:11434/v1", text: $compatibleBaseURLInput)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .onSubmit { submitCompatibleEndpoint() }
+
+                Text("API key (optional for Ollama)")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                    .padding(.top, 4)
+
+                SecureField("leave blank for Ollama", text: $compatibleKeyInput)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textPrimary)
+
+                if !compatibleBaseURLInput.isEmpty {
+                    Button(action: submitCompatibleEndpoint) {
+                        Text("connect \u{21B5}")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+            }
+
             if isCheckingAuth {
                 HStack(spacing: 6) {
                     ProgressView()
@@ -533,6 +596,10 @@ public struct SetupView: View {
             selectManualToken()
         case .apiKey:
             selectApiKey()
+        case .geminiApiKey:
+            selectGeminiKey()
+        case .compatibleEndpoint:
+            selectCompatibleEndpoint()
         }
     }
 
@@ -557,15 +624,19 @@ public struct SetupView: View {
             // Multi-account mode: flat list is [entry0, entry1, ..., enterToken, apiKey]
             // Map current position to an index in that flat list
             let entryCount = keychainEntries.count
-            let totalPositions = entryCount + 2 // entries + "enter token" + "API key"
+            let totalPositions = entryCount + 4 // entries + "enter token" + "API key" + "Gemini" + "Compatible"
 
             var currentPos: Int
             if authSelected == .claudeCode {
                 currentPos = selectedTokenIndex
             } else if authSelected == .manualToken {
-                currentPos = entryCount  // "enter token" position
+                currentPos = entryCount
+            } else if authSelected == .apiKey {
+                currentPos = entryCount + 1
+            } else if authSelected == .geminiApiKey {
+                currentPos = entryCount + 2
             } else {
-                currentPos = entryCount + 1 // API key
+                currentPos = entryCount + 3 // compatible
             }
 
             let newPos = forward
@@ -578,13 +649,17 @@ public struct SetupView: View {
                     selectedTokenIndex = newPos
                 } else if newPos == entryCount {
                     authMethod = .manualToken
-                } else {
+                } else if newPos == entryCount + 1 {
                     authMethod = .apiKey
+                } else if newPos == entryCount + 2 {
+                    authMethod = .geminiApiKey
+                } else {
+                    authMethod = .compatibleEndpoint
                 }
             }
         } else {
-            // Simple mode: [claudeCode, manualToken (sub-item), apiKey]
-            let order: [AuthMethod] = [.claudeCode, .manualToken, .apiKey]
+            // Simple mode: [claudeCode, manualToken (sub-item), apiKey, geminiApiKey, compatibleEndpoint]
+            let order: [AuthMethod] = [.claudeCode, .manualToken, .apiKey, .geminiApiKey, .compatibleEndpoint]
             let current = authSelected
             guard let idx = order.firstIndex(of: current) else { return }
             let next = forward ? min(idx + 1, order.count - 1) : max(idx - 1, 0)
@@ -1102,12 +1177,50 @@ public struct SetupView: View {
         }
     }
 
+    private func selectGeminiKey() {
+        claudeSetup.cancel()
+        withAnimation(.easeIn(duration: 0.1)) { authMethod = .geminiApiKey }
+    }
+
+    private func submitGeminiKey() {
+        let key = geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        authError = nil
+        isCheckingAuth = true
+        Port42AuthStore.shared.saveCredential(key, provider: "gemini")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isCheckingAuth = false
+            completeAuth()
+        }
+    }
+
+    private func selectCompatibleEndpoint() {
+        claudeSetup.cancel()
+        withAnimation(.easeIn(duration: 0.1)) { authMethod = .compatibleEndpoint }
+    }
+
+    private func submitCompatibleEndpoint() {
+        let url = compatibleBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        authError = nil
+        isCheckingAuth = true
+        Port42AuthStore.shared.saveCredential(url, provider: "compatible-url")
+        let key = compatibleKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty { Port42AuthStore.shared.saveCredential(key, provider: "compatibleEndpoint") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isCheckingAuth = false
+            completeAuth()
+        }
+    }
+
     private func completeAuth() {
         let method: String
         switch authMethod {
         case .claudeCode: method = "claude_code"
         case .manualToken: method = "manual_token"
         case .apiKey: method = "api_key"
+        case .geminiApiKey: method = "gemini_api_key"
+        case .compatibleEndpoint: method = "compatible_endpoint"
         case .none: method = "unknown"
         }
         Analytics.shared.setupStep("auth_\(method)")

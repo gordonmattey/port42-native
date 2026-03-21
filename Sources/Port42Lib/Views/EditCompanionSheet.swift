@@ -7,7 +7,9 @@ public struct EditCompanionSheet: View {
 
     @State private var name: String
     @State private var systemPrompt: String
+    @State private var selectedProvider: AgentProvider
     @State private var selectedModel: String
+    @State private var providerBaseURL: String
     @State private var thinkingEnabled: Bool
     @State private var thinkingEffort: String
     @FocusState private var isFocused: Bool
@@ -17,7 +19,9 @@ public struct EditCompanionSheet: View {
         self.companion = companion
         self._name = State(initialValue: companion.displayName)
         self._systemPrompt = State(initialValue: companion.systemPrompt ?? "")
+        self._selectedProvider = State(initialValue: companion.provider ?? .anthropic)
         self._selectedModel = State(initialValue: companion.model ?? "claude-opus-4-6")
+        self._providerBaseURL = State(initialValue: companion.providerBaseURL ?? "")
         self._thinkingEnabled = State(initialValue: companion.thinkingEnabled)
         self._thinkingEffort = State(initialValue: companion.thinkingEffort)
     }
@@ -66,14 +70,14 @@ public struct EditCompanionSheet: View {
                     .cornerRadius(6)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Model")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
+            ProviderModelSection(
+                selectedProvider: $selectedProvider,
+                selectedModel: $selectedModel,
+                providerBaseURL: $providerBaseURL
+            )
 
-                ModelPicker(selectedModel: $selectedModel)
-            }
-
+            // Extended Thinking: only for Anthropic
+            if selectedProvider == .anthropic {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Extended Thinking")
@@ -124,6 +128,7 @@ public struct EditCompanionSheet: View {
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
                 }
             }
+            } // end if selectedProvider == .anthropic
 
             HStack(spacing: 12) {
                 Button("Cancel") {
@@ -167,6 +172,10 @@ public struct EditCompanionSheet: View {
         updated.systemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? nil
             : systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.provider = selectedProvider
+        updated.providerBaseURL = providerBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil
+            : providerBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.model = selectedModel
         updated.thinkingEnabled = thinkingEnabled
         updated.thinkingEffort = thinkingEffort

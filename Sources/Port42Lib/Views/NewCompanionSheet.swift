@@ -129,7 +129,9 @@ public struct NewCompanionSheet: View {
     @State private var namePlaceholder = "companion name"
     @State private var systemPrompt = ""
     @State private var selectedPreset: UUID?
+    @State private var selectedProvider: AgentProvider = .anthropic
     @State private var selectedModel = "claude-opus-4-6"
+    @State private var providerBaseURL = ""
     @State private var thinkingEnabled = false
     @State private var thinkingEffort = "low"
     @FocusState private var isFocused: Bool
@@ -256,14 +258,14 @@ public struct NewCompanionSheet: View {
                     .cornerRadius(6)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Model")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
+            ProviderModelSection(
+                selectedProvider: $selectedProvider,
+                selectedModel: $selectedModel,
+                providerBaseURL: $providerBaseURL
+            )
 
-                ModelPicker(selectedModel: $selectedModel)
-            }
-
+            // Extended Thinking: only for Anthropic
+            if selectedProvider == .anthropic {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Extended Thinking")
@@ -314,6 +316,7 @@ public struct NewCompanionSheet: View {
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
                 }
             }
+            } // end if selectedProvider == .anthropic
 
             HStack(spacing: 12) {
                 Button("Cancel") {
@@ -391,10 +394,13 @@ public struct NewCompanionSheet: View {
             ownerId: user.id,
             displayName: trimmedName,
             systemPrompt: finalPrompt,
-            provider: .anthropic,
+            provider: selectedProvider,
             model: selectedModel,
             trigger: .mentionOnly
         )
+        companion.providerBaseURL = providerBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil
+            : providerBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         companion.thinkingEnabled = thinkingEnabled
         companion.thinkingEffort = thinkingEffort
         appState.addCompanion(companion)

@@ -18,6 +18,13 @@ public struct SignOutSheet: View {
     @StateObject private var claudeSetup = ClaudeCodeSetup()
     @State private var autoDetectStatus: AutoDetectStatus = .unknown
     @State private var currentCheckId: UUID?
+    @State private var anthropicExpanded = true
+    @State private var geminiExpanded = false
+    @State private var geminiKeyInput = ""
+    @State private var geminiTestResult: TestConnectionResult = .idle
+    @State private var compatibleExpanded = false
+    @State private var compatibleBaseURL: String = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
+    @State private var compatibleKeyInput = ""
 
     enum AutoDetectStatus: Equatable {
         case unknown
@@ -323,17 +330,41 @@ public struct SignOutSheet: View {
             Image(systemName: "brain")
                 .font(.system(size: 11))
                 .foregroundStyle(Port42Theme.textSecondary)
-            Text("Claude connection")
+            Text("AI connection")
                 .font(Port42Theme.mono(13))
                 .foregroundStyle(Port42Theme.textSecondary)
             Spacer()
         }
 
-        // Two mode buttons
-        HStack(spacing: 6) {
-            authPrefButton(.autoDetect, label: "auto")
-            authPrefButton(.manualEntry, label: "manual")
-        }
+        // MARK: Anthropic row
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { withAnimation { anthropicExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Text(isAnthropicConfigured ? "◆" : "○")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(isAnthropicConfigured ? Port42Theme.accent : Port42Theme.textSecondary)
+                    Text("Anthropic")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: anthropicExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(Port42Theme.bgPrimary)
+                .cornerRadius(5)
+            }
+            .buttonStyle(.plain)
+
+            if anthropicExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Two mode buttons
+                    HStack(spacing: 6) {
+                        authPrefButton(.autoDetect, label: "auto")
+                        authPrefButton(.manualEntry, label: "manual")
+                    }
 
         // Auto-detect status and guided setup
         Group { if selectedAuthPref == .autoDetect {
@@ -503,6 +534,243 @@ public struct SignOutSheet: View {
 
                 Spacer()
             }
+        }
+                } // end if anthropicExpanded
+                .padding(.leading, 8)
+            }
+        } // end Anthropic VStack
+
+        // MARK: Gemini row
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { withAnimation { geminiExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Text(isGeminiConfigured ? "◆" : "○")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(isGeminiConfigured ? Port42Theme.accent : Port42Theme.textSecondary)
+                    Text("Gemini")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: geminiExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(Port42Theme.bgPrimary)
+                .cornerRadius(5)
+            }
+            .buttonStyle(.plain)
+
+            if geminiExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Paste your Gemini API key from AI Studio:")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+
+                    SecureField("AIzaSy...", text: $geminiKeyInput)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Port42Theme.bgPrimary)
+                        .cornerRadius(4)
+
+                    HStack(spacing: 8) {
+                        Button(action: saveGeminiKey) {
+                            Text(geminiKeyInput.isEmpty ? "clear" : "save")
+                                .font(Port42Theme.monoBold(12))
+                                .foregroundStyle(Port42Theme.accent)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Port42Theme.accent.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: testGeminiKey) {
+                            Text("test")
+                                .font(Port42Theme.monoBold(12))
+                                .foregroundStyle(Port42Theme.accent)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Port42Theme.accent.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
+
+                        geminiTestResultView
+
+                        Spacer()
+                    }
+                }
+                .padding(.leading, 8)
+                .padding(.top, 8)
+            }
+        }
+
+        // MARK: Compatible row
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { withAnimation { compatibleExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Text(isCompatibleConfigured ? "◆" : "○")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(isCompatibleConfigured ? Port42Theme.accent : Port42Theme.textSecondary)
+                    Text("Compatible endpoint")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: compatibleExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(Port42Theme.bgPrimary)
+                .cornerRadius(5)
+            }
+            .buttonStyle(.plain)
+
+            if compatibleExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Base URL")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                        TextField("http://localhost:11434/v1", text: $compatibleBaseURL)
+                            .textFieldStyle(.plain)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Port42Theme.bgPrimary)
+                            .cornerRadius(4)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("API key (optional)")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                        SecureField("leave blank for Ollama", text: $compatibleKeyInput)
+                            .textFieldStyle(.plain)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Port42Theme.bgPrimary)
+                            .cornerRadius(4)
+                    }
+
+                    Button(action: saveCompatibleConfig) {
+                        Text("save")
+                            .font(Port42Theme.monoBold(12))
+                            .foregroundStyle(Port42Theme.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Port42Theme.accent.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.leading, 8)
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    private var isAnthropicConfigured: Bool {
+        if Port42AuthStore.shared.loadPreference() == .manualEntry {
+            return Port42AuthStore.shared.loadCredential(provider: "anthropic") != nil
+        }
+        return (try? AgentAuthResolver.shared.resolve()) != nil
+    }
+
+    private var isGeminiConfigured: Bool {
+        Port42AuthStore.shared.loadCredential(provider: "gemini") != nil
+    }
+
+    private var isCompatibleConfigured: Bool {
+        let url = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
+        return !url.isEmpty
+    }
+
+    private func saveGeminiKey() {
+        let trimmed = geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            Port42AuthStore.shared.deleteCredential(provider: "gemini")
+        } else {
+            Port42AuthStore.shared.saveCredential(trimmed, provider: "gemini")
+        }
+    }
+
+    private func testGeminiKey() {
+        geminiTestResult = .testing
+        let key = geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            geminiTestResult = .failure("No key entered.")
+            return
+        }
+        Task {
+            // Minimal Gemini test: count tokens equivalent doesn't exist; use generateContent with 1 token
+            let urlStr = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(key)"
+            guard let url = URL(string: urlStr) else {
+                await MainActor.run { geminiTestResult = .failure("Invalid URL.") }
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: Any] = [
+                "contents": [["parts": [["text": "hi"]], "role": "user"]],
+                "generationConfig": ["maxOutputTokens": 1]
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                await MainActor.run {
+                    geminiTestResult = (code == 200) ? .success : .failure("HTTP \(code)")
+                }
+            } catch {
+                await MainActor.run { geminiTestResult = .failure(error.localizedDescription) }
+            }
+        }
+    }
+
+    private func saveCompatibleConfig() {
+        let url = compatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = compatibleKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if url.isEmpty {
+            Port42AuthStore.shared.deleteCredential(provider: "compatible-url")
+        } else {
+            Port42AuthStore.shared.saveCredential(url, provider: "compatible-url")
+        }
+        if key.isEmpty {
+            Port42AuthStore.shared.deleteCredential(provider: "compatibleEndpoint")
+        } else {
+            Port42AuthStore.shared.saveCredential(key, provider: "compatibleEndpoint")
+        }
+    }
+
+    @ViewBuilder
+    private var geminiTestResultView: some View {
+        switch geminiTestResult {
+        case .idle:
+            EmptyView()
+        case .testing:
+            ProgressView()
+                .scaleEffect(0.5)
+                .frame(width: 12, height: 12)
+        case .success:
+            Text("connected")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(.green)
+        case .failure(let msg):
+            Text(msg)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(.red)
+                .lineLimit(2)
         }
     }
 
