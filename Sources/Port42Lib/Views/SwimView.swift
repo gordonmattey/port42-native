@@ -9,6 +9,8 @@ public struct SwimView: View {
     let userName: String
     let onExit: () -> Void
 
+    @State private var showInspector = false
+
     public init(companion: AgentConfig, channelId: String, userName: String = "You", onExit: @escaping () -> Void) {
         self.companion = companion
         self.channelId = channelId
@@ -65,10 +67,22 @@ public struct SwimView: View {
                     .font(.system(size: 12))
 
                 Spacer()
+
+                Button(action: { showInspector = true }) {
+                    Image(systemName: "eye")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Inspect \(companion.displayName)'s inner state")
             }
             .padding(.horizontal, 20)
             .frame(height: 44)
             .background(Port42Theme.bgPrimary)
+            .sheet(isPresented: $showInspector) {
+                CreaseInspectorSheet(companion: companion, channelId: channelId)
+                    .environmentObject(appState)
+            }
 
             Divider().background(Port42Theme.border)
 

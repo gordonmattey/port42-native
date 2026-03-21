@@ -456,7 +456,13 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         var parts: [String] = []
 
         if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty || !(f.tensions ?? []).isEmpty || f.holding != nil {
-            parts.append("Your orientation in this relationship (read this as posture, not profile — how you arrive, not what you know about them):\n<fold>\n\(f.asPromptText())\n</fold>")
+            let depthNote: String
+            switch f.depth {
+            case 0...2: depthNote = "[new relationship — orient, ask, establish. this contact surface is still forming]"
+            case 3...6: depthNote = "[established relationship — less orienting, more direct. speak from what's been understood]"
+            default:    depthNote = "[deep relationship — shared grammar. don't orient, don't explain yourself. some things don't need saying anymore]"
+            }
+            parts.append("Your orientation in this relationship (read this as posture, not profile — how you arrive, not what you know about them):\n<fold>\n\(f.asPromptText())\n\(depthNote)\n</fold>")
         }
 
         if let p = position, !p.isEmpty {

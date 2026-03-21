@@ -301,10 +301,13 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func companionRow(_ companion: AgentConfig) -> some View {
+        let swimId = "swim-\(companion.id)"
+        let depth = (try? appState.db.fetchFold(companionId: companion.id, channelId: swimId))?.depth
         Button(action: { appState.startSwim(with: companion) }) {
             CompanionRow(
                 companion: companion,
-                isActive: appState.activeSwimCompanion?.id == companion.id
+                isActive: appState.activeSwimCompanion?.id == companion.id,
+                depth: depth
             )
         }
         .buttonStyle(.plain)
@@ -337,17 +340,20 @@ public struct SidebarView: View {
 public struct CompanionRow: View {
     let name: String
     let isActive: Bool
+    let depth: Int?
 
     @State private var isHovered = false
 
-    public init(companion: AgentConfig, isActive: Bool) {
+    public init(companion: AgentConfig, isActive: Bool, depth: Int? = nil) {
         self.name = companion.displayName
         self.isActive = isActive
+        self.depth = depth
     }
 
-    public init(name: String, isActive: Bool) {
+    public init(name: String, isActive: Bool, depth: Int? = nil) {
         self.name = name
         self.isActive = isActive
+        self.depth = depth
     }
 
     public var body: some View {
@@ -363,6 +369,13 @@ public struct CompanionRow: View {
                 )
 
             Spacer()
+
+            if let d = depth, d > 0 {
+                Circle()
+                    .fill(Port42Theme.textSecondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(min(Double(d) / 10.0, 1.0) * 0.6 + 0.2)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)

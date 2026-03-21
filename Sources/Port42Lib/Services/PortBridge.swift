@@ -747,6 +747,60 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
             return await automationBridge!.runJXA(source: source, opts: opts)
 
+        // MARK: - Relationship state (swim-scoped read-only)
+
+        // port42.creases.read(opts?)
+        case "creases.read":
+            guard let cid = channelId, cid.hasPrefix("swim-") else {
+                return ["error": "creases.read is only available in a swim"]
+            }
+            let companionId = String(cid.dropFirst("swim-".count))
+            let opts = args.first as? [String: Any]
+            let limit = opts?["limit"] as? Int ?? 8
+            let creases = (try? state.db.fetchCreases(companionId: companionId, channelId: cid, limit: limit)) ?? []
+            return creases.map { c -> [String: Any] in
+                var entry: [String: Any] = [
+                    "id": c.id,
+                    "content": c.content,
+                    "weight": c.weight,
+                    "createdAt": ISO8601DateFormatter().string(from: c.createdAt)
+                ]
+                if let pred = c.prediction { entry["prediction"] = pred }
+                if let act = c.actual { entry["actual"] = act }
+                return entry
+            }
+
+        // port42.fold.read()
+        case "fold.read":
+            guard let cid = channelId, cid.hasPrefix("swim-") else {
+                return ["error": "fold.read is only available in a swim"]
+            }
+            let companionId = String(cid.dropFirst("swim-".count))
+            guard let fold = try? state.db.fetchFold(companionId: companionId, channelId: cid) else {
+                return ["depth": 0, "established": [], "tensions": [], "holding": NSNull()] as [String: Any]
+            }
+            return [
+                "depth": fold.depth,
+                "established": fold.established ?? [],
+                "tensions": fold.tensions ?? [],
+                "holding": fold.holding as Any
+            ] as [String: Any]
+
+        // port42.position.read()
+        case "position.read":
+            guard let cid = channelId, cid.hasPrefix("swim-") else {
+                return ["error": "position.read is only available in a swim"]
+            }
+            let companionId = String(cid.dropFirst("swim-".count))
+            guard let pos = try? state.db.fetchPosition(companionId: companionId, channelId: cid), !pos.isEmpty else {
+                return ["read": NSNull(), "stance": NSNull(), "watching": []] as [String: Any]
+            }
+            return [
+                "read": pos.read as Any,
+                "stance": pos.stance as Any,
+                "watching": pos.watching ?? []
+            ] as [String: Any]
+
         default:
             NSLog("[Port42] Unknown bridge method: %@", method)
             return ["error": "unknown method: \(method)"]
