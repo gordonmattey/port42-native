@@ -233,4 +233,45 @@ struct AgentAuthTests {
         #expect(cred.type == .unknown) // prefix doesn't match
         #expect(cred.useOAuthHeaders == true) // but source overrides
     }
+
+    // MARK: - Gemini API key store
+    // Note: these tests use a unique provider name to avoid stomping the real "gemini" Keychain slot
+
+    @Test("Gemini API key save and load round-trips correctly")
+    func geminiKeyRoundTrip() {
+        let store = Port42AuthStore()
+        let provider = "gemini-test-\(UUID().uuidString)"
+        let testKey = "AIzaSyTest-abc123"
+        defer { store.deleteCredential(provider: provider) }
+
+        store.saveCredential(testKey, provider: provider)
+        let loaded = store.loadCredential(provider: provider)
+        #expect(loaded == testKey)
+    }
+
+    @Test("Gemini key returns nil when not set")
+    func geminiKeyNilWhenNotSet() {
+        let store = Port42AuthStore()
+        let provider = "gemini-test-\(UUID().uuidString)"
+        // Never saved — should be nil
+        #expect(store.loadCredential(provider: provider) == nil)
+    }
+
+    @Test("Anthropic key unchanged after gemini key operations")
+    func anthropicKeyUnchangedAfterGeminiOps() {
+        let store = Port42AuthStore()
+        let geminiProvider = "gemini-test-\(UUID().uuidString)"
+        let geminiKey = "AIzaSy-gemini-test"
+        defer { store.deleteCredential(provider: geminiProvider) }
+
+        // Record current anthropic key state (do not modify it)
+        let existingAnthropicKey = store.loadCredential(provider: "anthropic")
+
+        store.saveCredential(geminiKey, provider: geminiProvider)
+        store.deleteCredential(provider: geminiProvider)
+
+        // Anthropic key should be exactly what it was before our operations
+        #expect(store.loadCredential(provider: "anthropic") == existingAnthropicKey)
+        #expect(store.loadCredential(provider: geminiProvider) == nil)
+    }
 }
