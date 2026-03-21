@@ -131,16 +131,30 @@ public final class ToolExecutor {
 
         // MARK: Ports
         case "ports_list":
-            let ports = appState.portWindows.allPorts()
-            if ports.isEmpty {
-                return [textBlock("No active ports.")]
+            let filterCaps = (input["capabilities"] as? [String]) ?? []
+            let allPorts = appState.portWindows.allPorts()
+            let filtered = filterCaps.isEmpty ? allPorts : allPorts.filter { p in
+                filterCaps.allSatisfy { cap in
+                    switch cap {
+                    case "terminal": return p.hasTerminal
+                    default:         return false
+                    }
+                }
             }
-            let list = ports.map { p -> [String: Any] in
-                var info: [String: Any] = ["id": p.udid, "title": p.title, "hasTerminal": p.hasTerminal, "status": p.isBackground ? "docked" : "floating"]
-                if let creator = p.createdBy { info["createdBy"] = creator }
-                return info
+            if filtered.isEmpty {
+                let msg = filterCaps.isEmpty ? "No active ports." : "No ports with capabilities: \(filterCaps.joined(separator: ", "))"
+                return [textBlock(msg)]
             }
-            return [textBlock(jsonString(list))]
+            let lines = filtered.map { p -> String in
+                var caps: [String] = []
+                if p.hasTerminal { caps.append("terminal") }
+                let capsStr = caps.isEmpty ? "[]" : "[" + caps.joined(separator: ", ") + "]"
+                let status = p.isBackground ? "docked" : "floating"
+                let creator = p.createdBy ?? "unknown"
+                return "title: \(p.title)\nid: \(p.udid)\ncapabilities: \(capsStr)\nstatus: \(status)\ncreatedBy: \(creator)"
+            }
+            let header = "\(lines.count) port\(lines.count == 1 ? "" : "s"):"
+            return [textBlock(header + "\n\n" + lines.joined(separator: "\n\n"))]
 
         case "port_manage":
             guard let id = input["id"] as? String,
@@ -291,14 +305,27 @@ public final class ToolExecutor {
                   let data = input["data"] as? String else {
                 return [textBlock("Error: missing 'name' or 'data' parameter")]
             }
-            guard let session = appState.portWindows.terminalSession(forPortNamed: name) else {
-                let available = appState.portWindows.portsWithTerminals().map(\.name).joined(separator: ", ")
-                let hint = available.isEmpty ? "No ports have active terminals." : "Available: \(available)"
-                return [textBlock("Error: no terminal found for port '\(name)'. \(hint)")]
-            }
             let processed = ToolExecutor.processEscapes(data)
-            let ok = session.bridge.send(sessionId: session.sessionId, data: processed)
-            return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
+            // 1. UDID lookup (preferred — use id from ports_list)
+            if let panel = appState.portWindows.findPort(by: name),
+               let tb = panel.bridge.terminalBridge {
+                let ok = tb.sendToFirst(data: processed)
+                return [textBlock(ok ? "Sent to \(panel.title)" : "Error: terminal send failed")]
+            }
+            // 2. Title fuzzy fallback
+            if let session = appState.portWindows.terminalSession(forPortNamed: name) {
+                let ok = session.bridge.send(sessionId: session.sessionId, data: processed)
+                return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
+            }
+            // 3. Useful error listing available terminal ports
+            let available = appState.portWindows.allPorts()
+                .filter(\.hasTerminal)
+                .map { "'\($0.title)' (id: \($0.udid))" }
+                .joined(separator: ", ")
+            let hint = available.isEmpty
+                ? "No ports have active terminal sessions. Create a terminal port first."
+                : "Available terminal ports: \(available)"
+            return [textBlock("Error: no terminal port found for '\(name)'. \(hint)")]
 
         case "terminal_list":
             let terminals = appState.portWindows.portsWithTerminals()
@@ -306,8 +333,14 @@ public final class ToolExecutor {
                 return [textBlock("No ports have active terminal sessions.")]
             }
             let list = terminals.map { t -> [String: Any] in
-                var info: [String: Any] = ["name": t.name, "portId": t.portId, "sessionId": t.sessionId, "createdBy": t.createdBy ?? "unknown"]
-                info["bridged"] = appState.bridgedTerminalNames.contains(t.name.lowercased())
+                let info: [String: Any] = [
+                    "id":           t.portId,
+                    "name":         t.name,
+                    "sessionId":    t.sessionId,
+                    "capabilities": ["terminal"],
+                    "createdBy":    t.createdBy ?? "unknown",
+                    "bridged":      appState.bridgedTerminalNames.contains(t.name.lowercased())
+                ]
                 return info
             }
             return [textBlock(jsonString(list))]

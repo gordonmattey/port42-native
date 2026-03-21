@@ -60,8 +60,17 @@ enum ToolDefinitions {
     static let actionTools: [[String: Any]] = [
         [
             "name": "ports_list",
-            "description": "List all active ports (popped-out interactive surfaces) with their IDs, titles, and status",
-            "input_schema": ["type": "object", "properties": [String: Any]()]
+            "description": "List active ports. Each port has an id (UDID), title, capabilities array, status, and createdBy. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with terminal_send for reliable routing. Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "capabilities": [
+                        "type": "array",
+                        "items": ["type": "string"],
+                        "description": "Filter to ports that have all of these capabilities. Supported values: \"terminal\". Omit to list all ports."
+                    ] as [String: Any]
+                ]
+            ] as [String: Any]
         ],
         [
             "name": "port_manage",
@@ -188,12 +197,12 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_send",
-            "description": "Send input to a named port's terminal session. Use this to interact with running CLI tools like Claude Code, npm, docker, etc.",
+            "description": "Send input to a terminal port. Use the port's id (UDID from ports_list) for reliable routing — it always works. Falls back to fuzzy title match. Include \\n to execute commands.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "name": ["type": "string", "description": "The port title/name containing the terminal"],
-                    "data": ["type": "string", "description": "The text to send as stdin (include \\n for enter)"]
+                    "name": ["type": "string", "description": "Port UDID (id field from ports_list) or port title. Use the UDID for reliability."],
+                    "data": ["type": "string", "description": "Text to send as stdin. Include \\n for enter (e.g. \"npm test\\n\")."]
                 ],
                 "required": ["name", "data"]
             ] as [String: Any]

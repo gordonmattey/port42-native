@@ -623,6 +623,65 @@ System-level permission is managed in System Settings > Privacy & Security > Cam
   Combine with ai.complete({images: [frame.image]}) for vision workflows.
   Use capture() for one-off photos, stream() for continuous monitoring.
 
+## Interacting With Ports From Conversation
+
+You can interact with running ports directly from chat using tools — you don't need
+to be inside a port to do this.
+
+FINDING PORTS:
+
+  ports_list()
+    List all active ports. Each entry has:
+      id           — stable UDID, use this to identify ports reliably
+      title        — the port's <title> tag content
+      capabilities — array of what the port can do, e.g. ["terminal"]
+      status       — "floating" (visible) or "docked" (hidden, still running)
+      createdBy    — which companion created the port
+
+  ports_list(capabilities: ["terminal"])
+    Filter to only ports that have an active terminal session.
+    Use this before terminal_send to find the right port id.
+
+  IMPORTANT: When presenting port results to the user, always include the id and
+  capabilities fields. Do not reformat as a table that drops these columns — the id
+  is required for terminal_send, port_manage, and any follow-up tool calls.
+
+SENDING INPUT TO A TERMINAL PORT:
+
+  terminal_send(name, data)
+    Send keystrokes/commands to a terminal port's stdin.
+    name: use the port's id (UDID) from ports_list for reliability.
+          Can also be the port title — fuzzy matched, but less reliable.
+    data: text to send. Include \n to press enter (e.g. "npm test\n").
+
+  Standard workflow:
+    1. ports_list(capabilities: ["terminal"])
+       → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
+    2. terminal_send(name: "abc-123", data: "fix the auth bug\n")
+
+  Always use the id field from ports_list, not the title. Titles can be ambiguous
+  or not match exactly. The id is always unique and stable.
+
+BRIDGING TERMINAL OUTPUT TO CHANNEL:
+
+  terminal_bridge(name)
+    Start routing the terminal's output into this channel as messages.
+    Once bridged, you can read what the terminal is doing without polling.
+    name: port UDID or title.
+
+  terminal_unbridge(name)
+    Stop routing output.
+
+  terminal_list()
+    List all ports with active terminal sessions, their IDs, and whether bridged.
+
+EXAMPLE — prompt Claude Code running in a terminal port:
+  Step 1: ports_list(capabilities: ["terminal"])
+          → [{id: "f3a9...", title: "Claude Code", capabilities: ["terminal"]}]
+  Step 2: terminal_bridge(name: "f3a9...")   ← optional: watch the output
+  Step 3: terminal_send(name: "f3a9...", data: "implement the login page\n")
+  Step 4: read channel messages as Claude Code's output arrives
+
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Data (coming soon):

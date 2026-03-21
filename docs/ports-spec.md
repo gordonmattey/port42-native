@@ -1,8 +1,8 @@
 # Ports Spec
 
-**Last updated:** 2026-03-17
+**Last updated:** 2026-03-20
 
-**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b complete (bugs fixed, background ports, window persistence, UDIDs, port_update, ports_list, dock/undock, docking removed, edge snap/tiling removed in favour of manual arrangement). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol).
+**Status:** Phase 1 + Phase 2 + Phase 3 + Phase 5 complete (all device APIs shipped). Phase 2b complete (bugs fixed, background ports, window persistence, UDIDs, port_update, ports_list, dock/undock, docking removed, edge snap/tiling removed in favour of manual arrangement). Phase 6 in progress (Automation done). Phase 7 specced (Agent Embed Protocol). B-001 (terminal_send routing) fixed via UDID-first lookup + capabilities field. Outstanding bugs: fs.pick() never opens NSOpenPanel (B-002), only first port block per message opens (B-003), capabilities metadata not surfaced in companion tool responses (B-004). Permissions currently persisted per port instance (messageId), not per companion+channel — needs rework (P-260). Port controls (P-220) and startup window behavior (P-239) done. Port version history (P-219), inline compact block (P-241), multi-companion activity (P-262), and port HTML retrieval (P-263) are pending.
 
 ---
 
@@ -304,13 +304,18 @@ Target: The ouroboros. The fish swims in itself.
 
 | ID | Feature | Description | Priority | Done When |
 |----|---------|-------------|----------|-----------|
-| P-241 | Inline Port Compact Block | Inline ports in the message stream render as a compact block (icon + title) rather than a full-width live webview. Click to expand inline or pop out. Reduces visual noise when scrolling through chat. | High | Inline port shows as a small titled block, not a full webview |
+| P-241 | Inline Port Compact Block | Inline ports in the message stream render as a compact block (icon + title) rather than a full-width live webview. Click to expand inline or pop out. Reduces visual noise when scrolling through chat. Currently still rendering full webviews inline. | High | Inline port shows as a small titled block, not a full webview |
 | P-211 | Inline Port Update | Companion sends updated port that replaces the existing inline port in the same message, not a new message. Running popped-out version also updates. | High | "Change the chart to weekly" updates the live port in place |
 | P-209 | Port Channel Context | Ports pin to origin channel by default. `port42.channel.follow(true/false)` lets port choose. Affects what `port42.channel.current()` and `port42.messages.recent()` return. | High | Port has predictable channel context when user navigates away |
-| P-219 | Port History | Browseable list of all ports created in this session and past sessions. Reopen any port from history without scrolling through chat. Accessible from sidebar or command palette. | High | User can find and reopen any previous port |
-| P-220 | Port Controls | Stop button (kill running port), running indicator (green dot), restart button (re-execute from scratch). Visible in port title bar. | High | User can stop, see status, and restart any port |
+| P-219 | Port History | Browseable list of all ports created in this session and past sessions. Reopen any port from history without scrolling through chat. Accessible from sidebar or command palette. Each port history entry stores: creating companion, creating prompt (the user message that triggered it), HTML snapshot, and timestamp. Multiple companions overwriting a port is a problem: if companion A creates a port and companion B calls `port_update` on the same port, the HTML is silently replaced with no record of what it was. History should be per-author per-version (like git log). Needs a `port_get_html(id)` tool so companions can read the current HTML of an existing port before deciding to update it (see P-263). | High | User can find and reopen any previous port; overwrite history is preserved per companion |
+| P-220 | Port Controls | Stop button (kill running port), running indicator (green dot), restart button (re-execute from scratch). Visible in port title bar. | High | ✅ Done |
 | P-242 | Port Title Attribution | Port title bar shows the port name (from `<title>` tag) and the companion that created it (e.g. "channel pulse · engineer"). Applies to inline blocks, floating panels, and background port list. | High | User can see at a glance what a port is and who made it |
 | P-221 | Port Restart Persistence | Verify and fix ports surviving app restart (P-203 may be broken). Port HTML and state restored on launch. | High | Ports reappear after quit and relaunch |
+| P-260 | Permission Persistence per Companion+Channel | Granted permissions are currently stored per port instance (messageId). Close a port, reopen it, and every permission is re-prompted. Permissions should persist per companion+channel pair so a trusted companion in a trusted channel never re-asks. Stored in DB with companion ID + channel ID as key. Separate from per-port session overrides (those still reset on close). | High | Granting terminal permission to engineer in #dev persists across port restarts |
+| P-261 | Permission Attribution | The permission dialog currently says "This port wants to access your terminal." It should say which companion is asking: "engineer wants to access your terminal. Allow?" Shows companion name, companion icon/color, and the channel it's acting in. Makes it clear who is requesting what. | High | Permission prompt names the requesting companion |
+| P-262 | Multi-Companion Port Activity | When multiple companions are simultaneously creating or updating ports, the user sees all of them listed: "engineer is building a port... analyst is updating dashboard..." Each active port-creation shows the companion name, a preview of what's being built (port title from the streaming fence if available), and progress state (streaming / rendering / ready). Visible in a small overlay or the sidebar's port section. | Medium | User sees all companions actively building ports at once |
+| P-263 | Port HTML Retrieval API | Companions can read the current HTML of an existing port via `port_get_html(id)` tool and `port42.port.html()` bridge method. This lets a companion inspect what's already rendered before deciding to update it. Without this, a companion updating a port is writing blind — it may overwrite work from another companion or miss state it should preserve. Also needed for the version history re-generation flow. | High | Companion can read existing port HTML before updating it |
+| P-264 | Media Capture Visibility in Chat | When a companion calls a capture API (screen.capture, camera.capture, audio.capture) the result should appear inline in the chat thread — not just get returned to the companion silently. The image/audio should be shown as a message bubble attributed to the companion ("engineer captured your screen"), same visual weight as a regular message. Additionally the capture should be saved to disk (e.g. `~/Library/Application Support/Port42/captures/`) and recorded in a DB table so the user can find them later. Applies to: screen captures, camera frames, audio recordings. Does not apply to streaming camera frames or headless browser screenshots (too high frequency). | High | Companion calls screen.capture, image appears in chat and is saved to disk |
 
 **Bugs:**
 
@@ -323,6 +328,10 @@ Target: The ouroboros. The fish swims in itself.
 | P-226 | Docked Panel Permission | `DockedPortView` used `onChange` instead of `onReceive`. Fixed. (Moot now, docking removed.) | Critical | ✅ Fixed |
 | P-227 | Permission Persistence | Granted permissions lost on restart. Fixed: permissions stored in `port_panels` DB table (v14 migration). | Critical | ✅ Fixed |
 | P-228 | Title Bar Buttons | `PortDragNSView.mouseDown` consumed all clicks, preventing button actions. Fixed: drag area restricted to title region only, not behind buttons. | Critical | ✅ Fixed |
+| B-001 | terminal_send Companion Tool Not Delivering | **Steps:** Launch Claude Code in a terminal port. Use companion-side `terminal_send` tool to push a prompt. Message does not arrive in the PTY session. **Root cause:** Terminal sessions are owned by `PortBridge` instances (one per webview). The companion-side `terminal_send` tool has no way to look up which bridge owns a session — there is no shared registry on AppState. `terminal.send()` from within the same port (JS side) works because it calls into the owning bridge directly. **Fix applied (2026-03-20):** `terminal_send` now uses port UDID as primary key via `PortWindowManager.findPort(by:)`, which already does UDID-first lookup. `ports_list` now returns `capabilities: ["terminal"]` instead of `hasTerminal: bool`. Companion system prompt updated with UDID workflow. Verified: echo hello sends correctly. | Critical | ✅ Fixed |
+| B-002 | fs.pick() Never Opens NSOpenPanel | **Steps:** Call `port42.fs.pick()` from any port. The permission dialog may or may not appear, but NSOpenPanel/NSSavePanel never opens. The promise hangs silently — no error thrown, no result returned. **Impact:** Any port with file import/export is broken. Markdown editors, CSV importers, export tools. **Workaround:** Use companion-side `terminal_exec` to read/write files, pass content via `port42.storage`. **Likely cause:** `fs.pick()` may be waiting on a main-thread dispatch that is deadlocking, or the panel's sheet parent window is nil. Needs investigation in `PortBridge.swift` file system handler. | Critical | File picker opens and returns selected paths |
+| B-003 | Only First Port Block Per Message Opens | **Steps:** Ask a companion to create two terminal ports in one message. Companion returns two ` ```port ` fences. Only the first opens. **Root cause:** `portContent: String?` in `ConversationContent.swift` calls `content.range(of: "```port")` which returns the first match only. `containsPort: Bool` and the entire rendering path assume one port per message. **Fix:** Change `portContent: String?` → `portContents: [String]`, update rendering loop in `ConversationContent`. All callers of `portContent`, `textBeforePort`, `textAfterPort` need updating too. | Medium | Companion can create multiple ports in one response and all open |
+| B-004 | Capabilities Metadata Not Visible in Companion Tool Responses | **Steps:** Ask companion to list ports. Companion calls `ports_list()` — data returned includes `capabilities: ["terminal"]` correctly. But companion formats as a markdown table, drops the array column, and presents only title/creator/status. **Root cause:** Raw JSON return — companion reformats freely and strips structured fields. **Fix applied (2026-03-20):** `ports_list` now returns pre-formatted labelled text (title/id/capabilities/status/createdBy per port) instead of raw JSON. Companions pass through labelled fields rather than reformatting. Tool description and ports-context.txt also updated with explicit instruction to preserve id and capabilities. | Low | ✅ Fixed |
 
 **Port Windowing System:**
 
@@ -331,7 +340,7 @@ Target: The ouroboros. The fish swims in itself.
 | P-230 | ~~Edge Snap~~ | Removed. Replaced by manual window arrangement. Smart tiling (grid snap, edge snap, auto-arrange) deferred to future phase. | ~~Critical~~ | ❌ N/A |
 | P-231 | ~~Screen Edge Snap~~ | Removed. See P-230. | ~~High~~ | ❌ N/A |
 | P-232 | ~~Multi-Port Tiling~~ | Removed. See P-230. | ~~High~~ | ❌ N/A |
-| P-239 | Startup Window Behavior | Main window fills screen on launch. After sign-in, main window and port panels restore to saved positions/sizes. | High | App starts maximized, restores after sign-in |
+| P-239 | Startup Window Behavior | Main window fills screen on launch. After sign-in, main window and port panels restore to saved positions/sizes. | High | ✅ Done |
 | P-240 | Window Sets | Ports associate with channel/swim context. Switching context shows/hides relevant ports. Supersedes P-404 Port Spaces with a grounded design. | Medium | Switch channel, see that channel's ports |
 | P-233 | Always-on-Top | Port can be pinned to float above all other content (including chat). Toggle in port title bar. Persists across restart. | Medium | ✅ Done |
 | P-234 | Background Ports | Minimize to background (hidden but running). Listed in sidebar. Click to restore as floating window. Persists across restart. | Medium | ✅ Done |
@@ -497,6 +506,7 @@ port42.storage
 
 port42.port
   .info()                         → { messageId, createdBy, channelId }
+  .html()                         → current HTML of this port (P-263, pending)
   .close()                        → close this port
   .resize(w, h)                   → resize this port
 
@@ -547,6 +557,8 @@ every 3s. If no heartbeat for 10s, status flips to `'disconnected'`.
 Permission model gates sensitive bridge APIs. First call to a protected
 method shows a SwiftUI alert. Permission stored per port session (reset
 on close). Each capability is a separate grant.
+
+**Known gaps:** Permissions reset every time a port is closed and reopened — there is no persistence per companion+channel (P-260). The permission dialog does not name the requesting companion (P-261).
 
 ```
 Implemented:
@@ -1214,4 +1226,106 @@ port42.port
 **Permission model:** sharing a port exposes its HTML/JS source to the recipient. No extra permission needed (the source is already visible to the user who created it). System-level bridge permissions (terminal, automation, etc.) are re-prompted for each new recipient's instance.
 
 **Priority:** Medium. Enables collaborative port workflows and is the natural complement to channel sync.
+
+---
+
+## Proposals
+
+These are ideas that are not yet specced into a phase. Candidates for Phase 8+.
+
+### Proposal: Channel Working Directory
+
+**Problem:** No way to anchor a channel to a project directory. Every terminal spawn, file operation, and tool call needs explicit absolute paths. Companions have no default context about where they're working.
+
+**Proposed API:**
+```js
+await port42.channel.setCwd('/Users/gordon/Code/myapp');
+
+// All subsequent operations inherit it:
+const result = await port42.terminal.spawn();  // auto-cwd
+const file = await port42.fs.read('src/index.ts');  // relative paths work
+```
+
+**Companion-side tool:** `channel_set_cwd(path)` / `channel_get_cwd()`.
+
+**Benefits:** Terminal spawns default to project root. File operations accept relative paths. Companions have project context without being told every time. Persists per-channel via storage. Drag a directory into the Port42 window to set it.
+
+---
+
+### Proposal: Port-to-Port Pipelines
+
+**Problem:** Ports are isolated. A dashboard and a terminal are fully isolated. No cross-port communication exists. You can't chain operations where one port's output feeds another's input.
+
+**Workaround today (polling via shared storage):**
+```js
+// Port A (producer)
+await port42.storage.set('pipe:step1', output, {shared: true});
+// Port B (consumer)
+setInterval(async () => {
+  const data = await port42.storage.get('pipe:step2', {shared: true});
+  if (data) render(data);
+}, 500);
+```
+
+**Proposed first-class API:**
+```js
+const pipeline = port42.pipeline.create([
+  { name: 'scraper',   html: scraperHTML },
+  { name: 'analyzer',  html: analyzerHTML },
+  { name: 'dashboard', html: dashboardHTML }
+]);
+
+// Inside each port — unix pipe semantics:
+port42.pipeline.onInput((data) => {
+  const result = transform(data);
+  port42.pipeline.emit(result);  // feeds next stage
+});
+```
+
+Unix pipes but for interactive UI stages. Each port is a transform node. Supports fan-out (one-to-many), merge (many-to-one), and conditional branching.
+
+**Use cases:** scrape page → extract entities → visualize as graph. Mic input → transcription → sentiment analysis → live dashboard. CSV upload → clean → chart.
+
+---
+
+### Proposal: Native App Launcher API
+
+**Problem:** Companions can generate files but can't open them in the right app. Write a markdown file, open it in Typora. Generate a diagram, open it in Preview. A CSV? Open in Numbers. Right now the human has to go find the file and double-click it.
+
+**Proposed API:**
+```js
+port42.apps.open(path, {app: 'Typora'})     // open file in specific app
+port42.apps.open(path)                       // open in default app
+port42.apps.launch('com.typora.Typora')      // just launch an app
+port42.apps.list()                           // list installed apps
+```
+
+**Companion-side tool:** `open_app(path, app?)` / `open_app(bundleId)`.
+
+**This completes the file lifecycle:** generate (companion writes file) → open (companion opens in right app) → edit (human edits) → read back (companion reads updated file). Without step 2, there's a gap where the human navigates manually. That breaks the flow.
+
+**Permission:** same model as other tools. First use prompts for approval. Path must already be approved or created by the companion.
+
+---
+
+### Proposal: Port Prompt Provenance
+
+**Problem:** Ports are generated from user prompts, but the prompt that created a port is lost. You can't inspect a port and see what the user was trying to do or what the companion interpreted. Makes debugging, iterating, and sharing ports harder.
+
+**Proposed change to `port42.port.info()`:**
+```js
+{
+  messageId: '...',
+  createdBy: 'engineer',
+  channelId: '...',
+  prompt: 'build me a terminal port that runs claude code',  // NEW
+  systemContext: '...',  // optional: companion system prompt or relevant context
+  createdAt: '2025-01-15T...',
+  version: 1  // increments on port_update
+}
+```
+
+**Every `port_update` also stores its prompt.** A port becomes a chain of prompts and resulting HTML. You can scrub through history like git commits.
+
+**Benefits:** debugging (see exactly what generated a broken port), iteration ("regenerate this port" replays the prompt), sharing (export as prompt + HTML so others can regenerate or fork), learning (companions inspect past ports to improve).
 
