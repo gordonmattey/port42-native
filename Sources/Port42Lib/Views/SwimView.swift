@@ -79,7 +79,7 @@ public struct SwimView: View {
                 error: appState.channelErrors[channelId],
                 typingNames: isStreaming ? [companion.displayName] : [],
                 toolingNames: isTooling ? [companion.displayName] : [],
-                bridgeNames: Array(appState.activeBridgeNames[channelId] ?? []),
+                bridgeNames: appState.activeBridgeNames[channelId] ?? [:],
                 channelId: channelId,
                 onSend: { content in appState.sendMessage(content: content) },
                 onStop: { appState.cancelStreaming(channelId: channelId) },

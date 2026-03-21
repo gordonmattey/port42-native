@@ -144,7 +144,7 @@ public struct ConversationContent: View {
     let error: String?
     let typingNames: [String]
     let toolingNames: [String]
-    let bridgeNames: [String]
+    let bridgeNames: [String: String]
     let mentionCandidates: [MentionSuggestion]
     let localOwner: String?
     let channelId: String?
@@ -177,7 +177,7 @@ public struct ConversationContent: View {
         error: String? = nil,
         typingNames: [String] = [],
         toolingNames: [String] = [],
-        bridgeNames: [String] = [],
+        bridgeNames: [String: String] = [:],
         mentionCandidates: [MentionSuggestion] = [],
         localOwner: String? = nil,
         channelId: String? = nil,
@@ -206,10 +206,8 @@ public struct ConversationContent: View {
         self.onTypingChanged = onTypingChanged
     }
 
-    /// All port-containing entries render live (LazyVStack ensures only visible ones load)
+    /// No inline ports autoplay; user activates them manually
     private func recomputeActivePortIDs() {
-        let portEntries = entries.filter { $0.containsPort }
-        cachedActivePortIDs = Set(portEntries.map { $0.id })
         lastEntryCount = entries.count
     }
 
@@ -963,10 +961,11 @@ struct PortCompactBlock: View {
 struct TypingIndicator: View {
     let names: [String]
     let toolingNames: [String]
-    let bridgeNames: [String]
+    /// companionName → portName
+    let bridgeNames: [String: String]
     @State private var dotPhase = 0
 
-    init(names: [String], toolingNames: [String] = [], bridgeNames: [String] = []) {
+    init(names: [String], toolingNames: [String] = [], bridgeNames: [String: String] = [:]) {
         self.names = names
         self.toolingNames = toolingNames
         self.bridgeNames = bridgeNames
@@ -1004,39 +1003,57 @@ struct TypingIndicator: View {
     }
 
     private var statusText: String {
-        // Bridge-only — no companions typing or porting
-        if allNames.isEmpty && !bridgeNames.isEmpty {
-            let sorted = bridgeNames.sorted()
-            switch sorted.count {
-            case 1: return "bridge active: \(sorted[0])"
-            default: return "\(sorted.count) bridges active"
-            }
-        }
-
         let pureTooling = Set(toolingNames).subtracting(Set(names))
         let pureTyping = Set(names).subtracting(Set(toolingNames))
 
-        if !pureTooling.isEmpty && pureTyping.isEmpty {
+        var base: String
+        if allNames.isEmpty {
+            base = ""
+        } else if !pureTooling.isEmpty && pureTyping.isEmpty {
             let sorted = pureTooling.sorted()
             switch sorted.count {
-            case 1: return "\(sorted[0]) is porting"
-            case 2: return "\(sorted[0]) and \(sorted[1]) are porting"
-            default: return "\(sorted[0]) and \(sorted.count - 1) others are porting"
+            case 1: base = "\(sorted[0]) is porting"
+            case 2: base = "\(sorted[0]) and \(sorted[1]) are porting"
+            default: base = "\(sorted[0]) and \(sorted.count - 1) others are porting"
             }
         } else if pureTooling.isEmpty && !pureTyping.isEmpty {
             let sorted = pureTyping.sorted()
             switch sorted.count {
-            case 1: return "\(sorted[0]) is typing"
-            case 2: return "\(sorted[0]) and \(sorted[1]) are typing"
-            default: return "\(sorted[0]) and \(sorted.count - 1) others are typing"
+            case 1: base = "\(sorted[0]) is typing"
+            case 2: base = "\(sorted[0]) and \(sorted[1]) are typing"
+            default: base = "\(sorted[0]) and \(sorted.count - 1) others are typing"
             }
         } else {
             let all = allNames
             switch all.count {
-            case 1: return "\(all[0]) is porting"
-            default: return "\(all.count) companions active"
+            case 1: base = "\(all[0]) is porting"
+            default: base = "\(all.count) companions active"
             }
         }
+
+        // Append bridge activity — group companions by port name
+        if !bridgeNames.isEmpty {
+            var portToCompanions: [String: [String]] = [:]
+            for (companion, port) in bridgeNames {
+                portToCompanions[port, default: []].append(companion)
+            }
+            var bridgeParts: [String] = []
+            for port in portToCompanions.keys.sorted() {
+                let companions = portToCompanions[port]!.sorted()
+                let who: String
+                switch companions.count {
+                case 1: who = companions[0]
+                case 2: who = "\(companions[0]) and \(companions[1])"
+                default: who = "\(companions[0]) and \(companions.count - 1) others"
+                }
+                let verb = companions.count == 1 ? "is" : "are"
+                bridgeParts.append("\(who) \(verb) bridging: \(port)")
+            }
+            let bridgeStr = bridgeParts.joined(separator: " · ")
+            base = base.isEmpty ? bridgeStr : "\(base) · \(bridgeStr)"
+        }
+
+        return base
     }
 
     private func animateDots() {

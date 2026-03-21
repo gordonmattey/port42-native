@@ -610,8 +610,8 @@ public final class AppState: ObservableObject {
     @Published public var aiPaused: Bool = false
     /// Terminal ports currently bridged to conversations (shared across ToolExecutor instances)
     public var bridgedTerminalNames: Set<String> = []
-    /// Active terminal bridge port names per channel — drives the bridge indicator in chat
-    @Published public var activeBridgeNames: [String: Set<String>] = [:]
+    /// Active terminal bridges per channel: channelId → [companionName: portName]
+    @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
     private var bridgeActivityTimers: [String: Timer] = [:]
     /// The companion whose swim channel is currently open. Nil when showing a regular channel.
@@ -1084,13 +1084,13 @@ public final class AppState: ObservableObject {
 
     /// Mark a terminal bridge as active for a channel — shows indicator in chat.
     /// Auto-clears after 8s of no new activity.
-    public func noteBridgeActivity(channelId: String, portName: String) {
-        activeBridgeNames[channelId, default: []].insert(portName)
-        let key = "\(channelId):\(portName)"
+    public func noteBridgeActivity(channelId: String, companionName: String, portName: String) {
+        activeBridgeNames[channelId, default: [:]][companionName] = portName
+        let key = "\(channelId):\(companionName)"
         bridgeActivityTimers[key]?.invalidate()
         bridgeActivityTimers[key] = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.activeBridgeNames[channelId]?.remove(portName)
+                self?.activeBridgeNames[channelId]?.removeValue(forKey: companionName)
                 if self?.activeBridgeNames[channelId]?.isEmpty == true {
                     self?.activeBridgeNames.removeValue(forKey: channelId)
                 }

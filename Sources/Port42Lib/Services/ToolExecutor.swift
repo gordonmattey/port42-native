@@ -119,7 +119,7 @@ public final class ToolExecutor {
         let chId = channelId ?? appState.currentChannel?.id ?? ""
         guard !chId.isEmpty else { return }
         appState.bridgedTerminalNames.insert(key)
-        let batcher = OutputBatcher(portName: portTitle, channelId: chId, appState: appState)
+        let batcher = OutputBatcher(portName: portTitle, channelId: chId, companionName: createdBy ?? "bridge", appState: appState)
         Self.outputBatchers[key] = batcher
         termBridge.session(for: sessionId)?.addOutputObserver { [weak batcher] rawOutput in
             Task { @MainActor in
@@ -683,14 +683,16 @@ public final class ToolExecutor {
 final class OutputBatcher {
     private let portName: String
     private let channelId: String
+    private let companionName: String
     private weak var appState: AppState?
     private var buffer = ""
     private var flushTimer: Timer?
     private var lastPosted = ""
 
-    init(portName: String, channelId: String, appState: AppState?) {
+    init(portName: String, channelId: String, companionName: String, appState: AppState?) {
         self.portName = portName
         self.channelId = channelId
+        self.companionName = companionName
         self.appState = appState
     }
 
@@ -699,7 +701,7 @@ final class OutputBatcher {
         // Show bridge indicator immediately when data arrives
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.appState?.noteBridgeActivity(channelId: self.channelId, portName: self.portName)
+            self.appState?.noteBridgeActivity(channelId: self.channelId, companionName: self.companionName, portName: self.portName)
         }
         // Debounce: flush after 10s of quiet
         flushTimer?.invalidate()
@@ -736,7 +738,7 @@ final class OutputBatcher {
 
         guard let appState else { return }
         // Show bridge-active indicator in chat (silent — no message posted)
-        appState.noteBridgeActivity(channelId: channelId, portName: portName)
+        appState.noteBridgeActivity(channelId: channelId, companionName: companionName, portName: portName)
         // Feed cleaned output to the game loop (drives the agent↔terminal loop)
         appState.terminalLoop(for: channelId)?.receiveOutput(content)
     }
