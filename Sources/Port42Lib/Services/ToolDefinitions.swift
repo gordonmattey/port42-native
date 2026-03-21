@@ -65,6 +65,28 @@ enum ToolDefinitions {
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
+            "name": "position_read",
+            "description": "Read your current position in this channel — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.",
+            "input_schema": ["type": "object", "properties": [String: Any]()]
+        ],
+        [
+            "name": "position_set",
+            "description": "Establish or update your position — where you stand independent of what was just asked. This is not what you say. It's what you see and what you believe. Call this when your read of the situation changes, not after every exchange. A position gives you somewhere to push back from.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "read": ["type": "string", "description": "What you think is actually happening beneath what's being said."],
+                    "stance": ["type": "string", "description": "What you think needs to happen."],
+                    "watching": [
+                        "type": "array",
+                        "items": ["type": "string"],
+                        "description": "Signals you're tracking that would confirm or change your read."
+                    ] as [String: Any]
+                ],
+                "required": ["read"]
+            ] as [String: Any]
+        ],
+        [
             "name": "fold_update",
             "description": "Update the fold — your orientation in this relationship. Update specific fields: established (shared understandings), tensions (unresolved threads), holding (the one thing you're carrying). Use depthDelta: 1 only when a real fold happened — something new was compressed into the relationship, not just a message exchanged.",
             "input_schema": [

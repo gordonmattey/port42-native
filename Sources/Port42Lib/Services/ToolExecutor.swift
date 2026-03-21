@@ -220,6 +220,37 @@ public final class ToolExecutor {
             try appState.db.saveFold(fold)
             return [textBlock("ok")]
 
+        case "position_read":
+            guard let companionId = createdBy, let cid = channelId else {
+                return [textBlock("Error: no companion/channel context")]
+            }
+            if let pos = try appState.db.fetchPosition(companionId: companionId, channelId: cid), !pos.isEmpty {
+                return [textBlock(jsonString([
+                    "read": pos.read ?? "",
+                    "stance": pos.stance ?? "",
+                    "watching": pos.watching ?? [],
+                    "confidence": pos.confidence
+                ] as [String: Any]))]
+            } else {
+                return [textBlock("No position formed yet for this channel.")]
+            }
+
+        case "position_set":
+            guard let companionId = createdBy, let cid = channelId else {
+                return [textBlock("Error: no companion/channel context")]
+            }
+            guard let read = input["read"] as? String, !read.isEmpty else {
+                return [textBlock("Error: position_set requires 'read'")]
+            }
+            var pos = (try? appState.db.fetchPosition(companionId: companionId, channelId: cid))
+                ?? CompanionPosition(companionId: companionId, channelId: cid)
+            pos.read = read
+            if let stance = input["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
+            if let watching = input["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }
+            pos.updatedAt = Date()
+            try appState.db.savePosition(pos)
+            return [textBlock("ok")]
+
         // MARK: Info tools
         case "user_get":
             guard let user = appState.currentUser else {

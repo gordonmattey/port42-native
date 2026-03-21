@@ -317,6 +317,25 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v21-companion-positions") { db in
+            try db.create(table: "companion_positions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("companionId", .text).notNull()
+                t.column("channelId", .text).notNull()
+                t.column("read", .text)
+                t.column("stance", .text)
+                t.column("watching", .text)
+                t.column("confidence", .double).defaults(to: 0.5)
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(
+                index: "companion_positions_unique",
+                on: "companion_positions",
+                columns: ["companionId", "channelId"],
+                unique: true
+            )
+        }
+
         migrator.registerMigration("v20-companion-creases-and-folds") { db in
             try db.create(table: "companion_creases") { t in
                 t.column("id", .text).primaryKey()
@@ -580,6 +599,45 @@ public final class DatabaseService {
         try dbQueue.write { db in
             try db.execute(
                 sql: "DELETE FROM companion_folds WHERE companionId = ?",
+                arguments: [companionId]
+            )
+        }
+    }
+
+    // MARK: - Companion Positions
+
+    public func fetchPosition(companionId: String, channelId: String) throws -> CompanionPosition? {
+        try dbQueue.read { db in
+            try CompanionPosition
+                .filter(Column("companionId") == companionId && Column("channelId") == channelId)
+                .fetchOne(db)
+        }
+    }
+
+    /// Upsert position for a companion×channel pair.
+    public func savePosition(_ position: CompanionPosition) throws {
+        var position = position
+        try dbQueue.write { db in
+            if var existing = try CompanionPosition
+                .filter(Column("companionId") == position.companionId && Column("channelId") == position.channelId)
+                .fetchOne(db) {
+                existing.read = position.read
+                existing.stance = position.stance
+                existing.watching = position.watching
+                existing.confidence = position.confidence
+                existing.updatedAt = position.updatedAt
+                try existing.update(db)
+            } else {
+                try position.insert(db)
+            }
+        }
+    }
+
+    /// Remove all positions for a companion (called when companion is deleted).
+    public func deletePositionsForCompanion(_ companionId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM companion_positions WHERE companionId = ?",
                 arguments: [companionId]
             )
         }

@@ -1,6 +1,90 @@
 import Foundation
 import GRDB
 
+// MARK: - CompanionPosition
+
+/// The companion's live read of a channel — not stored opinions but active interpretation.
+/// What the companion currently thinks is happening, what it thinks needs to happen,
+/// and what signals it's watching that would confirm or change that read.
+public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Codable {
+    public static let databaseTableName = "companion_positions"
+
+    public var id: String
+    public var companionId: String
+    public var channelId: String
+    public var read: String?       // what the companion thinks is actually happening
+    public var stance: String?     // what the companion thinks needs to happen
+    public var watching: [String]? // signals being tracked
+    public var confidence: Double
+    public var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, companionId, channelId, read, stance, watching, confidence, updatedAt
+    }
+
+    public init(
+        id: String = UUID().uuidString,
+        companionId: String,
+        channelId: String,
+        read: String? = nil,
+        stance: String? = nil,
+        watching: [String]? = nil,
+        confidence: Double = 0.5,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.companionId = companionId
+        self.channelId = channelId
+        self.read = read
+        self.stance = stance
+        self.watching = watching
+        self.confidence = confidence
+        self.updatedAt = updatedAt
+    }
+
+    public func encode(to container: inout PersistenceContainer) throws {
+        container["id"] = id
+        container["companionId"] = companionId
+        container["channelId"] = channelId
+        container["read"] = read
+        container["stance"] = stance
+        container["confidence"] = confidence
+        container["updatedAt"] = updatedAt
+        if let w = watching {
+            container["watching"] = (try? JSONEncoder().encode(w)).flatMap { String(data: $0, encoding: .utf8) }
+        } else {
+            container["watching"] = nil as String?
+        }
+    }
+
+    public init(row: Row) throws {
+        id = row["id"]
+        companionId = row["companionId"]
+        channelId = row["channelId"]
+        read = row["read"]
+        stance = row["stance"]
+        confidence = row["confidence"] ?? 0.5
+        updatedAt = row["updatedAt"]
+        if let wStr: String = row["watching"],
+           let data = wStr.data(using: .utf8) {
+            watching = try? JSONDecoder().decode([String].self, from: data)
+        }
+    }
+
+    /// Format for injection into LLM context.
+    public func asPromptText() -> String {
+        var parts: [String] = []
+        if let r = read, !r.isEmpty { parts.append("Read: \(r)") }
+        if let s = stance, !s.isEmpty { parts.append("Stance: \(s)") }
+        if let w = watching, !w.isEmpty { parts.append("Watching: \(w.joined(separator: ", "))") }
+        return parts.joined(separator: "\n")
+    }
+
+    public var isEmpty: Bool {
+        (read ?? "").isEmpty && (stance ?? "").isEmpty && (watching ?? []).isEmpty
+    }
+}
+
 // MARK: - CompanionCrease
 
 /// A crease — a moment where the companion's prediction broke and something reformed.

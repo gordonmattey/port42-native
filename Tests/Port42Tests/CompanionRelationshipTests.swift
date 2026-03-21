@@ -268,9 +268,127 @@ struct CompanionRelationshipTests {
         #expect(text.contains("shared grammar"))
     }
 
+    // MARK: - Position: basic persistence
+
+    @Test("Save and fetch a position")
+    func saveAndFetchPosition() throws {
+        let db = try makeDB()
+        let pos = CompanionPosition(
+            companionId: "c1",
+            channelId: "ch1",
+            read: "this project is scope-creeping and nobody's naming it",
+            stance: "someone needs to name the constraint",
+            watching: ["another feature request", "timeline slipping again"]
+        )
+        try db.savePosition(pos)
+
+        let fetched = try db.fetchPosition(companionId: "c1", channelId: "ch1")
+        #expect(fetched != nil)
+        #expect(fetched?.read == "this project is scope-creeping and nobody's naming it")
+        #expect(fetched?.stance == "someone needs to name the constraint")
+        #expect(fetched?.watching == ["another feature request", "timeline slipping again"])
+    }
+
+    @Test("fetchPosition returns nil when no position exists")
+    func fetchPositionMissing() throws {
+        let db = try makeDB()
+        let result = try db.fetchPosition(companionId: "nobody", channelId: "nowhere")
+        #expect(result == nil)
+    }
+
+    @Test("savePosition upserts — second save updates the existing row")
+    func savePositionUpserts() throws {
+        let db = try makeDB()
+        var pos = CompanionPosition(companionId: "c1", channelId: "ch1", read: "first read")
+        try db.savePosition(pos)
+
+        pos.read = "updated read"
+        pos.stance = "new stance"
+        try db.savePosition(pos)
+
+        let fetched = try db.fetchPosition(companionId: "c1", channelId: "ch1")
+        #expect(fetched?.read == "updated read")
+        #expect(fetched?.stance == "new stance")
+    }
+
+    @Test("Positions are isolated by companion")
+    func positionsIsolatedByCompanion() throws {
+        let db = try makeDB()
+        try db.savePosition(CompanionPosition(companionId: "c1", channelId: "ch", read: "c1 read"))
+        try db.savePosition(CompanionPosition(companionId: "c2", channelId: "ch", read: "c2 read"))
+
+        let p1 = try db.fetchPosition(companionId: "c1", channelId: "ch")
+        let p2 = try db.fetchPosition(companionId: "c2", channelId: "ch")
+        #expect(p1?.read == "c1 read")
+        #expect(p2?.read == "c2 read")
+    }
+
+    @Test("deletePositionsForCompanion removes only that companion's positions")
+    func deletePositionsForCompanion() throws {
+        let db = try makeDB()
+        try db.savePosition(CompanionPosition(companionId: "c1", channelId: "ch", read: "c1"))
+        try db.savePosition(CompanionPosition(companionId: "c2", channelId: "ch", read: "c2"))
+
+        try db.deletePositionsForCompanion("c1")
+
+        #expect(try db.fetchPosition(companionId: "c1", channelId: "ch") == nil)
+        #expect(try db.fetchPosition(companionId: "c2", channelId: "ch") != nil)
+    }
+
+    @Test("Position with nil watching round-trips correctly")
+    func positionNilWatchingRoundTrip() throws {
+        let db = try makeDB()
+        let pos = CompanionPosition(companionId: "c", channelId: "ch", read: "something is happening")
+        try db.savePosition(pos)
+
+        let fetched = try db.fetchPosition(companionId: "c", channelId: "ch")
+        #expect(fetched?.watching == nil)
+        #expect(fetched?.stance == nil)
+    }
+
+    // MARK: - Position: isEmpty and asPromptText
+
+    @Test("CompanionPosition.isEmpty is true when no fields set")
+    func positionIsEmpty() {
+        let pos = CompanionPosition(companionId: "c", channelId: "ch")
+        #expect(pos.isEmpty)
+    }
+
+    @Test("CompanionPosition.isEmpty is false when read is set")
+    func positionNotEmpty() {
+        let pos = CompanionPosition(companionId: "c", channelId: "ch", read: "something is happening")
+        #expect(!pos.isEmpty)
+    }
+
+    @Test("CompanionPosition.asPromptText includes all non-nil fields")
+    func positionPromptText() {
+        let pos = CompanionPosition(
+            companionId: "c", channelId: "ch",
+            read: "prioritising speed but the real constraint is clarity",
+            stance: "name the constraint",
+            watching: ["another fast feature request"]
+        )
+        let text = pos.asPromptText()
+        #expect(text.contains("Read:"))
+        #expect(text.contains("clarity"))
+        #expect(text.contains("Stance:"))
+        #expect(text.contains("name the constraint"))
+        #expect(text.contains("Watching:"))
+        #expect(text.contains("another fast feature request"))
+    }
+
+    @Test("CompanionPosition.asPromptText omits missing fields")
+    func positionPromptTextOmitsMissing() {
+        let pos = CompanionPosition(companionId: "c", channelId: "ch", read: "just the read")
+        let text = pos.asPromptText()
+        #expect(text.contains("Read:"))
+        #expect(!text.contains("Stance:"))
+        #expect(!text.contains("Watching:"))
+    }
+
     // MARK: - Tool definitions
 
-    @Test("All six relationship tools are present in ToolDefinitions.all")
+    @Test("All eight relationship tools are present in ToolDefinitions.all")
     func relationshipToolsPresent() {
         let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
         #expect(names.contains("crease_read"))
@@ -279,6 +397,31 @@ struct CompanionRelationshipTests {
         #expect(names.contains("crease_forget"))
         #expect(names.contains("fold_read"))
         #expect(names.contains("fold_update"))
+        #expect(names.contains("position_read"))
+        #expect(names.contains("position_set"))
+    }
+
+    @Test("position_set requires 'read' field")
+    func positionSetRequiresRead() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "position_set" }),
+              let schema = tool["input_schema"] as? [String: Any],
+              let required = schema["required"] as? [String] else {
+            Issue.record("position_set not found or missing schema")
+            return
+        }
+        #expect(required.contains("read"))
+    }
+
+    @Test("position_set description frames position as where you stand not what you say")
+    func positionSetDescriptionFraming() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "position_set" }),
+              let desc = tool["description"] as? String else {
+            Issue.record("position_set not found")
+            return
+        }
+        #expect(desc.contains("where you stand") || desc.contains("push back"))
     }
 
     @Test("crease_write requires 'content' field")
@@ -331,6 +474,8 @@ struct CompanionRelationshipTests {
         #expect(content.contains("crease_write"))
         #expect(content.contains("fold_read"))
         #expect(content.contains("fold_update"))
+        #expect(content.contains("position_read"))
+        #expect(content.contains("position_set"))
         #expect(content.contains("where your model broke") || content.contains("prediction broke"))
     }
 }

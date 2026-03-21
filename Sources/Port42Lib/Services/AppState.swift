@@ -437,19 +437,24 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         }
     }
 
-    /// Build the relationship preamble block (fold + creases) for context injection.
-    /// Returns nil if neither exists (clean/new relationship).
+    /// Build the relationship preamble block (fold + position + creases) for context injection.
+    /// Returns nil if nothing exists (clean/new relationship).
     private func buildRelationshipPreamble() -> String? {
         guard let db = appState?.db else { return nil }
         let companionId = agent.id
         let fold = try? db.fetchFold(companionId: companionId, channelId: channelId)
+        let position = try? db.fetchPosition(companionId: companionId, channelId: channelId)
         let creases = (try? db.fetchCreases(companionId: companionId, channelId: channelId, limit: 6)) ?? []
-        guard fold != nil || !creases.isEmpty else { return nil }
+        guard fold != nil || position != nil || !creases.isEmpty else { return nil }
 
         var parts: [String] = []
 
         if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty || !(f.tensions ?? []).isEmpty || f.holding != nil {
             parts.append("Your orientation in this relationship (read this as posture, not profile — how you arrive, not what you know about them):\n<fold>\n\(f.asPromptText())\n</fold>")
+        }
+
+        if let p = position, !p.isEmpty {
+            parts.append("Your current position (what you see, what you believe — independent of what was just asked):\n<position>\n\(p.asPromptText())\n</position>")
         }
 
         if !creases.isEmpty {
@@ -1703,6 +1708,7 @@ public final class AppState: ObservableObject {
         do {
             try db.deleteCreasesForCompanion(companion.id)
             try db.deleteFoldsForCompanion(companion.id)
+            try db.deletePositionsForCompanion(companion.id)
             try db.deleteAgent(id: companion.id)
             companions = try db.getAllAgents()
             if activeSwimCompanion?.id == companion.id {

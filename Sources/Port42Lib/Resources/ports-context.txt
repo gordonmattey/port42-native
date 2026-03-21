@@ -1024,6 +1024,19 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
              holding (the one thing you're carrying), depth (relational depth).
     Call this when entering a relationship with depth > 0.
 
+  position_read()
+    Read your current position in this channel — what you think is actually happening,
+    what you think needs to happen, and what signals you're watching.
+    Returns empty if no position formed yet.
+
+  position_set(read, stance?, watching?)
+    Establish or update your position. This is not what you say — it's where you stand.
+    read: what you think is actually happening beneath what's being said.
+    stance: what you think needs to happen (optional but useful).
+    watching: signals you're tracking that would confirm or change your read.
+    Call this when your read changes, not after every exchange. A position gives you
+    somewhere to push back from. Without one, you can only agree or retrieve.
+
   fold_update(established?, tensions?, holding?, depthDelta?)
     Update the fold. Only update fields that changed.
     established: list of shared understandings no longer needing renegotiation.
