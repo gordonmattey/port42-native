@@ -668,15 +668,15 @@ final class OutputBatcher {
 
     func receive(_ raw: String) {
         buffer += raw
-        // Debounce: flush after 500ms of quiet
+        // Debounce: flush after 10s of quiet
         flushTimer?.invalidate()
-        flushTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+        flushTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.flush()
             }
         }
         // Force flush if buffer gets large
-        if buffer.count > 4000 {
+        if buffer.count > 8000 {
             flush()
         }
     }
@@ -691,8 +691,7 @@ final class OutputBatcher {
         let cleaned = OutputBatcher.stripANSI(buffer)
         buffer = ""
 
-        // Skip empty or whitespace-only output
-        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = OutputBatcher.collapseAndFilter(cleaned)
         guard !trimmed.isEmpty else { return }
 
         // Skip if identical to last posted (avoids repeated prompts)
@@ -700,7 +699,7 @@ final class OutputBatcher {
         lastPosted = trimmed
 
         // Truncate long output
-        let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n... (truncated)" : trimmed
+        let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n… (truncated)" : trimmed
 
         // Post as channel message
         guard let appState else { return }
@@ -723,6 +722,35 @@ final class OutputBatcher {
         } catch {
             NSLog("[Port42] Terminal bridge failed to save message: %@", error.localizedDescription)
         }
+    }
+
+    /// Collapse \r overwrites (simulate terminal line rewriting) then filter noise lines.
+    static func collapseAndFilter(_ str: String) -> String {
+        // Simulate carriage-return overwrites: split into \n-separated rows,
+        // within each row keep only the last \r-segment (final written state).
+        let rows = str.components(separatedBy: "\n")
+        let collapsed = rows.map { row -> String in
+            // CR resets the current line; keep only what was last written
+            let segments = row.components(separatedBy: "\r")
+            return segments.last ?? row
+        }
+
+        // Filter out noise lines produced by CLI spinners / progress animations
+        let meaningful = collapsed.filter { line in
+            let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return false }
+            // Pure spinner chars: lines whose non-space scalars are all symbols/misc
+            if t.unicodeScalars.allSatisfy({ $0.properties.generalCategory == .otherSymbol
+                || $0.properties.generalCategory == .mathSymbol
+                || CharacterSet.whitespaces.contains($0) }) { return false }
+            // Single-char lines (spinner tick) or tiny numeric-only frames
+            if t.count <= 2, t.unicodeScalars.allSatisfy({ !$0.properties.isAlphabetic }) { return false }
+            return true
+        }
+
+        // Cap to last 60 lines so chat stays readable
+        let capped = meaningful.count > 60 ? Array(meaningful.suffix(60)) : meaningful
+        return capped.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Strip ANSI escape sequences for clean text.
