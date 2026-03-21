@@ -129,6 +129,7 @@ public struct NewCompanionSheet: View {
     @State private var namePlaceholder = "companion name"
     @State private var systemPrompt = ""
     @State private var selectedPreset: UUID?
+    @State private var selectedModel = "claude-opus-4-6"
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>) {
@@ -253,6 +254,14 @@ public struct NewCompanionSheet: View {
                     .cornerRadius(6)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Model")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+
+                ModelPicker(selectedModel: $selectedModel)
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     isPresented = false
@@ -330,7 +339,7 @@ public struct NewCompanionSheet: View {
             displayName: trimmedName,
             systemPrompt: finalPrompt,
             provider: .anthropic,
-            model: "claude-opus-4-6",
+            model: selectedModel,
             trigger: .mentionOnly
         )
         appState.addCompanion(companion)

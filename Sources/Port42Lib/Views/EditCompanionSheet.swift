@@ -7,6 +7,7 @@ public struct EditCompanionSheet: View {
 
     @State private var name: String
     @State private var systemPrompt: String
+    @State private var selectedModel: String
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>, companion: AgentConfig) {
@@ -14,6 +15,7 @@ public struct EditCompanionSheet: View {
         self.companion = companion
         self._name = State(initialValue: companion.displayName)
         self._systemPrompt = State(initialValue: companion.systemPrompt ?? "")
+        self._selectedModel = State(initialValue: companion.model ?? "claude-opus-4-6")
     }
 
     public var body: some View {
@@ -60,6 +62,14 @@ public struct EditCompanionSheet: View {
                     .cornerRadius(6)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Model")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+
+                ModelPicker(selectedModel: $selectedModel)
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     isPresented = false
@@ -102,6 +112,7 @@ public struct EditCompanionSheet: View {
         updated.systemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? nil
             : systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.model = selectedModel
         appState.updateCompanion(updated)
         isPresented = false
     }
