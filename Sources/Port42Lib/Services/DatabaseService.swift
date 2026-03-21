@@ -324,6 +324,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v23-provider-base-url") { db in
+            try db.alter(table: "agents") { t in
+                t.add(column: "providerBaseURL", .text)
+            }
+        }
+
         migrator.registerMigration("v21-companion-positions") { db in
             try db.create(table: "companion_positions") { t in
                 t.column("id", .text).primaryKey()

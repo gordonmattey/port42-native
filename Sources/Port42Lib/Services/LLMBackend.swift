@@ -35,6 +35,13 @@ public protocol LLMBackend: AnyObject {
 
 /// Create the right backend for a given companion config.
 public func makeLLMBackend(for agent: AgentConfig) -> LLMBackend {
-    // Additional providers slot in here as they're added (Step 2: GeminiEngine, Phase 2: CompatibleEngine)
-    return LLMEngine()
+    switch agent.provider {
+    case .gemini:
+        return GeminiEngine()
+    case .compatibleEndpoint:
+        // Phase 2: CompatibleEngine (OpenAI protocol). Falls back to Anthropic for now.
+        return LLMEngine()
+    case .anthropic, nil:
+        return LLMEngine()
+    }
 }

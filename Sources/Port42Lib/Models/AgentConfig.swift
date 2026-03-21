@@ -15,6 +15,8 @@ public enum AgentTrigger: String, Codable, Equatable {
 
 public enum AgentProvider: String, Codable, Equatable {
     case anthropic
+    case gemini
+    case compatibleEndpoint  // OpenAI-protocol with custom base URL
 }
 
 // MARK: - Model
@@ -31,6 +33,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     // LLM mode fields
     public var systemPrompt: String?
     public var provider: AgentProvider?
+    public var providerBaseURL: String?  // nil = provider default; set for compatible endpoint
     public var model: String?
     public var thinkingEnabled: Bool
     public var thinkingEffort: String  // "low" | "medium" | "high"
@@ -46,6 +49,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     public init(
         id: String, ownerId: String, displayName: String, mode: AgentMode,
         trigger: AgentTrigger, systemPrompt: String?, provider: AgentProvider?,
+        providerBaseURL: String? = nil,
         model: String?, thinkingEnabled: Bool = false, thinkingEffort: String = "low",
         command: String?, args: [String]?, workingDir: String?,
         envVars: [String: String]?, createdAt: Date
@@ -57,6 +61,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         self.trigger = trigger
         self.systemPrompt = systemPrompt
         self.provider = provider
+        self.providerBaseURL = providerBaseURL
         self.model = model
         self.thinkingEnabled = thinkingEnabled
         self.thinkingEffort = thinkingEffort
