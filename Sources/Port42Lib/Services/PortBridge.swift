@@ -67,16 +67,22 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Restore cached permissions immediately so they're in place before the webview
         // loads and JS executes. This prevents permission prompts from re-firing when
         // LazyVStack recycles inline port views.
-        if let mid = messageId {
-            if let state = appState as? AppState,
-               let cached = state.cachedPortPermissions[mid] {
+        if let state = appState as? AppState {
+            // 1. Message-level cache (survives view recycling within session)
+            if let mid = messageId, let cached = state.cachedPortPermissions[mid] {
                 grantedPermissions = cached
-                NSLog("[Port42] Bridge init: restored %d cached permissions for %@", cached.count, mid)
-            } else {
-                NSLog("[Port42] Bridge init: no cached permissions for %@ (state=%@)", mid, appState == nil ? "nil" : "present")
+                NSLog("[Port42] Bridge init: restored %d message-level permissions for %@", cached.count, mid)
+            }
+            // 2. Companion-level persistence (P-260): auto-restore permissions for same companion+channel
+            if let by = createdBy, let cid = channelId {
+                let companionPerms = state.companionPermissions(createdBy: by, channelId: cid)
+                if !companionPerms.isEmpty {
+                    grantedPermissions.formUnion(companionPerms)
+                    NSLog("[Port42] Bridge init: auto-restored %d companion-level permissions for %@", companionPerms.count, by)
+                }
             }
         } else {
-            NSLog("[Port42] Bridge init: no messageId")
+            NSLog("[Port42] Bridge init: no AppState (messageId=%@)", messageId ?? "nil")
         }
     }
 
@@ -140,6 +146,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
         // Persist to DB so permissions survive app restart
         state?.portWindows.persistPermissions(for: self)
+        // Companion-level persistence (P-260): save so future ports by same companion auto-grant
+        if let by = createdBy, let cid = channelId {
+            state?.saveCompanionPermissions(grantedPermissions, createdBy: by, channelId: cid)
+            NSLog("[Port42] grantPermission: saved companion-level permissions for %@ in %@", by, cid)
+        }
     }
 
     /// Deny the pending permission and resume the waiting method with false.

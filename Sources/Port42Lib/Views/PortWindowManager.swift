@@ -877,6 +877,7 @@ struct PortPanelContentView: View {
             if let perm = pendingPerm {
                 PortPermissionOverlay(
                     permission: perm,
+                    createdBy: panel.createdBy,
                     onAllow: { panel.bridge.grantPermission() },
                     onDeny: { panel.bridge.denyPermission() }
                 )
@@ -941,6 +942,7 @@ struct WindowRefAccessor: NSViewRepresentable {
 /// this always renders reliably regardless of window state.
 struct PortPermissionOverlay: View {
     let permission: PortPermission
+    var createdBy: String? = nil
     let onAllow: () -> Void
     let onDeny: () -> Void
 
@@ -950,6 +952,12 @@ struct PortPermissionOverlay: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
+                if let name = createdBy {
+                    Text(name)
+                        .font(Port42Theme.monoBold(12))
+                        .foregroundStyle(Port42Theme.accent)
+                }
+
                 Text(permission.permissionDescription.title)
                     .font(Port42Theme.mono(14))
                     .fontWeight(.semibold)
