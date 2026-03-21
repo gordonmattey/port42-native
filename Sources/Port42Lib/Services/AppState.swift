@@ -1859,6 +1859,11 @@ final class TerminalAgentLoop {
     private weak var appState: AppState?
     private var pendingOutput = ""
     private var loopTask: Task<Void, Never>?
+    /// Timestamp of the last time we routed output to an agent.
+    /// After firing, suppress re-trigger for `cooldown` seconds so the terminal
+    /// echo of the sent command doesn't immediately re-fire the agent.
+    private var lastFiredAt: Date? = nil
+    private let cooldown: TimeInterval = 15.0
 
     init(channelId: String, portTitle: String, createdBy: String?, appState: AppState) {
         self.channelId = channelId
@@ -1892,9 +1897,13 @@ final class TerminalAgentLoop {
         // Don't fire if an agent turn is already in progress for this channel
         let agentRunning = appState.activeAgentHandlers.values.contains { $0.channelId == channelId }
         guard !agentRunning else { return }
+        // Don't re-fire within cooldown window — prevents terminal echo from the
+        // just-sent command immediately re-triggering the agent
+        if let last = lastFiredAt, Date().timeIntervalSince(last) < cooldown { return }
         // Consume accumulated output and trigger the agent
         let output = pendingOutput
         pendingOutput = ""
+        lastFiredAt = Date()
         appState.routeTerminalOutput(channelId: channelId, output: output, createdBy: createdBy)
     }
 }
