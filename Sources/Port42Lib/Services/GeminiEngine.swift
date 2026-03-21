@@ -112,8 +112,9 @@ public final class GeminiEngine: NSObject, URLSessionDataDelegate, LLMBackend {
             body["systemInstruction"] = ["parts": [["text": systemPrompt]]]
         }
 
+        // Translate Anthropic-format tools to Gemini function_declarations format
         if let tools, !tools.isEmpty {
-            body["tools"] = tools
+            body["tools"] = GeminiEngine.translateTools(tools)
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
@@ -303,6 +304,24 @@ public final class GeminiEngine: NSObject, URLSessionDataDelegate, LLMBackend {
                 hasFunctionCall = true
             }
         }
+    }
+
+    // MARK: - Tool Schema Translation
+
+    /// Translate Anthropic-format tool schemas to Gemini function_declarations format.
+    /// Input: `[{name, description, input_schema}]` (Anthropic)
+    /// Output: `[{function_declarations: [{name, description, parameters}]}]` (Gemini)
+    static func translateTools(_ anthropicTools: [[String: Any]]) -> [[String: Any]] {
+        let declarations: [[String: Any]] = anthropicTools.compactMap { tool in
+            guard let name = tool["name"] as? String,
+                  let description = tool["description"] as? String else { return nil }
+            var decl: [String: Any] = ["name": name, "description": description]
+            if let schema = tool["input_schema"] as? [String: Any] {
+                decl["parameters"] = schema
+            }
+            return decl
+        }
+        return [["function_declarations": declarations]]
     }
 
     // MARK: - Test Hooks (internal — used only in test targets)

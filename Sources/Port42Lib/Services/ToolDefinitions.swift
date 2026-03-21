@@ -502,6 +502,22 @@ enum ToolDefinitions {
         ],
     ]
 
+    /// Translate all tools to Gemini `function_declarations` format.
+    /// Returns `[{"function_declarations": [...]}]` — one element wrapping all function schemas.
+    /// Each tool's `input_schema` key is renamed to `parameters`; everything else is preserved.
+    static func geminiFormat() -> [[String: Any]] {
+        let declarations: [[String: Any]] = all.compactMap { tool in
+            guard let name = tool["name"] as? String,
+                  let description = tool["description"] as? String else { return nil }
+            var decl: [String: Any] = ["name": name, "description": description]
+            if let schema = tool["input_schema"] as? [String: Any] {
+                decl["parameters"] = schema
+            }
+            return decl
+        }
+        return [["function_declarations": declarations]]
+    }
+
     /// Permission required for a tool, or nil if no permission needed.
     static func permission(for toolName: String) -> PortPermission? {
         switch toolName {
