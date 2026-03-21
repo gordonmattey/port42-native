@@ -180,8 +180,8 @@ public final class ToolExecutor {
             let filterCaps = (input["capabilities"] as? [String]) ?? []
             // Floating + docked panels
             let floating = appState.portWindows.allPorts()
-            // Inline ports (rendered in chat, not yet popped out) — scoped to this channel
-            let inline = appState.inlinePorts().filter { $0.channelId == channelId || channelId == nil }
+            // Inline ports (rendered in chat, not yet popped out) — scoped to this channel, last 5
+            let inline = appState.inlinePorts().filter { $0.channelId == channelId || channelId == nil }.suffix(5)
             // Merge into uniform shape
             typealias PortInfo = (id: String, title: String, createdBy: String?, hasTerminal: Bool, status: String)
             let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: $0.isBackground ? "docked" : "floating") }
