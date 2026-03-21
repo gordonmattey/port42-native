@@ -2,6 +2,11 @@ import SwiftUI
 
 // MARK: - Unified chat renderer for both channels and swims
 
+public enum MessageSegment {
+    case text(String)
+    case port(String)
+}
+
 /// A single message entry that both channel Messages and SwimMessages can map to.
 public struct ChatEntry: Identifiable, Equatable {
     public let id: String
@@ -61,65 +66,51 @@ public struct ChatEntry: Identifiable, Equatable {
         content.contains("```port")
     }
 
-    /// Whether the port appears truncated (opening fence but no closing script tag or closing fence)
+    /// Whether the last port in this message appears truncated
     public var isPortTruncated: Bool {
-        guard content.contains("```port") else { return false }
-        // Has opening fence but content looks incomplete
-        if let html = portContent {
-            // Check for signs of truncation: unclosed script, unclosed style, ends mid-tag
-            let hasOpenScript = html.contains("<script") && !html.contains("</script>")
-            let hasOpenStyle = html.contains("<style") && !html.contains("</style>")
-            let endsInTag = html.hasSuffix(">") == false && html.last?.isWhitespace == false
-            return hasOpenScript || hasOpenStyle || endsInTag
-        }
-        return portContent == nil
+        guard let lastPort = messageSegments.compactMap({ if case .port(let h) = $0 { return h } else { return nil } }).last else { return false }
+        let hasOpenScript = lastPort.contains("<script") && !lastPort.contains("</script>")
+        let hasOpenStyle  = lastPort.contains("<style")  && !lastPort.contains("</style>")
+        return hasOpenScript || hasOpenStyle
     }
 
-    /// Extract the HTML content between ```port fences
-    public var portContent: String? {
-        guard let startRange = content.range(of: "```port") else { return nil }
-        // Skip past the ```port tag and any trailing whitespace/newline
-        var contentStart = startRange.upperBound
-        if contentStart < content.endIndex {
-            let afterTag = content[contentStart...]
-            if let newline = afterTag.firstIndex(where: { $0 == "\n" || $0 == "\r" }) {
-                contentStart = content.index(after: newline)
+    /// Returns the 0-based port number for the segment at the given segment index
+    public func portIndex(atSegment segIdx: Int) -> Int {
+        messageSegments[0..<segIdx].filter { if case .port = $0 { return true } else { return false } }.count
+    }
+
+    /// Parse content into alternating text/port segments
+    public var messageSegments: [MessageSegment] {
+        var segments: [MessageSegment] = []
+        var searchStart = content.startIndex
+        while searchStart < content.endIndex,
+              let fenceRange = content.range(of: "```port", range: searchStart..<content.endIndex) {
+            let before = String(content[searchStart..<fenceRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !before.isEmpty { segments.append(.text(before)) }
+            var htmlStart = fenceRange.upperBound
+            if htmlStart < content.endIndex,
+               let nl = content[htmlStart...].firstIndex(where: { $0 == "\n" || $0 == "\r" }) {
+                htmlStart = content.index(after: nl)
+            }
+            let htmlEnd: String.Index
+            let nextSearch: String.Index
+            if let closeRange = content.range(of: "```", range: htmlStart..<content.endIndex) {
+                htmlEnd    = closeRange.lowerBound
+                nextSearch = closeRange.upperBound
             } else {
-                contentStart = startRange.upperBound
+                htmlEnd    = content.endIndex
+                nextSearch = content.endIndex
             }
+            let html = String(content[htmlStart..<htmlEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !html.isEmpty { segments.append(.port(html)) }
+            searchStart = nextSearch
         }
-        // Find closing ``` — if missing, treat rest of content as port HTML
-        let endIndex: String.Index
-        if let endRange = content.range(of: "```", range: contentStart..<content.endIndex) {
-            endIndex = endRange.lowerBound
-        } else {
-            endIndex = content.endIndex
+        if searchStart < content.endIndex {
+            let trailing = String(content[searchStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trailing.isEmpty { segments.append(.text(trailing)) }
         }
-        let html = String(content[contentStart..<endIndex])
-        return html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : html
-    }
-
-    /// Text before the port fence (if any)
-    public var textBeforePort: String? {
-        guard let startRange = content.range(of: "```port") else { return nil }
-        let before = String(content[content.startIndex..<startRange.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return before.isEmpty ? nil : before
-    }
-
-    /// Text after the port fence (if any)
-    public var textAfterPort: String? {
-        guard let startRange = content.range(of: "```port") else { return nil }
-        var contentStart = startRange.upperBound
-        if contentStart < content.endIndex {
-            let afterTag = content[contentStart...]
-            if let newline = afterTag.firstIndex(where: { $0 == "\n" || $0 == "\r" }) {
-                contentStart = content.index(after: newline)
-            }
-        }
-        guard let endRange = content.range(of: "```", range: contentStart..<content.endIndex) else { return nil }
-        let after = String(content[endRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return after.isEmpty ? nil : after
+        return segments.isEmpty ? [.text(content)] : segments
     }
 
     public var formattedTime: String? {
@@ -615,7 +606,7 @@ struct MessageRow: View, Equatable {
     var localOwner: String? = nil
     var portIsActive: Bool = false
     @EnvironmentObject var appState: AppState
-    @State private var portActivatedManually = false
+    @State private var activatedPortIndices = Set<Int>()
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
@@ -694,12 +685,39 @@ struct MessageRow: View, Equatable {
                         Text("...")
                             .font(Port42Theme.mono(13))
                             .foregroundColor(agentColor.opacity(0.5))
-                    } else if entry.containsPort, let portHTML = entry.portContent {
-                        if let before = entry.textBeforePort {
-                            Text(before)
-                                .font(Port42Theme.mono(13))
-                                .foregroundColor(contentColor)
-                                .textSelection(.enabled)
+                    } else if entry.containsPort {
+                        ForEach(Array(entry.messageSegments.enumerated()), id: \.offset) { segIdx, segment in
+                            if case .text(let text) = segment {
+                                Text(text)
+                                    .font(Port42Theme.mono(13))
+                                    .foregroundColor(contentColor)
+                                    .textSelection(.enabled)
+                            } else if case .port(let html) = segment {
+                                let pIdx = entry.portIndex(atSegment: segIdx)
+                                let msgId = pIdx == 0 ? entry.id : entry.id + "-p\(pIdx)"
+                                if portIsActive || activatedPortIndices.contains(segIdx) {
+                                    InlinePortView(html: html, appState: appState, messageId: msgId, createdBy: entry.senderName)
+                                } else {
+                                    PortCompactBlock(
+                                        html: html,
+                                        createdBy: entry.senderName,
+                                        onRun: { activatedPortIndices.insert(segIdx) },
+                                        onPopOut: {
+                                            guard let window = NSApp.keyWindow else { return }
+                                            let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+                                            let bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: msgId, createdBy: entry.senderName)
+                                            appState.portWindows.popOut(
+                                                html: html,
+                                                bridge: bridge,
+                                                channelId: appState.currentChannel?.id,
+                                                createdBy: entry.senderName,
+                                                messageId: msgId,
+                                                in: bounds
+                                            )
+                                        }
+                                    )
+                                }
+                            }
                         }
                         if entry.isPortTruncated {
                             HStack(spacing: 6) {
@@ -714,35 +732,6 @@ struct MessageRow: View, Equatable {
                             .background(Color.orange.opacity(0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
-                        if portIsActive || portActivatedManually {
-                            InlinePortView(html: portHTML, appState: appState, messageId: entry.id, createdBy: entry.senderName)
-                        } else {
-                            // Compact port block (icon + title + creator)
-                            PortCompactBlock(
-                                html: portHTML,
-                                createdBy: entry.senderName,
-                                onRun: { portActivatedManually = true },
-                                onPopOut: {
-                                    guard let window = NSApp.keyWindow else { return }
-                                    let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-                                    let bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: entry.id, createdBy: entry.senderName)
-                                    appState.portWindows.popOut(
-                                        html: portHTML,
-                                        bridge: bridge,
-                                        channelId: appState.currentChannel?.id,
-                                        createdBy: entry.senderName,
-                                        messageId: entry.id,
-                                        in: bounds
-                                    )
-                                }
-                            )
-                        }
-                        if let after = entry.textAfterPort {
-                            Text(after)
-                                .font(Port42Theme.mono(13))
-                                .foregroundColor(contentColor)
-                                .textSelection(.enabled)
-                        }
                     } else {
                         Text(entry.content)
                             .font(Port42Theme.mono(13))
@@ -753,7 +742,7 @@ struct MessageRow: View, Equatable {
             }
         }
         .onChange(of: portIsActive) { _, isActive in
-            if !isActive { portActivatedManually = false }
+            if !isActive { activatedPortIndices.removeAll() }
         }
     }
 }
