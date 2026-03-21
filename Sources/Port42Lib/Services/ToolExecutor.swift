@@ -743,32 +743,112 @@ final class OutputBatcher {
         appState.terminalLoop(for: channelId)?.receiveOutput(content)
     }
 
-    /// Collapse \r overwrites (simulate terminal line rewriting) then filter noise lines.
+    /// Full bridge filter: collapses \r overwrites, drops noise, collapses build phases,
+    /// deduplicates, and caps output so 800 lines of noise becomes ~5 lines of signal.
     static func collapseAndFilter(_ str: String) -> String {
-        // Simulate carriage-return overwrites: split into \n-separated rows,
-        // within each row keep only the last \r-segment (final written state).
-        let rows = str.components(separatedBy: "\n")
-        let collapsed = rows.map { row -> String in
-            // CR resets the current line; keep only what was last written
-            let segments = row.components(separatedBy: "\r")
-            return segments.last ?? row
+        // 1. CR collapse — keep only the last \r segment per visual line
+        let rows = str.components(separatedBy: "\n").map { row -> String in
+            (row.components(separatedBy: "\r").last ?? row)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        // Filter out noise lines produced by CLI spinners / progress animations
-        let meaningful = collapsed.filter { line in
-            let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty else { return false }
-            // Pure spinner chars: lines whose non-space scalars are all symbols/misc
-            if t.unicodeScalars.allSatisfy({ $0.properties.generalCategory == .otherSymbol
-                || $0.properties.generalCategory == .mathSymbol
-                || CharacterSet.whitespaces.contains($0) }) { return false }
-            // Single-char lines (spinner tick) or tiny numeric-only frames
-            if t.count <= 2, t.unicodeScalars.allSatisfy({ !$0.properties.isAlphabetic }) { return false }
-            return true
+        // 2. Drop noise lines, collapse build phases, dedup
+        let spinnerChars = CharacterSet(charactersIn: "✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+        let signalPatterns: [NSRegularExpression] = [
+            "error[: ]", "warning[: ]", "fatal[: ]",
+            "^build complete", "^build failed", "^failed", "^passed",
+            "^error\\[", "undefined symbol", "exited with code",
+            "wrote ", "saved ", "created ", "deleted ", "updated ",
+            "^\\$\\s", "^>\\s", "^⏺", "file written", "\\.(swift|go|ts|js|py|rs):.*error"
+        ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+
+        func isSignal(_ t: String) -> Bool {
+            let range = NSRange(t.startIndex..., in: t)
+            return signalPatterns.contains { $0.firstMatch(in: t, range: range) != nil }
         }
 
-        // Cap to last 60 lines so chat stays readable
-        let capped = meaningful.count > 60 ? Array(meaningful.suffix(60)) : meaningful
+        func isNoise(_ t: String) -> Bool {
+            guard !t.isEmpty else { return true }
+            // Single character
+            if t.count == 1 { return true }
+            // Only spinner/symbol chars and whitespace
+            let nonSpaceScalars = t.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) }
+            if nonSpaceScalars.allSatisfy({ spinnerChars.contains($0)
+                || $0.properties.generalCategory == .otherSymbol
+                || $0.properties.generalCategory == .mathSymbol }) { return true }
+            // Token counter: optional spinner chars then digits only  e.g. "✻ 1337"
+            let stripped = t.unicodeScalars.filter { !spinnerChars.contains($0) && !CharacterSet.whitespaces.contains($0) }
+            if stripped.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) { return true }
+            // Spinner word pattern: optional glyphs + word ending in "ing…" or "ing..."
+            if let r = try? NSRegularExpression(pattern: "^[✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\\s]*\\w+ing[…\\.]+\\s*$"),
+               r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil { return true }
+            // (thinking)
+            if t == "(thinking)" { return true }
+            // compiler notes (not warnings/errors)
+            if t.hasPrefix("note: ") { return true }
+            return false
+        }
+
+        // Build phase collapse
+        let buildPhasePattern = try? NSRegularExpression(
+            pattern: "^(?:\\[\\d+/\\d+\\]\\s+)?(?:Compiling|Linking|Build input file|Merging module|Emitting module)",
+            options: .caseInsensitive)
+
+        func buildPhasePrefix(_ t: String) -> String? {
+            guard let r = buildPhasePattern,
+                  let m = r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+                  let range = Range(m.range, in: t) else { return nil }
+            // Normalise to bare verb: "Compiling", "Linking" etc
+            let raw = String(t[range]).trimmingCharacters(in: .whitespaces)
+            if raw.lowercased().contains("compil") { return "Compiling" }
+            if raw.lowercased().contains("link") { return "Linking" }
+            if raw.lowercased().contains("emit") { return "Emitting" }
+            if raw.lowercased().contains("merg") { return "Merging" }
+            return "Building"
+        }
+
+        var output: [String] = []
+        var seen: Set<String> = []
+        var currentPhase: String? = nil
+        var phaseCount = 0
+
+        func flushPhase() {
+            guard let phase = currentPhase, phaseCount > 0 else { return }
+            let summary = phaseCount == 1 ? "\(phase) 1 file…" : "\(phase) \(phaseCount) files…"
+            if !seen.contains(summary) {
+                output.append(summary)
+                seen.insert(summary)
+            }
+            currentPhase = nil
+            phaseCount = 0
+        }
+
+        for t in rows {
+            guard !isNoise(t) else { continue }
+
+            if let phase = buildPhasePrefix(t) {
+                if phase == currentPhase {
+                    phaseCount += 1
+                } else {
+                    flushPhase()
+                    currentPhase = phase
+                    phaseCount = 1
+                }
+                continue
+            }
+
+            // Non-build-phase line: flush any pending phase summary first
+            flushPhase()
+
+            // Dedup within window
+            if seen.contains(t) { continue }
+            seen.insert(t)
+            output.append(t)
+        }
+        flushPhase()
+
+        // Cap to 60 lines
+        let capped = output.count > 60 ? Array(output.suffix(60)) : output
         return capped.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

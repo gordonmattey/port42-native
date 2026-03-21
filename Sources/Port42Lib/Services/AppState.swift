@@ -678,6 +678,7 @@ public final class AppState: ObservableObject {
     private var channelObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
     private var unreadObservation: AnyDatabaseCancellable?
+    private var observationDebounceTask: Task<Void, Never>?
     private var syncConnectionCancellable: AnyCancellable?
     private var tunnelCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
@@ -1289,38 +1290,39 @@ public final class AppState: ObservableObject {
         // Clear swim companion when navigating to a non-swim channel
         if !channel.isSwim { activeSwimCompanion = nil }
 
-        // Remember last selected channel for next launch
+        // Persist immediately (cheap)
         UserDefaults.standard.set(channel.id, forKey: "lastSelectedChannelId")
         UserDefaults.standard.removeObject(forKey: "lastActiveSwimCompanionId")
-
-        // Save draft for current channel
-        if let current = currentChannel {
-            // draft is already saved via binding
-            lastReadDates[current.id] = Date()
-        }
+        if let current = currentChannel { lastReadDates[current.id] = Date() }
 
         currentChannel = channel
         lastReadDates[channel.id] = Date()
-        UserDefaults.standard.set(channel.id, forKey: "lastSelectedChannelId")
         Analytics.shared.channelSwitched()
         Analytics.shared.screen("Channel")
-        syncJoinChannel(channel.id)
 
-        // Send read receipt so remote peers know we've seen their messages
-        sync.sendReadReceipt(channelId: channel.id)
+        // Cancel any in-flight observation setup from previous rapid clicks.
+        // Don't clear messages/companions — keep showing the previous channel's
+        // content while the user is clicking. The observation will replace it
+        // when we actually commit.
+        observationDebounceTask?.cancel()
+        observationDebounceTask = Task { [weak self] in
+            guard let self else { return }
+            // Wait for the user to settle before doing any DB work.
+            try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
+            guard !Task.isCancelled, self.currentChannel?.id == channel.id else { return }
 
-        // Load messages and channel companions
-        do {
-            messages = try db.getMessages(channelId: channel.id)
-            channelCompanions = try db.getAgentsForChannel(channelId: channel.id)
-        } catch {
-            print("[Port42] Failed to load messages: \(error)")
-            messages = []
-            channelCompanions = []
+            // Now commit: clear stale content and load the real channel.
+            self.messages = []
+            self.channelCompanions = (try? self.db.getAgentsForChannel(channelId: channel.id)) ?? []
+
+            // ValueObservation fires immediately from a background reader thread —
+            // no blocking main-thread DB read needed.
+            self.startMessageObservation(channelId: channel.id)
+            self.startUnreadObservation()
+
+            self.syncJoinChannel(channel.id)
+            self.sync.sendReadReceipt(channelId: channel.id)
         }
-
-        startMessageObservation(channelId: channel.id)
-        startUnreadObservation()
     }
 
     public func createChannel(name: String, heartbeatInterval: Int = 0, heartbeatPrompt: String = "") {
