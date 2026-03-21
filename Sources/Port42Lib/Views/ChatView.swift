@@ -39,6 +39,7 @@ public struct ChatView: View {
             if let perm = activePerm {
                 PortPermissionOverlay(
                     permission: perm,
+                    createdBy: appState.activePermissionBridge?.createdBy,
                     onAllow: {
                         appState.activePermissionBridge?.grantPermission()
                         appState.activePermissionBridge = nil

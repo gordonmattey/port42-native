@@ -11,7 +11,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
     private let channelId: String?
     public let messageId: String?
-    private let createdBy: String?
+    public let createdBy: String?
 
     /// Accessor for AppState (cast from AnyObject to avoid circular dependency)
     private var state: AppState? { appState as? AppState }
@@ -67,6 +67,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Restore cached permissions immediately so they're in place before the webview
         // loads and JS executes. This prevents permission prompts from re-firing when
         // LazyVStack recycles inline port views.
+        NSLog("[Port42] Bridge init: createdBy=%@ channelId=%@ messageId=%@", createdBy ?? "nil", channelId ?? "nil", messageId ?? "nil")
         if let state = appState as? AppState {
             // 1. Message-level cache (survives view recycling within session)
             if let mid = messageId, let cached = state.cachedPortPermissions[mid] {
@@ -76,10 +77,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             // 2. Companion-level persistence (P-260): auto-restore permissions for same companion+channel
             if let by = createdBy, let cid = channelId {
                 let companionPerms = state.companionPermissions(createdBy: by, channelId: cid)
+                NSLog("[Port42] Bridge init: companion perms for %@/%@ = %@", by, cid, companionPerms.map { $0.rawValue }.joined(separator: ","))
                 if !companionPerms.isEmpty {
                     grantedPermissions.formUnion(companionPerms)
                     NSLog("[Port42] Bridge init: auto-restored %d companion-level permissions for %@", companionPerms.count, by)
                 }
+            } else {
+                NSLog("[Port42] Bridge init: skipping companion perms — createdBy or channelId nil")
             }
         } else {
             NSLog("[Port42] Bridge init: no AppState (messageId=%@)", messageId ?? "nil")
