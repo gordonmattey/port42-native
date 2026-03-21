@@ -1113,6 +1113,15 @@ public final class AppState: ObservableObject {
             channelMessages: channelMessages, triggerContent: message.content,
             senderId: message.senderId, senderName: message.senderName
         )
+
+        // Initiative: check companions NOT already targeted for watching signal matches
+        if !isAISender {
+            let targetedIds = Set(filteredTargets.map { $0.id })
+            checkInitiativeTriggers(
+                channelId: channelId, messageContent: message.content,
+                alreadyTargeted: targetedIds, senderId: message.senderId, senderName: message.senderName
+            )
+        }
     }
 
     // MARK: - Terminal Game Loop
@@ -1216,6 +1225,56 @@ public final class AppState: ObservableObject {
     }
 
     /// Launch agents with staggered delays so companions respond at different rates
+    /// Check if any companions' watching signals match the message content.
+    /// Only fires for companions NOT already being triggered by normal routing.
+    /// Launches matching companions with an initiative-framed trigger.
+    func checkInitiativeTriggers(
+        channelId: String, messageContent: String,
+        alreadyTargeted: Set<String>, senderId: String, senderName: String
+    ) {
+        let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
+        let channelAgentIds = Set(channelAgents.map { $0.id })
+        let lowered = messageContent.lowercased()
+
+        var initiativeAgents: [(agent: AgentConfig, signal: String)] = []
+
+        for agent in channelAgents where !alreadyTargeted.contains(agent.id) && agent.mode == .llm {
+            guard let pos = try? db.fetchPosition(companionId: agent.id, channelId: channelId),
+                  let watching = pos.watching, !watching.isEmpty else { continue }
+
+            for signal in watching {
+                if lowered.contains(signal.lowercased()) {
+                    initiativeAgents.append((agent: agent, signal: signal))
+                    break // one signal match per companion is enough to trigger
+                }
+            }
+        }
+
+        guard !initiativeAgents.isEmpty else { return }
+
+        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
+
+        for (index, match) in initiativeAgents.enumerated() {
+            // Stagger after normal routing window (start at 4s, then 1.5s per companion)
+            let baseDelay = 4.0 + Double(index) * 1.5
+            let jitter = Double.random(in: 0.5...1.5)
+            let delay = baseDelay + jitter
+
+            let initiativeTrigger = "[initiative: your watching signal was matched — \"\(match.signal)\"]\n\(messageContent)"
+
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                let msgs = (try? self.db.getMessages(channelId: channelId)) ?? channelMessages
+                let handler = ChannelAgentHandler(agent: match.agent, channelId: channelId, appState: self)
+                self.activeAgentHandlers[handler.messageId] = handler
+                handler.start(channelMessages: msgs, triggerContent: initiativeTrigger)
+            }
+
+            NSLog("[Port42] Initiative trigger: %@ matched signal '%@' in channel %@",
+                  match.agent.displayName, match.signal, channelId)
+        }
+    }
+
     private func launchAgents(
         _ agents: [AgentConfig], channelId: String, channelAgentIds: Set<String>,
         channelMessages: [Message], triggerContent: String,
@@ -1622,6 +1681,13 @@ public final class AppState: ObservableObject {
             targets, channelId: channel.id, channelAgentIds: channelAgentIds,
             channelMessages: messages, triggerContent: trimmed,
             senderId: user.id, senderName: user.displayName
+        )
+
+        // Initiative: check companions NOT already targeted for watching signal matches
+        let targetedIds = Set(targets.map { $0.id })
+        checkInitiativeTriggers(
+            channelId: channel.id, messageContent: trimmed,
+            alreadyTargeted: targetedIds, senderId: user.id, senderName: user.displayName
         )
     }
 
