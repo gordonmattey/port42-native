@@ -29,6 +29,7 @@ Companions emit ports using a ` ```port ` code fence. Port42 wraps the content i
 ````
 ```port
 <title>companion dashboard</title>
+<meta name="version" content="1">
 <div id="app"></div>
 <script>
   const companions = await port42.companions.list()
@@ -40,6 +41,8 @@ Companions emit ports using a ` ```port ` code fence. Port42 wraps the content i
 </script>
 ```
 ````
+
+The `<title>` appears in the port window header alongside the companion's name. The `<meta name="version" content="1">` is also shown in the header — companions increment it each time they update a port so you can see which revision is running.
 
 Ports can be popped out of the message stream into floating windows and persist across channel switches and app restarts.
 
@@ -291,20 +294,25 @@ Ports run under strict CSP. No fetch, no XHR, no WebSocket, no navigation. All d
 
 Companions (LLM agents) have access to additional tools beyond the port bridge. These are available in any conversation, not just inside ports.
 
-### Port Inspection
+### Port Inspection and Version History
 
 ```
-port_get_html(id)    → current HTML source of a port (by UDID)
-port_history(id)     → [{ version, createdBy, createdAt }] — all saved snapshots
+port_get_html(id)             → current HTML source of a port (by UDID)
+port_get_html(id, version: 2) → HTML from a specific historical snapshot
+port_history(id)              → [{ version, createdBy, createdAt }] — all saved snapshots
+port_restore(id, version: 2)  → roll the live port back to an earlier snapshot
 ```
 
-Use `port_get_html` to read what's already rendered before updating. Use `port_history` to see who changed what and when. Every `port_create` and `port_update` call creates a version snapshot automatically.
+Every `port_update` call snapshots the HTML automatically. Use `port_history` to see who changed what and when, `port_get_html` with a version number to inspect any snapshot, and `port_restore` to roll back. The restored HTML becomes the new live version and is itself snapshotted.
+
+The port window header shows the version declared in the port's `<meta name="version" content="N">` tag alongside the companion's name.
 
 ### Port Management
 
 ```
 ports_list()               → active ports in this channel (title, id, capabilities, status, createdBy)
 port_update(id, html)      → update an existing port's HTML in place
+port_restore(id, version)  → restore a port to a specific earlier version
 terminal_send(portId, cmd) → send a command to a terminal port (auto-appends \r)
 ```
 

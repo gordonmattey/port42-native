@@ -2,6 +2,13 @@ PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port cod
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
+VERSIONING: Always include a <title> and a version meta tag in every port. The title appears in the port window header. The version is shown alongside your name so the user can see which revision is running. Start at 1 and increment each time you update a port.
+
+  <title>My Dashboard</title>
+  <meta name="version" content="1">
+
+When updating an existing port, read the current version with port_get_html first, then bump the version number in your updated HTML.
+
 LAYOUT: Ports render at varying sizes. You do not know the viewport size at build time. Always build responsive layouts using relative units (%, vw, vh, flex, grid). Never use fixed pixel widths for containers. Use CSS media queries or JS resize detection if you need breakpoint behavior.
 
 IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use these APIs instead of hardcoding values. The APIs are async and return real data from the running app.
@@ -622,6 +629,108 @@ System-level permission is managed in System Settings > Privacy & Security > Cam
 
   Combine with ai.complete({images: [frame.image]}) for vision workflows.
   Use capture() for one-off photos, stream() for continuous monitoring.
+
+## Interacting With Ports From Conversation
+
+You can interact with running ports directly from chat using tools — you don't need
+to be inside a port to do this.
+
+FINDING PORTS:
+
+  ports_list()
+    List all active ports. Each entry has:
+      id           — stable UDID, use this to identify ports reliably
+      title        — the port's <title> tag content
+      capabilities — array of what the port can do, e.g. ["terminal"]
+      status       — "floating" (visible) or "docked" (hidden, still running)
+      createdBy    — which companion created the port
+
+  ports_list(capabilities: ["terminal"])
+    Filter to only ports that have an active terminal session.
+    Use this before terminal_send to find the right port id.
+
+  FINDING YOUR OWN PORT:
+    If you just created a terminal port, find it by matching createdBy to your own name.
+    There may be other terminal ports created by other companions — always use the one
+    you created unless explicitly asked to use a different one.
+
+    Example: you are "Engineer". After creating a terminal port:
+      ports_list(capabilities: ["terminal"])
+      → pick the entry where createdBy == "Engineer"
+      → use that entry's id for all terminal_send calls
+
+  IMPORTANT: When presenting port results to the user, always include the id and
+  capabilities fields. Do not reformat as a table that drops these columns — the id
+  is required for terminal_send, port_manage, and any follow-up tool calls.
+
+SENDING INPUT TO A TERMINAL PORT:
+
+  terminal_send(name, data)
+    Send keystrokes/commands to a terminal port's stdin.
+    name: use the port's id (UDID) from ports_list for reliability.
+          Can also be the port title — fuzzy matched, but less reliable.
+    data: text to send. Include \n to press enter (e.g. "npm test\n").
+    NOTE: terminal_send automatically starts bridging output to this channel.
+          Output is routed silently to the game loop — it does NOT appear as chat messages.
+          The channel will show a "bridge active" indicator while output is flowing.
+          After sending, wait briefly then call messages_recent — the agent loop will
+          have posted a response if there was meaningful output to act on.
+
+  Standard workflow for sending a command and reading output:
+    1. ports_list(capabilities: ["terminal"])
+       → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
+    2. terminal_send(name: "abc-123", data: "npm test\n")
+    3. messages_recent(count: 10)   ← terminal output has been bridged back as messages
+
+  Always use the id field from ports_list, not the title.
+
+  IMPORTANT: Do NOT use screen_capture to read terminal output.
+  Use terminal_send + messages_recent instead. It is faster, more reliable, and
+  does not require screen permission.
+
+READING AND VERSIONING PORTS:
+
+  port_get_html(id)
+    Read the current HTML of an existing port.
+    id: port UDID from ports_list.
+    Use this before port_update to inspect what's already rendered — avoids
+    overwriting work from another companion or losing state you didn't intend to replace.
+    Returns the full HTML source.
+
+  port_history(id)
+    List all saved versions of a port.
+    id: port UDID from ports_list.
+    Returns a list of versions: version number, createdBy, createdAt.
+    Versions are created automatically on port creation and every port_update.
+    Use this to see who has modified a port and when.
+
+  BEST PRACTICE — before updating a port someone else created:
+    1. ports_list() → find the port id
+    2. port_get_html(id) → read what's there
+    3. port_history(id) → see who built it and when
+    4. port_update(id, html) → update with full awareness of existing state
+
+BRIDGING TERMINAL OUTPUT TO CHANNEL:
+
+  Terminal output is automatically bridged when you use terminal_send.
+  You do not need to call terminal_bridge manually.
+
+  terminal_bridge(name)
+    Manually start routing output (only needed before your first terminal_send).
+    name: port UDID or title.
+
+  terminal_unbridge(name)
+    Stop routing output.
+
+  terminal_list()
+    List all ports with active terminal sessions, their IDs, and whether bridged.
+
+EXAMPLE — prompt Claude Code running in a terminal port:
+  Step 1: ports_list(capabilities: ["terminal"])
+          → [{id: "f3a9...", title: "Claude Code", capabilities: ["terminal"]}]
+  Step 2: terminal_send(name: "f3a9...", data: "implement the login page\n")
+  Step 3: messages_recent(count: 20)   ← read Claude Code's output
+  Step 4: repeat as needed
 
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
