@@ -614,6 +614,8 @@ public final class AppState: ObservableObject {
     @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
     private var bridgeActivityTimers: [String: Timer] = [:]
+    /// Heartbeat timers per channel
+    private var heartbeatTimers: [String: Timer] = [:]
     /// The companion whose swim channel is currently open. Nil when showing a regular channel.
     @Published public var activeSwimCompanion: AgentConfig?
     var activeAgentHandlers: [String: ChannelAgentHandler] = [:]
@@ -863,6 +865,7 @@ public final class AppState: ObservableObject {
             }
 
             startChannelObservation()
+            scheduleAllHeartbeats()
 
             // Detect OpenClaw installation
             openClawAvailable = OpenClawService.isInstalled
@@ -1298,6 +1301,7 @@ public final class AppState: ObservableObject {
 
         currentChannel = channel
         lastReadDates[channel.id] = Date()
+        UserDefaults.standard.set(channel.id, forKey: "lastSelectedChannelId")
         Analytics.shared.channelSwitched()
         Analytics.shared.screen("Channel")
         syncJoinChannel(channel.id)
@@ -1319,22 +1323,74 @@ public final class AppState: ObservableObject {
         startUnreadObservation()
     }
 
-    public func createChannel(name: String) {
+    public func createChannel(name: String, heartbeatInterval: Int = 0, heartbeatPrompt: String = "") {
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: " ", with: "-")
         guard !cleaned.isEmpty else { return }
 
-        let channel = Channel.create(name: cleaned)
+        var channel = Channel.create(name: cleaned)
+        channel.heartbeatInterval = heartbeatInterval
+        channel.heartbeatPrompt = heartbeatInterval > 0 ? heartbeatPrompt : ""
         do {
             try db.saveChannel(channel)
             channels = try db.getRegularChannels()
             syncJoinChannel(channel.id)
             selectChannel(channel)
+            scheduleHeartbeat(for: channel)
             Analytics.shared.channelCreated()
         } catch {
             print("[Port42] Failed to create channel: \(error)")
         }
+    }
+
+    public func updateChannel(_ channel: Channel) {
+        do {
+            try db.saveChannel(channel)
+            channels = try db.getRegularChannels()
+            if currentChannel?.id == channel.id { currentChannel = channel }
+            scheduleHeartbeat(for: channel)
+        } catch {
+            print("[Port42] Failed to update channel: \(error)")
+        }
+    }
+
+    // MARK: - Heartbeats
+
+    public func scheduleAllHeartbeats() {
+        for channel in channels {
+            scheduleHeartbeat(for: channel)
+        }
+    }
+
+    private func scheduleHeartbeat(for channel: Channel) {
+        heartbeatTimers[channel.id]?.invalidate()
+        heartbeatTimers.removeValue(forKey: channel.id)
+        guard channel.heartbeatInterval > 0 else { return }
+        let interval = TimeInterval(channel.heartbeatInterval * 60)
+        heartbeatTimers[channel.id] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.fireHeartbeat(channelId: channel.id)
+            }
+        }
+    }
+
+    private func fireHeartbeat(channelId: String) {
+        guard let channel = channels.first(where: { $0.id == channelId }),
+              channel.heartbeatInterval > 0 else { return }
+        let prompt = channel.heartbeatPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return }
+
+        let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
+        let llmAgents = channelAgents.filter { $0.mode == .llm }
+        guard !llmAgents.isEmpty else { return }
+
+        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
+        let channelAgentIds = Set(channelAgents.map { $0.id })
+        NSLog("[Port42] Heartbeat firing in #%@ — %d agents", channel.name, llmAgents.count)
+        launchAgents(llmAgents, channelId: channelId, channelAgentIds: channelAgentIds,
+                     channelMessages: channelMessages, triggerContent: prompt,
+                     senderId: "heartbeat", senderName: "heartbeat")
     }
 
     public func joinChannelFromInvite(_ invite: ChannelInviteData) {

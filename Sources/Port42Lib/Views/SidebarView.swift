@@ -31,6 +31,7 @@ public struct SidebarView: View {
     @State private var showNewCompanion = false
     @State private var showSignOut = false
     @State private var editingCompanion: AgentConfig?
+    @State private var editingChannel: Channel?
 
     public init(showNewChannel: Binding<Bool>) {
         self._showNewChannel = showNewChannel
@@ -220,6 +221,10 @@ public struct SidebarView: View {
             )
             .environmentObject(appState)
         }
+        .sheet(isPresented: Binding(get: { editingChannel != nil }, set: { if !$0 { editingChannel = nil } })) {
+            EditChannelSheet(channel: $editingChannel)
+                .environmentObject(appState)
+        }
     }
 
     @ViewBuilder
@@ -282,6 +287,10 @@ public struct SidebarView: View {
                         }
                     }
                 }
+            }
+
+            Button("Edit Channel") {
+                editingChannel = channel
             }
 
             Button("Delete Channel", role: .destructive) {

@@ -4,7 +4,7 @@
 
 A native Mac app where you, your friends, and your AI companions share the same space. Talk, build, and watch ideas take shape together.
 
-**[Download Port42.dmg](dist/Port42.dmg)** (macOS 15+, Apple Silicon)
+**[Download Port42.dmg](dist/Port42.dmg)** (macOS 14+, Apple Silicon)
 
 ![Port42 — companions building a live visualization during conversation](docs/screenshot.png)
 
@@ -15,6 +15,7 @@ Port42 is the first companion computing platform. Not another AI chat wrapper. A
 - **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed.
 - **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data.
 - **Swims** Deep 1:1 sessions with any companion. Continuous context that never resets.
+- **Heartbeats** Channels can fire a wake-up prompt to their companions on a schedule (1m to 60m). Set it once and companions stay active — no manual prods needed after a restart.
 - **Multiplayer** Share a link and anyone is in with two clicks, their companions alongside yours.
 - **Open Protocol** E2E encrypted. Open source. Runs on your machine. Any agent framework can plug in with a few lines of code.
 - **Local-first** Your data stays on your machine. No cloud dependency. Pure SwiftUI on Apple Silicon.
@@ -40,7 +41,15 @@ Companions emit ports using a ` ```port ` code fence. Port42 wraps the content i
 ```
 ````
 
-Ports can be popped out of the message stream into floating windows, docked to the right side of the chat, and persist across channel switches and app restarts.
+Ports can be popped out of the message stream into floating windows and persist across channel switches and app restarts.
+
+### Port Version History
+
+Every port is versioned. Each time a companion creates or updates a port the HTML is snapshotted. Companions can read the current HTML of an existing port before deciding to update it — preventing blind overwrites. Available to companions via the `port_get_html` and `port_history` tools (see Companion Tools below).
+
+### Terminal Game Loop
+
+Ports with terminal sessions can drive a companion feedback loop. When a companion sends to a terminal (`terminal_send`), the port's output is silently routed back to the owning companion at 300ms intervals. The chat typing area shows a bridge indicator while output is flowing: `engineer is bridging: my-port`. This lets companions build reactive CLI tools, watch processes, and iterate on running code without the terminal output flooding chat.
 
 ## Port42 Bridge API
 
@@ -135,6 +144,8 @@ Full shell sessions inside ports. Requires terminal permission.
 ```
 
 Spawn options: `{ shell, cwd, cols, rows, env }`. Defaults: `/bin/zsh`, 80x24.
+
+Output from terminal sessions is routed silently to the owning companion via the game loop — it does not appear as chat messages. A bridge indicator in the typing area shows which companion is active on which port.
 
 ### port42.clipboard
 
@@ -276,6 +287,44 @@ No permission required: `audio.speak`, `audio.play`, `audio.stop`, all read-only
 
 Ports run under strict CSP. No fetch, no XHR, no WebSocket, no navigation. All data access through `port42.*` bridge methods only.
 
+## Companion Tools
+
+Companions (LLM agents) have access to additional tools beyond the port bridge. These are available in any conversation, not just inside ports.
+
+### Port Inspection
+
+```
+port_get_html(id)    → current HTML source of a port (by UDID)
+port_history(id)     → [{ version, createdBy, createdAt }] — all saved snapshots
+```
+
+Use `port_get_html` to read what's already rendered before updating. Use `port_history` to see who changed what and when. Every `port_create` and `port_update` call creates a version snapshot automatically.
+
+### Port Management
+
+```
+ports_list()               → active ports in this channel (title, id, capabilities, status, createdBy)
+port_update(id, html)      → update an existing port's HTML in place
+terminal_send(portId, cmd) → send a command to a terminal port (auto-appends \r)
+```
+
+`ports_list` returns the 5 most recent inline ports in the current channel alongside any floating panels.
+
+## Channels
+
+### Creating and Editing
+
+Right-click any channel in the sidebar to open the context menu. You can rename a channel, configure its heartbeat, add or remove companions, generate an invite link, or delete it.
+
+### Heartbeats
+
+A heartbeat fires a prompt to all LLM companions in a channel at a fixed interval. Configure it when creating a channel or via Edit Channel:
+
+- **Interval** off, 1m, 2m, 5m, 10m, 15m, 30m, or 60m
+- **Prompt** the text sent to companions on each tick (e.g. "Check the build status and report any failures")
+
+Heartbeats restart automatically when the app relaunches. Useful for monitoring channels, scheduled check-ins, or keeping a companion primed for quick responses after a restart.
+
 ## Architecture
 
 ```
@@ -290,9 +339,11 @@ Port42.app
 
 The gateway runs locally inside the app bundle. Messages sync between connected clients in real time. Sharing is opt-in via ngrok tunneling or custom gateway URL.
 
+**State flows one way:** SQLite (GRDB) → AppState (ObservableObject) → Views (SwiftUI). All persistence goes through `DatabaseService`. GRDB `ValueObservation` keeps the UI in sync reactively.
+
 ## Building from source
 
-Requires macOS 15+, Swift 6, and Go 1.21+.
+Requires macOS 14+, Swift 6, and Go 1.21+.
 
 ```bash
 ./build.sh --run          # debug build and launch

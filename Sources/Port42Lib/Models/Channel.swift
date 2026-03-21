@@ -15,8 +15,12 @@ public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable
     public var syncEnabled: Bool
     /// Whether this is a swim channel (1:1 with a companion, not synced).
     public var isSwim: Bool
+    /// Heartbeat interval in minutes. 0 = off. Fires a prompt to wake up companions.
+    public var heartbeatInterval: Int
+    /// The prompt sent to companions on each heartbeat tick.
+    public var heartbeatPrompt: String
 
-    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, isSwim: Bool = false) {
+    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, isSwim: Bool = false, heartbeatInterval: Int = 0, heartbeatPrompt: String = "") {
         self.id = id
         self.name = name
         self.type = type
@@ -24,6 +28,8 @@ public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.encryptionKey = encryptionKey
         self.syncEnabled = syncEnabled
         self.isSwim = isSwim
+        self.heartbeatInterval = heartbeatInterval
+        self.heartbeatPrompt = heartbeatPrompt
     }
 
     public static func create(name: String, type: String = "team") -> Channel {

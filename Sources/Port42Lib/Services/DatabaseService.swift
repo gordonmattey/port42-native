@@ -310,6 +310,13 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v19-channel-heartbeat") { db in
+            try db.alter(table: "channels") { t in
+                t.add(column: "heartbeatInterval", .integer).notNull().defaults(to: 0)
+                t.add(column: "heartbeatPrompt", .text).notNull().defaults(to: "")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
