@@ -317,6 +317,13 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v22-companion-thinking") { db in
+            try db.alter(table: "agents") { t in
+                t.add(column: "thinkingEnabled", .integer).notNull().defaults(to: 0)
+                t.add(column: "thinkingEffort", .text).notNull().defaults(to: "low")
+            }
+        }
+
         migrator.registerMigration("v21-companion-positions") { db in
             try db.create(table: "companion_positions") { t in
                 t.column("id", .text).primaryKey()

@@ -112,6 +112,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     private var savedMessages: [[String: Any]] = []
     private var savedSystemPrompt = ""
     private var savedModel = ""
+    private var savedThinkingEnabled = false
+    private var savedThinkingEffort = "low"
 
     init(agent: AgentConfig, channelId: String, appState: AppState) {
         self.agent = agent
@@ -421,6 +423,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         savedMessages = cleaned
         savedSystemPrompt = channelPrompt
         savedModel = agent.model ?? "claude-opus-4-6"
+        savedThinkingEnabled = agent.thinkingEnabled
+        savedThinkingEffort = agent.thinkingEffort
 
         do {
             try engine.send(
@@ -428,6 +432,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 systemPrompt: channelPrompt,
                 model: savedModel,
                 tools: ToolDefinitions.all,
+                thinkingEnabled: savedThinkingEnabled,
+                thinkingEffort: savedThinkingEffort,
                 delegate: self
             )
         } catch {
@@ -573,7 +579,9 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,
                     maxTokens: 8192,
-                    tools: ToolDefinitions.all
+                    tools: ToolDefinitions.all,
+                    thinkingEnabled: self.savedThinkingEnabled,
+                    thinkingEffort: self.savedThinkingEffort
                 )
             } catch {
                 NSLog("[Port42] Failed to continue after tool use: %@", error.localizedDescription)

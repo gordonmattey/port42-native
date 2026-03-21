@@ -32,6 +32,8 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     public var systemPrompt: String?
     public var provider: AgentProvider?
     public var model: String?
+    public var thinkingEnabled: Bool
+    public var thinkingEffort: String  // "low" | "medium" | "high"
 
     // Command mode fields
     public var command: String?
@@ -44,7 +46,8 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     public init(
         id: String, ownerId: String, displayName: String, mode: AgentMode,
         trigger: AgentTrigger, systemPrompt: String?, provider: AgentProvider?,
-        model: String?, command: String?, args: [String]?, workingDir: String?,
+        model: String?, thinkingEnabled: Bool = false, thinkingEffort: String = "low",
+        command: String?, args: [String]?, workingDir: String?,
         envVars: [String: String]?, createdAt: Date
     ) {
         self.id = id
@@ -55,6 +58,8 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         self.systemPrompt = systemPrompt
         self.provider = provider
         self.model = model
+        self.thinkingEnabled = thinkingEnabled
+        self.thinkingEffort = thinkingEffort
         self.command = command
         self.args = args
         self.workingDir = workingDir

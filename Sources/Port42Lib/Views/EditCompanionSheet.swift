@@ -8,6 +8,8 @@ public struct EditCompanionSheet: View {
     @State private var name: String
     @State private var systemPrompt: String
     @State private var selectedModel: String
+    @State private var thinkingEnabled: Bool
+    @State private var thinkingEffort: String
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>, companion: AgentConfig) {
@@ -16,6 +18,8 @@ public struct EditCompanionSheet: View {
         self._name = State(initialValue: companion.displayName)
         self._systemPrompt = State(initialValue: companion.systemPrompt ?? "")
         self._selectedModel = State(initialValue: companion.model ?? "claude-opus-4-6")
+        self._thinkingEnabled = State(initialValue: companion.thinkingEnabled)
+        self._thinkingEffort = State(initialValue: companion.thinkingEffort)
     }
 
     public var body: some View {
@@ -70,6 +74,57 @@ public struct EditCompanionSheet: View {
                 ModelPicker(selectedModel: $selectedModel)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Extended Thinking")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Toggle("", isOn: $thinkingEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .tint(Port42Theme.accent)
+                }
+
+                if thinkingEnabled {
+                    HStack(spacing: 6) {
+                        ForEach(["low", "medium", "high"], id: \.self) { effort in
+                            Button(action: { thinkingEffort = effort }) {
+                                Text(effort)
+                                    .font(Port42Theme.mono(11))
+                                    .foregroundStyle(
+                                        thinkingEffort == effort
+                                            ? Port42Theme.accent
+                                            : Port42Theme.textSecondary
+                                    )
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        thinkingEffort == effort
+                                            ? Port42Theme.accent.opacity(0.1)
+                                            : Color.clear
+                                    )
+                                    .cornerRadius(5)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .stroke(
+                                                thinkingEffort == effort
+                                                    ? Port42Theme.accent.opacity(0.5)
+                                                    : Port42Theme.border,
+                                                lineWidth: 1
+                                            )
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Text("Uses more tokens. Only active on Claude Code OAuth.")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                }
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     isPresented = false
@@ -113,6 +168,8 @@ public struct EditCompanionSheet: View {
             ? nil
             : systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.model = selectedModel
+        updated.thinkingEnabled = thinkingEnabled
+        updated.thinkingEffort = thinkingEffort
         appState.updateCompanion(updated)
         isPresented = false
     }

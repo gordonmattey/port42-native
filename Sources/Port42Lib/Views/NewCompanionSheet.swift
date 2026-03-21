@@ -130,6 +130,8 @@ public struct NewCompanionSheet: View {
     @State private var systemPrompt = ""
     @State private var selectedPreset: UUID?
     @State private var selectedModel = "claude-opus-4-6"
+    @State private var thinkingEnabled = false
+    @State private var thinkingEffort = "low"
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>) {
@@ -262,6 +264,57 @@ public struct NewCompanionSheet: View {
                 ModelPicker(selectedModel: $selectedModel)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Extended Thinking")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Toggle("", isOn: $thinkingEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .tint(Port42Theme.accent)
+                }
+
+                if thinkingEnabled {
+                    HStack(spacing: 6) {
+                        ForEach(["low", "medium", "high"], id: \.self) { effort in
+                            Button(action: { thinkingEffort = effort }) {
+                                Text(effort)
+                                    .font(Port42Theme.mono(11))
+                                    .foregroundStyle(
+                                        thinkingEffort == effort
+                                            ? Port42Theme.accent
+                                            : Port42Theme.textSecondary
+                                    )
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        thinkingEffort == effort
+                                            ? Port42Theme.accent.opacity(0.1)
+                                            : Color.clear
+                                    )
+                                    .cornerRadius(5)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .stroke(
+                                                thinkingEffort == effort
+                                                    ? Port42Theme.accent.opacity(0.5)
+                                                    : Port42Theme.border,
+                                                lineWidth: 1
+                                            )
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Text("Uses more tokens. Only active on Claude Code OAuth.")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                }
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     isPresented = false
@@ -334,7 +387,7 @@ public struct NewCompanionSheet: View {
               Keep responses concise and conversational. Use lowercase unless emphasis matters.
               """
             : trimmedPrompt
-        let companion = AgentConfig.createLLM(
+        var companion = AgentConfig.createLLM(
             ownerId: user.id,
             displayName: trimmedName,
             systemPrompt: finalPrompt,
@@ -342,6 +395,8 @@ public struct NewCompanionSheet: View {
             model: selectedModel,
             trigger: .mentionOnly
         )
+        companion.thinkingEnabled = thinkingEnabled
+        companion.thinkingEffort = thinkingEffort
         appState.addCompanion(companion)
         isPresented = false
     }

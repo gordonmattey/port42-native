@@ -123,7 +123,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
     private var fullResponse = ""
     private var currentTask: URLSessionDataTask?
     private var hasRetriedAuth = false
-    private var lastSendArgs: (messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int, tools: [[String: Any]]?)?
+    private var lastSendArgs: (messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int, tools: [[String: Any]]?, thinkingEnabled: Bool, thinkingEffort: String)?
 
     // Tool use tracking
     private var currentToolUseId: String?
@@ -150,6 +150,8 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         model: String = "claude-opus-4-6",
         maxTokens: Int = 8192,
         tools: [[String: Any]]? = nil,
+        thinkingEnabled: Bool = false,
+        thinkingEffort: String = "low",
         delegate: LLMStreamDelegate
     ) throws {
         if Self.paused { throw LLMEngineError.aiPaused }
@@ -167,7 +169,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             self.fullResponse = ""
         }
         self.hasRetriedAuth = false
-        self.lastSendArgs = (messages, systemPrompt, model, maxTokens, tools)
+        self.lastSendArgs = (messages, systemPrompt, model, maxTokens, tools, thinkingEnabled, thinkingEffort)
         self.currentToolUseId = nil
         self.currentToolUseName = nil
         self.currentToolInputJSON = ""
@@ -187,10 +189,9 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             systemValue = systemPrompt
         }
 
-        // Adaptive thinking requires max_tokens >= 16000 for Opus/Sonnet
-        let effectiveMaxTokens = (credential.useOAuthHeaders && !model.contains("haiku"))
-            ? max(maxTokens, 16000)
-            : maxTokens
+        // Thinking requires max_tokens >= 16000 for Opus/Sonnet on OAuth
+        let needsThinkingTokens = thinkingEnabled && credential.useOAuthHeaders && !model.contains("haiku")
+        let effectiveMaxTokens = needsThinkingTokens ? max(maxTokens, 16000) : maxTokens
 
         var body: [String: Any] = [
             "model": model,
@@ -200,9 +201,10 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             "messages": messages
         ]
 
-        if credential.useOAuthHeaders {
+        // Only enable thinking if the companion has it turned on
+        if thinkingEnabled && credential.useOAuthHeaders {
             body["thinking"] = ["type": "adaptive"]
-            body["output_config"] = ["effort": "medium"]
+            body["output_config"] = ["effort": thinkingEffort]
         }
 
         if let tools, !tools.isEmpty {
@@ -232,7 +234,9 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
         systemPrompt: String,
         model: String,
         maxTokens: Int,
-        tools: [[String: Any]]?
+        tools: [[String: Any]]?,
+        thinkingEnabled: Bool = false,
+        thinkingEffort: String = "low"
     ) throws {
         let previousBlocks = assistantContentBlocks
 
@@ -265,6 +269,8 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate {
             model: model,
             maxTokens: maxTokens,
             tools: tools,
+            thinkingEnabled: thinkingEnabled,
+            thinkingEffort: thinkingEffort,
             delegate: delegate!
         )
     }

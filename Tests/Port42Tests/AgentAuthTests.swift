@@ -161,7 +161,7 @@ struct AgentAuthTests {
         request.applyAuth(cred)
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-ant-oat01-test")
-        #expect(request.value(forHTTPHeaderField: "anthropic-beta") == "oauth-2025-04-20")
+        #expect(request.value(forHTTPHeaderField: "anthropic-beta") == "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24")
         #expect(request.value(forHTTPHeaderField: "x-api-key") == nil)
     }
 
@@ -183,7 +183,7 @@ struct AgentAuthTests {
         request.applyAuth(cred)
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer weird-token-format")
-        #expect(request.value(forHTTPHeaderField: "anthropic-beta") == "oauth-2025-04-20")
+        #expect(request.value(forHTTPHeaderField: "anthropic-beta") == "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24")
         #expect(request.value(forHTTPHeaderField: "x-api-key") == nil)
         // No x-app or User-Agent overrides - those cause 400s on the messages endpoint
     }
