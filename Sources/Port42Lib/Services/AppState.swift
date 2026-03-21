@@ -104,7 +104,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     private let agent: AgentConfig
     let channelId: String
     let messageId: String
-    private let engine = LLMEngine()
+    private let engine: LLMBackend
     private weak var appState: AppState?
     private var bufferedContent = ""
     private var isTyping = false
@@ -120,6 +120,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         self.channelId = channelId
         self.messageId = UUID().uuidString
         self.appState = appState
+        self.engine = makeLLMBackend(for: agent)
         self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId, createdBy: agent.displayName)
     }
 
@@ -431,6 +432,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 messages: cleaned,
                 systemPrompt: channelPrompt,
                 model: savedModel,
+                maxTokens: 8192,
                 tools: ToolDefinitions.all,
                 thinkingEnabled: savedThinkingEnabled,
                 thinkingEffort: savedThinkingEffort,

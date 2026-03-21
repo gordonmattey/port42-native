@@ -112,7 +112,7 @@ extension URLRequest {
 
 // MARK: - LLM Engine
 
-public final class LLMEngine: NSObject, URLSessionDataDelegate {
+public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
     /// Global kill switch for all LLM API calls
     public static var paused: Bool = false
 
