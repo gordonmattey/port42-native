@@ -7,8 +7,9 @@ import AppKit
 public final class ToolExecutor {
     private weak var appState: AppState?
     private let channelId: String?
+    let createdBy: String?
 
-    /// Granted permissions for this conversation (per-companion, per-conversation).
+    /// Granted permissions for this conversation (per-companion, per-channel).
     private var grantedPermissions: Set<PortPermission> = []
 
     /// Pending permission continuation for async approval flow.
@@ -28,9 +29,14 @@ public final class ToolExecutor {
     /// Output batchers for active terminal bridges (keyed by lowercased port name)
     private static var outputBatchers: [String: OutputBatcher] = [:]
 
-    init(appState: AppState, channelId: String?) {
+    init(appState: AppState, channelId: String?, createdBy: String? = nil) {
         self.appState = appState
         self.channelId = channelId
+        self.createdBy = createdBy
+        // Restore previously granted permissions so the user isn't re-prompted
+        if let by = createdBy, let cid = channelId {
+            self.grantedPermissions = appState.companionPermissions(createdBy: by, channelId: cid)
+        }
     }
 
     /// Execute a tool and return the result as content blocks for the Anthropic API.
@@ -46,6 +52,10 @@ public final class ToolExecutor {
                     return [["type": "text", "text": "Permission denied: \(perm.rawValue)"]]
                 }
                 grantedPermissions.insert(perm)
+                // Persist now that the set includes the newly granted permission
+                if let by = createdBy, let cid = channelId {
+                    appState?.saveCompanionPermissions(grantedPermissions, createdBy: by, channelId: cid)
+                }
                 NSLog("[Port42] ToolExecutor: %@ permission granted for %@", perm.rawValue, name)
             }
         }
@@ -64,6 +74,7 @@ public final class ToolExecutor {
         appState?.activeToolExecutor = nil
         permissionContinuation?.resume(returning: true)
         permissionContinuation = nil
+        // Persistence happens in execute() after grantedPermissions.insert(perm)
     }
 
     /// Deny the pending permission (called from UI).
@@ -83,6 +94,27 @@ public final class ToolExecutor {
             // Surface to AppState so the UI can show the prompt
             self.appState?.activeToolExecutor = self
         }
+    }
+
+    // MARK: - Terminal Bridge
+
+    /// Start routing a terminal port's output into this conversation as messages.
+    /// No-op if already bridged. Called automatically on terminal_send success.
+    private func autoStartOutputBridge(portTitle: String, termBridge: TerminalBridge, sessionId: String) {
+        guard let appState else { return }
+        let key = portTitle.lowercased()
+        guard !appState.bridgedTerminalNames.contains(key) else { return }
+        let chId = channelId ?? appState.currentChannel?.id ?? ""
+        guard !chId.isEmpty else { return }
+        appState.bridgedTerminalNames.insert(key)
+        let batcher = OutputBatcher(portName: portTitle, channelId: chId, appState: appState)
+        Self.outputBatchers[key] = batcher
+        termBridge.session(for: sessionId)?.addOutputObserver { [weak batcher] rawOutput in
+            Task { @MainActor in
+                batcher?.receive(rawOutput)
+            }
+        }
+        NSLog("[Port42] Auto-bridged terminal '%@' → channel %@", portTitle, chId)
     }
 
     // MARK: - Tool Execution
@@ -310,11 +342,17 @@ public final class ToolExecutor {
             if let panel = appState.portWindows.findPort(by: name),
                let tb = panel.bridge.terminalBridge {
                 let ok = tb.sendToFirst(data: processed)
+                if ok, let sid = tb.firstActiveSessionId {
+                    autoStartOutputBridge(portTitle: panel.title, termBridge: tb, sessionId: sid)
+                }
                 return [textBlock(ok ? "Sent to \(panel.title)" : "Error: terminal send failed")]
             }
             // 2. Title fuzzy fallback
             if let session = appState.portWindows.terminalSession(forPortNamed: name) {
                 let ok = session.bridge.send(sessionId: session.sessionId, data: processed)
+                if ok {
+                    autoStartOutputBridge(portTitle: name, termBridge: session.bridge, sessionId: session.sessionId)
+                }
                 return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
             }
             // 3. Useful error listing available terminal ports
@@ -352,24 +390,10 @@ public final class ToolExecutor {
             guard let termSession = appState.portWindows.terminalSession(forPortNamed: name) else {
                 return [textBlock("Error: no terminal found for port '\(name)'")]
             }
-            // Check if already bridged
             if appState.bridgedTerminalNames.contains(name.lowercased()) {
                 return [textBlock("Already bridging '\(name)' to this conversation")]
             }
-            appState.bridgedTerminalNames.insert(name.lowercased())
-            let portName = name
-            let weakAppState = appState
-            let chId = channelId ?? appState.currentChannel?.id ?? ""
-            // Add observer that batches and posts output
-            let batcher = OutputBatcher(portName: portName, channelId: chId, appState: weakAppState)
-            Self.outputBatchers[name.lowercased()] = batcher
-            termSession.bridge.session(for: termSession.sessionId)?.addOutputObserver { rawOutput in
-                Task { @MainActor in
-                    batcher.receive(rawOutput)
-                }
-            }
-            let dest = "channel \(chId)"
-            NSLog("[Port42] Terminal bridge started: %@ → %@", name, dest)
+            autoStartOutputBridge(portTitle: name, termBridge: termSession.bridge, sessionId: termSession.sessionId)
             return [textBlock("Bridging '\(name)' output to this conversation")]
 
         case "terminal_unbridge":

@@ -197,7 +197,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_send",
-            "description": "Send input to a terminal port. Use the port's id (UDID from ports_list) for reliable routing — it always works. Falls back to fuzzy title match. Include \\n to execute commands.",
+            "description": "Send input to a terminal port. Automatically bridges output back to this channel — follow up with messages_recent to read what the terminal printed. Use the port's id (UDID from ports_list) for reliable routing. Include \\n to execute commands. Do NOT use screen_capture to read terminal output — use terminal_send + messages_recent instead.",
             "input_schema": [
                 "type": "object",
                 "properties": [

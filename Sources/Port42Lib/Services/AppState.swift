@@ -118,7 +118,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         self.channelId = channelId
         self.messageId = UUID().uuidString
         self.appState = appState
-        self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId)
+        self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId, createdBy: agent.displayName)
     }
 
 

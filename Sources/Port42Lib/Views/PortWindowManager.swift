@@ -940,6 +940,8 @@ struct WindowRefAccessor: NSViewRepresentable {
 /// Inline permission prompt rendered directly in the view hierarchy.
 /// Unlike confirmationDialog (which requires key window status to present as a sheet),
 /// this always renders reliably regardless of window state.
+/// Unified permission prompt used for both port JS and tool-use paths.
+/// Renders inline in the view hierarchy (avoids confirmationDialog key-window issues).
 struct PortPermissionOverlay: View {
     let permission: PortPermission
     var createdBy: String? = nil
@@ -948,7 +950,7 @@ struct PortPermissionOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.7)
+            Color.black.opacity(0.6)
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
@@ -958,13 +960,16 @@ struct PortPermissionOverlay: View {
                         .foregroundStyle(Port42Theme.accent)
                 }
 
+                Image(systemName: permission.iconName)
+                    .font(.system(size: 28))
+                    .foregroundStyle(Port42Theme.accent)
+
                 Text(permission.permissionDescription.title)
-                    .font(Port42Theme.mono(14))
-                    .fontWeight(.semibold)
+                    .font(Port42Theme.monoBold(14))
                     .foregroundStyle(Port42Theme.textPrimary)
 
                 Text(permission.permissionDescription.message)
-                    .font(Port42Theme.mono(11))
+                    .font(Port42Theme.mono(12))
                     .foregroundStyle(Port42Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

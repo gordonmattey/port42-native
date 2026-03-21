@@ -1,6 +1,6 @@
 # Ports Implementation Plan
 
-**Last updated:** 2026-03-17
+**Last updated:** 2026-03-20
 
 **Constraint:** No breaking changes. All existing chat, swim, and sync
 functionality must continue working at every step.
@@ -411,7 +411,7 @@ Replaced by manual window arrangement. See Step 9d.
 
 ---
 
-### Step 9h: Startup Window Behavior (P-239)
+### Step 9h: Startup Window Behavior (P-239) ✅
 
 **Goal:** Main window fills the screen on launch (setup/sign-in screen benefits
 from the full canvas). After sign-in, main window and port panels restore to
@@ -446,7 +446,7 @@ above all content. Toggle on/off. Persisted to DB across restart.
 
 ---
 
-### Step 9g: Port Controls and History (P-220, P-219)
+### Step 9g: Port Controls and History (P-220 ✅, P-219)
 
 **Port Controls (P-220):**
 - Stop button: kills the port's webview, shows "stopped" state
@@ -454,10 +454,13 @@ above all content. Toggle on/off. Persisted to DB across restart.
 - Restart button: tears down webview and re-injects original HTML
 
 **Port History (P-219):**
-- Store port metadata (title, HTML, companion, channel, timestamp) in SQLite
+- Store port metadata (title, HTML, companion, channel, timestamp, creating prompt) in SQLite
+- Each `port_update` creates a new history entry (author, prompt, HTML snapshot, timestamp) — not just the latest version
+- `port42.port.info()` returns `prompt` and `version` fields
 - History view accessible from sidebar or Quick Switcher
 - Reopen recreates the port from stored HTML
 - Search by title or companion name
+- Companion tool `port_get_html(id)` allows reading existing port HTML before updating (see P-263)
 
 ---
 
@@ -723,6 +726,16 @@ Step 32: Agent auth (P-706)                    → mutual authentication
 Step 33: Agent discovery (P-705)               → browsable agent catalog
 Step 34: Agent billing bridge (P-707)          → agents own their own costs
 Phase 7 (agent embed protocol) ─────────────────────────────────────
+
+Fix B-001: terminal sessions registry          → terminal_send works from chat
+Fix B-002: fs.pick() NSOpenPanel fix           → file picker actually opens
+Step 9j: Named terminals (P-512)               → companions address terminals by name
+Step 9k: Port HTML retrieval (P-263)           → companions read existing ports before updating
+Step 9l: Permission persistence (P-260)        → granted permissions survive port restart
+Step 9m: Permission attribution (P-261)        → dialog names the requesting companion
+Step 9n: Multi-companion activity (P-262)      → user sees all active port builds
+Step 9o: Media capture visibility (P-264)      → captures appear in chat + saved to disk
+Bug fixes + Phase 2.5 additions ────────────────────────────────────
 ```
 
 ## Phase 6: System Integration (P-600 through P-611)
@@ -999,6 +1012,190 @@ Phase 7 (agent embed protocol) ────────────────�
 
 **User test:**
 - Install agent that requires OAuth, complete the flow, agent connects
+
+---
+
+---
+
+## Bug Fixes (Critical — blocking real workflows)
+
+### Fix B-001: terminal_send Companion Tool Not Delivering
+
+**Root cause:** Terminal sessions are owned by individual `PortBridge` instances. Each bridge is a webview-scoped object. The companion-side `terminal_send` tool (in `ToolExecutor.swift`) has no way to look up sessions across bridges — there is no shared registry. Calling `terminal_send` from chat silently fails.
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/AppState.swift` — add `terminalSessions: [String: TerminalSession]` registry (name → session)
+- `Sources/Port42Lib/Services/PortBridge.swift` — when `terminal.spawn(opts: { name })` is called, register session in `AppState.terminalSessions`; deregister on kill/deinit
+- `Sources/Port42Lib/Services/ToolExecutor.swift` — `terminal_send` looks up session from `AppState.terminalSessions` by name, falls back to sessionId lookup
+
+**New data structure:**
+```swift
+struct TerminalSession {
+    let sessionId: String
+    let name: String?         // optional registered name
+    let pid: Int32
+    var isRunning: Bool
+    weak var bridge: PortBridge?
+}
+```
+
+**New companion tools:**
+- `terminal_list` — returns all sessions from the shared registry
+- `terminal_get(name)` — looks up by name, returns sessionId + status
+
+**What to build in order:**
+1. Add `terminalSessions` to AppState, with thread-safe access (actor isolation or DispatchQueue)
+2. Wire PortBridge terminal.spawn to register when `name` is provided
+3. Deregister on kill and PortBridge deinit
+4. Fix ToolExecutor terminal_send to route via shared registry
+5. Add terminal_list and terminal_get tool implementations
+
+**User test:**
+- Open a terminal port, run `claude` or any interactive process
+- From chat: `@engineer send "hello" to the claude terminal`
+- Verify input arrives in the running session
+
+---
+
+### Fix B-002: fs.pick() Never Opens NSOpenPanel
+
+**Root cause unknown.** `port42.fs.pick()` starts a continuation, returns a promise, but NSOpenPanel/NSSavePanel never appears. Promise hangs indefinitely with no error. Likely candidates: (a) the sheet is being attached to nil or a non-key window, (b) a main-thread dispatch is deadlocking, (c) the continuation is completing on a background thread but AppKit requires main thread.
+
+**Files to investigate:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — `fs.pick` handler, look for thread issues
+- `Sources/Port42Lib/Services/FileBridge.swift` — NSOpenPanel setup and panel presentation
+
+**What to build:**
+1. Add logging to trace exactly where the pick() call stalls
+2. Ensure NSOpenPanel is created and presented on the main thread (`@MainActor`)
+3. Ensure the continuation resumes correctly whether the user accepts or cancels
+4. If sheet presentation requires a key window, call `bringToFront()` on the port panel before presenting (same fix pattern as P-225 permission dialog timing)
+
+**User test:**
+- Port with an "Open File" button calls `port42.fs.pick()`
+- Native file chooser opens
+- User selects a file, path is returned to JS
+- User cancels, empty array is returned (no hang)
+
+---
+
+## New Features (Phase 2.5+)
+
+### Step 9j: Named Terminals (P-512)
+
+**Goal:** Terminal sessions move from per-bridge to a shared AppState registry. Any companion or port can send input to a named terminal.
+
+This step is a prerequisite for fixing B-001 — the shared registry work should happen together.
+
+**What to build:** (See B-001 above for implementation details.)
+
+The `port42.terminal` JS API gains:
+```js
+port42.terminal.spawn({ name: "claude-code", ... })  // register in shared registry
+port42.terminal.list()                                // list all sessions
+port42.terminal.send(nameOrId, data)                  // send by name OR sessionId
+port42.terminal.get(name)                             // lookup by name
+```
+
+---
+
+### Step 9k: Port HTML Retrieval (P-263)
+
+**Goal:** Companions can read the current HTML of an existing port before deciding to update it.
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — add `port.html()` bridge method returning the current `webView.url` rendered HTML, or the stored source HTML from DB
+- `Sources/Port42Lib/Services/ToolDefinitions.swift` — add `port_get_html(id)` tool definition
+- `Sources/Port42Lib/Services/ToolExecutor.swift` — implement `port_get_html`, looks up port by UDID from `AppState.portPanels`, returns the stored HTML
+
+**Stored source is better than rendered HTML:** the stored HTML in `port_panels.html` column is the original source. Returning that (rather than the current DOM state) is more useful for companions who want to update or fork the port.
+
+**User test:**
+- `@engineer what does the current dashboard port look like?`
+- Companion calls `port_get_html(id)`, reads the HTML, summarizes what it does
+
+---
+
+### Step 9l: Permission Persistence per Companion+Channel (P-260)
+
+**Goal:** Granted permissions persist per companion+channel pair across port restarts.
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/DatabaseService.swift` — add `port_permissions` table: `(companionId TEXT, channelId TEXT, permission TEXT, grantedAt INTEGER)`, new migration
+- `Sources/Port42Lib/Services/PortBridge.swift` — on permission grant, write to `port_permissions` if a companion+channel can be identified; on bridge init, load prior grants for this companion+channel combo
+- `Sources/Port42Lib/Services/AppState.swift` — expose `loadPermissions(companionId:channelId:)` helper
+
+**Scoping:** per-port session overrides (anonymous ports, ports without a companion+channel ID) still reset on close. Only ports with a clear companion+channel identity get persistent grants.
+
+---
+
+### Step 9m: Permission Attribution (P-261)
+
+**Goal:** Permission dialog names the companion requesting access.
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/PortBridge.swift` — pass `createdBy` companion name into `PortPermission` prompt
+- `Sources/Port42Lib/Views/PortWindowManager.swift` — update permission alert text to include companion name
+
+Permission prompt changes from:
+> "This port wants to access your terminal. Allow?"
+
+to:
+> "engineer wants to access your terminal. Allow?"
+
+---
+
+### Step 9n: Multi-Companion Port Activity (P-262)
+
+**Goal:** When multiple companions are building or updating ports simultaneously, the user sees all of them.
+
+**What to build:**
+- `AppState` tracks `activePortBuilds: [CompanionPortActivity]` — updated as companions stream port fences
+- `CompanionPortActivity`: `{ companionName, portTitle?, channelId, state: .streaming | .rendering | .ready }`
+- Updated when a port fence is detected mid-stream (state = streaming), when the fence closes (state = rendering), when PortView finishes loading (state = ready, then removed)
+- Sidebar or a small floating indicator shows the list: "engineer is building a port... analyst is updating dashboard..."
+- Clears automatically when state = ready
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/AppState.swift` — `activePortBuilds` published array
+- `Sources/Port42Lib/Views/ConversationContent.swift` — detect fence open/close, update AppState
+- `Sources/Port42Lib/Views/SidebarView.swift` or new `PortActivityBadge.swift` — render active builds indicator
+
+---
+
+## Build Order Summary (additions)
+
+```
+Fix B-001: terminal sessions registry   → terminal_send works from chat
+Fix B-002: fs.pick() NSOpenPanel fix    → file picker actually opens
+Step 9j: Named terminals (P-512)        → companions address terminals by name
+Step 9k: Port HTML retrieval (P-263)    → companions read existing ports before updating
+Step 9l: Permission persistence (P-260) → granted permissions survive port restart
+Step 9m: Permission attribution (P-261) → dialog names the requesting companion
+Step 9n: Multi-companion activity (P-262) → user sees all active port builds
+```
+
+Priority order: B-001 and B-002 are blockers for real workflows. P-512 and B-001 should be built together. P-260 and P-261 are quick wins that remove daily friction.
+
+---
+
+### Step 9o: Media Capture Visibility in Chat (P-264)
+
+**Goal:** When a companion calls a capture API the result should appear inline in the chat and be saved to disk.
+
+**Scope:** screen.capture and camera.capture (single frames). Not streaming frames, not headless browser screenshots.
+
+**What to build:**
+1. After `ScreenBridge` or `CameraBridge` returns a base64 image, post a system message to the channel with the image embedded and attribution ("engineer captured your screen")
+2. Before returning to the companion, write the PNG to `~/Library/Application Support/Port42/captures/<timestamp>-<companion>-<type>.png`
+3. Add a `captures` DB table: `(id, companionId, channelId, type, filePath, timestamp)` — lets the user query what's been captured and when
+4. `MessageView` renders image messages inline (if not already supported)
+
+**Files to modify:**
+- `Sources/Port42Lib/Services/ScreenBridge.swift` — after capture, post message + save file
+- `Sources/Port42Lib/Services/CameraBridge.swift` — same
+- `Sources/Port42Lib/Services/DatabaseService.swift` — add `captures` table migration
+- `Sources/Port42Lib/Views/MessageView.swift` — render inline image if message contains image data
 
 ---
 

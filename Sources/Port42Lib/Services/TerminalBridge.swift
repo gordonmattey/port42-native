@@ -259,4 +259,11 @@ public final class TerminalBridge {
     public func session(for id: String) -> Session? {
         sessions[id]
     }
+
+    /// Send data to the first active session. Convenience for ports with a single terminal.
+    @discardableResult
+    public func sendToFirst(data: String) -> Bool {
+        guard let sid = firstActiveSessionId else { return false }
+        return send(sessionId: sid, data: data)
+    }
 }

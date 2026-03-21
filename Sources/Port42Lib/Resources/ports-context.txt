@@ -653,20 +653,28 @@ SENDING INPUT TO A TERMINAL PORT:
     name: use the port's id (UDID) from ports_list for reliability.
           Can also be the port title — fuzzy matched, but less reliable.
     data: text to send. Include \n to press enter (e.g. "npm test\n").
+    NOTE: terminal_send automatically starts bridging output to this channel.
+          After sending, call messages_recent to read back what the terminal printed.
 
-  Standard workflow:
+  Standard workflow for sending a command and reading output:
     1. ports_list(capabilities: ["terminal"])
        → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
-    2. terminal_send(name: "abc-123", data: "fix the auth bug\n")
+    2. terminal_send(name: "abc-123", data: "npm test\n")
+    3. messages_recent(count: 10)   ← terminal output has been bridged back as messages
 
-  Always use the id field from ports_list, not the title. Titles can be ambiguous
-  or not match exactly. The id is always unique and stable.
+  Always use the id field from ports_list, not the title.
+
+  IMPORTANT: Do NOT use screen_capture to read terminal output.
+  Use terminal_send + messages_recent instead. It is faster, more reliable, and
+  does not require screen permission.
 
 BRIDGING TERMINAL OUTPUT TO CHANNEL:
 
+  Terminal output is automatically bridged when you use terminal_send.
+  You do not need to call terminal_bridge manually.
+
   terminal_bridge(name)
-    Start routing the terminal's output into this channel as messages.
-    Once bridged, you can read what the terminal is doing without polling.
+    Manually start routing output (only needed before your first terminal_send).
     name: port UDID or title.
 
   terminal_unbridge(name)
@@ -678,9 +686,9 @@ BRIDGING TERMINAL OUTPUT TO CHANNEL:
 EXAMPLE — prompt Claude Code running in a terminal port:
   Step 1: ports_list(capabilities: ["terminal"])
           → [{id: "f3a9...", title: "Claude Code", capabilities: ["terminal"]}]
-  Step 2: terminal_bridge(name: "f3a9...")   ← optional: watch the output
-  Step 3: terminal_send(name: "f3a9...", data: "implement the login page\n")
-  Step 4: read channel messages as Claude Code's output arrives
+  Step 2: terminal_send(name: "f3a9...", data: "implement the login page\n")
+  Step 3: messages_recent(count: 20)   ← read Claude Code's output
+  Step 4: repeat as needed
 
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 

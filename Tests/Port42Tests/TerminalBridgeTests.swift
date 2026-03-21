@@ -12,19 +12,19 @@ struct TerminalBridgeTests {
         #expect(PortPermission.permissionForMethod("terminal.spawn") == .terminal)
     }
 
-    @Test("terminal.send requires .terminal permission")
+    @Test("terminal.send requires no permission (session already permitted at spawn)")
     func sendPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.send") == .terminal)
+        #expect(PortPermission.permissionForMethod("terminal.send") == nil)
     }
 
-    @Test("terminal.resize requires .terminal permission")
+    @Test("terminal.resize requires no permission (session already permitted at spawn)")
     func resizePermission() {
-        #expect(PortPermission.permissionForMethod("terminal.resize") == .terminal)
+        #expect(PortPermission.permissionForMethod("terminal.resize") == nil)
     }
 
-    @Test("terminal.kill requires .terminal permission")
+    @Test("terminal.kill requires no permission (session already permitted at spawn)")
     func killPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.kill") == .terminal)
+        #expect(PortPermission.permissionForMethod("terminal.kill") == nil)
     }
 
     // MARK: - TerminalBridge.Session
@@ -147,5 +147,42 @@ struct TerminalBridgeTests {
 
         let sessionId = tb.spawn(cols: 120, rows: 40)
         #expect(sessionId != nil)
+    }
+
+    // MARK: - sendToFirst
+
+    @Test("sendToFirst returns true when session exists")
+    @MainActor
+    func sendToFirstWithActiveSession() async throws {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+        defer { tb.killAll() }
+
+        _ = tb.spawn()
+        let ok = tb.sendToFirst(data: "echo hello\n")
+        #expect(ok)
+    }
+
+    @Test("sendToFirst returns false when no sessions")
+    @MainActor
+    func sendToFirstNoSessions() async throws {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+
+        let ok = tb.sendToFirst(data: "echo hello\n")
+        #expect(!ok)
+    }
+
+    @Test("sendToFirst returns false after killAll")
+    @MainActor
+    func sendToFirstAfterKill() async throws {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+
+        _ = tb.spawn()
+        tb.killAll()
+        try await Task.sleep(for: .milliseconds(100))
+        let ok = tb.sendToFirst(data: "echo hello\n")
+        #expect(!ok)
     }
 }
