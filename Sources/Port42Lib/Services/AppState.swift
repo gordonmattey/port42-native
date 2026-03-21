@@ -123,6 +123,8 @@ final class ChannelAgentHandler: LLMStreamDelegate {
 
 
     func start(channelMessages: [Message], triggerContent: String) {
+        // Bridge any terminal ports already open in this channel so output flows immediately
+        toolExecutor?.bridgeChannelTerminals()
         // Build conversation context from recent channel history (last 50 messages)
         // Note: channelMessages may not include the triggering message yet (DB observation lag),
         // so we append it explicitly to ensure the conversation ends with a user message.
@@ -692,6 +694,36 @@ public final class AppState: ObservableObject {
         }
     }
 
+    /// All inline ports (not yet popped out), excluding ones already tracked as floating panels.
+    public func inlinePorts() -> [(id: String, title: String, createdBy: String?, channelId: String?, hasTerminal: Bool)] {
+        activeBridges.compactMap { wrapper in
+            guard let bridge = wrapper.bridge, let mid = bridge.messageId else { return nil }
+            // Skip if already a floating panel
+            guard !portWindows.panels.contains(where: { $0.messageId == mid }) else { return nil }
+            let title: String
+            if let msg = messages.first(where: { $0.id == mid }),
+               let html = extractPortHtml(from: msg.content) {
+                title = PortPanel.extractTitle(from: html)
+            } else {
+                title = "port"
+            }
+            return (id: mid, title: title, createdBy: bridge.createdBy,
+                    channelId: bridge.channelId,
+                    hasTerminal: bridge.terminalBridge?.firstActiveSessionId != nil)
+        }
+    }
+
+    /// Find an inline port bridge by message ID.
+    public func findInlineBridge(by messageId: String) -> PortBridge? {
+        activeBridges.first(where: { $0.bridge?.messageId == messageId })?.bridge
+    }
+
+    private func extractPortHtml(from content: String) -> String? {
+        guard let start = content.range(of: "```port\n"),
+              let end = content.range(of: "\n```", range: start.upperBound..<content.endIndex) else { return nil }
+        return String(content[start.upperBound..<end.lowerBound])
+    }
+
     /// Cache a port's granted permissions so they survive view recycling
     public func cachePortPermissions(messageId: String, permissions: Set<PortPermission>) {
         if permissions.isEmpty {
@@ -1005,6 +1037,45 @@ public final class AppState: ObservableObject {
             filteredTargets, channelId: channelId, channelAgentIds: channelAgentIds,
             channelMessages: channelMessages, triggerContent: message.content,
             senderId: message.senderId, senderName: message.senderName
+        )
+    }
+
+    // MARK: - Terminal Game Loop
+
+    private var terminalLoops: [String: TerminalAgentLoop] = [:]
+
+    func terminalLoop(for channelId: String) -> TerminalAgentLoop? {
+        terminalLoops[channelId]
+    }
+
+    func startTerminalLoop(channelId: String, portTitle: String) {
+        guard terminalLoops[channelId] == nil else { return }
+        let loop = TerminalAgentLoop(channelId: channelId, portTitle: portTitle, appState: self)
+        terminalLoops[channelId] = loop
+        loop.start()
+        NSLog("[Port42] Terminal game loop started for channel %@", channelId)
+    }
+
+    func stopTerminalLoop(channelId: String) {
+        terminalLoops[channelId]?.stop()
+        terminalLoops.removeValue(forKey: channelId)
+    }
+
+    /// Trigger channel agents with terminal output — called by the game loop, not event-driven.
+    func routeTerminalOutput(channelId: String, output: String) {
+        let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
+        guard !channelAgents.isEmpty else { return }
+        let channelAgentIds = Set(channelAgents.map { $0.id })
+        let targets = AgentRouter.findTargetAgents(
+            content: output, agents: companions,
+            channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName
+        )
+        guard !targets.isEmpty else { return }
+        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
+        launchAgents(
+            targets, channelId: channelId, channelAgentIds: channelAgentIds,
+            channelMessages: channelMessages, triggerContent: output,
+            senderId: "terminal-bridge", senderName: "[terminal]"
         )
     }
 
@@ -1671,5 +1742,57 @@ public final class AppState: ObservableObject {
                 self?.unreadCounts = counts
             }
         }
+    }
+}
+
+// MARK: - Terminal Agent Loop
+
+/// Game loop that drives the agent↔terminal conversation.
+/// One loop per channel/swim. Ticks every 300ms.
+/// On each tick: if there's pending terminal output AND no agent currently running,
+/// trigger the channel agents with that output. Sequential — never overlaps.
+@MainActor
+final class TerminalAgentLoop {
+    let channelId: String
+    let portTitle: String
+    private weak var appState: AppState?
+    private var pendingOutput = ""
+    private var loopTask: Task<Void, Never>?
+
+    init(channelId: String, portTitle: String, appState: AppState) {
+        self.channelId = channelId
+        self.portTitle = portTitle
+        self.appState = appState
+    }
+
+    func start() {
+        guard loopTask == nil else { return }
+        loopTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms tick
+                self?.tick()
+            }
+        }
+    }
+
+    func stop() {
+        loopTask?.cancel()
+        loopTask = nil
+    }
+
+    /// Called by OutputBatcher with cleaned (ANSI-stripped) output.
+    func receiveOutput(_ output: String) {
+        pendingOutput += output
+    }
+
+    private func tick() {
+        guard let appState, !pendingOutput.isEmpty else { return }
+        // Don't fire if an agent turn is already in progress for this channel
+        let agentRunning = appState.activeAgentHandlers.values.contains { $0.channelId == channelId }
+        guard !agentRunning else { return }
+        // Consume accumulated output and trigger the agent
+        let output = pendingOutput
+        pendingOutput = ""
+        appState.routeTerminalOutput(channelId: channelId, output: output)
     }
 }

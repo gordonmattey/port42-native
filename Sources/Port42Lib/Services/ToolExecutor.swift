@@ -98,6 +98,18 @@ public final class ToolExecutor {
 
     // MARK: - Terminal Bridge
 
+    /// Bridge all terminal ports already open in this channel/swim at conversation start.
+    /// Called by ChannelAgentHandler.start() so output flows without needing terminal_send first.
+    func bridgeChannelTerminals() {
+        guard let appState, let chId = channelId else { return }
+        for panel in appState.portWindows.panels {
+            guard panel.channelId == chId else { continue }
+            guard let tb = panel.bridge.terminalBridge,
+                  let sid = tb.firstActiveSessionId else { continue }
+            autoStartOutputBridge(portTitle: panel.title, termBridge: tb, sessionId: sid)
+        }
+    }
+
     /// Start routing a terminal port's output into this conversation as messages.
     /// No-op if already bridged. Called automatically on terminal_send success.
     private func autoStartOutputBridge(portTitle: String, termBridge: TerminalBridge, sessionId: String) {
@@ -114,6 +126,8 @@ public final class ToolExecutor {
                 batcher?.receive(rawOutput)
             }
         }
+        // Start the game loop for this channel so the agent reacts to output
+        appState.startTerminalLoop(channelId: chId, portTitle: portTitle)
         NSLog("[Port42] Auto-bridged terminal '%@' → channel %@", portTitle, chId)
     }
 
@@ -164,14 +178,16 @@ public final class ToolExecutor {
         // MARK: Ports
         case "ports_list":
             let filterCaps = (input["capabilities"] as? [String]) ?? []
-            let allPorts = appState.portWindows.allPorts()
-            let filtered = filterCaps.isEmpty ? allPorts : allPorts.filter { p in
-                filterCaps.allSatisfy { cap in
-                    switch cap {
-                    case "terminal": return p.hasTerminal
-                    default:         return false
-                    }
-                }
+            // Floating + docked panels
+            let floating = appState.portWindows.allPorts()
+            // Inline ports (rendered in chat, not yet popped out) — scoped to this channel
+            let inline = appState.inlinePorts().filter { $0.channelId == channelId || channelId == nil }
+            // Merge into uniform shape
+            typealias PortInfo = (id: String, title: String, createdBy: String?, hasTerminal: Bool, status: String)
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: $0.isBackground ? "docked" : "floating") }
+                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: "inline") }
+            let filtered = filterCaps.isEmpty ? all : all.filter { p in
+                filterCaps.allSatisfy { cap in cap == "terminal" ? p.hasTerminal : false }
             }
             if filtered.isEmpty {
                 let msg = filterCaps.isEmpty ? "No active ports." : "No ports with capabilities: \(filterCaps.joined(separator: ", "))"
@@ -181,9 +197,8 @@ public final class ToolExecutor {
                 var caps: [String] = []
                 if p.hasTerminal { caps.append("terminal") }
                 let capsStr = caps.isEmpty ? "[]" : "[" + caps.joined(separator: ", ") + "]"
-                let status = p.isBackground ? "docked" : "floating"
                 let creator = p.createdBy ?? "unknown"
-                return "title: \(p.title)\nid: \(p.udid)\ncapabilities: \(capsStr)\nstatus: \(status)\ncreatedBy: \(creator)"
+                return "title: \(p.title)\nid: \(p.id)\ncapabilities: \(capsStr)\nstatus: \(p.status)\ncreatedBy: \(creator)"
             }
             let header = "\(lines.count) port\(lines.count == 1 ? "" : "s"):"
             return [textBlock(header + "\n\n" + lines.joined(separator: "\n\n"))]
@@ -347,7 +362,16 @@ public final class ToolExecutor {
                 }
                 return [textBlock(ok ? "Sent to \(panel.title)" : "Error: terminal send failed")]
             }
-            // 2. Title fuzzy fallback
+            // 2. Inline port lookup (port still in chat, not popped out)
+            if let bridge = appState.findInlineBridge(by: name),
+               let tb = bridge.terminalBridge {
+                let ok = tb.sendToFirst(data: processed)
+                if ok, let sid = tb.firstActiveSessionId {
+                    autoStartOutputBridge(portTitle: bridge.messageId ?? name, termBridge: tb, sessionId: sid)
+                }
+                return [textBlock(ok ? "Sent to inline port" : "Error: terminal send failed")]
+            }
+            // 3. Title fuzzy fallback (floating panels)
             if let session = appState.portWindows.terminalSession(forPortNamed: name) {
                 let ok = session.bridge.send(sessionId: session.sessionId, data: processed)
                 if ok {
@@ -355,11 +379,12 @@ public final class ToolExecutor {
                 }
                 return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
             }
-            // 3. Useful error listing available terminal ports
-            let available = appState.portWindows.allPorts()
-                .filter(\.hasTerminal)
-                .map { "'\($0.title)' (id: \($0.udid))" }
-                .joined(separator: ", ")
+            // 4. Useful error listing available terminal ports (floating + inline)
+            let floatingAvail = appState.portWindows.allPorts()
+                .filter(\.hasTerminal).map { "'\($0.title)' (id: \($0.udid))" }
+            let inlineAvail = appState.inlinePorts()
+                .filter(\.hasTerminal).map { "'\($0.title)' (id: \($0.id), status: inline)" }
+            let available = (floatingAvail + inlineAvail).joined(separator: ", ")
             let hint = available.isEmpty
                 ? "No ports have active terminal sessions. Create a terminal port first."
                 : "Available terminal ports: \(available)"
@@ -403,6 +428,7 @@ public final class ToolExecutor {
             let key = name.lowercased()
             if appState.bridgedTerminalNames.remove(key) != nil {
                 Self.outputBatchers.removeValue(forKey: key)
+                if let chId = channelId { appState.stopTerminalLoop(channelId: chId) }
                 NSLog("[Port42] Terminal bridge stopped: %@", name)
                 return [textBlock("Stopped bridging '\(name)'")]
             }
@@ -692,6 +718,8 @@ final class OutputBatcher {
         )
         do {
             try appState.db.saveMessage(msg)
+            // Feed cleaned output to the game loop (drives the agent↔terminal loop)
+            appState.terminalLoop(for: channelId)?.receiveOutput(content)
         } catch {
             NSLog("[Port42] Terminal bridge failed to save message: %@", error.localizedDescription)
         }

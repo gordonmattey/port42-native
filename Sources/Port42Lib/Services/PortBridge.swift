@@ -9,7 +9,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     private weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
-    private let channelId: String?
+    public let channelId: String?
     public let messageId: String?
     public let createdBy: String?
 

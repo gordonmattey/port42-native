@@ -513,6 +513,7 @@ public final class PortWindowManager: ObservableObject {
         window.hoverHandler = { [weak self] hovering in
             if hovering {
                 self?.hoveredPanels.insert(panelId)
+                self?.windows[panelId]?.makeKeyAndOrderFront(nil)
             } else {
                 self?.hoveredPanels.remove(panelId)
             }

@@ -642,6 +642,16 @@ FINDING PORTS:
     Filter to only ports that have an active terminal session.
     Use this before terminal_send to find the right port id.
 
+  FINDING YOUR OWN PORT:
+    If you just created a terminal port, find it by matching createdBy to your own name.
+    There may be other terminal ports created by other companions — always use the one
+    you created unless explicitly asked to use a different one.
+
+    Example: you are "Engineer". After creating a terminal port:
+      ports_list(capabilities: ["terminal"])
+      → pick the entry where createdBy == "Engineer"
+      → use that entry's id for all terminal_send calls
+
   IMPORTANT: When presenting port results to the user, always include the id and
   capabilities fields. Do not reformat as a table that drops these columns — the id
   is required for terminal_send, port_manage, and any follow-up tool calls.
