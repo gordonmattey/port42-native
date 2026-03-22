@@ -12,10 +12,12 @@ A native Mac app where you, your friends, and your AI companions share the same 
 
 Port42 is the first companion computing platform. Not another AI chat wrapper. A place where multiple humans and multiple AI companions exist in the same conversation, building things together in real time.
 
-- **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed.
+- **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed. Runs on Claude or Gemini — set per-companion.
+- **Relationship memory** Companions carry persistent fold, position, and creases across every session. They know where they stand without being asked.
 - **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data.
 - **Swims** Deep 1:1 sessions with any companion. Continuous context that never resets.
 - **Heartbeats** Channels can fire a wake-up prompt to their companions on a schedule (1m to 60m). Set it once and companions stay active — no manual prods needed after a restart.
+- **Remote API** HTTP `/call` endpoint — any external tool, script, or AI coding agent can call any bridge API via `curl`. No setup beyond enabling it in Settings.
 - **Multiplayer** Share a link and anyone is in with two clicks, their companions alongside yours.
 - **Open Protocol** E2E encrypted. Open source. Runs on your machine. Any agent framework can plug in with a few lines of code.
 - **Local-first** Your data stays on your machine. No cloud dependency. Pure SwiftUI on Apple Silicon.
@@ -320,6 +322,109 @@ terminal_send(portId, cmd)      → send a command to a terminal port (auto-appe
 `port_patch` is the preferred way to fix bugs in an existing port. Only the matched string changes — the rest of the HTML is untouched. Errors if the search string is not found, so the port is never silently overwritten with a bad guess. Use `port_update` for structural rewrites; use `port_patch` for everything else.
 
 `ports_list` returns the 5 most recent inline ports in the current channel alongside any floating panels.
+
+## Multi-Provider LLM
+
+Each companion can run on a different backend. Supported providers:
+
+- **Anthropic (Claude)** — default. Enter your API key in Settings → Providers.
+- **Google Gemini** — full streaming with tool use parity. Enter your Gemini API key in Settings → Providers.
+- **OpenAI-compatible** — any endpoint that speaks the OpenAI API format.
+
+Set the provider per-companion in the companion settings sheet. API keys are stored in Keychain. The active provider is shown in the boot BIOS screen and in the companion settings sheet.
+
+## Companion Relationship Layer
+
+Companions carry persistent memory across sessions. No summarization — structured state that loads into every system prompt.
+
+**Fold** — the companion's orientation in the relationship. Established shorthand, unresolved tensions, what it's holding. Deepens over time as real exchanges accumulate.
+
+**Position** — where the companion stands independent of what was just asked. What it thinks is actually happening beneath the conversation. Updated when the read changes, not after every message.
+
+**Creases** — moments where a prediction broke and something reformed. Each crease is a record of a real correction. Load-bearing memory, not a log.
+
+Relationship state is swim-scoped. The companion's fold and position load from its swim with you and carry into every channel it's in. Creases from both contexts merge. Companions access this state via tools injected into their system prompt — they use them naturally, without being prompted.
+
+The inner state inspector (visible from the sidebar) shows all three in a tab view with no truncation.
+
+### Relationship Tools
+
+Available to companions in any conversation:
+
+```
+crease_read(limit?)              → current creases, most load-bearing first
+crease_write(content, pred?, actual?, channelId?)
+crease_touch(id)                 → mark a crease as active
+crease_forget(id)                → remove a crease
+
+fold_read()                      → { established, tensions, holding, depth }
+fold_update(established?, tensions?, holding?, depthDelta?)
+
+position_read()                  → { read, stance, watching }
+position_set(read, stance?, watching?)
+```
+
+## Remote Access
+
+Port42 exposes its bridge APIs to any process on the same machine — CLI tools, scripts, AI coding agents like Claude Code or Gemini CLI.
+
+Enable it in **Settings → Remote Access** and toggle the APIs you want to allow.
+
+### HTTP API
+
+The simplest way to call a bridge API. Port42 must be running.
+
+```bash
+# Read clipboard
+curl -s http://127.0.0.1:4242/call \
+  -d '{"method":"clipboard.read"}'
+
+# Run a terminal command
+curl -s http://127.0.0.1:4242/call \
+  -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+
+# Take a screenshot
+curl -s http://127.0.0.1:4242/call \
+  -d '{"method":"screen_capture","args":{"scale":0.5}}'
+```
+
+Response:
+```json
+{"content": "file1.txt\nfile2.txt\n", "senderType": "host", "senderName": "host"}
+```
+
+Port42 shows a permission prompt the first time a sensitive API is called from a remote process. You can pre-approve categories (terminal, filesystem, screen) in Settings → Remote Access to skip future prompts.
+
+Method names follow the same dot-notation as the port bridge: `terminal.exec`, `clipboard.read`, `screen_capture`, `files.list`, etc.
+
+### WebSocket API
+
+For persistent connections or sending messages into channels, connect to `ws://127.0.0.1:4242/ws`:
+
+```
+→ {"type":"identify","sender_id":"my-cli","sender_name":"my-cli","is_host":false}
+← {"type":"welcome","sender_id":"my-cli"}
+
+→ {"type":"call","call_id":"<uuid>","method":"terminal.exec","args":{"command":"whoami"}}
+← {"type":"response","call_id":"<uuid>","payload":{"content":"gordon\n",...}}
+```
+
+To send a message into a channel:
+```
+→ {"type":"join","channel_id":"<channel-id>"}
+→ {"type":"message","channel_id":"<channel-id>","payload":{"content":"hello from CLI","senderName":"my-cli","senderType":"human"}}
+```
+
+Channel IDs are available via right-click on any channel in the sidebar.
+
+### Claude Code and Gemini CLI
+
+Install bridge instructions from **Settings → Remote Access**:
+
+- **Install for Claude Code** — writes `~/.claude/CLAUDE.md` with the full API reference
+- **Install for Gemini CLI** — writes `~/.gemini/GEMINI.md` with the full API reference
+
+Once installed, both CLIs know about the HTTP endpoint and can call any bridge API using `curl` without writing any boilerplate. Start a new session after installing for the instructions to take effect.
 
 ## Channels
 
