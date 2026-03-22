@@ -8,10 +8,10 @@ import Foundation
 public final class PortAIHandler: NSObject, LLMStreamDelegate {
 
     public let callId: Int
-    public let engine: LLMEngine
+    public let engine: LLMBackend
     private weak var bridge: PortBridge?
 
-    public init(callId: Int, bridge: PortBridge, engine: LLMEngine = LLMEngine()) {
+    public init(callId: Int, bridge: PortBridge, engine: LLMBackend = LLMEngine()) {
         self.callId = callId
         self.bridge = bridge
         self.engine = engine

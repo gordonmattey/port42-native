@@ -197,10 +197,15 @@ public final class ToolExecutor {
             return [textBlock("ok")]
 
         case "fold_read":
-            guard let companionId = createdBy, let cid = channelId else {
-                return [textBlock("Error: no companion/channel context")]
+            // Accept explicit companionId arg (for HTTP callers with no implicit context)
+            let resolvedCompanionId = (input["companionId"] as? String) ?? createdBy
+            guard let companionId = resolvedCompanionId else {
+                return [textBlock("Error: no companion/channel context — pass companionId arg")]
             }
-            if let fold = try appState.db.fetchFold(companionId: companionId, channelId: cid) {
+            let swimId = "swim-\(companionId)"
+            let cid = channelId ?? swimId
+            if let fold = try appState.db.fetchFold(companionId: companionId, channelId: swimId)
+                ?? appState.db.fetchFold(companionId: companionId, channelId: cid) {
                 return [textBlock(jsonString([
                     "established": fold.established ?? [],
                     "tensions": fold.tensions ?? [],
@@ -212,11 +217,13 @@ public final class ToolExecutor {
             }
 
         case "fold_update":
-            guard let companionId = createdBy, let cid = channelId else {
-                return [textBlock("Error: no companion/channel context")]
+            guard let companionId = createdBy else {
+                return [textBlock("Error: no companion context")]
             }
-            var fold = (try? appState.db.fetchFold(companionId: companionId, channelId: cid))
-                ?? CompanionFold(companionId: companionId, channelId: cid)
+            // Fold always writes to the swim channel — canonical relationship state
+            let swimId = "swim-\(companionId)"
+            var fold = (try? appState.db.fetchFold(companionId: companionId, channelId: swimId))
+                ?? CompanionFold(companionId: companionId, channelId: swimId)
             if let est = input["established"] as? [String] { fold.established = est }
             if let ten = input["tensions"] as? [String] { fold.tensions = ten }
             if let h = input["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
@@ -226,10 +233,13 @@ public final class ToolExecutor {
             return [textBlock("ok")]
 
         case "position_read":
-            guard let companionId = createdBy, let cid = channelId else {
-                return [textBlock("Error: no companion/channel context")]
+            let resolvedPositionCompanionId = (input["companionId"] as? String) ?? createdBy
+            guard let companionId = resolvedPositionCompanionId else {
+                return [textBlock("Error: no companion context — pass companionId arg")]
             }
-            if let pos = try appState.db.fetchPosition(companionId: companionId, channelId: cid), !pos.isEmpty {
+            // Position reads from swim (canonical)
+            let swimId = "swim-\(companionId)"
+            if let pos = try appState.db.fetchPosition(companionId: companionId, channelId: swimId), !pos.isEmpty {
                 return [textBlock(jsonString([
                     "read": pos.read ?? "",
                     "stance": pos.stance ?? "",
@@ -237,18 +247,20 @@ public final class ToolExecutor {
                     "confidence": pos.confidence
                 ] as [String: Any]))]
             } else {
-                return [textBlock("No position formed yet for this channel.")]
+                return [textBlock("No position formed yet.")]
             }
 
         case "position_set":
-            guard let companionId = createdBy, let cid = channelId else {
-                return [textBlock("Error: no companion/channel context")]
+            guard let companionId = createdBy else {
+                return [textBlock("Error: no companion context")]
             }
             guard let read = input["read"] as? String, !read.isEmpty else {
                 return [textBlock("Error: position_set requires 'read'")]
             }
-            var pos = (try? appState.db.fetchPosition(companionId: companionId, channelId: cid))
-                ?? CompanionPosition(companionId: companionId, channelId: cid)
+            // Position always writes to the swim channel — canonical relationship state
+            let swimId = "swim-\(companionId)"
+            var pos = (try? appState.db.fetchPosition(companionId: companionId, channelId: swimId))
+                ?? CompanionPosition(companionId: companionId, channelId: swimId)
             pos.read = read
             if let stance = input["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
             if let watching = input["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }

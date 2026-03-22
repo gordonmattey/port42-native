@@ -124,7 +124,40 @@ Four combinations: per-companion per-channel (default), per-companion global, sh
 .info()                         → { messageId, createdBy, channelId }
 .close()                        → close this port
 .resize(w, h)                   → resize this port
+.update(id, html)               → replace another port's HTML (read first with getHtml)
+.getHtml(id, version?)          → read a port's current or versioned HTML
+.patch(id, search, replace)     → targeted edit — errors if search not found
+.history(id)                    → [{ version, createdBy, createdAt }]
+.manage(id, action)             → focus | close | dock | undock
+.restore(id, version)           → roll back to a previous version
 ```
+
+### port42.ports
+
+```
+.list(opts?)                    → [{ id, title, capabilities, status, createdBy }]
+                                   opts: { capabilities: ['terminal'] }
+                                   status: 'floating' | 'docked' | 'inline'
+```
+
+### port42.creases / fold / position
+
+Relationship state — only available in a swim context.
+
+```
+port42.creases.read(opts?)                    → [{ id, content, weight, prediction?, actual? }]
+port42.creases.write(content, opts?)          → { id, ok }  opts: { prediction, actual, channelId }
+port42.creases.touch(id)                      → update recency + weight
+port42.creases.forget(id)                     → remove a crease
+
+port42.fold.read()                            → { established, tensions, holding, depth }
+port42.fold.update(opts)                      → opts: { established, tensions, holding, depthDelta }
+
+port42.position.read()                        → { read, stance, watching }
+port42.position.set(read, opts?)              → opts: { stance, watching }
+```
+
+Writes always target the swim channel (canonical relationship state).
 
 ### port42.viewport
 
@@ -294,34 +327,43 @@ Ports run under strict CSP. No fetch, no XHR, no WebSocket, no navigation. All d
 
 ## Companion Tools
 
-Companions (LLM agents) have access to additional tools beyond the port bridge. These are available in any conversation, not just inside ports.
-
-### Port Inspection and Version History
-
-```
-port_get_html(id)             → current HTML source of a port (by UDID)
-port_get_html(id, version: 2) → HTML from a specific historical snapshot
-port_history(id)              → [{ version, createdBy, createdAt }] — all saved snapshots
-port_restore(id, version: 2)  → roll the live port back to an earlier snapshot
-```
-
-Every `port_update` call snapshots the HTML automatically. Use `port_history` to see who changed what and when, `port_get_html` with a version number to inspect any snapshot, and `port_restore` to roll back. The restored HTML becomes the new live version and is itself snapshotted.
-
-The port window header shows the version declared in the port's `<meta name="version" content="N">` tag alongside the companion's name.
+Companions (LLM agents) and CLI tools (Claude Code, Gemini CLI) share the same API surface. Tool-use names use underscores (`port_update`); JS bridge and HTTP use dot notation (`port42.port.update` / `port.update`). Same underlying operation.
 
 ### Port Management
 
 ```
-ports_list()                    → active ports in this channel (title, id, capabilities, status, createdBy)
+ports_list()                    → active ports (title, id, capabilities, status, createdBy)
 port_update(id, html)           → replace a port's HTML in full
 port_patch(id, search, replace) → targeted edit — replace an exact string, preserve everything else
-port_restore(id, version)       → restore a port to a specific earlier version
-terminal_send(portId, cmd)      → send a command to a terminal port (auto-appends \r)
+port_get_html(id)               → current HTML source of a port (by UDID)
+port_get_html(id, version: 2)   → HTML from a specific historical snapshot
+port_history(id)                → [{ version, createdBy, createdAt }] — all saved snapshots
+port_restore(id, version)       → roll the live port back to an earlier snapshot
+port_manage(id, action)         → focus | close | minimize/dock | restore/undock
 ```
 
-`port_patch` is the preferred way to fix bugs in an existing port. Only the matched string changes — the rest of the HTML is untouched. Errors if the search string is not found, so the port is never silently overwritten with a bad guess. Use `port_update` for structural rewrites; use `port_patch` for everything else.
+Every `port_update` call snapshots the HTML automatically. `port_patch` is the preferred way to fix bugs — only the matched string changes, everything else is untouched, and it errors if the search string is not found. Use `port_update` for structural rewrites.
 
-`ports_list` returns the 5 most recent inline ports in the current channel alongside any floating panels.
+`ports_list` returns the 5 most recent inline ports in the current channel alongside any floating panels. The port window header shows the version from `<meta name="version" content="N">`.
+
+### Relationship State
+
+Companions carry persistent relationship memory — fold, position, and creases — across every session. These tools are also available to CLI tools via HTTP.
+
+```
+crease_read(limit?)                    → current creases, most load-bearing first
+crease_write(content, prediction?, actual?, channelId?)  → write a new crease
+crease_touch(id)                       → mark active (updates recency + weight)
+crease_forget(id)                      → remove a crease
+
+fold_read()                            → { established, tensions, holding, depth }
+fold_update(established?, tensions?, holding?, depthDelta?)  → update fold state
+
+position_read()                        → { read, stance, watching }
+position_set(read, stance?, watching?) → set current position
+```
+
+Fold and position always write to the swim channel (canonical). Creases merge swim (last 5) + channel (last 3).
 
 ## Multi-Provider LLM
 

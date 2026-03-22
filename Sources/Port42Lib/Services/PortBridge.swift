@@ -376,11 +376,29 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.ai.models()
         case "ai.models":
-            return [
-                ["id": "claude-opus-4-6", "name": "Opus 4.6", "tier": "flagship"],
-                ["id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "tier": "balanced"],
-                ["id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "tier": "fast"]
-            ]
+            // Return models for the designated Port AI companion's provider
+            let portProvider: AgentProvider? = {
+                let savedId = UserDefaults.standard.string(forKey: "portAICompanionId") ?? ""
+                if !savedId.isEmpty,
+                   let companion = state.companions.first(where: { $0.id == savedId }) {
+                    return companion.provider
+                }
+                return nil
+            }()
+            switch portProvider {
+            case .gemini:
+                return [
+                    ["id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "tier": "flagship"],
+                    ["id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "tier": "balanced"],
+                    ["id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "tier": "fast"]
+                ]
+            default:
+                return [
+                    ["id": "claude-opus-4-6", "name": "Opus 4.6", "tier": "flagship"],
+                    ["id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "tier": "balanced"],
+                    ["id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "tier": "fast"]
+                ]
+            }
 
         // port42.ai.status() — check if AI calls are available
         case "ai.status":
@@ -489,6 +507,189 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.port.resize(w, h) — height change handled by JS postMessage
         case "port.resize":
+            return ["ok": true]
+
+        // port42.ports.list(opts?) — list all active ports
+        case "ports.list":
+            let opts = args.first as? [String: Any]
+            let filterCaps = opts?["capabilities"] as? [String] ?? []
+            let floating = state.portWindows.allPorts()
+            let inline = state.inlinePorts().filter { $0.channelId == channelId || channelId == nil }.suffix(5)
+            typealias PortInfo = (id: String, title: String, createdBy: String?, hasTerminal: Bool, status: String)
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: $0.isBackground ? "docked" : "floating") }
+                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: "inline") }
+            let filtered = filterCaps.isEmpty ? all : all.filter { p in
+                filterCaps.allSatisfy { cap in cap == "terminal" ? p.hasTerminal : false }
+            }
+            return filtered.map { p -> [String: Any] in
+                var caps: [String] = []
+                if p.hasTerminal { caps.append("terminal") }
+                var entry: [String: Any] = ["id": p.id, "title": p.title, "capabilities": caps, "status": p.status]
+                if let cb = p.createdBy { entry["createdBy"] = cb }
+                return entry
+            }
+
+        // port42.port.update(id, html) — update another port's HTML
+        case "port.update":
+            guard let id = args.first as? String,
+                  let html = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "port.update requires id and html"]
+            }
+            let updated = state.portWindows.updatePort(idOrTitle: id, html: html)
+            return ["ok": updated]
+
+        // port42.port.getHtml(id, version?) — read a port's current or versioned HTML
+        case "port.getHtml":
+            guard let id = args.first as? String else {
+                return ["error": "port.getHtml requires id"]
+            }
+            if let version = args.count > 1 ? args[1] as? Int : nil {
+                if let html = try? state.db.fetchPortVersionHtml(udid: id, version: version) {
+                    return ["html": html]
+                }
+                return ["error": "no version \(version) for port '\(id)'"]
+            }
+            if let html = try? state.db.fetchPortHtml(udid: id) {
+                return ["html": html]
+            }
+            return ["error": "no port found for id '\(id)'"]
+
+        // port42.port.patch(id, search, replace) — targeted string replacement
+        case "port.patch":
+            guard let id = args.first as? String,
+                  let search = args.count > 1 ? args[1] as? String : nil,
+                  let replace = args.count > 2 ? args[2] as? String : nil else {
+                return ["error": "port.patch requires id, search, and replace"]
+            }
+            guard let currentHtml = try? state.db.fetchPortHtml(udid: id) else {
+                return ["error": "no port found for id '\(id)'"]
+            }
+            guard currentHtml.contains(search) else {
+                return ["error": "search string not found in port '\(id)'"]
+            }
+            let patched = currentHtml.replacingOccurrences(of: search, with: replace)
+            let applied = state.portWindows.updatePort(idOrTitle: id, html: patched)
+            return ["ok": applied]
+
+        // port42.port.history(id) — version history for a port
+        case "port.history":
+            guard let id = args.first as? String else {
+                return ["error": "port.history requires id"]
+            }
+            let versions = (try? state.db.fetchPortVersions(portUdid: id)) ?? []
+            return versions.map { v -> [String: Any] in
+                var entry: [String: Any] = [
+                    "version": v.version,
+                    "createdAt": ISO8601DateFormatter().string(from: v.createdAt)
+                ]
+                if let cb = v.createdBy { entry["createdBy"] = cb }
+                return entry
+            }
+
+        // port42.port.manage(id, action) — focus/close/dock/undock another port
+        case "port.manage":
+            guard let id = args.first as? String,
+                  let action = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "port.manage requires id and action"]
+            }
+            guard let panel = state.portWindows.findPort(by: id) else {
+                return ["error": "no port found for '\(id)'"]
+            }
+            switch action {
+            case "focus":
+                state.portWindows.bringToFront(panel.id)
+                return ["ok": true]
+            case "close":
+                state.portWindows.close(panel.id)
+                return ["ok": true]
+            case "minimize", "dock":
+                state.portWindows.minimize(panel.id)
+                return ["ok": true]
+            case "restore", "undock":
+                return ["ok": state.portWindows.restore(panel.id)]
+            default:
+                return ["error": "unknown action '\(action)'. Use: focus, close, dock, undock"]
+            }
+
+        // port42.port.restore(id, version) — restore a port to a previous version
+        case "port.restore":
+            guard let id = args.first as? String,
+                  let version = args.count > 1 ? args[1] as? Int : nil else {
+                return ["error": "port.restore requires id and version"]
+            }
+            guard let html = try? state.db.fetchPortVersionHtml(udid: id, version: version) else {
+                return ["error": "no version \(version) for port '\(id)'"]
+            }
+            let restored = state.portWindows.updatePort(idOrTitle: id, html: html)
+            return ["ok": restored]
+
+        // port42.crease.write(content, opts?) — write a new crease
+        case "crease.write":
+            guard let companionId = createdBy,
+                  let content = args.first as? String, !content.isEmpty else {
+                return ["error": "crease.write requires content and companion context"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            let crease = CompanionCrease(
+                companionId: companionId,
+                channelId: opts?["channelId"] as? String ?? channelId,
+                content: content,
+                prediction: opts?["prediction"] as? String,
+                actual: opts?["actual"] as? String
+            )
+            try? state.db.saveCrease(crease)
+            return ["id": crease.id, "ok": true]
+
+        // port42.crease.touch(id) — mark a crease as active
+        case "crease.touch":
+            guard let id = args.first as? String else {
+                return ["error": "crease.touch requires id"]
+            }
+            try? state.db.touchCrease(id: id)
+            return ["ok": true]
+
+        // port42.crease.forget(id) — remove a crease
+        case "crease.forget":
+            guard let id = args.first as? String else {
+                return ["error": "crease.forget requires id"]
+            }
+            try? state.db.deleteCrease(id: id)
+            return ["ok": true]
+
+        // port42.fold.update(opts) — update fold state (writes to swim channel)
+        case "fold.update":
+            guard let companionId = createdBy else {
+                return ["error": "fold.update requires companion context"]
+            }
+            let opts = args.first as? [String: Any] ?? [:]
+            let swimId = "swim-\(companionId)"
+            var fold = (try? state.db.fetchFold(companionId: companionId, channelId: swimId))
+                ?? CompanionFold(companionId: companionId, channelId: swimId)
+            if let est = opts["established"] as? [String] { fold.established = est }
+            if let ten = opts["tensions"] as? [String] { fold.tensions = ten }
+            if let h = opts["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
+            if let delta = opts["depthDelta"] as? Int { fold.depth = max(0, fold.depth + delta) }
+            fold.updatedAt = Date()
+            try? state.db.saveFold(fold)
+            return ["ok": true]
+
+        // port42.position.set(read, opts?) — set position state (writes to swim channel)
+        case "position.set":
+            guard let companionId = createdBy else {
+                return ["error": "position.set requires companion context"]
+            }
+            guard let read = args.first as? String, !read.isEmpty else {
+                return ["error": "position.set requires read"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            let swimId = "swim-\(companionId)"
+            var pos = (try? state.db.fetchPosition(companionId: companionId, channelId: swimId))
+                ?? CompanionPosition(companionId: companionId, channelId: swimId)
+            pos.read = read
+            if let stance = opts?["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
+            if let watching = opts?["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }
+            pos.updatedAt = Date()
+            try? state.db.savePosition(pos)
             return ["ok": true]
 
         // MARK: Resources
@@ -860,7 +1061,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let maxTokens = opts?["maxTokens"] as? Int ?? 4096
         let images = opts?["images"] as? [String]
 
-        let handler = PortAIHandler(callId: callId, bridge: self)
+        let backend = resolvePortAIBackend(state: state)
+        let handler = PortAIHandler(callId: callId, bridge: self, engine: backend)
         activeStreams[callId] = handler
 
         // Build user message content (multimodal if images provided)
@@ -892,6 +1094,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 systemPrompt: systemPrompt,
                 model: model,
                 maxTokens: maxTokens,
+                tools: nil,
+                thinkingEnabled: false,
+                thinkingEffort: "low",
                 delegate: handler
             )
         } catch {
@@ -986,6 +1191,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 systemPrompt: companionSystemPrompt,
                 model: model,
                 maxTokens: 4096,
+                tools: nil,
+                thinkingEnabled: false,
+                thinkingEffort: "low",
                 delegate: handler
             )
         } catch {
@@ -998,15 +1206,42 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - Helpers
 
-    /// Resolve the default model from the creating companion or system default.
-    private func resolveDefaultModel(state: AppState) -> String {
-        // Try the creating companion's model
+    /// Resolve the LLM backend for port42.ai.complete() calls.
+    /// Uses the designated Port AI companion (portAICompanionId UserDefaults key) if set,
+    /// otherwise falls back to the creating companion's backend, then LLMEngine.
+    private func resolvePortAIBackend(state: AppState) -> LLMBackend {
+        let savedId = UserDefaults.standard.string(forKey: "portAICompanionId") ?? ""
+        if !savedId.isEmpty,
+           let companion = state.companions.first(where: { $0.id == savedId }) {
+            return makeLLMBackend(for: companion)
+        }
         if let creator = createdBy,
-           let companion = state.companions.first(where: { $0.displayName.lowercased() == creator.lowercased() }),
+           let companion = state.companions.first(where: { $0.id == creator }) {
+            return makeLLMBackend(for: companion)
+        }
+        return LLMEngine()
+    }
+
+    /// Resolve the default model for port42.ai.complete() calls.
+    /// Prefers the designated Port AI companion's model, then creating companion, then system default.
+    private func resolvePortAIModel(state: AppState) -> String {
+        let savedId = UserDefaults.standard.string(forKey: "portAICompanionId") ?? ""
+        if !savedId.isEmpty,
+           let companion = state.companions.first(where: { $0.id == savedId }),
+           let model = companion.model {
+            return model
+        }
+        if let creator = createdBy,
+           let companion = state.companions.first(where: { $0.id == creator }),
            let model = companion.model {
             return model
         }
         return "claude-sonnet-4-6"
+    }
+
+    /// Resolve the default model from the creating companion or system default.
+    private func resolveDefaultModel(state: AppState) -> String {
+        resolvePortAIModel(state: state)
     }
 
     /// Ensure messages alternate user/assistant and start with user.
@@ -1222,7 +1457,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     document.body.style.width = w + 'px';
                     document.body.style.height = h + 'px';
                     window.webkit.messageHandlers.portHeight.postMessage(h);
-                }
+                },
+                update: (id, html) => call('port.update', [id, html]).then(r => r && r.ok),
+                getHtml: (id, version) => call('port.getHtml', version != null ? [id, version] : [id]).then(r => r ? r.html : null),
+                patch: (id, search, replace) => call('port.patch', [id, search, replace]).then(r => r && r.ok),
+                history: (id) => call('port.history', [id]),
+                manage: (id, action) => call('port.manage', [id, action]),
+                restore: (id, version) => call('port.restore', [id, version]).then(r => r && r.ok)
+            },
+            ports: {
+                list: (opts) => call('ports.list', opts ? [opts] : [])
             },
             terminal: {
                 spawn: (opts) => call('terminal.spawn', [opts || {}]),
@@ -1322,6 +1566,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                         window.__port42_listeners['viewport.resize'] = callback;
                     }
                 }
+            },
+            creases: {
+                read: (opts) => call('creases.read', opts ? [opts] : []),
+                write: (content, opts) => call('crease.write', opts ? [content, opts] : [content]),
+                touch: (id) => call('crease.touch', [id]).then(r => r && r.ok),
+                forget: (id) => call('crease.forget', [id]).then(r => r && r.ok)
+            },
+            fold: {
+                read: () => call('fold.read'),
+                update: (opts) => call('fold.update', [opts || {}]).then(r => r && r.ok)
+            },
+            position: {
+                read: () => call('position.read'),
+                set: (read, opts) => call('position.set', opts ? [read, opts] : [read]).then(r => r && r.ok)
             }
         };
     })();

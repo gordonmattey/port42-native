@@ -25,6 +25,15 @@ public struct SignOutSheet: View {
     @State private var compatibleExpanded = false
     @State private var compatibleBaseURL: String = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
     @State private var compatibleKeyInput = ""
+    @AppStorage("remoteAllowTerminal") private var remoteAllowTerminal = false
+    @AppStorage("remoteAllowFS") private var remoteAllowFS = false
+    @AppStorage("remoteAllowScreen") private var remoteAllowScreen = false
+    @AppStorage("portAICompanionId") private var portAICompanionId: String = ""
+    @State private var remoteExpanded = false
+    @State private var aiExpanded = false
+    @StateObject private var instructionsSvc = InstructionService.shared
+    @State private var pluginUpgradeInProgress = false
+    @State private var pluginUpgradeResult: String?
 
     enum AutoDetectStatus: Equatable {
         case unknown
@@ -74,18 +83,18 @@ public struct SignOutSheet: View {
 
             Divider().background(Port42Theme.border)
 
-            // Sharing
-            VStack(alignment: .leading, spacing: 8) {
-                sharingSection
+            // AI Connection (accordion)
+            VStack(alignment: .leading, spacing: 0) {
+                aiConnectionSection
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
 
             Divider().background(Port42Theme.border)
 
-            // AI Connection
-            VStack(alignment: .leading, spacing: 8) {
-                aiConnectionSection
+            // Remote Access (accordion — includes sharing/ngrok)
+            VStack(alignment: .leading, spacing: 0) {
+                remoteAccessSection
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -160,7 +169,7 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 380, height: 740)
+        .frame(width: 460, height: 740)
         .background(Port42Theme.bgSecondary)
         .onDisappear {
             claudeSetup.cancel()
@@ -326,15 +335,23 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var aiConnectionSection: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "brain")
-                .font(.system(size: 11))
-                .foregroundStyle(Port42Theme.textSecondary)
-            Text("AI connection")
-                .font(Port42Theme.mono(13))
-                .foregroundStyle(Port42Theme.textSecondary)
-            Spacer()
+        Button(action: { withAnimation { aiExpanded.toggle() } }) {
+            HStack(spacing: 6) {
+                Image(systemName: "brain")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Text("AI connection")
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+                Image(systemName: aiExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
         }
+        .buttonStyle(.plain)
+
+        if aiExpanded {
 
         // MARK: Anthropic row
         VStack(alignment: .leading, spacing: 0) {
@@ -677,6 +694,241 @@ public struct SignOutSheet: View {
                 .padding(.top, 8)
             }
         }
+        // MARK: Port42 AI row
+        Divider().background(Port42Theme.border).padding(.vertical, 4)
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("◈")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.accent)
+                Text("port42 AI")
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                Spacer()
+            }
+
+            Text("companion used for port42.ai.complete() calls from ports")
+                .font(Port42Theme.mono(10))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+
+            let llmCompanions = appState.companions.filter {
+                $0.mode == .llm && $0.model != nil
+            }
+
+            if llmCompanions.isEmpty {
+                Text("no LLM companions configured")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    // "auto" option — uses creating companion's backend
+                    Button(action: { portAICompanionId = "" }) {
+                        HStack(spacing: 6) {
+                            Text(portAICompanionId.isEmpty ? "◆" : "○")
+                                .font(Port42Theme.mono(10))
+                                .foregroundStyle(portAICompanionId.isEmpty ? Port42Theme.accent : Port42Theme.textSecondary)
+                            Text("auto")
+                                .font(Port42Theme.mono(12))
+                                .foregroundStyle(portAICompanionId.isEmpty ? Port42Theme.textPrimary : Port42Theme.textSecondary)
+                            Text("(creating companion's provider)")
+                                .font(Port42Theme.mono(10))
+                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    ForEach(llmCompanions, id: \.id) { companion in
+                        let isSelected = portAICompanionId == companion.id
+                        Button(action: { portAICompanionId = companion.id }) {
+                            HStack(spacing: 6) {
+                                Text(isSelected ? "◆" : "○")
+                                    .font(Port42Theme.mono(10))
+                                    .foregroundStyle(isSelected ? Port42Theme.accent : Port42Theme.textSecondary)
+                                Text(companion.displayName)
+                                    .font(Port42Theme.mono(12))
+                                    .foregroundStyle(isSelected ? Port42Theme.textPrimary : Port42Theme.textSecondary)
+                                if let model = companion.model {
+                                    Text(model)
+                                        .font(Port42Theme.mono(10))
+                                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                                }
+                                Spacer()
+                                Text(companion.provider?.rawValue ?? "anthropic")
+                                    .font(Port42Theme.mono(10))
+                                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.leading, 8)
+            }
+        }
+        } // end if aiExpanded
+    }
+
+    @ViewBuilder
+    private var remoteAccessSection: some View {
+        // Accordion header
+        Button(action: { withAnimation { remoteExpanded.toggle() } }) {
+            HStack(spacing: 6) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Text("remote access")
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+                Image(systemName: remoteExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+        }
+        .buttonStyle(.plain)
+
+        if remoteExpanded {
+            VStack(alignment: .leading, spacing: 12) {
+                // Sharing / ngrok tunnel
+                sharingSection
+
+                Divider().background(Port42Theme.border)
+
+                // Permission toggles
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("allow CLIs and OpenClaw agents to call Port42 APIs without prompting:")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        remoteApiToggle("Terminal", value: $remoteAllowTerminal)
+                        remoteApiToggle("Filesystem", value: $remoteAllowFS)
+                        remoteApiToggle("Screen", value: $remoteAllowScreen)
+                    }
+                }
+
+                Divider().background(Port42Theme.border)
+
+                // CLI instruction files
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("global CLI instructions")
+                        .font(Port42Theme.monoBold(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Text("installs Port42 context into your CLI tool config so agents can use the RPC API:")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        cliInstructionButton(
+                            label: "CLAUDE.md",
+                            installed: instructionsSvc.hasClaudeInstructions,
+                            action: { instructionsSvc.installInstructions(for: "claude") }
+                        )
+                        cliInstructionButton(
+                            label: "GEMINI.md",
+                            installed: instructionsSvc.hasGeminiInstructions,
+                            action: { instructionsSvc.installInstructions(for: "gemini") }
+                        )
+                    }
+                }
+
+                Divider().background(Port42Theme.border)
+
+                // OpenClaw plugin upgrade
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("openclaw plugin")
+                        .font(Port42Theme.monoBold(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    HStack(spacing: 10) {
+                        Button(action: upgradeOpenClawPlugin) {
+                            HStack(spacing: 6) {
+                                if pluginUpgradeInProgress {
+                                    ProgressView().scaleEffect(0.6).frame(width: 10, height: 10)
+                                } else {
+                                    Image(systemName: pluginUpgradeResult == "ok" ? "checkmark.circle.fill" : "arrow.up.circle")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(pluginUpgradeResult == "ok" ? .green : Port42Theme.accent)
+                                }
+                                Text(pluginUpgradeInProgress ? "upgrading..." : "upgrade port42-openclaw")
+                                    .font(Port42Theme.mono(11))
+                                    .foregroundStyle(Port42Theme.textPrimary)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Port42Theme.bgPrimary)
+                            .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(pluginUpgradeInProgress)
+
+                        if let result = pluginUpgradeResult, result != "ok" {
+                            Text(result)
+                                .font(Port42Theme.mono(10))
+                                .foregroundStyle(.red)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .padding(.leading, 8)
+            .padding(.top, 8)
+        }
+    }
+
+    private func remoteApiToggle(_ label: String, value: Binding<Bool>) -> some View {
+        Button(action: { value.wrappedValue.toggle() }) {
+            HStack(spacing: 6) {
+                Image(systemName: value.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 10))
+                    .foregroundStyle(value.wrappedValue ? Port42Theme.accent : Port42Theme.textSecondary)
+                Text(label)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Port42Theme.bgPrimary)
+            .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func cliInstructionButton(label: String, installed: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: installed ? "checkmark.circle.fill" : "arrow.down.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(installed ? .green : Port42Theme.accent)
+                Text(label)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(installed ? Color.green.opacity(0.1) : Port42Theme.accent.opacity(0.1))
+            .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func upgradeOpenClawPlugin() {
+        pluginUpgradeInProgress = true
+        pluginUpgradeResult = nil
+        Task {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            proc.arguments = ["npx", "openclaw", "plugins", "install", "port42-openclaw"]
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = pipe
+            let success = await withCheckedContinuation { cont in
+                proc.terminationHandler = { p in cont.resume(returning: p.terminationStatus == 0) }
+                do { try proc.run() } catch { cont.resume(returning: false) }
+            }
+            pluginUpgradeInProgress = false
+            pluginUpgradeResult = success ? "ok" : "failed — check that openclaw is installed"
+        }
     }
 
     private var isAnthropicConfigured: Bool {
@@ -727,10 +979,20 @@ public struct SignOutSheet: View {
             ]
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await URLSession.shared.data(for: request)
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 await MainActor.run {
-                    geminiTestResult = (code == 200) ? .success : .failure("HTTP \(code)")
+                    if code == 200 {
+                        geminiTestResult = .success
+                    } else {
+                        var detail = "HTTP \(code)"
+                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let err = json["error"] as? [String: Any],
+                           let msg = err["message"] as? String {
+                            detail = "HTTP \(code): \(msg)"
+                        }
+                        geminiTestResult = .failure(detail)
+                    }
                 }
             } catch {
                 await MainActor.run { geminiTestResult = .failure(error.localizedDescription) }
