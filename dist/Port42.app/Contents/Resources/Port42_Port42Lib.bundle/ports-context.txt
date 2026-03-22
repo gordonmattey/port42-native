@@ -344,6 +344,63 @@ BRIDGE API REFERENCE:
   port42.port.resize(w, h)
     Resize this port to the given width and height in pixels.
 
+  port42.ports.list(opts?)
+    Returns: [{id, title, capabilities, status, createdBy}]
+    List all active ports. opts: { capabilities: ['terminal'] } to filter.
+    status is 'floating', 'docked', or 'inline'. Use id for all subsequent calls.
+
+  port42.port.update(id, html)
+    Replace a port's full HTML. Returns true on success.
+    Always call port42.port.getHtml(id) first — never guess at current state.
+
+  port42.port.getHtml(id, version?)
+    Returns the current HTML of a port, or a specific historical version.
+
+  port42.port.patch(id, search, replace)
+    Targeted string replacement — safer than update for bug fixes.
+    Errors if search string not found. Returns true on success.
+
+  port42.port.history(id)
+    Returns: [{version, createdBy, createdAt}]
+    Version history for a port.
+
+  port42.port.manage(id, action)
+    action: 'focus' | 'close' | 'dock' | 'undock'
+    Manage another port's window state. Returns {ok: true}.
+
+  port42.port.restore(id, version)
+    Restore a port to a specific earlier version. Returns true on success.
+
+  port42.creases.read(opts?)
+    Read relationship creases (only available in a swim).
+    Returns: [{id, content, weight, prediction?, actual?, createdAt}]
+
+  port42.creases.write(content, opts?)
+    Write a new crease. opts: { prediction, actual, channelId }
+    Returns: {id, ok: true}
+
+  port42.creases.touch(id)
+    Mark a crease as active — updates recency and weight.
+
+  port42.creases.forget(id)
+    Remove a crease.
+
+  port42.fold.read()
+    Read the fold — orientation in this relationship (only in a swim).
+    Returns: {established, tensions, holding, depth}
+
+  port42.fold.update(opts)
+    Update fold state. opts: { established, tensions, holding, depthDelta }
+    Always writes to the swim channel (canonical relationship state).
+
+  port42.position.read()
+    Read current position (only in a swim).
+    Returns: {read, stance, watching}
+
+  port42.position.set(read, opts?)
+    Set position. opts: { stance, watching }
+    Always writes to the swim channel.
+
 AI API REFERENCE:
 
   port42.ai.models()

@@ -74,7 +74,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		DYY2bD5NqMshz9ND+72yYtOHG7s=
+		pWo1yDCVVukYi3bdqcPPERDqKzo=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
 		<data>
@@ -108,7 +108,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			SBLrBsVCeG06uHZ7C9LJG8WKDls=
+			7I/EKOtnlfXj2MNQwv84Riq76WQ=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -229,7 +229,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			4L8pbUeJZeE7DTcbNYOH6HrGaceLNiMwuzW1guzOrNk=
+			/N1xRKcpw45OOUAi+n92LNkpiS1WvJ5PRoFX7n76H10=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
