@@ -217,8 +217,12 @@ public struct ConversationContent: View {
         self.onTypingChanged = onTypingChanged
     }
 
-    /// No inline ports autoplay; user activates them manually
+    /// No inline ports autoplay; user activates them manually.
+    /// Exception: the very first message in a fresh conversation auto-activates its port.
     private func recomputeActivePortIDs() {
+        if lastEntryCount == 0, let first = entries.first {
+            cachedActivePortIDs.insert(first.id)
+        }
         lastEntryCount = entries.count
     }
 

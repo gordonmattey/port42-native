@@ -12,6 +12,11 @@ public final class ToolExecutor {
     /// Granted permissions for this conversation (per-companion, per-channel).
     private var grantedPermissions: Set<PortPermission> = []
 
+    /// Pre-grant a permission without prompting the user (used by RemoteToolExecutor for "Always Allow" settings).
+    func pregrant(_ perm: PortPermission) {
+        grantedPermissions.insert(perm)
+    }
+
     /// Pending permission continuation for async approval flow.
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
     @Published var pendingPermission: PortPermission?
@@ -423,7 +428,7 @@ public final class ToolExecutor {
 
         case "messages_recent":
             let count = min(input["count"] as? Int ?? 20, 100)
-            let chId = channelId ?? appState.currentChannel?.id ?? ""
+            let chId = input["channel_id"] as? String ?? channelId ?? appState.currentChannel?.id ?? ""
             let msgs = (try? appState.db.getMessages(channelId: chId)) ?? []
             let recent = msgs.suffix(count).map { m -> [String: Any] in
                 ["sender": m.senderName, "content": m.content, "timestamp": m.timestamp.timeIntervalSince1970]
@@ -435,7 +440,7 @@ public final class ToolExecutor {
             guard let text = input["text"] as? String else {
                 return [textBlock("Error: missing 'text' parameter")]
             }
-            let chId = channelId ?? appState.currentChannel?.id ?? ""
+            let chId = input["channel_id"] as? String ?? channelId ?? appState.currentChannel?.id ?? ""
             guard let user = appState.currentUser else {
                 return [textBlock("Error: no user")]
             }
@@ -1059,5 +1064,53 @@ final class OutputBatcher {
         var result = regex.stringByReplacingMatches(in: str, range: range, withTemplate: "")
         result = result.replacingOccurrences(of: "\r", with: "")
         return result
+    }
+}
+
+// MARK: - Remote Tool Executor
+
+/// Specialized executor for remote RPC calls (CLIs, OpenClaw).
+/// Includes "Always Allow" permission bypasses from global settings.
+@MainActor
+public final class RemoteToolExecutor: ObservableObject {
+    private weak var appState: AppState?
+    private let senderId: String
+    private let senderName: String
+    
+    /// Internal executor used for actual logic and permission prompts
+    private let internalExecutor: ToolExecutor
+
+    public init(appState: AppState, senderId: String, senderName: String) {
+        self.appState = appState
+        self.senderId = senderId
+        self.senderName = senderName
+        self.internalExecutor = ToolExecutor(appState: appState, channelId: nil, createdBy: senderName)
+    }
+
+    public func execute(method: String, input: [String: Any]) async -> Any {
+        // Map dot-notation "terminal.exec" -> underscore "terminal_exec" for ToolExecutor
+        let toolName = method.replacingOccurrences(of: ".", with: "_")
+
+        // Pre-grant permissions the user has marked "Always Allow" in Settings
+        if let perm = ToolDefinitions.permission(for: toolName) {
+            let key: String?
+            switch perm {
+            case .terminal: key = "remoteAllowTerminal"
+            case .filesystem: key = "remoteAllowFS"
+            case .screen: key = "remoteAllowScreen"
+            default: key = nil
+            }
+            if let key, UserDefaults.standard.bool(forKey: key) {
+                internalExecutor.pregrant(perm)
+            }
+        }
+
+        // Pass the full JSON input directly — no manual argument mapping needed
+        let result = await internalExecutor.execute(name: toolName, input: input)
+
+        if let first = result.first {
+            return (first["text"] as? String) ?? first
+        }
+        return ["error": "empty result"]
     }
 }

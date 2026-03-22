@@ -39,6 +39,13 @@ type Envelope struct {
 	Timestamp int64           `json:"timestamp,omitempty"`
 	Error     string          `json:"error,omitempty"`
 	Token     string          `json:"token,omitempty"`
+
+	// RPC fields (exposing Port42 API to external CLIs and OpenClaw)
+	Method   string          `json:"method,omitempty"`
+	Args     json.RawMessage `json:"args,omitempty"`
+	CallID   string          `json:"call_id,omitempty"`
+	TargetID string          `json:"target_id,omitempty"`
+
 	// Presence fields
 	OnlineIDs    []string `json:"online_ids,omitempty"`
 	Status       string   `json:"status,omitempty"` // "online" or "offline"
@@ -47,6 +54,7 @@ type Envelope struct {
 	Nonce         string `json:"nonce,omitempty"`
 	IdentityToken string `json:"identity_token,omitempty"`
 	AuthType      string `json:"auth_type,omitempty"`
+	IsHost        bool   `json:"is_host,omitempty"` // true if this is the primary Port42 app
 }
 
 // Peer represents a connected client.
@@ -56,6 +64,7 @@ type Peer struct {
 	Conn     *websocket.Conn
 	Channels map[string]bool
 	authed   bool // true if identity was verified via auth
+	IsHost   bool // true if this is the primary Port42 macOS app
 	mu       sync.Mutex
 	// Rate limiting: sliding window of message timestamps
 	msgTimes []time.Time
@@ -111,6 +120,12 @@ type Gateway struct {
 	peers    map[string]*Peer
 	channels map[string]map[string]bool
 	store    map[string][]StoredMessage
+	// HostID tracks the peer ID of the primary macOS app per channel.
+	// Keyed by channelID -> peerID.
+	hosts map[string]string
+	// globalHostID is the peer ID of the primary Port42 macOS app (any channel).
+	// Used to route calls that don't specify a channel_id.
+	globalHostID string
 	// companions tracks companion IDs registered by each peer per channel
 	// key: channelID -> peerID -> []companionID
 	companions map[string]map[string][]string
@@ -125,6 +140,8 @@ type Gateway struct {
 	pendingNonces map[string]bool
 	// messageStore persists messages to SQLite for history replay on join. Nil disables history.
 	messageStore *MessageStore
+	// httpCallbacks maps call_id -> reply channel for HandleHTTPCall
+	httpCallbacks map[string]chan Envelope
 }
 
 func NewGateway() *Gateway {
@@ -132,6 +149,7 @@ func NewGateway() *Gateway {
 		peers:         make(map[string]*Peer),
 		channels:      make(map[string]map[string]bool),
 		store:         make(map[string][]StoredMessage),
+		hosts:         make(map[string]string),
 		companions:    make(map[string]map[string][]string),
 		tokens:        make(map[string]map[string]bool),
 		appleIDs:      make(map[string]string),
@@ -251,10 +269,18 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		Conn:     conn,
 		Channels: make(map[string]bool),
 		authed:   authed,
+		IsHost:   ident.IsHost,
 	}
 
 	g.addPeer(peer)
 	defer g.removePeer(peer)
+
+	if peer.IsHost {
+		g.mu.Lock()
+		g.globalHostID = peer.ID
+		g.mu.Unlock()
+		log.Printf("[gateway] global host set: %s", peer.ID[:min(8, len(peer.ID))])
+	}
 
 	log.Printf("[gateway] peer connected: %s", peer.ID)
 
@@ -316,6 +342,10 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			g.leaveChannel(peer, env.ChannelID)
 		case "message":
 			g.routeMessage(ctx, peer, env)
+		case "call":
+			g.routeCall(ctx, peer, env)
+		case "response":
+			g.routeResponse(ctx, peer, env)
 		case "typing":
 			g.broadcastTyping(ctx, peer, env)
 		case "create_token":
@@ -357,6 +387,9 @@ func (g *Gateway) removePeer(p *Peer) {
 	if current, ok := g.peers[p.ID]; ok && current == p {
 		delete(g.peers, p.ID)
 		// Keep channel membership so store-and-forward works
+	}
+	if g.globalHostID == p.ID {
+		g.globalHostID = ""
 	}
 	g.mu.Unlock()
 
@@ -421,6 +454,12 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 		g.channels[channelID] = make(map[string]bool)
 	}
 	g.channels[channelID][p.ID] = true
+
+	// Track host peer for RPC routing
+	if p.IsHost {
+		g.hosts[channelID] = p.ID
+		log.Printf("[gateway] peer %s identified as HOST for channel %s", p.ID[:min(8, len(p.ID))], channelID[:min(8, len(channelID))])
+	}
 
 	// Track companions for this peer in this channel
 	if g.companions[channelID] == nil {
@@ -567,6 +606,11 @@ func (g *Gateway) leaveChannel(p *Peer, channelID string) {
 		if len(members) == 0 {
 			delete(g.channels, channelID)
 		}
+	}
+
+	if g.hosts[channelID] == p.ID {
+		delete(g.hosts, channelID)
+		log.Printf("[gateway] HOST %s left channel %s", p.ID[:min(8, len(p.ID))], channelID[:min(8, len(channelID))])
 	}
 
 	g.mu.Unlock()
@@ -745,5 +789,183 @@ func (g *Gateway) flushStored(ctx context.Context, p *Peer) {
 			g.mu.Unlock()
 			return
 		}
+	}
+}
+
+// HandleHTTPCall handles POST /call — a synchronous HTTP wrapper around the WS RPC.
+// Body: {"method":"terminal.exec","args":{"command":"ls"}}
+// Response: {"content":"..."} or {"error":"..."}
+func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Method string          `json:"method"`
+		Args   json.RawMessage `json:"args"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Method == "" {
+		http.Error(w, `{"error":"missing method"}`, http.StatusBadRequest)
+		return
+	}
+
+	g.mu.RLock()
+	hostID := g.globalHostID
+	g.mu.RUnlock()
+	if hostID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no host available — is Port42 running?"})
+		return
+	}
+
+	g.mu.RLock()
+	hostPeer, online := g.peers[hostID]
+	g.mu.RUnlock()
+	if !online {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "host is offline"})
+		return
+	}
+
+	callID := fmt.Sprintf("http-%d", time.Now().UnixNano())
+	replyCh := make(chan Envelope, 1)
+
+	g.mu.Lock()
+	if g.httpCallbacks == nil {
+		g.httpCallbacks = make(map[string]chan Envelope)
+	}
+	g.httpCallbacks[callID] = replyCh
+	g.mu.Unlock()
+
+	defer func() {
+		g.mu.Lock()
+		delete(g.httpCallbacks, callID)
+		g.mu.Unlock()
+	}()
+
+	// Use a synthetic peer ID so the host can route the response back
+	callerID := "http-caller-" + callID
+
+	args := req.Args
+	if len(args) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+
+	call := Envelope{
+		Type:     "call",
+		Method:   req.Method,
+		Args:     args,
+		CallID:   callID,
+		SenderID: callerID,
+	}
+
+	ctx := r.Context()
+	if err := hostPeer.Send(ctx, call); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to reach host"})
+		return
+	}
+
+	// Wait for response (30s timeout)
+	select {
+	case resp := <-replyCh:
+		w.Header().Set("Content-Type", "application/json")
+		if resp.Error != "" {
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]string{"error": resp.Error})
+		} else if resp.Payload != nil {
+			var payload map[string]interface{}
+			if err := json.Unmarshal(resp.Payload, &payload); err == nil {
+				json.NewEncoder(w).Encode(payload)
+			} else {
+				w.Write(resp.Payload)
+			}
+		} else {
+			json.NewEncoder(w).Encode(map[string]string{"content": ""})
+		}
+	case <-time.After(30 * time.Second):
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		json.NewEncoder(w).Encode(map[string]string{"error": "timeout waiting for host response"})
+	case <-ctx.Done():
+		// Client disconnected
+	}
+}
+
+func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
+	var hostID string
+
+	if env.ChannelID == "" {
+		// No channel specified — route to the global host (the Port42 app itself)
+		g.mu.RLock()
+		hostID = g.globalHostID
+		g.mu.RUnlock()
+		if hostID == "" {
+			sender.Send(ctx, Envelope{Type: "error", Error: "no host available", CallID: env.CallID})
+			return
+		}
+	} else {
+		g.mu.RLock()
+		var hasHost bool
+		hostID, hasHost = g.hosts[env.ChannelID]
+		g.mu.RUnlock()
+		if !hasHost {
+			sender.Send(ctx, Envelope{Type: "error", Error: "no host available in channel", CallID: env.CallID})
+			return
+		}
+	}
+
+	g.mu.RLock()
+	hostPeer, online := g.peers[hostID]
+	g.mu.RUnlock()
+
+	if !online {
+		sender.Send(ctx, Envelope{Type: "error", Error: "host is offline", CallID: env.CallID})
+		return
+	}
+
+	// Forward the call to the host, ensuring SenderID is set so host knows where to reply
+	env.SenderID = sender.ID
+	if err := hostPeer.Send(ctx, env); err != nil {
+		log.Printf("[gateway] failed to send call to host %s: %v", hostID, err)
+		sender.Send(ctx, Envelope{Type: "error", Error: "failed to reach host", CallID: env.CallID})
+	}
+}
+
+func (g *Gateway) routeResponse(ctx context.Context, sender *Peer, env Envelope) {
+	if env.TargetID == "" {
+		log.Printf("[gateway] response from %s missing target_id", sender.ID)
+		return
+	}
+
+	// Check if this is a reply to an HTTP /call request
+	g.mu.Lock()
+	if ch, ok := g.httpCallbacks[env.CallID]; ok {
+		delete(g.httpCallbacks, env.CallID)
+		g.mu.Unlock()
+		select {
+		case ch <- env:
+		default:
+		}
+		return
+	}
+	g.mu.Unlock()
+
+	g.mu.RLock()
+	targetPeer, online := g.peers[env.TargetID]
+	g.mu.RUnlock()
+
+	if !online {
+		log.Printf("[gateway] response target %s is offline", env.TargetID)
+		return
+	}
+
+	// Forward response back to the original caller
+	if err := targetPeer.Send(ctx, env); err != nil {
+		log.Printf("[gateway] failed to send response to %s: %v", env.TargetID, err)
 	}
 }

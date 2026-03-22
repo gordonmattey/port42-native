@@ -1,6 +1,52 @@
 import Foundation
 import GRDB
 
+// MARK: - JSON Value (Codable Any)
+
+/// Codable wrapper for arbitrary JSON values so RPC call args can carry full JSON objects.
+enum JSONValue: Codable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+    case array([JSONValue])
+    case object([String: JSONValue])
+
+    var anyValue: Any {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return n
+        case .bool(let b): return b
+        case .null: return NSNull()
+        case .array(let a): return a.map(\.anyValue)
+        case .object(let o): return o.mapValues(\.anyValue)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let n = try? c.decode(Double.self) { self = .number(n) }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
+        else if let o = try? c.decode([String: JSONValue].self) { self = .object(o) }
+        else { throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Undecodable JSON value")) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try c.encode(s)
+        case .number(let n): try c.encode(n)
+        case .bool(let b): try c.encode(b)
+        case .null: try c.encodeNil()
+        case .array(let a): try c.encode(a)
+        case .object(let o): try c.encode(o)
+        }
+    }
+}
+
 // MARK: - Sync Wire Format
 
 struct SyncEnvelope: Codable {
@@ -22,6 +68,16 @@ struct SyncEnvelope: Codable {
     var nonce: String?
     var identityToken: String?
     var authType: String?
+    var isHost: Bool?
+
+    // RPC fields
+    var method: String?
+    var args: [String: JSONValue]?   // JSON object — maps directly to ToolExecutor input
+    var callId: String?
+    var targetId: String?
+
+    /// Unwrap args into [String: Any] for passing to ToolExecutor.
+    var argsAsAny: [String: Any] { args?.mapValues(\.anyValue) ?? [:] }
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -40,6 +96,11 @@ struct SyncEnvelope: Codable {
         case nonce
         case identityToken = "identity_token"
         case authType = "auth_type"
+        case isHost = "is_host"
+        case method
+        case args
+        case callId = "call_id"
+        case targetId = "target_id"
     }
 }
 
@@ -96,6 +157,17 @@ public final class SyncService: NSObject, ObservableObject {
     public var onMessageReceived: ((String, Message) -> Void)?
     /// Called when a peer's presence changes (channelId, senderId, senderName, status "online"/"offline")
     public var onPresenceChanged: ((String, String, String?, String) -> Void)?
+    /// Set to true only for the primary Port42 app so the gateway registers it as the RPC host.
+    /// CLI tools and other peers must leave this false.
+    public var actAsHost: Bool = false
+
+    /// Called when a remote call is received (senderId, callId, method, input) -> responsePayload
+    public var onCallReceived: (@MainActor (String, String, String, [String: Any]) async -> Any)?
+    /// Called when a response to our own call arrives
+    public var onResponseReceived: ((String, Any) -> Void)?
+
+    /// Pending outgoing calls: callId -> continuation
+    private var pendingCalls: [String: CheckedContinuation<Any, Error>] = [:]
 
     public func configure(gatewayURL: String, userId: String, userName: String? = nil, db: DatabaseService, appleAuth: AppleAuthService? = nil, appleUserID: String? = nil) {
         self.gatewayURL = gatewayURL
@@ -139,7 +211,7 @@ public final class SyncService: NSObject, ObservableObject {
         didSendIdentify = false
         if isLocal {
             // Localhost: send identify immediately (no challenge expected)
-            let identify = SyncEnvelope(type: "identify", senderId: userId, senderName: userName)
+            let identify = SyncEnvelope(type: "identify", senderId: userId, senderName: userName, isHost: actAsHost)
             send(identify)
             didSendIdentify = true
         }
@@ -325,7 +397,7 @@ public final class SyncService: NSObject, ObservableObject {
         case "no_auth":
             // Gateway has no auth, send identify (skip if already sent for local connections)
             if !didSendIdentify, let userId {
-                send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
+                send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName, isHost: actAsHost))
                 print("[sync] sent identify (no auth required)")
             }
 
@@ -358,6 +430,12 @@ public final class SyncService: NSObject, ObservableObject {
 
         case "token":
             handleToken(envelope)
+
+        case "call":
+            handleCall(envelope)
+
+        case "response":
+            handleResponse(envelope)
 
         case "error":
             print("[sync] gateway error: \(envelope.error ?? "unknown")")
@@ -592,17 +670,18 @@ public final class SyncService: NSObject, ObservableObject {
                         senderId: userId,
                         senderName: userName,
                         identityToken: token,
-                        authType: "apple"
+                        authType: "apple",
+                        isHost: actAsHost
                     ))
                     print("[sync] sent authenticated identify")
                 } else {
                     // No Apple auth available, send identify without token
-                    send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
+                    send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName, isHost: actAsHost))
                     print("[sync] sent unauthenticated identify (no Apple auth)")
                 }
             } catch {
                 print("[sync] Apple auth failed: \(error), connecting without auth")
-                send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName))
+                send(SyncEnvelope(type: "identify", senderId: userId, senderName: userName, isHost: actAsHost))
             }
         }
     }
@@ -614,6 +693,68 @@ public final class SyncService: NSObject, ObservableObject {
             continuation.resume(returning: token)
         }
         print("[sync] received join token for channel \(channelId)")
+    }
+
+    private func handleCall(_ envelope: SyncEnvelope) {
+        guard let callId = envelope.callId,
+              let method = envelope.method,
+              let senderId = envelope.senderId else { return }
+
+        print("[sync] received call from \(senderId): \(method) (id=\(callId))")
+
+        Task { @MainActor in
+            let input = envelope.argsAsAny
+            let result: Any
+            if let handler = onCallReceived {
+                result = await handler(senderId, callId, method, input)
+            } else {
+                result = ["error": "method not implemented"] as [String: String]
+            }
+
+            // Send response back
+            var resp = SyncEnvelope(type: "response")
+            resp.callId = callId
+            resp.targetId = senderId
+
+            // Wrap result as JSON — String must be boxed in an object since
+            // JSONSerialization requires a top-level Array or Dictionary.
+            let jsonContent: String
+            if let str = result as? String {
+                jsonContent = str
+            } else if let data = try? JSONSerialization.data(withJSONObject: result),
+                      let json = String(data: data, encoding: .utf8) {
+                jsonContent = json
+            } else {
+                jsonContent = "{\"error\":\"unserializable result\"}"
+            }
+            resp.payload = SyncPayload(senderName: "host", senderType: "host", content: jsonContent, replyToId: nil)
+
+            send(resp)
+        }
+    }
+
+    private func handleResponse(_ envelope: SyncEnvelope) {
+        guard let callId = envelope.callId else { return }
+        print("[sync] received response for call \(callId)")
+
+        if let continuation = pendingCalls.removeValue(forKey: callId) {
+            if let payload = envelope.payload {
+                // Parse content as JSON if possible
+                if let data = payload.content.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) {
+                    continuation.resume(returning: json)
+                } else {
+                    continuation.resume(returning: payload.content)
+                }
+            } else {
+                continuation.resume(returning: NSNull())
+            }
+        } else {
+            // If no continuation, maybe it's a stream event or similar
+            if let payload = envelope.payload {
+                onResponseReceived?(callId, payload.content)
+            }
+        }
     }
 
     private func scheduleReconnect() {

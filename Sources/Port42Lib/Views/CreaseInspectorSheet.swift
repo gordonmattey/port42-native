@@ -12,6 +12,13 @@ public struct CreaseInspectorSheet: View {
     @State private var fold: CompanionFold?
     @State private var position: CompanionPosition?
     @State private var creases: [CompanionCrease] = []
+    @State private var tab: Tab = .fold
+
+    enum Tab: String, CaseIterable {
+        case fold = "fold"
+        case position = "position"
+        case creases = "creases"
+    }
 
     public init(companion: AgentConfig, channelId: String) {
         self.companion = companion
@@ -44,106 +51,54 @@ public struct CreaseInspectorSheet: View {
 
             Divider().background(Port42Theme.border)
 
+            // Tab bar
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases, id: \.self) { t in
+                    TabButton(
+                        label: tabLabel(t),
+                        badge: tabBadge(t),
+                        isActive: tab == t,
+                        action: { tab = t }
+                    )
+                }
+            }
+            .background(Port42Theme.bgSecondary)
+
+            Divider().background(Port42Theme.border)
+
+            // Content
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-
-                    // MARK: Fold
-                    if let f = fold {
-                        SectionBlock(title: "fold", badge: "depth \(f.depth)") {
-                            if let est = f.established, !est.isEmpty {
-                                FieldRow(label: "Established") {
-                                    TagList(items: est)
-                                }
-                            }
-                            if let ten = f.tensions, !ten.isEmpty {
-                                FieldRow(label: "In tension") {
-                                    TagList(items: ten)
-                                }
-                            }
-                            if let h = f.holding, !h.isEmpty {
-                                FieldRow(label: "Holding") {
-                                    Text(h)
-                                        .font(Port42Theme.mono(12))
-                                        .foregroundStyle(Port42Theme.textPrimary)
-                                }
-                            }
-                            if f.depth == 0 && (f.established ?? []).isEmpty && (f.tensions ?? []).isEmpty && f.holding == nil {
-                                Text("no fold yet")
-                                    .font(Port42Theme.mono(12))
-                                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                            }
-                            Button("Reset fold") {
-                                resetFold()
-                            }
-                            .buttonStyle(.plain)
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
-                            .padding(.top, 4)
-                        }
-                    } else {
-                        SectionBlock(title: "fold", badge: "depth 0") {
-                            Text("no fold yet")
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                        }
-                    }
-
-                    // MARK: Position
-                    SectionBlock(title: "position") {
-                        if let p = position, !p.isEmpty {
-                            if let r = p.read, !r.isEmpty {
-                                FieldRow(label: "Read") {
-                                    Text(r)
-                                        .font(Port42Theme.mono(12))
-                                        .foregroundStyle(Port42Theme.textPrimary)
-                                }
-                            }
-                            if let s = p.stance, !s.isEmpty {
-                                FieldRow(label: "Stance") {
-                                    Text(s)
-                                        .font(Port42Theme.mono(12))
-                                        .foregroundStyle(Port42Theme.textPrimary)
-                                }
-                            }
-                            if let w = p.watching, !w.isEmpty {
-                                FieldRow(label: "Watching") {
-                                    TagList(items: w)
-                                }
-                            }
-                        } else {
-                            Text("no position formed yet")
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                        }
-                    }
-
-                    // MARK: Creases
-                    SectionBlock(title: "creases", badge: creases.isEmpty ? nil : "\(creases.count)") {
-                        if creases.isEmpty {
-                            Text("no creases yet")
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                        } else {
-                            ForEach(creases, id: \.id) { crease in
-                                CreaseCard(crease: crease, onForget: {
-                                    forgetCrease(crease.id)
-                                })
-                            }
-                        }
+                Group {
+                    switch tab {
+                    case .fold:    FoldPanel(fold: fold, onReset: resetFold)
+                    case .position: PositionPanel(position: position)
+                    case .creases: CreasesPanel(creases: creases, onForget: forgetCrease)
                     }
                 }
                 .padding(20)
             }
         }
-        .frame(width: 440, height: 560)
+        .frame(width: 460, height: 540)
         .background(Port42Theme.bgPrimary)
         .onAppear { loadState() }
     }
 
+    // MARK: - Helpers
+
+    private func tabLabel(_ t: Tab) -> String { t.rawValue }
+
+    private func tabBadge(_ t: Tab) -> String? {
+        switch t {
+        case .fold:     return fold.map { "depth \($0.depth)" }
+        case .position: return position?.isEmpty == false ? "set" : nil
+        case .creases:  return creases.isEmpty ? nil : "\(creases.count)"
+        }
+    }
+
     private func loadState() {
-        fold = try? appState.db.fetchFold(companionId: companion.id, channelId: channelId)
+        fold     = try? appState.db.fetchFold(companionId: companion.id, channelId: channelId)
         position = try? appState.db.fetchPosition(companionId: companion.id, channelId: channelId)
-        creases = (try? appState.db.fetchCreases(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
+        creases  = (try? appState.db.fetchCreases(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
     }
 
     private func forgetCrease(_ id: String) {
@@ -154,83 +109,186 @@ public struct CreaseInspectorSheet: View {
     private func resetFold() {
         guard var f = fold else { return }
         f.established = nil
-        f.tensions = nil
-        f.holding = nil
-        f.depth = 0
-        f.updatedAt = Date()
+        f.tensions    = nil
+        f.holding     = nil
+        f.depth       = 0
+        f.updatedAt   = Date()
         try? appState.db.saveFold(f)
         fold = f
     }
 }
 
-// MARK: - Sub-components
+// MARK: - Tab Button
 
-private struct SectionBlock<Content: View>: View {
-    let title: String
+private struct TabButton: View {
+    let label: String
     let badge: String?
-    @ViewBuilder let content: () -> Content
-
-    init(title: String, badge: String? = nil, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.badge = badge
-        self.content = content
-    }
+    let isActive: Bool
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(title)
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(label)
                     .font(Port42Theme.monoBold(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
                     .textCase(.uppercase)
                 if let b = badge {
                     Text(b)
                         .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.accent)
-                        .padding(.horizontal, 6)
+                        .foregroundStyle(isActive ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.6))
+                        .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(Port42Theme.accent.opacity(0.1))
-                        .cornerRadius(4)
+                        .background((isActive ? Port42Theme.accent : Port42Theme.textSecondary).opacity(0.1))
+                        .cornerRadius(3)
                 }
             }
-            content()
+            .foregroundStyle(isActive ? Port42Theme.accent : Port42Theme.textSecondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .overlay(alignment: .bottom) {
+                if isActive {
+                    Rectangle()
+                        .fill(Port42Theme.accent)
+                        .frame(height: 2)
+                }
+            }
         }
-        .padding(14)
-        .background(Port42Theme.bgSecondary)
-        .cornerRadius(8)
+        .buttonStyle(.plain)
     }
 }
 
-private struct FieldRow<Content: View>: View {
+// MARK: - Fold Panel
+
+private struct FoldPanel: View {
+    let fold: CompanionFold?
+    let onReset: () -> Void
+
+    var body: some View {
+        if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty || !(f.tensions ?? []).isEmpty || f.holding != nil {
+            VStack(alignment: .leading, spacing: 16) {
+                if let est = f.established, !est.isEmpty {
+                    StateField(label: "established") { TagList(items: est) }
+                }
+                if let ten = f.tensions, !ten.isEmpty {
+                    StateField(label: "in tension") { TagList(items: ten) }
+                }
+                if let h = f.holding, !h.isEmpty {
+                    StateField(label: "holding") {
+                        Text(h)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Divider().background(Port42Theme.border)
+                Button("reset fold") { onReset() }
+                    .buttonStyle(.plain)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            }
+        } else {
+            EmptyState(text: "no fold yet")
+        }
+    }
+}
+
+// MARK: - Position Panel
+
+private struct PositionPanel: View {
+    let position: CompanionPosition?
+
+    var body: some View {
+        if let p = position, !p.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                if let r = p.read, !r.isEmpty {
+                    StateField(label: "read") {
+                        Text(r)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let s = p.stance, !s.isEmpty {
+                    StateField(label: "stance") {
+                        Text(s)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let w = p.watching, !w.isEmpty {
+                    StateField(label: "watching") { TagList(items: w) }
+                }
+            }
+        } else {
+            EmptyState(text: "no position formed yet")
+        }
+    }
+}
+
+// MARK: - Creases Panel
+
+private struct CreasesPanel: View {
+    let creases: [CompanionCrease]
+    let onForget: (String) -> Void
+
+    var body: some View {
+        if creases.isEmpty {
+            EmptyState(text: "no creases yet")
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(creases, id: \.id) { crease in
+                    CreaseCard(crease: crease, onForget: { onForget(crease.id) })
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Shared sub-components
+
+private struct StateField<Content: View>: View {
     let label: String
     @ViewBuilder let content: () -> Content
 
-    init(label: String, @ViewBuilder content: @escaping () -> Content) {
-        self.label = label
-        self.content = content
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(Port42Theme.mono(10))
-                .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                .textCase(.uppercase)
+                .tracking(0.5)
             content()
         }
+    }
+}
+
+private struct EmptyState: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(Port42Theme.mono(12))
+            .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 40)
     }
 }
 
 private struct TagList: View {
     let items: [String]
     var body: some View {
-        FlowLayout(items: items) { item in
-            Text(item)
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(Port42Theme.textPrimary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Port42Theme.bgInput)
-                .cornerRadius(4)
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("–")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                    Text(item)
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }
@@ -240,39 +298,34 @@ private struct CreaseCard: View {
     let onForget: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 Text(crease.content)
                     .font(Port42Theme.mono(12))
                     .foregroundStyle(Port42Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                Button(action: onForget) {
-                    Text("forget")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                }
-                .buttonStyle(.plain)
+                Button("forget", action: onForget)
+                    .buttonStyle(.plain)
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
             }
             if let pred = crease.prediction, let act = crease.actual {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("expected: \(pred)")
                         .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
                     Text("got: \(act)")
                         .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
                 }
             }
-            HStack {
-                Text("weight \(String(format: "%.1f", crease.weight))")
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                Spacer()
-            }
+            Text("weight \(String(format: "%.1f", crease.weight))")
+                .font(Port42Theme.mono(10))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
         }
-        .padding(10)
-        .background(Port42Theme.bgPrimary)
+        .padding(12)
+        .background(Port42Theme.bgSecondary)
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -281,43 +334,3 @@ private struct CreaseCard: View {
     }
 }
 
-/// Simple flow layout for tags.
-private struct FlowLayout<Item: Hashable, Content: View>: View {
-    let items: [Item]
-    let content: (Item) -> Content
-
-    init(items: [Item], @ViewBuilder content: @escaping (Item) -> Content) {
-        self.items = items
-        self.content = content
-    }
-
-    var body: some View {
-        GeometryReader { geo in
-            self.buildRows(in: geo.size.width)
-        }
-        .frame(height: CGFloat(buildRowCount()) * 26)
-    }
-
-    private func buildRowCount() -> Int {
-        max(1, Int(ceil(Double(items.count) / 4.0)))
-    }
-
-    private func buildRows(in totalWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            let rows = chunk(items, size: max(1, Int(totalWidth / 90)))
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 4) {
-                    ForEach(row, id: \.self) { item in
-                        content(item)
-                    }
-                }
-            }
-        }
-    }
-
-    private func chunk<T>(_ array: [T], size: Int) -> [[T]] {
-        stride(from: 0, to: array.count, by: size).map {
-            Array(array[$0..<min($0 + size, array.count)])
-        }
-    }
-}

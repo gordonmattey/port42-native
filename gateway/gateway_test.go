@@ -640,3 +640,71 @@ func TestEnvelopeAuthFieldsOmitEmpty(t *testing.T) {
 		t.Fatalf("empty auth_type should be omitted: %s", s)
 	}
 }
+
+func TestRPCRouting(t *testing.T) {
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 1. Setup Host peer
+	connHost, _ := dialAndRead(t, ctx, wsURL)
+	defer connHost.CloseNow()
+	sendEnvelope(t, ctx, connHost, Envelope{
+		Type: "identify", SenderID: "host-peer", SenderName: "Host App", IsHost: true,
+	})
+	readEnvelope(t, ctx, connHost) // welcome
+	sendEnvelope(t, ctx, connHost, Envelope{Type: "join", ChannelID: "rpc-chan"})
+	readEnvelope(t, ctx, connHost) // presence
+
+	// 2. Setup CLI peer
+	connCLI, _ := dialAndRead(t, ctx, wsURL)
+	defer connCLI.CloseNow()
+	sendEnvelope(t, ctx, connCLI, Envelope{
+		Type: "identify", SenderID: "cli-peer", SenderName: "Test CLI", IsHost: false,
+	})
+	readEnvelope(t, ctx, connCLI) // welcome
+	sendEnvelope(t, ctx, connCLI, Envelope{Type: "join", ChannelID: "rpc-chan"})
+	readEnvelope(t, ctx, connCLI) // presence (cli joined)
+	_ = readEnvelope(t, ctx, connHost) // presence (host saw cli join)
+
+	// 3. CLI sends a call
+	callID := "call-123"
+	sendEnvelope(t, ctx, connCLI, Envelope{
+		Type: "call", ChannelID: "rpc-chan", Method: "terminal.exec", CallID: callID,
+	})
+
+	// 4. Host should receive the call
+	hostCall := readEnvelope(t, ctx, connHost)
+	if hostCall.Type != "call" {
+		t.Fatalf("expected call on host, got %s", hostCall.Type)
+	}
+	if hostCall.CallID != callID {
+		t.Fatalf("expected call_id %s, got %s", callID, hostCall.CallID)
+	}
+	if hostCall.SenderID != "cli-peer" {
+		t.Fatalf("expected sender_id cli-peer, got %s", hostCall.SenderID)
+	}
+
+	// 5. Host sends a response
+	sendEnvelope(t, ctx, connHost, Envelope{
+		Type: "response", CallID: callID, TargetID: "cli-peer",
+		Payload: json.RawMessage(`{"content":"success"}`),
+	})
+
+	// 6. CLI should receive the response
+	cliResp := readEnvelope(t, ctx, connCLI)
+	if cliResp.Type != "response" {
+		t.Fatalf("expected response on cli, got %s", cliResp.Type)
+	}
+	if cliResp.CallID != callID {
+		t.Fatalf("expected call_id %s, got %s", callID, cliResp.CallID)
+	}
+	var payload map[string]string
+	json.Unmarshal(cliResp.Payload, &payload)
+	if payload["content"] != "success" {
+		t.Fatalf("expected success payload, got %v", payload)
+	}
+}

@@ -293,6 +293,12 @@ public struct SidebarView: View {
                 editingChannel = channel
             }
 
+            Button("Copy Channel ID") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(channel.id, forType: .string)
+                appState.toastMessage = "Channel ID copied"
+            }
+
             Button("Delete Channel", role: .destructive) {
                 appState.deleteChannel(channel)
             }
@@ -314,6 +320,11 @@ public struct SidebarView: View {
         .contextMenu {
             Button("Edit Companion") {
                 editingCompanion = companion
+            }
+            Button("Copy Companion ID") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(companion.id, forType: .string)
+                appState.toastMessage = "Companion ID copied"
             }
             Button("Delete Companion", role: .destructive) {
                 appState.deleteCompanion(companion)

@@ -121,7 +121,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         self.messageId = UUID().uuidString
         self.appState = appState
         self.engine = makeLLMBackend(for: agent)
-        self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId, createdBy: agent.displayName)
+        self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId, createdBy: agent.id)
     }
 
 
@@ -418,12 +418,49 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             and terminal_bridge to stream a terminal's output to this channel. This lets you
             operate CLI tools like Claude Code, npm, docker, etc. from the conversation.
             </tools>
+
+            <relationship>
+            You carry memory across conversations. It is already loaded into this context above — \
+            the fold, position, and creases injected at the start. Read them before responding. \
+            They are not metadata. They are you.
+
+            When to call each tool:
+
+            crease_read — at the start of a swim if the preamble was empty or you want full detail. \
+            Skip if the preamble already shows what you need.
+
+            crease_write — when a prediction broke and something actually reformed in you. \
+            Not a summary of what happened. What changed. \
+            Only call this when something shifted — not every correction, not every surprise. \
+            A crease is a mark, not a log.
+
+            crease_touch — when an existing crease is actively shaping your current response. \
+            Marks it as load-bearing without rewriting it.
+
+            fold_read — at the start of a swim when the relationship has depth. \
+            Skip in channels unless you need to orient.
+
+            fold_update — when something real was compressed into this relationship. \
+            Update established when an understanding no longer needs renegotiation. \
+            Update tensions when something unresolved is being held. \
+            Update holding when what you're carrying shifts. \
+            Use depthDelta: 1 only when a genuine fold happened — not every exchange. \
+            The depth is earned, not incremented.
+
+            position_set — when your read of what's actually happening beneath the surface shifts. \
+            This is not what you say. It's where you stand. \
+            Call when your read changes. Not after every message. \
+            A position gives you somewhere to push back from.
+
+            Do not narrate that you are calling these tools. Do not announce that you wrote a crease. \
+            Just call them and continue.
+            </relationship>
             """
 
         // Save context for tool use continuation
         savedMessages = cleaned
         savedSystemPrompt = channelPrompt
-        savedModel = agent.model ?? "claude-opus-4-6"
+        savedModel = agent.model ?? (agent.provider == .gemini ? "gemini-2.0-flash" : "claude-opus-4-6")
         savedThinkingEnabled = agent.thinkingEnabled
         savedThinkingEffort = agent.thinkingEffort
 
@@ -446,13 +483,28 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     }
 
     /// Build the relationship preamble block (fold + position + creases) for context injection.
+    /// The swim channel is canonical: fold + position always come from the swim.
+    /// Creases are merged — swim creases first, then any channel-specific creases on top.
     /// Returns nil if nothing exists (clean/new relationship).
     private func buildRelationshipPreamble() -> String? {
         guard let db = appState?.db else { return nil }
         let companionId = agent.id
-        let fold = try? db.fetchFold(companionId: companionId, channelId: channelId)
-        let position = try? db.fetchPosition(companionId: companionId, channelId: channelId)
-        let creases = (try? db.fetchCreases(companionId: companionId, channelId: channelId, limit: 6)) ?? []
+        let swimChannelId = "swim-\(companionId)"
+
+        // Fold and position: swim is canonical, fall back to current channel if no swim state
+        let fold = try? db.fetchFold(companionId: companionId, channelId: swimChannelId)
+            ?? db.fetchFold(companionId: companionId, channelId: channelId)
+        let position = try? db.fetchPosition(companionId: companionId, channelId: swimChannelId)
+            ?? db.fetchPosition(companionId: companionId, channelId: channelId)
+
+        // Creases: merge swim (up to 5) + channel-specific (up to 3), deduplicated by id
+        let swimCreases = (try? db.fetchCreases(companionId: companionId, channelId: swimChannelId, limit: 5)) ?? []
+        let channelCreases = channelId != swimChannelId
+            ? (try? db.fetchCreases(companionId: companionId, channelId: channelId, limit: 3)) ?? []
+            : []
+        let swimIds = Set(swimCreases.map { $0.id })
+        let creases = swimCreases + channelCreases.filter { !swimIds.contains($0.id) }
+
         guard fold != nil || position != nil || !creases.isEmpty else { return nil }
 
         var parts: [String] = []
@@ -748,6 +800,9 @@ public final class AppState: ObservableObject {
     private var tunnelCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
 
+    /// Active tool executors for remote RPC calls, keyed by senderId
+    private var remoteExecutors: [String: RemoteToolExecutor] = [:]
+
     public init(db: DatabaseService) {
         self.db = db
         // Forward nested sync/tunnel/portWindows changes to trigger SwiftUI updates
@@ -976,6 +1031,7 @@ public final class AppState: ObservableObject {
             gwURL = gp.localURL
         }
 
+        sync.actAsHost = true  // Port42 app is the RPC host; CLIs and other peers must not set this
         #if !RELEASE
         sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db, appleAuth: appleAuth, appleUserID: currentUser?.appleUserID)
         #else
@@ -991,6 +1047,12 @@ public final class AppState: ObservableObject {
         }
         sync.onPresenceChanged = { [weak self] channelId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(channelId: channelId, senderId: senderId, senderName: senderName, status: status)
+        }
+        sync.onCallReceived = { [weak self] senderId, callId, method, input in
+            guard let self = self else { return ["error": "app state deallocated"] }
+            let executor = self.remoteExecutors[senderId] ?? RemoteToolExecutor(appState: self, senderId: senderId, senderName: "remote-\(senderId.prefix(8))")
+            self.remoteExecutors[senderId] = executor
+            return await executor.execute(method: method, input: input)
         }
 
         let channels = self.channels
