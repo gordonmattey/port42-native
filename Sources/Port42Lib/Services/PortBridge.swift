@@ -352,18 +352,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             return ["error": "channel not found"]
 
         // port42.messages.send(text)
+        // Always sends as the current user — ports are interactive surfaces
+        // used by the human, so user-initiated sends must not inherit the
+        // companion identity of whoever created the port.
         case "messages.send":
             guard let text = args.first as? String, !text.isEmpty else {
                 return ["error": "messages.send requires a non-empty text argument"]
             }
-            // If this port is owned by a companion, attribute the message to that companion
-            if let name = createdBy,
-               let companion = state.companions.first(where: { $0.displayName.lowercased() == name.lowercased() }),
-               let cid = channelId {
-                state.sendMessageAsCompanion(companion, content: text, channelId: cid)
-            } else {
-                state.sendMessage(content: text)
-            }
+            state.sendMessage(content: text)
             return ["ok": true]
 
         // port42.port.info()

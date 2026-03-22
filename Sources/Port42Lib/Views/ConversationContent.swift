@@ -218,12 +218,19 @@ public struct ConversationContent: View {
     }
 
     /// No inline ports autoplay; user activates them manually.
-    /// Exception: the very first message in a fresh conversation auto-activates its port.
-    private func recomputeActivePortIDs() {
-        if lastEntryCount == 0, let first = entries.first {
+    /// Exception: the first port in a swim or channel auto-activates on load/entry.
+    /// Returns true if a new port was activated (caller should trigger a scroll to settle layout).
+    @discardableResult
+    private func recomputeActivePortIDs() -> Bool {
+        // If no port has been auto-activated yet and a port-containing entry exists, activate the first one.
+        // This handles both initial load and the case where the first port arrives after non-port messages.
+        var activated = false
+        if cachedActivePortIDs.isEmpty, let first = entries.first(where: { $0.containsPort }) {
             cachedActivePortIDs.insert(first.id)
+            activated = true
         }
         lastEntryCount = entries.count
+        return activated
     }
 
     /// Compute active suggestions from internal draft and candidates
@@ -282,7 +289,7 @@ public struct ConversationContent: View {
                         updateNearBottom()
                     }
                     .onChange(of: entries.count) { old, new in
-                        recomputeActivePortIDs()
+                        let activated = recomputeActivePortIDs()
                         let userSent = new > old && entries.last?.isAgent == false
                         if userSent || isNearBottom {
                             scrollToBottom(proxy: proxy)
@@ -292,10 +299,21 @@ public struct ConversationContent: View {
                             }
                             unreadCount += (new - old)
                         }
+                        if activated {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                scrollToBottom(proxy: proxy)
+                            }
+                        }
                     }
                     .onChange(of: entries.last?.content) { _, _ in
-                        if isNearBottom {
+                        let activated = recomputeActivePortIDs()
+                        if activated || isNearBottom {
                             scrollToBottom(proxy: proxy)
+                        }
+                        if activated {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                scrollToBottom(proxy: proxy)
+                            }
                         }
                     }
                     .onChange(of: typingNames) { _, _ in
@@ -304,8 +322,13 @@ public struct ConversationContent: View {
                         }
                     }
                     .onAppear {
-                        recomputeActivePortIDs()
+                        let activated = recomputeActivePortIDs()
                         proxy.scrollTo("bottom", anchor: .bottom)
+                        if activated {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                scrollToBottom(proxy: proxy)
+                            }
+                        }
                     }
 
                     // New messages bubble
@@ -722,10 +745,14 @@ struct MessageRow: View, Equatable {
                                     PortCompactBlock(
                                         html: html,
                                         createdBy: entry.senderName,
-                                        onRun: { activatedPortIndices.insert(segIdx) },
+                                        onRun: {
+                                            NSLog("[Port42] PortCompactBlock onRun: segIdx=\(segIdx)")
+                                            activatedPortIndices.insert(segIdx)
+                                        },
                                         onPopOut: {
-                                            guard let window = NSApp.keyWindow else { return }
-                                            let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+                                            NSLog("[Port42] PortCompactBlock onPopOut: keyWindow=\(String(describing: NSApp.keyWindow)), mainWindow=\(String(describing: NSApp.mainWindow))")
+                                            let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+                                            let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
                                             let bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: msgId, createdBy: entry.senderName)
                                             appState.portWindows.popOut(
                                                 html: html,
@@ -903,8 +930,8 @@ struct InlinePortView: View {
     }
 
     private func popOut() {
-        guard let window = NSApp.keyWindow else { return }
-        let bounds = window.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+        let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
         appState.portWindows.popOut(
             html: html,
             bridge: bridge,

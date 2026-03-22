@@ -573,7 +573,9 @@ public final class ToolExecutor {
                let tb = bridge.terminalBridge {
                 let ok = tb.sendToFirst(data: processed)
                 if ok, let sid = tb.firstActiveSessionId {
-                    autoStartOutputBridge(portTitle: bridge.messageId ?? name, termBridge: tb, sessionId: sid)
+                    let inlineTitle = appState.inlinePorts()
+                        .first(where: { $0.id == name })?.title ?? name
+                    autoStartOutputBridge(portTitle: inlineTitle, termBridge: tb, sessionId: sid)
                 }
                 return [textBlock(ok ? "Sent to inline port" : "Error: terminal send failed")]
             }

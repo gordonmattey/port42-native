@@ -349,6 +349,12 @@ public final class DatabaseService {
             )
         }
 
+        migrator.registerMigration("v24-drop-backup-tables") { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS channels_backup_v17")
+            try db.execute(sql: "DROP TABLE IF EXISTS messages_backup_v17")
+            try db.execute(sql: "DROP TABLE IF EXISTS swimMessages_backup_v17")
+        }
+
         migrator.registerMigration("v20-companion-creases-and-folds") { db in
             try db.create(table: "companion_creases") { t in
                 t.column("id", .text).primaryKey()
@@ -519,6 +525,13 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM channels")
             try db.execute(sql: "DELETE FROM agents")
             try db.execute(sql: "DELETE FROM users")
+            try db.execute(sql: "DELETE FROM port_storage")
+            try db.execute(sql: "DELETE FROM port_panels")
+            try db.execute(sql: "DELETE FROM port_versions")
+            try db.execute(sql: "DELETE FROM input_history")
+            try db.execute(sql: "DELETE FROM companion_creases")
+            try db.execute(sql: "DELETE FROM companion_folds")
+            try db.execute(sql: "DELETE FROM companion_positions")
         }
     }
 

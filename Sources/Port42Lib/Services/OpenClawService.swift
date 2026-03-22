@@ -12,6 +12,7 @@ public final class OpenClawService: NSObject, ObservableObject {
     @Published public var status: ConnectionStatus = .idle
     @Published public var agents: [OpenClawAgent] = []
     @Published public var pluginInstalled = false
+    @Published public var pluginVersion: String?
     @Published public var openclawVersion: String?
     @Published public var updateAvailable = false
     @Published public var error: String?
@@ -384,6 +385,35 @@ public final class OpenClawService: NSObject, ObservableObject {
         } catch {
             self.error = "Could not run openclaw CLI: \(error.localizedDescription)"
             return false
+        }
+    }
+
+    /// Force update the port42-openclaw plugin
+    public func updatePlugin() async -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["npx", "openclaw", "plugins", "install", "port42-openclaw"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        return await withCheckedContinuation { cont in
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    cont.resume(returning: true)
+                } else {
+                    let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                    let clean = output.replacingOccurrences(of: "\\x1B\\[[0-9;]*m", with: "", options: .regularExpression)
+                    Task { @MainActor in self.error = "Plugin update failed: \(clean)" }
+                    cont.resume(returning: false)
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                Task { @MainActor in self.error = "Could not run openclaw CLI: \(error.localizedDescription)" }
+                cont.resume(returning: false)
+            }
         }
     }
 

@@ -113,6 +113,7 @@ struct OpenClawSheet: View {
                     .foregroundStyle(Port42Theme.textSecondary)
                 }
             }
+
         }
         .padding(20)
     }
@@ -317,7 +318,9 @@ struct OpenClawSheet: View {
             Text(statusText)
                 .font(Port42Theme.mono(10))
                 .foregroundStyle(Port42Theme.textSecondary)
+            
             Spacer()
+
             if openclaw.updateAvailable {
                 Text("update available")
                     .font(Port42Theme.mono(9))

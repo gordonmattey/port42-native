@@ -10,6 +10,7 @@ public struct SwimView: View {
     let onExit: () -> Void
 
     @State private var showInspector = false
+    @State private var activePerm: PortPermission?
 
     public init(companion: AgentConfig, channelId: String, userName: String = "You", onExit: @escaping () -> Void) {
         self.companion = companion
@@ -45,6 +46,7 @@ public struct SwimView: View {
     }
 
     public var body: some View {
+        ZStack {
         VStack(spacing: 0) {
             // Header
             HStack {
@@ -108,5 +110,24 @@ public struct SwimView: View {
             )
         }
         .background(Port42Theme.bgPrimary)
+
+        if let perm = activePerm {
+            PortPermissionOverlay(
+                permission: perm,
+                createdBy: appState.activePermissionBridge?.createdBy,
+                onAllow: {
+                    appState.activePermissionBridge?.grantPermission()
+                    appState.activePermissionBridge = nil
+                },
+                onDeny: {
+                    appState.activePermissionBridge?.denyPermission()
+                    appState.activePermissionBridge = nil
+                }
+            )
+        }
+        } // ZStack
+        .onReceive(appState.$activePermissionBridge) { bridge in
+            activePerm = bridge?.pendingPermission
+        }
     }
 }

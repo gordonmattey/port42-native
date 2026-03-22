@@ -521,11 +521,7 @@ extension LLMEngine {
             let translated = AnthropicErrorTranslator.translate(statusCode: http.statusCode, body: errorBody)
             return translated.localizedDescription
         } catch let error as AgentAuthError {
-            switch error {
-            case .tokenNotFound: return "No credential found. Configure auth in Settings."
-            case .invalidTokenData: return "Invalid token data in Keychain."
-            case .keychainError(let status): return "Keychain error: \(status)"
-            }
+            return error.localizedDescription
         } catch {
             return error.localizedDescription
         }

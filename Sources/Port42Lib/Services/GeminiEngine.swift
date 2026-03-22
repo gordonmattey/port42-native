@@ -17,7 +17,8 @@ private enum GeminiErrorTranslator {
         case 401, 403:
             return .authExpired("Gemini API key rejected (\(statusCode)). Check your key in Settings → AI connection.")
         case 429:
-            return .httpError(429, "Gemini rate limited. Try again shortly.")
+            let detail = errorMessage.map { " (\($0))" } ?? ""
+            return .httpError(429, "Gemini quota exceeded\(detail). Check your project's API quota in Google AI Studio.")
         case 500, 503:
             return .httpError(statusCode, "Gemini service error. Try again in a moment.")
         default:

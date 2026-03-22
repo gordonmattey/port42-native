@@ -309,6 +309,7 @@ public final class AgentAuthResolver {
         cachedExpiresAt = nil
         cachedRefreshToken = nil
         hasReadKeychain = false
+        keychainDenied = false
     }
 
     public func resetAuth() {

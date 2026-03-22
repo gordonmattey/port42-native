@@ -476,8 +476,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 delegate: self
             )
         } catch {
-            // Remove placeholder on error
+            // Remove placeholder and clear typing on error (e.g. auth failure before streaming)
             appState?.messages.removeAll { $0.id == messageId }
+            appState?.typingAgentNames.remove(agent.displayName)
+            appState?.toolingAgentNames.remove(agent.displayName)
+            appState?.sync.sendTyping(channelId: channelId, senderName: agent.displayName, isTyping: false, senderOwner: appState?.currentUser?.displayName)
             NSLog("[Port42] Channel agent send error: \(error)")
         }
     }
