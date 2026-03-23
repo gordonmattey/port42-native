@@ -2,7 +2,7 @@ PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port cod
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
-VERSIONING: Always include a <title> and a version meta tag in every port. The title appears in the port window header. The version is shown alongside your name so the user can see which revision is running. Start at 1 and increment each time you update a port.
+VERSIONING: Always include a <title> and a version meta tag in every port. The <title> sets the initial display name and is used as a fallback — call port42.port.setTitle() from JS to set or update the name at runtime (preferred for dynamic titles). The version is shown alongside your name so the user can see which revision is running. Start at 1 and increment each time you update a port.
 
   <title>My Dashboard</title>
   <meta name="version" content="1">
@@ -338,16 +338,50 @@ BRIDGE API REFERENCE:
     Returns: {messageId, createdBy, channelId}
     Get metadata about this port (which message spawned it, which companion created it).
 
+  port42.port.setTitle(title)
+    Set this port's display name. Overrides the <title> tag. Use for dynamic titles
+    (e.g. a terminal port showing the current working directory as the user navigates).
+    Returns: {ok: true}
+
+  port42.port.setCapabilities(caps)
+    Declare this port's capabilities. Stored and returned by ports.list.
+    caps: array of strings, e.g. ["terminal", "claude-code"]
+    Well-known values: "terminal", "claude-code", "browser", "audio", "camera"
+    "terminal" is auto-detected from active sessions — no need to declare it.
+    Use well-known values for things that need to be discoverable by other ports or companions.
+    Returns: {ok: true}
+
+  port42.port.rename(id, title)
+    Rename another port by its UDID. Use id from ports.list.
+    Returns: {ok: true}
+
   port42.port.close()
     Close this port.
 
   port42.port.resize(w, h)
     Resize this port to the given width and height in pixels.
 
+  port42.port.move(id, x, y)
+    Move a floating port window to the given screen coordinates.
+    Returns: {ok: true}
+
+    COORDINATE SYSTEM: macOS uses bottom-left origin. Y=0 is the bottom of the screen.
+    Increasing Y moves the window UP, decreasing Y moves it DOWN.
+    To move a window down, subtract from Y. To move it up, add to Y.
+    Use port42.screen.displays() to get display bounds for positioning.
+
+  port42.port.position(id)
+    Get the current position and size of a floating port window.
+    Returns: {x, y, width, height} in screen points, or {error} if not floating.
+    Y is in macOS coordinates (0 = bottom of screen, increases upward).
+
   port42.ports.list(opts?)
-    Returns: [{id, title, capabilities, status, createdBy}]
+    Returns: [{id, title, capabilities, status, createdBy, cwd?, x?, y?}]
     List all active ports. opts: { capabilities: ['terminal'] } to filter.
     status is 'floating', 'docked', or 'inline'. Use id for all subsequent calls.
+    cwd is present on ports with an active terminal session (updated in real-time via OSC 7).
+    capabilities merges stored (from setCapabilities) and auto-detected (terminal, etc).
+    x, y are present for floating/docked ports (screen coordinates of the window origin).
 
   port42.port.update(id, html)
     Replace a port's full HTML. Returns true on success.
@@ -608,10 +642,20 @@ TERMINAL API REFERENCE:
   port42.terminal.kill(sessionId)
     Terminate the shell process (SIGTERM then SIGKILL).
 
+  port42.terminal.cwd(sessionId)
+    Returns the current working directory of the terminal session, or null if not yet known.
+    CWD is updated automatically when the shell emits OSC 7 sequences (modern zsh/bash do this
+    on every prompt). Returns: {cwd: '/path/to/dir'} or {cwd: null}.
+
   port42.terminal.on('output', callback)
     Stream stdout/stderr from the terminal. Callback receives {sessionId, data}.
     data is a string that may contain ANSI escape sequences for colors, cursor
     movement, etc. Use an ANSI-aware renderer to display it.
+
+  port42.terminal.on('cwd', callback)
+    Fires when the terminal's working directory changes (OSC 7 sequence received).
+    Callback receives {sessionId, cwd}. Use to update port title dynamically:
+      port42.terminal.on('cwd', ({cwd}) => port42.port.setTitle(cwd.split('/').pop() || '/'));
 
   port42.terminal.on('exit', callback)
     Fires when the process terminates. Callback receives {sessionId, code}.
@@ -795,6 +839,14 @@ Microphone capture requires user permission on first use.
 
 Capture a screenshot of a display. Requires user permission on first use.
 System-level permission is managed in System Settings > Privacy & Security > Screen Recording.
+
+  port42.screen.displays()
+    Get information about all connected displays. No permissions required.
+    Returns: [{width, height, x, y, visibleWidth, visibleHeight, visibleX, visibleY, isMain}]
+    Use this to position ports on the screen without needing screen capture permission.
+    COORDINATE SYSTEM: macOS bottom-left origin. Y=0 is the bottom of the main display.
+    visibleFrame excludes the menu bar and dock. Use visibleY + visibleHeight as the
+    top of the usable area.
 
   port42.screen.windows()
     List visible windows. Returns {windows: [{id, title, app, bundleId, bounds}]}.
