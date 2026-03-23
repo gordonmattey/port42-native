@@ -13,11 +13,20 @@ public struct PortPanel: Identifiable {
     public let channelId: String?
     public let createdBy: String?
     public let messageId: String?
-    public let title: String
+    /// User-set title. Takes priority over HTML <title> extraction.
+    public var userTitle: String?
+    /// Capabilities declared by the port via port42.port.setCapabilities([...]).
+    public var storedCapabilities: [String] = []
     public var size: CGSize
     public var position: CGPoint?
     public var isAlwaysOnTop: Bool = false
     public var isBackground: Bool = false
+
+    /// Resolved display title: userTitle > HTML <title> > "port"
+    public var title: String {
+        if let ut = userTitle, !ut.isEmpty { return ut }
+        return PortPanel.extractTitle(from: html)
+    }
 
     /// Extract title from HTML <title> tag, fallback to "port"
     static func extractTitle(from html: String) -> String {
@@ -98,6 +107,14 @@ public final class PortWindowManager: ObservableObject {
                 }
                 let pos: CGPoint? = (row.posX != nil && row.posY != nil)
                     ? CGPoint(x: row.posX!, y: row.posY!) : nil
+                let restoredCaps: [String]
+                if let capStr = row.capabilities,
+                   let data = capStr.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
+                    restoredCaps = arr
+                } else {
+                    restoredCaps = []
+                }
                 let panel = PortPanel(
                     id: row.id,
                     udid: row.udid ?? row.id,
@@ -106,7 +123,8 @@ public final class PortWindowManager: ObservableObject {
                     channelId: row.channelId,
                     createdBy: row.createdBy,
                     messageId: row.messageId,
-                    title: row.title,
+                    userTitle: row.userTitle,
+                    storedCapabilities: restoredCaps,
                     size: CGSize(width: row.width, height: row.height),
                     position: pos,
                     isAlwaysOnTop: row.isAlwaysOnTop,
@@ -179,7 +197,7 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// Pop a port out from inline into a floating panel.
-    public func popOut(html: String, bridge: PortBridge, channelId: String?, createdBy: String?, messageId: String?, in bounds: CGSize) {
+    public func popOut(html: String, bridge: PortBridge, channelId: String?, createdBy: String?, messageId: String?, title: String? = nil, in bounds: CGSize) {
         // Check for existing panel from the same message and update it
         if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
             let existingId = panels[idx].id
@@ -193,7 +211,8 @@ public final class PortWindowManager: ObservableObject {
                 channelId: channelId,
                 createdBy: createdBy,
                 messageId: messageId,
-                title: PortPanel.extractTitle(from: html),
+                userTitle: title ?? panels[idx].userTitle,
+                storedCapabilities: panels[idx].storedCapabilities,
                 size: panels[idx].size,
                 position: panels[idx].position,
                 isAlwaysOnTop: panels[idx].isAlwaysOnTop,
@@ -215,7 +234,6 @@ public final class PortWindowManager: ObservableObject {
             return
         }
 
-        let title = PortPanel.extractTitle(from: html)
         let w: CGFloat = min(400, bounds.width * 0.45)
         let h: CGFloat = min(350, bounds.height * 0.5)
 
@@ -228,7 +246,7 @@ public final class PortWindowManager: ObservableObject {
             channelId: channelId,
             createdBy: createdBy,
             messageId: messageId,
-            title: title,
+            userTitle: title,
             size: CGSize(width: w, height: h)
         )
         panels.append(panel)
@@ -263,6 +281,27 @@ public final class PortWindowManager: ObservableObject {
                 height: max(150, size.height)
             )
         }
+    }
+
+    /// Rename a floating panel by message ID (called when inline port sets title via bridge).
+    public func renamePort(byMessageId mid: String, title: String) {
+        guard let idx = panels.firstIndex(where: { $0.messageId == mid }) else { return }
+        panels[idx].userTitle = title
+        persistPanel(panels[idx].id)
+    }
+
+    /// Rename a floating panel by panel UDID.
+    public func renamePort(id: String, title: String) {
+        guard let idx = panels.firstIndex(where: { $0.udid == id || $0.id == id }) else { return }
+        panels[idx].userTitle = title
+        persistPanel(panels[idx].id)
+    }
+
+    /// Set stored capabilities for a floating panel by UDID.
+    public func setCapabilities(id: String, capabilities: [String]) {
+        guard let idx = panels.firstIndex(where: { $0.udid == id || $0.id == id }) else { return }
+        panels[idx].storedCapabilities = capabilities
+        persistPanel(panels[idx].id)
     }
 
     /// Toggle always-on-top for a floating panel.
@@ -410,10 +449,31 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// List all ports (for ports_list tool).
-    public func allPorts() -> [(udid: String, title: String, createdBy: String?, hasTerminal: Bool, isBackground: Bool)] {
+    public func allPorts() -> [(udid: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, isBackground: Bool, x: CGFloat?, y: CGFloat?)] {
         panels.map { panel in
-            let hasTerminal = panel.bridge.terminalBridge?.firstActiveSessionId != nil
-            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, hasTerminal: hasTerminal, isBackground: panel.isBackground)
+            let tb = panel.bridge.terminalBridge
+            let hasTerminal = tb?.firstActiveSessionId != nil
+            var caps = panel.storedCapabilities
+            if hasTerminal, !caps.contains("terminal") { caps.insert("terminal", at: 0) }
+            let cwd = hasTerminal ? tb?.firstActiveSessionCwd : nil
+            let origin = windows[panel.id]?.frame.origin ?? panel.position
+            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: cwd, isBackground: panel.isBackground, x: origin?.x, y: origin?.y)
+        }
+    }
+
+    /// Current frame of a floating port window (nil if docked or not found).
+    public func portFrame(by id: String) -> CGRect? {
+        guard let panel = findPort(by: id) else { return nil }
+        return windows[panel.id]?.frame
+    }
+
+    /// Move a floating port window to the given screen coordinates.
+    public func movePort(id: String, x: CGFloat, y: CGFloat) {
+        guard let panel = findPort(by: id) else { return }
+        windows[panel.id]?.setFrameOrigin(NSPoint(x: x, y: y))
+        if let idx = panels.firstIndex(where: { $0.id == panel.id }) {
+            panels[idx].position = CGPoint(x: x, y: y)
+            persistPanel(panel.id)
         }
     }
 
@@ -1025,6 +1085,11 @@ struct PortPanelTitleBar: View {
     @ObservedObject var manager: PortWindowManager
     @Binding var showCode: Bool
 
+    /// Always read the live panel from manager so rename/title updates reflect immediately.
+    private var livePanel: PortPanel {
+        manager.panels.first(where: { $0.id == panel.id }) ?? panel
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             // Draggable title area (padded to clear macOS traffic light buttons)
@@ -1032,11 +1097,11 @@ struct PortPanelTitleBar: View {
                 Image(systemName: "circle")
                     .font(.system(size: 8))
                     .foregroundStyle(Port42Theme.accent)
-                Text(panel.title)
+                Text(livePanel.title)
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
                     .lineLimit(1)
-                if let creator = panel.createdBy {
+                if let creator = livePanel.createdBy {
                     Text("·")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary)
@@ -1045,7 +1110,7 @@ struct PortPanelTitleBar: View {
                         .foregroundStyle(Port42Theme.textSecondary)
                         .lineLimit(1)
                 }
-                if let version = PortPanel.extractVersion(from: panel.html) {
+                if let version = PortPanel.extractVersion(from: livePanel.html) {
                     Text("·")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary)
@@ -1101,14 +1166,14 @@ struct PortPanelTitleBar: View {
             }
 
             Button(action: { manager.toggleAlwaysOnTop(panel.id) }) {
-                Image(systemName: panel.isAlwaysOnTop ? "pin.fill" : "pin")
+                Image(systemName: livePanel.isAlwaysOnTop ? "pin.fill" : "pin")
                     .font(.system(size: 10))
-                    .foregroundStyle(panel.isAlwaysOnTop ? Port42Theme.accent : Port42Theme.textSecondary)
+                    .foregroundStyle(livePanel.isAlwaysOnTop ? Port42Theme.accent : Port42Theme.textSecondary)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(panel.isAlwaysOnTop ? "Unpin" : "Always on top")
+            .help(livePanel.isAlwaysOnTop ? "Unpin" : "Always on top")
 
             Button(action: { manager.minimize(panel.id) }) {
                 Image(systemName: "minus")

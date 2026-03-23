@@ -289,6 +289,11 @@ public struct ConversationContent: View {
                         updateNearBottom()
                     }
                     .onChange(of: entries.count) { old, new in
+                        // Channel switch: 80ms debounce in selectChannel clears messages after
+                        // onAppear fires. If onAppear activated a port from the previous channel,
+                        // cachedActivePortIDs is stale. Reset it when entries empties so the first
+                        // port in the new channel/swim can activate.
+                        if new == 0 { cachedActivePortIDs = [] }
                         let activated = recomputeActivePortIDs()
                         let userSent = new > old && entries.last?.isAgent == false
                         if userSent || isNearBottom {
@@ -812,7 +817,8 @@ struct InlinePortView: View {
         self.appState = appState
         self.messageId = messageId
         self.createdBy = createdBy
-        _bridge = StateObject(wrappedValue: PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy))
+        let htmlTitle = PortPanel.extractTitle(from: html)
+        _bridge = StateObject(wrappedValue: PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy, title: htmlTitle))
     }
 
     var body: some View {
@@ -822,7 +828,7 @@ struct InlinePortView: View {
                 Image(systemName: "circle")
                     .font(.system(size: 8))
                     .foregroundStyle(Port42Theme.accent)
-                Text(PortPanel.extractTitle(from: html))
+                Text(bridge.title ?? PortPanel.extractTitle(from: html))
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
                     .lineLimit(1)

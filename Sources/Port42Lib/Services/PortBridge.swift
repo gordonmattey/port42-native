@@ -13,6 +13,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     public let messageId: String?
     public let createdBy: String?
 
+    /// Explicit title set at creation or updated by the port via port42.port.setTitle().
+    /// Takes priority over HTML <title> extraction.
+    @Published public var title: String?
+
+    /// Capabilities declared by the port via port42.port.setCapabilities([...]).
+    @Published public var storedCapabilities: [String] = []
+
     /// Accessor for AppState (cast from AnyObject to avoid circular dependency)
     private var state: AppState? { appState as? AppState }
 
@@ -57,11 +64,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Camera bridge. Created lazily on first camera call.
     private var cameraBridge: CameraBridge?
 
-    public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil) {
+    public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil, title: String? = nil) {
         self.appState = appState
         self.channelId = channelId
         self.messageId = messageId
         self.createdBy = createdBy
+        self.title = title
         super.init()
 
         // Restore cached permissions immediately so they're in place before the webview
@@ -501,6 +509,42 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "port.close":
             return ["ok": true]
 
+        // port42.port.setTitle(title) — set explicit title on self, overrides HTML <title> extraction
+        case "port.setTitle":
+            guard let newTitle = args.first as? String, !newTitle.isEmpty else {
+                return ["error": "title required"]
+            }
+            self.title = newTitle
+            if let mid = messageId {
+                state.portWindows.renamePort(byMessageId: mid, title: newTitle)
+            }
+            return ["ok": true]
+
+        // port42.port.setCapabilities(caps) — declare this port's capabilities
+        case "port.setCapabilities":
+            guard let caps = args.first as? [String] else {
+                return ["error": "setCapabilities requires an array of strings"]
+            }
+            self.storedCapabilities = caps
+            if let udid = messageId.flatMap({ mid in state.portWindows.panels.first(where: { $0.messageId == mid })?.udid }) {
+                state.portWindows.setCapabilities(id: udid, capabilities: caps)
+            }
+            return ["ok": true]
+
+        // port42.port.rename(id, title) — rename another port by UDID
+        case "port.rename":
+            guard let id = args.first as? String,
+                  let newTitle = args.count > 1 ? args[1] as? String : nil,
+                  !newTitle.isEmpty else {
+                return ["error": "port.rename requires id and title"]
+            }
+            state.portWindows.renamePort(id: id, title: newTitle)
+            // Also update inline bridge if it's an inline port
+            if let bridge = state.findInlineBridge(by: id) {
+                bridge.title = newTitle
+            }
+            return ["ok": true]
+
         // port42.port.resize(w, h) — height change handled by JS postMessage
         case "port.resize":
             return ["ok": true]
@@ -511,17 +555,18 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let filterCaps = opts?["capabilities"] as? [String] ?? []
             let floating = state.portWindows.allPorts()
             let inline = state.inlinePorts().filter { $0.channelId == channelId || channelId == nil }.suffix(5)
-            typealias PortInfo = (id: String, title: String, createdBy: String?, hasTerminal: Bool, status: String)
-            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: $0.isBackground ? "docked" : "floating") }
-                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: "inline") }
+            typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?)
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y) }
+                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none) }
             let filtered = filterCaps.isEmpty ? all : all.filter { p in
-                filterCaps.allSatisfy { cap in cap == "terminal" ? p.hasTerminal : false }
+                filterCaps.allSatisfy { cap in p.capabilities.contains(cap) }
             }
             return filtered.map { p -> [String: Any] in
-                var caps: [String] = []
-                if p.hasTerminal { caps.append("terminal") }
-                var entry: [String: Any] = ["id": p.id, "title": p.title, "capabilities": caps, "status": p.status]
+                var entry: [String: Any] = ["id": p.id, "title": p.title, "capabilities": p.capabilities, "status": p.status]
                 if let cb = p.createdBy { entry["createdBy"] = cb }
+                if let cwd = p.cwd { entry["cwd"] = cwd }
+                if let x = p.x { entry["x"] = x }
+                if let y = p.y { entry["y"] = y }
                 return entry
             }
 
@@ -605,6 +650,41 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return ["ok": state.portWindows.restore(panel.id)]
             default:
                 return ["error": "unknown action '\(action)'. Use: focus, close, dock, undock"]
+            }
+
+        // port42.port.move(id, x, y) — move a floating port to screen coordinates
+        case "port.move":
+            guard let id = args.first as? String,
+                  let xd = (args.count > 1 ? args[1] as? Double : nil),
+                  let yd = (args.count > 2 ? args[2] as? Double : nil) else {
+                return ["error": "port.move requires id, x, y"]
+            }
+            let x = CGFloat(xd), y = CGFloat(yd)
+            state.portWindows.movePort(id: id, x: x, y: y)
+            return ["ok": true]
+
+        // port42.port.position(id) — get current position and size of a port window
+        case "port.position":
+            guard let id = args.first as? String else {
+                return ["error": "port.position requires id"]
+            }
+            if let frame = state.portWindows.portFrame(by: id) {
+                return ["x": frame.origin.x, "y": frame.origin.y, "width": frame.size.width, "height": frame.size.height]
+            }
+            return ["error": "port not found or not floating: '\(id)'"]
+
+        // port42.screen.displays() — list all displays with bounds (no permissions needed)
+        case "screen.displays":
+            return NSScreen.screens.map { screen -> [String: Any] in
+                let f = screen.frame
+                let v = screen.visibleFrame
+                return [
+                    "width": f.width, "height": f.height,
+                    "x": f.origin.x, "y": f.origin.y,
+                    "visibleWidth": v.width, "visibleHeight": v.height,
+                    "visibleX": v.origin.x, "visibleY": v.origin.y,
+                    "isMain": screen == NSScreen.main
+                ]
             }
 
         // port42.port.restore(id, version) — restore a port to a previous version
@@ -750,6 +830,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             } else {
                 return ["error": "session not found"]
             }
+
+        case "terminal.cwd":
+            guard let sessionId = args.first as? String else {
+                return ["error": "terminal.cwd requires sessionId"]
+            }
+            if let cwd = terminalBridge?.cwd(sessionId: sessionId) {
+                return ["cwd": cwd]
+            }
+            return ["cwd": NSNull()]
 
         // MARK: Clipboard
 
@@ -1459,7 +1548,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 patch: (id, search, replace) => call('port.patch', [id, search, replace]).then(r => r && r.ok),
                 history: (id) => call('port.history', [id]),
                 manage: (id, action) => call('port.manage', [id, action]),
-                restore: (id, version) => call('port.restore', [id, version]).then(r => r && r.ok)
+                restore: (id, version) => call('port.restore', [id, version]).then(r => r && r.ok),
+                move: (id, x, y) => call('port.move', [id, x, y]).then(r => r && r.ok),
+                position: (id) => call('port.position', [id])
             },
             ports: {
                 list: (opts) => call('ports.list', opts ? [opts] : [])
@@ -1514,6 +1605,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 }
             },
             screen: {
+                displays: () => call('screen.displays'),
                 windows: () => call('screen.windows'),
                 capture: (opts) => call('screen.capture', [opts || {}]),
                 stream: (opts) => call('screen.stream', [opts || {}]),

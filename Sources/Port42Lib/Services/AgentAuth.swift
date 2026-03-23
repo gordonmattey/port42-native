@@ -119,6 +119,15 @@ public enum AgentAuthError: Error, LocalizedError {
 
 // MARK: - Provider-Keyed Store
 
+/// Cached OAuth tokens persisted to Port42's own Keychain slot.
+/// Written after every successful silent refresh so restarts don't re-consume
+/// the same (potentially rotating) refresh token from Claude Code's Keychain.
+public struct CachedOAuth: Codable {
+    public var accessToken: String
+    public var refreshToken: String?
+    public var expiresAt: Date?
+}
+
 /// Manages Port42's own stored credentials in Keychain, keyed by provider.
 public final class Port42AuthStore {
     public static let shared = Port42AuthStore()
@@ -173,9 +182,46 @@ public final class Port42AuthStore {
         deleteKeychainValue(account: "manual-\(provider)")
     }
 
+    /// Persist refreshed OAuth tokens to Port42's own Keychain slot.
+    public func saveOAuthCache(_ cache: CachedOAuth, provider: String = "anthropic") {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        guard let data = try? encoder.encode(cache),
+              let str = String(data: data, encoding: .utf8) else { return }
+        let account = "oauth-cache-\(provider)"
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data
+        ]
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    /// Load previously refreshed OAuth tokens from Port42's own Keychain slot.
+    public func loadOAuthCache(provider: String = "anthropic") -> CachedOAuth? {
+        guard let str = loadKeychainValue(account: "oauth-cache-\(provider)"),
+              let data = str.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return try? decoder.decode(CachedOAuth.self, from: data)
+    }
+
+    /// Clear cached OAuth tokens (called on sign-out / reset).
+    public func clearOAuthCache(provider: String = "anthropic") {
+        deleteKeychainValue(account: "oauth-cache-\(provider)")
+    }
+
     /// Clear all stored auth for a reset
     public func clearAll() {
         deleteKeychainValue(account: "manual-anthropic")
+        deleteKeychainValue(account: "oauth-cache-anthropic")
         // Legacy cleanup
         deleteKeychainValue(account: "manualToken")
         deleteKeychainValue(account: "apiKey")
@@ -323,6 +369,7 @@ public final class AgentAuthResolver {
         activeService = nil
         resolvedService = nil
         UserDefaults.standard.removeObject(forKey: AgentAuthResolver.selectedServiceKey)
+        Port42AuthStore.shared.clearOAuthCache()
     }
 
     /// List all Claude Code credential entries in the Keychain (attributes only, no prompts).
@@ -433,7 +480,7 @@ public final class AgentAuthResolver {
     private static let minKeychainReadInterval: TimeInterval = 30
 
     private func readClaudeCodeToken() throws -> String {
-        // Return cached token if available and not expired
+        // Return in-memory cached token if available and not near expiry
         if let cached = cachedToken {
             if let exp = cachedExpiresAt, exp < Date().addingTimeInterval(60) {
                 if let lastRead = lastKeychainReadTime,
@@ -465,6 +512,25 @@ public final class AgentAuthResolver {
             return token
         }
 
+        // Check Port42's own OAuth cache before reading Claude Code's Keychain.
+        // After a silent refresh the new tokens are persisted here so restarts
+        // don't re-consume the same (possibly rotating) refresh token.
+        if let cached = Port42AuthStore.shared.loadOAuthCache() {
+            let remaining = cached.expiresAt.map { $0.timeIntervalSince(Date()) } ?? Double.infinity
+            if remaining > 60 {
+                NSLog("[Port42:auth] Using Port42 OAuth cache, expires in %.0fs", remaining)
+                cachedToken = cached.accessToken
+                cachedExpiresAt = cached.expiresAt
+                cachedRefreshToken = cached.refreshToken
+                return cached.accessToken
+            }
+            // Expired — seed cachedRefreshToken so the refresh below can use it
+            if cachedRefreshToken == nil, let rt = cached.refreshToken {
+                cachedRefreshToken = rt
+                NSLog("[Port42:auth] Port42 OAuth cache expired; seeding refresh token")
+            }
+        }
+
         let data = try readKeychainData()
         hasReadKeychain = true
         lastKeychainReadTime = Date()
@@ -481,17 +547,21 @@ public final class AgentAuthResolver {
                     let expiresAt = Date(timeIntervalSince1970: expiresMs / 1000.0)
                     let remaining = expiresAt.timeIntervalSince(Date())
                     if remaining < 0 {
-                        // Access token expired — attempt silent refresh if we have a refresh token
+                        // Access token expired — attempt silent refresh
                         if let rt = refreshToken ?? cachedRefreshToken {
                             NSLog("[Port42:auth] Access token expired, attempting silent refresh")
                             if let refreshed = try? refreshAccessToken(using: rt) {
                                 cachedToken = refreshed.accessToken
                                 cachedExpiresAt = refreshed.expiresAt
-                                if let newRt = refreshed.refreshToken {
-                                    cachedRefreshToken = newRt
-                                }
-                                NSLog("[Port42:auth] Silent refresh succeeded, expires %@",
-                                      refreshed.expiresAt?.debugDescription ?? "unknown")
+                                let newRt = refreshed.refreshToken ?? cachedRefreshToken
+                                cachedRefreshToken = newRt
+                                // Persist so next restart uses the new tokens
+                                Port42AuthStore.shared.saveOAuthCache(CachedOAuth(
+                                    accessToken: refreshed.accessToken,
+                                    refreshToken: newRt,
+                                    expiresAt: refreshed.expiresAt
+                                ))
+                                NSLog("[Port42:auth] Silent refresh succeeded, persisted to cache")
                                 return refreshed.accessToken
                             }
                         }

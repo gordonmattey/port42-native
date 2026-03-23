@@ -124,6 +124,8 @@ Four combinations: per-companion per-channel (default), per-companion global, sh
 .info()                         → { messageId, createdBy, channelId }
 .close()                        → close this port
 .resize(w, h)                   → resize this port
+.move(id, x, y)                 → move a floating port to screen coordinates
+.position(id)                   → { x, y, width, height } of a floating port
 .update(id, html)               → replace another port's HTML (read first with getHtml)
 .getHtml(id, version?)          → read a port's current or versioned HTML
 .patch(id, search, replace)     → targeted edit — errors if search not found
@@ -135,7 +137,7 @@ Four combinations: per-companion per-channel (default), per-companion global, sh
 ### port42.ports
 
 ```
-.list(opts?)                    → [{ id, title, capabilities, status, createdBy }]
+.list(opts?)                    → [{ id, title, capabilities, status, createdBy, x?, y? }]
                                    opts: { capabilities: ['terminal'] }
                                    status: 'floating' | 'docked' | 'inline'
 ```
@@ -236,12 +238,15 @@ Capture options: `{ transcribe: true, language: 'en-US', rawAudio: false }`. Spe
 
 ### port42.screen
 
-Screenshot capture via ScreenCaptureKit. Requires screen permission.
+Display info and screenshot capture. `displays()` requires no permissions. Capture requires screen permission.
 
 ```
+.displays()                     → [{ width, height, x, y, visibleWidth, visibleHeight, visibleX, visibleY, isMain }]
 .windows()                      → { windows: [{ id, title, app, bundleId, bounds }] }
 .capture(opts?)                 → { image, width, height }
 ```
+
+`displays()` returns all connected displays with full frame and visible frame (excluding menu bar/dock). No permissions required — use this to position ports on screen.
 
 `windows()` lists visible windows. Use `id` with `capture({ windowId })` to screenshot a specific window. Capture options: `{ scale, windowId, region, displayId, includeSelf }`. `image` is base64 PNG. `scale` controls resolution (0.1 to 2.0, default 1.0). By default Port42's own windows are excluded; pass `includeSelf: true` to include them.
 
@@ -332,7 +337,9 @@ Companions (LLM agents) and CLI tools (Claude Code, Gemini CLI) share the same A
 ### Port Management
 
 ```
-ports_list()                    → active ports (title, id, capabilities, status, createdBy)
+ports_list()                    → active ports (title, id, capabilities, status, createdBy, x?, y?)
+port_move(id, x, y)            → move a floating port to screen coordinates
+screen_info()                   → all display bounds (no permissions needed)
 port_update(id, html)           → replace a port's HTML in full
 port_patch(id, search, replace) → targeted edit — replace an exact string, preserve everything else
 port_get_html(id)               → current HTML source of a port (by UDID)

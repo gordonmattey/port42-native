@@ -155,16 +155,50 @@ enum ToolDefinitions {
     static let actionTools: [[String: Any]] = [
         [
             "name": "ports_list",
-            "description": "List active ports. Each port has an id (UDID), title, capabilities array, status, and createdBy. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with terminal_send for reliable routing. Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+            "description": "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with terminal_send for reliable routing. Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
             "input_schema": [
                 "type": "object",
                 "properties": [
                     "capabilities": [
                         "type": "array",
                         "items": ["type": "string"],
-                        "description": "Filter to ports that have all of these capabilities. Supported values: \"terminal\". Omit to list all ports."
+                        "description": "Filter to ports that have all of these capabilities. Examples: \"terminal\", \"claude-code\", \"browser\". Omit to list all ports."
                     ] as [String: Any]
                 ]
+            ] as [String: Any]
+        ],
+        [
+            "name": "port_rename",
+            "description": "Rename a port. Sets the port's display title (shown in the title bar). Works for floating, docked, and inline ports. Use the port's id from ports_list.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "title": ["type": "string", "description": "The new title for the port"]
+                ],
+                "required": ["id", "title"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "port_move",
+            "description": "Move a floating port window to specific screen coordinates. Use screen_info to get display bounds first. Coordinates are in macOS screen space (origin at bottom-left of main display). Example: to position at top-right, use x = screenWidth - portWidth, y = screenHeight - portHeight - menuBarHeight.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "x": ["type": "number", "description": "Horizontal position in screen points"],
+                    "y": ["type": "number", "description": "Vertical position in screen points"]
+                ],
+                "required": ["id", "x", "y"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "screen_info",
+            "description": "Get display information: size, position, and visible area (excluding dock/menubar) for all connected displays. No screen recording permission required. Use this to calculate port positions before calling port_move.",
+            "input_schema": [
+                "type": "object",
+                "properties": [:] as [String: Any],
+                "required": []
             ] as [String: Any]
         ],
         [

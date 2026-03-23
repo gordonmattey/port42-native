@@ -306,30 +306,61 @@ public final class ToolExecutor {
         // MARK: Ports
         case "ports_list":
             let filterCaps = (input["capabilities"] as? [String]) ?? []
-            // Floating + docked panels
             let floating = appState.portWindows.allPorts()
-            // Inline ports (rendered in chat, not yet popped out) — scoped to this channel, last 5
             let inline = appState.inlinePorts().filter { $0.channelId == channelId || channelId == nil }.suffix(5)
-            // Merge into uniform shape
-            typealias PortInfo = (id: String, title: String, createdBy: String?, hasTerminal: Bool, status: String)
-            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: $0.isBackground ? "docked" : "floating") }
-                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, hasTerminal: $0.hasTerminal, status: "inline") }
+            typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?)
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y) }
+                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none) }
             let filtered = filterCaps.isEmpty ? all : all.filter { p in
-                filterCaps.allSatisfy { cap in cap == "terminal" ? p.hasTerminal : false }
+                filterCaps.allSatisfy { p.capabilities.contains($0) }
             }
             if filtered.isEmpty {
                 let msg = filterCaps.isEmpty ? "No active ports." : "No ports with capabilities: \(filterCaps.joined(separator: ", "))"
                 return [textBlock(msg)]
             }
             let lines = filtered.map { p -> String in
-                var caps: [String] = []
-                if p.hasTerminal { caps.append("terminal") }
-                let capsStr = caps.isEmpty ? "[]" : "[" + caps.joined(separator: ", ") + "]"
+                let capsStr = p.capabilities.isEmpty ? "[]" : "[" + p.capabilities.joined(separator: ", ") + "]"
                 let creator = p.createdBy ?? "unknown"
-                return "title: \(p.title)\nid: \(p.id)\ncapabilities: \(capsStr)\nstatus: \(p.status)\ncreatedBy: \(creator)"
+                var line = "title: \(p.title)\nid: \(p.id)\ncapabilities: \(capsStr)\nstatus: \(p.status)\ncreatedBy: \(creator)"
+                if let cwd = p.cwd { line += "\ncwd: \(cwd)" }
+                if let x = p.x, let y = p.y { line += "\nposition: (\(Int(x)), \(Int(y)))" }
+                return line
             }
             let header = "\(lines.count) port\(lines.count == 1 ? "" : "s"):"
             return [textBlock(header + "\n\n" + lines.joined(separator: "\n\n"))]
+
+        case "port_rename":
+            guard let id = input["id"] as? String,
+                  let title = input["title"] as? String, !title.isEmpty else {
+                return [textBlock("Error: missing 'id' or 'title'")]
+            }
+            appState.portWindows.renamePort(id: id, title: title)
+            if let bridge = appState.findInlineBridge(by: id) {
+                bridge.title = title
+            }
+            return [textBlock("Renamed port '\(id)' to '\(title)'")]
+
+        case "port_move":
+            guard let id = input["id"] as? String,
+                  let xd = input["x"] as? Double,
+                  let yd = input["y"] as? Double else {
+                return [textBlock("Error: missing 'id', 'x', or 'y'")]
+            }
+            guard appState.portWindows.findPort(by: id) != nil else {
+                return [textBlock("Error: no port found for '\(id)'")]
+            }
+            let x = CGFloat(xd), y = CGFloat(yd)
+            appState.portWindows.movePort(id: id, x: x, y: y)
+            return [textBlock("Moved port to (\(Int(x)), \(Int(y)))")]
+
+        case "screen_info":
+            let displays = NSScreen.screens.map { screen -> String in
+                let f = screen.frame
+                let v = screen.visibleFrame
+                let main = screen == NSScreen.main ? " [main]" : ""
+                return "size: \(Int(f.width))×\(Int(f.height)) at (\(Int(f.origin.x)), \(Int(f.origin.y)))\(main)\nvisible: \(Int(v.width))×\(Int(v.height)) at (\(Int(v.origin.x)), \(Int(v.origin.y)))"
+            }
+            return [textBlock(displays.enumerated().map { i, d in "Display \(i+1):\n\(d)" }.joined(separator: "\n\n"))]
 
         case "port_manage":
             guard let id = input["id"] as? String,
@@ -589,9 +620,9 @@ public final class ToolExecutor {
             }
             // 4. Useful error listing available terminal ports (floating + inline)
             let floatingAvail = appState.portWindows.allPorts()
-                .filter(\.hasTerminal).map { "'\($0.title)' (id: \($0.udid))" }
+                .filter { $0.capabilities.contains("terminal") }.map { "'\($0.title)' (id: \($0.udid))" }
             let inlineAvail = appState.inlinePorts()
-                .filter(\.hasTerminal).map { "'\($0.title)' (id: \($0.id), status: inline)" }
+                .filter { $0.capabilities.contains("terminal") }.map { "'\($0.title)' (id: \($0.id), status: inline)" }
             let available = (floatingAvail + inlineAvail).joined(separator: ", ")
             let hint = available.isEmpty
                 ? "No ports have active terminal sessions. Create a terminal port first."
