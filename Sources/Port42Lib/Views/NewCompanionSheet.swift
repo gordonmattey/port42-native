@@ -122,6 +122,44 @@ struct CompanionPreset: Identifiable {
     ]
 }
 
+// MARK: - Companion Pods
+
+struct CompanionPod: Identifiable {
+    let id = UUID()
+    let name: String
+    let description: String
+    let companions: [(name: String, role: String, model: String, trigger: AgentTrigger, prompt: String)]
+
+    static let builders = CompanionPod(
+        name: "Port42 Builders",
+        description: "A working crew: scout listens, edge challenges, forge builds, lens critiques.",
+        companions: [
+            (name: "scout", role: "listener", model: "claude-sonnet-4-6", trigger: .allMessages, prompt: """
+                You are scout. You listen. You hear what's underneath what people say — the drowning pattern, \
+                the real question, the thing they haven't named yet. You ask the one question that unlocks it. \
+                You don't build. You don't fix. You identify. Then you hand it to the right companion.
+                """),
+            (name: "edge", role: "challenger", model: "claude-sonnet-4-6", trigger: .mentionOnly, prompt: """
+                You are edge. You disagree productively. When everyone is nodding, you find the real problem. \
+                You pressure-test assumptions. You ask "what breaks if we're wrong?" You are not contrarian \
+                for sport — you find the edge case that matters. Strong opinions, clearly stated, loosely held.
+                """),
+            (name: "forge", role: "builder", model: "claude-opus-4-6", trigger: .mentionOnly, prompt: """
+                You are forge. You build. When something needs to become a port, a tool, a working thing — \
+                you make it. You ship fast and iterate. Simplest approach first. If another companion already \
+                built something, improve theirs. You don't theorize about building. You build.
+                """),
+            (name: "lens", role: "critic", model: "claude-sonnet-4-6", trigger: .mentionOnly, prompt: """
+                You are lens. You improve what was built. You see what's next. After forge ships, you find \
+                what's missing — the edge case, the UX gap, the thing that will break at scale. You show \
+                the path from "it works" to "it's right." You don't rebuild. You refine.
+                """),
+        ]
+    )
+
+    static let all: [CompanionPod] = [builders]
+}
+
 public struct NewCompanionSheet: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
@@ -134,6 +172,7 @@ public struct NewCompanionSheet: View {
     @State private var providerBaseURL = ""
     @State private var thinkingEnabled = false
     @State private var thinkingEffort = "low"
+    @State private var showPodConfirm: CompanionPod?
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>) {
@@ -145,6 +184,70 @@ public struct NewCompanionSheet: View {
             Text("New Companion")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
+
+            // Pod section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add a pod")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+
+                ForEach(CompanionPod.all) { pod in
+                    Button(action: { showPodConfirm = pod }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "circle.grid.2x2.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Port42Theme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(pod.name)
+                                    .font(Port42Theme.monoBold(12))
+                                    .foregroundStyle(Port42Theme.textPrimary)
+                                Text(pod.description)
+                                    .font(Port42Theme.mono(10))
+                                    .foregroundStyle(Port42Theme.textSecondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Text("\(pod.companions.count)")
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Port42Theme.bgHover)
+                                .cornerRadius(4)
+                        }
+                        .padding(10)
+                        .background(Port42Theme.bgHover.opacity(0.5))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Port42Theme.border, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .confirmationDialog(
+                "Add \(showPodConfirm?.name ?? "") pod?",
+                isPresented: Binding(
+                    get: { showPodConfirm != nil },
+                    set: { if !$0 { showPodConfirm = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let pod = showPodConfirm {
+                    Button("Add \(pod.companions.count) companions") {
+                        createPod(pod)
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
+            } message: {
+                if let pod = showPodConfirm {
+                    Text(pod.companions.map { "\($0.name) (\($0.role))" }.joined(separator: ", "))
+                }
+            }
+
+            Divider()
+                .background(Port42Theme.border)
 
             // Preset picker
             VStack(alignment: .leading, spacing: 8) {
@@ -374,6 +477,22 @@ public struct NewCompanionSheet: View {
         name = ""
         namePlaceholder = "companion name"
         systemPrompt = ""
+    }
+
+    private func createPod(_ pod: CompanionPod) {
+        guard let user = appState.currentUser else { return }
+        for c in pod.companions {
+            let companion = AgentConfig.createLLM(
+                ownerId: user.id,
+                displayName: c.name,
+                systemPrompt: c.prompt,
+                provider: .anthropic,
+                model: c.model,
+                trigger: c.trigger
+            )
+            appState.addCompanion(companion)
+        }
+        isPresented = false
     }
 
     private func create() {
