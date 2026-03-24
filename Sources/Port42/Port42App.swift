@@ -55,7 +55,7 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                !(window is NSPanel),
                window.canBecomeKey,
                !window.isKeyWindow {
-                window.makeKeyAndOrderFront(nil)
+                window.makeKey()
                 NSApp.activate(ignoringOtherApps: false)
                 NotificationCenter.default.post(name: .focusChatInput, object: nil)
             }

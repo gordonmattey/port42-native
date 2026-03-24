@@ -355,6 +355,13 @@ public final class DatabaseService {
             try db.execute(sql: "DROP TABLE IF EXISTS swimMessages_backup_v17")
         }
 
+        migrator.registerMigration("v25-port-metadata") { db in
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "userTitle", .text)       // user-set title, overrides HTML <title>
+                t.add(column: "capabilities", .text)    // JSON array of declared capabilities
+            }
+        }
+
         migrator.registerMigration("v20-companion-creases-and-folds") { db in
             try db.create(table: "companion_creases") { t in
                 t.column("id", .text).primaryKey()
@@ -1050,6 +1057,8 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var posX: Double?
     public var posY: Double?
     public var grantedPermissions: String?
+    public var userTitle: String?
+    public var capabilities: String?
     public var createdAt: Date
 
     public init(from panel: PortPanel) {
@@ -1069,6 +1078,12 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.posY = panel.position.map { Double($0.y) }
         let perms = panel.bridge.grantedPermissions
         self.grantedPermissions = perms.isEmpty ? nil : perms.map { $0.rawValue }.joined(separator: ",")
+        self.userTitle = panel.userTitle
+        if !panel.storedCapabilities.isEmpty,
+           let json = try? JSONSerialization.data(withJSONObject: panel.storedCapabilities),
+           let str = String(data: json, encoding: .utf8) {
+            self.capabilities = str
+        }
         self.createdAt = Date()
     }
 }

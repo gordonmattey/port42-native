@@ -60,8 +60,12 @@ public final class InstructionService: ObservableObject {
 
     private func buildMarkdown(for tool: String) -> String {
         let apiDocs: String
-        if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
+        // CLI tools get the slim API reference (HTTP methods only, no JS bridge or port examples)
+        if let url = Bundle.port42.url(forResource: "cli-context", withExtension: "txt"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
+            apiDocs = text
+        } else if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
+                  let text = try? String(contentsOf: url, encoding: .utf8) {
             apiDocs = text
         } else {
             apiDocs = "(API reference unavailable — reinstall from Port42 Settings → Remote Access)"

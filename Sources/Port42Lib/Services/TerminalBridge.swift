@@ -19,6 +19,8 @@ public final class TerminalBridge {
         private var readThread: Thread?
         /// Additional output observers (for terminal bridge to channel).
         private var outputObservers: [(String) -> Void] = []
+        /// Current working directory, updated via OSC 7 sequences.
+        public private(set) var cwd: String?
 
         init(id: String, fd: Int32, pid: pid_t) {
             self.id = id
@@ -29,6 +31,11 @@ public final class TerminalBridge {
         /// Add an output observer. Called on the read thread with raw output chunks.
         func addOutputObserver(_ observer: @escaping (String) -> Void) {
             outputObservers.append(observer)
+        }
+
+        /// Update the stored cwd (already-parsed path from OSC 7).
+        func updateCwd(from path: String) {
+            cwd = path
         }
 
         /// Start reading output in a background thread. Calls `onOutput` with chunks
@@ -103,6 +110,17 @@ public final class TerminalBridge {
 
     public init(bridge: PortBridge) {
         self.bridge = bridge
+    }
+
+    /// Extract the filesystem path from an OSC 7 output chunk, or nil if none found.
+    /// OSC 7 format: ESC ] 7 ; file://hostname/path BEL  (or ESC-backslash as terminator)
+    public nonisolated static func extractCwdFromChunk(_ chunk: String) -> String? {
+        guard let range = chunk.range(of: "\u{1b}]7;") else { return nil }
+        let rest = chunk[range.upperBound...]
+        let urlEnd = rest.firstIndex(of: "\u{07}") ?? rest.range(of: "\u{1b}\\")?.lowerBound
+        guard let urlEnd else { return nil }
+        let fileURL = String(rest[..<urlEnd])
+        return URL(string: fileURL)?.path
     }
 
     /// Strip ANSI escape sequences from terminal output for clean text rendering.
@@ -186,12 +204,20 @@ public final class TerminalBridge {
         let sid = sessionId
 
         session.startReading(
-            onOutput: { chunk in
+            onOutput: { [weak session] chunk in
                 Task { @MainActor in
                     bridgeRef?.pushEvent("terminal.output", data: [
                         "sessionId": sid,
                         "data": chunk
                     ])
+                    // Parse OSC 7 (shell cwd notification)
+                    if let cwd = TerminalBridge.extractCwdFromChunk(chunk) {
+                        session?.updateCwd(from: cwd)
+                        bridgeRef?.pushEvent("terminal.cwd", data: [
+                            "sessionId": sid,
+                            "cwd": cwd
+                        ])
+                    }
                 }
             },
             onExit: { exitCode in
@@ -253,6 +279,16 @@ public final class TerminalBridge {
     /// First active session ID, or nil.
     public var firstActiveSessionId: String? {
         sessions.first(where: { $0.value.isRunning })?.key
+    }
+
+    /// CWD of the first active session, or nil.
+    public var firstActiveSessionCwd: String? {
+        sessions.first(where: { $0.value.isRunning })?.value.cwd
+    }
+
+    /// Get the cwd for a specific session.
+    public func cwd(sessionId: String) -> String? {
+        sessions[sessionId]?.cwd
     }
 
     /// Get a session by ID (for adding observers).

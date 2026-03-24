@@ -32,6 +32,8 @@ public struct SidebarView: View {
     @State private var showSignOut = false
     @State private var editingCompanion: AgentConfig?
     @State private var editingChannel: Channel?
+    @State private var channelToDelete: Channel?
+    @State private var companionToDelete: AgentConfig?
 
     public init(showNewChannel: Binding<Bool>) {
         self._showNewChannel = showNewChannel
@@ -225,6 +227,32 @@ public struct SidebarView: View {
             EditChannelSheet(channel: $editingChannel)
                 .environmentObject(appState)
         }
+        .confirmationDialog(
+            "Delete \(channelToDelete?.name ?? "channel")?",
+            isPresented: Binding(get: { channelToDelete != nil }, set: { if !$0 { channelToDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let ch = channelToDelete { appState.deleteChannel(ch) }
+                channelToDelete = nil
+            }
+            Button("Cancel", role: .cancel) { channelToDelete = nil }
+        } message: {
+            Text("This will permanently delete the channel and all its messages.")
+        }
+        .confirmationDialog(
+            "Delete \(companionToDelete?.displayName ?? "companion")?",
+            isPresented: Binding(get: { companionToDelete != nil }, set: { if !$0 { companionToDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let comp = companionToDelete { appState.deleteCompanion(comp) }
+                companionToDelete = nil
+            }
+            Button("Cancel", role: .cancel) { companionToDelete = nil }
+        } message: {
+            Text("This will permanently delete the companion and all its relationship data.")
+        }
     }
 
     @ViewBuilder
@@ -300,7 +328,7 @@ public struct SidebarView: View {
             }
 
             Button("Delete Channel", role: .destructive) {
-                appState.deleteChannel(channel)
+                channelToDelete = channel
             }
         }
     }
@@ -327,7 +355,7 @@ public struct SidebarView: View {
                 appState.toastMessage = "Companion ID copied"
             }
             Button("Delete Companion", role: .destructive) {
-                appState.deleteCompanion(companion)
+                companionToDelete = companion
             }
         }
     }

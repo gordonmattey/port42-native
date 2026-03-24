@@ -843,21 +843,29 @@ public final class AppState: ObservableObject {
     }
 
     /// All inline ports (not yet popped out), excluding ones already tracked as floating panels.
-    public func inlinePorts() -> [(id: String, title: String, createdBy: String?, channelId: String?, hasTerminal: Bool)] {
+    public func inlinePorts() -> [(id: String, title: String, createdBy: String?, channelId: String?, capabilities: [String], cwd: String?)] {
         activeBridges.compactMap { wrapper in
             guard let bridge = wrapper.bridge, let mid = bridge.messageId else { return nil }
             // Skip if already a floating panel
             guard !portWindows.panels.contains(where: { $0.messageId == mid }) else { return nil }
             let title: String
-            if let msg = messages.first(where: { $0.id == mid }),
-               let html = extractPortHtml(from: msg.content) {
+            if let explicit = bridge.title, !explicit.isEmpty {
+                title = explicit
+            } else if let msg = messages.first(where: { $0.id == mid }),
+                      let html = extractPortHtml(from: msg.content) {
                 title = PortPanel.extractTitle(from: html)
             } else {
                 title = "port"
             }
+            let tb = bridge.terminalBridge
+            let hasTerminal = tb?.firstActiveSessionId != nil
+            var caps = bridge.storedCapabilities
+            if hasTerminal, !caps.contains("terminal") { caps.insert("terminal", at: 0) }
+            let cwd = hasTerminal ? tb?.firstActiveSessionCwd : nil
             return (id: mid, title: title, createdBy: bridge.createdBy,
                     channelId: bridge.channelId,
-                    hasTerminal: bridge.terminalBridge?.firstActiveSessionId != nil)
+                    capabilities: caps,
+                    cwd: cwd)
         }
     }
 

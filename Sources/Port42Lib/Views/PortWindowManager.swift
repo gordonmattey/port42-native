@@ -260,6 +260,22 @@ public final class PortWindowManager: ObservableObject {
         Analytics.shared.portPoppedOut()
     }
 
+    /// Close a panel with confirmation dialog. Used by the UI close button.
+    public func closeWithConfirmation(_ id: String) {
+        guard let window = windows[id] else { close(id); return }
+        let alert = NSAlert()
+        alert.messageText = "Close this port?"
+        alert.informativeText = "The port and any running processes will be stopped."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            if response == .alertFirstButtonReturn {
+                self?.close(id)
+            }
+        }
+    }
+
     /// Close a panel by ID.
     public func close(_ id: String) {
         if let window = windows[id] as? PortNSPanel {
@@ -1185,7 +1201,7 @@ struct PortPanelTitleBar: View {
             .buttonStyle(.plain)
             .help("Background")
 
-            Button(action: { manager.close(panel.id) }) {
+            Button(action: { manager.closeWithConfirmation(panel.id) }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10))
                     .foregroundStyle(Port42Theme.textSecondary)
