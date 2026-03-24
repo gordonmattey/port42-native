@@ -243,6 +243,8 @@ fi
 
 if $RUN; then
     echo "[build] Launching..."
+    # Kill existing instance so macOS doesn't reuse the old binary
+    pkill -x Port42 2>/dev/null && sleep 1
     open "$APP"
 fi
 
