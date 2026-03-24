@@ -1705,10 +1705,19 @@ public final class AppState: ObservableObject {
         }
 
         // Route to agents via @mention detection + channel membership
-        let channelAgentIds = Set(channelCompanions.map { $0.id })
-        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName)
-
+        var channelAgentIds = Set(channelCompanions.map { $0.id })
         let mentions = MentionParser.extractMentions(from: trimmed)
+
+        // @mentioning a companion auto-adds them to the channel
+        if !mentions.isEmpty {
+            let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName)
+            for agent in targets where !channelAgentIds.contains(agent.id) {
+                addCompanionToChannel(agent, channel: channel)
+                channelAgentIds.insert(agent.id)
+            }
+        }
+
+        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName)
         let shouldRoute = mentions.isEmpty && targets.count >= 2
 
         if shouldRoute {

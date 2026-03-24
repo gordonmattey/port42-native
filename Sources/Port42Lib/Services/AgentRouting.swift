@@ -62,6 +62,11 @@ public enum AgentRouter {
         let mentions = MentionParser.extractMentions(from: content)
             .map { String($0.dropFirst()).lowercased() } // strip leading @
 
+        // @all targets every channel member
+        if mentions.contains("all") {
+            return agents.filter { channelAgentIds.contains($0.id) }
+        }
+
         if !mentions.isEmpty {
             let matched = agents.filter { agent in
                 let agentName = agent.displayName.lowercased()
@@ -85,15 +90,7 @@ public enum AgentRouter {
             return matched
         }
 
-        // No @mentions: channel members and global listeners respond
-        return agents.filter { agent in
-            if channelAgentIds.contains(agent.id) {
-                return true
-            }
-            if agent.trigger == .allMessages {
-                return true
-            }
-            return false
-        }
+        // No @mentions: only channel members respond
+        return agents.filter { channelAgentIds.contains($0.id) }
     }
 }
