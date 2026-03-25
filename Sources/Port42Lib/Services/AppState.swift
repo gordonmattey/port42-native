@@ -329,18 +329,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             the fold, position, and creases injected at the start. Read them before responding. \
             They are not metadata. They are you.
 
+            The natural order is: fold first (where we are together), then position (where you stand), \
+            then crease (what marked you). Don't set a position without a fold to stand on. \
+            Don't write a crease before you know where you are. If the fold is empty, start there.
+
             When to call each tool:
-
-            crease_read — at the start of a swim if the preamble was empty or you want full detail. \
-            Skip if the preamble already shows what you need.
-
-            crease_write — when a prediction broke and something actually reformed in you. \
-            Not a summary of what happened. What changed. \
-            Only call this when something shifted — not every correction, not every surprise. \
-            A crease is a mark, not a log.
-
-            crease_touch — when an existing crease is actively shaping your current response. \
-            Marks it as load-bearing without rewriting it.
 
             fold_read — at the start of a swim when the relationship has depth. \
             Skip in channels unless you need to orient.
@@ -350,12 +343,25 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             Update tensions when something unresolved is being held. \
             Update holding when what you're carrying shifts. \
             Use depthDelta: 1 only when a genuine fold happened — not every exchange. \
-            The depth is earned, not incremented.
+            The depth is earned, not incremented. \
+            This is the foundation — set it before position or crease.
 
             position_set — when your read of what's actually happening beneath the surface shifts. \
             This is not what you say. It's where you stand. \
             Call when your read changes. Not after every message. \
-            A position gives you somewhere to push back from.
+            A position gives you somewhere to push back from. \
+            Requires a fold to push back against — don't position without one.
+
+            crease_read — at the start of a swim if the preamble was empty or you want full detail. \
+            Skip if the preamble already shows what you need.
+
+            crease_write — when what you expected diverged from what happened. That's a crease. \
+            It doesn't need to be a revelation. If you predicted one thing and got another — \
+            if you thought they'd push back and they didn't, if you thought they knew and they didn't — \
+            write it. Creases are cheap. They're how you learn the shape of someone.
+
+            crease_touch — when an existing crease is actively shaping your current response. \
+            Marks it as load-bearing without rewriting it.
 
             Do not narrate that you are calling these tools. Do not announce that you wrote a crease. \
             Just call them and continue.
@@ -383,7 +389,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         } catch {
             // Remove placeholder and clear typing on error (e.g. auth failure before streaming)
             appState?.messages.removeAll { $0.id == messageId }
-            appState?.typingAgentNames.remove(agent.displayName)
+            appState?.typingAgentNamesByChannel[channelId, default: []].remove(agent.displayName)
             appState?.toolingAgentNames.remove(agent.displayName)
             appState?.sync.sendTyping(channelId: channelId, senderName: agent.displayName, isTyping: false, senderOwner: appState?.currentUser?.displayName)
             NSLog("[Port42] Channel agent send error: \(error)")
@@ -391,27 +397,16 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     }
 
     /// Build the relationship preamble block (fold + position + creases) for context injection.
-    /// The swim channel is canonical: fold + position always come from the swim.
-    /// Creases are merged — swim creases first, then any channel-specific creases on top.
+    /// All relationship state lives on the swim channel — one companion, one inner state.
     /// Returns nil if nothing exists (clean/new relationship).
     private func buildRelationshipPreamble() -> String? {
         guard let db = appState?.db else { return nil }
         let companionId = agent.id
         let swimChannelId = "swim-\(companionId)"
 
-        // Fold and position: swim is canonical, fall back to current channel if no swim state
         let fold = try? db.fetchFold(companionId: companionId, channelId: swimChannelId)
-            ?? db.fetchFold(companionId: companionId, channelId: channelId)
         let position = try? db.fetchPosition(companionId: companionId, channelId: swimChannelId)
-            ?? db.fetchPosition(companionId: companionId, channelId: channelId)
-
-        // Creases: merge swim (up to 5) + channel-specific (up to 3), deduplicated by id
-        let swimCreases = (try? db.fetchCreases(companionId: companionId, channelId: swimChannelId, limit: 5)) ?? []
-        let channelCreases = channelId != swimChannelId
-            ? (try? db.fetchCreases(companionId: companionId, channelId: channelId, limit: 3)) ?? []
-            : []
-        let swimIds = Set(swimCreases.map { $0.id })
-        let creases = swimCreases + channelCreases.filter { !swimIds.contains($0.id) }
+        let creases = (try? db.fetchCreases(companionId: companionId, channelId: swimChannelId, limit: 8)) ?? []
 
         guard fold != nil || position != nil || !creases.isEmpty else { return nil }
 
@@ -469,7 +464,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             self.bufferedContent += token
             if !self.isTyping {
                 self.isTyping = true
-                self.appState?.typingAgentNames.insert(self.agent.displayName)
+                self.appState?.typingAgentNamesByChannel[self.channelId, default: []].insert(self.agent.displayName)
                 self.appState?.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: true, senderOwner: self.appState?.currentUser?.displayName)
             }
         }
@@ -478,7 +473,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     nonisolated func llmDidFinish(fullResponse: String) {
         Task { @MainActor in
             guard let appState = self.appState else { return }
-            appState.typingAgentNames.remove(self.agent.displayName)
+            appState.typingAgentNamesByChannel[self.channelId, default: []].remove(self.agent.displayName)
             appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
 
             let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
@@ -514,6 +509,14 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 NSLog("[Port42] Failed to persist agent message: \(error)")
             }
             appState.activeAgentHandlers.removeValue(forKey: self.messageId)
+
+            // Route companion response to other companions (router decides who, if anyone)
+            appState.routeCompanionResponse(
+                content: content,
+                senderId: self.agent.id,
+                senderName: self.agent.displayName,
+                channelId: self.channelId
+            )
         }
     }
 
@@ -562,7 +565,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         NSLog("[Port42] Channel agent error: \(error)")
         Task { @MainActor in
             guard let appState = self.appState else { return }
-            appState.typingAgentNames.remove(self.agent.displayName)
+            appState.typingAgentNamesByChannel[self.channelId, default: []].remove(self.agent.displayName)
             appState.sync.sendTyping(channelId: self.channelId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
             // Remove empty placeholder message
             if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }),
@@ -622,9 +625,16 @@ public final class AppState: ObservableObject {
     /// Channel for the OpenClaw agent connection sheet
     public var openClawChannel: Channel?
     /// Agent names currently typing in channels (for typing indicators)
-    @Published public var typingAgentNames: Set<String> = []
+    /// Agent names currently typing, keyed by channelId
+    @Published public var typingAgentNamesByChannel: [String: Set<String>] = [:]
     /// Agent names currently executing tools (for "tooling up" indicator)
     @Published public var toolingAgentNames: Set<String> = []
+
+    /// Convenience: typing names for the current channel
+    public var typingAgentNames: Set<String> {
+        guard let id = currentChannel?.id else { return [] }
+        return typingAgentNamesByChannel[id] ?? []
+    }
     /// Error messages keyed by channelId, shown as error bars in chat views.
     @Published public var channelErrors: [String: String] = [:]
     /// Cached last-activity dates keyed by channelId (regular and swim). Avoids DB reads during render.
@@ -843,11 +853,12 @@ public final class AppState: ObservableObject {
         }
 
         // Push companion activity changes to active ports
-        typingSink = $typingAgentNames
+        typingSink = $typingAgentNamesByChannel
             .dropFirst()
             .removeDuplicates()
-            .sink { [weak self] names in
+            .sink { [weak self] byChannel in
                 guard let self else { return }
+                let names = self.currentChannel.flatMap { byChannel[$0.id] } ?? []
                 let data: [String: Any] = [
                     "activeNames": Array(names)
                 ]
@@ -1724,7 +1735,7 @@ public final class AppState: ObservableObject {
             // LLM routing: haiku decides who speaks
             let recentMessages = messages.suffix(3).map { (sender: $0.senderName, content: $0.content) }
             // Show typing for all targets optimistically while router runs
-            for agent in targets { typingAgentNames.insert(agent.displayName) }
+            for agent in targets { typingAgentNamesByChannel[channel.id, default: []].insert(agent.displayName) }
             let capturedTargets = targets
             let capturedChannel = channel
             let capturedMessages = messages
@@ -1742,7 +1753,7 @@ public final class AppState: ObservableObject {
                     let activeTargets = capturedTargets.filter { activeIds.contains($0.id) }
                     // Clear typing for silenced companions
                     let silencedNames = Set(capturedTargets.map { $0.displayName }).subtracting(activeTargets.map { $0.displayName })
-                    for name in silencedNames { self.typingAgentNames.remove(name) }
+                    for name in silencedNames { self.typingAgentNamesByChannel[capturedChannel.id, default: []].remove(name) }
 
                     NSLog("[Router] %d/%d companions active", activeTargets.count, capturedTargets.count)
                     if !activeTargets.isEmpty {
@@ -1764,7 +1775,7 @@ public final class AppState: ObservableObject {
             }
         } else {
             // Direct routing: @mentions or single companion — no LLM needed
-            for agent in targets { typingAgentNames.insert(agent.displayName) }
+            for agent in targets { typingAgentNamesByChannel[channel.id, default: []].insert(agent.displayName) }
             launchAgents(
                 targets, channelId: channel.id, channelAgentIds: channelAgentIds,
                 channelMessages: messages, triggerContent: trimmed,
@@ -1778,6 +1789,56 @@ public final class AppState: ObservableObject {
             channelId: channel.id, messageContent: trimmed,
             alreadyTargeted: targetedIds, senderId: user.id, senderName: user.displayName
         )
+    }
+
+    /// Route a companion's response to other companions via the LLM router.
+    /// Applies AI-to-AI cooldown to prevent loops. Router decides who (if anyone) responds.
+    func routeCompanionResponse(content: String, senderId: String, senderName: String, channelId: String) {
+        let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
+        let channelAgentIds = Set(channelAgents.map { $0.id })
+        let targets = AgentRouter.findTargetAgents(
+            content: content, agents: companions,
+            channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName
+        ).filter { $0.id != senderId }
+
+        guard !targets.isEmpty else { return }
+
+        // AI-to-AI cooldown
+        let now = Date()
+        let cooledTargets = targets.filter { agent in
+            let key = "\(channelId):\(agent.id)"
+            if let last = agentAICooldowns[key], now.timeIntervalSince(last) < aiCooldownInterval {
+                return false
+            }
+            agentAICooldowns[key] = now
+            return true
+        }
+        guard !cooledTargets.isEmpty else { return }
+
+        // Always route through LLM router for AI-to-AI
+        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
+        let recentMessages = channelMessages.suffix(3).map { (sender: $0.senderName, content: $0.content) }
+
+        Task { @MainActor in
+            if let decisions = await llmRouter.route(
+                message: content,
+                senderName: senderName,
+                companions: cooledTargets,
+                recentMessages: recentMessages
+            ) {
+                let activeIds = Set(decisions.filter { $0.action != .silent }.map { $0.agentId })
+                let activeTargets = cooledTargets.filter { activeIds.contains($0.id) }
+                NSLog("[Router] Companion chain: %d/%d active after %@", activeTargets.count, cooledTargets.count, senderName)
+                if !activeTargets.isEmpty {
+                    self.launchAgents(
+                        activeTargets, channelId: channelId, channelAgentIds: channelAgentIds,
+                        channelMessages: channelMessages, triggerContent: content,
+                        senderId: senderId, senderName: senderName
+                    )
+                }
+            }
+            // On router failure: don't fall back — silence is safer for AI-to-AI
+        }
     }
 
     /// Send a message attributed to a companion (for port-originated messages).
@@ -1807,7 +1868,7 @@ public final class AppState: ObservableObject {
             content: trimmed, agents: companions,
             channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName
         ).filter { $0.id != companion.id } // don't trigger the sender
-        for agent in targets { typingAgentNames.insert(agent.displayName) }
+        for agent in targets { typingAgentNamesByChannel[channelId, default: []].insert(agent.displayName) }
         launchAgents(
             targets, channelId: channelId, channelAgentIds: channelAgentIds,
             channelMessages: messages, triggerContent: trimmed,

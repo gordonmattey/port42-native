@@ -152,9 +152,11 @@ public final class ToolExecutor {
                 return [textBlock("Error: no companion context")]
             }
             let limit = input["limit"] as? Int ?? 8
+            // Always read from swim channel — companion has one inner state
+            let swimCreaseId = "swim-\(companionId)"
             let creases = (try? appState.db.fetchCreases(
                 companionId: companionId,
-                channelId: channelId,
+                channelId: swimCreaseId,
                 limit: limit
             )) ?? []
             if creases.isEmpty {
@@ -172,9 +174,11 @@ public final class ToolExecutor {
                   let content = input["content"] as? String, !content.isEmpty else {
                 return [textBlock("Error: crease_write requires 'content'")]
             }
+            // Always write to swim channel — companion has one inner state
+            let swimWriteId = "swim-\(companionId)"
             let crease = CompanionCrease(
                 companionId: companionId,
-                channelId: input["channelId"] as? String ?? channelId,
+                channelId: swimWriteId,
                 content: content,
                 prediction: input["prediction"] as? String,
                 actual: input["actual"] as? String

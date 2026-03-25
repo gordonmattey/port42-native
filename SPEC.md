@@ -274,6 +274,17 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-603 | Bridge Status | Show bridge connection status in sidebar. Online/offline indicator. Reconnect on disconnect. | Bridge status visible, auto-reconnects | M5 |
 | F-604 | Bridge Message Sync | Messages from bridged platforms appear in Port42 chat view alongside local messages. Unified conversation history. | Discord messages visible in Port42 with platform badge | M5 |
 
+### Integrations (OAuth Connections)
+
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-650 | Connection Manager | Settings > Integrations. Global OAuth flow for external services (Google, GitHub, Notion, Linear, etc.). Tokens stored in macOS Keychain per service. One connection shared by all companions. | User can connect Google account from settings, token persists across restarts | M5 | |
+| F-651 | Google Integration | OAuth2 PKCE flow for Google. Scopes: Calendar (read/write), Drive (read), Gmail (read). Opens system browser for consent, receives callback via custom URL scheme (port42://oauth/google). Refresh token stored in Keychain. | Companion can read calendar events, search Drive, check email | M5 | |
+| F-652 | GitHub Integration | OAuth2 flow for GitHub. Scopes: repo, issues, pull requests. Device flow or browser redirect. | Companion can list issues, read PRs, check CI status | M5 | |
+| F-653 | Integration Bridge Tools | Bridge tools exposed to companions: `integrations.list` (connected services), `google.calendar.events`, `google.drive.search`, `github.issues.list`, `github.pr.get`, etc. Same pattern as port42 bridge — available in ports (JS) and conversation (tool use). | Companion calls `google.calendar.events` and gets today's schedule | M5 | |
+| F-654 | Token Lifecycle | Automatic refresh for expiring tokens. Status indicator per integration (connected/expired/revoked). Re-auth prompt when refresh fails. Disconnect clears Keychain entry. | Expired Google token refreshes silently; revoked token shows re-auth prompt | M5 | |
+| F-655 | Integration Permissions | Per-companion opt-in: companion config includes which integrations it can access. Default: none. User grants access explicitly. | Companion without Google permission cannot call Google tools even though user is connected | M5 | |
+
 ### Audio Rooms
 
 | ID | Feature | Description | Done When | Milestone |
@@ -284,6 +295,17 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-703 | Voice Activity | Green ring pulse around speaking participant's avatar. | Visual indicator activates when participant is speaking | M6 |
 | F-704 | Mute/Deafen/Leave | Microphone toggle, speaker toggle, leave button. Keyboard shortcuts: Cmd+M, Cmd+Shift+D. | All controls functional, state reflected to other participants | M6 |
 | F-705 | Audio Settings | Input/output device selection. Voice activity detection sensitivity. Push-to-talk option. | User can select devices and configure voice activation | M6 |
+
+### Workspace Manager
+
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-750 | Window Tracking | Continuous awareness of all open windows: app, title, bounds, display, z-order. Built on `screen.windows` + Accessibility API. Companions know what you're looking at without asking. | Companion can answer "what do I have open?" accurately in real time | | |
+| F-751 | Window Arrangements | Named layouts that snapshot window positions across displays. Save, restore, share. "coding" = terminal left, editor right, browser bottom. "review" = PR in center, terminal below, notes floating. Companions can suggest and apply arrangements. | User says "set up for code review" and windows rearrange | | |
+| F-752 | Window Compose | Companion can move, resize, focus, minimize, and close any window. Bridge tools: `workspace.arrange(windows)`, `workspace.focus(app)`, `workspace.snap(window, position)`. Snap positions: left-half, right-half, top-half, bottom-half, quadrants, thirds, center, fullscreen. | Companion snaps Xcode to left half and Safari to right half | | |
+| F-753 | Context Awareness | Companion sees which app is frontmost, what document is open, how long you've been there. Enables proactive help: "you've been on that error page for 5 minutes — want me to look at the stack trace?" Built on window tracking + screen capture. | Companion proactively offers help based on visible context | | |
+| F-754 | Multi-Display | Full support for multiple displays. Window arrangements span monitors. Snap positions are display-relative. Companion can move windows between displays. Uses `screen.displays` for geometry. | "Move Slack to the external monitor" works | | |
+| F-755 | Workspace Profiles | Higher-level than arrangements: a workspace profile includes window layout + which companions are active + which integrations are relevant + channel focus. Switch profiles to change your entire working context. | User switches to "writing" profile: Markdown editor centered, muse companion active, notifications silenced | | |
 
 ### Local Storage
 
