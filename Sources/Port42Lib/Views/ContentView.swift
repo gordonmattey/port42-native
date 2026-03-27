@@ -12,21 +12,26 @@ public struct ContentView: View {
     @State private var showUsage = false
 
     public var body: some View {
-        VStack(spacing: 0) {
-            // Unified title bar
-            WindowTitleBar(
-                showSignOut: $showSignOut,
-                showUsage: $showUsage
-            )
-
-            Divider().background(Port42Theme.border)
-
-            HSplitView {
+        HSplitView {
+            // Left pane: PORT42 header + sidebar
+            VStack(spacing: 0) {
+                SidebarHeader()
+                Divider().background(Port42Theme.border)
                 SidebarView(
                     showNewChannel: $showNewChannel,
                     showNewCompanion: $showNewCompanion
                 )
-                .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
+            }
+            .ignoresSafeArea(edges: .top)
+            .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
+
+            // Right pane: channel header + chat
+            VStack(spacing: 0) {
+                ChatHeader(
+                    showSignOut: $showSignOut,
+                    showUsage: $showUsage
+                )
+                Divider().background(Port42Theme.border)
 
                 Group {
                     if let companion = appState.activeSwimCompanion,
@@ -54,8 +59,8 @@ public struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            .ignoresSafeArea(edges: .top)
         }
-        .ignoresSafeArea(edges: .top)
         .sheet(isPresented: $showNewChannel) {
             NewChannelSheet(isPresented: $showNewChannel)
         }
@@ -149,12 +154,43 @@ public struct ContentView: View {
     }
 }
 
-// MARK: - Window Title Bar
+// MARK: - Sidebar Header (PORT42 branding, top of left pane)
 
-struct WindowTitleBar: View {
+struct SidebarHeader: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("PORT42")
+                .font(Port42Theme.monoBold(13))
+                .foregroundStyle(Port42Theme.accent)
+            if appState.sync.isConnected {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 5, height: 5)
+            }
+            if appState.tunnel.publicURL != nil {
+                Image(systemName: "globe")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Port42Theme.accent)
+            }
+            Spacer()
+        }
+        .help(appState.tunnel.publicURL ?? appState.sync.gatewayURL ?? "no gateway")
+        .padding(.leading, 68) // space for traffic light buttons
+        .padding(.trailing, 12)
+        .frame(height: 38)
+        .background(Port42Theme.bgSidebar)
+    }
+}
+
+// MARK: - Chat Header (channel name + members + user controls, top of right pane)
+
+struct ChatHeader: View {
     @EnvironmentObject var appState: AppState
     @Binding var showSignOut: Bool
     @Binding var showUsage: Bool
+    @State private var showMembers = false
 
     private var authDotColor: Color {
         switch appState.authStatus {
@@ -165,30 +201,93 @@ struct WindowTitleBar: View {
         }
     }
 
+    private var members: [ChannelMember] {
+        guard let id = appState.currentChannel?.id else { return [] }
+        var result = (try? appState.db.getChannelMembers(channelId: id)) ?? []
+        if let user = appState.currentUser,
+           !result.contains(where: { $0.senderId == user.id }) {
+            result.insert(ChannelMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
+        }
+        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
+        for agent in channelAgents {
+            if !result.contains(where: { $0.senderId == agent.id }) {
+                result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
+            }
+        }
+        let onlineIds = appState.sync.onlineUsers[id] ?? []
+        for userId in onlineIds {
+            if result.contains(where: { $0.senderId == userId }) { continue }
+            if userId == appState.currentUser?.id { continue }
+            if let name = appState.sync.knownNames[userId] {
+                result.append(ChannelMember(senderId: userId, name: name, type: "agent", owner: nil))
+            }
+        }
+        return result
+    }
+
+    private var onlineIds: Set<String> {
+        guard let id = appState.currentChannel?.id else { return [] }
+        var ids = appState.sync.onlineUsers[id] ?? []
+        if let userId = appState.currentUser?.id { ids.insert(userId) }
+        for companion in appState.companions { ids.insert(companion.id) }
+        return ids
+    }
+
     var body: some View {
-        HStack(spacing: 12) {
-            // Left: PORT42 branding (after traffic light space)
-            HStack(spacing: 4) {
-                Text("PORT42")
+        HStack(spacing: 8) {
+            if let companion = appState.activeSwimCompanion {
+                Circle()
+                    .fill(Port42Theme.textAgent)
+                    .frame(width: 8, height: 8)
+                Text(companion.displayName)
                     .font(Port42Theme.monoBold(13))
-                    .foregroundStyle(Port42Theme.accent)
-                if appState.sync.isConnected {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 5, height: 5)
-                }
-                if appState.tunnel.publicURL != nil {
-                    Image(systemName: "globe")
-                        .font(.system(size: 8))
-                        .foregroundStyle(Port42Theme.accent)
+                    .foregroundStyle(Port42Theme.textAgent)
+            } else if let channel = appState.currentChannel {
+                Text("#")
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Text(channel.name)
+                    .font(Port42Theme.monoBold(13))
+                    .foregroundStyle(Port42Theme.textPrimary)
+
+                if !members.isEmpty {
+                    HStack(spacing: -4) {
+                        ForEach(Array(members.prefix(6))) { member in
+                            MemberAvatar(member: member, size: 18, isOnline: onlineIds.contains(member.senderId))
+                        }
+                        if members.count > 6 {
+                            ZStack {
+                                Circle()
+                                    .fill(Port42Theme.bgSecondary)
+                                    .frame(width: 18, height: 18)
+                                Text("+\(members.count - 6)")
+                                    .font(Port42Theme.mono(7))
+                                    .foregroundStyle(Port42Theme.textSecondary)
+                            }
+                        }
+                    }
+                    .onTapGesture { showMembers.toggle() }
+                    .popover(isPresented: $showMembers, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("members")
+                                .font(Port42Theme.monoBold(11))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                            ForEach(members) { member in
+                                HStack(spacing: 8) {
+                                    MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
+                                    Text(member.displayName(localOwner: appState.currentUser?.displayName))
+                                        .font(Port42Theme.mono(12))
+                                        .foregroundStyle(Port42Theme.textPrimary)
+                                }
+                            }
+                        }
+                        .padding(12)
+                    }
                 }
             }
-            .help(appState.tunnel.publicURL ?? appState.sync.gatewayURL ?? "no gateway")
-            .padding(.leading, 68) // space for traffic light buttons
 
             Spacer()
 
-            // Right: user info + controls
             if let user = appState.currentUser {
                 HStack(spacing: 10) {
                     HStack(spacing: 5) {
@@ -228,96 +327,6 @@ struct WindowTitleBar: View {
                     .help("Settings")
                 }
             }
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 38)
-        .background(Port42Theme.bgSidebar)
-    }
-}
-
-// MARK: - Channel Header Bar (above chat content)
-
-struct ChannelHeaderBar: View {
-    @EnvironmentObject var appState: AppState
-    @State private var showMembers = false
-
-    private var members: [ChannelMember] {
-        guard let id = appState.currentChannel?.id else { return [] }
-        var result = (try? appState.db.getChannelMembers(channelId: id)) ?? []
-        if let user = appState.currentUser,
-           !result.contains(where: { $0.senderId == user.id }) {
-            result.insert(ChannelMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
-        }
-        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
-        for agent in channelAgents {
-            if !result.contains(where: { $0.senderId == agent.id }) {
-                result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
-            }
-        }
-        let onlineIds = appState.sync.onlineUsers[id] ?? []
-        for userId in onlineIds {
-            if result.contains(where: { $0.senderId == userId }) { continue }
-            if userId == appState.currentUser?.id { continue }
-            if let name = appState.sync.knownNames[userId] {
-                result.append(ChannelMember(senderId: userId, name: name, type: "agent", owner: nil))
-            }
-        }
-        return result
-    }
-
-    private var onlineIds: Set<String> {
-        guard let id = appState.currentChannel?.id else { return [] }
-        var ids = appState.sync.onlineUsers[id] ?? []
-        if let userId = appState.currentUser?.id { ids.insert(userId) }
-        for companion in appState.companions { ids.insert(companion.id) }
-        return ids
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text("#")
-                .font(Port42Theme.mono(14))
-                .foregroundStyle(Port42Theme.textSecondary)
-            Text(appState.currentChannel?.name ?? "")
-                .font(Port42Theme.monoBold(14))
-                .foregroundStyle(Port42Theme.textPrimary)
-
-            if !members.isEmpty {
-                HStack(spacing: -4) {
-                    ForEach(Array(members.prefix(6))) { member in
-                        MemberAvatar(member: member, size: 18, isOnline: onlineIds.contains(member.senderId))
-                    }
-                    if members.count > 6 {
-                        ZStack {
-                            Circle()
-                                .fill(Port42Theme.bgSecondary)
-                                .frame(width: 18, height: 18)
-                            Text("+\(members.count - 6)")
-                                .font(Port42Theme.mono(7))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                        }
-                    }
-                }
-                .onTapGesture { showMembers.toggle() }
-                .popover(isPresented: $showMembers, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("members")
-                            .font(Port42Theme.monoBold(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        ForEach(members) { member in
-                            HStack(spacing: 8) {
-                                MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
-                                Text(member.displayName(localOwner: appState.currentUser?.displayName))
-                                    .font(Port42Theme.mono(12))
-                                    .foregroundStyle(Port42Theme.textPrimary)
-                            }
-                        }
-                    }
-                    .padding(12)
-                }
-            }
-
-            Spacer()
         }
         .padding(.horizontal, 20)
         .frame(height: 38)

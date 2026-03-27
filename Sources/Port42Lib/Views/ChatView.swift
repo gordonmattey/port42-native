@@ -9,11 +9,6 @@ public struct ChatView: View {
     public var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Channel name + members
-                ChannelHeaderBar()
-
-                Divider().background(Port42Theme.border)
-
                 // Shared conversation content
                 ConversationContent(
                     entries: channelEntries,

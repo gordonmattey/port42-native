@@ -84,6 +84,7 @@ public struct SidebarView: View {
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
             }
             .padding(.horizontal, 16)
