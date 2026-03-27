@@ -7,7 +7,7 @@ import WebKit
 /// Handles request/response matching via callId, and pushes live events to JS.
 public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObject {
 
-    private weak var webView: WKWebView?
+    private(set) weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
     public let channelId: String?
     public let messageId: String?

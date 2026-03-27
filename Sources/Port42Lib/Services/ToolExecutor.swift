@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import WebKit
 
 /// Executes tool calls from LLM companions against port42 bridge APIs.
 /// One instance per conversation (channel or swim channel).
@@ -42,6 +43,29 @@ public final class ToolExecutor {
         if let by = createdBy, let cid = channelId {
             self.grantedPermissions = appState.companionPermissions(createdBy: by, channelId: cid)
         }
+    }
+
+    /// Resolve a port's WKWebView by ID — checks floating/docked ports first, then inline ports.
+    private func resolvePortWebView(id: String) -> WKWebView? {
+        if let wv = appState?.portWindows.webViews[id] { return wv }
+        if let bridge = appState?.findInlineBridge(by: id) { return bridge.webView }
+        return nil
+    }
+
+    /// Resolve an inline port's HTML from message content.
+    private func resolveInlinePortHtml(id: String) -> String? {
+        guard let appState = appState,
+              let bridge = appState.findInlineBridge(by: id),
+              let mid = bridge.messageId,
+              let msg = appState.messages.first(where: { $0.id == mid }),
+              let html = extractPortHtml(from: msg.content) else { return nil }
+        return html
+    }
+
+    private func extractPortHtml(from content: String) -> String? {
+        guard let start = content.range(of: "```port\n"),
+              let end = content.range(of: "\n```", range: start.upperBound..<content.endIndex) else { return nil }
+        return String(content[start.upperBound..<end.lowerBound])
     }
 
     /// Execute a tool and return the result as content blocks for the Anthropic API.
@@ -371,6 +395,21 @@ public final class ToolExecutor {
                   let action = input["action"] as? String else {
                 return [textBlock("Error: missing 'id' or 'action' parameter")]
             }
+            // Check inline port — support "undock" to pop out
+            if appState.portWindows.findPort(by: id) == nil {
+                if let bridge = appState.findInlineBridge(by: id), action == "undock" || action == "restore" {
+                    if let mid = bridge.messageId,
+                       let msg = appState.messages.first(where: { $0.id == mid }),
+                       let html = extractPortHtml(from: msg.content) {
+                        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+                        let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+                        appState.portWindows.popOut(html: html, bridge: bridge, channelId: bridge.channelId, createdBy: bridge.createdBy, messageId: mid, in: bounds)
+                        return [textBlock("Popped out inline port '\(id)'")]
+                    }
+                }
+                return [textBlock("Error: no port found for '\(id)'"
+                    + (appState.findInlineBridge(by: id) != nil ? " (inline port — only 'undock' is supported)" : ""))]
+            }
             guard let panel = appState.portWindows.findPort(by: id) else {
                 return [textBlock("Error: no port found for '\(id)'")]
             }
@@ -404,6 +443,13 @@ public final class ToolExecutor {
                 Analytics.shared.portUpdated()
                 return [textBlock("Port updated")]
             }
+            // Fallback: inline port — reload webView with new HTML
+            if let webView = appState.findInlineBridge(by: id)?.webView {
+                let wrapped = PortWebViewFactory.wrapHTML(html)
+                webView.loadHTMLString(wrapped, baseURL: URL(string: "http://port42.local/"))
+                Analytics.shared.portUpdated()
+                return [textBlock("Port updated (inline)")]
+            }
             let available = appState.portWindows.allPorts().map(\.title).joined(separator: ", ")
             let hint = available.isEmpty ? "No active ports." : "Available: \(available)"
             return [textBlock("Error: no port found for '\(id)'. \(hint)")]
@@ -421,6 +467,10 @@ public final class ToolExecutor {
             if let html = try? appState.db.fetchPortHtml(udid: id) {
                 return [textBlock(html)]
             }
+            // Fallback: inline port — extract HTML from message content
+            if let html = resolveInlinePortHtml(id: id) {
+                return [textBlock(html)]
+            }
             return [textBlock("Error: no port found for id '\(id)'")]
 
         case "port_restore":
@@ -436,6 +486,13 @@ public final class ToolExecutor {
                 Analytics.shared.portUpdated()
                 return [textBlock("Restored port '\(id)' to version \(version)")]
             }
+            // Fallback: inline port
+            if let webView = appState.findInlineBridge(by: id)?.webView {
+                let wrapped = PortWebViewFactory.wrapHTML(html)
+                webView.loadHTMLString(wrapped, baseURL: URL(string: "http://port42.local/"))
+                Analytics.shared.portUpdated()
+                return [textBlock("Restored port '\(id)' to version \(version) (inline)")]
+            }
             return [textBlock("Error: port '\(id)' not found or not active")]
 
         case "port_patch":
@@ -444,7 +501,13 @@ public final class ToolExecutor {
                   let replace = input["replace"] as? String else {
                 return [textBlock("Error: port_patch requires 'id', 'search', and 'replace' parameters")]
             }
-            guard let currentHtml = try? appState.db.fetchPortHtml(udid: id) else {
+            // Try floating/docked first, then inline
+            let currentHtml: String
+            if let html = try? appState.db.fetchPortHtml(udid: id) {
+                currentHtml = html
+            } else if let html = resolveInlinePortHtml(id: id) {
+                currentHtml = html
+            } else {
                 return [textBlock("Error: no port found for id '\(id)'")]
             }
             guard currentHtml.contains(search) else {
@@ -456,6 +519,13 @@ public final class ToolExecutor {
                 Analytics.shared.portUpdated()
                 return [textBlock("Patch applied to port '\(id)'")]
             }
+            // Fallback: inline port
+            if let webView = appState.findInlineBridge(by: id)?.webView {
+                let wrapped = PortWebViewFactory.wrapHTML(patched)
+                webView.loadHTMLString(wrapped, baseURL: URL(string: "http://port42.local/"))
+                Analytics.shared.portUpdated()
+                return [textBlock("Patch applied to port '\(id)' (inline)")]
+            }
             return [textBlock("Error: port '\(id)' not found or not active")]
 
         case "port_push":
@@ -463,7 +533,7 @@ public final class ToolExecutor {
                 return [textBlock("Error: port_push requires 'id' parameter")]
             }
             let data = input["data"] ?? NSNull()
-            guard let webView = appState.portWindows.webViews[id] else {
+            guard let webView = resolvePortWebView(id: id) else {
                 return [textBlock("Error: port '\(id)' not found or not active")]
             }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
@@ -480,7 +550,7 @@ public final class ToolExecutor {
                   let js = input["js"] as? String else {
                 return [textBlock("Error: port_exec requires 'id' and 'js' parameters")]
             }
-            guard let webView = appState.portWindows.webViews[id] else {
+            guard let webView = resolvePortWebView(id: id) else {
                 return [textBlock("Error: port '\(id)' not found or not active")]
             }
             do {
