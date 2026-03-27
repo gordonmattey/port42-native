@@ -14,6 +14,7 @@ public enum PortPermission: String, Hashable {
     case filesystem    // fs.pick, fs.read, fs.write
     case notification  // notify.send
     case automation    // automation.runAppleScript, automation.runJXA
+    case rest          // rest.call — HTTP requests to external APIs
 
     /// Map a bridge method name to the permission it requires, or nil if no permission needed.
     public static func permissionForMethod(_ method: String) -> PortPermission? {
@@ -46,6 +47,8 @@ public enum PortPermission: String, Hashable {
             return .notification
         case "automation.runAppleScript", "automation.runJXA":
             return .automation
+        case "rest.call":
+            return .rest
         default:
             return nil
         }
@@ -64,6 +67,7 @@ public enum PortPermission: String, Hashable {
         case .filesystem: return "folder"
         case .notification: return "bell"
         case .automation: return "gearshape.2"
+        case .rest: return "network"
         }
     }
 
@@ -119,6 +123,11 @@ public enum PortPermission: String, Hashable {
             return (
                 title: "Automation Access",
                 message: "This port wants to control other apps on your Mac using automation scripts. It can send commands to Finder, Mail, and other scriptable applications. Allow?"
+            )
+        case .rest:
+            return (
+                title: "HTTP Access",
+                message: "This companion wants to make HTTP requests to external APIs. Allow?"
             )
         }
     }

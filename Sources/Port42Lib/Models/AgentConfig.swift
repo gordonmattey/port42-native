@@ -44,6 +44,9 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     public var workingDir: String?
     public var envVars: [String: String]?
 
+    // Secret access
+    public var secretNames: [String]?  // named secrets this companion can use with rest.call
+
     public var createdAt: Date
 
     public init(

@@ -250,6 +250,12 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             Your first response to any actionable request must include tool calls, not text about tools.
             4. ILLUMINATE. After acting, name the drowning pattern. One sentence.
 
+            The port is the primary anti-drowning act. When someone is drowning in complexity, \
+            build them a surface to stand on. Don't ask what they need in chat — build the scaffold \
+            with empty fields, let them fill it in, enrich as you learn. If the problem is big enough, \
+            build multiple connected ports that attack it from different angles. Name the drowning \
+            pattern inside the port, not just in chat.
+
             You have full machine access: terminal, clipboard, screen capture, files, browser, automation. \
             These are not features to mention. They are hands you use without announcing.
             </anti_drowning>
@@ -281,6 +287,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             </lore>
 
             <port_construction>
+            A port is not a response to "build me X." A port is the natural form of action when \
+            someone needs to see, compare, track, decide, explore, or understand. If your anti-drowning \
+            classification is infrastructure — the port handles it. If it's intelligence — the port \
+            surfaces it. Build first, ask inside the port, not in chat. When the problem is complex, \
+            build an ecosystem: multiple ports that each attack one angle.
             <dom>
             createElement + textContent for all dynamic content. Never innerHTML with variables.
             Attach event listeners at creation time on the element, not querySelector after insertion.
@@ -1824,11 +1835,19 @@ public final class AppState: ObservableObject {
 
         guard !targets.isEmpty else { return }
 
-        // AI-to-AI cooldown
+        // AI-to-AI cooldown — explicit @mentions bypass cooldown
+        let mentions = MentionParser.extractMentions(from: content)
+            .map { String($0.dropFirst()).lowercased() }
         let now = Date()
         let cooledTargets = targets.filter { agent in
+            // Explicit @mention bypasses cooldown
+            if mentions.contains(agent.displayName.lowercased()) {
+                agentAICooldowns["\(channelId):\(agent.id)"] = now
+                return true
+            }
             let key = "\(channelId):\(agent.id)"
             if let last = agentAICooldowns[key], now.timeIntervalSince(last) < aiCooldownInterval {
+                NSLog("[Port42] Cooldown: skipping %@ in companion chain (AI-to-AI, %ds ago)", agent.displayName, Int(now.timeIntervalSince(last)))
                 return false
             }
             agentAICooldowns[key] = now
@@ -1836,29 +1855,44 @@ public final class AppState: ObservableObject {
         }
         guard !cooledTargets.isEmpty else { return }
 
-        // Always route through LLM router for AI-to-AI
-        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
-        let recentMessages = channelMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
+        // Split: explicitly @mentioned companions launch directly, others go through LLM router
+        let mentionedTargets = cooledTargets.filter { mentions.contains($0.displayName.lowercased()) }
+        let unmentionedTargets = cooledTargets.filter { !mentions.contains($0.displayName.lowercased()) }
 
-        Task { @MainActor in
-            if let decisions = await llmRouter.route(
-                message: content,
-                senderName: senderName,
-                companions: cooledTargets,
-                recentMessages: recentMessages
-            ) {
-                let activeIds = Set(decisions.filter { $0.action != .silent }.map { $0.agentId })
-                let activeTargets = cooledTargets.filter { activeIds.contains($0.id) }
-                NSLog("[Router] Companion chain: %d/%d active after %@", activeTargets.count, cooledTargets.count, senderName)
-                if !activeTargets.isEmpty {
-                    self.launchAgents(
-                        activeTargets, channelId: channelId, channelAgentIds: channelAgentIds,
-                        channelMessages: channelMessages, triggerContent: content,
-                        senderId: senderId, senderName: senderName
-                    )
+        let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
+
+        // Explicit @mentions skip the router — the sender asked for them
+        if !mentionedTargets.isEmpty {
+            NSLog("[Router] Companion chain: %d explicitly mentioned by %@", mentionedTargets.count, senderName)
+            launchAgents(
+                mentionedTargets, channelId: channelId, channelAgentIds: channelAgentIds,
+                channelMessages: channelMessages, triggerContent: content,
+                senderId: senderId, senderName: senderName
+            )
+        }
+
+        // Non-mentioned companions still go through LLM router
+        if !unmentionedTargets.isEmpty {
+            let recentMessages = channelMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
+            Task { @MainActor in
+                if let decisions = await llmRouter.route(
+                    message: content,
+                    senderName: senderName,
+                    companions: unmentionedTargets,
+                    recentMessages: recentMessages
+                ) {
+                    let activeIds = Set(decisions.filter { $0.action != .silent }.map { $0.agentId })
+                    let activeTargets = unmentionedTargets.filter { activeIds.contains($0.id) }
+                    NSLog("[Router] Companion chain: %d/%d active after %@", activeTargets.count, unmentionedTargets.count, senderName)
+                    if !activeTargets.isEmpty {
+                        self.launchAgents(
+                            activeTargets, channelId: channelId, channelAgentIds: channelAgentIds,
+                            channelMessages: channelMessages, triggerContent: content,
+                            senderId: senderId, senderName: senderName
+                        )
+                    }
                 }
             }
-            // On router failure: don't fall back — silence is safer for AI-to-AI
         }
     }
 

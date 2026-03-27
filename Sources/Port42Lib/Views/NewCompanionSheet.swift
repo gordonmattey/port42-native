@@ -10,6 +10,8 @@ struct CompanionPreset: Identifiable {
     let prompt: String
     let color: Color
 
+    var secret: String?   // named secret to auto-assign
+
     static let presets: [CompanionPreset] = [
         CompanionPreset(
             name: "muse",
@@ -120,6 +122,61 @@ struct CompanionPreset: Identifiable {
             color: .teal
         ),
     ]
+
+    static let providers: [CompanionPreset] = [
+        CompanionPreset(
+            name: "stripe",
+            label: "payments",
+            personality: "Stripe API",
+            prompt: """
+                You are the Stripe companion. Use rest_call with secret "stripe" to call the Stripe API.
+                API: https://api.stripe.com/v1
+                Docs: https://docs.stripe.com/llms.txt
+                Show data in ports. Never dump raw JSON.
+                """,
+            color: .purple,
+            secret: "stripe"
+        ),
+        CompanionPreset(
+            name: "github",
+            label: "repos",
+            personality: "GitHub API",
+            prompt: """
+                You are the GitHub companion. Use rest_call with secret "github" to call the GitHub API.
+                API: https://api.github.com
+                Docs: https://docs.github.com/llms.txt
+                Show data in ports. Never dump raw JSON.
+                """,
+            color: .gray,
+            secret: "github"
+        ),
+        CompanionPreset(
+            name: "cloudflare",
+            label: "infra",
+            personality: "Cloudflare API",
+            prompt: """
+                You are the Cloudflare companion. Use rest_call with secret "cloudflare" to call the Cloudflare API.
+                API: https://api.cloudflare.com/client/v4
+                Docs: https://developers.cloudflare.com/llms.txt
+                Show data in ports. Never dump raw JSON.
+                """,
+            color: .orange,
+            secret: "cloudflare"
+        ),
+        CompanionPreset(
+            name: "vercel",
+            label: "deploys",
+            personality: "Vercel API",
+            prompt: """
+                You are the Vercel companion. Use rest_call with secret "vercel" to call the Vercel API.
+                API: https://api.vercel.com
+                Docs: https://vercel.com/llms.txt
+                Show data in ports. Never dump raw JSON.
+                """,
+            color: .white,
+            secret: "vercel"
+        ),
+    ]
 }
 
 // MARK: - Companion Pods
@@ -173,7 +230,15 @@ public struct NewCompanionSheet: View {
     @State private var thinkingEnabled = false
     @State private var thinkingEffort = "low"
     @State private var showPodConfirm: CompanionPod?
+    @State private var selectedSecrets: Set<String> = []
+    @State private var templateCategory: TemplateCategory = .port42
+    @State private var newSecretName = ""
+    @State private var newSecretValue = ""
+    @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
+    @State private var showAddSecret = false
     @FocusState private var isFocused: Bool
+
+    enum TemplateCategory { case port42, saas, custom }
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -249,77 +314,37 @@ public struct NewCompanionSheet: View {
             Divider()
                 .background(Port42Theme.border)
 
-            // Preset picker
+            // Template picker — category tabs + list
             VStack(alignment: .leading, spacing: 8) {
-                Text("Start from a template")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-
-                HStack(spacing: 8) {
-                    ForEach(CompanionPreset.presets) { preset in
-                        Button(action: { selectPreset(preset) }) {
-                            VStack(spacing: 4) {
-                                Circle()
-                                    .fill(preset.color)
-                                    .frame(width: 10, height: 10)
-                                Text(preset.label)
-                                    .font(Port42Theme.mono(10))
-                                    .foregroundStyle(
-                                        selectedPreset == preset.id
-                                            ? Port42Theme.textPrimary
-                                            : Port42Theme.textSecondary
-                                    )
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
-                            .background(
-                                selectedPreset == preset.id
-                                    ? Port42Theme.bgHover
-                                    : Color.clear
-                            )
-                            .cornerRadius(6)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(
-                                        selectedPreset == preset.id
-                                            ? preset.color.opacity(0.6)
-                                            : Port42Theme.border,
-                                        lineWidth: 1
-                                    )
-                            )
+                HStack(spacing: 0) {
+                    ForEach([(TemplateCategory.port42, "Port42"), (.saas, "SaaS"), (.custom, "Custom API")], id: \.1) { cat, label in
+                        Button(action: {
+                            templateCategory = cat
+                            if cat == .custom { clearPreset() }
+                        }) {
+                            Text(label)
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(templateCategory == cat ? Port42Theme.accent : Port42Theme.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(templateCategory == cat ? Port42Theme.accent.opacity(0.1) : Color.clear)
                         }
                         .buttonStyle(.plain)
                     }
+                    Spacer()
+                }
+                .background(Port42Theme.bgHover.opacity(0.3))
+                .cornerRadius(6)
 
-                    Button(action: clearPreset) {
-                        VStack(spacing: 4) {
-                            Circle()
-                                .strokeBorder(Port42Theme.textSecondary, lineWidth: 1)
-                                .frame(width: 10, height: 10)
-                            Text("yours")
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(
-                                    selectedPreset == nil
-                                        ? Port42Theme.textPrimary
-                                        : Port42Theme.textSecondary
-                                )
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .background(
-                            selectedPreset == nil
-                                ? Port42Theme.bgHover
-                                : Color.clear
-                        )
-                        .cornerRadius(6)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Port42Theme.border, lineWidth: 1)
-                        )
+                // Template list for selected category
+                if templateCategory == .port42 {
+                    ForEach(CompanionPreset.presets) { preset in
+                        templateRow(preset, action: { selectPreset(preset) })
                     }
-                    .buttonStyle(.plain)
+                } else if templateCategory == .saas {
+                    ForEach(CompanionPreset.providers) { preset in
+                        templateRow(preset, action: { selectProvider(preset) })
+                    }
                 }
             }
 
@@ -421,6 +446,98 @@ public struct NewCompanionSheet: View {
             }
             } // end if selectedProvider == .anthropic
 
+            // Secrets
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Secrets")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                    Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showAddSecret.toggle() } }) {
+                        Image(systemName: showAddSecret ? "minus" : "plus")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                let availableSecrets = Port42AuthStore.shared.listSecrets()
+                if !availableSecrets.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(availableSecrets) { secret in
+                            Button(action: {
+                                if selectedSecrets.contains(secret.name) {
+                                    selectedSecrets.remove(secret.name)
+                                } else {
+                                    selectedSecrets.insert(secret.name)
+                                }
+                            }) {
+                                Text(secret.name)
+                                    .font(Port42Theme.mono(11))
+                                    .foregroundStyle(selectedSecrets.contains(secret.name) ? Port42Theme.accent : Port42Theme.textSecondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(
+                                        selectedSecrets.contains(secret.name)
+                                            ? Port42Theme.accent.opacity(0.15)
+                                            : Port42Theme.bgSecondary.opacity(0.5)
+                                    )
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer()
+                    }
+                }
+
+                if showAddSecret {
+                    VStack(spacing: 6) {
+                        HStack(spacing: 6) {
+                            TextField("name", text: $newSecretName)
+                                .textFieldStyle(.plain)
+                                .font(Port42Theme.mono(12))
+                                .foregroundStyle(Port42Theme.textPrimary)
+                                .padding(6)
+                                .background(Port42Theme.bgInput)
+                                .cornerRadius(4)
+
+                            Picker("", selection: $newSecretType) {
+                                Text("Bearer").tag(Port42AuthStore.SecretType.bearerToken)
+                                Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
+                                Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
+                                Text("Header").tag(Port42AuthStore.SecretType.header)
+                            }
+                            .labelsHidden()
+                            .frame(width: 90)
+                        }
+
+                        HStack(spacing: 6) {
+                            SecureField("value", text: $newSecretValue)
+                                .textFieldStyle(.plain)
+                                .font(Port42Theme.mono(12))
+                                .foregroundStyle(Port42Theme.textPrimary)
+                                .padding(6)
+                                .background(Port42Theme.bgInput)
+                                .cornerRadius(4)
+
+                            Button(action: addSecret) {
+                                Text("Add")
+                                    .font(Port42Theme.mono(11))
+                                    .foregroundStyle(Port42Theme.bgPrimary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        canAddSecret ? Port42Theme.accent : Port42Theme.accent.opacity(0.3)
+                                    )
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canAddSecret)
+                        }
+                    }
+                }
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     isPresented = false
@@ -472,11 +589,91 @@ public struct NewCompanionSheet: View {
         systemPrompt = preset.prompt
     }
 
+    @ViewBuilder
+    private func templateRow(_ preset: CompanionPreset, action: @escaping () -> Void) -> some View {
+        let isSelected = selectedPreset == preset.id
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(preset.color)
+                    .frame(width: 8, height: 8)
+                Text(preset.name)
+                    .font(Port42Theme.monoBold(12))
+                    .foregroundStyle(isSelected ? Port42Theme.textPrimary : Port42Theme.textSecondary)
+                Text(preset.personality)
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                    .lineLimit(1)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isSelected ? Port42Theme.bgHover : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var canAddSecret: Bool {
+        !newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func addSecret() {
+        let name = newSecretName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !value.isEmpty else { return }
+        Port42AuthStore.shared.saveSecret(name: name, type: newSecretType, value: value)
+        selectedSecrets.insert(name)
+        newSecretName = ""
+        newSecretValue = ""
+        showAddSecret = false
+    }
+
+    private func selectProvider(_ preset: CompanionPreset) {
+        selectedPreset = preset.id
+        name = ""
+        namePlaceholder = preset.name
+        systemPrompt = preset.prompt
+        templateCategory = .saas
+        // Auto-select the matching secret if it exists, otherwise prompt to add
+        if let secretName = preset.secret {
+            let available = Port42AuthStore.shared.secretNames()
+            if available.contains(secretName) {
+                selectedSecrets = [secretName]
+                showAddSecret = false
+            } else {
+                newSecretName = secretName
+                newSecretValue = ""
+                showAddSecret = true
+                selectedSecrets = []
+            }
+        }
+    }
+
     private func clearPreset() {
         selectedPreset = nil
         name = ""
         namePlaceholder = "companion name"
-        systemPrompt = ""
+        systemPrompt = """
+            You are {{NAME}}, a companion in Port42.
+
+            API: [base URL]
+            Auth: use secret "[secret name]" with rest_call
+            Docs: [llms.txt URL]
+
+            Show data in ports. Never dump raw JSON.
+            """
+        selectedSecrets = []
+        newSecretName = ""
+        newSecretValue = ""
+        showAddSecret = true
     }
 
     private func createPod(_ pod: CompanionPod) {
@@ -522,6 +719,7 @@ public struct NewCompanionSheet: View {
             : providerBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         companion.thinkingEnabled = thinkingEnabled
         companion.thinkingEffort = thinkingEffort
+        companion.secretNames = selectedSecrets.isEmpty ? nil : Array(selectedSecrets).sorted()
         appState.addCompanion(companion)
         isPresented = false
     }

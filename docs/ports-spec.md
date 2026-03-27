@@ -288,6 +288,50 @@ Port42's own UI (sidebar, chat, message renderer) is rebuilt as ports
 
 Target: The ouroboros. The fish swims in itself.
 
+### Flow 11: Starter Ports (First Swim)
+
+```
+First swim begins -->
+Companion builds the "Getting to Know You" port (not a template — generated live) -->
+Port shows dynamic context: user name, companion name, what Port42 is -->
+Interactive fields: what are you working on, what matters, how you think -->
+User fills in what they want (or skips any field) -->
+Responses write to the engrave layer in real time -->
+Port reflects back: "I know you're working on X" — visible memory, not hidden context -->
+Companion explains the memory layers as they activate:
+  fold (how I orient toward you),
+  crease (what surprised me),
+  engrave (what I know about your world) -->
+Port becomes a living reference — user can reopen it, update fields, see what's engraved
+```
+
+The first port the user ever sees is also the one that teaches them everything:
+
+1. **Say it, See it works** — the companion just built a live interactive tool
+2. **Memory is real and visible** — engrave writes are reflected in the port
+3. **You own what's remembered** — skip fields, update later, delete anytime
+4. **Ports are spaces, not widgets** — this one has state, reads/writes data, persists
+
+The Getting to Know You port reads from `creases.read`, `fold.read`, and
+the engrave layer (when shipped) via the bridge API. As the user interacts,
+the companion calls `creases.write` / engrave tools and the port updates live.
+
+This replaces a static welcome message with a working demonstration of the
+entire relationship architecture. The user doesn't learn about memory by
+being told — they learn by watching it happen.
+
+**Starter port categories** (companion generates these as needed, not pre-installed):
+
+| Category | Examples | When Generated |
+|----------|----------|----------------|
+| Utility | Timer, scratchpad, calculator | First swim or on request |
+| Showcase | System monitor, color picker, markdown preview | Offered after Getting to Know You |
+| Relationship | Getting to Know You, memory inspector | First swim |
+
+These are not templates shipped with the app. They are ports the companion
+builds for you. Every user's starter ports are slightly different because
+the companion tailors them to what it learns during the first swim.
+
 ---
 
 ## Feature Registry

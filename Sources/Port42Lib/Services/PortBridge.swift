@@ -649,6 +649,42 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let applied = state.portWindows.updatePort(idOrTitle: id, html: patched)
             return ["ok": applied]
 
+        // port42.port.push(id, data) — push data to a port via CustomEvent
+        case "port.push":
+            guard let id = args.first as? String,
+                  args.count > 1 else {
+                return ["error": "port.push requires id and data"]
+            }
+            let data = args[1]
+            guard let webView = state.portWindows.webViews[id] else {
+                return ["error": "port '\(id)' not found or not active"]
+            }
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                return ["error": "could not serialize data"]
+            }
+            _ = try? await webView.evaluateJavaScript(
+                "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
+            )
+            return ["ok": true]
+
+        // port42.port.exec(id, js) — execute JS on a live port
+        case "port.exec":
+            guard let id = args.first as? String,
+                  let js = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "port.exec requires id and js"]
+            }
+            guard let webView = state.portWindows.webViews[id] else {
+                return ["error": "port '\(id)' not found or not active"]
+            }
+            do {
+                let result = try await webView.evaluateJavaScript(js)
+                if result is NSNull || result == nil { return ["ok": true] }
+                return ["result": result!]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
         // port42.port.history(id) — version history for a port
         case "port.history":
             guard let id = args.first as? String else {
@@ -1069,6 +1105,64 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if automationBridge == nil { automationBridge = AutomationBridge() }
             let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
             return await automationBridge!.runJXA(source: source, opts: opts)
+
+        // MARK: - REST (HTTP requests with secret injection)
+
+        // port42.rest.call(url, opts?)
+        case "rest.call":
+            guard let url = args.first as? String,
+                  let parsed = URL(string: url) else {
+                return ["error": "rest.call requires a valid URL"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            let method = (opts["method"] as? String ?? "GET").uppercased()
+            let timeoutMs = min(opts["timeout"] as? Int ?? 30000, 120000)
+
+            var request = URLRequest(url: parsed)
+            request.httpMethod = method
+            request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
+
+            if let headers = opts["headers"] as? [String: String] {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+            if let body = opts["body"] as? String {
+                request.httpBody = body.data(using: .utf8)
+                if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+            } else if let bodyObj = opts["body"] as? [String: Any],
+                      let jsonData = try? JSONSerialization.data(withJSONObject: bodyObj) {
+                request.httpBody = jsonData
+                if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+            }
+
+            // Secret injection
+            if let secretName = opts["secret"] as? String {
+                if let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) {
+                    request.setValue(headerValue, forHTTPHeaderField: headerName)
+                } else {
+                    return ["error": "secret '\(secretName)' not found"]
+                }
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let httpResponse = response as? HTTPURLResponse
+                var result: [String: Any] = ["status": httpResponse?.statusCode ?? 0]
+                let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
+                if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
+                    result["body"] = json
+                } else if let text = String(data: data, encoding: .utf8) {
+                    result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
+                }
+                return result
+            } catch {
+                return ["error": error.localizedDescription]
+            }
 
         // MARK: - Relationship state (swim-scoped read-only)
 
@@ -1576,6 +1670,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             port: {
                 info: () => call('port.info'),
                 close: () => call('port.close'),
+                setTitle: (title) => call('port.setTitle', [title]).then(r => r && r.ok),
+                setCapabilities: (caps) => call('port.setCapabilities', [caps]).then(r => r && r.ok),
+                rename: (id, title) => call('port.rename', [id, title]).then(r => r && r.ok),
                 resize: (w, h) => {
                     document.body.style.width = w + 'px';
                     document.body.style.height = h + 'px';
@@ -1584,6 +1681,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 update: (id, html) => call('port.update', [id, html]).then(r => r && r.ok),
                 getHtml: (id, version) => call('port.getHtml', version != null ? [id, version] : [id]).then(r => r ? r.html : null),
                 patch: (id, search, replace) => call('port.patch', [id, search, replace]).then(r => r && r.ok),
+                push: (id, data) => call('port.push', [id, data]).then(r => r && r.ok),
+                exec: (id, js) => call('port.exec', [id, js]).then(r => r ? r.result : null),
                 history: (id) => call('port.history', [id]),
                 manage: (id, action) => call('port.manage', [id, action]),
                 restore: (id, version) => call('port.restore', [id, version]).then(r => r && r.ok),
@@ -1685,6 +1784,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             automation: {
                 runAppleScript: (source, opts) => call('automation.runAppleScript', [source, opts || {}]),
                 runJXA: (source, opts) => call('automation.runJXA', [source, opts || {}])
+            },
+            rest: {
+                call: (url, opts) => call('rest.call', [url, opts || {}])
             },
             viewport: {
                 width: window.innerWidth || 600,

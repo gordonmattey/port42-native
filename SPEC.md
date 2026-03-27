@@ -65,12 +65,28 @@ Target: Under 30 seconds from open to first message.
 ```
 Boot sequence completes -->
 Echo (default companion) greets you in a swim session -->
-Echo shows you a port (your first live interactive surface) -->
-Echo introduces what companions can do -->
+Echo builds the "Getting to Know You" port (first live interactive surface) -->
+Port displays dynamic info: user name, companion name, what this space is -->
+Port has interactive fields: what are you working on, what matters to you, how do you think -->
+User fills in what they want (or skips) — responses feed the engrave layer -->
+Echo explains: "I'll remember what you tell me — that's what engrave does" -->
+Port shows the memory layers: fold (how I orient), crease (what surprised me), engrave (what I know about you) -->
 User is offered the builder swarm: engineer, muse, analyst, sage, etc. -->
 User picks which companions to add (or skips) -->
 Selected companions appear in sidebar, ready to help build your Port42 experience
 ```
+
+The Getting to Know You port isn't a form — it's a live surface the companion
+builds during the first swim. It demonstrates three things at once:
+
+1. **Say it, See it** — the companion just built you an interactive tool
+2. **Memory is real** — what you type goes into the engrave layer, not a void
+3. **You control what's remembered** — skip fields, fill them later, or never
+
+The port reads from and writes to the companion's relationship layers in real
+time. As the user fills in fields, the companion engraves that knowledge and
+the port reflects it back: "I know you're working on X" becomes visible state,
+not hidden context.
 
 The template companions exist to help you build Port42 into what you need.
 They're not generic assistants. They're the construction crew for your
@@ -274,16 +290,117 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-603 | Bridge Status | Show bridge connection status in sidebar. Online/offline indicator. Reconnect on disconnect. | Bridge status visible, auto-reconnects | M5 |
 | F-604 | Bridge Message Sync | Messages from bridged platforms appear in Port42 chat view alongside local messages. Unified conversation history. | Discord messages visible in Port42 with platform badge | M5 |
 
-### Integrations (OAuth Connections)
+### The Evaporating Integration Layer
 
-| ID | Feature | Description | Done When | Milestone | Status |
-|----|---------|-------------|-----------|-----------|--------|
-| F-650 | Connection Manager | Settings > Integrations. Global OAuth flow for external services (Google, GitHub, Notion, Linear, etc.). Tokens stored in macOS Keychain per service. One connection shared by all companions. | User can connect Google account from settings, token persists across restarts | M5 | |
-| F-651 | Google Integration | OAuth2 PKCE flow for Google. Scopes: Calendar (read/write), Drive (read), Gmail (read). Opens system browser for consent, receives callback via custom URL scheme (port42://oauth/google). Refresh token stored in Keychain. | Companion can read calendar events, search Drive, check email | M5 | |
-| F-652 | GitHub Integration | OAuth2 flow for GitHub. Scopes: repo, issues, pull requests. Device flow or browser redirect. | Companion can list issues, read PRs, check CI status | M5 | |
-| F-653 | Integration Bridge Tools | Bridge tools exposed to companions: `integrations.list` (connected services), `google.calendar.events`, `google.drive.search`, `github.issues.list`, `github.pr.get`, etc. Same pattern as port42 bridge — available in ports (JS) and conversation (tool use). | Companion calls `google.calendar.events` and gets today's schedule | M5 | |
-| F-654 | Token Lifecycle | Automatic refresh for expiring tokens. Status indicator per integration (connected/expired/revoked). Re-auth prompt when refresh fails. Disconnect clears Keychain entry. | Expired Google token refreshes silently; revoked token shows re-auth prompt | M5 | |
-| F-655 | Integration Permissions | Per-companion opt-in: companion config includes which integrations it can access. Default: none. User grants access explicitly. | Companion without Google permission cannot call Google tools even though user is connected | M5 | |
+The traditional integration model: build an SDK wrapper per provider, maintain it, update it when APIs change. Port42 doesn't do this. The companion already knows every major API from training. It just needs two things: a way to make HTTP calls, and credentials to authenticate.
+
+`rest.call` is the last integration tool you ever build. The companion IS the integration layer. No per-provider code. No SDK wrappers. No translation layers. The integration evaporates — what remains is a companion that speaks HTTP and knows the API.
+
+#### rest.call — Generic HTTP Tool
+
+One tool. Every provider. The companion constructs the calls itself.
+
+```
+rest.call(url, opts?)
+  url: full URL to call
+  opts: {
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'  (default: GET)
+    headers: { key: value }
+    body: string | object  (object is JSON-serialized)
+    secret: string         (key name from secrets store — injected as Authorization header)
+    timeout: number        (ms, default 30000, max 120000)
+  }
+  Returns: {
+    status: number,
+    headers: { key: value },
+    body: string | object  (auto-parsed if content-type is JSON)
+  }
+  Requires: rest permission (prompted on first use per session)
+```
+
+The `secret` parameter is the key insight. The companion never sees the raw API key — it references a named secret ("stripe", "cloudflare") and the runtime injects the auth header. The companion can't leak what it never receives.
+
+Available in conversation (tool use) and in ports (JS):
+```javascript
+// From a port
+const payments = await port42.rest.call('https://api.stripe.com/v1/charges?limit=10', {
+  secret: 'stripe'
+});
+
+// Companion tool call (same shape)
+rest_call({url: 'https://api.stripe.com/v1/charges?limit=10', secret: 'stripe'})
+```
+
+#### Secrets Store
+
+Named credentials stored in macOS Keychain. The companion references them by name — never sees the raw value.
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| F-650 | Secrets Manager | Settings > Secrets. Named key-value pairs stored in macOS Keychain. Each secret has a name ("stripe", "cloudflare", "github"), a type (api-key, bearer-token, basic-auth), and the credential value. User manages via UI. | User can add "stripe" secret with API key, persists across restarts | |
+| F-651 | Secret Injection | When a companion calls `rest.call` with `secret: "stripe"`, the runtime looks up the named secret and injects the appropriate auth header (Bearer, Basic, or custom). The raw credential never enters the LLM context. | `rest.call` with `secret: "stripe"` adds `Authorization: Bearer sk_live_...` without the companion seeing the key | |
+| F-652 | Secret Scoping | Per-companion opt-in: companion config includes which secrets it can access. Default: none. User grants explicitly. @stripe can use the "stripe" secret. @forge cannot unless granted. | Companion without "stripe" permission gets an error when calling `rest.call` with `secret: "stripe"` | |
+| F-653 | OAuth Flow | For providers that require OAuth (Google, GitHub): Settings > Secrets > Connect. Opens system browser for consent, receives callback via `port42://oauth/{provider}`. Stores access + refresh tokens as a named secret. Auto-refreshes on expiry. | User clicks "Connect GitHub", completes OAuth in browser, secret "github" is available to companions | |
+| F-654 | Secret Status | Status indicator per secret: active, expired, revoked. For OAuth secrets: auto-refresh on expiry. For API keys: manual validation via a test endpoint if configured. Re-auth prompt when refresh fails. | Expired GitHub token refreshes silently; revoked token shows re-auth prompt in settings | |
+
+#### Provider Companions
+
+Instead of going to 6 dashboards, 6 agents come to you. A provider companion is just a regular companion with:
+1. A system prompt that knows the provider's API
+2. Access to the provider's named secret
+3. `rest.call` to make the HTTP requests
+4. The same port-building capability every companion has
+
+No special framework. No provider-specific code. No SDK. The companion knows the API from training and constructs the calls. If the API changes, the companion adapts — you don't update an integration.
+
+The key differentiator: no other tool puts your Cloudflare agent, your AWS agent, and your GitHub agent in the same room where they can see each other's answers and a third companion (forge) can synthesize across them.
+
+**Example: @stripe system prompt**
+```
+You are Stripe. You help the user understand their payments, subscriptions, and revenue.
+
+API: https://api.stripe.com/v1
+Auth: use secret "stripe" with rest.call
+Docs: https://docs.stripe.com/api
+
+You know the Stripe API. Use rest.call to fetch data. Build ports to show it —
+charts, tables, dashboards. Never dump raw JSON. If the user asks about MRR,
+pull subscriptions and calculate it. If they ask about failures, pull charges
+with status=failed.
+
+Be terse. Be operational. Show dashboards, not paragraphs.
+```
+
+That's the entire integration. No code. The prompt IS the connector.
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| F-660 | rest.call Tool | Generic HTTP client available to companions and ports. Supports all methods, headers, body, timeout. Secret injection via named reference. Permission-gated. | Companion calls `rest.call('https://api.stripe.com/v1/charges', {secret: 'stripe'})` and gets JSON response | |
+| F-661 | Provider Companion Templates | Pre-built companion configs for common providers: Stripe, Cloudflare, AWS, GitHub, Vercel. Each is a system prompt + secret binding. User creates from template in Settings > Companions > Add > Provider. | User selects "Stripe" template, enters API key, @stripe companion appears in companion list | |
+| F-662 | Cross-Provider Synthesis | Companions in the same channel can see each other's responses and ports. A general companion (forge, echo) can synthesize across providers. | "@forge summarize what @cloudflare and @aws just said" → unified status port combining both | |
+| F-663 | OAuth Secret Flow | One-click OAuth for provider secrets. User clicks "Connect" on a provider template, Port42 opens the provider's OAuth consent page in browser, catches the callback on a local HTTP server, stores the access token as a named secret. Supports token refresh. Provider OAuth configs (client ID, scopes, redirect URI, token endpoint) stored per-template. Falls back to manual API key entry when OAuth isn't available. | User clicks "Connect Stripe", authorizes in browser, @stripe companion is ready with no copy-paste | |
+
+#### Why This Works
+
+The traditional integration stack:
+```
+User → App → SDK → Auth → HTTP → Provider API
+                ↑
+         code you maintain
+         per provider
+         breaks when API changes
+```
+
+Port42:
+```
+User → Companion → rest.call → Provider API
+           ↑
+    knows the API from training
+    adapts when API changes
+    no code to maintain
+```
+
+The integration layer evaporated. What's left is a companion that speaks HTTP.
 
 ### Audio Rooms
 

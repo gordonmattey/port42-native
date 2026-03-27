@@ -444,6 +444,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v29-agent-secrets") { db in
+            try db.alter(table: "agents") { t in
+                t.add(column: "secretNames", .text) // JSON-encoded [String]?, nullable
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

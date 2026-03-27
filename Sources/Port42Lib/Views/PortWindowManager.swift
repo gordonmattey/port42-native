@@ -692,7 +692,7 @@ enum PortWebViewFactory {
                 font-size: 13px;
                 line-height: 1.5;
                 padding: 12px;
-                overflow: hidden;
+                overflow: auto;
             }
             a { color: #00ff41; }
             button, input, select, textarea {

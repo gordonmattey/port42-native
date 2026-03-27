@@ -458,6 +458,47 @@ public final class ToolExecutor {
             }
             return [textBlock("Error: port '\(id)' not found or not active")]
 
+        case "port_push":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: port_push requires 'id' parameter")]
+            }
+            let data = input["data"] ?? NSNull()
+            guard let webView = appState.portWindows.webViews[id] else {
+                return [textBlock("Error: port '\(id)' not found or not active")]
+            }
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                return [textBlock("Error: could not serialize data to JSON")]
+            }
+            _ = try? await webView.evaluateJavaScript(
+                "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
+            )
+            return [textBlock("Data pushed to port '\(id)'")]
+
+        case "port_exec":
+            guard let id = input["id"] as? String,
+                  let js = input["js"] as? String else {
+                return [textBlock("Error: port_exec requires 'id' and 'js' parameters")]
+            }
+            guard let webView = appState.portWindows.webViews[id] else {
+                return [textBlock("Error: port '\(id)' not found or not active")]
+            }
+            do {
+                let result = try await webView.evaluateJavaScript(js)
+                if result is NSNull || result == nil {
+                    return [textBlock("OK (no return value)")]
+                }
+                if let str = result as? String { return [textBlock(str)] }
+                if let num = result as? NSNumber { return [textBlock("\(num)")] }
+                if let data = try? JSONSerialization.data(withJSONObject: result!),
+                   let str = String(data: data, encoding: .utf8) {
+                    return [textBlock(str)]
+                }
+                return [textBlock("\(result!)")]
+            } catch {
+                return [textBlock("Error executing JS: \(error.localizedDescription)")]
+            }
+
         case "port_history":
             guard let id = input["id"] as? String else {
                 return [textBlock("Error: missing 'id' parameter")]
@@ -700,6 +741,88 @@ public final class ToolExecutor {
             let timeout = input["timeout"] as? Int ?? 30
             let result = await automationBridge.runJXA(source: source, opts: ["timeout": timeout])
             return [textBlock(jsonString(result))]
+
+        // MARK: REST
+        case "rest_call":
+            guard let url = input["url"] as? String,
+                  let parsed = URL(string: url) else {
+                return [textBlock("Error: rest_call requires a valid 'url'")]
+            }
+
+            // Secret scoping: check companion has access
+            if let secretName = input["secret"] as? String {
+                if let companionId = createdBy,
+                   let agent = appState.companions.first(where: { $0.id == companionId }) {
+                    let allowed = agent.secretNames ?? []
+                    if !allowed.contains(secretName) {
+                        return [textBlock("Error: companion does not have access to secret '\(secretName)'. Grant it in companion settings.")]
+                    }
+                }
+            }
+
+            let method = (input["method"] as? String ?? "GET").uppercased()
+            let timeoutMs = min(input["timeout"] as? Int ?? 30000, 120000)
+
+            var request = URLRequest(url: parsed)
+            request.httpMethod = method
+            request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
+
+            // Custom headers
+            if let headers = input["headers"] as? [String: String] {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+
+            // Body
+            if let body = input["body"] as? String {
+                request.httpBody = body.data(using: .utf8)
+                if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+            }
+
+            // Secret injection — the companion never sees the raw credential
+            if let secretName = input["secret"] as? String {
+                if let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) {
+                    request.setValue(headerValue, forHTTPHeaderField: headerName)
+                } else {
+                    return [textBlock("Error: secret '\(secretName)' not found. Add it in Settings > Secrets.")]
+                }
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let httpResponse = response as? HTTPURLResponse
+                let statusCode = httpResponse?.statusCode ?? 0
+
+                // Build response
+                var result: [String: Any] = ["status": statusCode]
+
+                // Response headers (selected useful ones)
+                if let headers = httpResponse?.allHeaderFields as? [String: String] {
+                    var filtered: [String: String] = [:]
+                    for key in ["content-type", "x-request-id", "x-ratelimit-remaining", "retry-after", "location"] {
+                        if let v = headers.first(where: { $0.key.lowercased() == key })?.value {
+                            filtered[key] = v
+                        }
+                    }
+                    if !filtered.isEmpty { result["headers"] = filtered }
+                }
+
+                // Body — auto-parse JSON
+                let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
+                if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
+                    result["body"] = json
+                } else if let text = String(data: data, encoding: .utf8) {
+                    // Truncate very large text responses
+                    result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
+                }
+
+                return [textBlock(jsonString(result))]
+            } catch {
+                return [textBlock(jsonString(["status": 0, "error": error.localizedDescription]))]
+            }
 
         // MARK: Browser
         case "browser_open":

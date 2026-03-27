@@ -503,6 +503,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
                 return
             }
             let errorBody = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
+            NSLog("[Port42] LLM HTTP %d: %@", http.statusCode, errorBody)
             let translated = AnthropicErrorTranslator.translate(statusCode: http.statusCode, body: errorBody)
             DispatchQueue.main.async { [weak self] in
                 self?.delegate?.llmDidError(translated)
