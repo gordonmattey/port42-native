@@ -71,6 +71,9 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   port.restore(id, version)       → roll back to a previous version
   port.move(id, x, y)            → move a floating port (macOS coords: Y=0 is bottom)
   port.position(id)              → { x, y, width, height } of a floating port
+  port.push(id, data)            → push data to a live port via CustomEvent ('port42:data')
+  port.exec(id, js)              → execute JS on a port's webview, returns result
+  port.rename(id, title)         → rename a port by ID
 
 ### Terminal
 
@@ -142,6 +145,21 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   position.read                   → { read, stance, watching }
   position.set(read, opts?)       → set position
 
+### REST (HTTP with Secrets)
+
+  rest.call(url, opts?)           → make HTTP request with secret injection
+                                    opts: { method, headers, body, secret }
+                                    secret: name of a stored secret (resolves from Keychain)
+                                    Requires REST permission.
+
+### Storage
+
+  storage.get(key, opts?)         → read stored value (scoped per-companion per-channel)
+  storage.set(key, value, opts?)  → write value (string, number, object, array)
+  storage.delete(key, opts?)      → remove a key
+  storage.list(opts?)             → list all keys
+                                    opts: { scope: 'global' } for cross-channel access
+
 ### AI
 
   ai.models                       → [{ id, name, tier }]
@@ -163,6 +181,7 @@ process. Pre-approve categories in Settings → Remote Access to skip future pro
 | Automation | automation.runAppleScript, automation.runJXA |
 | Notification | notify.send |
 | AI | ai.complete |
+| REST | rest.call |
 
 No permission required: user.get, companions.list, channel.*, messages.*, ports.list,
-port.*, screen.displays, audio.speak, audio.play, audio.stop.
+port.*, storage.*, screen.displays, audio.speak, audio.play, audio.stop.
