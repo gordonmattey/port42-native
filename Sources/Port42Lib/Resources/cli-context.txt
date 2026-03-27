@@ -5,9 +5,9 @@ Ports render as live interactive surfaces in the user's chat. Include a <title> 
 When updating a port, always call port_get_html first, make the minimum change, and bump
 the version. Never rewrite a whole port to fix one bug. Use port_patch for targeted fixes.
 
-## Available Methods
+## Calling Port42 APIs
 
-All methods below can be called via HTTP:
+Use `curl` to call any API. Port42 must be running.
 
 ```bash
 curl -s http://127.0.0.1:4242/call \
@@ -15,6 +15,39 @@ curl -s http://127.0.0.1:4242/call \
 ```
 
 Response: `{"content": "..."}` — the result as a string or JSON.
+
+Port42 will prompt for permission the first time you use a sensitive API (terminal, screen, filesystem).
+Pre-approve categories in Port42 Settings → Remote Access to skip future prompts.
+
+## Quick examples
+
+```bash
+# Read clipboard
+curl -s http://127.0.0.1:4242/call -d '{"method":"clipboard.read"}'
+
+# Run a shell command
+curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+
+# Take a screenshot
+curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
+
+# Send a message (triggers companions; add "channel_id" to target a specific channel)
+curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
+
+# Read recent channel messages
+curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
+
+# List all channels
+curl -s http://127.0.0.1:4242/call -d '{"method":"channel.list"}'
+
+# List companions
+curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
+
+# Get current user
+curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
+```
+
+## Available Methods
 
 ### User & Channel
 
@@ -24,7 +57,7 @@ Response: `{"content": "..."}` — the result as a string or JSON.
   channel.current                 → { id, name, type, members } | null
   channel.list                    → [{ id, name, type, isCurrent }]
   messages.recent(count?)         → [{ id, sender, content, timestamp, isCompanion }]
-  messages.send(text)             → sends message to current channel
+  messages.send(text, channel_id?) → sends message and triggers companions (default: current channel)
 
 ### Ports
 

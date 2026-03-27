@@ -28,24 +28,15 @@ private enum SidebarItem: Identifiable {
 public struct SidebarView: View {
     @EnvironmentObject var appState: AppState
     @Binding var showNewChannel: Bool
-    @State private var showNewCompanion = false
-    @State private var showSignOut = false
+    @Binding var showNewCompanion: Bool
     @State private var editingCompanion: AgentConfig?
     @State private var editingChannel: Channel?
     @State private var channelToDelete: Channel?
     @State private var companionToDelete: AgentConfig?
 
-    public init(showNewChannel: Binding<Bool>) {
+    public init(showNewChannel: Binding<Bool>, showNewCompanion: Binding<Bool>) {
         self._showNewChannel = showNewChannel
-    }
-
-    private var authDotColor: Color {
-        switch appState.authStatus {
-        case .connected: return .green
-        case .checking, .unknown: return Port42Theme.accent
-        case .noCredential: return .orange
-        case .error: return .red
-        }
+        self._showNewCompanion = showNewCompanion
     }
 
     /// Build a sorted list of all sidebar items ordered by most recent activity.
@@ -77,24 +68,8 @@ public struct SidebarView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // New channel/companion header
             HStack {
-                HStack(spacing: 4) {
-                    Text("PORT42")
-                        .font(Port42Theme.monoBold(14))
-                        .foregroundStyle(Port42Theme.accent)
-                    if appState.sync.isConnected {
-                        Circle()
-                            .fill(.green)
-                            .frame(width: 6, height: 6)
-                    }
-                    if appState.tunnel.publicURL != nil {
-                        Image(systemName: "globe")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Port42Theme.accent)
-                    }
-                }
-                .help(appState.tunnel.publicURL ?? appState.sync.gatewayURL ?? "no gateway")
                 Spacer()
                 Menu {
                     Button(action: { showNewChannel = true }) {
@@ -112,12 +87,9 @@ public struct SidebarView: View {
                 .fixedSize()
             }
             .padding(.horizontal, 16)
-            .frame(height: 44)
+            .padding(.vertical, 8)
 
-            Divider()
-                .background(Port42Theme.border)
-
-            // Unified conversation list sorted by last activity
+            // Conversation list sorted by last activity
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(sortedItems) { item in
@@ -164,54 +136,10 @@ public struct SidebarView: View {
             }
 
             Spacer()
-
-            // User info
-            if let user = appState.currentUser {
-                Divider()
-                    .background(Port42Theme.border)
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(authDotColor)
-                        .frame(width: 8, height: 8)
-                    Text(user.displayName)
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                    Spacer()
-                    Button(action: {
-                        appState.aiPaused.toggle()
-                        LLMEngine.paused = appState.aiPaused
-                    }) {
-                        Image(systemName: appState.aiPaused ? "pause.circle.fill" : "pause.circle")
-                            .font(.system(size: 12))
-                            .foregroundStyle(appState.aiPaused ? .red : Port42Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(appState.aiPaused ? "AI paused. Click to resume." : "Pause all AI calls")
-                    Button(action: { showSignOut = true }) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
         }
         .background(Port42Theme.bgSidebar)
-        .sheet(isPresented: $showSignOut) {
-            SignOutSheet(isPresented: $showSignOut)
-        }
         .onReceive(NotificationCenter.default.publisher(for: .dismissAllSheets)) { _ in
-            showSignOut = false
-            showNewCompanion = false
             editingCompanion = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
-            showSignOut = true
-        }
-        .sheet(isPresented: $showNewCompanion) {
-            NewCompanionSheet(isPresented: $showNewCompanion)
         }
         .sheet(item: $editingCompanion) { companion in
             EditCompanionSheet(

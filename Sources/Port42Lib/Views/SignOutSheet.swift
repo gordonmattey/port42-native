@@ -56,16 +56,26 @@ public struct SignOutSheet: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(spacing: 8) {
-                Text("\u{25C7}")
-                    .font(.system(size: 28, weight: .ultraLight))
-                    .foregroundStyle(Port42Theme.accent)
+            ZStack {
+                VStack(spacing: 8) {
+                    Text("\u{25C7}")
+                        .font(.system(size: 28, weight: .ultraLight))
+                        .foregroundStyle(Port42Theme.accent)
 
-                if let user = appState.currentUser {
-                    Text(user.displayName)
-                        .font(Port42Theme.mono(14))
-                        .foregroundStyle(Port42Theme.textPrimary)
+                    if let user = appState.currentUser {
+                        Text(user.displayName)
+                            .font(Port42Theme.mono(14))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                    }
                 }
+                HStack {
+                    Spacer()
+                    Button("Done") { isPresented = false }
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.accent)
+                        .buttonStyle(.plain)
+                }
+                .padding(.trailing, 20)
             }
             .padding(.top, 28)
             .padding(.bottom, 20)
@@ -159,18 +169,15 @@ public struct SignOutSheet: View {
                     .buttonStyle(.plain)
                 }
 
-                Button("stay") {
-                    isPresented = false
-                }
-                .buttonStyle(.plain)
-                .font(Port42Theme.mono(12))
-                .foregroundStyle(Port42Theme.textSecondary)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
         .frame(width: 460, height: 740)
         .background(Port42Theme.bgSecondary)
+        .background(WindowRefAccessor { window in
+            window?.level = .floating
+        })
         .onDisappear {
             claudeSetup.cancel()
         }

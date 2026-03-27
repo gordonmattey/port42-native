@@ -180,6 +180,34 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
+    // MARK: - File Drop
+
+    /// Handle files dropped onto the port window.
+    /// Terminal ports: pastes escaped paths into the terminal (requires terminal permission).
+    /// Other ports: triggers filesystem permission, then dispatches `port42:filedrop` to JS.
+    @MainActor
+    public func handleFileDrop(_ files: [[String: Any]]) async {
+        // Terminal ports: paste file paths directly into the terminal
+        if let tb = terminalBridge, tb.firstActiveSessionId != nil {
+            guard await checkPermission(for: "terminal.send") else { return }
+            let paths = files.compactMap { $0["path"] as? String }
+            let escaped = paths.map { path -> String in
+                // Shell-escape: wrap in single quotes, escape existing single quotes
+                "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            }
+            tb.sendToFirst(data: escaped.joined(separator: " "))
+            return
+        }
+
+        // Regular ports: dispatch JS event
+        guard await checkPermission(for: "fs.drop") else { return }
+        guard let json = try? JSONSerialization.data(withJSONObject: files),
+              let jsonStr = String(data: json, encoding: .utf8) else { return }
+        webView?.evaluateJavaScript(
+            "window.dispatchEvent(new CustomEvent('port42:filedrop', {detail: \(jsonStr)}))"
+        ) { _, _ in }
+    }
+
     // MARK: - Streaming Support
 
     /// Push a token to the port's JS context for streaming.
@@ -255,6 +283,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let state = state else { return ["error": "no app state"] }
 
         switch method {
+
+        // port42.help() — returns the full API reference
+        case "help", "-h":
+            if let url = Bundle.port42.url(forResource: "cli-context", withExtension: "txt"),
+               let text = try? String(contentsOf: url, encoding: .utf8) {
+                return text
+            }
+            return "API reference unavailable"
 
         // port42.user.get()
         case "user.get":
@@ -367,7 +403,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             guard let text = args.first as? String, !text.isEmpty else {
                 return ["error": "messages.send requires a non-empty text argument"]
             }
-            state.sendMessage(content: text)
+            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
+            state.sendMessage(content: text, toChannelId: targetChannelId)
             return ["ok": true]
 
         // port42.port.info()
@@ -1147,6 +1184,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let images = opts?["images"] as? [String]
 
         let backend = resolvePortAIBackend(state: state)
+        backend.trackingSource = "port:\(title ?? createdBy ?? "unknown")"
         let handler = PortAIHandler(callId: callId, bridge: self, engine: backend)
         activeStreams[callId] = handler
 
@@ -1587,7 +1625,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             fs: {
                 pick: (opts) => call('fs.pick', [opts || {}]),
                 read: (path, opts) => call('fs.read', [path, opts || {}]),
-                write: (path, data, opts) => call('fs.write', [path, data, opts || {}])
+                write: (path, data, opts) => call('fs.write', [path, data, opts || {}]),
+                onFileDrop: function(callback) {
+                    window.addEventListener('port42:filedrop', (e) => callback(e.detail));
+                }
             },
             notify: {
                 send: (title, body, opts) => call('notify.send', [title, body || '', opts || {}])

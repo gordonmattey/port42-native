@@ -34,6 +34,7 @@ private enum GeminiErrorTranslator {
 /// Streaming: SSE events with candidates[].content.parts[] payloads.
 public final class GeminiEngine: NSObject, URLSessionDataDelegate, LLMBackend {
 
+    public var trackingSource: String = "unknown"
     private let store: Port42AuthStore
     private var session: URLSession?
     private weak var delegate: LLMStreamDelegate?

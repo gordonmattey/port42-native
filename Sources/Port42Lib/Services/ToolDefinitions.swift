@@ -275,11 +275,12 @@ enum ToolDefinitions {
         ],
         [
             "name": "messages_send",
-            "description": "Send a message to the current channel",
+            "description": "Send a message to a channel and trigger companions. Defaults to the current channel if channel_id is omitted.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "text": ["type": "string", "description": "The message text to send"]
+                    "text": ["type": "string", "description": "The message text to send"],
+                    "channel_id": ["type": "string", "description": "Target channel ID (from channel_list). Omit for current channel."]
                 ],
                 "required": ["text"]
             ] as [String: Any]

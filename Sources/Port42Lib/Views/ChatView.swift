@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct ChatView: View {
     public init() {}
@@ -8,11 +9,10 @@ public struct ChatView: View {
     public var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Channel header
-                ChannelHeader()
+                // Channel name + members
+                ChannelHeaderBar()
 
-                Divider()
-                    .background(Port42Theme.border)
+                Divider().background(Port42Theme.border)
 
                 // Shared conversation content
                 ConversationContent(
@@ -35,6 +35,17 @@ public struct ChatView: View {
                     }
                 )
             }
+            .overlay(alignment: .bottomTrailing) {
+                Button(action: copyConversation) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Copy conversation")
+                .padding(.trailing, 20)
+                .padding(.bottom, 52)
+            }
 
             // Inline permission overlay for inline ports
             if let perm = activePerm {
@@ -56,6 +67,15 @@ public struct ChatView: View {
         .onReceive(appState.$activePermissionBridge) { bridge in
             activePerm = bridge?.pendingPermission
         }
+    }
+
+    private func copyConversation() {
+        guard let channelId = appState.currentChannel?.id else { return }
+        let msgs = (try? appState.db.getMessages(channelId: channelId)) ?? []
+        let text = msgs.map { "\($0.senderName): \($0.content)" }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        appState.toastMessage = "Copied"
     }
 
     private var channelEntries: [ChatEntry] {

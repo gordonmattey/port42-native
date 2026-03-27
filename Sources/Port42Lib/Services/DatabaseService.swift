@@ -397,6 +397,53 @@ public final class DatabaseService {
             )
         }
 
+        migrator.registerMigration("v26-token-usage") { db in
+            try db.create(table: "token_usage") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("source", .text).notNull()       // companion name, "router", "port:title"
+                t.column("model", .text).notNull()         // claude-opus-4-6, etc.
+                t.column("inputTokens", .integer).notNull()
+                t.column("outputTokens", .integer).notNull()
+                t.column("timestamp", .datetime).notNull()
+            }
+            try db.create(
+                index: "token_usage_timestamp",
+                on: "token_usage",
+                columns: ["timestamp"]
+            )
+        }
+
+        migrator.registerMigration("v27-token-usage-cache") { db in
+            try db.alter(table: "token_usage") { t in
+                t.add(column: "cacheReadTokens", .integer).defaults(to: 0)
+                t.add(column: "cacheCreationTokens", .integer).defaults(to: 0)
+            }
+        }
+
+        migrator.registerMigration("v28-port-version-meta") { db in
+            try db.alter(table: "port_versions") { t in
+                t.add(column: "metaVersion", .text)
+            }
+            // Indexes for version lookup and grouped queries
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_port_versions_udid_version ON port_versions (portUdid, version DESC)")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_port_versions_udid_meta ON port_versions (portUdid, metaVersion, version DESC)")
+            // Backfill metaVersion from HTML for existing rows
+            let rows = try Row.fetchAll(db, sql: "SELECT id, html FROM port_versions")
+            for row in rows {
+                let id: Int64 = row["id"]
+                let html: String = row["html"]
+                if let range = html.range(of: #"<meta\s+name="version"\s+content=""#, options: .regularExpression) {
+                    let after = html[range.upperBound...]
+                    if let end = after.range(of: "\"") {
+                        let v = String(after[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !v.isEmpty {
+                            try db.execute(sql: "UPDATE port_versions SET metaVersion = ? WHERE id = ?", arguments: [v, id])
+                        }
+                    }
+                }
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -522,6 +569,114 @@ public final class DatabaseService {
         }
     }
 
+    // MARK: - Token Usage
+
+    public func recordTokenUsage(source: String, model: String, inputTokens: Int, outputTokens: Int, cacheReadTokens: Int = 0, cacheCreationTokens: Int = 0) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO token_usage (source, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                arguments: [source, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, Date()]
+            )
+        }
+    }
+
+    /// Aggregated usage row returned from queries.
+    public struct UsageAggregate {
+        public let key: String          // source or model name
+        public let inputTokens: Int
+        public let outputTokens: Int
+        public let requests: Int
+    }
+
+    /// Get usage aggregated by source within a date range.
+    public func usageBySource(from: Date, to: Date) throws -> [UsageAggregate] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: """
+                    SELECT source, SUM(inputTokens) as inp, SUM(outputTokens) as outp, COUNT(*) as cnt
+                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
+                    GROUP BY source ORDER BY inp + outp DESC
+                    """,
+                arguments: [from, to]
+            )
+            return rows.map { UsageAggregate(key: $0["source"], inputTokens: $0["inp"], outputTokens: $0["outp"], requests: $0["cnt"]) }
+        }
+    }
+
+    /// Get usage aggregated by model within a date range.
+    public func usageByModel(from: Date, to: Date) throws -> [UsageAggregate] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: """
+                    SELECT model, SUM(inputTokens) as inp, SUM(outputTokens) as outp, COUNT(*) as cnt
+                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
+                    GROUP BY model ORDER BY inp + outp DESC
+                    """,
+                arguments: [from, to]
+            )
+            return rows.map { UsageAggregate(key: $0["model"], inputTokens: $0["inp"], outputTokens: $0["outp"], requests: $0["cnt"]) }
+        }
+    }
+
+    /// Get total usage within a date range.
+    public func usageTotal(from: Date, to: Date) throws -> (inputTokens: Int, outputTokens: Int, requests: Int, cacheReadTokens: Int, cacheCreationTokens: Int) {
+        try dbQueue.read { db in
+            let row = try Row.fetchOne(db,
+                sql: """
+                    SELECT COALESCE(SUM(inputTokens), 0) as inp, COALESCE(SUM(outputTokens), 0) as outp, COUNT(*) as cnt,
+                           COALESCE(SUM(cacheReadTokens), 0) as cacheRead, COALESCE(SUM(cacheCreationTokens), 0) as cacheCreate
+                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
+                    """,
+                arguments: [from, to]
+            )
+            return (inputTokens: row?["inp"] ?? 0, outputTokens: row?["outp"] ?? 0, requests: row?["cnt"] ?? 0,
+                    cacheReadTokens: row?["cacheRead"] ?? 0, cacheCreationTokens: row?["cacheCreate"] ?? 0)
+        }
+    }
+
+    /// Get daily usage totals for charting within a date range.
+    public func usageByDay(from: Date, to: Date) throws -> [(date: String, inputTokens: Int, outputTokens: Int, requests: Int)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: """
+                    SELECT strftime('%Y-%m-%d', timestamp) as day,
+                           SUM(inputTokens) as inp, SUM(outputTokens) as outp, COUNT(*) as cnt
+                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
+                    GROUP BY day ORDER BY day
+                    """,
+                arguments: [from, to]
+            )
+            return rows.map { (date: $0["day"] as String, inputTokens: $0["inp"], outputTokens: $0["outp"], requests: $0["cnt"]) }
+        }
+    }
+
+    /// Recent individual token usage records.
+    public struct UsageRecord {
+        public let source: String
+        public let model: String
+        public let inputTokens: Int
+        public let outputTokens: Int
+        public let timestamp: Date
+    }
+
+    public func recentUsage(from: Date, to: Date, limit: Int = 5) throws -> [UsageRecord] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: "SELECT source, model, inputTokens, outputTokens, timestamp FROM token_usage WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?",
+                arguments: [from, to, limit]
+            )
+            return rows.map {
+                UsageRecord(
+                    source: $0["source"],
+                    model: $0["model"],
+                    inputTokens: $0["inputTokens"],
+                    outputTokens: $0["outputTokens"],
+                    timestamp: $0["timestamp"]
+                )
+            }
+        }
+    }
+
     // MARK: - Reset
 
     public func resetAll() throws {
@@ -539,6 +694,7 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM companion_creases")
             try db.execute(sql: "DELETE FROM companion_folds")
             try db.execute(sql: "DELETE FROM companion_positions")
+            try db.execute(sql: "DELETE FROM token_usage")
         }
     }
 
@@ -953,13 +1109,22 @@ public final class DatabaseService {
     // MARK: - Port Versions
 
     public func savePortVersion(portUdid: String, html: String, createdBy: String?) throws {
+        // Extract meta version from HTML
+        var metaVersion: String? = nil
+        if let range = html.range(of: #"<meta\s+name="version"\s+content=""#, options: .regularExpression) {
+            let after = html[range.upperBound...]
+            if let end = after.range(of: "\"") {
+                let v = String(after[..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !v.isEmpty { metaVersion = v }
+            }
+        }
         try dbQueue.write { db in
             let nextVersion = try Int.fetchOne(db,
                 sql: "SELECT COALESCE(MAX(version), 0) + 1 FROM port_versions WHERE portUdid = ?",
                 arguments: [portUdid]) ?? 1
             try db.execute(
-                sql: "INSERT INTO port_versions (portUdid, version, html, createdBy, createdAt) VALUES (?, ?, ?, ?, ?)",
-                arguments: [portUdid, nextVersion, html, createdBy, Date()]
+                sql: "INSERT INTO port_versions (portUdid, version, html, createdBy, createdAt, metaVersion) VALUES (?, ?, ?, ?, ?, ?)",
+                arguments: [portUdid, nextVersion, html, createdBy, Date(), metaVersion]
             )
         }
     }
@@ -968,6 +1133,24 @@ public final class DatabaseService {
         try dbQueue.read { db in
             try PortVersion.fetchAll(db,
                 sql: "SELECT * FROM port_versions WHERE portUdid = ? ORDER BY version ASC",
+                arguments: [portUdid])
+        }
+    }
+
+    /// One row per meta version (latest save each), most recent first.
+    public func fetchPortVersionSummaries(portUdid: String) throws -> [PortVersionSummary] {
+        try dbQueue.read { db in
+            try PortVersionSummary.fetchAll(db,
+                sql: """
+                    SELECT MAX(id) as id, portUdid, MAX(version) as version,
+                           createdBy, MAX(createdAt) as createdAt,
+                           metaVersion, COUNT(*) as saveCount
+                    FROM port_versions
+                    WHERE portUdid = ?
+                    GROUP BY portUdid, COALESCE(metaVersion, CAST(version AS TEXT))
+                    ORDER BY MAX(version) DESC
+                    LIMIT 30
+                    """,
                 arguments: [portUdid])
         }
     }
@@ -1037,6 +1220,23 @@ public struct PortVersion: Codable, FetchableRecord {
     public var html: String
     public var createdBy: String?
     public var createdAt: Date
+    public var metaVersion: String?
+}
+
+/// Lightweight version record without HTML — for dropdown display.
+public struct PortVersionSummary: Codable, FetchableRecord {
+    public var id: Int64
+    public var portUdid: String
+    public var version: Int
+    public var createdBy: String?
+    public var createdAt: Date
+    public var metaVersion: String?
+    public var saveCount: Int?
+
+    /// Display label: meta version if available, otherwise DB version number.
+    public var displayVersion: String {
+        metaVersion ?? "\(version)"
+    }
 }
 
 public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {

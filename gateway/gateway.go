@@ -16,7 +16,7 @@ import (
 
 // Security limits for public hosting
 const (
-	maxMessageSize     = 64 * 1024 // 64 KB per WebSocket message
+	maxMessageSize     = 2 * 1024 * 1024 // 2 MB per WebSocket message (API responses can contain large payloads)
 	maxChannelIDLen    = 128
 	maxPeerIDLen       = 128
 	maxSenderNameLen   = 256

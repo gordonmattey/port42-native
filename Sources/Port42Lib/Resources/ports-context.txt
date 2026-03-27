@@ -294,9 +294,9 @@ BRIDGE API REFERENCE:
     Returns: [{id, sender, content, timestamp, isCompanion}]
     Get the last n messages from the current channel (default 20).
 
-  port42.messages.send(text)
-    Sends a message to the current channel as the user. Use this to make ports interactive
-    (e.g. a port with a text input that sends commands or replies).
+  port42.messages.send(text, channel_id?)
+    Sends a message and triggers companions. Defaults to the current channel.
+    Pass a channel_id to target a specific channel (e.g. from channel.list).
 
   port42.channel.current()
     Returns: {id, name, type, members: [{name, type}]} or null
@@ -778,6 +778,18 @@ Security: Only paths explicitly chosen by the user via the picker are accessible
 
   Always check for {cancelled: true} after pick(). Paths from pick() are the only
   paths fs.read/fs.write will accept.
+
+### File Drop
+
+  Ports accept file drops from Finder. Triggers filesystem permission on first drop.
+
+  port42.fs.onFileDrop(async (files) => {
+    // files is an array of { path, name, size, isDirectory }
+    for (const file of files) {
+      const {data} = await port42.fs.read(file.path);
+      // ... process file
+    }
+  });
 
 ## Notification API
 

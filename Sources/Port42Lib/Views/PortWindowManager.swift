@@ -381,6 +381,22 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port restarted: %@", panels[idx].title)
     }
 
+    /// Lightweight version history for UI display (no HTML blobs).
+    public func fetchVersionSummaries(_ id: String) -> [PortVersionSummary] {
+        guard let panel = panels.first(where: { $0.id == id }),
+              let db = db else { return [] }
+        return (try? db.fetchPortVersionSummaries(portUdid: panel.udid)) ?? []
+    }
+
+    /// Restore a port to a specific version from its history (no new version snapshot).
+    public func restoreVersion(_ id: String, version: Int) {
+        guard let panel = panels.first(where: { $0.id == id }),
+              let db = db,
+              let html = try? db.fetchPortVersionHtml(udid: panel.udid, version: version) else { return }
+        _ = updatePort(idOrTitle: panel.udid, html: html, skipVersionSnapshot: true)
+        NSLog("[Port42] Port restored to v%d: %@", version, panel.title)
+    }
+
     /// Bring a floating panel to front and make it key.
     public func bringToFront(_ id: String) {
         windows[id]?.makeKeyAndOrderFront(nil)
@@ -430,7 +446,7 @@ public final class PortWindowManager: ObservableObject {
 
     /// Update a port's HTML by UDID or title. Works for windowed and minimized ports.
     /// Returns true if the port was found and updated.
-    public func updatePort(idOrTitle: String, html: String) -> Bool {
+    public func updatePort(idOrTitle: String, html: String, skipVersionSnapshot: Bool = false) -> Bool {
         guard let idx = panels.firstIndex(where: { $0.udid == idOrTitle }) ??
               panels.firstIndex(where: {
                   let l = idOrTitle.lowercased()
@@ -452,13 +468,15 @@ public final class PortWindowManager: ObservableObject {
             NSLog("[Port42] Port updated (stored, no webview): %@ (%@)", newTitle, panelId)
         }
 
-        // Persist to database and snapshot version
+        // Persist to database and optionally snapshot version
         if let db = db {
             var record = PersistedPortPanel(from: panels[idx])
             record.html = html
             record.title = newTitle
             try? db.savePortPanel(record)
-            try? db.savePortVersion(portUdid: panels[idx].udid, html: html, createdBy: panels[idx].createdBy)
+            if !skipVersionSnapshot {
+                try? db.savePortVersion(portUdid: panels[idx].udid, html: html, createdBy: panels[idx].createdBy)
+            }
         }
 
         return true
@@ -831,9 +849,11 @@ class PortNavigationBlocker: NSObject, WKNavigationDelegate {
 /// The WKWebView is NOT recreated, just moved between view hierarchies.
 struct PortWebViewHost: NSViewRepresentable {
     let webView: WKWebView
+    let bridge: PortBridge
 
     func makeNSView(context: Context) -> NSView {
         let container = PortWebViewContainer()
+        container.bridge = bridge
         webView.removeFromSuperview()
         container.addSubview(webView)
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -843,6 +863,11 @@ struct PortWebViewHost: NSViewRepresentable {
             webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
+        // Unregister WKWebView's AppKit-level drag types so file drops
+        // reach the container instead of being swallowed by WebKit.
+        // HTML5 drag-and-drop inside the webview (e.g. xterm.js) is unaffected.
+        webView.unregisterDraggedTypes()
+        container.registerForDraggedTypes([.fileURL])
         return container
     }
 
@@ -906,6 +931,7 @@ struct PortPanelContentView: View {
     @State private var nsWindow: NSWindow? = nil
     @State private var isKeyWindow = false
     @State private var showBar = false
+    @State private var showVersions = false
     @State private var hideTask: DispatchWorkItem? = nil
 
     private var isHovered: Bool { manager.hoveredPanels.contains(panel.id) }
@@ -935,7 +961,7 @@ struct PortPanelContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let webView = manager.webViews[panel.id] {
-                PortWebViewHost(webView: webView)
+                PortWebViewHost(webView: webView, bridge: panel.bridge)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -948,9 +974,19 @@ struct PortPanelContentView: View {
             }
 
             // Title bar overlay — timed flash on hover/focus, always on for code view
-            if showBar || showCode {
-                PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode)
-                    .transition(.opacity)
+            if showBar || showCode || showVersions {
+                VStack(alignment: .leading, spacing: 0) {
+                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions)
+                    if showVersions {
+                        HStack {
+                            PortVersionDropdown(panel: panel, manager: manager, isPresented: $showVersions)
+                                .transition(.opacity)
+                            Spacer()
+                        }
+                    }
+                    Spacer()
+                }
+                .transition(.opacity)
             }
 
             // Inline permission overlay
@@ -982,8 +1018,13 @@ struct PortPanelContentView: View {
         .onChange(of: manager.hoveredPanels.contains(panel.id)) { _, hovered in
             if hovered {
                 flashBar()
-            } else {
+            } else if !showVersions {
                 hideTask?.cancel()
+                withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
+            }
+        }
+        .onChange(of: showVersions) { _, showing in
+            if !showing && !manager.hoveredPanels.contains(panel.id) {
                 withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
             }
         }
@@ -1100,6 +1141,8 @@ struct PortPanelTitleBar: View {
     let panel: PortPanel
     @ObservedObject var manager: PortWindowManager
     @Binding var showCode: Bool
+    @State private var versionHovered = false
+    @Binding var showVersions: Bool
 
     /// Always read the live panel from manager so rename/title updates reflect immediately.
     private var livePanel: PortPanel {
@@ -1132,7 +1175,11 @@ struct PortPanelTitleBar: View {
                         .foregroundStyle(Port42Theme.textSecondary)
                     Text("v\(version)")
                         .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                        .foregroundStyle(versionHovered ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.6))
+                        .onHover { hovering in
+                            versionHovered = hovering
+                            if hovering { showVersions = true }
+                        }
                 }
                 Spacer()
             }
@@ -1217,6 +1264,103 @@ struct PortPanelTitleBar: View {
     }
 }
 
+// MARK: - Version Dropdown
+
+struct PortVersionDropdown: View {
+    let panel: PortPanel
+    let manager: PortWindowManager
+    @Binding var isPresented: Bool
+    @State private var versions: [PortVersionSummary] = []
+    @State private var hoveredId: Int64?
+
+    private var currentMetaVersion: String? {
+        PortPanel.extractVersion(from: panel.html)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if versions.isEmpty {
+                Text("No version history")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .padding(10)
+            } else {
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(versions, id: \.id) { ver in
+                            let isCurrent = ver.displayVersion == currentMetaVersion
+                                || (currentMetaVersion == nil && ver.id == versions.first?.id)
+                            Button(action: {
+                                if !isCurrent {
+                                    manager.restoreVersion(panel.id, version: ver.version)
+                                }
+                                isPresented = false
+                            }) {
+                                HStack(spacing: 8) {
+                                    Text("v\(ver.displayVersion)")
+                                        .font(Port42Theme.monoBold(11))
+                                        .foregroundStyle(isCurrent ? Port42Theme.accent : Port42Theme.textPrimary)
+                                    if let by = ver.createdBy {
+                                        Text(by)
+                                            .font(Port42Theme.mono(10))
+                                            .foregroundStyle(Port42Theme.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                    if let saves = ver.saveCount, saves > 1 {
+                                        Text("\(saves) saves")
+                                            .font(Port42Theme.mono(9))
+                                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+                                    }
+                                    Spacer()
+                                    Text(timeAgo(ver.createdAt))
+                                        .font(Port42Theme.mono(9))
+                                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                                    if isCurrent {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 9))
+                                            .foregroundStyle(Port42Theme.accent)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(
+                                isCurrent ? Port42Theme.accent.opacity(0.08) :
+                                hoveredId == ver.id ? Port42Theme.accent.opacity(0.12) : Color.clear
+                            )
+                            .onHover { h in hoveredId = h ? ver.id : nil }
+                        }
+                    }
+                }
+                .frame(maxHeight: 200)
+            }
+        }
+        .frame(width: 260)
+        .background(Port42Theme.bgSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .shadow(color: .black.opacity(0.4), radius: 8)
+        .padding(.leading, 10)
+        .onHover { hovering in
+            if !hovering {
+                withAnimation(.easeInOut(duration: 0.15)) { isPresented = false }
+            }
+        }
+        .onAppear {
+            versions = manager.fetchVersionSummaries(panel.id)
+        }
+    }
+
+    private func timeAgo(_ date: Date) -> String {
+        let seconds = Int(-date.timeIntervalSinceNow)
+        if seconds < 60 { return "now" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        if seconds < 86400 { return "\(seconds / 3600)h ago" }
+        return "\(seconds / 86400)d ago"
+    }
+}
+
 // MARK: - WebView Container (preserves first responder on click)
 
 /// NSView container that ensures clicks inside the webview don't trigger
@@ -1224,6 +1368,7 @@ struct PortPanelTitleBar: View {
 /// without a focus-first click.
 class PortWebViewContainer: NSView {
     private var lastSize: NSSize = .zero
+    weak var bridge: PortBridge?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -1246,6 +1391,36 @@ class PortWebViewContainer: NSView {
         if let webView = subviews.first as? WKWebView {
             webView.evaluateJavaScript("window.dispatchEvent(new Event('resize'))") { _, _ in }
         }
+    }
+
+    // MARK: - File Drop
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else {
+            return []
+        }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty,
+              let bridge = bridge else { return false }
+
+        let files: [[String: Any]] = urls.map { url in
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            return [
+                "path": url.path,
+                "name": url.lastPathComponent,
+                "size": (attrs?[.size] as? Int) ?? 0,
+                "isDirectory": (attrs?[.type] as? FileAttributeType) == .typeDirectory
+            ]
+        }
+
+        Task { @MainActor in
+            await bridge.handleFileDrop(files)
+        }
+        return true
     }
 }
 

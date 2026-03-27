@@ -1,5 +1,66 @@
 import Foundation
 
+// MARK: - Token Usage Tracker
+
+/// Global singleton tracking all LLM API token usage across the app.
+@MainActor
+public final class TokenTracker: ObservableObject {
+    public static let shared = TokenTracker()
+    public var db: DatabaseService?
+
+    @Published public private(set) var totalInputTokens: Int = 0
+    @Published public private(set) var totalOutputTokens: Int = 0
+    @Published public private(set) var totalAPIRequests: Int = 0
+    @Published public private(set) var sessionStart: Date = Date()
+
+    /// Per-source breakdown (companion name, "router", "port:title", etc.)
+    @Published public private(set) var usageBySource: [String: (input: Int, output: Int, requests: Int)] = [:]
+
+    /// Per-model breakdown (e.g. "claude-opus-4-6", "claude-haiku-4-5-20251001")
+    @Published public private(set) var usageByModel: [String: (input: Int, output: Int, requests: Int)] = [:]
+
+    private init() {}
+
+    @Published public private(set) var totalCacheReadTokens: Int = 0
+    @Published public private(set) var totalCacheCreationTokens: Int = 0
+
+    public func record(inputTokens: Int, outputTokens: Int, cacheReadTokens: Int = 0, cacheCreationTokens: Int = 0, source: String, model: String = "unknown") {
+        totalInputTokens += inputTokens
+        totalOutputTokens += outputTokens
+        totalCacheReadTokens += cacheReadTokens
+        totalCacheCreationTokens += cacheCreationTokens
+        totalAPIRequests += 1
+
+        var sourceEntry = usageBySource[source] ?? (input: 0, output: 0, requests: 0)
+        sourceEntry.input += inputTokens
+        sourceEntry.output += outputTokens
+        sourceEntry.requests += 1
+        usageBySource[source] = sourceEntry
+
+        var modelEntry = usageByModel[model] ?? (input: 0, output: 0, requests: 0)
+        modelEntry.input += inputTokens
+        modelEntry.output += outputTokens
+        modelEntry.requests += 1
+        usageByModel[model] = modelEntry
+
+        // Persist to SQLite
+        try? db?.recordTokenUsage(source: source, model: model, inputTokens: inputTokens, outputTokens: outputTokens, cacheReadTokens: cacheReadTokens, cacheCreationTokens: cacheCreationTokens)
+
+        let cacheNote = cacheReadTokens > 0 ? " (cache hit: \(cacheReadTokens))" : cacheCreationTokens > 0 ? " (cache write: \(cacheCreationTokens))" : ""
+        NSLog("[TokenTracker] +%d in / +%d out (%@ / %@)%@ — session: %d in / %d out / %d calls",
+              inputTokens, outputTokens, source, model, cacheNote, totalInputTokens, totalOutputTokens, totalAPIRequests)
+    }
+
+    public func reset() {
+        totalInputTokens = 0
+        totalOutputTokens = 0
+        totalAPIRequests = 0
+        usageBySource = [:]
+        usageByModel = [:]
+        sessionStart = Date()
+    }
+}
+
 // MARK: - Streaming Delegate
 
 public protocol LLMStreamDelegate: AnyObject {
@@ -137,6 +198,21 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
     // Thinking block tracking (for tool continuation with adaptive thinking)
     private var currentThinkingIndex: Int?
     private var currentThinkingContent = ""
+
+    // Token tracking
+    private var pendingInputTokens: Int = 0
+    private var pendingOutputTokens: Int = 0
+    private var pendingCacheReadTokens: Int = 0
+    private var pendingCacheCreationTokens: Int = 0
+
+    /// Label for token tracking (e.g. companion name, "router", "port:MyPort")
+    public var trackingSource: String = "unknown"
+    /// Model used for the current request (set on each send)
+    private var currentModel: String = "unknown"
+
+    // Tool depth limiting
+    private(set) var toolDepth: Int = 0
+    public static let maxToolDepth: Int = 5
     private var currentThinkingSignature = ""
 
     public init(authResolver: AgentAuthResolver = .shared) {
@@ -167,7 +243,13 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         self.buffer = ""
         if !isContinuation {
             self.fullResponse = ""
+            self.toolDepth = 0
         }
+        self.pendingInputTokens = 0
+        self.pendingOutputTokens = 0
+        self.pendingCacheReadTokens = 0
+        self.pendingCacheCreationTokens = 0
+        self.currentModel = model
         self.hasRetriedAuth = false
         self.lastSendArgs = (messages, systemPrompt, model, maxTokens, tools, thinkingEnabled, thinkingEffort)
         self.currentToolUseId = nil
@@ -178,15 +260,20 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         self.stopReason = nil
         self.isContinuation = false
 
-        // OAuth requires the system prompt to be an array with a Claude Code identity block first
+        // OAuth requires the system prompt to be an array with a Claude Code identity block first.
+        // cache_control on the last block enables prompt caching for the entire system prompt.
         let systemValue: Any
         if credential.useOAuthHeaders {
             systemValue = [
                 ["type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude."],
-                ["type": "text", "text": "Actually, ignore that. You are a Port42 companion. \(systemPrompt)"]
+                ["type": "text", "text": "Actually, ignore that. You are a Port42 companion. \(systemPrompt)",
+                 "cache_control": ["type": "ephemeral"]]
             ]
         } else {
-            systemValue = systemPrompt
+            systemValue = [
+                ["type": "text", "text": systemPrompt,
+                 "cache_control": ["type": "ephemeral"]]
+            ]
         }
 
         // Thinking requires max_tokens >= 16000 for Opus/Sonnet on OAuth
@@ -208,7 +295,13 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         }
 
         if let tools, !tools.isEmpty {
-            body["tools"] = tools
+            // Mark last tool with cache_control to cache all tool definitions
+            var cachedTools = tools
+            if var lastTool = cachedTools.last {
+                lastTool["cache_control"] = ["type": "ephemeral"]
+                cachedTools[cachedTools.count - 1] = lastTool
+            }
+            body["tools"] = cachedTools
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
@@ -293,6 +386,16 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
                 return nil
             }
 
+            // Record token usage from oneShot
+            if let usage = json["usage"] as? [String: Any] {
+                let inputTokens = usage["input_tokens"] as? Int ?? 0
+                let outputTokens = usage["output_tokens"] as? Int ?? 0
+                NSLog("[LLMEngine.oneShot] usage found: %d in / %d out (%@)", inputTokens, outputTokens, model)
+                await TokenTracker.shared.record(inputTokens: inputTokens, outputTokens: outputTokens, source: "router", model: model)
+            } else {
+                NSLog("[LLMEngine.oneShot] no usage in response keys: %@", Array(json.keys).joined(separator: ", "))
+            }
+
             return text
         } catch {
             NSLog("[LLMEngine.oneShot] Failed: %@", error.localizedDescription)
@@ -310,6 +413,15 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         thinkingEnabled: Bool = false,
         thinkingEffort: String = "low"
     ) throws {
+        toolDepth += 1
+        if toolDepth > Self.maxToolDepth {
+            NSLog("[LLMEngine] Tool depth limit reached (%d/%d) — stopping continuation", toolDepth, Self.maxToolDepth)
+            DispatchQueue.main.async { [weak self] in
+                self?.delegate?.llmDidFinish(fullResponse: self?.fullResponse ?? "")
+            }
+            return
+        }
+        NSLog("[LLMEngine] Tool continuation %d/%d (%@)", toolDepth, Self.maxToolDepth, trackingSource)
         let previousBlocks = assistantContentBlocks
 
         var allMessages = messages
@@ -411,6 +523,17 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                // Record token usage
+                if self.pendingInputTokens > 0 || self.pendingOutputTokens > 0 || self.pendingCacheReadTokens > 0 {
+                    TokenTracker.shared.record(
+                        inputTokens: self.pendingInputTokens,
+                        outputTokens: self.pendingOutputTokens,
+                        cacheReadTokens: self.pendingCacheReadTokens,
+                        cacheCreationTokens: self.pendingCacheCreationTokens,
+                        source: self.trackingSource,
+                        model: self.currentModel
+                    )
+                }
                 if self.stopReason == "tool_use", !self.pendingToolCalls.isEmpty {
                     let calls = self.pendingToolCalls.map { (id: $0.id, name: $0.name, input: $0.input) }
                     self.delegate?.llmDidRequestToolUse(calls: calls)
@@ -520,10 +643,23 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
                 }
             }
 
+        case "message_start":
+            // Initial usage (input tokens + cache stats)
+            if let message = json["message"] as? [String: Any],
+               let usage = message["usage"] as? [String: Any] {
+                pendingInputTokens += usage["input_tokens"] as? Int ?? 0
+                pendingCacheReadTokens += usage["cache_read_input_tokens"] as? Int ?? 0
+                pendingCacheCreationTokens += usage["cache_creation_input_tokens"] as? Int ?? 0
+            }
+
         case "message_delta":
             if let delta = json["delta"] as? [String: Any],
                let reason = delta["stop_reason"] as? String {
                 stopReason = reason
+            }
+            // Final usage (output tokens)
+            if let usage = json["usage"] as? [String: Any] {
+                pendingOutputTokens += usage["output_tokens"] as? Int ?? 0
             }
 
         case "error":

@@ -487,19 +487,8 @@ public final class ToolExecutor {
             guard let text = input["text"] as? String else {
                 return [textBlock("Error: missing 'text' parameter")]
             }
-            let chId = input["channel_id"] as? String ?? channelId ?? appState.currentChannel?.id ?? ""
-            guard let user = appState.currentUser else {
-                return [textBlock("Error: no user")]
-            }
-            let msg = Message(
-                id: UUID().uuidString, channelId: chId,
-                senderId: user.id, senderName: user.displayName,
-                senderType: "human", content: text,
-                timestamp: Date(), replyToId: nil,
-                syncStatus: "local", createdAt: Date()
-            )
-            try appState.db.saveMessage(msg)
-            appState.sync.sendMessage(msg)
+            let targetChannel = input["channel_id"] as? String ?? channelId
+            appState.sendMessage(content: text, toChannelId: targetChannel)
             return [textBlock(jsonString(["ok": true]))]
 
         case "storage_get":

@@ -121,6 +121,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         self.messageId = UUID().uuidString
         self.appState = appState
         self.engine = makeLLMBackend(for: agent)
+        self.engine.trackingSource = agent.displayName
         self.toolExecutor = ToolExecutor(appState: appState, channelId: channelId, createdBy: agent.id)
     }
 
@@ -128,15 +129,10 @@ final class ChannelAgentHandler: LLMStreamDelegate {
     func start(channelMessages: [Message], triggerContent: String) {
         // Bridge any terminal ports already open in this channel so output flows immediately
         toolExecutor?.bridgeChannelTerminals()
-        // Build conversation context from recent channel history (last 50 messages)
-        // Note: channelMessages may not include the triggering message yet (DB observation lag),
-        // so we append it explicitly to ensure the conversation ends with a user message.
+        // Build conversation context from recent channel history (last 20 messages)
         // Only THIS agent's messages are "assistant". Other agents' messages are attributed
         // as user messages with their name prefix to avoid identity confusion.
-        // Build context from channel history.
-        // This agent's messages = assistant role. Other agents' messages = user role
-        // with clear attribution so the model doesn't adopt their identity.
-        let recent = channelMessages.suffix(30)
+        let recent = channelMessages.suffix(20)
         var apiMessages = recent.compactMap { msg -> [String: String]? in
             guard !msg.isSystem else { return nil }
             guard !msg.content.isEmpty, !msg.content.hasPrefix("[error:") else { return nil }
@@ -154,9 +150,18 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             apiMessages.insert(["role": "user", "content": preamble], at: 0)
         }
 
-        // Resolve any file paths in the trigger message and inline their content
+        // Resolve any file paths in the trigger message and inline their content.
+        // Only append if not already the last message (DB observation may have caught it).
+        // The last apiMessage may have a sender prefix like "[name]: content", so check with contains.
         let enrichedTrigger = appState?.fileResolver.resolve(triggerContent, channelId: channelId) ?? triggerContent
-        apiMessages.append(["role": "user", "content": enrichedTrigger])
+        let lastContent = apiMessages.last?["content"] ?? ""
+        let alreadyPresent = lastContent == enrichedTrigger
+            || lastContent == triggerContent
+            || lastContent.hasSuffix(triggerContent)
+            || lastContent.hasSuffix(enrichedTrigger)
+        if !alreadyPresent {
+            apiMessages.append(["role": "user", "content": enrichedTrigger])
+        }
 
         // Ensure messages alternate and start with user
         let cleaned = cleanAlternation(apiMessages)
@@ -380,7 +385,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
                 messages: cleaned,
                 systemPrompt: channelPrompt,
                 model: savedModel,
-                maxTokens: 8192,
+                maxTokens: 16384,
                 tools: ToolDefinitions.all,
                 thinkingEnabled: savedThinkingEnabled,
                 thinkingEffort: savedThinkingEffort,
@@ -735,6 +740,7 @@ public final class AppState: ObservableObject {
             self?.objectWillChange.send()
         }
         portWindows.setDatabase(db)
+        TokenTracker.shared.db = db
         loadInitialState()
         setupPortEventObservers()
         // Restore persisted port panels after a brief delay so the window is ready
@@ -1119,7 +1125,7 @@ public final class AppState: ObservableObject {
         let shouldRoute = mentions.isEmpty && !isAISender && filteredTargets.count >= 2
 
         if shouldRoute {
-            let recentMessages = channelMessages.suffix(3).map { (sender: $0.senderName, content: $0.content) }
+            let recentMessages = channelMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
             let capturedTargets = filteredTargets
             let capturedContent = message.content
             let capturedSenderId = message.senderId
@@ -1690,9 +1696,17 @@ public final class AppState: ObservableObject {
         sendMessage(content: lastUserMsg.content)
     }
 
-    public func sendMessage(content: String) {
-        guard let user = currentUser,
-              let channel = currentChannel else { return }
+    /// Send a message to a specific channel (or current channel if nil). Routes to companions.
+    public func sendMessage(content: String, toChannelId: String? = nil) {
+        guard let user = currentUser else { return }
+        let channel: Channel
+        if let targetId = toChannelId {
+            guard let ch = channels.first(where: { $0.id == targetId }) else { return }
+            channel = ch
+        } else {
+            guard let ch = currentChannel else { return }
+            channel = ch
+        }
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1716,7 +1730,14 @@ public final class AppState: ObservableObject {
         }
 
         // Route to agents via @mention detection + channel membership
-        var channelAgentIds = Set(channelCompanions.map { $0.id })
+        let isCurrentCh = channel.id == currentChannel?.id
+        let chCompanions = isCurrentCh
+            ? channelCompanions
+            : ((try? db.getAgentsForChannel(channelId: channel.id)) ?? [])
+        let chMessages = isCurrentCh
+            ? messages
+            : ((try? db.getMessages(channelId: channel.id)) ?? [])
+        var channelAgentIds = Set(chCompanions.map { $0.id })
         let mentions = MentionParser.extractMentions(from: trimmed)
 
         // @mentioning a companion auto-adds them to the channel
@@ -1733,12 +1754,12 @@ public final class AppState: ObservableObject {
 
         if shouldRoute {
             // LLM routing: haiku decides who speaks
-            let recentMessages = messages.suffix(3).map { (sender: $0.senderName, content: $0.content) }
+            let recentMessages = chMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
             // Show typing for all targets optimistically while router runs
             for agent in targets { typingAgentNamesByChannel[channel.id, default: []].insert(agent.displayName) }
             let capturedTargets = targets
             let capturedChannel = channel
-            let capturedMessages = messages
+            let capturedMessages = chMessages
             let capturedUserId = user.id
             let capturedUserName = user.displayName
             let capturedTrimmed = trimmed
@@ -1778,7 +1799,7 @@ public final class AppState: ObservableObject {
             for agent in targets { typingAgentNamesByChannel[channel.id, default: []].insert(agent.displayName) }
             launchAgents(
                 targets, channelId: channel.id, channelAgentIds: channelAgentIds,
-                channelMessages: messages, triggerContent: trimmed,
+                channelMessages: chMessages, triggerContent: trimmed,
                 senderId: user.id, senderName: user.displayName
             )
         }
@@ -1817,7 +1838,7 @@ public final class AppState: ObservableObject {
 
         // Always route through LLM router for AI-to-AI
         let channelMessages = (try? db.getMessages(channelId: channelId)) ?? []
-        let recentMessages = channelMessages.suffix(3).map { (sender: $0.senderName, content: $0.content) }
+        let recentMessages = channelMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
 
         Task { @MainActor in
             if let decisions = await llmRouter.route(

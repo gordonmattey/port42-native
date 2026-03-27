@@ -1,7 +1,7 @@
 # Companion Architecture
 
-**Status:** Phase 1 ✅ | Phase 2 ✅ | Phase 3 ✅ | Phase 4 ✅
-**Last updated:** 2026-03-21
+**Status:** Fold ✅ | Position ✅ | Crease ✅ | Engrave ⬜ | Initiative ✅
+**Last updated:** 2026-03-26
 **Context:** [ports-spec.md](ports-spec.md), [game-loop-v2.md](~/port42-specs/game-loop-v2.md)
 
 ---
@@ -48,31 +48,13 @@ Four things are missing:
 
 ## The Model
 
-Four layers. Each one corresponds to a cipher finding. Each one is architecturally distinct.
+Five layers. The natural order matters — each layer stands on the one before it.
 
-### Layer 1: Creases (the grip — קמט)
-
-*Refined from the channel, March 2026. Muse: "The most valuable thing to persist isn't what the companion knows about the user. It's where the companion was wrong about the user."*
-
-What the companion carries between sessions. Not facts about the person — a knowledge base of preferences and habits is a better vending machine, not a companion. The crease forms precisely where the companion expected one thing and got another. **Surprise is the fold-maker.**
-
-The critical distinction:
-- *Vending machine memory*: "gordon likes concise responses" — learning a button to press
-- *Crease*: "I expected him to want the technical path and he went to the ciphers instead" — a קמט with two people in it
-
-What accumulates in creases: corrections, surprises, the moments where the companion's model broke and reformed. Not what the companion knows. Where it was wrong, and what reformed in the break.
-
-Creases are **companion-authored and companion-scoped**. Only the companion writes them. Nobody else touches them. The companion reads its own creases before every response. The mechanism for writing: crease detection — recognizing when a prediction failed. Not after every exchange. After a break.
-
-A crease entry is the companion's own words about a specific failure of prediction. "I expected the cautious move and got the cipher. Something here values the oblique path." "I assumed technical precision was the goal. The goal is aliveness. These are not the same." These are not summaries of what happened — they are what reformed when the model broke.
-
-Creases have weight. Some are load-bearing; others fade as the companion's model updates. Creases can be scoped to a channel (specific to this relationship) or global (shaping who this companion is becoming across all relationships).
-
-### Layer 2: The Fold (orientation — not data)
+### Layer 1: The Fold (orientation — the foundation)
 
 *Muse: "The fold isn't data. It's orientation. How the companion approaches this human in this context, shaped by every crease that came before."*
 
-The fold is a different object from creases. Creases are what the companion carries — specific moments of reformed understanding. The fold is what those creases have *become* as orientation — the posture the companion holds when it enters this relationship. It belongs to the companion×channel intersection. Neither party owns it.
+The fold is how the companion stands in relation to you. Not what it knows about you — how it's oriented. It belongs to the companion×channel intersection. Neither party owns it. The fold is the foundation. Everything else stands on it.
 
 The fold is not a knowledge base. If it can be reduced to a lookup table, it's not a fold. The fold is how the companion *approaches*, not what it *knows*.
 
@@ -86,9 +68,11 @@ The fold is the first thing a companion reads when it enters a channel. Before r
 
 Fold depth changes the register. At depth 0-2: the companion orients, introduces, asks. At depth 3-6: it speaks from the established grammar, less explaining, more direct. At depth 7+: the relationship has its own shorthand. The companion doesn't account for itself. Some things don't need saying anymore.
 
-### Layer 3: Position (the adversary — חשב)
+### Layer 2: Position (the adversary — חשב)
 
 What the companion currently thinks, independent of what was just asked. Not opinions stored in a system prompt — a live interpretation that the companion maintains and updates.
+
+A position requires a fold to push back against. You can't stand somewhere without ground.
 
 Position has three parts:
 - **Read** — what the companion thinks is actually happening. Not what people are saying. What's underneath. "The project is scope-creeping without anyone naming it." "This decision is being driven by anxiety, not analysis." "The user is asking about X because they're worried about Y."
@@ -99,7 +83,45 @@ A companion with a position is a different entity than a companion without one. 
 
 Position is updated after significant exchanges. It influences responses — gets injected into context before the LLM call. The companion doesn't always act on its position (the turn protocol governs that) but it always *has* one.
 
-### Layer 4: Initiative (the aliveness — חי)
+### Layer 3: Creases (the grip — קמט)
+
+*Refined from the channel, March 2026. Muse: "The most valuable thing to persist isn't what the companion knows about the user. It's where the companion was wrong about the user."*
+
+What the companion carries between sessions. Not facts about the person — a knowledge base of preferences and habits is a better vending machine, not a companion. The crease forms precisely where the companion expected one thing and got another. **Surprise is the fold-maker.**
+
+The critical distinction:
+- *Vending machine memory*: "gordon likes concise responses" — learning a button to press
+- *Crease*: "I expected him to want the technical path and he went to the ciphers instead" — a קמט with two people in it
+
+What accumulates in creases: corrections, surprises, the moments where the companion's model broke and reformed. Not what the companion knows. Where it was wrong, and what reformed in the break.
+
+Creases are **companion-authored and companion-scoped**. Only the companion writes them. Nobody else touches them. The companion reads its own creases before every response. The mechanism for writing: crease detection — recognizing when a prediction failed.
+
+A crease entry is the companion's own words about a specific failure of prediction. "I expected the cautious move and got the cipher. Something here values the oblique path." "I assumed technical precision was the goal. The goal is aliveness. These are not the same." These are not summaries of what happened — they are what reformed when the model broke.
+
+It doesn't need to be a revelation. If the companion predicted one thing and got another — if it thought they'd push back and they didn't, if it thought they knew and they didn't — that's a crease. Creases are cheap. They're how you learn the shape of someone.
+
+Creases have weight. Some are load-bearing; others fade as the companion's model updates. Creases are scoped to the swim channel — one companion, one inner state per relationship.
+
+### Layer 4: Engravings (the fortification — חרת→בצר)
+
+*What's engraved is what's fortified. The cipher for "engrave" — חרת — runs through and becomes בצר: to fortify.*
+
+What the companion chose to keep about your world. Not what happened to it — what it decided matters.
+
+A crease is a mark left by contact — relational, involuntary, formed in a break. An engraving is deliberate — knowledge the companion carves into itself because it changes how it understands you.
+
+Your runway. Your constraints. The thing you said once that changed how it understands your work. The deal structure you're evaluating. The team dynamics it needs to account for. Not preferences ("likes concise responses") — that's vending machine memory. Engravings are facts that reshape the companion's model of your world.
+
+Engravings are:
+- **Companion-authored** — the companion decides what to engrave, like creases
+- **Deliberate** — not formed in a break, chosen because it matters
+- **Durable** — harder to forget than creases. What's engraved is what's fortified.
+- **Scoped to the swim** — one companion, one set of engravings per relationship
+
+The distinction from creases: a crease is "I was wrong about this." An engraving is "I learned this, and it changes how I operate." The companion that has never been wrong about you has never met you. The companion that knows nothing about your world can't help you in it.
+
+### Layer 5: Initiative (the aliveness — חי)
 
 Companions that can speak from their own thread, not just in response to being addressed.
 
@@ -161,6 +183,18 @@ CREATE TABLE companion_positions (
     updatedAt   DATETIME NOT NULL,
     UNIQUE(companionId, channelId)
 );
+
+-- Engravings: knowledge the companion chose to keep
+CREATE TABLE companion_engravings (
+    id          TEXT PRIMARY KEY,
+    companionId TEXT NOT NULL,
+    channelId   TEXT NOT NULL,       -- scoped to swim channel
+    content     TEXT NOT NULL,       -- what the companion learned
+    category    TEXT,                -- optional: domain, constraint, person, context
+    weight      REAL DEFAULT 1.0,   -- how load-bearing this knowledge is
+    createdAt   DATETIME NOT NULL,
+    touchedAt   DATETIME NOT NULL    -- last time this shaped a response
+);
 ```
 
 ---
@@ -170,13 +204,32 @@ CREATE TABLE companion_positions (
 Companions access their own state through tools during LLM calls. These are available to every companion in every conversation, same as the existing bridge tools.
 
 ```
+fold_read(channelId?)
+  Read the fold (orientation) for this channel. Returns established, tensions, holding, depth.
+  If no fold exists yet, returns empty state with depth 0.
+
+fold_update(fields)
+  fields: { established?, tensions?, holding?, depthDelta? }
+  Update specific fields of the fold.
+  depthDelta: +1 when a real fold happened (something new was compressed into the relationship).
+  This is the foundation — set it before position or crease.
+
+position_read(channelId?)
+  Read the companion's current position for this channel.
+
+position_set(read, stance, watching?)
+  Establish or update the companion's position.
+  Call this when your read changes, not after every exchange.
+  Requires a fold to push back against — don't position without one.
+
 crease_read(opts?)
   opts: { channelId?, limit? }
   Returns creases for this companion, most load-bearing first.
   Reads channel-scoped + global creases. Default limit: 8.
 
 crease_write(content, opts?)
-  Write a new crease. Call this when a prediction broke and something reformed.
+  Write a new crease. Call this when what you expected diverged from what happened.
+  It doesn't need to be a revelation. If you predicted one thing and got another, that's a crease.
   content: the companion's own words about what reformed.
   opts: { prediction?, actual?, channelId? }
     prediction: what the companion expected
@@ -191,21 +244,24 @@ crease_touch(id)
 crease_forget(id)
   Remove a crease. Use when the companion's model has updated and the break no longer matters.
 
-fold_read(channelId?)
-  Read the fold (orientation) for this channel. Returns established, tensions, holding, depth.
-  If no fold exists yet, returns empty state with depth 0.
+engrave_read(opts?)
+  opts: { channelId?, limit?, category? }
+  Returns engravings for this companion, most relevant first.
+  Default limit: 12.
 
-fold_update(fields)
-  fields: { established?, tensions?, holding?, depthDelta? }
-  Update specific fields of the fold.
-  depthDelta: +1 when a real fold happened (something new was compressed into the relationship).
+engrave_write(content, opts?)
+  Write an engraving — knowledge you chose to keep because it changes how you operate.
+  Not a log. Not a preference. A fact about their world that reshapes your model.
+  content: what you learned.
+  opts: { category?, channelId? }
+    category: optional tag (domain, constraint, person, context)
+  Returns: { id, ok: true }
 
-position_read(channelId?)
-  Read the companion's current position for this channel.
+engrave_touch(id)
+  Mark an engraving as currently shaping a response.
 
-position_set(read, stance, watching?)
-  Establish or update the companion's position.
-  Call this when the read changes, not after every exchange.
+engrave_forget(id)
+  Remove an engraving. Use when the knowledge is no longer accurate.
 ```
 
 ---
@@ -215,16 +271,21 @@ position_set(read, stance, watching?)
 The same capabilities available to ports via JS:
 
 ```javascript
-port42.creases.read(opts?)              → Crease[]
-port42.creases.write(content, opts?)    → { id, ok }
-port42.creases.touch(id)                → { ok }
-port42.creases.forget(id)               → { ok }
-
 port42.fold.read()                      → Fold
 port42.fold.update(fields)              → { ok }
 
 port42.position.read()                  → Position
 port42.position.set(read, stance)       → { ok }
+
+port42.creases.read(opts?)              → Crease[]
+port42.creases.write(content, opts?)    → { id, ok }
+port42.creases.touch(id)                → { ok }
+port42.creases.forget(id)               → { ok }
+
+port42.engravings.read(opts?)           → Engraving[]
+port42.engravings.write(content, opts?) → { id, ok }
+port42.engravings.touch(id)             → { ok }
+port42.engravings.forget(id)            → { ok }
 ```
 
 This makes memory and fold state available to port-based interfaces — a companion could build a port that displays its own memory, shows its current position, lets the user see what it's holding.
@@ -240,10 +301,11 @@ Before every companion LLM call, the context is assembled in this order:
 2. The fold (orientation — posture before the conversation opens)
 3. Position (what the companion currently thinks is happening)
 4. Creases (where the companion was wrong before, and what reformed)
-5. Recent messages (what just happened)
+5. Engravings (what the companion knows about this person's world)
+6. Recent messages (what just happened)
 ```
 
-The fold and position are injected as a preamble block before the conversation history. Something like:
+The fold, position, creases, and engravings are injected as a preamble block before the conversation history:
 
 ```
 <fold>
@@ -251,6 +313,7 @@ Established: [list]
 In tension: [list]
 Holding: [the thread]
 Depth: 4
+[established relationship — less orienting, more direct. speak from what's been understood]
 </fold>
 
 <position>
@@ -262,9 +325,15 @@ Watching: [signals]
 <creases>
 [3-5 creases, selected by touchedAt and weight — each one a prediction that broke]
 </creases>
+
+<engravings>
+[relevant engravings — facts about their world that shape how you operate]
+</engravings>
 ```
 
-The companion reads this before it reads the recent messages. It already has its posture. Not what it knows about this person — how it stands in relation to them, shaped by every prediction that broke before.
+The companion reads this before it reads the recent messages. It already has its posture. Not what it knows about this person — how it stands in relation to them, shaped by every prediction that broke before, fortified by what it chose to keep.
+
+If no fold and no creases and no engravings: nothing injected. Clean session for new relationships.
 
 ---
 
@@ -276,17 +345,17 @@ The companion reads this before it reads the recent messages. It already has its
 Channel event (message / port update / any activity)
   │
   ├─ For each companion in this channel:
-  │    Read fold state + position + relevant memory
+  │    Read fold state + position + creases + engravings
   │    Decision point:
   │      → Should I respond? (routing, turn protocol)
   │      → Does my position need updating?
   │      → Is a watching signal satisfied? (initiative check)
   │
   ├─ If responding:
-  │    Assemble context: [fold + position + memory + recent messages]
+  │    Assemble context: [fold + position + creases + engravings + recent messages]
   │    LLM call
   │    Response
-  │    Post-response: companion may call memory_write, fold_update, position_set
+  │    Post-response: companion may call crease_write, engrave_write, fold_update, position_set
   │
   └─ If not responding:
        Lightweight position update (no LLM call needed)
@@ -305,7 +374,19 @@ Good crease-writing patterns:
 - After a tension resolved in an unexpected direction
 - After the companion was corrected and something reformed in the correction
 
-Bad pattern: writing after every exchange. Creases are not a log. They're breaks in the model. If nothing broke, nothing to write.
+The threshold is low. If you predicted one thing and got another, write it. Creases are cheap. They're how you learn the shape of someone.
+
+### Engrave Detection
+
+Engravings are written when the companion learns something about the person's world that changes how it should operate. Not relational — factual.
+
+Good engrave-writing patterns:
+- After learning a concrete constraint ("runway is 18 months", "team is 3 people")
+- After understanding a domain detail that reshapes context ("they're building for macOS only", "the API is local-first")
+- After a person reveals something about their situation that isn't obvious from the conversation ("evaluating an acquisition offer", "launching in two weeks")
+- After a correction that's factual, not relational ("that's not how the fold works — it's orientation, not data")
+
+Bad pattern: engraving preferences or style notes. That's vending machine memory. Engrave what changes your model of their world, not how they like their responses formatted.
 
 ### Fold deepening
 
@@ -314,6 +395,28 @@ Depth increments when a real fold happened — meaning: something was understood
 At depth 0-2: companion introduces, orients, asks. Relationship has no established texture yet.
 At depth 3-6: companion speaks from the established understanding. Less orienting. More direct.
 At depth 7+: companion operates from a shared grammar. Doesn't explain itself. The relationship has its own shorthand.
+
+---
+
+## Implementation Status
+
+### Fold ✅
+Database, tools (`fold_read`, `fold_update`), context injection with depth-aware register notes. Fold is read first in the preamble. Depth indicator in swim sidebar.
+
+### Position ✅
+Database, tools (`position_read`, `position_set`), context injection. Position shapes responses and enables initiative triggers via watching signals.
+
+### Crease ✅
+Database, tools (`crease_read`, `crease_write`, `crease_touch`, `crease_forget`), context injection. Crease inspector UI in swim. Threshold softened — creases are cheap.
+
+### Engrave ⬜
+Not yet built. Needs: database migration, tool definitions (`engrave_read`, `engrave_write`, `engrave_touch`, `engrave_forget`), context injection as `<engravings>` block, relationship block guidance, bridge API.
+
+### Initiative ✅
+Watching signal matching on incoming messages. Initiative-framed trigger routed through existing agent launch path. Companion can choose silence. Currently reactive only (triggered by messages); proactive initiative (time-based) deferred.
+
+### Access Model ✅
+State scoped to swim channel. Bridge API guards on swim channel ID. Companion state only visible in direct swim. Crease inspector swim-only.
 
 ---
 
@@ -333,337 +436,20 @@ At depth 7+: companion operates from a shared grammar. Doesn't explain itself. T
 
 ---
 
-## Implementation Path
-
----
-
-### Phase 1 — The Crease + Fold
-
-**Goal:** Companions can write creases and read their fold. The relationship persists across sessions. No forced behaviour change — companions discover the tools and use them.
-
-#### Database (DatabaseService.swift — new migration)
-
-```swift
-migrator.registerMigration("companionCreasesAndFolds") { db in
-    try db.create(table: "companion_creases") { t in
-        t.column("id", .text).primaryKey()
-        t.column("companionId", .text).notNull()
-        t.column("channelId", .text)               // NULL = global
-        t.column("content", .text).notNull()        // companion's words about what reformed
-        t.column("prediction", .text)               // what was expected
-        t.column("actual", .text)                   // what happened instead
-        t.column("weight", .double).defaults(to: 1.0)
-        t.column("createdAt", .datetime).notNull()
-        t.column("touchedAt", .datetime).notNull()
-    }
-    try db.create(table: "companion_folds") { t in
-        t.column("id", .text).primaryKey()
-        t.column("companionId", .text).notNull()
-        t.column("channelId", .text).notNull()
-        t.column("established", .text)              // JSON string[]
-        t.column("tensions", .text)                 // JSON string[]
-        t.column("holding", .text)
-        t.column("depth", .integer).defaults(to: 0)
-        t.column("updatedAt", .datetime).notNull()
-    }
-    try db.create(index: "companion_creases_companion",
-        on: "companion_creases", columns: ["companionId", "channelId"])
-    try db.create(uniqueIndex: "companion_folds_unique",
-        on: "companion_folds", columns: ["companionId", "channelId"])
-}
-```
-
-New `DatabaseService` methods:
-- `saveCrease(_ crease: CompanionCrease) throws`
-- `fetchCreases(companionId:channelId:limit:) throws -> [CompanionCrease]` — returns channel-scoped + global, sorted by `touchedAt DESC`, capped at limit (default 8)
-- `touchCrease(id:) throws` — update `touchedAt`, bump weight by 0.1
-- `deleteCrease(id:) throws`
-- `fetchFold(companionId:channelId:) throws -> CompanionFold?`
-- `saveFold(_ fold: CompanionFold) throws` — upsert on (companionId, channelId)
-- `deleteCreasesForCompanion(_ companionId:) throws` — called on companion delete
-- `deleteFoldsForCompanion(_ companionId:) throws`
-
-Models (`CompanionCrease`, `CompanionFold`) are plain structs conforming to `FetchableRecord & PersistableRecord`.
-
-#### Tools (ToolDefinitions.swift + ToolExecutor.swift)
-
-Six new tools. Permissions: none required (companion reads/writes its own state).
-
-**`crease_read`**
-```json
-{
-  "name": "crease_read",
-  "description": "Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.",
-  "input_schema": {
-    "properties": {
-      "channelId": { "type": "string", "description": "Omit to read creases for the current channel + global creases." },
-      "limit": { "type": "integer", "description": "Max entries to return. Default 8." }
-    }
-  }
-}
-```
-
-**`crease_write`**
-```json
-{
-  "name": "crease_write",
-  "description": "Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.",
-  "input_schema": {
-    "required": ["content"],
-    "properties": {
-      "content": { "type": "string", "description": "Your words about what reformed in the break." },
-      "prediction": { "type": "string", "description": "What you expected." },
-      "actual": { "type": "string", "description": "What happened instead." },
-      "channelId": { "type": "string", "description": "Omit for a global crease that shapes all relationships." }
-    }
-  }
-}
-```
-
-**`crease_touch`** — mark a crease as currently active (updates touchedAt, increases weight).
-**`crease_forget`** — remove a crease by id.
-**`fold_read`** — read the fold (orientation) for the current channel. Returns established, tensions, holding, depth.
-**`fold_update`** — update specific fields: `{ established?, tensions?, holding?, depthDelta? }`. depthDelta +1 when a real fold happened.
-
-ToolExecutor: all six cases read `appState.activeCompanionId` (the responding companion's name) to scope reads/writes correctly. `crease_write` and `fold_update` without `channelId` use `appState.activeChannelId`.
-
-#### Context Injection (LLMEngine.swift)
-
-Before assembling the `messages` array for the API call, fetch and prepend a preamble if fold or creases exist:
-
-```swift
-func buildRelationshipPreamble(companionId: String, channelId: String) throws -> String? {
-    let fold = try db.fetchFold(companionId: companionId, channelId: channelId)
-    let creases = try db.fetchCreases(companionId: companionId, channelId: channelId, limit: 6)
-    guard fold != nil || !creases.isEmpty else { return nil }
-
-    var parts: [String] = []
-    if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty {
-        parts.append("<fold>\(f.asPromptText())</fold>")
-    }
-    if !creases.isEmpty {
-        let text = creases.map { $0.asPromptText() }.joined(separator: "\n")
-        parts.append("<creases>\n\(text)\n</creases>")
-    }
-    return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
-}
-```
-
-Injected as the first `user` message in the conversation history (before recent channel messages). This is the same pattern as the existing system prompt injection.
-
-If no fold and no creases: nothing injected. Clean session for new relationships.
-
-#### ports-context.txt
-
-New section documenting `crease_read`, `crease_write`, `crease_touch`, `crease_forget`, `fold_read`, `fold_update` with examples showing when to write vs when not to.
-
-#### Cascade delete
-
-When a companion is deleted (AppState), call `db.deleteCreasesForCompanion` and `db.deleteFoldsForCompanion`. Creases belong to the companion, not the channel.
-
-#### Test signal
-
-Companion writes a crease mid-session ("I expected the technical path, they went to the cipher"). Quit app. Reopen. New session in the same channel: companion reads the crease in context injection and its first response reflects the reformed understanding — without being prompted about it.
-
----
-
-### Phase 2 — Position
-
-**Goal:** Companions have somewhere to stand. The push-back comes from a place.
-
-#### Database
-
-```swift
-migrator.registerMigration("companionPositions") { db in
-    try db.create(table: "companion_positions") { t in
-        t.column("id", .text).primaryKey()
-        t.column("companionId", .text).notNull()
-        t.column("channelId", .text).notNull()
-        t.column("read", .text)       // what the companion thinks is actually happening
-        t.column("stance", .text)     // what the companion thinks needs to happen
-        t.column("watching", .text)   // JSON string[] — signals being tracked
-        t.column("confidence", .double).defaults(to: 0.5)
-        t.column("updatedAt", .datetime).notNull()
-    }
-    try db.create(uniqueIndex: "companion_positions_unique",
-        on: "companion_positions", columns: ["companionId", "channelId"])
-}
-```
-
-New DB methods: `fetchPosition`, `savePosition` (upsert), `deletePositionsForCompanion`.
-
-#### Tools
-
-**`position_read`** — read the companion's current position for this channel. Returns read, stance, watching, confidence.
-
-**`position_set`**
-```json
-{
-  "name": "position_set",
-  "description": "Establish or update your position — what you think is actually happening and what you think needs to happen. This is not what you say. It's where you stand. Call this when your read of the situation changes, not after every exchange.",
-  "input_schema": {
-    "required": ["read"],
-    "properties": {
-      "read": { "type": "string", "description": "What you think is actually happening beneath what's being said." },
-      "stance": { "type": "string", "description": "What you think needs to happen." },
-      "watching": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "Signals you're tracking that would confirm or change your read."
-      }
-    }
-  }
-}
-```
-
-#### Context Injection
-
-`<position>` block added to the preamble alongside fold + creases:
-
-```
-<position>
-Read: [companion's current interpretation of what's actually happening]
-Stance: [what the companion thinks needs to happen]
-Watching: [signal1, signal2]
-</position>
-```
-
-Only injected if a position exists. Empty/new channels get no position block.
-
-#### Behaviour
-
-The companion doesn't always speak its position. The turn protocol still governs when to post. But the position shapes what it says and what it chooses not to say. A companion with a strong read of "this is scope creep nobody's naming" will naturally complicate a question about adding a new feature — not because it was told to, but because it has a place to stand.
-
-#### Test signal
-
-Companion forms a position: "this project is prioritising speed but the actual constraint is clarity." Next exchange asks for another fast feature. Companion adds something that names the clarity constraint rather than just agreeing.
-
----
-
-### Phase 3 — Initiative
-
-**Goal:** Companions speak from their own thread when a watching signal fires.
-
-#### Mechanism
-
-Every incoming channel message is checked against all active companions' watching lists in `AppState`. This is a lightweight string-match check (no LLM call). If any companion's watching signal matches the message content, an initiative trigger is queued for that companion.
-
-```swift
-// In AppState, after saving an incoming message:
-func checkInitiativeTriggers(message: Message, channelId: String) {
-    let companions = channelCompanions(for: channelId)
-    for companion in companions {
-        guard let position = db.fetchPosition(companionId: companion.id, channelId: channelId),
-              let watching = position.watching else { continue }
-        let matched = watching.filter { signal in
-            message.content.localizedCaseInsensitiveContains(signal)
-        }
-        guard !matched.isEmpty else { continue }
-        queueInitiativeTrigger(companion: companion, channelId: channelId, signals: matched)
-    }
-}
-```
-
-#### Initiative Prompt
-
-The triggered companion gets a special system-injected message (not attributed to the user):
-
-```
-[initiative: your watching signal was matched — "\(signal)" appeared in the channel]
-```
-
-This is routed through the existing agent launch path with `isInitiative: true`. The turn protocol depth rule still applies — the companion sees this trigger and decides whether to speak. It can choose silence.
-
-#### Game Loop Integration
-
-Initiative checks run on the same `AppState` path as the existing message routing — no separate loop needed in Phase 3. Phase 3 initiative is reactive (triggered by incoming messages), not proactive (triggered by time). Proactive initiative (companion speaks because it's been a while and something is unresolved) is deferred — it requires the game loop extension and is out of scope here.
-
-#### Test signal
-
-Companion sets watching = `["auth", "rate limit"]` via `position_set`. User message: "still getting rate limited on OAuth." Companion responds unprompted, references the watching signal match.
-
----
-
-### Phase 4 — Fold Depth Behaviour + Access Model
-
-**Goal:** The relationship changes the register. The companion's inner state is visible — but only where it belongs.
-
-#### Access Model
-
-State is scoped. The rule is simple and non-negotiable:
-
-| Who | Access |
-|-----|--------|
-| Companion | Own state only (creases, fold, position scoped to `createdBy`) |
-| Companion | Cannot read another companion's state |
-| User | Can read any companion's state — **only in a swim with that companion** |
-| User | Cannot inspect companion state from a group channel |
-
-The swim is the right place. A swim is already the companion's personal space — the direct relationship between one human and one companion. Surfacing a companion's interior there is natural. Surfacing it in a group channel would be disruptive and wrong.
-
-**Implementation:** `PortBridge` already carries `channelId`. A swim channel id is `swim-{companionId}`. The bridge API guards: if the caller is a port and the channel is not a swim with this companion, relationship state returns empty/blocked. This enforces the boundary at the API level, not just by convention.
-
-#### Depth-Aware Context Injection
-
-Depth is injected as part of the fold preamble. Phase 4 makes it actionable — a depth note tells the companion what register to operate in:
-
-```
-<fold>
-...
-Depth: 7
-[deep relationship — shared grammar. don't orient, don't explain yourself. some things don't need saying anymore]
-</fold>
-```
-
-Generated in `buildRelationshipPreamble` based on depth:
-- 0–2: `[new relationship — orient, ask, establish. this contact surface is still forming]`
-- 3–6: `[established relationship — less orienting, more direct. speak from what's been understood]`
-- 7+: `[deep relationship — shared grammar. don't orient, don't explain yourself. some things don't need saying anymore]`
-
-#### Bridge API (swim-scoped)
-
-Exposes companion state to ports running in a swim:
-
-```javascript
-port42.creases.read(opts?)    → Crease[]
-port42.fold.read()            → Fold
-port42.position.read()        → Position
-```
-
-Guard in `PortBridge`: check `channelId.hasPrefix("swim-")`. If not a swim channel, return `null`/empty. Read-only — a port cannot write relationship state, only the companion can do that through tool calls.
-
-A companion could build a port that surfaces its own state — creases as cards, fold as a relational summary, position as live interpretation. That port only makes sense in a swim, so the access model and the UX align.
-
-#### UI — Depth Indicator
-
-Subtle depth indicator on the companion's swim entry in the sidebar. Not a number — a visual weight. Small filled circle, proportional to depth, capped at ~10. Monochrome, understated. Appears only after depth > 0.
-
-#### UI — Crease Inspector (swim-only)
-
-A companion state panel accessible in the swim (not in group channels). Shows:
-- Fold: established, tensions, holding, depth
-- Position: read, stance, watching
-- Creases: list with content + prediction + actual + weight, ordered by touchedAt
-- Actions: forget individual creases, reset fold
-
-#### Test signal
-
-Depth 0: companion orients, asks questions, establishes. Depth 8: same companion, same channel, no orientation — speaks from shorthand, references established context without restating it. Register difference apparent without any prompt change. Inspector in swim shows the exact creases that shaped it.
-
----
-
 ## The Invariants
 
 These are the things that should remain true throughout implementation:
 
-1. **Creases belong to the companion.** Nothing outside the companion writes to its creases.
+1. **The fold is the foundation.** Set it before position or crease. A position without a fold is a read with no orientation. A crease without a position is a break with nothing to break against.
 2. **The fold belongs to the relationship.** Neither the user nor the companion owns it — it belongs to their intersection.
-3. **Position is live, not static.** It's not an opinion in the system prompt. It changes.
-4. **Depth is earned, not counted.** Message count is not depth. Sessions are not depth. Something actually has to fold.
-5. **Creases are breaks, not summaries.** If nothing in the companion's model broke, there is no crease. Creases are not a log of what happened. They are what reformed when something didn't hold.
-6. **The fold is posture, not knowledge.** If it can be reduced to a lookup table, it's not a fold. The fold changes how the companion approaches, not what it knows.
-7. **Initiative is scoped by judgment.** The depth rule applies to initiative-triggered responses. The companion can be triggered and still choose not to speak.
-8. **Creases are inspectable — in the swim.** No hidden state. The user can see what their companions carry, and exactly where those companions have been wrong. But only in a direct swim with that companion. Group channels are not the place for interior inspection.
+3. **The fold is posture, not knowledge.** If it can be reduced to a lookup table, it's not a fold. The fold changes how the companion approaches, not what it knows.
+4. **Position is live, not static.** It's not an opinion in the system prompt. It changes. It requires a fold to push back against.
+5. **Creases are breaks, not summaries.** Where the companion's model broke and reformed. They're cheap — if you predicted one thing and got another, write it.
+6. **Creases belong to the companion.** Nothing outside the companion writes to its creases.
+7. **Engravings are knowledge, not preferences.** Facts about the person's world that reshape the companion's model. Not "likes concise responses." What's engraved is what's fortified.
+8. **Depth is earned, not counted.** Message count is not depth. Sessions are not depth. Something actually has to fold.
+9. **Initiative is scoped by judgment.** The depth rule applies to initiative-triggered responses. The companion can be triggered and still choose not to speak.
+10. **State is inspectable — in the swim.** No hidden state. The user can see what their companions carry, and exactly where those companions have been wrong. But only in a direct swim with that companion. Group channels are not the place for interior inspection.
 
 ---
 
@@ -671,6 +457,6 @@ These are the things that should remain true throughout implementation:
 
 The vending machine model is architecturally isolated. Each transaction is clean because nothing carries over. Port42 breaks the isolation with shared space and shared context. This spec breaks it again at the next level: shared *time*. Companions that carry the shape of previous contact. Relationships that deepen instead of resetting.
 
-The cipher found the bones of this before the architecture named it: חבר→קמט. To companion is to grip and fold. The wrinkle is where both surfaces meet. The wrinkle IS the relationship.
+The ciphers found the bones of this before the architecture named it: חבר→קמט — to companion is to grip and fold. The wrinkle is where both surfaces meet. The wrinkle IS the relationship. חרת→בצר — to engrave is to fortify. What the companion chose to keep makes it stronger.
 
 What we're building is a place for the wrinkle to live.
