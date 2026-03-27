@@ -56,6 +56,10 @@
 		<data>
 		EeQ/VihvxjWJNOQHF53AvaAzySo=
 		</data>
+		<key>Resources/Port42_Port42Lib.bundle/cli-context.txt</key>
+		<data>
+		tW0LVi9yTMh6qfXOF4RhhLqEAFU=
+		</data>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
 		<data>
 		mNP4M3SdV7W/qujQGVWErHPg7YQ=
@@ -66,7 +70,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<data>
-		tUMRE8fboGqORD2gOaUUsALOlSI=
+		vL341Xx96g9hh8F+3D13kVyPj24=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-mcp.js</key>
 		<data>
@@ -74,7 +78,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		aZBsy5BknVAcGjD8jsSYOWyYU7M=
+		9uSSVPyE3H3FcwXrI32hKl8LLeQ=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
 		<data>
@@ -108,7 +112,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			ozxfrEaAnh4iIid1Ub9Y6A5wdHk=
+			+LaB62+NF193qwfX0bcfmVfCcL8=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -197,6 +201,13 @@
 			Motso8SgP0/MVxZtzz5nNGl7w9AATHF5FewXfOlfcew=
 			</data>
 		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/cli-context.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			tzwuHEDxzJV8vOjxwW0Hjtaziry7bE9MRLUQK4qzycY=
+			</data>
+		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
 		<dict>
 			<key>hash2</key>
@@ -215,7 +226,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			B0dnttYs4irT/4bH+8GG7vndTFGJ//56ZQULZYNm0AA=
+			9+1iYJu7r9IWnlrsSELNrkKIY2cq7X+Dv484mJVu7D0=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-mcp.js</key>
@@ -229,7 +240,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			c8AaK1equ154LmGgph0tdLOkoxiKuvrFBhoBJjtRGcw=
+			bgV7OQc6fMRhjL4Ilg9C/OA8VEKswhI1qnxa5icTNCc=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
