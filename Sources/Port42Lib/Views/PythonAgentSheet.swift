@@ -40,7 +40,25 @@ struct PythonAgentSheet: View {
                 .stroke(Port42Theme.border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .onAppear { generateSnippet() }
+        .onAppear {
+            // Pick up values pre-filled by AgentConnectSheet (from deep link flow)
+            if !appState.pythonAgentName.isEmpty {
+                agentName = appState.pythonAgentName
+            }
+            trigger = appState.pythonAgentTrigger
+            if let prefilled = appState.pythonAgentPrefilledInviteURL {
+                // Invite URL already known — build snippets immediately, no async needed
+                let name = agentName
+                let triggerStr = trigger == .mentionOnly ? "mention" : "all_messages"
+                snippets = [
+                    .basic: buildSnippet(name: name, inviteURL: prefilled, triggerStr: triggerStr, t: .basic),
+                    .langchain: buildSnippet(name: name, inviteURL: prefilled, triggerStr: triggerStr, t: .langchain)
+                ]
+                appState.pythonAgentPrefilledInviteURL = nil
+            } else {
+                generateSnippet()
+            }
+        }
     }
 
     // MARK: - Header

@@ -636,6 +636,7 @@ public final class AppState: ObservableObject {
     @Published public var showOpenClawSheet = false
     @Published public var openClawAvailable = false
     @Published public var showPythonAgentSheet = false
+    @Published public var showAgentConnectSheet = false
     @Published public var toastMessage: String?
     /// Channel waiting for ngrok setup to complete before copying invite link
     public var pendingInviteChannel: Channel?
@@ -643,6 +644,13 @@ public final class AppState: ObservableObject {
     public var openClawChannel: Channel?
     /// Channel for the Python agent connection sheet
     public var pythonAgentChannel: Channel?
+    /// Channel + invite URL for the unified agent connect sheet (from deep link)
+    public var agentConnectChannel: Channel?
+    public var agentConnectInviteURL: String?
+    /// Pre-filled values passed from AgentConnectSheet into PythonAgentSheet
+    public var pythonAgentName: String = "my-agent"
+    public var pythonAgentTrigger: AgentTrigger = .mentionOnly
+    public var pythonAgentPrefilledInviteURL: String?
     /// Agent names currently typing in channels (for typing indicators)
     /// Agent names currently typing, keyed by channelId
     @Published public var typingAgentNamesByChannel: [String: Set<String>] = [:]

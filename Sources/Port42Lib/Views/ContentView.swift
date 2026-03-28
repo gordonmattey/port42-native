@@ -89,6 +89,16 @@ public struct ContentView: View {
                     .environmentObject(appState)
             }
         }
+        .sheet(isPresented: $appState.showAgentConnectSheet) {
+            if let channel = appState.agentConnectChannel {
+                AgentConnectSheet(
+                    isPresented: $appState.showAgentConnectSheet,
+                    channel: channel,
+                    inviteURL: appState.agentConnectInviteURL
+                )
+                .environmentObject(appState)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
             showNewChannel = true
         }
