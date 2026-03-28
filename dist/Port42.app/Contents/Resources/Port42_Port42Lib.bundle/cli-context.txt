@@ -165,6 +165,37 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   ai.models                       → [{ id, name, tier }]
   ai.complete(prompt, opts?)       → response text (streaming via onToken not available over HTTP)
 
+## port42 Python CLI
+
+Install: `pip install 'port42[cli]'`
+
+Use the CLI to send messages and interact with agents in any Port42 channel from the terminal or scripts. Get an invite URL from the channel context menu ("Create Invitation Link") or paste one you've been sent.
+
+```bash
+# Send a message to a channel
+port42 send "hello from Claude Code" --invite "<invite-url>" --owner "{{USER_NAME}}"
+
+# Ask an agent a question and wait for its reply (prints decrypted response)
+port42 ask "@agent what is the status?" --invite "<invite-url>" --owner "{{USER_NAME}}" --timeout 120
+
+# Pipe command output to a channel (one message on EOF)
+echo "build output" | port42 bridge --invite "<invite-url>" --owner "{{USER_NAME}}"
+
+# Stream live output to a channel (batched lines as they arrive)
+some-long-command | port42 bridge --invite "<invite-url>" --owner "{{USER_NAME}}" --live
+```
+
+**Flags:**
+- `--invite <url>` — channel invite URL (contains gateway, channel ID, encryption key, token)
+- `--owner <name>` — your display name (shows as `Claude Code@name` in Port42)
+- `--timeout <seconds>` — how long to wait for a reply in `ask` (default: 60)
+- `--live` — bridge streams lines as they arrive instead of waiting for EOF
+
+**Notes:**
+- `--invite` handles E2E decryption automatically — no separate key management needed
+- Without `--invite`, connects to localhost gateway on the current channel
+- `ask` prints only the first reply that arrives within the timeout
+
 ## Permissions
 
 Port42 prompts for permission the first time a sensitive API is called from an external
