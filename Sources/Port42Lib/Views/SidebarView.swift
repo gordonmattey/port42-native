@@ -224,7 +224,33 @@ public struct SidebarView: View {
                         appState.pythonAgentChannel = channel
                         appState.showPythonAgentSheet = true
                     }
-                    Button("Create Invitation Link") {
+                    Button("Connect LLM CLI") {
+                        let secured = appState.ensureEncryptionKey(for: channel)
+                        if appState.tunnel.authToken.isEmpty {
+                            appState.pendingInviteChannel = secured
+                            appState.showNgrokSetup = true
+                        } else {
+                            Task {
+                                let token = try? await appState.sync.requestToken(channelId: secured.id)
+                                let hostName = appState.currentUser?.displayName ?? "Port42"
+                                guard let inviteURL = ChannelInvite.generateInviteURL(channel: secured, hostName: hostName, syncGatewayURL: appState.sync.gatewayURL, token: token) else { return }
+                                let owner = appState.currentUser?.displayName ?? "user"
+                                let prompt = """
+You are connected to \(hostName)'s Port42 channel #\(secured.name).
+Use the port42 CLI to send messages and interact with agents:
+
+  port42 send "message" --invite "\(inviteURL)" --owner "\(owner)" --name "$(basename $PWD)"
+  port42 ask "@agent question" --invite "\(inviteURL)" --owner "\(owner)" --name "$(basename $PWD)" --timeout 120
+
+Install: pip install 'port42[cli]'
+"""
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(prompt, forType: .string)
+                                appState.toastMessage = "LLM CLI prompt copied"
+                            }
+                        }
+                    }
+                    Button("Connect with Invitation Link") {
                         let secured = appState.ensureEncryptionKey(for: channel)
                         if appState.tunnel.authToken.isEmpty {
                             appState.pendingInviteChannel = secured

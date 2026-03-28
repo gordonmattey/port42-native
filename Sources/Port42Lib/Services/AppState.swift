@@ -1102,16 +1102,20 @@ public final class AppState: ObservableObject {
     /// local companions directly since the remote peer may not have that companion.
     /// Namespaced @Echo@gordon also works for explicit targeting.
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
-        let isAISender = message.senderType != "human"
+        // Messages with a senderOwner are human-operated tools (CLI, SDK) — treat as human-initiated
+        // even though senderType is "agent". Only autonomous companions (no senderOwner) get cooldown.
+        let isAISender = message.senderType != "human" && message.senderOwner == nil
         NSLog("[Port42] handleIncomingSyncedMessage: sender=%@ type=%@ isAI=%d content=%@", message.senderName, message.senderType, isAISender ? 1 : 0, String(message.content.prefix(80)))
 
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
-        guard !channelAgents.isEmpty else {
-            NSLog("[Port42] No agents in channel %@, skipping", channelId)
+        let channelAgentIds = Set(channelAgents.map { $0.id })
+
+        // Skip if no companions in channel AND no @mentions (nothing to route to)
+        let hasMentions = !MentionParser.extractMentions(from: message.content).isEmpty
+        guard !channelAgents.isEmpty || hasMentions else {
+            NSLog("[Port42] No agents in channel %@ and no mentions, skipping", channelId)
             return
         }
-
-        let channelAgentIds = Set(channelAgents.map { $0.id })
 
         let targets = AgentRouter.findTargetAgents(
             content: message.content, agents: companions,
