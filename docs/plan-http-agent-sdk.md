@@ -87,7 +87,86 @@ The only new gateway work is the `feedback` message type (Phase 4). Everything e
 
 ---
 
-## Phase 1: Agent Connection via Existing Protocol (F-670)
+## Step 0: Repo + PyPI Setup
+
+New repo: `gordonmattey/port42-python` (same model as `port42-openclaw`)
+
+**Delivers:** repo, `pyproject.toml`, empty package skeleton, PyPI project claimed, `pip install port42` works (installs empty package)
+**Test:** `pip install port42` installs cleanly; `from port42 import Agent` gives ImportError with a useful message until Step 1 is done
+
+### Repo layout
+
+```
+port42-python/
+├── pyproject.toml
+├── README.md
+├── port42/
+│   ├── __init__.py
+│   ├── agent.py
+│   ├── connection.py
+│   ├── types.py
+│   ├── bridge.py
+│   └── langchain/
+│       ├── __init__.py
+│       ├── callback.py
+│       └── tools.py
+└── examples/
+    ├── basic/agent.py
+    ├── langchain/agent.py
+    └── pipeline/agent.py
+```
+
+### pyproject.toml
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "port42"
+version = "0.1.0"
+description = "Python SDK for Port42 — connect external agents to your macOS companion"
+requires-python = ">=3.10"
+dependencies = [
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+langchain = [
+    "langchain-core>=0.3",
+]
+cli = [
+    "click>=8.0",
+]
+all = [
+    "port42[langchain,cli]",
+]
+
+[project.scripts]
+port42 = "port42.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/gordonmattey/port42-python"
+```
+
+### Publishing
+
+Use PyPI trusted publishing (GitHub Actions OIDC — same as openclaw):
+- `publish.yml` triggers on push to `v*` tags
+- `pypi publish` via `hatch` or `twine`
+- `pip install port42` resolves immediately after first publish
+
+---
+
+## Step 1: Python SDK + Connection (F-670, F-671)
+
+Python process connects to existing gateway, sends/receives messages. No gateway changes needed.
+
+**Delivers:** `port42/connection.py`, `port42/agent.py`, `port42/types.py`
+**Test:** Python agent connects to running Port42 gateway, receives a message, sends a response back, message appears in channel
+
+### Agent Connection via Existing Protocol
 
 ### No new endpoint needed
 
@@ -252,7 +331,14 @@ def _load_state(self):
 
 ---
 
-## Phase 2: "Add Remote Companion" UI + Swift-Side Recognition (F-670 continued)
+---
+
+## Step 3: Swift-Side Recognition + "Add Remote" UI
+
+HTTP agents appear in Port42 companion list. Users can add them from New Companion sheet.
+
+**Delivers:** `.httpAgent` mode in AgentConfig, "Remote" tab in NewCompanionSheet, presence detection, code snippet generation
+**Test:** Create remote companion via UI, copy snippet, run Python agent, companion appears online in sidebar with correct presence
 
 ### UI: New "Remote" tab in NewCompanionSheet
 
@@ -424,7 +510,7 @@ This lets the Swift app populate the companion list without the agent needing to
 
 ---
 
-## Phase 3: Python SDK (F-671)
+### Python SDK Internals
 
 ### Package: `port42`
 
@@ -745,6 +831,15 @@ class Agent:
         self._ws.send(json.dumps(env))
 ```
 
+---
+
+## Step 2: Bridge API Access + Threading
+
+Python agent can call Port42 bridge APIs (port_push, rest_call, etc.) via gateway RPC.
+
+**Delivers:** `_call()` RPC method, `port42/bridge.py`, dual-thread recv + dispatch
+**Test:** Agent creates a port via bridge API, pushes data into it, port updates live
+
 ### Threading model
 
 The sync `run()` blocks on `ws.recv()` in a loop. For the `_call()` RPC pattern (send call, wait for response), there's a conflict: we need to dispatch incoming messages while waiting for a specific call response.
@@ -867,7 +962,12 @@ class Feedback:
 
 ---
 
-## Phase 4: Feedback Relay (F-672)
+## Step 4: Feedback Relay (F-672)
+
+Reactions and replies on agent messages flow back to the agent.
+
+**Delivers:** `feedback` envelope type in gateway, `on_feedback` handler in SDK, Feedback dataclass
+**Test:** Send message as agent, user reacts with emoji, agent's `on_feedback` handler fires with correct reaction data
 
 ### What triggers feedback
 
@@ -956,7 +1056,12 @@ This is v2. Ship without it first.
 
 ---
 
-## Phase 5: LangChain Integration (F-673, F-674)
+## Step 5: LangChain Integration (F-673, F-674)
+
+LangChain chains stream to Port42 via callbacks, bridge tools available.
+
+**Delivers:** `port42/langchain/callback.py`, `port42/langchain/tools.py`
+**Test:** LangChain chain with Port42CallbackHandler shows typing indicator during execution, posts structured result to channel on completion
 
 ### Port42CallbackHandler (F-673)
 
@@ -1082,7 +1187,12 @@ llm = ChatAnthropic(model="claude-sonnet-4-20250514").bind_tools(tools)
 
 ---
 
-## Phase 6: Agent Templates (F-675)
+## Step 6: Invite Page + Templates (F-675)
+
+`port42 init` scaffolds a working project. Invite page shows Python snippet.
+
+**Delivers:** `port42/cli.py`, template files (basic, langchain, pipeline), `pyproject.toml`
+**Test:** `port42 init test-agent && cd test-agent && python agent.py` connects to running gateway
 
 ### CLI: `port42 init`
 
@@ -1189,7 +1299,12 @@ agent.run()
 
 ---
 
-## Intent-Engine Mapping
+## Step 7: Intent-Engine Integration (Test Sprint)
+
+Real pipelines running as Port42 companions. Validates the entire stack end-to-end.
+
+**Delivers:** 5 chain wrappers (synth, anomaly, gap, writer, strategy), port rendering for Pydantic output models, feedback store integration, combined intel dashboard port
+**Test:** @mention synth companion in channel with transcript text, synthesizer chain runs, Synthesis output renders as a port, react with correction emoji, feedback store receives it, next run reflects the correction
 
 How Gordon's 5 LangChain chains become Port42 companions:
 
@@ -1289,80 +1404,6 @@ def handle(msg):
 def handle_feedback(fb):
     feedback_store.add(fb.message_id, fb.type, fb.content, fb.sender)
 ```
-
----
-
-## Implementation Order
-
-### Sprint 1: Python SDK + zero gateway changes
-
-**Goal:** Python process connects to existing gateway, sends/receives messages. No gateway changes needed.
-
-1. **Python**: `port42/connection.py` — WebSocket client speaking existing identify/join/message protocol
-2. **Python**: `port42/agent.py` — Agent class with `on_mention`, `on_message`, `run()`
-3. **Python**: `port42/types.py` — Message dataclass
-4. **Python**: Channel name resolution via `POST /call {"method":"channel.list"}`
-5. **No gateway changes** — the agent is just a peer on `/ws`
-6. **Test**: Python agent connects to running Port42 gateway, receives a message, sends a response back, message appears in channel
-
-### Sprint 2: Bridge API access
-
-**Goal:** Python agent can call Port42 bridge APIs (port_push, rest_call, etc.)
-
-1. **Python**: `_call()` RPC method with threading model
-2. **Python**: `port42/bridge.py` — all bridge API wrappers
-3. **Python**: Dual-thread recv + dispatch
-4. **Test**: Agent creates a port via bridge API, pushes data into it, port updates live
-
-### Sprint 3: Swift-side recognition + "Add Remote" UI
-
-**Goal:** HTTP agents appear in Port42 companion list. Users can add them from New Companion sheet.
-
-1. **AgentConfig.swift**: Add `.httpAgent` mode, `gatewayURL` field, `createHTTPAgent()` factory
-2. **NewCompanionSheet.swift**: Add "Remote" tab with name/trigger, shows code snippet after create
-3. **AppState.swift**: Detect `agent-` prefix senders, auto-create AgentConfig if not pre-created via UI
-4. **AppState.swift**: Skip HTTP agents in `triggerAgents()` (they self-trigger)
-5. **SidebarView.swift**: Show HTTP agents with network icon (e.g., `network` SF Symbol)
-6. **DatabaseService.swift**: Migration to add `gatewayURL` column to agents table
-7. **Test**: Create remote companion via UI, copy snippet, run Python agent, companion appears online in sidebar with correct presence
-
-### Sprint 4: Feedback relay
-
-**Goal:** Reactions and replies on agent messages flow back to the agent.
-
-1. **gateway.go**: Add `feedback` message type, `routeFeedback()`
-2. **AppState.swift**: Detect reaction/reply on HTTP agent message, send feedback envelope
-3. **Python**: `on_feedback` handler, Feedback dataclass
-4. **Test**: Send message as agent, user reacts with emoji, agent's `on_feedback` handler fires with correct reaction data
-
-### Sprint 5: LangChain integration
-
-**Goal:** LangChain chains stream to Port42 via callbacks, bridge tools available.
-
-1. **Python**: `port42/langchain/callback.py` — Port42CallbackHandler
-2. **Python**: `port42/langchain/tools.py` — Port42Tool wrappers
-3. **Test**: LangChain chain with Port42CallbackHandler shows typing indicator during execution, posts structured result to channel on completion
-
-### Sprint 6: Invite page + templates
-
-**Goal:** Invite page shows Python snippet. `port42 init` scaffolds a working project.
-
-1. **main.go**: Add "connect python agent" panel to invite page with pre-filled snippet
-2. **Python**: `port42/cli.py` — click CLI with init command
-3. **Python**: Template files (basic, langchain, pipeline)
-4. **pyproject.toml**: Package metadata, scripts entry
-5. **Test**: Open invite page in browser, copy Python snippet, run it, agent connects and joins channel. Separately: `port42 init test-agent && cd test-agent && python agent.py` connects to running gateway
-
-### Sprint 7: Intent-engine integration
-
-**Goal:** Gordon's day-job pipelines running as Port42 companions.
-
-1. Wire up synthesizer chain as a companion
-2. Add port rendering for Pydantic output models
-3. Connect feedback store to `on_feedback`
-4. Add remaining chains (anomaly, gap, report_writer, strategy)
-5. Build combined intel dashboard port
-6. **Test**: @mention synth companion in channel with transcript text, synthesizer chain runs, Synthesis output renders as a port, react with correction emoji, feedback store receives it, next run reflects the correction
 
 ---
 

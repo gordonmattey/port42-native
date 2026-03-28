@@ -635,11 +635,14 @@ public final class AppState: ObservableObject {
     @Published public var showNgrokSetup = false
     @Published public var showOpenClawSheet = false
     @Published public var openClawAvailable = false
+    @Published public var showPythonAgentSheet = false
     @Published public var toastMessage: String?
     /// Channel waiting for ngrok setup to complete before copying invite link
     public var pendingInviteChannel: Channel?
     /// Channel for the OpenClaw agent connection sheet
     public var openClawChannel: Channel?
+    /// Channel for the Python agent connection sheet
+    public var pythonAgentChannel: Channel?
     /// Agent names currently typing in channels (for typing indicators)
     /// Agent names currently typing, keyed by channelId
     @Published public var typingAgentNamesByChannel: [String: Set<String>] = [:]

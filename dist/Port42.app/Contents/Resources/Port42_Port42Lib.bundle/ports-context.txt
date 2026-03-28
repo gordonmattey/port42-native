@@ -405,6 +405,35 @@ BRIDGE API REFERENCE:
   port42.port.restore(id, version)
     Restore a port to a specific earlier version. Returns true on success.
 
+  port42.port.push(id, data)
+    Push data to a live port via CustomEvent. The target port receives a 'port42:data'
+    event with the data in event.detail. Use this to feed live data into ports from
+    other ports or from companion tool calls.
+    id: port UDID (from ports.list)
+    data: any JSON-serializable value
+    Returns: {ok: true}
+
+    Receiving port listens with:
+      window.addEventListener('port42:data', (e) => {
+        const data = e.detail;  // the pushed data
+        updateDashboard(data);
+      });
+
+  port42.port.exec(id, js)
+    Execute arbitrary JavaScript on another port's webview context.
+    id: port UDID (from ports.list)
+    js: JavaScript string to evaluate
+    Returns: the result of the evaluation (or null)
+
+  port42.rest.call(url, opts?)
+    Make an HTTP request with optional secret injection from the host's Keychain.
+    url: the request URL
+    opts: { method, headers, body, secret }
+    secret: name of a stored secret — the host resolves it and injects the auth header.
+    The secret value never reaches the port — only the response data.
+    Returns: { status, headers, body }
+    Requires REST permission.
+
   port42.creases.read(opts?)
     Read relationship creases (only available in a swim).
     Returns: [{id, content, weight, prediction?, actual?, createdAt}]

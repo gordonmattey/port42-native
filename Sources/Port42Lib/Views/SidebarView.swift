@@ -220,6 +220,10 @@ public struct SidebarView: View {
                         appState.openClawChannel = channel
                         appState.showOpenClawSheet = true
                     }
+                    Button("Connect Python Agent...") {
+                        appState.pythonAgentChannel = channel
+                        appState.showPythonAgentSheet = true
+                    }
                     Button("Create Invitation Link") {
                         let secured = appState.ensureEncryptionKey(for: channel)
                         if appState.tunnel.authToken.isEmpty {

@@ -83,6 +83,12 @@ public struct ContentView: View {
                     .environmentObject(appState)
             }
         }
+        .sheet(isPresented: $appState.showPythonAgentSheet) {
+            if let channel = appState.pythonAgentChannel {
+                PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, channel: channel)
+                    .environmentObject(appState)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
             showNewChannel = true
         }

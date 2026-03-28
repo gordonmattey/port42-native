@@ -58,7 +58,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/cli-context.txt</key>
 		<data>
-		tW0LVi9yTMh6qfXOF4RhhLqEAFU=
+		UloUEX8Y1JkWqAWISkJCuoRvWnI=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
 		<data>
@@ -78,7 +78,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		9uSSVPyE3H3FcwXrI32hKl8LLeQ=
+		z9RMEqJ2JVaNDCaDAd9hFGZud4M=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
 		<data>
@@ -112,7 +112,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			xDl0Jj4WeRXMjw7AY/OjNqkDTRo=
+			AZG3U9mbkjnGA+t+8nl5s18TeFI=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -205,7 +205,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			tzwuHEDxzJV8vOjxwW0Hjtaziry7bE9MRLUQK4qzycY=
+			Lu3Ddz5VrRj6UGZ0tD1RVMBc1fj1kaJyBPoZ/piV4cA=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
@@ -240,7 +240,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			bgV7OQc6fMRhjL4Ilg9C/OA8VEKswhI1qnxa5icTNCc=
+			dppX5leRGJdLIyw8iOnLAe5R32FPB37IEtZqGCbTNpU=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>

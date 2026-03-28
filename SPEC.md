@@ -1115,3 +1115,25 @@ work, everything documented.
 | ID | Question |
 |----|----------|
 | F-510 | Custom gateway vs LiveKit vs Matrix vs libp2p? LiveKit covers audio too (M6) but adds a server dependency. Matrix is decentralized and has E2E baked in but the Swift SDK is less mature. libp2p is fully P2P but complex. Custom gateway gives full control but means maintaining presence, NAT traversal, and reliability ourselves. |
+
+---
+
+## Infrastructure Decision: P2P Messaging Layer
+
+The current hand-rolled gateway (`gateway.go` — Go WebSocket hub) is becoming a liability as the protocol grows. Every new feature — feedback relay, reaction forwarding, reply threading, offline queue, relay auth, presence, read receipts — requires inventing and maintaining bespoke protocol. This is a solved problem.
+
+**The trigger:** Feedback relay (F-672) would require designing reaction/reply event types, gateway routing logic, Swift emit side, and SDK receive side — from scratch. At this point we are re-implementing features that mature messaging infrastructure already provides out of the box.
+
+**Options to evaluate:**
+
+| Option | Strengths | Weaknesses |
+|--------|-----------|------------|
+| **Matrix / Element** | Fully decentralised, E2E baked in (Olm/Megolm), federation, rich event model (reactions, threads, read receipts all native), Swift SDK (MatrixSDK) | Complex deployment, SDK maturity on Apple platforms, learning curve |
+| **LiveKit** | Real-time data channels + audio in one (solves M6 too), managed infra available, Swift SDK maintained | Primarily audio/video focused, messaging is secondary, server dependency |
+| **libp2p** | Truly P2P, no relay required, content-addressing, used by IPFS/Filecoin | Complex, no managed infra, NAT traversal hard, Swift support thin |
+| **NATS / JetStream** | Extremely fast, pub/sub + persistence, tiny footprint, self-hostable | Not P2P, centralised broker, no E2E baked in |
+| **Nostr** | Fully decentralised, simple protocol, cryptographic identity, growing ecosystem | No native E2E (NIP-44 optional), relay quality varies, no offline queue guarantee |
+
+**Recommendation for evaluation:** Matrix is the closest fit — its event model natively covers everything on the current roadmap (reactions, threads, read receipts, offline queue, federation, E2E). Risk is Swift SDK maturity and deployment complexity. Worth a spike before committing to more bespoke protocol work.
+
+**Decision needed before:** Implementing F-672 (feedback relay), F-304 (message status), F-504 (offline queue), or any further protocol additions. Each of those is trivially solved by Matrix and expensively hand-built without it.
