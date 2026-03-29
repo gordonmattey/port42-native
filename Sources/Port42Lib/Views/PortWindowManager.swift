@@ -66,7 +66,8 @@ public final class PortWindowManager: ObservableObject {
     private weak var db: DatabaseService?
 
     /// When true, window close events skip DB cleanup (app is quitting).
-    private var isTerminating = false
+    /// nonisolated(unsafe): written synchronously on .main queue in willTerminate before windows close.
+    private nonisolated(unsafe) var isTerminating = false
 
     /// Native windows for floating panels, keyed by panel ID.
     private var windows: [String: NSPanel] = [:]
@@ -89,7 +90,7 @@ public final class PortWindowManager: ObservableObject {
     public func setDatabase(_ db: DatabaseService) {
         self.db = db
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.isTerminating = true }
+            self?.isTerminating = true
         }
     }
 

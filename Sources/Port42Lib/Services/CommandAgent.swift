@@ -197,6 +197,7 @@ final class CommandAgentHandler {
                 await MainActor.run {
                     guard let appState = self.appState,
                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
+                    appState.typingAgentNamesByChannel[self.channelId, default: []].remove(self.agent.displayName)
                     if !appState.messages[idx].content.isEmpty {
                         do {
                             try appState.db.saveMessage(appState.messages[idx])
@@ -213,6 +214,7 @@ final class CommandAgentHandler {
             } catch {
                 NSLog("[Port42] Failed to spawn command agent: %@", error.localizedDescription)
                 await MainActor.run {
+                    self.appState?.typingAgentNamesByChannel[self.channelId, default: []].remove(self.agent.displayName)
                     self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
                     self.appState?.activeCommandHandlers.removeValue(forKey: msgId)
                 }
