@@ -409,6 +409,7 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             appState?.toolingAgentNames.remove(agent.displayName)
             appState?.sync.sendTyping(channelId: channelId, senderName: agent.displayName, isTyping: false, senderOwner: appState?.currentUser?.displayName)
             NSLog("[Port42] Channel agent send error: \(error)")
+            appState?.channelErrors[channelId] = error.localizedDescription
         }
     }
 
@@ -1101,10 +1102,42 @@ public final class AppState: ObservableObject {
     /// Route remote messages to local companions. Bare @Echo mentions trigger
     /// local companions directly since the remote peer may not have that companion.
     /// Namespaced @Echo@gordon also works for explicit targeting.
+    /// Auto-register a remote SDK agent as a companion the first time it sends a message.
+    /// Remote agents (senderType=="agent" + senderOwner set) connect via invite URL but don't
+    /// have a prior AgentConfig — they would be invisible in the companion list without this.
+    private func autoRegisterRemoteAgent(senderName: String, ownerName: String, channelId: String) {
+        // Already registered as a companion?
+        guard !companions.contains(where: { $0.displayName == senderName && $0.mode == .remote }) else { return }
+        guard let user = currentUser else { return }
+        guard let channel = channels.first(where: { $0.id == channelId }) else { return }
+
+        let agent = AgentConfig.createRemote(
+            ownerId: user.id,
+            displayName: senderName,
+            ownerName: ownerName
+        )
+        do {
+            try db.saveAgent(agent)
+            companions = try db.getAllAgents()
+            try db.assignAgentToChannel(agentId: agent.id, channelId: channel.id)
+            if currentChannel?.id == channel.id {
+                channelCompanions = try db.getAgentsForChannel(channelId: channel.id)
+            }
+            print("[Port42] Auto-registered remote agent '\(senderName)' (owner: \(ownerName))")
+        } catch {
+            print("[Port42] Failed to auto-register remote agent: \(error)")
+        }
+    }
+
     private func handleIncomingSyncedMessage(channelId: String, message: Message) {
         // Messages with a senderOwner are human-operated tools (CLI, SDK) — treat as human-initiated
         // even though senderType is "agent". Only autonomous companions (no senderOwner) get cooldown.
         let isAISender = message.senderType != "human" && message.senderOwner == nil
+
+        // Auto-register SDK agents as remote companions on first message
+        if message.senderType == "agent", let ownerName = message.senderOwner {
+            autoRegisterRemoteAgent(senderName: message.senderName, ownerName: ownerName, channelId: channelId)
+        }
         NSLog("[Port42] handleIncomingSyncedMessage: sender=%@ type=%@ isAI=%d content=%@", message.senderName, message.senderType, isAISender ? 1 : 0, String(message.content.prefix(80)))
 
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
@@ -1264,9 +1297,11 @@ public final class AppState: ObservableObject {
     private var lastPresenceStatus: [String: String] = [:]
 
     private func handlePresenceAnnouncement(channelId: String, senderId: String, senderName: String?, status: String) {
-        // Skip companion IDs (only announce humans)
+        // Skip local companion IDs
         let allAgentIds = Set(companions.map { $0.id })
         guard !allAgentIds.contains(senderId) else { return }
+        // Skip remote companions matched by display name (gateway assigns UUID, not AgentConfig ID)
+        if let name = senderName, companions.contains(where: { $0.displayName == name && $0.mode == .remote }) { return }
 
         // Use name from gateway, skip if unavailable (don't show raw UUIDs)
         guard let name = senderName, !name.isEmpty else { return }
@@ -1308,7 +1343,6 @@ public final class AppState: ObservableObject {
         alreadyTargeted: Set<String>, senderId: String, senderName: String
     ) {
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
-        let channelAgentIds = Set(channelAgents.map { $0.id })
         let lowered = messageContent.lowercased()
 
         var initiativeAgents: [(agent: AgentConfig, signal: String)] = []
@@ -1380,6 +1414,8 @@ public final class AppState: ObservableObject {
                     let handler = CommandAgentHandler(agent: agent, channelId: channelId, appState: self)
                     self.activeCommandHandlers[handler.messageId] = handler
                     handler.start(triggerContent: triggerContent, senderId: senderId, senderName: senderName)
+                case .remote:
+                    break  // Remote agents handle their own triggering via WebSocket
                 }
             }
         }
@@ -1630,7 +1666,6 @@ public final class AppState: ObservableObject {
         // Configure sync to the invite's gateway if different.
         // But don't switch away from our local gateway if the invite points
         // back to us (e.g. through our own ngrok tunnel).
-        let localGW = GatewayProcess.shared.localURL
         let currentGW = sync.gatewayURL ?? ""
         let invitePointsToSelf = isOwnGateway(invite.gateway)
 

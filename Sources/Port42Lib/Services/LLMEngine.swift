@@ -478,11 +478,11 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         guard let chunk = String(data: data, encoding: .utf8) else { return }
 
         if let http = dataTask.response as? HTTPURLResponse, http.statusCode != 200 {
-            // On 401, clear cached token and retry once
+            // On 401, attempt silent refresh (uses refresh token regardless of local expiry) then retry once
             if http.statusCode == 401, !hasRetriedAuth, let args = lastSendArgs, let del = delegate {
                 hasRetriedAuth = true
-                authResolver.clearCache()
-                NSLog("[Port42] Auth 401, clearing cache and retrying...")
+                authResolver.forceRefreshIfPossible()
+                NSLog("[Port42] Auth 401, force-refreshed token, retrying...")
                 self.currentTask = nil
                 session.invalidateAndCancel()
                 self.session = nil

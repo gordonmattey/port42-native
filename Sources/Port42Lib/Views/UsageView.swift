@@ -199,9 +199,9 @@ public struct UsageSheet: View {
         .background(WindowRefAccessor { window in
             window?.level = .floating
         })
-        .onChange(of: period) { _ in offset = 0; reload() }
-        .onChange(of: offset) { _ in reload() }
-        .onChange(of: grouping) { _ in reload() }
+        .onChange(of: period) { offset = 0; reload() }
+        .onChange(of: offset) { reload() }
+        .onChange(of: grouping) { reload() }
         .onAppear { reload() }
     }
 

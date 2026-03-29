@@ -86,6 +86,7 @@ final class CommandAgentHandler {
         )
 
         Task.detached { [weak self] in
+            guard let self else { return }
             do {
                 let process = Process()
                 let stdinPipe = Pipe()
@@ -121,8 +122,8 @@ final class CommandAgentHandler {
                 try process.run()
 
                 await MainActor.run {
-                    self?.process = process
-                    self?.stdinPipe = stdinPipe
+                    self.process = process
+                    self.stdinPipe = stdinPipe
                 }
 
                 // Send the event via stdin
@@ -141,7 +142,7 @@ final class CommandAgentHandler {
                     let chunk = stdout.availableData
                     if chunk.isEmpty {
                         if !process.isRunning { break }
-                        Thread.sleep(forTimeInterval: 0.01)
+                        try await Task.sleep(nanoseconds: 10_000_000)
                         continue
                     }
                     buffer.append(chunk)
@@ -164,25 +165,27 @@ final class CommandAgentHandler {
                         case "content":
                             if let content = response.content {
                                 fullContent += content
+                                let snapshot = fullContent
                                 await MainActor.run {
-                                    guard let appState = self?.appState,
+                                    guard let appState = self.appState,
                                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                                    appState.messages[idx].content = fullContent
+                                    appState.messages[idx].content = snapshot
                                 }
                             }
                         case "done":
                             if let content = response.content {
                                 fullContent = content
+                                let snapshot = fullContent
                                 await MainActor.run {
-                                    guard let appState = self?.appState,
+                                    guard let appState = self.appState,
                                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                                    appState.messages[idx].content = fullContent
+                                    appState.messages[idx].content = snapshot
                                 }
                             }
                         case "error":
                             NSLog("[Port42] Command agent error: %@", response.content ?? "unknown")
                             await MainActor.run {
-                                self?.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
+                                self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
                             }
                         default:
                             break
@@ -192,7 +195,7 @@ final class CommandAgentHandler {
 
                 // Persist the completed message
                 await MainActor.run {
-                    guard let appState = self?.appState,
+                    guard let appState = self.appState,
                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
                     if !appState.messages[idx].content.isEmpty {
                         do {
@@ -210,8 +213,8 @@ final class CommandAgentHandler {
             } catch {
                 NSLog("[Port42] Failed to spawn command agent: %@", error.localizedDescription)
                 await MainActor.run {
-                    self?.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
-                    self?.appState?.activeCommandHandlers.removeValue(forKey: msgId)
+                    self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
+                    self.appState?.activeCommandHandlers.removeValue(forKey: msgId)
                 }
             }
         }

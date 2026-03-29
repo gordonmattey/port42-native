@@ -89,7 +89,7 @@ public final class PortWindowManager: ObservableObject {
     public func setDatabase(_ db: DatabaseService) {
         self.db = db
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.isTerminating = true
+            Task { @MainActor [weak self] in self?.isTerminating = true }
         }
     }
 
@@ -619,10 +619,10 @@ public final class PortWindowManager: ObservableObject {
         // Observe move/resize to persist position
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: window, queue: .main
-        ) { [weak self] _ in self?.windowFrameChanged(panelId) }
+        ) { [weak self] _ in Task { @MainActor [weak self] in self?.windowFrameChanged(panelId) } }
         NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main
-        ) { [weak self] _ in self?.windowFrameChanged(panelId) }
+        ) { [weak self] _ in Task { @MainActor [weak self] in self?.windowFrameChanged(panelId) } }
 
         updateWindowContent(window, panel: panel)
         // Install hover tracking AFTER contentView is set by updateWindowContent
@@ -885,6 +885,13 @@ class PortNSPanel: NSPanel {
     var onClose: (() -> Void)?
     var hoverHandler: ((Bool) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
+
+    override var canBecomeKey: Bool {
+        // Yield to sheets/modals — don't steal focus from settings, add companion, etc.
+        let mainWindow = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible })
+        if mainWindow?.sheets.isEmpty == false { return false }
+        return true
+    }
 
     override func close() {
         onClose?()

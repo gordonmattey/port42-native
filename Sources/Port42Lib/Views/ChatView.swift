@@ -13,6 +13,7 @@ public struct ChatView: View {
                 ConversationContent(
                     entries: channelEntries,
                     placeholder: "chat with your reality... (press ? for help)",
+                    error: appState.channelErrors[appState.currentChannel?.id ?? ""],
                     typingNames: Array(appState.typingAgentNames.union(
                         appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
                     )),
@@ -22,6 +23,25 @@ public struct ChatView: View {
                     localOwner: appState.currentUser?.displayName,
                     channelId: appState.currentChannel?.id,
                     onSend: { content in appState.sendMessage(content: content) },
+                    onStop: {
+                        if let channelId = appState.currentChannel?.id {
+                            appState.cancelStreaming(channelId: channelId)
+                        }
+                    },
+                    onRetry: {
+                        if let channelId = appState.currentChannel?.id {
+                            AgentAuthResolver.shared.clearCache()
+                            appState.retryLastMessage(channelId: channelId)
+                        }
+                    },
+                    onDismissError: {
+                        if let channelId = appState.currentChannel?.id {
+                            appState.channelErrors[channelId] = nil
+                        }
+                    },
+                    onOpenSettings: {
+                        NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
+                    },
                     onTypingChanged: { isTyping in
                         if let channelId = appState.currentChannel?.id,
                            let userName = appState.currentUser?.displayName {

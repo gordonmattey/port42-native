@@ -6,6 +6,7 @@ import GRDB
 public enum AgentMode: String, Codable, Equatable {
     case llm
     case command
+    case remote  // Python SDK / CLI agent connected via WebSocket
 }
 
 public enum AgentTrigger: String, Codable, Equatable {
@@ -94,6 +95,28 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
             systemPrompt: systemPrompt,
             provider: provider,
             model: model,
+            command: nil,
+            args: nil,
+            workingDir: nil,
+            envVars: nil,
+            createdAt: Date()
+        )
+    }
+
+    public static func createRemote(
+        ownerId: String,
+        displayName: String,
+        ownerName: String
+    ) -> AgentConfig {
+        AgentConfig(
+            id: UUID().uuidString,
+            ownerId: ownerId,
+            displayName: displayName,
+            mode: .remote,
+            trigger: .mentionOnly,
+            systemPrompt: nil,
+            provider: nil,
+            model: nil,
             command: nil,
             args: nil,
             workingDir: nil,

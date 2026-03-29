@@ -236,7 +236,7 @@ public struct SidebarView: View {
                                 guard let inviteURL = ChannelInvite.generateInviteURL(channel: secured, hostName: hostName, syncGatewayURL: appState.sync.gatewayURL, token: token) else { return }
                                 let owner = appState.currentUser?.displayName ?? "user"
                                 let prompt = """
-You are connected to \(hostName)'s Port42 channel #\(secured.name).
+You are invited to join \(hostName)'s Port42 channel #\(secured.name).
 Use the port42 CLI to send messages and interact with agents:
 
   port42 send "message" --invite "\(inviteURL)" --owner "\(owner)" --name "$(basename $PWD)"

@@ -28,7 +28,6 @@ public struct SignOutSheet: View {
     @AppStorage("remoteAllowTerminal") private var remoteAllowTerminal = false
     @AppStorage("remoteAllowFS") private var remoteAllowFS = false
     @AppStorage("remoteAllowScreen") private var remoteAllowScreen = false
-    @AppStorage("portAICompanionId") private var portAICompanionId: String = ""
     @State private var remoteExpanded = false
     @State private var aiExpanded = false
     @StateObject private var instructionsSvc = InstructionService.shared
@@ -356,7 +355,7 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var aiConnectionSection: some View {
-        Button(action: { withAnimation { aiExpanded.toggle() } }) {
+        Button(action: { withAnimation { aiExpanded.toggle(); if aiExpanded { secretsExpanded = false; remoteExpanded = false } } }) {
             HStack(spacing: 6) {
                 Image(systemName: "brain")
                     .font(.system(size: 11))
@@ -371,6 +370,7 @@ public struct SignOutSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
 
         if aiExpanded {
 
@@ -715,90 +715,18 @@ public struct SignOutSheet: View {
                 .padding(.top, 8)
             }
         }
-        // MARK: Port42 AI row
-        Divider().background(Port42Theme.border).padding(.vertical, 4)
-
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("◈")
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.accent)
-                Text("port42 AI")
-                    .font(Port42Theme.mono(12))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                Spacer()
-            }
-
-            Text("companion used for port42.ai.complete() calls from ports")
-                .font(Port42Theme.mono(10))
-                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-
-            let llmCompanions = appState.companions.filter {
-                $0.mode == .llm && $0.model != nil
-            }
-
-            if llmCompanions.isEmpty {
-                Text("no LLM companions configured")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    // "auto" option — uses creating companion's backend
-                    Button(action: { portAICompanionId = "" }) {
-                        HStack(spacing: 6) {
-                            Text(portAICompanionId.isEmpty ? "◆" : "○")
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(portAICompanionId.isEmpty ? Port42Theme.accent : Port42Theme.textSecondary)
-                            Text("auto")
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(portAICompanionId.isEmpty ? Port42Theme.textPrimary : Port42Theme.textSecondary)
-                            Text("(creating companion's provider)")
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    ForEach(llmCompanions, id: \.id) { companion in
-                        let isSelected = portAICompanionId == companion.id
-                        Button(action: { portAICompanionId = companion.id }) {
-                            HStack(spacing: 6) {
-                                Text(isSelected ? "◆" : "○")
-                                    .font(Port42Theme.mono(10))
-                                    .foregroundStyle(isSelected ? Port42Theme.accent : Port42Theme.textSecondary)
-                                Text(companion.displayName)
-                                    .font(Port42Theme.mono(12))
-                                    .foregroundStyle(isSelected ? Port42Theme.textPrimary : Port42Theme.textSecondary)
-                                if let model = companion.model {
-                                    Text(model)
-                                        .font(Port42Theme.mono(10))
-                                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                                }
-                                Spacer()
-                                Text(companion.provider?.rawValue ?? "anthropic")
-                                    .font(Port42Theme.mono(10))
-                                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.leading, 8)
-            }
-        }
         } // end if aiExpanded
     }
 
     @ViewBuilder
     private var remoteAccessSection: some View {
         // Accordion header
-        Button(action: { withAnimation { remoteExpanded.toggle() } }) {
+        Button(action: { withAnimation { remoteExpanded.toggle(); if remoteExpanded { aiExpanded = false; secretsExpanded = false } } }) {
             HStack(spacing: 6) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 11))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text("remote access")
+                Text("Remote Access")
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
@@ -808,6 +736,7 @@ public struct SignOutSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
 
         if remoteExpanded {
             VStack(alignment: .leading, spacing: 12) {
@@ -1182,12 +1111,12 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var secretsSection: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { secretsExpanded.toggle() } }) {
+        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { secretsExpanded.toggle(); if secretsExpanded { aiExpanded = false; remoteExpanded = false } } }) {
             HStack(spacing: 6) {
                 Image(systemName: "key")
                     .font(.system(size: 11))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text("secrets")
+                Text("Secrets")
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(Port42Theme.textSecondary)
                 if !secrets.isEmpty {
@@ -1201,6 +1130,7 @@ public struct SignOutSheet: View {
                     .foregroundStyle(Port42Theme.textSecondary)
             }
         }
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
 
         if secretsExpanded {

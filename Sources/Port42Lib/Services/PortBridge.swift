@@ -203,9 +203,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard await checkPermission(for: "fs.drop") else { return }
         guard let json = try? JSONSerialization.data(withJSONObject: files),
               let jsonStr = String(data: json, encoding: .utf8) else { return }
-        webView?.evaluateJavaScript(
+        _ = try? await webView?.evaluateJavaScript(
             "window.dispatchEvent(new CustomEvent('port42:filedrop', {detail: \(jsonStr)}))"
-        ) { _, _ in }
+        )
     }
 
     // MARK: - Streaming Support
@@ -998,7 +998,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.first as? [String: Any] ?? [:]
             if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
             let screenResult = await screenBridge!.capture(opts: opts)
-            if let dict = screenResult as? [String: Any], let b64 = dict["image"] as? String {
+            if let b64 = screenResult["image"] as? String {
                 postCapture(base64PNG: b64, type: "screen")
             }
             return screenResult
@@ -1018,7 +1018,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.first as? [String: Any] ?? [:]
             if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
             let cameraResult = await cameraBridge!.capture(opts: opts)
-            if let dict = cameraResult as? [String: Any], let b64 = dict["image"] as? String {
+            if let b64 = cameraResult["image"] as? String {
                 postCapture(base64PNG: b64, type: "camera")
             }
             return cameraResult

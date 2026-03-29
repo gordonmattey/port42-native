@@ -66,10 +66,10 @@ public final class Analytics {
 
         // Track window focus/blur (throttled)
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.appFocused()
+            Task { @MainActor [weak self] in self?.appFocused() }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.appBlurred()
+            Task { @MainActor [weak self] in self?.appBlurred() }
         }
     }
 

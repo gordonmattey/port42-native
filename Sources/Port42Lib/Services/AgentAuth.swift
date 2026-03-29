@@ -187,7 +187,7 @@ public final class Port42AuthStore {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
         guard let data = try? encoder.encode(cache),
-              let str = String(data: data, encoding: .utf8) else { return }
+              String(data: data, encoding: .utf8) != nil else { return }
         let account = "oauth-cache-\(provider)"
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -474,6 +474,38 @@ public final class AgentAuthResolver {
         cachedRefreshToken = nil
         hasReadKeychain = false
         keychainDenied = false
+    }
+
+    /// Force a silent refresh on 401 — server rejected our token regardless of local expiry.
+    /// Returns true if refresh succeeded (new token cached), false if no refresh token available or refresh failed.
+    @discardableResult
+    public func forceRefreshIfPossible() -> Bool {
+        // Gather refresh token from memory or Port42 OAuth cache before clearing
+        let rt = cachedRefreshToken ?? Port42AuthStore.shared.loadOAuthCache()?.refreshToken
+        guard let rt else {
+            NSLog("[Port42:auth] forceRefresh: no refresh token available")
+            clearCache()
+            return false
+        }
+        NSLog("[Port42:auth] forceRefresh: attempting silent refresh on 401")
+        if let refreshed = try? refreshAccessToken(using: rt) {
+            cachedToken = refreshed.accessToken
+            cachedExpiresAt = refreshed.expiresAt
+            let newRt = refreshed.refreshToken ?? rt
+            cachedRefreshToken = newRt
+            hasReadKeychain = false
+            keychainDenied = false
+            Port42AuthStore.shared.saveOAuthCache(CachedOAuth(
+                accessToken: refreshed.accessToken,
+                refreshToken: newRt,
+                expiresAt: refreshed.expiresAt
+            ))
+            NSLog("[Port42:auth] forceRefresh: succeeded")
+            return true
+        }
+        NSLog("[Port42:auth] forceRefresh: failed, clearing cache")
+        clearCache()
+        return false
     }
 
     public func resetAuth() {

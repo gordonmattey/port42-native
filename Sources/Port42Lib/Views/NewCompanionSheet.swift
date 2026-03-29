@@ -696,7 +696,7 @@ public struct NewCompanionSheet: View {
         guard canCreate, let user = appState.currentUser else { return }
         let trimmedName = effectiveName
         // Replace {{NAME}} placeholder with the actual companion name
-        var trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "{{NAME}}", with: trimmedName)
         let finalPrompt = trimmedPrompt.isEmpty
             ? """

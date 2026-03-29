@@ -181,18 +181,19 @@ public final class OpenClawService: NSObject, ObservableObject {
     private func listen() {
         ws?.receive { [weak self] result in
             guard let self else { return }
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self.handleMessage(text)
-                default:
-                    break
-                }
-                self.listen()
-            case .failure(let error):
-                NSLog("[Port42:OpenClaw] WebSocket receive failed: %@", error.localizedDescription)
-                Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .string(let text):
+                        self.handleMessage(text)
+                    default:
+                        break
+                    }
+                    self.listen()
+                case .failure(let error):
+                    NSLog("[Port42:OpenClaw] WebSocket receive failed: %@", error.localizedDescription)
                     if self.retryCount < self.maxRetries {
                         self.scheduleRetry()
                     } else {
@@ -504,7 +505,7 @@ public final class OpenClawService: NSObject, ObservableObject {
 
     // MARK: - WebSocket Delegate
 
-    private class WebSocketDelegate: NSObject, URLSessionWebSocketDelegate {
+    private final class WebSocketDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
         weak var service: OpenClawService?
 
         init(service: OpenClawService) {

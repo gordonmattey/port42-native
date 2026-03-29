@@ -331,7 +331,7 @@ private final class BrowserSession: NSObject, WKNavigationDelegate {
         }
     }
 
-    nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         // Only allow http/https/data/about schemes
         if let url = navigationAction.request.url {
             let scheme = url.scheme?.lowercased() ?? ""
