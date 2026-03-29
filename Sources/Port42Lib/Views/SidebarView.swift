@@ -69,25 +69,30 @@ public struct SidebarView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // New channel/companion header
-            HStack {
-                Spacer()
-                Menu {
-                    Button(action: { showNewChannel = true }) {
-                        Label("New Channel", systemImage: "number")
-                    }
-                    Button(action: { showNewCompanion = true }) {
-                        Label("New Companion", systemImage: "person.crop.circle.badge.plus")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
+            HStack(spacing: 6) {
+                Button(action: { showNewChannel = true }) {
+                    Label("New Channel", systemImage: "number")
+                        .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Port42Theme.bgHover.opacity(0.5))
+                        .cornerRadius(5)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                .buttonStyle(.plain)
+                Button(action: { showNewCompanion = true }) {
+                    Label("New Companion", systemImage: "person.crop.circle.badge.plus")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Port42Theme.bgHover.opacity(0.5))
+                        .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+                Spacer()
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
 
             // Conversation list sorted by last activity

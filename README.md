@@ -13,7 +13,8 @@ A native Mac app where you, your friends, and your AI companions share the same 
 Port42 is the first companion computing platform. Not another AI chat wrapper. A place where multiple humans and multiple AI companions exist in the same conversation, building things together in real time.
 
 - **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed. Runs on Claude or Gemini — set per-companion.
-- **Provider companions** Connect GitHub, PostHog, Stripe, Cloudflare — or any REST API — as companions. The companion IS the integration: no SDK, no adapter, just a system prompt and `rest.call`. Multiple providers in one channel synthesize across each other's data.
+- **Command agents** Wrap any local binary or script as a companion. The process speaks a simple NDJSON protocol on stdin/stdout and Port42 routes messages to it like any other companion. Working directory and environment variables configurable per agent.
+- **Provider companions** Connect GitHub, Stripe, Cloudflare — or any REST API — as companions. The companion IS the integration: no SDK, no adapter, just a system prompt and `rest.call`. Multiple providers in one channel synthesize across each other's data.
 - **Relationship memory** Companions carry persistent fold, position, and creases across every session. They know where they stand without being asked.
 - **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data, and can push live data into running ports without rebuilding them.
 - **Swims** Deep 1:1 sessions with any companion. Continuous context that never resets.
@@ -438,7 +439,7 @@ That's the entire integration. No code. The prompt IS the connector.
 
 Multiple provider companions in one channel can see each other's responses. A general companion (forge) can synthesize across them — GitHub CI status, PostHog traffic, and Cloudflare errors in one unified port without any glue code.
 
-Provider templates for GitHub, PostHog, Stripe, Cloudflare, and Vercel are available in **Settings → Companions → Add → Provider**.
+Provider templates for GitHub, Stripe, Cloudflare, and Vercel are available via **New Companion → API**.
 
 ### Secrets Store
 

@@ -224,6 +224,7 @@ public struct NewCompanionSheet: View {
     @State private var namePlaceholder = "companion name"
     @State private var systemPrompt = ""
     @State private var selectedPreset: UUID?
+    @State private var customPresetSelected = false
     @State private var selectedProvider: AgentProvider = .anthropic
     @State private var selectedModel = "claude-opus-4-6"
     @State private var providerBaseURL = ""
@@ -231,35 +232,120 @@ public struct NewCompanionSheet: View {
     @State private var thinkingEffort = "low"
     @State private var showPodConfirm: CompanionPod?
     @State private var selectedSecrets: Set<String> = []
-    @State private var templateCategory: TemplateCategory = .port42
     @State private var newSecretName = ""
     @State private var newSecretValue = ""
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
     @State private var showAddSecret = false
     @FocusState private var isFocused: Bool
 
+    // Mode selection — nil means collapsed (no mode picked yet)
+    @State private var companionMode: CompanionMode? = nil
+
     // Command agent fields
-    @State private var agentMode: AgentMode = .llm
     @State private var commandPath = ""
     @State private var commandArgs = ""
     @State private var commandWorkDir = ""
     @State private var commandEnvVars: [(key: String, value: String)] = []
     @State private var commandEnvKey = ""
     @State private var commandEnvValue = ""
-    @State private var showCommandFilePicker = false
-    @State private var showWorkDirPicker = false
 
-    enum TemplateCategory { case port42, saas, custom }
+    enum CompanionMode { case llm, api, command }
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
     }
 
     public var body: some View {
+        ScrollView {
         VStack(spacing: 16) {
             Text("New Companion")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
+
+            // Add a companion — mode picker
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add a companion")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+
+                HStack(spacing: 0) {
+                    ForEach([(CompanionMode.llm, "LLM"), (.api, "API"), (.command, "Command")], id: \.1) { mode, label in
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                companionMode = companionMode == mode ? nil : mode
+                            }
+                        }) {
+                            Text(label)
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(companionMode == mode ? Port42Theme.accent : Port42Theme.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(companionMode == mode ? Port42Theme.accent.opacity(0.1) : Color.clear)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .background(Port42Theme.bgHover.opacity(0.3))
+                .cornerRadius(6)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+            }
+
+            // LLM mode — Port42 presets + custom, then inputs
+            if companionMode == .llm {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(CompanionPreset.presets) { preset in
+                        templateRow(preset, action: { selectPreset(preset) })
+                    }
+                    customPresetRow
+                }
+
+                nameField
+                systemPromptField
+
+                ProviderModelSection(
+                    selectedProvider: $selectedProvider,
+                    selectedModel: $selectedModel,
+                    providerBaseURL: $providerBaseURL
+                )
+
+                if selectedProvider == .anthropic {
+                    thinkingSection
+                }
+
+                secretsSection
+            }
+
+            // API mode — SaaS providers, then inputs
+            if companionMode == .api {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(CompanionPreset.providers) { preset in
+                        templateRow(preset, action: { selectProvider(preset) })
+                    }
+                    customPresetRow
+                }
+
+                nameField
+                systemPromptField
+
+                ProviderModelSection(
+                    selectedProvider: $selectedProvider,
+                    selectedModel: $selectedModel,
+                    providerBaseURL: $providerBaseURL
+                )
+
+                secretsSection
+            }
+
+            // Command mode
+            if companionMode == .command {
+                nameField
+                commandFields
+            }
+
+            if companionMode == nil {
+            Divider()
+                .background(Port42Theme.border)
 
             // Pod section
             VStack(alignment: .leading, spacing: 8) {
@@ -321,418 +407,7 @@ public struct NewCompanionSheet: View {
                     Text(pod.companions.map { "\($0.name) (\($0.role))" }.joined(separator: ", "))
                 }
             }
-
-            Divider()
-                .background(Port42Theme.border)
-
-            // Add a companion section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Add a companion")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-
-                // Mode toggle: LLM | Command
-                HStack(spacing: 0) {
-                    ForEach([(AgentMode.llm, "LLM"), (.command, "Command")], id: \.1) { mode, label in
-                        Button(action: { agentMode = mode }) {
-                            Text(label)
-                                .font(Port42Theme.mono(11))
-                                .foregroundStyle(agentMode == mode ? Port42Theme.accent : Port42Theme.textSecondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                                .background(agentMode == mode ? Port42Theme.accent.opacity(0.1) : Color.clear)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .background(Port42Theme.bgHover.opacity(0.3))
-                .cornerRadius(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
-            }
-
-            if agentMode == .llm {
-                // Template picker — category tabs + list
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 0) {
-                        ForEach([(TemplateCategory.port42, "Port42"), (.saas, "SaaS"), (.custom, "Custom API")], id: \.1) { cat, label in
-                            Button(action: {
-                                templateCategory = cat
-                                if cat == .custom { clearPreset() }
-                            }) {
-                                Text(label)
-                                    .font(Port42Theme.mono(11))
-                                    .foregroundStyle(templateCategory == cat ? Port42Theme.accent : Port42Theme.textSecondary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(templateCategory == cat ? Port42Theme.accent.opacity(0.1) : Color.clear)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        Spacer()
-                    }
-                    .background(Port42Theme.bgHover.opacity(0.3))
-                    .cornerRadius(6)
-
-                    // Template list for selected category
-                    if templateCategory == .port42 {
-                        ForEach(CompanionPreset.presets) { preset in
-                            templateRow(preset, action: { selectPreset(preset) })
-                        }
-                    } else if templateCategory == .saas {
-                        ForEach(CompanionPreset.providers) { preset in
-                            templateRow(preset, action: { selectProvider(preset) })
-                        }
-                    }
-                }
-            }
-
-            // Name field (always visible)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Name")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-
-                TextField(agentMode == .llm ? namePlaceholder : "companion name", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(14))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .focused($isFocused)
-                    .padding(10)
-                    .background(Port42Theme.bgInput)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Port42Theme.border, lineWidth: 1)
-                    )
-                    .cornerRadius(6)
-            }
-
-            if agentMode == .llm {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("System Prompt")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-
-                    TextEditor(text: $systemPrompt)
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .frame(height: 100)
-                        .background(Port42Theme.bgInput)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Port42Theme.border, lineWidth: 1)
-                        )
-                        .cornerRadius(6)
-                }
-
-                ProviderModelSection(
-                    selectedProvider: $selectedProvider,
-                    selectedModel: $selectedModel,
-                    providerBaseURL: $providerBaseURL
-                )
-
-                // Extended Thinking: only for Anthropic
-                if selectedProvider == .anthropic {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Extended Thinking")
-                                .font(Port42Theme.mono(11))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                            Spacer()
-                            Toggle("", isOn: $thinkingEnabled)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                                .tint(Port42Theme.accent)
-                        }
-
-                        if thinkingEnabled {
-                            HStack(spacing: 6) {
-                                ForEach(["low", "medium", "high"], id: \.self) { effort in
-                                    Button(action: { thinkingEffort = effort }) {
-                                        Text(effort)
-                                            .font(Port42Theme.mono(11))
-                                            .foregroundStyle(
-                                                thinkingEffort == effort
-                                                    ? Port42Theme.accent
-                                                    : Port42Theme.textSecondary
-                                            )
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 5)
-                                            .background(
-                                                thinkingEffort == effort
-                                                    ? Port42Theme.accent.opacity(0.1)
-                                                    : Color.clear
-                                            )
-                                            .cornerRadius(5)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 5)
-                                                    .stroke(
-                                                        thinkingEffort == effort
-                                                            ? Port42Theme.accent.opacity(0.5)
-                                                            : Port42Theme.border,
-                                                        lineWidth: 1
-                                                    )
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
-                            Text("Uses more tokens. Only active on Claude Code OAuth.")
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
-                        }
-                    }
-                }
-
-                // Secrets
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Secrets")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        Spacer()
-                        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showAddSecret.toggle() } }) {
-                            Image(systemName: showAddSecret ? "minus" : "plus")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    let availableSecrets = Port42AuthStore.shared.listSecrets()
-                    if !availableSecrets.isEmpty {
-                        HStack(spacing: 6) {
-                            ForEach(availableSecrets) { secret in
-                                Button(action: {
-                                    if selectedSecrets.contains(secret.name) {
-                                        selectedSecrets.remove(secret.name)
-                                    } else {
-                                        selectedSecrets.insert(secret.name)
-                                    }
-                                }) {
-                                    Text(secret.name)
-                                        .font(Port42Theme.mono(11))
-                                        .foregroundStyle(selectedSecrets.contains(secret.name) ? Port42Theme.accent : Port42Theme.textSecondary)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(
-                                            selectedSecrets.contains(secret.name)
-                                                ? Port42Theme.accent.opacity(0.15)
-                                                : Port42Theme.bgSecondary.opacity(0.5)
-                                        )
-                                        .cornerRadius(4)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Spacer()
-                        }
-                    }
-
-                    if showAddSecret {
-                        VStack(spacing: 6) {
-                            HStack(spacing: 6) {
-                                TextField("name", text: $newSecretName)
-                                    .textFieldStyle(.plain)
-                                    .font(Port42Theme.mono(12))
-                                    .foregroundStyle(Port42Theme.textPrimary)
-                                    .padding(6)
-                                    .background(Port42Theme.bgInput)
-                                    .cornerRadius(4)
-
-                                Picker("", selection: $newSecretType) {
-                                    Text("Bearer").tag(Port42AuthStore.SecretType.bearerToken)
-                                    Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
-                                    Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
-                                    Text("Header").tag(Port42AuthStore.SecretType.header)
-                                }
-                                .labelsHidden()
-                                .frame(width: 90)
-                            }
-
-                            HStack(spacing: 6) {
-                                SecureField("value", text: $newSecretValue)
-                                    .textFieldStyle(.plain)
-                                    .font(Port42Theme.mono(12))
-                                    .foregroundStyle(Port42Theme.textPrimary)
-                                    .padding(6)
-                                    .background(Port42Theme.bgInput)
-                                    .cornerRadius(4)
-
-                                Button(action: addSecret) {
-                                    Text("Add")
-                                        .font(Port42Theme.mono(11))
-                                        .foregroundStyle(Port42Theme.bgPrimary)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(
-                                            canAddSecret ? Port42Theme.accent : Port42Theme.accent.opacity(0.3)
-                                        )
-                                        .cornerRadius(4)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!canAddSecret)
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Command agent fields
-                VStack(alignment: .leading, spacing: 12) {
-                    // Executable path
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Executable")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        HStack(spacing: 6) {
-                            TextField("/usr/local/bin/my-agent", text: $commandPath)
-                                .textFieldStyle(.plain)
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(Port42Theme.textPrimary)
-                                .padding(10)
-                                .background(Port42Theme.bgInput)
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
-                                .cornerRadius(6)
-                            Button(action: { showCommandFilePicker = true }) {
-                                Image(systemName: "folder")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Port42Theme.textSecondary)
-                                    .padding(9)
-                                    .background(Port42Theme.bgInput)
-                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
-                                    .cornerRadius(6)
-                            }
-                            .buttonStyle(.plain)
-                            .fileImporter(isPresented: $showCommandFilePicker, allowedContentTypes: [.unixExecutable, .shellScript, .item]) { result in
-                                if case .success(let url) = result {
-                                    commandPath = url.path
-                                }
-                            }
-                        }
-                    }
-
-                    // Arguments
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Arguments")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        TextField("--port 8080 --verbose", text: $commandArgs)
-                            .textFieldStyle(.plain)
-                            .font(Port42Theme.mono(12))
-                            .foregroundStyle(Port42Theme.textPrimary)
-                            .padding(10)
-                            .background(Port42Theme.bgInput)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
-                            .cornerRadius(6)
-                        Text("Space-separated. Quote args with spaces.")
-                            .font(Port42Theme.mono(10))
-                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                    }
-
-                    // Working directory
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Working Directory")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        HStack(spacing: 6) {
-                            TextField("~/projects/my-agent", text: $commandWorkDir)
-                                .textFieldStyle(.plain)
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(Port42Theme.textPrimary)
-                                .padding(10)
-                                .background(Port42Theme.bgInput)
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
-                                .cornerRadius(6)
-                            Button(action: { showWorkDirPicker = true }) {
-                                Image(systemName: "folder")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Port42Theme.textSecondary)
-                                    .padding(9)
-                                    .background(Port42Theme.bgInput)
-                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
-                                    .cornerRadius(6)
-                            }
-                            .buttonStyle(.plain)
-                            .fileImporter(isPresented: $showWorkDirPicker, allowedContentTypes: [.folder]) { result in
-                                if case .success(let url) = result {
-                                    commandWorkDir = url.path
-                                }
-                            }
-                        }
-                    }
-
-                    // Environment variables
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Environment Variables")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-
-                        ForEach(commandEnvVars.indices, id: \.self) { i in
-                            HStack(spacing: 6) {
-                                Text(commandEnvVars[i].key)
-                                    .font(Port42Theme.mono(11))
-                                    .foregroundStyle(Port42Theme.accent)
-                                Text("=")
-                                    .font(Port42Theme.mono(11))
-                                    .foregroundStyle(Port42Theme.textSecondary)
-                                Text(commandEnvVars[i].value)
-                                    .font(Port42Theme.mono(11))
-                                    .foregroundStyle(Port42Theme.textPrimary)
-                                    .lineLimit(1)
-                                Spacer()
-                                Button(action: { commandEnvVars.remove(at: i) }) {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(Port42Theme.textSecondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(Port42Theme.bgInput)
-                            .cornerRadius(4)
-                        }
-
-                        HStack(spacing: 6) {
-                            TextField("KEY", text: $commandEnvKey)
-                                .textFieldStyle(.plain)
-                                .font(Port42Theme.mono(11))
-                                .foregroundStyle(Port42Theme.textPrimary)
-                                .frame(width: 90)
-                                .padding(6)
-                                .background(Port42Theme.bgInput)
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Port42Theme.border, lineWidth: 1))
-                                .cornerRadius(4)
-                            Text("=")
-                                .font(Port42Theme.mono(11))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                            TextField("value", text: $commandEnvValue)
-                                .textFieldStyle(.plain)
-                                .font(Port42Theme.mono(11))
-                                .foregroundStyle(Port42Theme.textPrimary)
-                                .padding(6)
-                                .background(Port42Theme.bgInput)
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Port42Theme.border, lineWidth: 1))
-                                .cornerRadius(4)
-                            Button(action: addEnvVar) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(
-                                        canAddEnvVar ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.4)
-                                    )
-                                    .padding(6)
-                                    .background(Port42Theme.bgInput)
-                                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Port42Theme.border, lineWidth: 1))
-                                    .cornerRadius(4)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!canAddEnvVar)
-                        }
-                    }
-                }
-            }
+            } // end if companionMode == nil
 
             HStack(spacing: 12) {
                 Button("Cancel") {
@@ -742,31 +417,430 @@ public struct NewCompanionSheet: View {
                 .font(Port42Theme.mono(13))
                 .foregroundStyle(Port42Theme.textSecondary)
 
-                Button(action: create) {
-                    Text("Create")
-                        .font(Port42Theme.mono(13))
-                        .foregroundStyle(Port42Theme.bgPrimary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(
-                            canCreate ? Port42Theme.accent : Port42Theme.accent.opacity(0.3)
-                        )
-                        .cornerRadius(6)
+                Spacer()
+
+                if companionMode != nil {
+                    Button(action: create) {
+                        Text("Create")
+                            .font(Port42Theme.mono(13))
+                            .foregroundStyle(Port42Theme.bgPrimary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(
+                                canCreate ? Port42Theme.accent : Port42Theme.accent.opacity(0.3)
+                            )
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canCreate)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canCreate)
             }
         }
         .padding(24)
-        .frame(width: 400)
+        }
+        .frame(width: 400, height: 540)
         .background(Port42Theme.bgSecondary)
         .onAppear {
             isFocused = true
         }
     }
 
+    // MARK: - Subviews
+
+    @ViewBuilder
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Name")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+
+            TextField(namePlaceholder, text: $name)
+                .textFieldStyle(.plain)
+                .font(Port42Theme.mono(14))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .focused($isFocused)
+                .padding(10)
+                .background(Port42Theme.bgInput)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Port42Theme.border, lineWidth: 1)
+                )
+                .cornerRadius(6)
+        }
+    }
+
+    @ViewBuilder
+    private var systemPromptField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("System Prompt")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+
+            TextEditor(text: $systemPrompt)
+                .font(Port42Theme.mono(12))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(height: 100)
+                .background(Port42Theme.bgInput)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Port42Theme.border, lineWidth: 1)
+                )
+                .cornerRadius(6)
+        }
+    }
+
+    @ViewBuilder
+    private var thinkingSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Extended Thinking")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+                Toggle("", isOn: $thinkingEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .tint(Port42Theme.accent)
+            }
+
+            if thinkingEnabled {
+                HStack(spacing: 6) {
+                    ForEach(["low", "medium", "high"], id: \.self) { effort in
+                        Button(action: { thinkingEffort = effort }) {
+                            Text(effort)
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(
+                                    thinkingEffort == effort
+                                        ? Port42Theme.accent
+                                        : Port42Theme.textSecondary
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 5)
+                                .background(
+                                    thinkingEffort == effort
+                                        ? Port42Theme.accent.opacity(0.1)
+                                        : Color.clear
+                                )
+                                .cornerRadius(5)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .stroke(
+                                            thinkingEffort == effort
+                                                ? Port42Theme.accent.opacity(0.5)
+                                                : Port42Theme.border,
+                                            lineWidth: 1
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text("Uses more tokens. Only active on Claude Code OAuth.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var secretsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Secrets")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+                // Single dropdown: existing secrets + "New secret..."
+                let existingSecrets = Port42AuthStore.shared.listSecrets()
+                let unselected = existingSecrets.filter { !selectedSecrets.contains($0.name) }
+                Menu {
+                    ForEach(unselected) { secret in
+                        Button(secret.name) { selectedSecrets.insert(secret.name) }
+                    }
+                    if !unselected.isEmpty { Divider() }
+                    Button("New secret...") {
+                        withAnimation(.easeInOut(duration: 0.15)) { showAddSecret = true }
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+
+            // Selected secrets as removable chips
+            if !selectedSecrets.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(Array(selectedSecrets).sorted(), id: \.self) { name in
+                        HStack(spacing: 4) {
+                            Text(name)
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(Port42Theme.accent)
+                            Button(action: { selectedSecrets.remove(name) }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(Port42Theme.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Port42Theme.accent.opacity(0.12))
+                        .cornerRadius(4)
+                    }
+                    Spacer()
+                }
+            }
+
+            // New secret entry form
+            if showAddSecret {
+                VStack(spacing: 6) {
+                    HStack(spacing: 6) {
+                        TextField("name", text: $newSecretName)
+                            .textFieldStyle(.plain)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .padding(6)
+                            .background(Port42Theme.bgInput)
+                            .cornerRadius(4)
+
+                        Picker("", selection: $newSecretType) {
+                            Text("Bearer").tag(Port42AuthStore.SecretType.bearerToken)
+                            Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
+                            Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
+                            Text("Header").tag(Port42AuthStore.SecretType.header)
+                        }
+                        .labelsHidden()
+                        .frame(width: 90)
+                    }
+
+                    HStack(spacing: 6) {
+                        SecureField("value", text: $newSecretValue)
+                            .textFieldStyle(.plain)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .padding(6)
+                            .background(Port42Theme.bgInput)
+                            .cornerRadius(4)
+
+                        Button(action: addSecret) {
+                            Text("Add")
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(Port42Theme.bgPrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    canAddSecret ? Port42Theme.accent : Port42Theme.accent.opacity(0.3)
+                                )
+                                .cornerRadius(4)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canAddSecret)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var customPresetRow: some View {
+        Button(action: { companionMode == .api ? selectCustomApi() : selectCustom() }) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(customPresetSelected ? Port42Theme.textSecondary : Port42Theme.textSecondary.opacity(0.4))
+                    .frame(width: 8, height: 8)
+                Text("custom")
+                    .font(Port42Theme.monoBold(12))
+                    .foregroundStyle(customPresetSelected ? Port42Theme.textPrimary : Port42Theme.textSecondary)
+                Text("blank slate")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                    .lineLimit(1)
+                Spacer()
+                if customPresetSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Port42Theme.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(customPresetSelected ? Port42Theme.bgHover : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var commandFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Executable")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                HStack(spacing: 6) {
+                    TextField("/usr/local/bin/my-agent", text: $commandPath)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .padding(10)
+                        .background(Port42Theme.bgInput)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                        .cornerRadius(6)
+                    Button(action: {
+                        let panel = NSOpenPanel()
+                        panel.canChooseFiles = true
+                        panel.canChooseDirectories = false
+                        panel.allowsMultipleSelection = false
+                        if panel.runModal() == .OK, let url = panel.url {
+                            commandPath = url.path
+                        }
+                    }) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .padding(9)
+                            .background(Port42Theme.bgInput)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Arguments")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                TextField("--port 8080 --verbose", text: $commandArgs)
+                    .textFieldStyle(.plain)
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .padding(10)
+                    .background(Port42Theme.bgInput)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                    .cornerRadius(6)
+                Text("Space-separated. Quote args with spaces.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Working Directory")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                HStack(spacing: 6) {
+                    TextField("~/projects/my-agent", text: $commandWorkDir)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .padding(10)
+                        .background(Port42Theme.bgInput)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                        .cornerRadius(6)
+                    Button(action: {
+                        let panel = NSOpenPanel()
+                        panel.canChooseFiles = false
+                        panel.canChooseDirectories = true
+                        panel.allowsMultipleSelection = false
+                        if panel.runModal() == .OK, let url = panel.url {
+                            commandWorkDir = url.path
+                        }
+                    }) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .padding(9)
+                            .background(Port42Theme.bgInput)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Environment Variables")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+
+                ForEach(commandEnvVars.indices, id: \.self) { i in
+                    HStack(spacing: 6) {
+                        Text(commandEnvVars[i].key)
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.accent)
+                        Text("=")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                        Text(commandEnvVars[i].value)
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button(action: { commandEnvVars.remove(at: i) }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Port42Theme.bgInput)
+                    .cornerRadius(4)
+                }
+
+                HStack(spacing: 6) {
+                    TextField("KEY", text: $commandEnvKey)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .frame(width: 90)
+                        .padding(6)
+                        .background(Port42Theme.bgInput)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Port42Theme.border, lineWidth: 1))
+                        .cornerRadius(4)
+                    Text("=")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    TextField("value", text: $commandEnvValue)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .padding(6)
+                        .background(Port42Theme.bgInput)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Port42Theme.border, lineWidth: 1))
+                        .cornerRadius(4)
+                    Button(action: addEnvVar) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10))
+                            .foregroundStyle(
+                                canAddEnvVar ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.4)
+                            )
+                            .padding(6)
+                            .background(Port42Theme.bgInput)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Port42Theme.border, lineWidth: 1))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canAddEnvVar)
+                }
+            }
+        }
+    }
+
+    // MARK: - Logic
+
     private var canCreate: Bool {
-        if agentMode == .command {
+        guard companionMode != nil else { return false }
+        if companionMode == .command {
             return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                    !commandPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -776,7 +850,6 @@ public struct NewCompanionSheet: View {
     private var effectiveName: String {
         let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if typed.isEmpty, selectedPreset != nil {
-            // Use the preset suggestion as default
             return namePlaceholder
         }
         return typed
@@ -798,9 +871,40 @@ public struct NewCompanionSheet: View {
 
     private func selectPreset(_ preset: CompanionPreset) {
         selectedPreset = preset.id
+        customPresetSelected = false
         name = ""
         namePlaceholder = preset.name
         systemPrompt = preset.prompt
+    }
+
+    private func selectCustom() {
+        selectedPreset = nil
+        customPresetSelected = true
+        name = ""
+        namePlaceholder = "companion name"
+        systemPrompt = ""
+        selectedSecrets = []
+        showAddSecret = false
+    }
+
+    private func selectCustomApi() {
+        selectedPreset = nil
+        customPresetSelected = true
+        name = ""
+        namePlaceholder = "companion name"
+        systemPrompt = """
+            You are {{NAME}}, a companion in Port42.
+
+            API: [base URL]
+            Auth: use secret "[secret name]" with rest_call
+            Docs: [llms.txt URL]
+
+            Show data in ports. Never dump raw JSON.
+            """
+        selectedSecrets = []
+        newSecretName = ""
+        newSecretValue = ""
+        showAddSecret = true
     }
 
     @ViewBuilder
@@ -852,11 +956,10 @@ public struct NewCompanionSheet: View {
 
     private func selectProvider(_ preset: CompanionPreset) {
         selectedPreset = preset.id
+        customPresetSelected = false
         name = ""
         namePlaceholder = preset.name
         systemPrompt = preset.prompt
-        templateCategory = .saas
-        // Auto-select the matching secret if it exists, otherwise prompt to add
         if let secretName = preset.secret {
             let available = Port42AuthStore.shared.secretNames()
             if available.contains(secretName) {
@@ -869,25 +972,6 @@ public struct NewCompanionSheet: View {
                 selectedSecrets = []
             }
         }
-    }
-
-    private func clearPreset() {
-        selectedPreset = nil
-        name = ""
-        namePlaceholder = "companion name"
-        systemPrompt = """
-            You are {{NAME}}, a companion in Port42.
-
-            API: [base URL]
-            Auth: use secret "[secret name]" with rest_call
-            Docs: [llms.txt URL]
-
-            Show data in ports. Never dump raw JSON.
-            """
-        selectedSecrets = []
-        newSecretName = ""
-        newSecretValue = ""
-        showAddSecret = true
     }
 
     private func createPod(_ pod: CompanionPod) {
@@ -909,7 +993,7 @@ public struct NewCompanionSheet: View {
     private func create() {
         guard canCreate, let user = appState.currentUser else { return }
 
-        if agentMode == .command {
+        if companionMode == .command {
             let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedPath = commandPath.trimmingCharacters(in: .whitespacesAndNewlines)
             let args = parseArgs(commandArgs)
@@ -933,7 +1017,6 @@ public struct NewCompanionSheet: View {
         }
 
         let trimmedName = effectiveName
-        // Replace {{NAME}} placeholder with the actual companion name
         let trimmedPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "{{NAME}}", with: trimmedName)
         let finalPrompt = trimmedPrompt.isEmpty
