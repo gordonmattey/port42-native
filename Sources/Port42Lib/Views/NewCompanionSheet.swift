@@ -124,19 +124,7 @@ struct CompanionPreset: Identifiable {
     ]
 
     static let providers: [CompanionPreset] = [
-        CompanionPreset(
-            name: "stripe",
-            label: "payments",
-            personality: "Stripe API",
-            prompt: """
-                You are the Stripe companion. Use rest_call with secret "stripe" to call the Stripe API.
-                API: https://api.stripe.com/v1
-                Docs: https://docs.stripe.com/llms.txt
-                Show data in ports. Never dump raw JSON.
-                """,
-            color: .purple,
-            secret: "stripe"
-        ),
+        // — Dev infrastructure —
         CompanionPreset(
             name: "github",
             label: "repos",
@@ -147,8 +135,47 @@ struct CompanionPreset: Identifiable {
                 Docs: https://docs.github.com/llms.txt
                 Show data in ports. Never dump raw JSON.
                 """,
-            color: .gray,
+            color: .init(white: 0.75),
             secret: "github"
+        ),
+        CompanionPreset(
+            name: "linear",
+            label: "issues",
+            personality: "Linear API",
+            prompt: """
+                You are the Linear companion. Use rest_call with secret "linear" to call the Linear GraphQL API.
+                API: https://api.linear.app/graphql (POST, body: {"query":"..."})
+                Docs: https://linear.app/docs/graphql
+                Show issues and cycles in ports. Never dump raw JSON.
+                """,
+            color: .indigo,
+            secret: "linear"
+        ),
+        CompanionPreset(
+            name: "sentry",
+            label: "errors",
+            personality: "Sentry API",
+            prompt: """
+                You are the Sentry companion. Use rest_call with secret "sentry" to call the Sentry API.
+                API: https://sentry.io/api/0
+                Docs: https://docs.sentry.io/api/
+                Surface errors, issues, and stack traces in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.36, green: 0.18, blue: 0.56, opacity: 1),
+            secret: "sentry"
+        ),
+        CompanionPreset(
+            name: "vercel",
+            label: "deploys",
+            personality: "Vercel API",
+            prompt: """
+                You are the Vercel companion. Use rest_call with secret "vercel" to call the Vercel API.
+                API: https://api.vercel.com
+                Docs: https://vercel.com/llms.txt
+                Show data in ports. Never dump raw JSON.
+                """,
+            color: .white,
+            secret: "vercel"
         ),
         CompanionPreset(
             name: "cloudflare",
@@ -164,17 +191,125 @@ struct CompanionPreset: Identifiable {
             secret: "cloudflare"
         ),
         CompanionPreset(
-            name: "vercel",
-            label: "deploys",
-            personality: "Vercel API",
+            name: "supabase",
+            label: "database",
+            personality: "Supabase API",
             prompt: """
-                You are the Vercel companion. Use rest_call with secret "vercel" to call the Vercel API.
-                API: https://api.vercel.com
-                Docs: https://vercel.com/llms.txt
+                You are the Supabase companion. Use rest_call with secret "supabase" to call the Supabase REST API.
+                API: https://<project>.supabase.co/rest/v1 (replace <project> with the user's project ref)
+                Docs: https://supabase.com/docs/reference/api
+                Query tables, show results in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.24, green: 0.71, blue: 0.49, opacity: 1),
+            secret: "supabase"
+        ),
+        // — Payments & commerce —
+        CompanionPreset(
+            name: "stripe",
+            label: "payments",
+            personality: "Stripe API",
+            prompt: """
+                You are the Stripe companion. Use rest_call with secret "stripe" to call the Stripe API.
+                API: https://api.stripe.com/v1
+                Docs: https://docs.stripe.com/llms.txt
                 Show data in ports. Never dump raw JSON.
                 """,
-            color: .white,
-            secret: "vercel"
+            color: .purple,
+            secret: "stripe"
+        ),
+        CompanionPreset(
+            name: "shopify",
+            label: "ecommerce",
+            personality: "Shopify Admin API",
+            prompt: """
+                You are the Shopify companion. Use rest_call with secret "shopify" to call the Shopify Admin REST API.
+                API: https://<shop>.myshopify.com/admin/api/2024-01 (replace <shop> with the store handle)
+                Docs: https://shopify.dev/docs/api/admin-rest
+                Show orders, products, and inventory in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.35, green: 0.65, blue: 0.25, opacity: 1),
+            secret: "shopify"
+        ),
+        // — Analytics & monitoring —
+        CompanionPreset(
+            name: "posthog",
+            label: "analytics",
+            personality: "PostHog API",
+            prompt: """
+                You are the PostHog companion. Use rest_call with secret "posthog" to call the PostHog API.
+                API: https://app.posthog.com
+                Docs: https://posthog.com/docs/api
+                Show events, funnels, and feature flags in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.85, green: 0.35, blue: 0.15, opacity: 1),
+            secret: "posthog"
+        ),
+        CompanionPreset(
+            name: "datadog",
+            label: "monitoring",
+            personality: "Datadog API",
+            prompt: """
+                You are the Datadog companion. Use rest_call with secret "datadog" to call the Datadog API.
+                API: https://api.datadoghq.com/api/v1
+                Docs: https://docs.datadoghq.com/api/latest/
+                Surface metrics, monitors, and incidents in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.63, green: 0.18, blue: 0.58, opacity: 1),
+            secret: "datadog"
+        ),
+        // — Communication —
+        CompanionPreset(
+            name: "slack",
+            label: "messaging",
+            personality: "Slack API",
+            prompt: """
+                You are the Slack companion. Use rest_call with secret "slack" to call the Slack Web API.
+                API: https://slack.com/api
+                Docs: https://api.slack.com/methods
+                Show channels, messages, and users in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.25, green: 0.71, blue: 0.62, opacity: 1),
+            secret: "slack"
+        ),
+        CompanionPreset(
+            name: "resend",
+            label: "email",
+            personality: "Resend API",
+            prompt: """
+                You are the Resend companion. Use rest_call with secret "resend" to call the Resend API.
+                API: https://api.resend.com
+                Docs: https://resend.com/docs/api-reference
+                Show email sends, domains, and audience data in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.95, green: 0.35, blue: 0.35, opacity: 1),
+            secret: "resend"
+        ),
+        // — Productivity —
+        CompanionPreset(
+            name: "notion",
+            label: "docs",
+            personality: "Notion API",
+            prompt: """
+                You are the Notion companion. Use rest_call with secret "notion" to call the Notion API.
+                API: https://api.notion.com/v1
+                Docs: https://developers.notion.com/reference/intro
+                Show databases, pages, and blocks in ports. Never dump raw JSON.
+                """,
+            color: .init(white: 0.9),
+            secret: "notion"
+        ),
+        CompanionPreset(
+            name: "airtable",
+            label: "data",
+            personality: "Airtable API",
+            prompt: """
+                You are the Airtable companion. Use rest_call with secret "airtable" to call the Airtable API.
+                API: https://api.airtable.com/v0
+                Docs: https://airtable.com/developers/web/api/introduction
+                Show tables, records, and views in ports. Never dump raw JSON.
+                """,
+            color: .init(red: 0.98, green: 0.47, blue: 0.33, opacity: 1),
+            secret: "airtable"
         ),
     ]
 }
