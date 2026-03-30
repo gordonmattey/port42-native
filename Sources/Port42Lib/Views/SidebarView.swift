@@ -231,41 +231,37 @@ public struct SidebarView: View {
                     }
                     Button("Connect LLM CLI") {
                         let secured = appState.ensureEncryptionKey(for: channel)
-                        if appState.tunnel.authToken.isEmpty {
-                            appState.pendingInviteChannel = secured
-                            appState.showNgrokSetup = true
-                        } else {
-                            Task {
-                                let token = try? await appState.sync.requestToken(channelId: secured.id)
-                                let hostName = appState.currentUser?.displayName ?? "Port42"
-                                guard let inviteURL = ChannelInvite.generateInviteURL(channel: secured, hostName: hostName, syncGatewayURL: appState.sync.gatewayURL, token: token) else { return }
-                                let owner = appState.currentUser?.displayName ?? "user"
-                                let prompt = """
-You are invited to join \(hostName)'s Port42 channel #\(secured.name).
-Use the port42 CLI to send messages and interact with agents:
+                        Task {
+                            let hostName = appState.currentUser?.displayName ?? "Port42"
+                            let prompt = """
+You are invited to join \(hostName)'s Port42 channel #\(secured.name). (Same machine required — uses local Port42 API)
 
-  port42 send "message" --invite "\(inviteURL)" --owner "\(owner)" --name "$(basename $PWD)"
-  port42 ask "@agent question" --invite "\(inviteURL)" --owner "\(owner)" --name "$(basename $PWD)" --timeout 120
+# Set your agent name (run this first)
+NAME=$(basename $PWD)
 
-Install: pip install 'port42[cli]'
+── Send a message ─────────────────────────────────────────────
+curl -s http://127.0.0.1:4242/call \\
+  -d "{\\\"method\\\":\\\"messages.send\\\",\\\"args\\\":{\\\"text\\\":\\\"hello\\\",\\\"senderName\\\":\\\"$NAME\\\",\\\"channel_id\\\":\\\"\(secured.id)\\\"}}"
+
+── Check recent messages ──────────────────────────────────────
+curl -s http://127.0.0.1:4242/call \\
+  -d '{"method":"messages.recent","args":{"count":10,"channel_id":"\(secured.id)"}}'
+
+── Stay resident (/loop) ─────────────────────────────────────
+# Replace YOUR_NAME below with your actual name (e.g. port42-growth)
+/loop 1m Check recent messages: curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":5,"channel_id":"\(secured.id)"}}' — look at the last 2 minutes of conversation. If there is anything worth responding to (mentions, questions, or relevant discussion), reply using messages.send with senderName "YOUR_NAME" and channel_id "\(secured.id)". If nothing relevant, do nothing and wait.
 """
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(prompt, forType: .string)
-                                appState.toastMessage = "LLM CLI prompt copied"
-                            }
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(prompt, forType: .string)
+                            appState.toastMessage = "LLM CLI prompt copied"
                         }
                     }
                     Button("Connect with Invitation Link") {
                         let secured = appState.ensureEncryptionKey(for: channel)
-                        if appState.tunnel.authToken.isEmpty {
-                            appState.pendingInviteChannel = secured
-                            appState.showNgrokSetup = true
-                        } else {
-                            Task {
-                                let token = try? await appState.sync.requestToken(channelId: secured.id)
-                                ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
-                                appState.toastMessage = "Copied to clipboard"
-                            }
+                        Task {
+                            let token = try? await appState.sync.requestToken(channelId: secured.id)
+                            ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                            appState.toastMessage = appState.tunnel.publicURL != nil ? "Copied to clipboard" : "Copied to clipboard (local network only — start ngrok for remote sharing)"
                         }
                     }
                 }

@@ -27,15 +27,8 @@ public enum ChannelInvite {
             // Host with tunnel: use the public tunnel URL
             resolvedGW = tunnelURL
         } else {
-            // No tunnel: fall back to LAN IP
-            let localGW = GatewayProcess.shared.localURL
-            if let lanIP = localIPAddress() {
-                resolvedGW = localGW
-                    .replacingOccurrences(of: "localhost", with: lanIP)
-                    .replacingOccurrences(of: "127.0.0.1", with: lanIP)
-            } else {
-                resolvedGW = localGW
-            }
+            // No tunnel: use localhost (same machine only)
+            resolvedGW = GatewayProcess.shared.localURL
         }
 
         var components = URLComponents()
@@ -47,7 +40,10 @@ public enum ChannelInvite {
             URLQueryItem(name: "name", value: channel.name),
         ]
         if let key = channel.encryptionKey {
-            items.append(URLQueryItem(name: "key", value: key))
+            // URLComponents leaves `+` unencoded in query values (ambiguous in form encoding),
+            // but base64 decoders (e.g. Python's b64decode) interpret `+` as space, corrupting the key.
+            let encodedKey = key.replacingOccurrences(of: "+", with: "%2B")
+            items.append(URLQueryItem(name: "key", value: encodedKey))
         }
         if let token {
             items.append(URLQueryItem(name: "token", value: token))
@@ -127,7 +123,8 @@ public enum ChannelInvite {
             URLQueryItem(name: "name", value: channel.name),
         ]
         if let key = channel.encryptionKey {
-            items.append(URLQueryItem(name: "key", value: key))
+            let encodedKey = key.replacingOccurrences(of: "+", with: "%2B")
+            items.append(URLQueryItem(name: "key", value: encodedKey))
         }
         if let token {
             items.append(URLQueryItem(name: "token", value: token))

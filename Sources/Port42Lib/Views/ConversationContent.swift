@@ -413,8 +413,9 @@ public struct ConversationContent: View {
 
             // Autocomplete suggestions
             if !suggestions.isEmpty {
+                ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(suggestions.prefix(8).enumerated()), id: \.element.id) { index, suggestion in
+                    ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
                         Button(action: { insertMention(suggestion) }) {
                             HStack(spacing: 8) {
                                 Circle()
@@ -440,6 +441,8 @@ public struct ConversationContent: View {
                         .buttonStyle(.plain)
                     }
                 }
+                }
+                .frame(maxHeight: 192)
                 .background(Port42Theme.bgSecondary)
                 .overlay(
                     Rectangle()

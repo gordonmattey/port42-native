@@ -188,9 +188,6 @@ public struct SignOutSheet: View {
         }
         .frame(width: 460, height: 740)
         .background(Port42Theme.bgSecondary)
-        .background(WindowRefAccessor { window in
-            window?.level = .floating
-        })
         .onDisappear {
             claudeSetup.cancel()
         }

@@ -137,4 +137,32 @@ struct AgentProtocolTests {
         let response = try AgentProtocol.decode(json.data(using: .utf8)!)
         #expect(response.content == "hello")
     }
+
+    // MARK: - System event (#12)
+
+    @Test("Serialize system event")
+    func serializeSystemEvent() throws {
+        let event = AgentEvent.system(content: "You are a test bot. Respond only in JSON.")
+        let data = try AgentProtocol.encode(event)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        #expect(json["event"] as? String == "system")
+        #expect(json["content"] as? String == "You are a test bot. Respond only in JSON.")
+    }
+
+    @Test("System event ends with newline")
+    func systemEventEndsWithNewline() throws {
+        let data = try AgentProtocol.encode(.system(content: "hello"))
+        let str = String(data: data, encoding: .utf8)!
+        #expect(str.hasSuffix("\n"))
+    }
+
+    @Test("System event is single NDJSON line")
+    func systemEventIsSingleLine() throws {
+        let data = try AgentProtocol.encode(.system(content: "multi\nline\nprompt"))
+        let str = String(data: data, encoding: .utf8)!
+        // Strip trailing newline before counting lines
+        let trimmed = str.trimmingCharacters(in: .newlines)
+        #expect(!trimmed.contains("\n"))
+    }
 }

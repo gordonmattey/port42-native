@@ -73,6 +73,13 @@ public final class AgentProcess {
         self.stdinPipe = stdin
         self.stdoutPipe = stdout
         self.stderrPipe = stderr
+
+        // Deliver system prompt as the first stdin message before any channel events
+        if let prompt = config.systemPrompt, !prompt.isEmpty {
+            if let encoded = try? AgentProtocol.encode(.system(content: prompt)) {
+                stdin.fileHandleForWriting.write(encoded)
+            }
+        }
     }
 
     public func stop() {

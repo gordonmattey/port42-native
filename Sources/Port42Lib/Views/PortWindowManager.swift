@@ -235,8 +235,9 @@ public final class PortWindowManager: ObservableObject {
             return
         }
 
-        let w: CGFloat = min(400, bounds.width * 0.45)
-        let h: CGFloat = min(350, bounds.height * 0.5)
+        let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let w: CGFloat = screen.width * 0.4
+        let h: CGFloat = screen.height * 0.4
 
         let newUdid = UUID().uuidString
         let panel = PortPanel(
@@ -653,7 +654,9 @@ public final class PortWindowManager: ObservableObject {
             panel: panel,
             manager: self
         )
-        window.contentView = NSHostingView(rootView: contentView)
+        let hv = NSHostingView(rootView: contentView)
+        hv.sizingOptions = []  // prevent content changes from ever resizing the window
+        window.contentView = hv
     }
 
     private func panelWindowClosed(_ id: String) {
@@ -1017,6 +1020,7 @@ struct PortPanelContentView: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Port42Theme.bgPrimary)
         .ignoresSafeArea()
         .background(WindowRefAccessor { w in nsWindow = w })
@@ -1080,7 +1084,6 @@ struct PortPermissionOverlay: View {
     var body: some View {
         ZStack {
             Color.black.opacity(0.6)
-                .ignoresSafeArea()
 
             VStack(spacing: 16) {
                 if let name = createdBy {
@@ -1140,6 +1143,7 @@ struct PortPermissionOverlay: View {
                     )
             )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

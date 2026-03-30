@@ -380,6 +380,7 @@ public struct NewCompanionSheet: View {
     @State private var commandPath = ""
     @State private var commandArgs = ""
     @State private var commandWorkDir = ""
+    @State private var commandSystemPrompt = ""
     @State private var commandEnvVars: [(key: String, value: String)] = []
     @State private var commandEnvKey = ""
     @State private var commandEnvValue = ""
@@ -902,6 +903,24 @@ public struct NewCompanionSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                Text("System Prompt")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                TextEditor(text: $commandSystemPrompt)
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(height: 80)
+                    .background(Port42Theme.bgInput)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                    .cornerRadius(6)
+                Text("Delivered as first stdin message before channel messages arrive.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Environment Variables")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
@@ -1137,6 +1156,7 @@ public struct NewCompanionSheet: View {
             if !commandEnvVars.isEmpty {
                 envVars = Dictionary(commandEnvVars.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
             }
+            let trimmedSysPrompt = commandSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
             let companion = AgentConfig.createCommand(
                 ownerId: user.id,
                 displayName: trimmedName,
@@ -1144,6 +1164,7 @@ public struct NewCompanionSheet: View {
                 args: args.isEmpty ? nil : args,
                 workingDir: workDir.isEmpty ? nil : workDir,
                 envVars: envVars,
+                systemPrompt: trimmedSysPrompt.isEmpty ? nil : trimmedSysPrompt,
                 trigger: .mentionOnly
             )
             appState.addCompanion(companion)

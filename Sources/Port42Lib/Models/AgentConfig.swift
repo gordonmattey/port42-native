@@ -132,6 +132,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         args: [String]? = nil,
         workingDir: String? = nil,
         envVars: [String: String]? = nil,
+        systemPrompt: String? = nil,
         trigger: AgentTrigger
     ) -> AgentConfig {
         AgentConfig(
@@ -140,7 +141,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
             displayName: displayName,
             mode: .command,
             trigger: trigger,
-            systemPrompt: nil,
+            systemPrompt: systemPrompt,
             provider: nil,
             model: nil,
             command: command,

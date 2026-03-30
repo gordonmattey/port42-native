@@ -254,6 +254,52 @@ struct AgentConfigTests {
         #expect(!link.contains("token"))
     }
 
+    // MARK: - Command agent system prompt (#12)
+
+    @Test("Command agent stores system prompt")
+    func commandAgentSystemPrompt() {
+        let agent = AgentConfig.createCommand(
+            ownerId: "user-1",
+            displayName: "@bot",
+            command: "/usr/local/bin/bot",
+            systemPrompt: "You are a test bot.",
+            trigger: .mentionOnly
+        )
+        #expect(agent.systemPrompt == "You are a test bot.")
+        #expect(agent.mode == .command)
+    }
+
+    @Test("Command agent system prompt nil by default")
+    func commandAgentSystemPromptNilByDefault() {
+        let agent = AgentConfig.createCommand(
+            ownerId: "user-1",
+            displayName: "@bot",
+            command: "/usr/local/bin/bot",
+            trigger: .mentionOnly
+        )
+        #expect(agent.systemPrompt == nil)
+    }
+
+    @Test("Command agent system prompt persists to DB")
+    func commandAgentSystemPromptPersists() throws {
+        let db = try makeDB()
+        let user = AppUser.createForTesting(displayName: "Test")
+        try db.saveUser(user)
+
+        let agent = AgentConfig.createCommand(
+            ownerId: user.id,
+            displayName: "@bot",
+            command: "/usr/local/bin/bot",
+            systemPrompt: "You are a persistent bot.",
+            trigger: .mentionOnly
+        )
+        try db.saveAgent(agent)
+
+        let fetched = try db.getAllAgents().first!
+        #expect(fetched.systemPrompt == "You are a persistent bot.")
+        #expect(fetched.mode == .command)
+    }
+
     @Test("Command agents cannot be shared via invite")
     func commandAgentNotShareable() {
         let agent = AgentConfig.createCommand(

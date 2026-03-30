@@ -1150,6 +1150,9 @@ public final class AppState: ObservableObject {
             return
         }
 
+        // Route @mentions to bridged terminals (e.g. Claude Code running in a terminal port)
+        routeMentionsToTerminals(content: message.content, senderName: message.senderName, channelId: channelId)
+
         let targets = AgentRouter.findTargetAgents(
             content: message.content, agents: companions,
             channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName,
@@ -1250,6 +1253,28 @@ public final class AppState: ObservableObject {
     func stopTerminalLoop(channelId: String) {
         terminalLoops[channelId]?.stop()
         terminalLoops.removeValue(forKey: channelId)
+    }
+
+    /// Route a message to a bridged terminal if any @mention matches its name.
+    /// Sends the message text into the terminal so a resident agent (e.g. Claude Code) can read and respond.
+    private func routeMentionsToTerminals(content: String, senderName: String, channelId: String) {
+        guard !bridgedTerminalNames.isEmpty else { return }
+        let mentions = MentionParser.extractMentions(from: content)
+        guard !mentions.isEmpty else { return }
+        for mention in mentions {
+            let key = mention.lowercased()
+            guard bridgedTerminalNames.contains(key) else { continue }
+            // Find the terminal port by name and send the message into it
+            let line = "[\(senderName)]: \(content)\n"
+            if let panel = portWindows.panels.first(where: { $0.title.lowercased() == key }),
+               let tb = panel.bridge.terminalBridge {
+                tb.sendToFirst(data: line)
+                NSLog("[Port42] Routed @%@ mention to terminal '%@'", mention, panel.title)
+            } else if let session = portWindows.terminalSession(forPortNamed: mention) {
+                _ = session.bridge.send(sessionId: session.sessionId, data: line)
+                NSLog("[Port42] Routed @%@ mention to terminal (session)", mention)
+            }
+        }
     }
 
     /// Mark a terminal bridge as active for a channel — shows indicator in chat.
@@ -1801,6 +1826,9 @@ public final class AppState: ObservableObject {
         var channelAgentIds = Set(chCompanions.map { $0.id })
         let mentions = MentionParser.extractMentions(from: trimmed)
 
+        // Route @mentions to bridged terminals
+        routeMentionsToTerminals(content: trimmed, senderName: user.displayName, channelId: channel.id)
+
         // @mentioning a companion auto-adds them to the channel
         if !mentions.isEmpty {
             let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName)
@@ -1978,6 +2006,42 @@ public final class AppState: ObservableObject {
             targets, channelId: channelId, channelAgentIds: channelAgentIds,
             channelMessages: messages, triggerContent: trimmed,
             senderId: companion.id, senderName: companion.displayName
+        )
+    }
+
+    /// Send a message attributed to a named external agent (HTTP CLI callers).
+    /// Uses the provided senderName as identity instead of the current user.
+    public func sendMessageAsNamedAgent(content: String, senderName: String, toChannelId: String? = nil) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let channelId = toChannelId ?? currentChannel?.id,
+              channels.first(where: { $0.id == channelId }) != nil else { return }
+        let agentId = "cli-agent-\(senderName.lowercased().replacingOccurrences(of: " ", with: "-"))"
+        let message = Message.create(
+            channelId: channelId,
+            senderId: agentId,
+            senderName: senderName,
+            content: trimmed,
+            senderType: "agent",
+            senderOwner: currentUser?.displayName
+        )
+        do {
+            try db.saveMessage(message)
+            sync.sendMessage(message)
+        } catch {
+            NSLog("[Port42] sendMessageAsNamedAgent failed: %@", error.localizedDescription)
+            return
+        }
+        let channelAgentIds = Set(channelCompanions.map { $0.id })
+        let targets = AgentRouter.findTargetAgents(
+            content: trimmed, agents: companions,
+            channelAgentIds: channelAgentIds, localOwner: currentUser?.displayName
+        )
+        for agent in targets { typingAgentNamesByChannel[channelId, default: []].insert(agent.displayName) }
+        launchAgents(
+            targets, channelId: channelId, channelAgentIds: channelAgentIds,
+            channelMessages: messages, triggerContent: trimmed,
+            senderId: agentId, senderName: senderName
         )
     }
 

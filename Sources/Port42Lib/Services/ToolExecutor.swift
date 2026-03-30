@@ -599,7 +599,12 @@ public final class ToolExecutor {
                 return [textBlock("Error: missing 'text' parameter")]
             }
             let targetChannel = input["channel_id"] as? String ?? channelId
-            appState.sendMessage(content: text, toChannelId: targetChannel)
+            let overrideName = input["senderName"] as? String ?? input["sender_name"] as? String
+            if let name = overrideName, !name.isEmpty {
+                appState.sendMessageAsNamedAgent(content: text, senderName: name, toChannelId: targetChannel)
+            } else {
+                appState.sendMessage(content: text, toChannelId: targetChannel)
+            }
             return [textBlock(jsonString(["ok": true]))]
 
         case "storage_get":

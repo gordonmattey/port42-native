@@ -196,9 +196,6 @@ public struct UsageSheet: View {
         }
         .frame(width: 520, height: 560)
         .background(Port42Theme.bgPrimary)
-        .background(WindowRefAccessor { window in
-            window?.level = .floating
-        })
         .onChange(of: period) { offset = 0; reload() }
         .onChange(of: offset) { reload() }
         .onChange(of: grouping) { reload() }

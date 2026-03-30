@@ -62,7 +62,7 @@ public final class InstructionService: ObservableObject {
         let toolName = tool.lowercased() == "claude" ? "Claude Code" : "Gemini CLI"
 
         let docs: String
-        if let url = Bundle.port42.url(forResource: "cli-context", withExtension: "txt"),
+        if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
             docs = text.replacingOccurrences(of: "{{TOOL_NAME}}", with: toolName)
         } else {

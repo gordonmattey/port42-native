@@ -286,7 +286,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.help() — returns the full API reference
         case "help", "-h":
-            if let url = Bundle.port42.url(forResource: "cli-context", withExtension: "txt"),
+            if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
                let text = try? String(contentsOf: url, encoding: .utf8) {
                 return text
             }

@@ -15,6 +15,7 @@ public enum AgentEvent {
         }
     }
 
+    case system(content: String)
     case mention(
         messageId: String, content: String, sender: String, senderId: String,
         channel: String, channelId: String, timestamp: Date, history: [HistoryEntry]
@@ -87,6 +88,10 @@ public enum AgentProtocol {
         let isoFormatter = ISO8601DateFormatter()
 
         switch event {
+        case .system(let content):
+            dict["event"] = "system"
+            dict["content"] = content
+
         case .mention(let messageId, let content, let sender, let senderId,
                       let channel, let channelId, let timestamp, let history):
             dict["event"] = "mention"
