@@ -450,6 +450,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v30-agent-open-in-terminal") { db in
+            try db.alter(table: "agents") { t in
+                t.add(column: "openInTerminal", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

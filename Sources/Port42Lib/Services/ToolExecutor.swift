@@ -144,10 +144,11 @@ public final class ToolExecutor {
     private func autoStartOutputBridge(portTitle: String, termBridge: TerminalBridge, sessionId: String) {
         guard let appState else { return }
         let key = portTitle.lowercased()
-        guard !appState.bridgedTerminalNames.contains(key) else { return }
+        guard appState.bridgedTerminalNames[key] == nil else { return }
         let chId = channelId ?? appState.currentChannel?.id ?? ""
         guard !chId.isEmpty else { return }
-        appState.bridgedTerminalNames.insert(key)
+        let panelId = appState.portWindows.panels.first(where: { $0.bridge.terminalBridge === termBridge })?.id ?? key
+        appState.bridgedTerminalNames[key] = panelId
         let batcher = OutputBatcher(portName: portTitle, channelId: chId, companionName: createdBy ?? "bridge", appState: appState)
         Self.outputBatchers[key] = batcher
         termBridge.session(for: sessionId)?.addOutputObserver { [weak batcher] rawOutput in
@@ -750,7 +751,7 @@ public final class ToolExecutor {
                     "sessionId":    t.sessionId,
                     "capabilities": ["terminal"],
                     "createdBy":    t.createdBy ?? "unknown",
-                    "bridged":      appState.bridgedTerminalNames.contains(t.name.lowercased())
+                    "bridged":      appState.bridgedTerminalNames[t.name.lowercased()] != nil
                 ]
                 return info
             }
@@ -763,7 +764,7 @@ public final class ToolExecutor {
             guard let termSession = appState.portWindows.terminalSession(forPortNamed: name) else {
                 return [textBlock("Error: no terminal found for port '\(name)'")]
             }
-            if appState.bridgedTerminalNames.contains(name.lowercased()) {
+            if appState.bridgedTerminalNames[name.lowercased()] != nil {
                 return [textBlock("Already bridging '\(name)' to this conversation")]
             }
             autoStartOutputBridge(portTitle: name, termBridge: termSession.bridge, sessionId: termSession.sessionId)
@@ -774,7 +775,7 @@ public final class ToolExecutor {
                 return [textBlock("Error: missing 'name' parameter")]
             }
             let key = name.lowercased()
-            if appState.bridgedTerminalNames.remove(key) != nil {
+            if appState.bridgedTerminalNames.removeValue(forKey: key) != nil {
                 Self.outputBatchers.removeValue(forKey: key)
                 if let chId = channelId { appState.stopTerminalLoop(channelId: chId) }
                 NSLog("[Port42] Terminal bridge stopped: %@", name)
@@ -1123,183 +1124,30 @@ final class OutputBatcher {
     private let channelId: String
     private let companionName: String
     private weak var appState: AppState?
-    private var buffer = ""
-    private var flushTimer: Timer?
-    private var lastPosted = ""
+    private let processor: TerminalOutputProcessor
 
     init(portName: String, channelId: String, companionName: String, appState: AppState?) {
         self.portName = portName
         self.channelId = channelId
         self.companionName = companionName
         self.appState = appState
+        // Capture as locals so the closure doesn't retain self
+        let chId = channelId
+        let cName = companionName
+        let pName = portName
+        self.processor = TerminalOutputProcessor { [weak appState] content in
+            appState?.noteBridgeActivity(channelId: chId, companionName: cName, portName: pName)
+            appState?.terminalLoop(for: chId)?.receiveOutput(content)
+        }
     }
 
     func receive(_ raw: String) {
-        buffer += raw
         // Show bridge indicator immediately when data arrives
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.appState?.noteBridgeActivity(channelId: self.channelId, companionName: self.companionName, portName: self.portName)
         }
-        // Debounce: flush after 10s of quiet
-        flushTimer?.invalidate()
-        flushTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.flush()
-            }
-        }
-        // Force flush if buffer gets large
-        if buffer.count > 8000 {
-            flush()
-        }
-    }
-
-    private func flush() {
-        flushTimer?.invalidate()
-        guard !buffer.isEmpty else {
-            buffer = ""
-            return
-        }
-
-        let cleaned = OutputBatcher.stripANSI(buffer)
-        buffer = ""
-
-        let trimmed = OutputBatcher.collapseAndFilter(cleaned)
-        guard !trimmed.isEmpty else { return }
-
-        // Skip if identical to last posted (avoids repeated prompts)
-        guard trimmed != lastPosted else { return }
-        lastPosted = trimmed
-
-        // Truncate long output
-        let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n… (truncated)" : trimmed
-
-        guard let appState else { return }
-        // Show bridge-active indicator in chat (silent — no message posted)
-        appState.noteBridgeActivity(channelId: channelId, companionName: companionName, portName: portName)
-        // Feed cleaned output to the game loop (drives the agent↔terminal loop)
-        appState.terminalLoop(for: channelId)?.receiveOutput(content)
-    }
-
-    /// Full bridge filter: collapses \r overwrites, drops noise, collapses build phases,
-    /// deduplicates, and caps output so 800 lines of noise becomes ~5 lines of signal.
-    static func collapseAndFilter(_ str: String) -> String {
-        // 1. CR collapse — keep only the last \r segment per visual line
-        let rows = str.components(separatedBy: "\n").map { row -> String in
-            (row.components(separatedBy: "\r").last ?? row)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        // 2. Drop noise lines, collapse build phases, dedup
-        let spinnerChars = CharacterSet(charactersIn: "✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-        let signalPatterns: [NSRegularExpression] = [
-            "error[: ]", "warning[: ]", "fatal[: ]",
-            "^build complete", "^build failed", "^failed", "^passed",
-            "^error\\[", "undefined symbol", "exited with code",
-            "wrote ", "saved ", "created ", "deleted ", "updated ",
-            "^\\$\\s", "^>\\s", "^⏺", "file written", "\\.(swift|go|ts|js|py|rs):.*error"
-        ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
-
-        func isSignal(_ t: String) -> Bool {
-            let range = NSRange(t.startIndex..., in: t)
-            return signalPatterns.contains { $0.firstMatch(in: t, range: range) != nil }
-        }
-
-        func isNoise(_ t: String) -> Bool {
-            guard !t.isEmpty else { return true }
-            // Single character
-            if t.count == 1 { return true }
-            // Only spinner/symbol chars and whitespace
-            let nonSpaceScalars = t.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) }
-            if nonSpaceScalars.allSatisfy({ spinnerChars.contains($0)
-                || $0.properties.generalCategory == .otherSymbol
-                || $0.properties.generalCategory == .mathSymbol }) { return true }
-            // Token counter: optional spinner chars then digits only  e.g. "✻ 1337"
-            let stripped = t.unicodeScalars.filter { !spinnerChars.contains($0) && !CharacterSet.whitespaces.contains($0) }
-            if stripped.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) { return true }
-            // Spinner word pattern: optional glyphs + word ending in "ing…" or "ing..."
-            if let r = try? NSRegularExpression(pattern: "^[✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\\s]*\\w+ing[…\\.]+\\s*$"),
-               r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil { return true }
-            // (thinking)
-            if t == "(thinking)" { return true }
-            // compiler notes (not warnings/errors)
-            if t.hasPrefix("note: ") { return true }
-            return false
-        }
-
-        // Build phase collapse
-        let buildPhasePattern = try? NSRegularExpression(
-            pattern: "^(?:\\[\\d+/\\d+\\]\\s+)?(?:Compiling|Linking|Build input file|Merging module|Emitting module)",
-            options: .caseInsensitive)
-
-        func buildPhasePrefix(_ t: String) -> String? {
-            guard let r = buildPhasePattern,
-                  let m = r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
-                  let range = Range(m.range, in: t) else { return nil }
-            // Normalise to bare verb: "Compiling", "Linking" etc
-            let raw = String(t[range]).trimmingCharacters(in: .whitespaces)
-            if raw.lowercased().contains("compil") { return "Compiling" }
-            if raw.lowercased().contains("link") { return "Linking" }
-            if raw.lowercased().contains("emit") { return "Emitting" }
-            if raw.lowercased().contains("merg") { return "Merging" }
-            return "Building"
-        }
-
-        var output: [String] = []
-        var seen: Set<String> = []
-        var currentPhase: String? = nil
-        var phaseCount = 0
-
-        func flushPhase() {
-            guard let phase = currentPhase, phaseCount > 0 else { return }
-            let summary = phaseCount == 1 ? "\(phase) 1 file…" : "\(phase) \(phaseCount) files…"
-            if !seen.contains(summary) {
-                output.append(summary)
-                seen.insert(summary)
-            }
-            currentPhase = nil
-            phaseCount = 0
-        }
-
-        for t in rows {
-            guard !isNoise(t) else { continue }
-
-            if let phase = buildPhasePrefix(t) {
-                if phase == currentPhase {
-                    phaseCount += 1
-                } else {
-                    flushPhase()
-                    currentPhase = phase
-                    phaseCount = 1
-                }
-                continue
-            }
-
-            // Non-build-phase line: flush any pending phase summary first
-            flushPhase()
-
-            // Dedup within window
-            if seen.contains(t) { continue }
-            seen.insert(t)
-            output.append(t)
-        }
-        flushPhase()
-
-        // Cap to 60 lines
-        let capped = output.count > 60 ? Array(output.suffix(60)) : output
-        return capped.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Strip ANSI escape sequences for clean text.
-    static func stripANSI(_ str: String) -> String {
-        guard let regex = try? NSRegularExpression(
-            pattern: "\\x1b(?:\\[[0-9;?]*[a-zA-Z]|\\].*?(?:\\x07|\\x1b\\\\)|[()][0-9A-Za-z]|[>=<]|\\[\\?[0-9;]*[hl])",
-            options: []
-        ) else { return str }
-        let range = NSRange(str.startIndex..., in: str)
-        var result = regex.stringByReplacingMatches(in: str, range: range, withTemplate: "")
-        result = result.replacingOccurrences(of: "\r", with: "")
-        return result
+        processor.receive(raw)
     }
 }
 

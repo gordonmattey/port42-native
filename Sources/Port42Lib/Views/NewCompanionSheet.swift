@@ -384,6 +384,7 @@ public struct NewCompanionSheet: View {
     @State private var commandEnvVars: [(key: String, value: String)] = []
     @State private var commandEnvKey = ""
     @State private var commandEnvValue = ""
+    @State private var commandOpenInTerminal = false
 
     enum CompanionMode { case llm, api, command }
 
@@ -475,6 +476,7 @@ public struct NewCompanionSheet: View {
 
             // Command mode
             if companionMode == .command {
+                cliPresetRow
                 nameField
                 commandFields
             }
@@ -815,6 +817,64 @@ public struct NewCompanionSheet: View {
     }
 
     @ViewBuilder
+    private var cliPresetRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Preset")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+
+            HStack(spacing: 0) {
+                // None
+                Button(action: { clearCLIPreset() }) {
+                    Text("None")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(!commandOpenInTerminal ? Port42Theme.accent : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(!commandOpenInTerminal ? Port42Theme.accent.opacity(0.1) : Color.clear)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                ForEach(AgentConfig.CLIPreset.allCases, id: \.rawValue) { preset in
+                    let isSelected = commandOpenInTerminal && name == preset.displayName
+                    Button(action: { applyCLIPreset(preset) }) {
+                        Text(preset.label)
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(isSelected ? Port42Theme.accent : Port42Theme.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(isSelected ? Port42Theme.accent.opacity(0.1) : Color.clear)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(Port42Theme.bgHover.opacity(0.3))
+            .cornerRadius(6)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+
+            if commandOpenInTerminal {
+                Text("Opens a terminal port running the CLI, bridged to this channel.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+            }
+        }
+    }
+
+    private func applyCLIPreset(_ preset: AgentConfig.CLIPreset) {
+        name = preset.displayName
+        commandPath = preset.resolvedPath ?? ""
+        commandArgs = preset.args.joined(separator: " ")
+        commandSystemPrompt = preset.systemPrompt
+        commandOpenInTerminal = true
+    }
+
+    private func clearCLIPreset() {
+        commandOpenInTerminal = false
+    }
+
+    @ViewBuilder
     private var commandFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
@@ -835,8 +895,10 @@ public struct NewCompanionSheet: View {
                         panel.canChooseFiles = true
                         panel.canChooseDirectories = false
                         panel.allowsMultipleSelection = false
-                        if panel.runModal() == .OK, let url = panel.url {
-                            commandPath = url.path
+                        panel.begin { response in
+                            if response == .OK, let url = panel.url {
+                                commandPath = url.path
+                            }
                         }
                     }) {
                         Image(systemName: "folder")
@@ -886,8 +948,10 @@ public struct NewCompanionSheet: View {
                         panel.canChooseFiles = false
                         panel.canChooseDirectories = true
                         panel.allowsMultipleSelection = false
-                        if panel.runModal() == .OK, let url = panel.url {
-                            commandWorkDir = url.path
+                        panel.begin { response in
+                            if response == .OK, let url = panel.url {
+                                commandWorkDir = url.path
+                            }
                         }
                     }) {
                         Image(systemName: "folder")
@@ -1165,6 +1229,7 @@ public struct NewCompanionSheet: View {
                 workingDir: workDir.isEmpty ? nil : workDir,
                 envVars: envVars,
                 systemPrompt: trimmedSysPrompt.isEmpty ? nil : trimmedSysPrompt,
+                openInTerminal: commandOpenInTerminal,
                 trigger: .mentionOnly
             )
             appState.addCompanion(companion)

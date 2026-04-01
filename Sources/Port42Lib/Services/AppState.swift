@@ -671,8 +671,8 @@ public final class AppState: ObservableObject {
     @Published public var authStatus: AuthStatus = .unknown
     /// When true, all LLM API calls are blocked
     @Published public var aiPaused: Bool = false
-    /// Terminal ports currently bridged to conversations (shared across ToolExecutor instances)
-    public var bridgedTerminalNames: Set<String> = []
+    /// Terminal ports currently bridged to conversations: lowercased name → panelId
+    public var bridgedTerminalNames: [String: String] = [:]
     /// Active terminal bridges per channel: channelId → [companionName: portName]
     @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
@@ -1151,7 +1151,10 @@ public final class AppState: ObservableObject {
         }
 
         // Route @mentions to bridged terminals (e.g. Claude Code running in a terminal port)
-        routeMentionsToTerminals(content: message.content, senderName: message.senderName, channelId: channelId)
+        let swimCompanion: AgentConfig? = channelId.hasPrefix("swim-")
+            ? companions.first(where: { channelId == "swim-\($0.id)" })
+            : nil
+        routeMentionsToTerminals(content: message.content, senderName: message.senderName, channelId: channelId, implicitCompanion: swimCompanion)
 
         let targets = AgentRouter.findTargetAgents(
             content: message.content, agents: companions,
@@ -1255,26 +1258,41 @@ public final class AppState: ObservableObject {
         terminalLoops.removeValue(forKey: channelId)
     }
 
-    /// Route a message to a bridged terminal if any @mention matches its name.
-    /// Sends the message text into the terminal so a resident agent (e.g. Claude Code) can read and respond.
-    private func routeMentionsToTerminals(content: String, senderName: String, channelId: String) {
+    /// Route a message to a bridged terminal if any @mention matches its name,
+    /// or if an implicit companion is supplied (e.g. the Swim companion).
+    private func routeMentionsToTerminals(content: String, senderName: String, channelId: String, implicitCompanion: AgentConfig? = nil) {
         guard !bridgedTerminalNames.isEmpty else { return }
-        let mentions = MentionParser.extractMentions(from: content)
-        guard !mentions.isEmpty else { return }
-        for mention in mentions {
-            let key = mention.lowercased()
-            guard bridgedTerminalNames.contains(key) else { continue }
-            // Find the terminal port by name and send the message into it
-            let line = "[\(senderName)]: \(content)\n"
-            if let panel = portWindows.panels.first(where: { $0.title.lowercased() == key }),
+
+        // Build the set of keys to route to: explicit @mentions + implicit companion (Swim)
+        var keys: [String] = MentionParser.extractMentions(from: content)
+            .map { String($0.dropFirst()).lowercased() }  // strip leading @
+        if let implicit = implicitCompanion, !keys.contains(implicit.displayName.lowercased()) {
+            keys.append(implicit.displayName.lowercased())
+        }
+        guard !keys.isEmpty else { return }
+
+        let line = "[\(senderName)]: \(content)\r"
+        for key in keys {
+            guard let panelId = bridgedTerminalNames[key] else { continue }
+            if let panel = portWindows.panels.first(where: { $0.id == panelId }),
                let tb = panel.bridge.terminalBridge {
                 tb.sendToFirst(data: line)
-                NSLog("[Port42] Routed @%@ mention to terminal '%@'", mention, panel.title)
-            } else if let session = portWindows.terminalSession(forPortNamed: mention) {
+                NSLog("[Port42] Routed '%@' to terminal '%@'", key, panel.title)
+            } else if let session = portWindows.terminalSession(forPortNamed: key) {
                 _ = session.bridge.send(sessionId: session.sessionId, data: line)
-                NSLog("[Port42] Routed @%@ mention to terminal (session)", mention)
+                NSLog("[Port42] Routed '%@' to terminal (session)", key)
             }
         }
+    }
+
+    /// Register a terminal session (by sessionId) as bridged to a channel under a given name.
+    /// Called from `port42.terminal.bridge(sessionId, channelId, name)` in port JS.
+    public func bridgeTerminalPort(sessionId: String, channelId: String, name: String) {
+        // Find the panel whose bridge owns this session and store name → panelId
+        if let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) {
+            bridgedTerminalNames[name.lowercased()] = panel.id
+        }
+        NSLog("[Port42] Bridged terminal session %@ as '%@' in channel %@", sessionId, name, channelId)
     }
 
     /// Mark a terminal bridge as active for a channel — shows indicator in chat.
@@ -1826,8 +1844,8 @@ public final class AppState: ObservableObject {
         var channelAgentIds = Set(chCompanions.map { $0.id })
         let mentions = MentionParser.extractMentions(from: trimmed)
 
-        // Route @mentions to bridged terminals
-        routeMentionsToTerminals(content: trimmed, senderName: user.displayName, channelId: channel.id)
+        // Route @mentions to bridged terminals (pass swim companion for implicit routing)
+        routeMentionsToTerminals(content: trimmed, senderName: user.displayName, channelId: channel.id, implicitCompanion: activeSwimCompanion)
 
         // @mentioning a companion auto-adds them to the channel
         if !mentions.isEmpty {
@@ -2055,6 +2073,45 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Failed to save companion: \(error)")
         }
+        if companion.openInTerminal, let command = companion.command {
+            spawnTerminalAgentPort(companion: companion, command: command)
+        }
+    }
+
+    /// Pop a terminal port running a CLI agent and bridge it to the current channel.
+    private func spawnTerminalAgentPort(companion: AgentConfig, command: String) {
+        let name = companion.displayName
+        let args = companion.args ?? []
+        let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let channelId = currentChannel?.id ?? ""
+
+        let argsJS = args.map { "\"\($0.replacingOccurrences(of: "\"", with: "\\\""))\"" }.joined(separator: ", ")
+        let argsStr = args.joined(separator: " ")
+
+        guard let html = PortLibrary.load("cli-terminal", slots: [
+            "NAME":       name,
+            "COMMAND":    command.replacingOccurrences(of: "'", with: "\\'"),
+            "ARGS":       argsJS,
+            "ARGS_STR":   argsStr,
+            "CWD":        cwd.replacingOccurrences(of: "'", with: "\\'"),
+            "CHANNEL_ID": channelId
+        ]) else {
+            NSLog("[Port42] cli-terminal port not found in library")
+            return
+        }
+
+        let bridge = PortBridge(appState: self, channelId: channelId.isEmpty ? nil : channelId, createdBy: name)
+        let panelId = portWindows.popOut(
+            html: html,
+            bridge: bridge,
+            channelId: channelId.isEmpty ? nil : channelId,
+            createdBy: name,
+            messageId: nil,
+            title: name,
+            in: CGSize(width: 800, height: 600)
+        )
+        bridgedTerminalNames[name.lowercased()] = panelId
+        NSLog("[Port42] Spawned terminal port for CLI agent '%@' (panel %@)", name, panelId)
     }
 
     public func addCompanionToChannel(_ companion: AgentConfig, channel: Channel) {
@@ -2090,6 +2147,13 @@ public final class AppState: ObservableObject {
     }
 
     public func deleteCompanion(_ companion: AgentConfig) {
+        // Close any port panels spawned by this companion so they don't persist and re-restore
+        let panelsToClose = portWindows.panels.filter { $0.createdBy == companion.displayName }
+        for panel in panelsToClose {
+            portWindows.close(panel.id)
+        }
+        bridgedTerminalNames.removeValue(forKey: companion.displayName.lowercased())
+
         do {
             try db.deleteCreasesForCompanion(companion.id)
             try db.deleteFoldsForCompanion(companion.id)

@@ -913,6 +913,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             return ["cwd": NSNull()]
 
+        case "terminal.bridge":
+            // terminal.bridge(sessionId, channelId, name)
+            // Registers this terminal port so @mentions route into it.
+            guard let sessionId = args.first as? String else {
+                return ["error": "terminal.bridge requires sessionId"]
+            }
+            let bridgeChannelId = args.count > 1 ? args[1] as? String : nil
+            let bridgeName = args.count > 2 ? args[2] as? String : nil
+            await MainActor.run {
+                self.state?.bridgeTerminalPort(
+                    sessionId: sessionId,
+                    channelId: bridgeChannelId ?? self.channelId ?? "",
+                    name: bridgeName ?? ""
+                )
+            }
+            return ["ok": true]
+
         // MARK: Clipboard
 
         case "clipboard.read":
@@ -1697,6 +1714,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 send: (sessionId, data) => call('terminal.send', [sessionId, data]),
                 resize: (sessionId, cols, rows) => call('terminal.resize', [sessionId, cols, rows]),
                 kill: (sessionId) => call('terminal.kill', [sessionId]),
+                bridge: (sessionId, channelId, name) => call('terminal.bridge', [sessionId, channelId, name]),
                 on: function(event, callback) {
                     const fullEvent = 'terminal.' + event;
                     if (!_listeners[fullEvent]) _listeners[fullEvent] = [];

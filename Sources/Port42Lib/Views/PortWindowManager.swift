@@ -198,7 +198,8 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// Pop a port out from inline into a floating panel.
-    public func popOut(html: String, bridge: PortBridge, channelId: String?, createdBy: String?, messageId: String?, title: String? = nil, in bounds: CGSize) {
+    @discardableResult
+    public func popOut(html: String, bridge: PortBridge, channelId: String?, createdBy: String?, messageId: String?, title: String? = nil, in bounds: CGSize) -> String {
         // Check for existing panel from the same message and update it
         if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
             let existingId = panels[idx].id
@@ -232,7 +233,7 @@ public final class PortWindowManager: ObservableObject {
                 updateWindowContent(window, panel: panels[idx])
                 window.makeKeyAndOrderFront(nil)
             }
-            return
+            return existingId
         }
 
         let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
@@ -260,6 +261,7 @@ public final class PortWindowManager: ObservableObject {
         // Create native floating window
         createWindow(for: panel, in: bounds)
         Analytics.shared.portPoppedOut()
+        return newUdid
     }
 
     /// Close a panel with confirmation dialog. Used by the UI close button.

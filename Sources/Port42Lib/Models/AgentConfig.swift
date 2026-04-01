@@ -44,6 +44,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     public var args: [String]?
     public var workingDir: String?
     public var envVars: [String: String]?
+    public var openInTerminal: Bool  // spawn in a visible terminal port instead of background process
 
     // Secret access
     public var secretNames: [String]?  // named secrets this companion can use with rest.call
@@ -56,7 +57,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         providerBaseURL: String? = nil,
         model: String?, thinkingEnabled: Bool = false, thinkingEffort: String = "low",
         command: String?, args: [String]?, workingDir: String?,
-        envVars: [String: String]?, createdAt: Date
+        envVars: [String: String]?, openInTerminal: Bool = false, createdAt: Date
     ) {
         self.id = id
         self.ownerId = ownerId
@@ -73,6 +74,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         self.args = args
         self.workingDir = workingDir
         self.envVars = envVars
+        self.openInTerminal = openInTerminal
         self.createdAt = createdAt
     }
 
@@ -133,6 +135,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         workingDir: String? = nil,
         envVars: [String: String]? = nil,
         systemPrompt: String? = nil,
+        openInTerminal: Bool = false,
         trigger: AgentTrigger
     ) -> AgentConfig {
         AgentConfig(
@@ -148,7 +151,91 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
             args: args,
             workingDir: workingDir,
             envVars: envVars,
+            openInTerminal: openInTerminal,
             createdAt: Date()
         )
+    }
+
+    // MARK: - CLI Presets
+
+    /// Known command-line AI tools that can run as terminal agents in Port42.
+    public enum CLIPreset: String, CaseIterable {
+        case claude
+        case gemini
+
+        /// Single-word name used as @mention handle and companion display name
+        public var displayName: String {
+            switch self {
+            case .claude: return "claude"
+            case .gemini: return "gemini"
+            }
+        }
+
+        /// Human-readable label for UI buttons
+        public var label: String {
+            switch self {
+            case .claude: return "Claude Code"
+            case .gemini: return "Gemini CLI"
+            }
+        }
+
+        /// Resolves the binary path by checking common install locations.
+        public var resolvedPath: String? {
+            let candidates: [String]
+            switch self {
+            case .claude:
+                candidates = [
+                    "/Users/\(NSUserName())/.local/bin/claude",
+                    "/usr/local/bin/claude",
+                    "/opt/homebrew/bin/claude",
+                    "/usr/bin/claude"
+                ]
+            case .gemini:
+                candidates = [
+                    "/usr/local/bin/gemini",
+                    "/opt/homebrew/bin/gemini",
+                    "/usr/bin/gemini"
+                ]
+            }
+            // Also try nvm/nenv paths
+            let nmvPrefix = "/Users/\(NSUserName())/.nvm/versions/node"
+            if let versions = try? FileManager.default.contentsOfDirectory(atPath: nmvPrefix) {
+                let sorted = versions.sorted().reversed()
+                let bin = rawValue
+                for v in sorted {
+                    let p = "\(nmvPrefix)/\(v)/bin/\(bin)"
+                    if FileManager.default.fileExists(atPath: p) { return p }
+                }
+            }
+            return candidates.first { FileManager.default.fileExists(atPath: $0) }
+        }
+
+        public var args: [String] {
+            switch self {
+            case .claude: return ["--continue"]
+            case .gemini: return []
+            }
+        }
+
+        public var systemPrompt: String {
+            switch self {
+            case .claude:
+                return """
+                    You are a Port42 channel agent running as Claude Code in a terminal port. \
+                    Port42 messages addressed to you arrive as text on stdin. \
+                    Respond by calling the Port42 bridge:
+                    curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"YOUR_REPLY","senderName":"YOUR_NAME"}}'
+                    Keep responses concise. You have full access to all Port42 bridge APIs.
+                    """
+            case .gemini:
+                return """
+                    You are a Port42 channel agent running as Gemini CLI in a terminal port. \
+                    Port42 messages addressed to you arrive as text on stdin. \
+                    Respond by calling the Port42 bridge:
+                    curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"YOUR_REPLY","senderName":"YOUR_NAME"}}'
+                    Keep responses concise. You have full access to all Port42 bridge APIs.
+                    """
+            }
+        }
     }
 }

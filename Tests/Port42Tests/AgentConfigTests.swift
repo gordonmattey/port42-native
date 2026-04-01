@@ -313,4 +313,44 @@ struct AgentConfigTests {
         // Command agents return nil or empty since they can't be shared
         #expect(link.isEmpty)
     }
+
+    // MARK: - CLI Presets
+
+    @Test("Claude CLI preset resolves non-empty path and has expected args")
+    func claudePreset() {
+        let preset = AgentConfig.CLIPreset.claude
+        // Path may not be resolvable in CI, but the preset must at least have known args and a non-empty system prompt
+        #expect(preset.args == ["--continue"])
+        #expect(!preset.systemPrompt.isEmpty)
+        #expect(preset.displayName == "claude")
+    }
+
+    @Test("Gemini CLI preset has expected shape")
+    func geminiPreset() {
+        let preset = AgentConfig.CLIPreset.gemini
+        #expect(preset.args == [])
+        #expect(!preset.systemPrompt.isEmpty)
+        #expect(preset.displayName == "gemini")
+    }
+
+    @Test("Creating command agent from claude preset sets openInTerminal")
+    func commandAgentFromCLIPreset() {
+        let preset = AgentConfig.CLIPreset.claude
+        let path = preset.resolvedPath ?? "/usr/local/bin/claude"
+        let agent = AgentConfig.createCommand(
+            ownerId: "user-1",
+            displayName: preset.displayName,
+            command: path,
+            args: preset.args,
+            systemPrompt: preset.systemPrompt,
+            openInTerminal: true,
+            trigger: .mentionOnly
+        )
+        #expect(agent.mode == .command)
+        #expect(agent.command == path)
+        #expect(agent.command?.hasSuffix("claude") == true)
+        #expect(agent.args == ["--continue"])
+        #expect(agent.systemPrompt != nil)
+        #expect(agent.openInTerminal == true)
+    }
 }
