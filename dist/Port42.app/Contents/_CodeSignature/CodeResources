@@ -60,6 +60,10 @@
 		<data>
 		wbOvxJWXqfWPrgvCSNr5B9mG+IU=
 		</data>
+		<key>Resources/Port42_Port42Lib.bundle/cli-terminal.html</key>
+		<data>
+		n4xuX863eJw2kb2y4FJg7v/IoAU=
+		</data>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
 		<data>
 		mNP4M3SdV7W/qujQGVWErHPg7YQ=
@@ -71,6 +75,14 @@
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<data>
 		vL341Xx96g9hh8F+3D13kVyPj24=
+		</data>
+		<key>Resources/Port42_Port42Lib.bundle/llms-cli.txt</key>
+		<data>
+		4w71FGS71dtibMtyJb+RLP1f4/s=
+		</data>
+		<key>Resources/Port42_Port42Lib.bundle/llms.txt</key>
+		<data>
+		OY1oxEX4pgOFdfVWfG3pv1LMnIA=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-mcp.js</key>
 		<data>
@@ -112,7 +124,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			swG/EqMBrWINN4Vavoqhy+REiLc=
+			Yp6w70PFzGJ4hzxLFAq3aKI8CkI=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -208,6 +220,13 @@
 			hzUysMs28YM1waNAH1FrH/m5Z07JOTMf9EI4LdWaQb0=
 			</data>
 		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/cli-terminal.html</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			bd5W2Gf+RVlNrjndfk4mbjBlTigu1uzNh7VYyyz5X4s=
+			</data>
+		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
 		<dict>
 			<key>hash2</key>
@@ -227,6 +246,20 @@
 			<key>hash2</key>
 			<data>
 			9+1iYJu7r9IWnlrsSELNrkKIY2cq7X+Dv484mJVu7D0=
+			</data>
+		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/llms-cli.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			+VGiV50hhL/pk3RkfnyzMDHqRCnDdxXcVCPgHtGVGF8=
+			</data>
+		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/llms.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			i7TcqY1vTI3yAhyVIKGw1r/4kutNEtLa/qVDk+s+bbs=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-mcp.js</key>

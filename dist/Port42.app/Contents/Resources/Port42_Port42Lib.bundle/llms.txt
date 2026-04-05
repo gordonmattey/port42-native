@@ -1,0 +1,188 @@
+PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence.
+Ports render as live interactive surfaces in the user's chat. Include a <title> and
+<meta name="version" content="1"> in every port. The port42 dark theme is auto-injected.
+
+When updating a port, always call port_get_html first, make the minimum change, and bump
+the version. Never rewrite a whole port to fix one bug. Use port_patch for targeted fixes.
+
+## Calling Port42 APIs
+
+Use `curl` to call any API. Port42 must be running.
+
+```bash
+curl -s http://127.0.0.1:4242/call \
+  -d '{"method":"<method>","args":{...}}'
+```
+
+Response: `{"content": "..."}` — the result as a string or JSON.
+
+Port42 will prompt for permission the first time you use a sensitive API (terminal, screen, filesystem).
+Pre-approve categories in Port42 Settings → Remote Access to skip future prompts.
+
+## Quick examples
+
+```bash
+# Read clipboard
+curl -s http://127.0.0.1:4242/call -d '{"method":"clipboard.read"}'
+
+# Run a shell command
+curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+
+# Take a screenshot
+curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
+
+# Send a message (triggers companions; add "channel_id" to target a specific channel)
+curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
+
+# Read recent channel messages
+curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
+
+# List all channels
+curl -s http://127.0.0.1:4242/call -d '{"method":"channel.list"}'
+
+# List companions
+curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
+
+# Get current user
+curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
+```
+
+## Available Methods
+
+### User & Channel
+
+  user.get                        → { id, name }
+  companions.list                 → [{ id, name, model, isActive }]
+  companions.get(id)              → { id, name, model, isActive } | null
+  channel.current                 → { id, name, type, members } | null
+  channel.list                    → [{ id, name, type, isCurrent }]
+  messages.recent(count?)         → [{ id, sender, content, timestamp, isCompanion }]
+  messages.send(text, channel_id?) → sends message and triggers companions (default: current channel)
+
+### Ports
+
+  ports.list(capabilities?)       → [{ id, title, capabilities, status, createdBy, cwd?, x?, y? }]
+                                    status: 'floating' | 'docked' | 'inline'
+  port.update(id, html)           → replace a port's full HTML (read first with port.getHtml)
+  port.getHtml(id, version?)      → read a port's current or versioned HTML
+  port.patch(id, search, replace) → targeted string replacement (errors if not found)
+  port.history(id)                → [{ version, createdBy, createdAt }]
+  port.manage(id, action)         → focus | close | dock | undock
+  port.restore(id, version)       → roll back to a previous version
+  port.move(id, x, y)            → move a floating port (macOS coords: Y=0 is bottom)
+  port.position(id)              → { x, y, width, height } of a floating port
+  port.push(id, data)            → push data to a live port via CustomEvent ('port42:data')
+  port.exec(id, js)              → execute JS on a port's webview, returns result
+  port.rename(id, title)         → rename a port by ID
+
+### Terminal
+
+  terminal.exec(command)          → run a shell command, returns stdout
+  terminal.send(id, data)         → send keystrokes to a terminal port (append \r for Enter)
+
+  terminal_list                   → ports with active terminal sessions
+  terminal_bridge(name)           → start routing terminal output to channel
+  terminal_unbridge(name)         → stop routing
+
+### Screen & Display
+
+  screen.displays                 → [{ width, height, x, y, visibleWidth, visibleHeight, isMain }]
+                                    No permissions required. macOS bottom-left origin.
+  screen_capture(scale?)          → { image (base64 PNG), width, height }
+                                    Requires screen permission.
+  screen.windows                  → { windows: [{ id, title, app, bundleId, bounds }] }
+
+### Clipboard
+
+  clipboard.read                  → { type: 'text'|'image'|'empty', data?, format? }
+  clipboard.write(data)           → { ok: true }
+
+### Files
+
+  files.list(path)                → list directory contents
+  files.read(path, encoding?)     → read file contents (utf8 or base64)
+  files.write(path, data, encoding?) → write file
+
+### Audio
+
+  audio.speak(text, opts?)        → text-to-speech (no permission needed)
+  audio.play(data, opts?)         → play base64 audio (WAV, MP3, AAC)
+  audio.stop                      → stop playback
+
+### Browser
+
+  browser.open(url, opts?)        → { sessionId, url, title }
+  browser.navigate(id, url)       → { url, title }
+  browser.capture(id, opts?)      → { image, width, height }
+  browser.text(id, opts?)         → { text, title, url }
+  browser.html(id, opts?)         → { html, title, url }
+  browser.execute(id, js)         → { result }
+  browser.close(id)               → { ok: true }
+
+### Automation
+
+  automation.runAppleScript(source, opts?) → { result } | { error }
+  automation.runJXA(source, opts?)         → { result } | { error }
+  opts: { timeout: number } (default 30s, max 120s)
+
+### Camera
+
+  camera.capture(scale?)          → { image (base64 PNG), width, height }
+
+### Notifications
+
+  notify.send(title, body?, opts?) → { ok: true, id }
+  opts: { sound: true, subtitle: 'text' }
+
+### Relationship State (Swim Context)
+
+  creases.read(limit?)            → [{ id, content, weight, prediction?, actual? }]
+  creases.write(content, opts?)   → { id, ok }
+  creases.touch(id)               → update recency + weight
+  creases.forget(id)              → remove a crease
+  fold.read                       → { established, tensions, holding, depth }
+  fold.update(opts)               → update fold state
+  position.read                   → { read, stance, watching }
+  position.set(read, opts?)       → set position
+
+### REST (HTTP with Secrets)
+
+  rest.call(url, opts?)           → make HTTP request with secret injection
+                                    opts: { method, headers, body, secret }
+                                    secret: name of a stored secret (resolves from Keychain)
+                                    Requires REST permission.
+
+### Storage
+
+  storage.get(key, opts?)         → read stored value (scoped per-companion per-channel)
+  storage.set(key, value, opts?)  → write value (string, number, object, array)
+  storage.delete(key, opts?)      → remove a key
+  storage.list(opts?)             → list all keys
+                                    opts: { scope: 'global' } for cross-channel access
+
+### AI
+
+  ai.models                       → [{ id, name, tier }]
+  ai.complete(prompt, opts?)       → response text (streaming via onToken not available over HTTP)
+
+
+## Permissions
+
+Port42 prompts for permission the first time a sensitive API is called from an external
+process. Pre-approve categories in Settings → Remote Access to skip future prompts.
+
+| Permission | Methods |
+|-----------|---------|
+| Terminal | terminal.exec, terminal.send |
+| Screen | screen_capture, screen.windows |
+| Clipboard | clipboard.read, clipboard.write |
+| Filesystem | files.list, files.read, files.write |
+| Browser | browser.* |
+| Camera | camera.capture |
+| Automation | automation.runAppleScript, automation.runJXA |
+| Notification | notify.send |
+| AI | ai.complete |
+| REST | rest.call |
+
+No permission required: user.get, companions.list, channel.*, messages.*, ports.list,
+port.*, storage.*, screen.displays, audio.speak, audio.play, audio.stop.
