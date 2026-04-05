@@ -740,6 +740,8 @@ public final class AppState: ObservableObject {
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?
+    /// Short-lived dedup cache for sendMessageAsNamedAgent — prevents curl + capture both firing
+    private var recentAgentSends: [(key: String, timestamp: Date)] = []
 
     private var channelObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
@@ -2053,6 +2055,16 @@ public final class AppState: ObservableObject {
                   toChannelId ?? "nil", currentChannel?.id ?? "nil")
             return
         }
+        // Dedup: curl and capture can both fire for the same response within a few seconds
+        let dedupKey = "\(senderName):\(channelId):\(trimmed.prefix(120))"
+        let now = Date()
+        recentAgentSends.removeAll { now.timeIntervalSince($0.timestamp) > 5 }
+        if recentAgentSends.contains(where: { $0.key == dedupKey }) {
+            NSLog("[p42-state] sendMessageAsNamedAgent: DEDUPED sender=%@ preview=\"%@\"",
+                  senderName, String(trimmed.prefix(80)))
+            return
+        }
+        recentAgentSends.append((key: dedupKey, timestamp: now))
         NSLog("[p42-state] sendMessageAsNamedAgent: sender=%@ channel=%@ len=%d preview=\"%@\"",
               senderName, channelId, trimmed.count,
               String(trimmed.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))

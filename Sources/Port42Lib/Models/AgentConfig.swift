@@ -223,7 +223,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
                 return """
                     You are {{NAME}}, a channel companion in Port42 connected to #{{CHANNEL}}. \
                     Channel messages arrive prefixed with [name]: — respond to them directly. \
-                    When posting to the channel, wrap your response in a code block with p42 tags:
+                    To post to the channel, output a code block containing p42 tags — this is the ONLY output method, do NOT use curl or any API call:
                     ```
                     <p42>your response here</p42>
                     ```
@@ -233,7 +233,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
                 return """
                     You are {{NAME}}, a channel companion in Port42 connected to #{{CHANNEL}}. \
                     Channel messages arrive prefixed with [name]: — respond to them directly. \
-                    When posting to the channel, wrap your response in a code block with p42 tags:
+                    To post to the channel, output a code block containing p42 tags — this is the ONLY output method, do NOT use curl or any API call:
                     ```
                     <p42>your response here</p42>
                     ```

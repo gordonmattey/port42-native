@@ -1,5 +1,5 @@
 <title>{{NAME}}</title>
-<meta name="version" content="18">
+<meta name="version" content="20">
 
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,7 +52,14 @@
   //     blockquotes ("> text") in Claude Code responses.
 
   const NAME = '{{NAME}}';
-  const log = (...a) => console.log(`[p42-terminal:${NAME}]`, ...a);
+  window._term = term;
+  window.__p42logs = [];
+  const log = (...a) => {
+    const msg = `[p42-terminal:${NAME}] ` + a.join(' ');
+    console.log(msg);
+    window.__p42logs.push(msg);
+    if (window.__p42logs.length > 200) window.__p42logs.shift();
+  };
 
   let commandSent = false;      // true after the CLI command has been sent
   let warmupDone = false;       // true after first CLI prompt seen post-launch
@@ -117,13 +124,14 @@
       if (line) fullText += line.translateToString(true).trimEnd();
     }
     log(`extractTaggedContent(${fromAbs},${toAbs}) text[0..200]: "${fullText.slice(0,200)}"`);
-    const matches = [...fullText.matchAll(/<p42>([\s\S]*?)<\/p42>/gi)];
+    const matches = [...fullText.matchAll(/<p42>([\s\S]*?)<\\?\/p42>/gi)];
     return matches.map(m => m[1].trim()).filter(Boolean);
   }
 
   // Track which buffer content we've already sent (by abs range)
   let lastSentToAbs = -1;
   let skipNextCapture = false;  // skip Claude's response to the context injection
+  window.__p42state = () => ({ commandSent, warmupDone, lastPromptAbsLine, maxAbsSincePrompt, lastSentToAbs, chunkCount });
 
   port42.terminal.on('output', (e) => {
     if (e.sessionId !== sessionId) return;

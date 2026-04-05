@@ -396,15 +396,24 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             return ["error": "channel not found"]
 
         // port42.messages.send(text)
-        // Always sends as the current user — ports are interactive surfaces
-        // used by the human, so user-initiated sends must not inherit the
-        // companion identity of whoever created the port.
+        // Sends as current user, UNLESS called from a companion terminal port (createdBy set),
+        // in which case it's redirected to sendAsCreator so CLI agents that call curl
+        // get the correct identity and typing indicator clearing.
         case "messages.send":
             guard let text = args.first as? String, !text.isEmpty else {
                 return ["error": "messages.send requires a non-empty text argument"]
             }
             let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
-            state.sendMessage(content: text, toChannelId: targetChannelId)
+            if let senderName = createdBy, !senderName.isEmpty {
+                NSLog("[p42-bridge] messages.send from companion port '%@' — redirecting to sendAsCreator", senderName)
+                state.sendMessageAsNamedAgent(content: text, senderName: senderName, toChannelId: targetChannelId)
+                if let cid = targetChannelId {
+                    state.typingAgentNamesByChannel[cid, default: []].remove(senderName)
+                    state.sync.sendTyping(channelId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
+                }
+            } else {
+                state.sendMessage(content: text, toChannelId: targetChannelId)
+            }
             return ["ok": true]
 
         // port42.messages.sendAsCreator(text, channelId?)

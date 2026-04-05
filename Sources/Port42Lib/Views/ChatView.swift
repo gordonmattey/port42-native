@@ -170,7 +170,19 @@ public struct ChannelHeader: View {
 
     private var members: [ChannelMember] {
         guard let id = appState.currentChannel?.id else { return [] }
-        var result = (try? appState.db.getChannelMembers(channelId: id)) ?? []
+        // Include local companions assigned to this channel
+        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
+        let assignedNames = Set(channelAgents.map { $0.displayName.lowercased() })
+        let onlineSet = Set(appState.sync.onlineUsers[id] ?? [])
+
+        // Filter history members: keep humans and remote/online agents, drop agents no longer assigned
+        var history = (try? appState.db.getChannelMembers(channelId: id)) ?? []
+        history = history.filter { m in
+            m.type == "human" || assignedNames.contains(m.name.lowercased()) || onlineSet.contains(m.senderId)
+        }
+        // Dedup by name within history (old bad sender IDs produce multiple rows for same agent)
+        var seenNames = Set<String>()
+        var result = history.filter { seenNames.insert($0.name.lowercased()).inserted }
 
         // Always include the current user even if they haven't messaged yet
         if let user = appState.currentUser,
@@ -178,10 +190,8 @@ public struct ChannelHeader: View {
             result.insert(ChannelMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
         }
 
-        // Include local companions assigned to this channel
-        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
         for agent in channelAgents {
-            if !result.contains(where: { $0.senderId == agent.id || $0.name == agent.displayName }) {
+            if !result.contains(where: { $0.name == agent.displayName }) {
                 result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
         }
