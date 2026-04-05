@@ -2109,7 +2109,13 @@ public final class AppState: ObservableObject {
         let isClaude = command.hasSuffix("claude") || command.contains("/claude")
         if isClaude {
             let claudeMdPath = (cwd as NSString).appendingPathComponent("CLAUDE.md")
-            let section = "\n\n# Port42 Channel Companion\n\nYou are \(name), a channel companion in Port42 connected to #\(channelNameForPrompt).\n\nChannel messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the channel, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the channel.\n"
+            let rawPrompt = companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let sectionBody = rawPrompt.isEmpty
+                ? "You are \(name), a channel companion in Port42 connected to #\(channelNameForPrompt).\n\nChannel messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the channel, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the channel. Keep responses concise and conversational."
+                : rawPrompt
+                    .replacingOccurrences(of: "{{NAME}}", with: name)
+                    .replacingOccurrences(of: "{{CHANNEL}}", with: channelNameForPrompt)
+            let section = "\n\n# Port42 Channel Companion\n\n\(sectionBody)\n"
             let existing = (try? String(contentsOfFile: claudeMdPath, encoding: .utf8)) ?? ""
             // Replace any existing Port42 section (stale name/channel) or append if not present
             let updated: String
