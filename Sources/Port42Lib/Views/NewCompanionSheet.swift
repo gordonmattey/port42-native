@@ -385,6 +385,7 @@ public struct NewCompanionSheet: View {
     @State private var commandEnvKey = ""
     @State private var commandEnvValue = ""
     @State private var commandOpenInTerminal = false
+    @State private var selectedCLIPreset: AgentConfig.CLIPreset? = nil
 
     enum CompanionMode { case llm, api, command }
 
@@ -837,7 +838,7 @@ public struct NewCompanionSheet: View {
                 .buttonStyle(.plain)
 
                 ForEach(AgentConfig.CLIPreset.allCases, id: \.rawValue) { preset in
-                    let isSelected = commandOpenInTerminal && name == preset.displayName
+                    let isSelected = commandOpenInTerminal && selectedCLIPreset == preset
                     Button(action: { applyCLIPreset(preset) }) {
                         Text(preset.label)
                             .font(Port42Theme.mono(11))
@@ -868,10 +869,12 @@ public struct NewCompanionSheet: View {
         commandArgs = preset.args.joined(separator: " ")
         commandSystemPrompt = preset.systemPrompt
         commandOpenInTerminal = true
+        selectedCLIPreset = preset
     }
 
     private func clearCLIPreset() {
         commandOpenInTerminal = false
+        selectedCLIPreset = nil
     }
 
     @ViewBuilder

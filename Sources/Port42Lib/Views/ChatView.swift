@@ -181,7 +181,7 @@ public struct ChannelHeader: View {
         // Include local companions assigned to this channel
         let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
         for agent in channelAgents {
-            if !result.contains(where: { $0.senderId == agent.id }) {
+            if !result.contains(where: { $0.senderId == agent.id || $0.name == agent.displayName }) {
                 result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
         }

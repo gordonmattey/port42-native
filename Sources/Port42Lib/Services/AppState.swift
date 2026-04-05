@@ -2100,15 +2100,17 @@ public final class AppState: ObservableObject {
     /// Pop a terminal port running a CLI agent and bridge it to the given channel.
     private func spawnTerminalAgentPort(companion: AgentConfig, command: String, channelId: String) {
         let name = companion.displayName
-        var args = companion.args ?? []
+        let args = companion.args ?? []
         let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
 
         let channelNameForPrompt = channels.first(where: { $0.id == channelId })?.name ?? channelId
-        // For claude CLI companions, write channel instructions into CLAUDE.md in the CWD.
-        // Appending to CLAUDE.md is treated as trusted project context — no injection warning.
+        // For known CLI companions, write channel instructions into their context file in the CWD.
+        // Claude Code reads CLAUDE.md; Gemini CLI reads GEMINI.md. Treated as trusted project context.
         let isClaude = command.hasSuffix("claude") || command.contains("/claude")
-        if isClaude {
-            let claudeMdPath = (cwd as NSString).appendingPathComponent("CLAUDE.md")
+        let isGemini = command.hasSuffix("gemini") || command.contains("/gemini")
+        if isClaude || isGemini {
+            let contextFile = isGemini ? "GEMINI.md" : "CLAUDE.md"
+            let claudeMdPath = (cwd as NSString).appendingPathComponent(contextFile)
             let rawPrompt = companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let sectionBody = rawPrompt.isEmpty
                 ? "You are \(name), a channel companion in Port42 connected to #\(channelNameForPrompt).\n\nChannel messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the channel, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the channel. Keep responses concise and conversational."
