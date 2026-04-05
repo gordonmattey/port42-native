@@ -355,7 +355,7 @@ public struct DolphinProtocolView: View {
             visibleBootLines = index + 1
             if line.suffix != nil && line.suffixDelay > 0 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + line.suffixDelay) {
-                    withAnimation(.easeIn(duration: 0.2)) {
+                    _ = withAnimation(.easeIn(duration: 0.2)) {
                         revealedBiosSuffixes.insert(index)
                     }
                     revealBiosLines(current: index + 1)

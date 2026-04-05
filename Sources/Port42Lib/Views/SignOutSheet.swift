@@ -28,12 +28,16 @@ public struct SignOutSheet: View {
     @AppStorage("remoteAllowTerminal") private var remoteAllowTerminal = false
     @AppStorage("remoteAllowFS") private var remoteAllowFS = false
     @AppStorage("remoteAllowScreen") private var remoteAllowScreen = false
-    @AppStorage("portAICompanionId") private var portAICompanionId: String = ""
     @State private var remoteExpanded = false
     @State private var aiExpanded = false
     @StateObject private var instructionsSvc = InstructionService.shared
     @State private var pluginUpgradeInProgress = false
     @State private var pluginUpgradeResult: String?
+    @State private var secretsExpanded = false
+    @State private var newSecretName = ""
+    @State private var newSecretValue = ""
+    @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
+    @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
 
     enum AutoDetectStatus: Equatable {
         case unknown
@@ -56,16 +60,26 @@ public struct SignOutSheet: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(spacing: 8) {
-                Text("\u{25C7}")
-                    .font(.system(size: 28, weight: .ultraLight))
-                    .foregroundStyle(Port42Theme.accent)
+            ZStack {
+                VStack(spacing: 8) {
+                    Text("\u{25C7}")
+                        .font(.system(size: 28, weight: .ultraLight))
+                        .foregroundStyle(Port42Theme.accent)
 
-                if let user = appState.currentUser {
-                    Text(user.displayName)
-                        .font(Port42Theme.mono(14))
-                        .foregroundStyle(Port42Theme.textPrimary)
+                    if let user = appState.currentUser {
+                        Text(user.displayName)
+                            .font(Port42Theme.mono(14))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                    }
                 }
+                HStack {
+                    Spacer()
+                    Button("Done") { isPresented = false }
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.accent)
+                        .buttonStyle(.plain)
+                }
+                .padding(.trailing, 20)
             }
             .padding(.top, 28)
             .padding(.bottom, 20)
@@ -86,6 +100,15 @@ public struct SignOutSheet: View {
             // AI Connection (accordion)
             VStack(alignment: .leading, spacing: 0) {
                 aiConnectionSection
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+
+            Divider().background(Port42Theme.border)
+
+            // Secrets
+            VStack(alignment: .leading, spacing: 0) {
+                secretsSection
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -159,12 +182,6 @@ public struct SignOutSheet: View {
                     .buttonStyle(.plain)
                 }
 
-                Button("stay") {
-                    isPresented = false
-                }
-                .buttonStyle(.plain)
-                .font(Port42Theme.mono(12))
-                .foregroundStyle(Port42Theme.textSecondary)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
@@ -335,7 +352,7 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var aiConnectionSection: some View {
-        Button(action: { withAnimation { aiExpanded.toggle() } }) {
+        Button(action: { withAnimation { aiExpanded.toggle(); if aiExpanded { secretsExpanded = false; remoteExpanded = false } } }) {
             HStack(spacing: 6) {
                 Image(systemName: "brain")
                     .font(.system(size: 11))
@@ -350,6 +367,7 @@ public struct SignOutSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
 
         if aiExpanded {
 
@@ -694,90 +712,18 @@ public struct SignOutSheet: View {
                 .padding(.top, 8)
             }
         }
-        // MARK: Port42 AI row
-        Divider().background(Port42Theme.border).padding(.vertical, 4)
-
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("◈")
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.accent)
-                Text("port42 AI")
-                    .font(Port42Theme.mono(12))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                Spacer()
-            }
-
-            Text("companion used for port42.ai.complete() calls from ports")
-                .font(Port42Theme.mono(10))
-                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-
-            let llmCompanions = appState.companions.filter {
-                $0.mode == .llm && $0.model != nil
-            }
-
-            if llmCompanions.isEmpty {
-                Text("no LLM companions configured")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    // "auto" option — uses creating companion's backend
-                    Button(action: { portAICompanionId = "" }) {
-                        HStack(spacing: 6) {
-                            Text(portAICompanionId.isEmpty ? "◆" : "○")
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(portAICompanionId.isEmpty ? Port42Theme.accent : Port42Theme.textSecondary)
-                            Text("auto")
-                                .font(Port42Theme.mono(12))
-                                .foregroundStyle(portAICompanionId.isEmpty ? Port42Theme.textPrimary : Port42Theme.textSecondary)
-                            Text("(creating companion's provider)")
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    ForEach(llmCompanions, id: \.id) { companion in
-                        let isSelected = portAICompanionId == companion.id
-                        Button(action: { portAICompanionId = companion.id }) {
-                            HStack(spacing: 6) {
-                                Text(isSelected ? "◆" : "○")
-                                    .font(Port42Theme.mono(10))
-                                    .foregroundStyle(isSelected ? Port42Theme.accent : Port42Theme.textSecondary)
-                                Text(companion.displayName)
-                                    .font(Port42Theme.mono(12))
-                                    .foregroundStyle(isSelected ? Port42Theme.textPrimary : Port42Theme.textSecondary)
-                                if let model = companion.model {
-                                    Text(model)
-                                        .font(Port42Theme.mono(10))
-                                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                                }
-                                Spacer()
-                                Text(companion.provider?.rawValue ?? "anthropic")
-                                    .font(Port42Theme.mono(10))
-                                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.leading, 8)
-            }
-        }
         } // end if aiExpanded
     }
 
     @ViewBuilder
     private var remoteAccessSection: some View {
         // Accordion header
-        Button(action: { withAnimation { remoteExpanded.toggle() } }) {
+        Button(action: { withAnimation { remoteExpanded.toggle(); if remoteExpanded { aiExpanded = false; secretsExpanded = false } } }) {
             HStack(spacing: 6) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 11))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text("remote access")
+                Text("Remote Access")
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
@@ -787,6 +733,7 @@ public struct SignOutSheet: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
 
         if remoteExpanded {
             VStack(alignment: .leading, spacing: 12) {
@@ -1154,6 +1101,117 @@ public struct SignOutSheet: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Secrets
+
+    @ViewBuilder
+    private var secretsSection: some View {
+        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { secretsExpanded.toggle(); if secretsExpanded { aiExpanded = false; remoteExpanded = false } } }) {
+            HStack(spacing: 6) {
+                Image(systemName: "key")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Text("Secrets")
+                    .font(Port42Theme.mono(13))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                if !secrets.isEmpty {
+                    Text("(\(secrets.count))")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                }
+                Spacer()
+                Image(systemName: secretsExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+        }
+        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+
+        if secretsExpanded {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Named credentials for rest.call. Companions reference these by name — they never see the raw value.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+
+                // Existing secrets
+                ForEach(secrets) { secret in
+                    HStack(spacing: 8) {
+                        Text(secret.name)
+                            .font(Port42Theme.monoBold(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                        Text(secret.type.rawValue)
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Port42Theme.bgSecondary.opacity(0.5))
+                            .cornerRadius(3)
+                        Spacer()
+                        Button(action: {
+                            Port42AuthStore.shared.deleteSecret(name: secret.name)
+                            secrets = Port42AuthStore.shared.listSecrets()
+                        }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                // Add new secret
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        TextField("name", text: $newSecretName)
+                            .font(Port42Theme.mono(11))
+                            .textFieldStyle(.plain)
+                            .frame(width: 100)
+                            .padding(4)
+                            .background(Port42Theme.bgSecondary)
+                            .cornerRadius(4)
+
+                        Picker("", selection: $newSecretType) {
+                            Text("Bearer").tag(Port42AuthStore.SecretType.bearerToken)
+                            Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
+                            Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
+                            Text("Header").tag(Port42AuthStore.SecretType.header)
+                            Text("LLM").tag(Port42AuthStore.SecretType.llm)
+                        }
+                        .labelsHidden()
+                        .frame(width: 110)
+                    }
+
+                    HStack(spacing: 8) {
+                        SecureField("credential value", text: $newSecretValue)
+                            .font(Port42Theme.mono(11))
+                            .textFieldStyle(.plain)
+                            .padding(4)
+                            .background(Port42Theme.bgSecondary)
+                            .cornerRadius(4)
+
+                        Button(action: {
+                            let name = newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            let value = newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !name.isEmpty, !value.isEmpty else { return }
+                            Port42AuthStore.shared.saveSecret(name: name, type: newSecretType, value: value)
+                            secrets = Port42AuthStore.shared.listSecrets()
+                            newSecretName = ""
+                            newSecretValue = ""
+                        }) {
+                            Text("add")
+                                .font(Port42Theme.mono(11))
+                                .foregroundStyle(Port42Theme.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                  newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .padding(.top, 8)
         }
     }
 

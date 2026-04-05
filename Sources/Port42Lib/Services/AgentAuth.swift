@@ -187,7 +187,7 @@ public final class Port42AuthStore {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970
         guard let data = try? encoder.encode(cache),
-              let str = String(data: data, encoding: .utf8) else { return }
+              String(data: data, encoding: .utf8) != nil else { return }
         let account = "oauth-cache-\(provider)"
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -227,6 +227,124 @@ public final class Port42AuthStore {
         deleteKeychainValue(account: "apiKey")
         UserDefaults.standard.removeObject(forKey: "port42AuthPref-anthropic")
         UserDefaults.standard.removeObject(forKey: "port42AuthMode")
+    }
+
+    // MARK: - Named Secrets (for rest.call and provider companions)
+
+    /// Secret type determines how the credential is injected into HTTP requests.
+    public enum SecretType: String, Codable {
+        case bearerToken   // Authorization: Bearer <value>
+        case apiKey        // x-api-key: <value>  (Anthropic, etc.)
+        case basicAuth     // Authorization: Basic <base64(value)>  — value is "user:pass"
+        case header        // Custom header — stored as "Header-Name: value"
+        case llm           // LLM provider key — stored only, not injected into rest.call headers
+    }
+
+    /// A named secret stored in Keychain.
+    public struct Secret: Identifiable, Equatable {
+        public var id: String { name }
+        public let name: String
+        public let type: SecretType
+
+        public init(name: String, type: SecretType) {
+            self.name = name
+            self.type = type
+        }
+    }
+
+    private static let secretPrefix = "secret-"
+    private static let secretMetaPrefix = "secret-meta-"
+
+    /// Save a named secret to Keychain.
+    public func saveSecret(name: String, type: SecretType, value: String) {
+        // Store the credential value
+        let account = Self.secretPrefix + name
+        let data = value.data(using: .utf8)!
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("[Port42] Failed to save secret '%@': %d", name, status)
+        }
+
+        // Store metadata (type) in UserDefaults — not sensitive
+        UserDefaults.standard.set(type.rawValue, forKey: "port42Secret-\(name)-type")
+
+        // Track the set of secret names
+        var names = secretNames()
+        if !names.contains(name) {
+            names.append(name)
+            UserDefaults.standard.set(names, forKey: "port42SecretNames")
+        }
+        NSLog("[Port42] Secret saved: %@ (%@)", name, type.rawValue)
+    }
+
+    /// Load a named secret's value from Keychain. Returns nil if not found.
+    public func loadSecretValue(name: String) -> String? {
+        return loadKeychainValue(account: Self.secretPrefix + name)
+    }
+
+    /// Load a named secret's metadata. Returns nil if not found.
+    public func loadSecret(name: String) -> Secret? {
+        guard let rawType = UserDefaults.standard.string(forKey: "port42Secret-\(name)-type"),
+              let type = SecretType(rawValue: rawType) else { return nil }
+        return Secret(name: name, type: type)
+    }
+
+    /// Delete a named secret from Keychain and metadata.
+    public func deleteSecret(name: String) {
+        deleteKeychainValue(account: Self.secretPrefix + name)
+        UserDefaults.standard.removeObject(forKey: "port42Secret-\(name)-type")
+        var names = secretNames()
+        names.removeAll { $0 == name }
+        UserDefaults.standard.set(names, forKey: "port42SecretNames")
+        NSLog("[Port42] Secret deleted: %@", name)
+    }
+
+    /// List all named secrets (metadata only, no values).
+    public func listSecrets() -> [Secret] {
+        return secretNames().compactMap { loadSecret(name: $0) }
+    }
+
+    /// Get all secret names.
+    public func secretNames() -> [String] {
+        return UserDefaults.standard.stringArray(forKey: "port42SecretNames") ?? []
+    }
+
+    /// Resolve a named secret into an HTTP Authorization header value.
+    /// Returns (headerName, headerValue) or nil if the secret doesn't exist.
+    public func resolveSecretHeader(name: String) -> (String, String)? {
+        guard let secret = loadSecret(name: name),
+              let value = loadSecretValue(name: name) else { return nil }
+        switch secret.type {
+        case .bearerToken:
+            return ("Authorization", "Bearer \(value)")
+        case .apiKey:
+            return ("x-api-key", value)
+        case .basicAuth:
+            let encoded = Data(value.utf8).base64EncodedString()
+            return ("Authorization", "Basic \(encoded)")
+        case .header:
+            // Format: "Header-Name: value"
+            if let colonIdx = value.firstIndex(of: ":") {
+                let headerName = String(value[value.startIndex..<colonIdx]).trimmingCharacters(in: .whitespaces)
+                let headerValue = String(value[value.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
+                return (headerName, headerValue)
+            }
+            return ("Authorization", value)
+        case .llm:
+            return nil  // LLM keys are not injected into rest.call headers
+        }
     }
 
     // MARK: - Migration
@@ -356,6 +474,38 @@ public final class AgentAuthResolver {
         cachedRefreshToken = nil
         hasReadKeychain = false
         keychainDenied = false
+    }
+
+    /// Force a silent refresh on 401 — server rejected our token regardless of local expiry.
+    /// Returns true if refresh succeeded (new token cached), false if no refresh token available or refresh failed.
+    @discardableResult
+    public func forceRefreshIfPossible() -> Bool {
+        // Gather refresh token from memory or Port42 OAuth cache before clearing
+        let rt = cachedRefreshToken ?? Port42AuthStore.shared.loadOAuthCache()?.refreshToken
+        guard let rt else {
+            NSLog("[Port42:auth] forceRefresh: no refresh token available")
+            clearCache()
+            return false
+        }
+        NSLog("[Port42:auth] forceRefresh: attempting silent refresh on 401")
+        if let refreshed = try? refreshAccessToken(using: rt) {
+            cachedToken = refreshed.accessToken
+            cachedExpiresAt = refreshed.expiresAt
+            let newRt = refreshed.refreshToken ?? rt
+            cachedRefreshToken = newRt
+            hasReadKeychain = false
+            keychainDenied = false
+            Port42AuthStore.shared.saveOAuthCache(CachedOAuth(
+                accessToken: refreshed.accessToken,
+                refreshToken: newRt,
+                expiresAt: refreshed.expiresAt
+            ))
+            NSLog("[Port42:auth] forceRefresh: succeeded")
+            return true
+        }
+        NSLog("[Port42:auth] forceRefresh: failed, clearing cache")
+        clearCache()
+        return false
     }
 
     public func resetAuth() {

@@ -55,9 +55,14 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                !(window is NSPanel),
                window.canBecomeKey,
                !window.isKeyWindow {
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: false)
-                NotificationCenter.default.post(name: .focusChatInput, object: nil)
+                // Only steal focus if no other non-panel window is already key.
+                // Prevents overriding Sparkle update window, sheets, or other dialogs.
+                let currentKey = NSApp.keyWindow
+                if currentKey == nil || currentKey is NSPanel {
+                    window.makeKey()
+                    NSApp.activate(ignoringOtherApps: false)
+                    NotificationCenter.default.post(name: .focusChatInput, object: nil)
+                }
             }
             return event
         }

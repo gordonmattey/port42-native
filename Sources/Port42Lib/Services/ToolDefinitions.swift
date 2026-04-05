@@ -274,12 +274,37 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
-            "name": "messages_send",
-            "description": "Send a message to the current channel",
+            "name": "port_push",
+            "description": "Push data to a live port via a CustomEvent. The port receives it as a 'port42:data' event with the payload in event.detail. Use this to feed data into ports without knowing their internals — the port decides how to handle it. Prefer this over port_exec for data transfer between companions and ports.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "text": ["type": "string", "description": "The message text to send"]
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "data": ["description": "The data payload. Can be any JSON value — object, array, string, number. The port receives it as event.detail."]
+                ],
+                "required": ["id", "data"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "port_exec",
+            "description": "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                    "js": ["type": "string", "description": "JavaScript code to execute in the port's context. Return a value to get it back in the response."]
+                ],
+                "required": ["id", "js"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "messages_send",
+            "description": "Send a message to a channel and trigger companions. Defaults to the current channel if channel_id is omitted.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "text": ["type": "string", "description": "The message text to send"],
+                    "channel_id": ["type": "string", "description": "Target channel ID (from channel_list). Omit for current channel."]
                 ],
                 "required": ["text"]
             ] as [String: Any]
@@ -466,6 +491,26 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "rest_call",
+            "description": "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "url": ["type": "string", "description": "Full URL to call (https recommended)"],
+                    "method": ["type": "string", "description": "HTTP method: GET, POST, PUT, PATCH, DELETE. Default: GET."],
+                    "headers": [
+                        "type": "object",
+                        "description": "Additional HTTP headers as key-value pairs.",
+                        "additionalProperties": ["type": "string"]
+                    ] as [String: Any],
+                    "body": ["type": "string", "description": "Request body. Objects are JSON-serialized automatically."],
+                    "secret": ["type": "string", "description": "Named secret from the secrets store. The runtime injects the auth header — you never see the raw key."],
+                    "timeout": ["type": "integer", "description": "Timeout in milliseconds. Default: 30000, max: 120000."]
+                ],
+                "required": ["url"]
+            ] as [String: Any]
+        ],
+        [
             "name": "browser_open",
             "description": "Open a URL in a headless browser and return the page title. Use browser_text to read page content after opening.",
             "input_schema": [
@@ -563,6 +608,7 @@ enum ToolDefinitions {
         case "browser_open", "browser_text", "browser_capture", "browser_close": return .browser
         case "notify_send": return .notification
         case "audio_speak": return nil // TTS doesn't need permission
+        case "rest_call": return .rest
         default: return nil
         }
     }

@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable {
+public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "channels"
 
     public var id: String

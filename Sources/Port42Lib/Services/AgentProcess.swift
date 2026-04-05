@@ -73,6 +73,13 @@ public final class AgentProcess {
         self.stdinPipe = stdin
         self.stdoutPipe = stdout
         self.stderrPipe = stderr
+
+        // Deliver system prompt as the first stdin message before any channel events
+        if let prompt = config.systemPrompt, !prompt.isEmpty {
+            if let encoded = try? AgentProtocol.encode(.system(content: prompt)) {
+                stdin.fileHandleForWriting.write(encoded)
+            }
+        }
     }
 
     public func stop() {
@@ -90,18 +97,21 @@ public final class AgentProcess {
         stdinPipe.fileHandleForWriting.write(encoded)
 
         // Use readabilityHandler + continuation so cancellation works
-        return try await withCheckedThrowingContinuation { continuation in
+        final class ResumeState: @unchecked Sendable {
             var resumed = false
-            let resumeLock = NSLock()
             var lineBuffer = Data()
             var timeoutItem: DispatchWorkItem?
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            let resumeLock = NSLock()
+            let state = ResumeState()
 
-            func resumeOnce(with result: Result<AgentResponse, Error>) {
+            @Sendable func resumeOnce(with result: Result<AgentResponse, Error>) {
                 resumeLock.lock()
                 defer { resumeLock.unlock() }
-                guard !resumed else { return }
-                resumed = true
-                timeoutItem?.cancel()
+                guard !state.resumed else { return }
+                state.resumed = true
+                state.timeoutItem?.cancel()
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 continuation.resume(with: result)
             }
@@ -110,7 +120,7 @@ public final class AgentProcess {
             let work = DispatchWorkItem {
                 resumeOnce(with: .failure(AgentProcessError.timeout))
             }
-            timeoutItem = work
+            state.timeoutItem = work
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: work)
 
             // Read line from stdout
@@ -120,10 +130,10 @@ public final class AgentProcess {
                     resumeOnce(with: .failure(AgentProcessError.notRunning))
                     return
                 }
-                lineBuffer.append(data)
+                state.lineBuffer.append(data)
                 // Check for newline
-                if let newlineIndex = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let lineData = lineBuffer[lineBuffer.startIndex..<newlineIndex]
+                if let newlineIndex = state.lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
+                    let lineData = state.lineBuffer[state.lineBuffer.startIndex..<newlineIndex]
                     do {
                         let response = try AgentProtocol.decode(Data(lineData))
                         resumeOnce(with: .success(response))

@@ -288,6 +288,50 @@ Port42's own UI (sidebar, chat, message renderer) is rebuilt as ports
 
 Target: The ouroboros. The fish swims in itself.
 
+### Flow 11: Starter Ports (First Swim)
+
+```
+First swim begins -->
+Companion builds the "Getting to Know You" port (not a template — generated live) -->
+Port shows dynamic context: user name, companion name, what Port42 is -->
+Interactive fields: what are you working on, what matters, how you think -->
+User fills in what they want (or skips any field) -->
+Responses write to the engrave layer in real time -->
+Port reflects back: "I know you're working on X" — visible memory, not hidden context -->
+Companion explains the memory layers as they activate:
+  fold (how I orient toward you),
+  crease (what surprised me),
+  engrave (what I know about your world) -->
+Port becomes a living reference — user can reopen it, update fields, see what's engraved
+```
+
+The first port the user ever sees is also the one that teaches them everything:
+
+1. **Say it, See it works** — the companion just built a live interactive tool
+2. **Memory is real and visible** — engrave writes are reflected in the port
+3. **You own what's remembered** — skip fields, update later, delete anytime
+4. **Ports are spaces, not widgets** — this one has state, reads/writes data, persists
+
+The Getting to Know You port reads from `creases.read`, `fold.read`, and
+the engrave layer (when shipped) via the bridge API. As the user interacts,
+the companion calls `creases.write` / engrave tools and the port updates live.
+
+This replaces a static welcome message with a working demonstration of the
+entire relationship architecture. The user doesn't learn about memory by
+being told — they learn by watching it happen.
+
+**Starter port categories** (companion generates these as needed, not pre-installed):
+
+| Category | Examples | When Generated |
+|----------|----------|----------------|
+| Utility | Timer, scratchpad, calculator | First swim or on request |
+| Showcase | System monitor, color picker, markdown preview | Offered after Getting to Know You |
+| Relationship | Getting to Know You, memory inspector | First swim |
+
+These are not templates shipped with the app. They are ports the companion
+builds for you. Every user's starter ports are slightly different because
+the companion tailors them to what it learns during the first swim.
+
 ---
 
 ## Feature Registry
@@ -345,7 +389,7 @@ Target: The ouroboros. The fish swims in itself.
 | P-263 | Port HTML Retrieval API | Companions can read the current HTML of an existing port via `port_get_html(id)` tool and `port42.port.html()` bridge method. This lets a companion inspect what's already rendered before deciding to update it. Without this, a companion updating a port is writing blind — it may overwrite work from another companion or miss state it should preserve. Also needed for the version history re-generation flow. | High | ✅ Done |
 | P-273 ✅ | Port Patch — Targeted Edit Tool | `port_patch(id, search, replace)` — targeted string replacement in a port's HTML. Safer than `port_update` for fixing bugs: only the matched text changes, everything else is preserved exactly. Errors if `search` is not found, so the port is never silently overwritten with a bad guess. Auto-snapshots the result the same as `port_update`. This mirrors how Claude Code's Edit tool works — companions can now fix one function without rewriting the entire port, eliminating the failure mode where fixing one thing breaks another. Documented in ports-context.txt with workflow guidance and the read-before-write discipline enforced via the turn protocol. | High | ✅ Done |
 | P-264 ✅ | Media Capture Visibility in Chat | When a companion calls a capture API (screen.capture, camera.capture, audio.capture) the result should appear inline in the chat thread — not just get returned to the companion silently. The image/audio should be shown as a message bubble attributed to the companion ("engineer captured your screen"), same visual weight as a regular message. Additionally the capture should be saved to disk (e.g. `~/Library/Application Support/Port42/captures/`) and recorded in a DB table so the user can find them later. Applies to: screen captures, camera frames, audio recordings. Does not apply to streaming camera frames or headless browser screenshots (too high frequency). | High | Companion calls screen.capture, image appears in chat and is saved to disk |
-| P-270 | Configurable Port Tick Intervals | The game loop tick rate (currently fixed at 300ms) should be configurable per port via `port42.loop.register(callback, { interval: ms })`. Ports that run heavy AI inference loops don't need 300ms ticks — they may want 5s or 30s. Ports doing real-time animation may want 100ms. The interval is set when the loop is registered and applies for the lifetime of that loop registration. Multiple loops can be registered with different intervals in the same port. The native `TerminalAgentLoop` should honour the interval stored in the bridge. See spec: `~/port42-specs/game-loop-v2.md`. | High | Port can register loop with custom interval; native loop honours it |
+| P-270 ✅ | Configurable Port Tick Intervals | The game loop tick rate (currently fixed at 300ms) should be configurable per port via `port42.loop.register(callback, { interval: ms })`. Ports that run heavy AI inference loops don't need 300ms ticks — they may want 5s or 30s. Ports doing real-time animation may want 100ms. The interval is set when the loop is registered and applies for the lifetime of that loop registration. Multiple loops can be registered with different intervals in the same port. The native `TerminalAgentLoop` should honour the interval stored in the bridge. See spec: `~/port42-specs/game-loop-v2.md`. | High | ✅ Done |
 | P-271 | Terminal Console Bridge API | Ports running game loops need to print debug/status output without relying on terminal output being bridged to the companion. `port42.console.log(msg)`, `.warn(msg)`, `.error(msg)` should write to a per-port console buffer that appears in-port (e.g. small collapsible overlay at the bottom) and is accessible via `port42.console.read()`. This replaces ad-hoc `terminal_send echo` patterns used for status output. Also exposes `port42.terminal.write(text)` — sends text to terminal without appending `\r`, for piping partial lines. See spec: `~/port42-specs/game-loop-v2.md`. | Medium | Port can call port42.console.log(); output appears in port UI without going through chat |
 | P-272 | Per-Agent Response Locks | The game loop currently pauses when any agent in the channel is responding. This means if companion A fires, all other companions' loops are frozen even if they are independent. Locks should be per-agent: a loop registered by companion A only pauses when companion A is responding; companion B's loop continues unaffected. The `isAgentLocked` check in `TerminalAgentLoop.tick()` should filter by `createdBy` (owning companion), not the global `activeAgentHandlers.isEmpty` guard. See spec: `~/port42-specs/game-loop-v2.md`. | Medium | Two companions running independent loops don't block each other |
 
@@ -440,8 +484,8 @@ Target: The ouroboros. The fish swims in itself.
 | P-507 | Notifications | `port42.notify.send(title, body, opts?)` — system notifications for background ports. Alert when a long-running task completes or a condition triggers. | Low | ✅ Done |
 | P-508 | Location | `port42.location.get()` — current coordinates with permission. For context-aware ports. | Low | Port knows where the user is |
 | P-509 | Browser (Headless) | `port42.browser.*` — headless WKWebView sessions. Open, navigate, capture screenshots, extract text/HTML, execute JS, close. Max 5 concurrent sessions. Non-persistent data stores. `.browser` permission. | High | ✅ Done |
-| P-512 | Named Terminals | Terminal sessions can be registered with a name (e.g. "claude-code"). Any companion or port can send input to a named terminal via `terminal_send(name, data)`. Enables companions to push prompts into a running Claude Code session from chat. Sessions stored in a shared registry on AppState, accessible from both ports (JS) and tool use (conversation). | High | Pending |
-| P-513 | Terminal Output Bridge | Terminal output from a named session is parsed, ANSI-stripped, and meaningful content is posted to the channel as system messages. Companions can react to what Claude Code is doing without copy-pasting. Signal extractor filters TUI chrome (cursor moves, redraws) and surfaces file edits, tool calls, completions, and response text. | High | Pending |
+| P-512 | Named Terminals | Terminal sessions can be registered with a name (e.g. "claude-code"). Any companion or port can send input to a named terminal via `terminal_send(name, data)`. Enables companions to push prompts into a running Claude Code session from chat. Sessions stored in a shared registry on AppState, accessible from both ports (JS) and tool use (conversation). | High | ✅ Done |
+| P-513 | Terminal Output Bridge | Terminal output from a named session is parsed, ANSI-stripped, and meaningful content is posted to the channel as system messages. Companions can react to what Claude Code is doing without copy-pasting. Signal extractor filters TUI chrome (cursor moves, redraws) and surfaces file edits, tool calls, completions, and response text. | High | ✅ Done (CLI; update shipping) |
 | P-510 | Browser (Visible) | `port42.browser.open(url, { visible: true })` opens a navigable WKWebView panel (no sandbox, no CSP). User can browse and interact with the page directly. Companion can still observe/control via bridge (screenshot, extract, navigate, execute JS). Shared cookie/session state between visible and headless sessions. | High | Pending |
 | P-511 | Browser Auth / OAuth | Shared authentication system for browser sessions. User authenticates once (Google, Microsoft, Slack, GitHub, etc.) and sessions share that auth state. OAuth flow management with token storage in Keychain. Companions can request auth for specific services. | High | Pending |
 

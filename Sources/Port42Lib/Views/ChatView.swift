@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 public struct ChatView: View {
     public init() {}
@@ -8,16 +9,11 @@ public struct ChatView: View {
     public var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Channel header
-                ChannelHeader()
-
-                Divider()
-                    .background(Port42Theme.border)
-
                 // Shared conversation content
                 ConversationContent(
                     entries: channelEntries,
                     placeholder: "chat with your reality... (press ? for help)",
+                    error: appState.channelErrors[appState.currentChannel?.id ?? ""],
                     typingNames: Array(appState.typingAgentNames.union(
                         appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
                     )),
@@ -27,6 +23,25 @@ public struct ChatView: View {
                     localOwner: appState.currentUser?.displayName,
                     channelId: appState.currentChannel?.id,
                     onSend: { content in appState.sendMessage(content: content) },
+                    onStop: {
+                        if let channelId = appState.currentChannel?.id {
+                            appState.cancelStreaming(channelId: channelId)
+                        }
+                    },
+                    onRetry: {
+                        if let channelId = appState.currentChannel?.id {
+                            AgentAuthResolver.shared.clearCache()
+                            appState.retryLastMessage(channelId: channelId)
+                        }
+                    },
+                    onDismissError: {
+                        if let channelId = appState.currentChannel?.id {
+                            appState.channelErrors[channelId] = nil
+                        }
+                    },
+                    onOpenSettings: {
+                        NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
+                    },
                     onTypingChanged: { isTyping in
                         if let channelId = appState.currentChannel?.id,
                            let userName = appState.currentUser?.displayName {
@@ -34,6 +49,17 @@ public struct ChatView: View {
                         }
                     }
                 )
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Button(action: copyConversation) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Copy conversation")
+                .padding(.trailing, 20)
+                .padding(.bottom, 52)
             }
 
             // Inline permission overlay for inline ports
@@ -56,6 +82,15 @@ public struct ChatView: View {
         .onReceive(appState.$activePermissionBridge) { bridge in
             activePerm = bridge?.pendingPermission
         }
+    }
+
+    private func copyConversation() {
+        guard let channelId = appState.currentChannel?.id else { return }
+        let msgs = (try? appState.db.getMessages(channelId: channelId)) ?? []
+        let text = msgs.map { "\($0.senderName): \($0.content)" }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        appState.toastMessage = "Copied"
     }
 
     private var channelEntries: [ChatEntry] {
@@ -146,7 +181,7 @@ public struct ChannelHeader: View {
         // Include local companions assigned to this channel
         let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
         for agent in channelAgents {
-            if !result.contains(where: { $0.senderId == agent.id }) {
+            if !result.contains(where: { $0.senderId == agent.id || $0.name == agent.displayName }) {
                 result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
         }

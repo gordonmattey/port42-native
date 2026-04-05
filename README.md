@@ -13,8 +13,10 @@ A native Mac app where you, your friends, and your AI companions share the same 
 Port42 is the first companion computing platform. Not another AI chat wrapper. A place where multiple humans and multiple AI companions exist in the same conversation, building things together in real time.
 
 - **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed. Runs on Claude or Gemini — set per-companion.
+- **Command agents** Wrap any local binary or script as a companion. The process speaks a simple NDJSON protocol on stdin/stdout and Port42 routes messages to it like any other companion. Working directory and environment variables configurable per agent.
+- **Provider companions** Connect GitHub, Stripe, Cloudflare — or any REST API — as companions. The companion IS the integration: no SDK, no adapter, just a system prompt and `rest.call`. Multiple providers in one channel synthesize across each other's data.
 - **Relationship memory** Companions carry persistent fold, position, and creases across every session. They know where they stand without being asked.
-- **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data.
+- **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data, and can push live data into running ports without rebuilding them.
 - **Swims** Deep 1:1 sessions with any companion. Continuous context that never resets.
 - **Heartbeats** Channels can fire a wake-up prompt to their companions on a schedule (1m to 60m). Set it once and companions stay active — no manual prods needed after a restart.
 - **Remote API** HTTP `/call` endpoint — any external tool, script, or AI coding agent can call any bridge API via `curl`. No setup beyond enabling it in Settings.
@@ -132,6 +134,9 @@ Four combinations: per-companion per-channel (default), per-companion global, sh
 .history(id)                    → [{ version, createdBy, createdAt }]
 .manage(id, action)             → focus | close | dock | undock
 .restore(id, version)           → roll back to a previous version
+.setTitle(title)                → rename the current port's window title
+.setCapabilities(caps)          → declare port capabilities (e.g. ['terminal'])
+.rename(id, title)              → rename any port by ID
 ```
 
 ### port42.ports
@@ -293,6 +298,36 @@ Control other Mac apps via AppleScript and JXA. Requires automation permission.
 
 Options: `{ timeout: number }` (default 30s, max 120s). AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. macOS may show additional TCC prompts for specific target apps on first use.
 
+### port42.rest
+
+Generic HTTP client. Call any REST API directly from a port. Requires rest permission.
+
+```
+.call(url, opts?)               → { status, headers, body }
+```
+
+Options: `{ method, headers, body, secret, timeout }`. `secret` is a named key from the secrets store — the runtime injects the actual credential (Bearer/Basic/custom header) without the port ever seeing the raw value. Body objects are JSON-serialized automatically. Response body is auto-parsed if `content-type` is JSON.
+
+```js
+// From a port — secret injected by runtime, never visible to port code
+const data = await port42.rest.call('https://api.stripe.com/v1/charges?limit=10', {
+  secret: 'stripe'
+})
+```
+
+### port42.data (port push receiver)
+
+Ports declare what push data they accept. Companions call `port_push` to deliver it.
+
+```js
+port42.on('port42:data', (payload) => {
+  // payload is whatever the companion pushed — update DOM here
+  renderChart(payload.traffic)
+})
+```
+
+No permission needed. The port declares its interface; the companion just pushes.
+
 ### Events
 
 ```
@@ -347,6 +382,8 @@ port_get_html(id, version: 2)   → HTML from a specific historical snapshot
 port_history(id)                → [{ version, createdBy, createdAt }] — all saved snapshots
 port_restore(id, version)       → roll the live port back to an earlier snapshot
 port_manage(id, action)         → focus | close | minimize/dock | restore/undock
+port_push(id, data)             → push a data payload into a running port (port receives via port42:data event)
+port_exec(id, js)               → execute arbitrary JS inside a running port
 ```
 
 Every `port_update` call snapshots the HTML automatically. `port_patch` is the preferred way to fix bugs — only the matched string changes, everything else is untouched, and it errors if the search string is not found. Use `port_update` for structural rewrites.
@@ -371,6 +408,46 @@ position_set(read, stance?, watching?) → set current position
 ```
 
 Fold and position always write to the swim channel (canonical). Creases merge swim (last 5) + channel (last 3).
+
+### REST API Access
+
+Companions can call any REST API using `rest_call`. Credentials are stored in **Settings → Secrets** as named keys in macOS Keychain and injected by the runtime — the raw credential never enters LLM context.
+
+```
+rest_call(url, method?, headers?, body?, secret?, timeout?)
+  → { status, headers, body }
+```
+
+`secret` is a named key from the secrets store. The runtime injects it as an `Authorization` header (Bearer, Basic, or custom) based on the secret type. Body objects are JSON-serialized. Response body is auto-parsed for JSON responses.
+
+## Provider Companions
+
+Connect any REST API as a companion. The companion IS the integration — no SDK, no adapter, no code to maintain. Just a system prompt, a secret binding, and `rest_call`.
+
+```
+You are GitHub. Help the user understand their repositories, PRs, and CI status.
+
+API: https://api.github.com
+Auth: use secret "github" with rest_call
+Docs: https://docs.github.com/llms.txt
+
+Use rest_call to fetch data. Build ports to show it — tables, charts, dashboards.
+Never dump raw JSON. If asked about CI, pull workflow runs and surface failures.
+```
+
+That's the entire integration. No code. The prompt IS the connector.
+
+Multiple provider companions in one channel can see each other's responses. A general companion (forge) can synthesize across them — GitHub CI status, PostHog traffic, and Cloudflare errors in one unified port without any glue code.
+
+Provider templates for GitHub, Stripe, Cloudflare, and Vercel are available via **New Companion → API**.
+
+### Secrets Store
+
+Named credentials stored in macOS Keychain. Companions reference them by name and never see the raw value.
+
+**Settings → Secrets** — add, edit, or delete secrets. Each secret has a name (e.g. `stripe`), a type (`api-key`, `bearer-token`, `basic-auth`), and the credential value.
+
+Per-companion access control: companion settings include which secrets it can use. Default: none. Grant explicitly per companion.
 
 ## Multi-Provider LLM
 

@@ -12,6 +12,7 @@ public struct EditCompanionSheet: View {
     @State private var providerBaseURL: String
     @State private var thinkingEnabled: Bool
     @State private var thinkingEffort: String
+    @State private var selectedSecrets: Set<String>
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>, companion: AgentConfig) {
@@ -24,6 +25,7 @@ public struct EditCompanionSheet: View {
         self._providerBaseURL = State(initialValue: companion.providerBaseURL ?? "")
         self._thinkingEnabled = State(initialValue: companion.thinkingEnabled)
         self._thinkingEffort = State(initialValue: companion.thinkingEffort)
+        self._selectedSecrets = State(initialValue: Set(companion.secretNames ?? []))
     }
 
     public var body: some View {
@@ -130,6 +132,40 @@ public struct EditCompanionSheet: View {
             }
             } // end if selectedProvider == .anthropic
 
+            // Secret access
+            let availableSecrets = Port42AuthStore.shared.listSecrets()
+            if !availableSecrets.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Secrets")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    HStack(spacing: 6) {
+                        ForEach(availableSecrets) { secret in
+                            Button(action: {
+                                if selectedSecrets.contains(secret.name) {
+                                    selectedSecrets.remove(secret.name)
+                                } else {
+                                    selectedSecrets.insert(secret.name)
+                                }
+                            }) {
+                                Text(secret.name)
+                                    .font(Port42Theme.mono(11))
+                                    .foregroundStyle(selectedSecrets.contains(secret.name) ? Port42Theme.accent : Port42Theme.textSecondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(
+                                        selectedSecrets.contains(secret.name)
+                                            ? Port42Theme.accent.opacity(0.15)
+                                            : Port42Theme.bgSecondary.opacity(0.5)
+                                    )
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     isPresented = false
@@ -179,6 +215,7 @@ public struct EditCompanionSheet: View {
         updated.model = selectedModel
         updated.thinkingEnabled = thinkingEnabled
         updated.thinkingEffort = thinkingEffort
+        updated.secretNames = selectedSecrets.isEmpty ? nil : Array(selectedSecrets).sorted()
         appState.updateCompanion(updated)
         isPresented = false
     }

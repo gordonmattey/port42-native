@@ -16,7 +16,7 @@ import (
 
 // Security limits for public hosting
 const (
-	maxMessageSize     = 64 * 1024 // 64 KB per WebSocket message
+	maxMessageSize     = 2 * 1024 * 1024 // 2 MB per WebSocket message (API responses can contain large payloads)
 	maxChannelIDLen    = 128
 	maxPeerIDLen       = 128
 	maxSenderNameLen   = 256
@@ -435,8 +435,7 @@ func (g *Gateway) joinChannel(ctx context.Context, p *Peer, channelID string, co
 		// and serve as implicit proof of membership.
 		tokenSet := g.tokens[channelID]
 		if token != "" && tokenSet != nil && tokenSet[token] {
-			// Consume valid token
-			delete(tokenSet, token)
+			// Valid token — keep it (multi-use so CLI/SDK can reconnect with the same invite URL)
 			log.Printf("[gateway] peer %s used valid token for channel %s", p.ID, channelID[:min(8, len(channelID))])
 		} else if g.authVerifier != nil {
 			// Strict mode: reject without valid token

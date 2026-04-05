@@ -1012,7 +1012,7 @@ public struct SetupView: View {
             if line.suffix != nil && line.suffixDelay > 0 {
                 // Show line first, then reveal suffix after delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + line.suffixDelay) {
-                    withAnimation(.easeIn(duration: 0.2)) {
+                    _ = withAnimation(.easeIn(duration: 0.2)) {
                         revealedSuffixes.insert(index)
                     }
                     revealLines(lines, current: index + 1, update: update, completion: completion)

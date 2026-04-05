@@ -611,6 +611,11 @@ public final class SyncService: NSObject, ObservableObject {
             // Single user update
             var members = onlineUsers[channelId] ?? []
             if status == "online" {
+                // Evict any stale entry with the same display name (reconnect with new peer ID)
+                if let name = envelope.senderName, !name.isEmpty {
+                    let stale = members.filter { knownNames[$0] == name && $0 != senderId }
+                    stale.forEach { members.remove($0) }
+                }
                 members.insert(senderId)
             } else {
                 members.remove(senderId)

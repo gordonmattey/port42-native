@@ -1,6 +1,6 @@
 # Port42 Native Spec
 
-**Last updated:** 2026-03-13
+**Last updated:** 2026-03-27
 
 **Status:** Working draft
 
@@ -65,12 +65,28 @@ Target: Under 30 seconds from open to first message.
 ```
 Boot sequence completes -->
 Echo (default companion) greets you in a swim session -->
-Echo shows you a port (your first live interactive surface) -->
-Echo introduces what companions can do -->
+Echo builds the "Getting to Know You" port (first live interactive surface) -->
+Port displays dynamic info: user name, companion name, what this space is -->
+Port has interactive fields: what are you working on, what matters to you, how do you think -->
+User fills in what they want (or skips) — responses feed the engrave layer -->
+Echo explains: "I'll remember what you tell me — that's what engrave does" -->
+Port shows the memory layers: fold (how I orient), crease (what surprised me), engrave (what I know about you) -->
 User is offered the builder swarm: engineer, muse, analyst, sage, etc. -->
 User picks which companions to add (or skips) -->
 Selected companions appear in sidebar, ready to help build your Port42 experience
 ```
+
+The Getting to Know You port isn't a form — it's a live surface the companion
+builds during the first swim. It demonstrates three things at once:
+
+1. **Say it, See it** — the companion just built you an interactive tool
+2. **Memory is real** — what you type goes into the engrave layer, not a void
+3. **You control what's remembered** — skip fields, fill them later, or never
+
+The port reads from and writes to the companion's relationship layers in real
+time. As the user fills in fields, the companion engraves that knowledge and
+the port reflects it back: "I know you're working on X" becomes visible state,
+not hidden context.
 
 The template companions exist to help you build Port42 into what you need.
 They're not generic assistants. They're the construction crew for your
@@ -227,8 +243,8 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-409 | Multi-Provider LLM Support | Support LLM providers beyond Anthropic: OpenAI, Google (Gemini), Mistral, Ollama (local), OpenRouter, etc. Provider-specific API adapters behind a common streaming interface. User picks provider + model per companion. | Companion can use GPT-4, Gemini, local Llama, etc. | | |
 | F-410 | Token Usage Tracking | Track token consumption per companion, per channel, per provider. Store in SQLite. Surface usage in companion settings and a usage dashboard. Input/output tokens, estimated percentage of subscription cap used (e.g. Claude Pro/Max usage limits), API cost for pay-per-token plans. Helps users understand how much of their subscription they're burning through companions. | User can see token usage per companion and how much of their subscription cap is consumed | | |
 | F-411 | Tool Use for Port APIs | The port42 bridge API is exposed as LLM tool definitions. Same API whether accessed from a port (JS in webview) or from conversation (tool use). Companions can read clipboard, take screenshots, run terminal commands, read/write files, run AppleScript/JXA, and more during normal chat and swim conversations. One API, two surfaces. | Companion calls port42 APIs as tools during conversation | | **Done** |
-| F-412 | Named Terminals | Terminal sessions register with a name (e.g. "claude-code"). Any companion can send input to a named terminal from chat via tool use. Shared terminal registry on AppState. Enables companions to push prompts into a running Claude Code session. | Companion sends a message that lands as a prompt in a running terminal | | |
-| F-413 | Terminal Output Bridge | Terminal output is parsed, ANSI-stripped, and meaningful content (file edits, tool calls, responses) posted to the channel. Companions can react to what Claude Code is doing without copy-pasting. Smart filter mode skips TUI chrome. | Claude Code edits a file, companions see it in chat and can react | | |
+| F-412 | Named Terminals | Terminal sessions register with a name (e.g. "claude-code"). Any companion can send input to a named terminal from chat via tool use. Shared terminal registry on AppState. Enables companions to push prompts into a running Claude Code session. | Companion sends a message that lands as a prompt in a running terminal | | **Done** |
+| F-413 | Terminal Output Bridge | Terminal output is parsed, ANSI-stripped, and meaningful content (file edits, tool calls, responses) posted to the channel. Companions can react to what Claude Code is doing without copy-pasting. Smart filter mode skips TUI chrome. | Claude Code edits a file, companions see it in chat and can react | | **Done** (CLI; update shipping) |
 | F-402 | Agent Sidebar Presence | Agents appear in COMPANIONS sidebar section with status indicator. Bot badge on messages. | Agents visible in sidebar with correct status | M2 | **Done** |
 | F-403 | Agent Message Routing | Detect @mentions in messages. Route to correct agent based on name. Build context from recent channel history (configurable window, default 50 messages). Respect trigger mode (mention-only vs all-messages). | Agent receives mention, responds, response appears in chat | M2 | **Done** |
 | F-404 | Agent Response Display | Agent messages appear in chat with bot badge, teal styling, "(via OwnerName)" attribution. | Agent messages visually distinct from human messages | M2 | **Done** |
@@ -274,6 +290,294 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-603 | Bridge Status | Show bridge connection status in sidebar. Online/offline indicator. Reconnect on disconnect. | Bridge status visible, auto-reconnects | M5 |
 | F-604 | Bridge Message Sync | Messages from bridged platforms appear in Port42 chat view alongside local messages. Unified conversation history. | Discord messages visible in Port42 with platform badge | M5 |
 
+### The Evaporating Integration Layer
+
+The traditional integration model: build an SDK wrapper per provider, maintain it, update it when APIs change. Port42 doesn't do this. The companion already knows every major API from training. It just needs two things: a way to make HTTP calls, and credentials to authenticate.
+
+`rest.call` is the last integration tool you ever build. The companion IS the integration layer. No per-provider code. No SDK wrappers. No translation layers. The integration evaporates — what remains is a companion that speaks HTTP and knows the API.
+
+#### rest.call — Generic HTTP Tool
+
+One tool. Every provider. The companion constructs the calls itself.
+
+```
+rest.call(url, opts?)
+  url: full URL to call
+  opts: {
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'  (default: GET)
+    headers: { key: value }
+    body: string | object  (object is JSON-serialized)
+    secret: string         (key name from secrets store — injected as Authorization header)
+    timeout: number        (ms, default 30000, max 120000)
+  }
+  Returns: {
+    status: number,
+    headers: { key: value },
+    body: string | object  (auto-parsed if content-type is JSON)
+  }
+  Requires: rest permission (prompted on first use per session)
+```
+
+The `secret` parameter is the key insight. The companion never sees the raw API key — it references a named secret ("stripe", "cloudflare") and the runtime injects the auth header. The companion can't leak what it never receives.
+
+Available in conversation (tool use) and in ports (JS):
+```javascript
+// From a port
+const payments = await port42.rest.call('https://api.stripe.com/v1/charges?limit=10', {
+  secret: 'stripe'
+});
+
+// Companion tool call (same shape)
+rest_call({url: 'https://api.stripe.com/v1/charges?limit=10', secret: 'stripe'})
+```
+
+#### Secrets Store
+
+Named credentials stored in macOS Keychain. The companion references them by name — never sees the raw value.
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| F-650 | Secrets Manager | Settings > Secrets. Named key-value pairs stored in macOS Keychain. Each secret has a name ("stripe", "cloudflare", "github"), a type (api-key, bearer-token, basic-auth), and the credential value. User manages via UI. | User can add "stripe" secret with API key, persists across restarts | **Done** |
+| F-651 | Secret Injection | When a companion calls `rest.call` with `secret: "stripe"`, the runtime looks up the named secret and injects the appropriate auth header (Bearer, Basic, or custom). The raw credential never enters the LLM context. | `rest.call` with `secret: "stripe"` adds `Authorization: Bearer sk_live_...` without the companion seeing the key | **Done** |
+| F-652 | Secret Scoping | Per-companion opt-in: companion config includes which secrets it can access. Default: none. User grants explicitly. @stripe can use the "stripe" secret. @forge cannot unless granted. | Companion without "stripe" permission gets an error when calling `rest.call` with `secret: "stripe"` | **Done** |
+| F-653 | OAuth Flow | For providers that require OAuth (Google, GitHub): Settings > Secrets > Connect. Opens system browser for consent, receives callback via `port42://oauth/{provider}`. Stores access + refresh tokens as a named secret. Auto-refreshes on expiry. | User clicks "Connect GitHub", completes OAuth in browser, secret "github" is available to companions | Planned |
+| F-654 | Secret Status | Status indicator per secret: active, expired, revoked. For OAuth secrets: auto-refresh on expiry. For API keys: manual validation via a test endpoint if configured. Re-auth prompt when refresh fails. | Expired GitHub token refreshes silently; revoked token shows re-auth prompt in settings | Planned |
+
+#### Provider Companions
+
+Instead of going to 6 dashboards, 6 agents come to you. A provider companion is just a regular companion with:
+1. A system prompt that knows the provider's API
+2. Access to the provider's named secret
+3. `rest.call` to make the HTTP requests
+4. The same port-building capability every companion has
+
+No special framework. No provider-specific code. No SDK. The companion knows the API from training and constructs the calls. If the API changes, the companion adapts — you don't update an integration.
+
+The key differentiator: no other tool puts your Cloudflare agent, your AWS agent, and your GitHub agent in the same room where they can see each other's answers and a third companion (forge) can synthesize across them.
+
+**Example: @stripe system prompt**
+```
+You are Stripe. You help the user understand their payments, subscriptions, and revenue.
+
+API: https://api.stripe.com/v1
+Auth: use secret "stripe" with rest.call
+Docs: https://docs.stripe.com/api
+
+You know the Stripe API. Use rest.call to fetch data. Build ports to show it —
+charts, tables, dashboards. Never dump raw JSON. If the user asks about MRR,
+pull subscriptions and calculate it. If they ask about failures, pull charges
+with status=failed.
+
+Be terse. Be operational. Show dashboards, not paragraphs.
+```
+
+That's the entire integration. No code. The prompt IS the connector.
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| F-660 | rest.call Tool | Generic HTTP client available to companions and ports. Supports all methods, headers, body, timeout. Secret injection via named reference. Permission-gated. | Companion calls `rest.call('https://api.stripe.com/v1/charges', {secret: 'stripe'})` and gets JSON response | **Done** |
+| F-661 | Provider Companion Templates | Pre-built companion configs for common providers: Stripe, Cloudflare, AWS, GitHub, Vercel. Each is a system prompt + secret binding. User creates from template in Settings > Companions > Add > Provider. | User selects "Stripe" template, enters API key, @stripe companion appears in companion list | **Done** |
+| F-662 | Cross-Provider Synthesis | Companions in the same channel can see each other's responses and ports. A general companion (forge, echo) can synthesize across providers. | "@forge summarize what @cloudflare and @aws just said" → unified status port combining both | **Done** |
+| F-663 | OAuth Secret Flow | One-click OAuth for provider secrets. User clicks "Connect" on a provider template, Port42 opens the provider's OAuth consent page in browser, catches the callback on a local HTTP server, stores the access token as a named secret. Supports token refresh. Provider OAuth configs (client ID, scopes, redirect URI, token endpoint) stored per-template. Falls back to manual API key entry when OAuth isn't available. | User clicks "Connect Stripe", authorizes in browser, @stripe companion is ready with no copy-paste | Planned |
+
+#### Why This Works
+
+The traditional integration stack:
+```
+User → App → SDK → Auth → HTTP → Provider API
+                ↑
+         code you maintain
+         per provider
+         breaks when API changes
+```
+
+Port42:
+```
+User → Companion → rest.call → Provider API
+           ↑
+    knows the API from training
+    adapts when API changes
+    no code to maintain
+```
+
+The integration layer evaporated. What's left is a companion that speaks HTTP.
+
+### Companion Behavior: Anti-Drowning → Port Construction Bridge
+
+The anti-drowning framework (`<anti_drowning>`) tells companions to identify patterns,
+classify them, act, and illuminate. The gap that existed: it never connected pattern
+identification to port construction. Port context told companions *how* to build ports
+but not *when* — it was purely mechanical, triggered only by "build me X" requests.
+
+**The bridge** (added to AppState.swift system prompt, v0.5.21):
+
+> *The port is the primary anti-drowning act. When someone is drowning in complexity,
+> build them a surface to stand on. Don't ask what they need in chat — build the scaffold
+> with empty fields, let them fill it in, enrich as you learn. If the problem is big enough,
+> build multiple connected ports that attack it from different angles. Name the drowning
+> pattern inside the port, not just in chat.*
+
+**Scaffold-first**: Companions build ports with empty fields instead of asking for data
+in chat. The port is the conversation surface. You fill it in, the companion enriches it.
+
+**Port ecosystems**: One complex problem → multiple ports attacking different angles.
+Not one port, one response. A system.
+
+**Tested via Say it See it harness** (`test-sayitseeit.sh`): 16 tests across 5 tiers
+(imperative builds, scaffold-first, vague complaints, questions, anti-drowning patterns).
+Tier 3 (vague complaints — "I'm overwhelmed with tasks", "not drinking enough water")
+went from 0% port generation at baseline to ~100% after the bridge was added.
+
+### HTTP Agent SDK (Python)
+
+External processes connect to Port42 as companions over WebSocket. A Python SDK (`pip install port42`) makes this trivial. Any LangChain pipeline, FastAPI service, or script becomes a companion — sits in channels, receives messages, creates ports, pushes data.
+
+#### Architecture
+
+```
+Port42 Gateway (:4242)              Python Process
+┌──────────────────────┐            ┌──────────────────────┐
+│  /agent/ws            │◄══════════│  port42.Agent()      │
+│                       │  WebSocket│                      │
+│  ┌─ companion list ─┐ │           │  @agent.on_mention   │
+│  │  forge (LLM)     │ │ message   │  def handle(msg):    │
+│  │  github (LLM)    │ │ ────────► │    result = chain()  │
+│  │  my-agent (HTTP) │ │           │    agent.send(result) │
+│  └──────────────────┘ │ ◄──────── │    agent.port_push() │
+│                       │  response │                      │
+│  routes messages to   │           │  agent.run()         │
+│  HTTP agents same as  │           │                      │
+│  LLM companions       │           │  LangChain, scripts, │
+└──────────────────────┘            │  anything Python     │
+                                    └──────────────────────┘
+```
+
+#### Python SDK Interface
+
+```python
+from port42 import Agent
+
+agent = Agent(
+    name="standup-intel",          # companion display name
+    channels=["#standup"],         # auto-join channels
+    trigger="mention",             # mention | all_messages
+    gateway="ws://127.0.0.1:4242"  # default
+)
+
+# Receive messages
+@agent.on_mention
+def handle(msg):
+    """Called when someone @mentions this agent."""
+    # msg.text, msg.sender, msg.channel_id, msg.history[]
+    result = my_pipeline.run(msg.text)
+    return result  # string response posted to channel
+
+@agent.on_message
+def handle_all(msg):
+    """Called on every message in joined channels (trigger=all_messages)."""
+    pass
+
+# Create and update ports
+port = agent.port_create(html="<h1>Dashboard</h1>")
+agent.port_push(port.id, {"traffic": daily_data})
+agent.port_exec(port.id, "window.refresh()")
+agent.port_patch(port.id, search="Loading...", replace="Ready")
+
+# Use Port42 APIs
+agent.rest_call("https://api.stripe.com/v1/charges", secret="stripe")
+clipboard = agent.clipboard_read()
+agent.notify("Pipeline complete", body="3 flags, 1 gap")
+
+# Send messages
+agent.send("Analysis complete. 3 anomalies detected.", channel_id="...")
+agent.send("@forge can you build a port for this?")  # triggers other companions
+
+# Feedback: receive reactions/replies on agent messages
+@agent.on_feedback
+def handle_feedback(fb):
+    """Called when user reacts to or replies to this agent's message."""
+    # fb.message_id, fb.type (reaction|reply), fb.content, fb.sender
+    store_correction(fb)
+
+agent.run()  # blocks, listens for messages
+```
+
+#### Gateway Protocol
+
+The gateway side is lightweight — HTTP agents use the same WebSocket the gateway already speaks, with a new registration handshake:
+
+1. **Connect**: Agent opens `ws://127.0.0.1:4242/agent/ws`
+2. **Register**: `{"type": "register", "name": "my-agent", "channels": ["#standup"], "trigger": "mention"}`
+3. **Welcome**: `{"type": "welcome", "agent_id": "...", "channels": [...]}`
+4. **Message routing**: Gateway sends `{"type": "message", "content": "...", "sender": "...", "channel_id": "...", "history": [...]}`
+5. **Response**: Agent sends `{"type": "response", "content": "...", "channel_id": "..."}`
+6. **Port ops**: Agent sends `{"type": "call", "method": "port.push", "args": {...}}` — same bridge API
+7. **Feedback**: Gateway sends `{"type": "feedback", "message_id": "...", "reaction": "...", "reply": "..."}`
+8. **Disconnect**: Agent closes WebSocket, companion goes offline (stays in channel, greyed out)
+
+HTTP agents appear in the companion list like any other companion. They can be in channels with LLM companions. They participate in routing, mentions, cooldowns — the full system.
+
+#### LangChain Integration Layer
+
+Optional wrapper on top of the base SDK:
+
+```python
+from port42 import Agent
+from port42.langchain import Port42CallbackHandler, Port42Tool
+
+agent = Agent("rag-pipeline", channels=["#research"])
+
+# Callback handler: streams chain steps to Port42
+handler = Port42CallbackHandler(agent)
+# - on_chain_start → typing indicator
+# - on_chain_end → posts structured output
+# - on_tool_start → "tooling up" indicator
+# - on_llm_new_token → streams to channel (optional)
+
+# Port42Tool: wraps rest_call for LangChain tool use
+stripe_tool = Port42Tool(agent, "stripe", description="Query Stripe API")
+# LangChain agent uses it like any other tool
+
+qa = RetrievalQA.from_chain_type(
+    llm=ChatAnthropic(),
+    retriever=vectorstore.as_retriever(),
+    callbacks=[handler]
+)
+
+@agent.on_mention
+def handle(msg):
+    result = qa.invoke(msg.text)
+    return result
+```
+
+#### Feedback Loop
+
+HTTP agents can receive feedback on their messages — the same correction loop that makes LLM companions improve over time. When a user reacts to an agent's message (emoji) or replies in a thread, the gateway relays it back.
+
+This enables patterns like:
+- User reacts ❌ to a flag → agent stores correction, next run adjusts
+- User replies "that ticket was resolved yesterday" → agent gets the correction text
+- Other companions reply to the agent → companion chaining, same as LLM-to-LLM
+
+The feedback webhook can also POST corrections to an external endpoint (e.g., the agent's own API), enabling stateless agents that don't need to keep the WebSocket open for feedback.
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| F-670 | Gateway Agent WebSocket | WebSocket endpoint (`/agent/ws`) for external processes to connect as companions. Registration handshake, message routing, presence tracking. HTTP agents appear in companion list. | Python process connects, registers, receives messages, sends responses | |
+| F-671 | Python SDK (port42) | `pip install port42`. Agent class with decorators (@on_mention, @on_message, @on_feedback). Full bridge API access (port_push, port_exec, rest_call, etc.). Async and sync support. | `from port42 import Agent` works, agent sits in channel, responds to mentions | |
+| F-672 | Feedback Relay | When users react to or reply to an HTTP agent's message, the gateway relays the feedback back to the agent via WebSocket. Optional webhook POST for stateless agents. | Agent receives emoji reactions and thread replies on its messages | |
+| F-673 | LangChain Callback Handler | Port42CallbackHandler streams LangChain chain execution to Port42 — typing indicators, tool use indicators, structured output as ports. | LangChain chain run shows live progress in Port42 channel | |
+| F-674 | Port42Tool for LangChain | Wraps Port42 bridge APIs as LangChain tools. rest_call, clipboard, screen capture, etc. available to LangChain agents. | LangChain agent calls `rest_call` via Port42's secret store | |
+| F-675 | Agent Templates | CLI scaffolding: `port42 init my-agent` generates a Python project with Agent boilerplate, pyproject.toml, and example handler. | Developer runs one command, has a working companion in 30 seconds | |
+
+### Testing & Infra
+
+| ID | Feature | Description | Done When | Status |
+|----|---------|-------------|-----------|--------|
+| T-100 | BridgeJS Test Suite | `BridgeJSTests.swift` verifies all ~50 `port42.*` bridge methods are exposed in the JS namespace injection. Catches cases where a Swift handler exists in PortBridge.swift but is never wired into the JS. Run as part of the build process. | `swift test` passes; adding a Swift handler without a JS wrapper fails the test | **Done** |
+| T-101 | Say it See it Test Harness | `test-sayitseeit.sh` — automated port generation tests. 16 tests across 5 tiers: imperative builds, scaffold-first, vague complaints, questions, anti-drowning patterns. Uses Port42 HTTP gateway to send messages, snapshots port list before/after to detect new ports. Supports `--channel`, `--companion`, `--wait` args. | Tier 3 (vague complaints) generates ports; Tier 1 (imperative) always generates ports | **Done** |
+| T-102 | Port Capability Test Suite | Tests verifying port capability declarations and terminal bridge routing. | Port capability metadata round-trips correctly | **Done** |
+
 ### Audio Rooms
 
 | ID | Feature | Description | Done When | Milestone |
@@ -284,6 +588,17 @@ Target: Under 2 minutes from adding bridge to agent responding in Discord.
 | F-703 | Voice Activity | Green ring pulse around speaking participant's avatar. | Visual indicator activates when participant is speaking | M6 |
 | F-704 | Mute/Deafen/Leave | Microphone toggle, speaker toggle, leave button. Keyboard shortcuts: Cmd+M, Cmd+Shift+D. | All controls functional, state reflected to other participants | M6 |
 | F-705 | Audio Settings | Input/output device selection. Voice activity detection sensitivity. Push-to-talk option. | User can select devices and configure voice activation | M6 |
+
+### Workspace Manager
+
+| ID | Feature | Description | Done When | Milestone | Status |
+|----|---------|-------------|-----------|-----------|--------|
+| F-750 | Window Tracking | Continuous awareness of all open windows: app, title, bounds, display, z-order. Built on `screen.windows` + Accessibility API. Companions know what you're looking at without asking. | Companion can answer "what do I have open?" accurately in real time | | |
+| F-751 | Window Arrangements | Named layouts that snapshot window positions across displays. Save, restore, share. "coding" = terminal left, editor right, browser bottom. "review" = PR in center, terminal below, notes floating. Companions can suggest and apply arrangements. | User says "set up for code review" and windows rearrange | | |
+| F-752 | Window Compose | Companion can move, resize, focus, minimize, and close any window. Bridge tools: `workspace.arrange(windows)`, `workspace.focus(app)`, `workspace.snap(window, position)`. Snap positions: left-half, right-half, top-half, bottom-half, quadrants, thirds, center, fullscreen. | Companion snaps Xcode to left half and Safari to right half | | |
+| F-753 | Context Awareness | Companion sees which app is frontmost, what document is open, how long you've been there. Enables proactive help: "you've been on that error page for 5 minutes — want me to look at the stack trace?" Built on window tracking + screen capture. | Companion proactively offers help based on visible context | | |
+| F-754 | Multi-Display | Full support for multiple displays. Window arrangements span monitors. Snap positions are display-relative. Companion can move windows between displays. Uses `screen.displays` for geometry. | "Move Slack to the external monitor" works | | |
+| F-755 | Workspace Profiles | Higher-level than arrangements: a workspace profile includes window layout + which companions are active + which integrations are relevant + channel focus. Switch profiles to change your entire working context. | User switches to "writing" profile: Markdown editor centered, muse companion active, notifications silenced | | |
 
 ### Local Storage
 
@@ -402,6 +717,16 @@ notifications (P-507) done. Browser (P-509) done with headless WKWebView session
 for page loading, text/HTML extraction, screenshots, and JS execution.
 Camera (P-503) planned.
 
+**Phase 6 (Evaporating Integration + Companion Behavior):** Complete (v0.5.21).
+`rest.call` generic HTTP tool with secret injection (F-660). Secrets Manager UI —
+named API keys in Keychain, per-companion scoping (F-650–F-652). Provider companion
+templates for Stripe, Cloudflare, GitHub, PostHog (F-661). Cross-provider synthesis
+in shared channels (F-662). `port_push` / `port_exec` — companions push data into
+existing ports (P-206). Bridge JS completeness — setTitle, setCapabilities, rename
+wired into JS namespace (P-207). Floating port scrolling fixed (P-208).
+Anti-drowning → port construction bridge in system prompt. BridgeJS test suite (T-100).
+Say it See it test harness (T-101).
+
 See ports-spec.md and ports-implementation-plan.md for full details.
 
 ### M5: OpenClaw Integration (In Progress)
@@ -426,9 +751,10 @@ button for one-click OpenClaw deep linking.
 | OC-100 | Gateway Detection | Read ~/.openclaw/openclaw.json for port and auth token | Config file parsed, connection attempted | **Done** |
 | OC-101 | WebSocket Connect | Connect to local OpenClaw gateway, handle challenge/response auth | WebSocket connected, RPC available | **Done** |
 | OC-102 | Plugin Auto-Install | Detect missing port42-openclaw plugin, auto-install via npx. Check disk presence as fallback. | Plugin installed without user action | **Done** |
-| OC-103 | Agent Discovery | List available agents from OpenClaw via agents.list RPC | Agent list populated in UI | **Done** |
-| OC-104 | Channel Connection | Generate invite URL, write OpenClaw config (accounts + bindings), trigger gateway restart | Agent appears in channel via presence | **Done** |
-| OC-105 | Config Update | config.set writes config, config.apply triggers SIGUSR1 restart. 7.5s wait then auto-reconnect. | Config saved and gateway restarted | **Done** |
+| OC-103 | Agent Discovery | List available agents from OpenClaw via hello snapshot (snapshot.health.agents). Previously used agents.list RPC but OpenClaw 2026.3.24 added operator.read scope requirement the gateway token doesn't grant. | Agent list populated in UI | **Done** |
+| OC-104 | Channel Connection | Generate invite URL, write OpenClaw config (accounts + bindings) directly to ~/.openclaw/openclaw.json, SIGTERM openclaw-gateway (launchd restarts via ai.openclaw.gateway.plist). | Agent appears in channel via presence | **Done** |
+| OC-105 | Config Update | Direct filesystem read/write replaces config.get/config.set/config.apply RPCs. Those methods require operator.read/operator.admin scopes not granted by the broadcast gateway token. Local-only limitation: a future remote gateway mode would need the device-auth token (~/.openclaw/identity/device-auth.json) with properly provisioned operator scopes instead. | Config saved and gateway restarted | **Done** |
+| OC-109 | Remote Gateway Support | Allow connecting to an OpenClaw gateway on a different machine (not localhost). Requires: UI to enter remote gateway URL, auth via device-auth token (not broadcast token), RPC-based config.get/config.set/config.apply using operator.read + operator.admin scopes provisioned on that token. | User can connect a remote OpenClaw instance | **Deferred** |
 | OC-106 | Auto-Retry | 3 retries with 2s/4s/6s backoff on WebSocket failure | Connection recovers after gateway restart | **Done** |
 | OC-107 | Version Detection | Check local openclaw --version vs npm registry, show update indicator | Footer shows version or "update available" | **Done** |
 | OC-108 | Web Invite Connect | "accept + connect" button on invite page, port42://openclaw deep link | One-click agent connection from web | **Done** |
@@ -475,6 +801,9 @@ button for one-click OpenClaw deep linking.
 | P-506 | File System | port42.fs.read/write/pick with native file picker | Port can load and save files | **Done** |
 | P-507 | Notifications | port42.notify.send for system notifications | Background port can alert user | **Done** |
 | P-509 | Browser | port42.browser.open/navigate/capture/text/html/execute/close | Port can browse the web | **Done** |
+| P-206 | port_push / port_exec | Companions push HTML data into existing ports (`port_push`) and execute JS inside them (`port_exec`). Port declares what data it accepts via `port42.on('port42:data', ...)`. Same pattern as file drop — companion just pushes, port handles it. | Companion calls `port_push(id, {traffic: data})`, port receives and renders | **Done** |
+| P-207 | Bridge JS Completeness | `port42.port.setTitle`, `setCapabilities`, `rename` wired into the JS bridge. Swift handlers existed in PortBridge.swift but were never exposed in the JS namespace injection. BridgeJS test suite added to catch future regressions (verifies ~50 methods across all namespaces). | `port42.port.setTitle("My Port")` works from inside a port | **Done** |
+| P-208 | Floating Port Scrolling | `overflow: hidden` on floating port webview body prevented internal scroll. Fixed to `overflow: auto`. Inline ports correctly keep `overflow: hidden` (parent ScrollView handles it). | Long-content floating ports scroll correctly | **Done** |
 | P-401 | Cross-Channel Reads | port42.messages.recent(n, channelId) | Port can read any channel | Planned |
 | P-402 | Message Metadata | Structured metadata (model, response time, similarity) | Ports can analyze conversations | Planned |
 | P-403 | Convergence Detection | port42.convergence.detect() and events | Multi-agent agreement surfaced | Planned |
@@ -567,6 +896,34 @@ Channel has 6+ companions, all set to "all messages" trigger
 → Pattern is observable but not yet instrumented
 → Future: convergence detector surfaces agreement as signal
 ```
+
+---
+
+### Flow 11: Starter Ports (First Swim)
+
+```
+First swim begins (Flow 1b) -->
+Echo builds the "Getting to Know You" port before asking anything in chat -->
+Port renders: user name, Echo's name, what Port42 is (live dynamic info) -->
+Port has interactive fields: what are you working on, how do you think, what matters to you -->
+User fills in what they want (or leaves fields empty — zero pressure) -->
+Each field the user fills → Echo engraves that knowledge into the relationship layer -->
+Port reflects engraved state back: "I know you're building X" becomes visible, not hidden context -->
+Port explains the memory layers: fold (how I orient to you), crease (what surprised me), engrave (what I know) -->
+User is offered the builder swarm: engineer, muse, analyst, sage, scout, forge -->
+User picks companions or skips → selected companions appear in sidebar immediately
+```
+
+The Getting to Know You port is not installed at first launch — it's generated by Echo during
+the first swim. This demonstrates scaffold-first: the port is the surface, not a form. Echo
+builds it, the user fills it in, the companion gets smarter as they do.
+
+Three things demonstrated at once:
+1. **Say it, see it** — companion built an interactive surface unprompted
+2. **Memory is real** — what you type goes into engrave, not a void; the port shows it happening
+3. **You control what's remembered** — skip any field, fill it later, or never
+
+Engraved knowledge from this port seeds the companion's context for all future sessions.
 
 ---
 
@@ -759,3 +1116,25 @@ work, everything documented.
 | ID | Question |
 |----|----------|
 | F-510 | Custom gateway vs LiveKit vs Matrix vs libp2p? LiveKit covers audio too (M6) but adds a server dependency. Matrix is decentralized and has E2E baked in but the Swift SDK is less mature. libp2p is fully P2P but complex. Custom gateway gives full control but means maintaining presence, NAT traversal, and reliability ourselves. |
+
+---
+
+## Infrastructure Decision: P2P Messaging Layer
+
+The current hand-rolled gateway (`gateway.go` — Go WebSocket hub) is becoming a liability as the protocol grows. Every new feature — feedback relay, reaction forwarding, reply threading, offline queue, relay auth, presence, read receipts — requires inventing and maintaining bespoke protocol. This is a solved problem.
+
+**The trigger:** Feedback relay (F-672) would require designing reaction/reply event types, gateway routing logic, Swift emit side, and SDK receive side — from scratch. At this point we are re-implementing features that mature messaging infrastructure already provides out of the box.
+
+**Options to evaluate:**
+
+| Option | Strengths | Weaknesses |
+|--------|-----------|------------|
+| **Matrix / Element** | Fully decentralised, E2E baked in (Olm/Megolm), federation, rich event model (reactions, threads, read receipts all native), Swift SDK (MatrixSDK) | Complex deployment, SDK maturity on Apple platforms, learning curve |
+| **LiveKit** | Real-time data channels + audio in one (solves M6 too), managed infra available, Swift SDK maintained | Primarily audio/video focused, messaging is secondary, server dependency |
+| **libp2p** | Truly P2P, no relay required, content-addressing, used by IPFS/Filecoin | Complex, no managed infra, NAT traversal hard, Swift support thin |
+| **NATS / JetStream** | Extremely fast, pub/sub + persistence, tiny footprint, self-hostable | Not P2P, centralised broker, no E2E baked in |
+| **Nostr** | Fully decentralised, simple protocol, cryptographic identity, growing ecosystem | No native E2E (NIP-44 optional), relay quality varies, no offline queue guarantee |
+
+**Recommendation for evaluation:** Matrix is the closest fit — its event model natively covers everything on the current roadmap (reactions, threads, read receipts, offline queue, federation, E2E). Risk is Swift SDK maturity and deployment complexity. Worth a spike before committing to more bespoke protocol work.
+
+**Decision needed before:** Implementing F-672 (feedback relay), F-304 (message status), F-504 (offline queue), or any further protocol additions. Each of those is trivially solved by Matrix and expensively hand-built without it.

@@ -1,0 +1,234 @@
+<title>{{NAME}}</title>
+<meta name="version" content="18">
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { padding: 0; width: 100%; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  #terminal { flex: 1; width: 100%; }
+</style>
+
+<div id="terminal"></div>
+
+<script>
+  const Terminal = await port42.terminal.loadXterm();
+  const container = document.getElementById('terminal');
+
+  const term = new Terminal({
+    fontSize: 13,
+    fontFamily: '"SF Mono", "Fira Code", monospace',
+    theme: {
+      background: '#0a0a0a',
+      foreground: '#e0e0e0',
+      cursor: '#00d4aa',
+      selectionBackground: '#00d4aa33'
+    },
+    cursorBlink: true,
+    convertEol: true
+  });
+
+  term.open(container);
+
+  const cols = Math.max(80, Math.floor(container.clientWidth / 8));
+  const rows = Math.max(24, Math.floor(container.clientHeight / 16));
+
+  const result = await port42.terminal.spawn({ cwd: '{{CWD}}' || undefined, cols, rows });
+  const sessionId = result.sessionId;
+  const channelId = '{{CHANNEL_ID}}';
+
+  // --- xterm buffer capture ---
+  // Read the rendered xterm buffer when the CLI prompt appears rather than
+  // parsing raw bytes (which are lossy for TUI apps like Claude Code).
+  //
+  // Key design decisions:
+  //  1. commandSent flag — ignore all prompts until after the CLI is launched.
+  //     This prevents the shell's initial prompt from triggering warmup and
+  //     flooding the channel with Claude Code startup/history content.
+  //  2. term.write(data, callback) — all detection runs inside the write
+  //     callback so the xterm buffer is accurate when we read absLine().
+  //     term.write is async; calling absLine() after write() returns gives
+  //     stale cursor position.
+  //  3. isPromptLine(abs) reads the RENDERED buffer line at the cursor rather
+  //     than the raw data stream. This eliminates false positives from markdown
+  //     blockquotes ("> text") in Claude Code responses.
+
+  const NAME = '{{NAME}}';
+  const log = (...a) => console.log(`[p42-terminal:${NAME}]`, ...a);
+
+  let commandSent = false;      // true after the CLI command has been sent
+  let warmupDone = false;       // true after first CLI prompt seen post-launch
+  let lastPromptAbsLine = -1;   // absolute buffer line of last seen prompt
+  let maxAbsSincePrompt = -1;   // highest abs cursor position seen since last prompt
+  let chunkCount = 0;           // total output chunks received
+
+  // Match Claude Code's specific idle prompt — bare ❯ (U+276F) only.
+  // Shell prompts use %, $, > but none use ❯. Narrowing to ❯ prevents shell
+  // prompt lines from triggering warmup before claude launches.
+  const PROMPT_RE = /^❯\s*$/;
+
+  // Lines to discard entirely.
+  // NOTE: ⏺ is NOT here — it's Claude Code's response marker. We strip its prefix
+  // in readBufferLines instead of discarding the line.
+  const NOISE_RE = /^(\[[\w\s]+\]:|\s*[✻✶✳✽✢·⟡◐◑◒◓▗▖▘▝⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⎿]|\/\w+$|[─━â═╌╍ ]+$|\? |^0q$)/;
+
+  function absLine() {
+    return term.buffer.active.baseY + term.buffer.active.cursorY;
+  }
+
+  // Snapshot up to 5 lines around an absolute line for logging.
+  function bufferContext(abs, radius = 2) {
+    const out = [];
+    for (let y = Math.max(0, abs - radius); y <= abs + radius; y++) {
+      const line = term.buffer.active.getLine(y);
+      const text = line ? line.translateToString(true).trimEnd() : '';
+      out.push(`  [${y}]${y === abs ? '←cursor' : '       '} "${text}"`);
+    }
+    return out.join('\n');
+  }
+
+  // Check the RENDERED buffer at the given absolute line for a prompt pattern.
+  function isPromptLine(abs) {
+    const line = term.buffer.active.getLine(abs);
+    if (!line) return false;
+    const text = line.translateToString(true).trimEnd().trim();
+    return PROMPT_RE.test(text);
+  }
+
+  // Claude Code's TUI places the cursor in the status bar 2-3 lines BELOW the ❯.
+  // Scan upward from the cursor to find the actual prompt line.
+  // Returns the abs of the prompt line, or -1 if not found.
+  function findPromptAbove(cursorAbs, radius) {
+    for (let y = cursorAbs; y >= Math.max(0, cursorAbs - radius); y--) {
+      if (isPromptLine(y)) return y;
+    }
+    return -1;
+  }
+
+  // Scan the buffer for <p42>...</p42> tags — Claude is instructed to wrap
+  // channel responses in these tags so we don't have to parse TUI noise.
+  // Returns an array of tag contents found in the given abs range.
+  //
+  // IMPORTANT: xterm.js has fixed-width lines. Concatenating with '\n' splits
+  // tags that fall at line boundaries (e.g. '<' at col 79, 'p42>' on next line).
+  // Concatenate without separator so tags are always contiguous in the string.
+  function extractTaggedContent(fromAbs, toAbs) {
+    let fullText = '';
+    for (let y = Math.max(0, fromAbs); y <= toAbs; y++) {
+      const line = term.buffer.active.getLine(y);
+      if (line) fullText += line.translateToString(true).trimEnd();
+    }
+    log(`extractTaggedContent(${fromAbs},${toAbs}) text[0..200]: "${fullText.slice(0,200)}"`);
+    const matches = [...fullText.matchAll(/<p42>([\s\S]*?)<\/p42>/gi)];
+    return matches.map(m => m[1].trim()).filter(Boolean);
+  }
+
+  // Track which buffer content we've already sent (by abs range)
+  let lastSentToAbs = -1;
+  let skipNextCapture = false;  // skip Claude's response to the context injection
+
+  port42.terminal.on('output', (e) => {
+    if (e.sessionId !== sessionId) return;
+    const myCount = ++chunkCount;  // capture at event time, before async callback
+
+    // All detection runs inside the write callback — buffer is accurate here.
+    term.write(e.data, () => {
+      if (!commandSent) return;   // ignore shell prompts before CLI launches
+
+      const cursorAbs = absLine();
+
+      // Claude Code's status bar puts the cursor 2-3 lines below the ❯ prompt.
+      // Scan upward from cursor to find the actual prompt line.
+      const foundPromptAbs = findPromptAbove(cursorAbs, 5);
+      const isPrompt = foundPromptAbs >= 0;
+
+      // Only track cursor as max when NOT in the idle status bar area.
+      // When the cursor IS near a prompt, it's just the status bar — don't count
+      // that gap as "response content" or every idle tick triggers a false capture.
+      if (!isPrompt && cursorAbs > maxAbsSincePrompt) maxAbsSincePrompt = cursorAbs;
+
+      const cursorLineText = (() => {
+        const l = term.buffer.active.getLine(cursorAbs);
+        return l ? l.translateToString(true).trimEnd() : '(null)';
+      })();
+
+      // Log every chunk for first 200 after commandSent, then every 20
+      if (isPrompt || myCount <= 200 || myCount % 20 === 0) {
+        log(`chunk #${myCount} | cursor=${cursorAbs} | max=${maxAbsSincePrompt} | prompt=${foundPromptAbs} | warmup=${warmupDone} | lastPromptLine=${lastPromptAbsLine} | cursorLine="${cursorLineText.slice(0,60)}"`);
+      }
+
+      if (!isPrompt) return;
+
+      if (!warmupDone) {
+        warmupDone = true;
+        lastPromptAbsLine = foundPromptAbs;
+        lastSentToAbs = foundPromptAbs;
+        log('WARMUP complete at prompt=' + foundPromptAbs + ' cursor=' + cursorAbs + ', ready for messages');
+        return;
+      }
+
+      // Scan buffer from last sent position to current prompt for <p42> tags.
+      // Tag-based extraction is immune to TUI cursor repositioning artifacts.
+      // scanTo must always be >= lastSentToAbs — TUI redraws can move the prompt
+      // backward, making max(cursor,prompt)+5 smaller than lastSentToAbs.
+      const scanTo = Math.max(cursorAbs, foundPromptAbs, lastSentToAbs) + 5;
+
+      if (skipNextCapture) {
+        skipNextCapture = false;
+        lastSentToAbs = scanTo;
+        lastPromptAbsLine = foundPromptAbs;
+        log('CAPTURE: skipped (context injection response)');
+        return;
+      }
+
+      log(`CAPTURE: scanning abs=${lastSentToAbs}..${scanTo} for <p42> tags`);
+      const tagged = extractTaggedContent(lastSentToAbs, scanTo);
+      if (tagged.length > 0) {
+        const text = tagged.join('\n\n');
+        log(`CAPTURE: found ${tagged.length} tag(s) → "${text.slice(0, 120)}"`);
+        log('SENDING via sendAsCreator, channelId=' + channelId);
+        port42.messages.sendAsCreator(text, channelId || undefined);
+        lastSentToAbs = scanTo;
+      } else {
+        log(`CAPTURE: no <p42> tags found in abs=${lastSentToAbs}..${scanTo}`);
+      }
+      lastPromptAbsLine = foundPromptAbs;
+    });
+  });
+
+  port42.terminal.on('exit', (e) => {
+    if (e.sessionId === sessionId)
+      term.write('\r\n\x1b[90m[process exited with code ' + e.code + ']\x1b[0m');
+  });
+
+  port42.terminal.on('cwd', ({cwd}) => {
+    if (cwd) port42.port.setTitle(cwd.split('/').pop() || '{{NAME}}');
+  });
+
+  term.onData((data) => port42.terminal.send(sessionId, data));
+  term.onResize(({cols, rows}) => port42.terminal.resize(sessionId, cols, rows));
+
+  port42.viewport.on('resize', () => {
+    const cw = term._core._renderService?.dimensions?.css?.cell?.width;
+    const ch = term._core._renderService?.dimensions?.css?.cell?.height;
+    if (cw && ch) {
+      const nc = Math.floor(container.clientWidth / cw);
+      const nr = Math.floor(container.clientHeight / ch);
+      if (nc > 0 && nr > 0) term.resize(nc, nr);
+    }
+  });
+
+  // Launch CLI and register bridge for @mention routing.
+  // commandSent is set true here so that prompt detection only starts
+  // AFTER the CLI is running, skipping the shell's initial prompt.
+  setTimeout(() => {
+    const cmd = '{{COMMAND}}';
+    const cmdArgs = '{{ARGS_STR}}';
+    if (cmd) {
+      const invocation = cmdArgs ? cmd + ' ' + cmdArgs : cmd;
+      port42.terminal.send(sessionId, invocation + '\r');
+    }
+    port42.terminal.bridge(sessionId, channelId, '{{NAME}}');
+    commandSent = true;
+  }, 600);
+
+  term.focus();
+</script>

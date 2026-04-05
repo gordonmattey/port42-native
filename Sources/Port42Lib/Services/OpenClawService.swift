@@ -38,7 +38,6 @@ public final class OpenClawService: NSObject, ObservableObject {
     private var gatewayToken: String?
     private var reqId = 0
     private var pending: [String: (Result<Any, Error>) -> Void] = [:]
-    private var configHash: String?
     private var connectReqId: String?
     private var retryCount = 0
     private var maxRetries = 3
@@ -181,18 +180,19 @@ public final class OpenClawService: NSObject, ObservableObject {
     private func listen() {
         ws?.receive { [weak self] result in
             guard let self else { return }
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self.handleMessage(text)
-                default:
-                    break
-                }
-                self.listen()
-            case .failure(let error):
-                NSLog("[Port42:OpenClaw] WebSocket receive failed: %@", error.localizedDescription)
-                Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .string(let text):
+                        self.handleMessage(text)
+                    default:
+                        break
+                    }
+                    self.listen()
+                case .failure(let error):
+                    NSLog("[Port42:OpenClaw] WebSocket receive failed: %@", error.localizedDescription)
                     if self.retryCount < self.maxRetries {
                         self.scheduleRetry()
                     } else {
@@ -236,6 +236,18 @@ public final class OpenClawService: NSObject, ObservableObject {
             if id == connectReqId && ok {
                 status = .connected
                 Analytics.shared.openClawDetected()
+                // Extract agents from the hello snapshot (avoids a separate agents.list RPC call
+                // which requires operator.read scope the token may not grant)
+                if let payload = json["payload"] as? [String: Any],
+                   let snapshot = payload["snapshot"] as? [String: Any],
+                   let health = snapshot["health"] as? [String: Any],
+                   let agentList = health["agents"] as? [[String: Any]] {
+                    agents = agentList.compactMap { dict in
+                        guard let agentId = dict["agentId"] as? String else { return nil }
+                        return OpenClawAgent(id: agentId)
+                    }
+                    NSLog("[Port42:OpenClaw] loaded %d agents from hello snapshot", agents.count)
+                }
                 Task { await loadInitialData() }
             }
         }
@@ -303,37 +315,14 @@ public final class OpenClawService: NSObject, ObservableObject {
     // MARK: - API calls
 
     private func loadInitialData() async {
-        // Load config to check plugin status and get config hash
-        do {
-            let configResult = try await rpc("config.get")
-            if let payload = configResult as? [String: Any] {
-                configHash = payload["hash"] as? String
-                if let raw = payload["raw"] as? String,
-                   let rawData = raw.data(using: .utf8),
-                   let config = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any] {
-                    let plugins = config["plugins"] as? [String: Any]
-                    let installs = plugins?["installs"] as? [String: Any]
-                    // Check config OR on-disk presence
-                    pluginInstalled = installs?["port42-openclaw"] != nil
-                        || FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.openclaw/extensions/port42-openclaw")
-                }
-            }
-        } catch {
-            NSLog("[Port42:OpenClaw] config.get failed: %@", error.localizedDescription)
-        }
-
-        // Load agents
-        do {
-            let agentsResult = try await rpc("agents.list")
-            if let payload = agentsResult as? [String: Any],
-               let agentList = payload["agents"] as? [[String: Any]] {
-                agents = agentList.compactMap { dict in
-                    guard let id = dict["id"] as? String else { return nil }
-                    return OpenClawAgent(id: id)
-                }
-            }
-        } catch {
-            NSLog("[Port42:OpenClaw] agents.list failed: %@", error.localizedDescription)
+        // Check plugin status from disk (config.get requires operator.read scope which gateway tokens don't grant)
+        let configPath = NSHomeDirectory() + "/.openclaw/openclaw.json"
+        if let data = FileManager.default.contents(atPath: configPath),
+           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let plugins = config["plugins"] as? [String: Any]
+            let installs = plugins?["installs"] as? [String: Any]
+            pluginInstalled = installs?["port42-openclaw"] != nil
+                || FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.openclaw/extensions/port42-openclaw")
         }
 
         // Check version in background
@@ -417,32 +406,25 @@ public final class OpenClawService: NSObject, ObservableObject {
         }
     }
 
-    /// Add a Port42 channel account to OpenClaw and bind the agent
+    /// Add a Port42 channel account to OpenClaw and bind the agent.
+    /// Reads and writes openclaw.json directly on disk — avoids RPC methods that
+    /// require operator.read/operator.admin scopes the gateway token doesn't grant.
+    /// NOTE: local-only. Remote OpenClaw gateways would need the RPC path with a
+    /// properly-scoped device-auth token instead of the broadcast gateway token.
     public func addChannelAgent(agentId: String, inviteURL: String, trigger: String = "mention", owner: String = "clawd") async -> Bool {
-        guard let hash = configHash else {
-            error = "Config hash not available"
-            return false
-        }
+        let configPath = NSHomeDirectory() + "/.openclaw/openclaw.json"
 
-        // Read current config
-        guard let configResult = try? await rpc("config.get"),
-              let payload = configResult as? [String: Any],
-              let raw = payload["raw"] as? String,
-              let rawData = raw.data(using: .utf8),
-              var config = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any] else {
+        guard let data = FileManager.default.contents(atPath: configPath),
+              var config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             error = "Could not read OpenClaw config"
             return false
         }
-
-        // Update the latest hash
-        let currentHash = payload["hash"] as? String ?? hash
 
         // Ensure channels.port42.accounts structure
         var channels = config["channels"] as? [String: Any] ?? [:]
         var port42 = channels["port42"] as? [String: Any] ?? [:]
         var accounts = port42["accounts"] as? [String: Any] ?? [:]
 
-        // Add the account
         accounts[agentId] = [
             "invite": inviteURL,
             "displayName": agentId,
@@ -469,42 +451,36 @@ public final class OpenClawService: NSObject, ObservableObject {
             config["bindings"] = bindings
         }
 
-        // Write config via API
-        guard let newData = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]),
-              let newRaw = String(data: newData, encoding: .utf8) else {
+        guard let newData = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted]) else {
             error = "Could not serialize config"
             return false
         }
 
         do {
-            // Write config first (this returns a response before restarting)
-            let setResult = try await rpc("config.set", params: [
-                "raw": newRaw,
-                "baseHash": currentHash
-            ])
-            // Update hash from response
-            if let setPayload = setResult as? [String: Any] {
-                configHash = setPayload["hash"] as? String
-            }
-            // Apply triggers a gateway restart which kills our WebSocket
-            // Fire and forget, then wait for restart and reconnect
-            _ = try? await rpc("config.apply", params: [
-                "raw": newRaw,
-                "baseHash": configHash ?? currentHash
-            ])
-            // Wait for gateway to restart (typically takes ~5s)
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            connect()
-            return true
+            try newData.write(to: URL(fileURLWithPath: configPath))
         } catch {
-            self.error = "Config update failed: \(error.localizedDescription)"
+            self.error = "Could not write config: \(error.localizedDescription)"
             return false
         }
+
+        // Restart the gateway so it picks up the new config.
+        // Use launchctl kickstart -k to stop + restart via launchd (respects the correct binary path
+        // from the plist, unlike pkill which kills but won't restart if the plist path is stale).
+        let uid = String(getuid())
+        let restart = Process()
+        restart.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        restart.arguments = ["kickstart", "-k", "gui/\(uid)/ai.openclaw.gateway"]
+        try? restart.run()
+
+        // Wait for gateway to restart then reconnect
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        connect()
+        return true
     }
 
     // MARK: - WebSocket Delegate
 
-    private class WebSocketDelegate: NSObject, URLSessionWebSocketDelegate {
+    private final class WebSocketDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
         weak var service: OpenClawService?
 
         init(service: OpenClawService) {

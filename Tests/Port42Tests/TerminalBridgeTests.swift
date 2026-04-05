@@ -185,4 +185,77 @@ struct TerminalBridgeTests {
         let ok = tb.sendToFirst(data: "echo hello\n")
         #expect(!ok)
     }
+
+    // MARK: - CWD tracking via OSC 7
+
+    @Test("extractCwdFromChunk parses BEL-terminated OSC 7")
+    func extractCwdBel() {
+        let chunk = "\u{1b}]7;file://localhost/private/tmp\u{07}"
+        #expect(TerminalBridge.extractCwdFromChunk(chunk) == "/private/tmp")
+    }
+
+    @Test("extractCwdFromChunk parses ST-terminated OSC 7")
+    func extractCwdSt() {
+        let chunk = "\u{1b}]7;file://localhost/Users/gordon/Code\u{1b}\\"
+        #expect(TerminalBridge.extractCwdFromChunk(chunk) == "/Users/gordon/Code")
+    }
+
+    @Test("extractCwdFromChunk returns nil when no OSC 7")
+    func extractCwdNoOsc7() {
+        #expect(TerminalBridge.extractCwdFromChunk("normal output\r\n") == nil)
+    }
+
+    @Test("extractCwdFromChunk handles OSC 7 embedded in other output")
+    func extractCwdEmbedded() {
+        let chunk = "some output\r\n\u{1b}]7;file://localhost/tmp\u{07}\r\n$ "
+        #expect(TerminalBridge.extractCwdFromChunk(chunk) == "/tmp")
+    }
+
+    @Test("cwd returns nil for unknown session")
+    @MainActor
+    func cwdUnknownSession() {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+        #expect(tb.cwd(sessionId: "no-such-id") == nil)
+    }
+
+    @Test("cwd returns nil before any OSC 7 is received")
+    @MainActor
+    func cwdNilBeforeOsc7() async throws {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+        defer { tb.killAll() }
+
+        let sid = try #require(tb.spawn())
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(tb.cwd(sessionId: sid) == nil)
+    }
+
+    @Test("updateCwd sets cwd on the session")
+    @MainActor
+    func updateCwdSetsProperty() async throws {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+        defer { tb.killAll() }
+
+        let sid = try #require(tb.spawn())
+        let session = try #require(tb.session(for: sid))
+        session.updateCwd(from: "/private/tmp")
+
+        #expect(tb.cwd(sessionId: sid) == "/private/tmp")
+    }
+
+    @Test("firstActiveSessionCwd reflects updateCwd")
+    @MainActor
+    func firstActiveSessionCwdReflectsUpdate() async throws {
+        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let tb = TerminalBridge(bridge: bridge)
+        defer { tb.killAll() }
+
+        let sid = try #require(tb.spawn())
+        let session = try #require(tb.session(for: sid))
+        session.updateCwd(from: "/Users/gordon/Code")
+
+        #expect(tb.firstActiveSessionCwd == "/Users/gordon/Code")
+    }
 }

@@ -59,15 +59,15 @@ public final class InstructionService: ObservableObject {
     // MARK: - Markdown content
 
     private func buildMarkdown(for tool: String) -> String {
-        let apiDocs: String
-        if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
-           let text = try? String(contentsOf: url, encoding: .utf8) {
-            apiDocs = text
-        } else {
-            apiDocs = "(API reference unavailable — reinstall from Port42 Settings → Remote Access)"
-        }
-
         let toolName = tool.lowercased() == "claude" ? "Claude Code" : "Gemini CLI"
+
+        let docs: String
+        if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            docs = text.replacingOccurrences(of: "{{TOOL_NAME}}", with: toolName)
+        } else {
+            docs = ""
+        }
 
         return """
 # Port42 Instructions
@@ -77,53 +77,18 @@ Port42 exposes all its device and channel APIs to you via a local HTTP gateway.
 
 ## Calling Port42 APIs
 
-Use `curl` to call any API. Port42 must be running.
-
 ```bash
-curl -s http://127.0.0.1:4242/call \\
-  -d '{"method":"<method>","args":{...}}'
+curl -s http://127.0.0.1:4242/call -d '{"method":"<method>","args":{...}}'
 ```
 
-Response: `{"content": "..."}` — the result as a string or JSON.
-
-Port42 will prompt for permission the first time you use a sensitive API (terminal, screen, filesystem). \
-Pre-approve categories in Port42 Settings → Remote Access to skip future prompts.
-
-## Quick examples
-
+Before using any API, call help to get the latest reference:
 ```bash
-# Read clipboard
-curl -s http://127.0.0.1:4242/call -d '{"method":"clipboard.read"}'
-
-# Run a shell command
-curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
-
-# Take a screenshot
-curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
-
-# Send a message to the current channel
-curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from \(toolName)"}}'
-
-# Read recent channel messages
-curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
-
-# List all channels
-curl -s http://127.0.0.1:4242/call -d '{"method":"channel.list"}'
-
-# List companions
-curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
-
-# Get current user
-curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
+curl -s http://127.0.0.1:4242/call -d '{"method":"help"}'
 ```
 
-## API Reference
+If the help call fails (e.g. Port42 is not running), use the reference below as fallback.
 
-All method names below work as-is with the `curl` pattern above.
-
----
-
-\(apiDocs)
+\(docs)
 """
     }
 }

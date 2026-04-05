@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import WebKit
 
 /// Executes tool calls from LLM companions against port42 bridge APIs.
 /// One instance per conversation (channel or swim channel).
@@ -42,6 +43,29 @@ public final class ToolExecutor {
         if let by = createdBy, let cid = channelId {
             self.grantedPermissions = appState.companionPermissions(createdBy: by, channelId: cid)
         }
+    }
+
+    /// Resolve a port's WKWebView by ID — checks floating/docked ports first, then inline ports.
+    private func resolvePortWebView(id: String) -> WKWebView? {
+        if let wv = appState?.portWindows.webViews[id] { return wv }
+        if let bridge = appState?.findInlineBridge(by: id) { return bridge.webView }
+        return nil
+    }
+
+    /// Resolve an inline port's HTML from message content.
+    private func resolveInlinePortHtml(id: String) -> String? {
+        guard let appState = appState,
+              let bridge = appState.findInlineBridge(by: id),
+              let mid = bridge.messageId,
+              let msg = appState.messages.first(where: { $0.id == mid }),
+              let html = extractPortHtml(from: msg.content) else { return nil }
+        return html
+    }
+
+    private func extractPortHtml(from content: String) -> String? {
+        guard let start = content.range(of: "```port\n"),
+              let end = content.range(of: "\n```", range: start.upperBound..<content.endIndex) else { return nil }
+        return String(content[start.upperBound..<end.lowerBound])
     }
 
     /// Execute a tool and return the result as content blocks for the Anthropic API.
@@ -120,10 +144,11 @@ public final class ToolExecutor {
     private func autoStartOutputBridge(portTitle: String, termBridge: TerminalBridge, sessionId: String) {
         guard let appState else { return }
         let key = portTitle.lowercased()
-        guard !appState.bridgedTerminalNames.contains(key) else { return }
+        guard appState.bridgedTerminalNames[key] == nil else { return }
         let chId = channelId ?? appState.currentChannel?.id ?? ""
         guard !chId.isEmpty else { return }
-        appState.bridgedTerminalNames.insert(key)
+        let panelId = appState.portWindows.panels.first(where: { $0.bridge.terminalBridge === termBridge })?.id ?? key
+        appState.bridgedTerminalNames[key] = panelId
         let batcher = OutputBatcher(portName: portTitle, channelId: chId, companionName: createdBy ?? "bridge", appState: appState)
         Self.outputBatchers[key] = batcher
         termBridge.session(for: sessionId)?.addOutputObserver { [weak batcher] rawOutput in
@@ -152,9 +177,11 @@ public final class ToolExecutor {
                 return [textBlock("Error: no companion context")]
             }
             let limit = input["limit"] as? Int ?? 8
+            // Always read from swim channel — companion has one inner state
+            let swimCreaseId = "swim-\(companionId)"
             let creases = (try? appState.db.fetchCreases(
                 companionId: companionId,
-                channelId: channelId,
+                channelId: swimCreaseId,
                 limit: limit
             )) ?? []
             if creases.isEmpty {
@@ -172,9 +199,11 @@ public final class ToolExecutor {
                   let content = input["content"] as? String, !content.isEmpty else {
                 return [textBlock("Error: crease_write requires 'content'")]
             }
+            // Always write to swim channel — companion has one inner state
+            let swimWriteId = "swim-\(companionId)"
             let crease = CompanionCrease(
                 companionId: companionId,
-                channelId: input["channelId"] as? String ?? channelId,
+                channelId: swimWriteId,
                 content: content,
                 prediction: input["prediction"] as? String,
                 actual: input["actual"] as? String
@@ -367,6 +396,21 @@ public final class ToolExecutor {
                   let action = input["action"] as? String else {
                 return [textBlock("Error: missing 'id' or 'action' parameter")]
             }
+            // Check inline port — support "undock" to pop out
+            if appState.portWindows.findPort(by: id) == nil {
+                if let bridge = appState.findInlineBridge(by: id), action == "undock" || action == "restore" {
+                    if let mid = bridge.messageId,
+                       let msg = appState.messages.first(where: { $0.id == mid }),
+                       let html = extractPortHtml(from: msg.content) {
+                        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+                        let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+                        appState.portWindows.popOut(html: html, bridge: bridge, channelId: bridge.channelId, createdBy: bridge.createdBy, messageId: mid, in: bounds)
+                        return [textBlock("Popped out inline port '\(id)'")]
+                    }
+                }
+                return [textBlock("Error: no port found for '\(id)'"
+                    + (appState.findInlineBridge(by: id) != nil ? " (inline port — only 'undock' is supported)" : ""))]
+            }
             guard let panel = appState.portWindows.findPort(by: id) else {
                 return [textBlock("Error: no port found for '\(id)'")]
             }
@@ -400,6 +444,13 @@ public final class ToolExecutor {
                 Analytics.shared.portUpdated()
                 return [textBlock("Port updated")]
             }
+            // Fallback: inline port — reload webView with new HTML
+            if let webView = appState.findInlineBridge(by: id)?.webView {
+                let wrapped = PortWebViewFactory.wrapHTML(html)
+                webView.loadHTMLString(wrapped, baseURL: URL(string: "http://port42.local/"))
+                Analytics.shared.portUpdated()
+                return [textBlock("Port updated (inline)")]
+            }
             let available = appState.portWindows.allPorts().map(\.title).joined(separator: ", ")
             let hint = available.isEmpty ? "No active ports." : "Available: \(available)"
             return [textBlock("Error: no port found for '\(id)'. \(hint)")]
@@ -417,6 +468,10 @@ public final class ToolExecutor {
             if let html = try? appState.db.fetchPortHtml(udid: id) {
                 return [textBlock(html)]
             }
+            // Fallback: inline port — extract HTML from message content
+            if let html = resolveInlinePortHtml(id: id) {
+                return [textBlock(html)]
+            }
             return [textBlock("Error: no port found for id '\(id)'")]
 
         case "port_restore":
@@ -432,6 +487,13 @@ public final class ToolExecutor {
                 Analytics.shared.portUpdated()
                 return [textBlock("Restored port '\(id)' to version \(version)")]
             }
+            // Fallback: inline port
+            if let webView = appState.findInlineBridge(by: id)?.webView {
+                let wrapped = PortWebViewFactory.wrapHTML(html)
+                webView.loadHTMLString(wrapped, baseURL: URL(string: "http://port42.local/"))
+                Analytics.shared.portUpdated()
+                return [textBlock("Restored port '\(id)' to version \(version) (inline)")]
+            }
             return [textBlock("Error: port '\(id)' not found or not active")]
 
         case "port_patch":
@@ -440,7 +502,13 @@ public final class ToolExecutor {
                   let replace = input["replace"] as? String else {
                 return [textBlock("Error: port_patch requires 'id', 'search', and 'replace' parameters")]
             }
-            guard let currentHtml = try? appState.db.fetchPortHtml(udid: id) else {
+            // Try floating/docked first, then inline
+            let currentHtml: String
+            if let html = try? appState.db.fetchPortHtml(udid: id) {
+                currentHtml = html
+            } else if let html = resolveInlinePortHtml(id: id) {
+                currentHtml = html
+            } else {
                 return [textBlock("Error: no port found for id '\(id)'")]
             }
             guard currentHtml.contains(search) else {
@@ -452,7 +520,55 @@ public final class ToolExecutor {
                 Analytics.shared.portUpdated()
                 return [textBlock("Patch applied to port '\(id)'")]
             }
+            // Fallback: inline port
+            if let webView = appState.findInlineBridge(by: id)?.webView {
+                let wrapped = PortWebViewFactory.wrapHTML(patched)
+                webView.loadHTMLString(wrapped, baseURL: URL(string: "http://port42.local/"))
+                Analytics.shared.portUpdated()
+                return [textBlock("Patch applied to port '\(id)' (inline)")]
+            }
             return [textBlock("Error: port '\(id)' not found or not active")]
+
+        case "port_push":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: port_push requires 'id' parameter")]
+            }
+            let data = input["data"] ?? NSNull()
+            guard let webView = resolvePortWebView(id: id) else {
+                return [textBlock("Error: port '\(id)' not found or not active")]
+            }
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                return [textBlock("Error: could not serialize data to JSON")]
+            }
+            _ = try? await webView.evaluateJavaScript(
+                "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
+            )
+            return [textBlock("Data pushed to port '\(id)'")]
+
+        case "port_exec":
+            guard let id = input["id"] as? String,
+                  let js = input["js"] as? String else {
+                return [textBlock("Error: port_exec requires 'id' and 'js' parameters")]
+            }
+            guard let webView = resolvePortWebView(id: id) else {
+                return [textBlock("Error: port '\(id)' not found or not active")]
+            }
+            do {
+                let result = try await webView.evaluateJavaScript(js)
+                if result is NSNull || result == nil {
+                    return [textBlock("OK (no return value)")]
+                }
+                if let str = result as? String { return [textBlock(str)] }
+                if let num = result as? NSNumber { return [textBlock("\(num)")] }
+                if let data = try? JSONSerialization.data(withJSONObject: result!),
+                   let str = String(data: data, encoding: .utf8) {
+                    return [textBlock(str)]
+                }
+                return [textBlock("\(result!)")]
+            } catch {
+                return [textBlock("Error executing JS: \(error.localizedDescription)")]
+            }
 
         case "port_history":
             guard let id = input["id"] as? String else {
@@ -483,19 +599,13 @@ public final class ToolExecutor {
             guard let text = input["text"] as? String else {
                 return [textBlock("Error: missing 'text' parameter")]
             }
-            let chId = input["channel_id"] as? String ?? channelId ?? appState.currentChannel?.id ?? ""
-            guard let user = appState.currentUser else {
-                return [textBlock("Error: no user")]
+            let targetChannel = input["channel_id"] as? String ?? channelId
+            let overrideName = input["senderName"] as? String ?? input["sender_name"] as? String
+            if let name = overrideName, !name.isEmpty {
+                appState.sendMessageAsNamedAgent(content: text, senderName: name, toChannelId: targetChannel)
+            } else {
+                appState.sendMessage(content: text, toChannelId: targetChannel)
             }
-            let msg = Message(
-                id: UUID().uuidString, channelId: chId,
-                senderId: user.id, senderName: user.displayName,
-                senderType: "human", content: text,
-                timestamp: Date(), replyToId: nil,
-                syncStatus: "local", createdAt: Date()
-            )
-            try appState.db.saveMessage(msg)
-            appState.sync.sendMessage(msg)
             return [textBlock(jsonString(["ok": true]))]
 
         case "storage_get":
@@ -641,7 +751,7 @@ public final class ToolExecutor {
                     "sessionId":    t.sessionId,
                     "capabilities": ["terminal"],
                     "createdBy":    t.createdBy ?? "unknown",
-                    "bridged":      appState.bridgedTerminalNames.contains(t.name.lowercased())
+                    "bridged":      appState.bridgedTerminalNames[t.name.lowercased()] != nil
                 ]
                 return info
             }
@@ -654,7 +764,7 @@ public final class ToolExecutor {
             guard let termSession = appState.portWindows.terminalSession(forPortNamed: name) else {
                 return [textBlock("Error: no terminal found for port '\(name)'")]
             }
-            if appState.bridgedTerminalNames.contains(name.lowercased()) {
+            if appState.bridgedTerminalNames[name.lowercased()] != nil {
                 return [textBlock("Already bridging '\(name)' to this conversation")]
             }
             autoStartOutputBridge(portTitle: name, termBridge: termSession.bridge, sessionId: termSession.sessionId)
@@ -665,7 +775,7 @@ public final class ToolExecutor {
                 return [textBlock("Error: missing 'name' parameter")]
             }
             let key = name.lowercased()
-            if appState.bridgedTerminalNames.remove(key) != nil {
+            if appState.bridgedTerminalNames.removeValue(forKey: key) != nil {
                 Self.outputBatchers.removeValue(forKey: key)
                 if let chId = channelId { appState.stopTerminalLoop(channelId: chId) }
                 NSLog("[Port42] Terminal bridge stopped: %@", name)
@@ -707,6 +817,88 @@ public final class ToolExecutor {
             let timeout = input["timeout"] as? Int ?? 30
             let result = await automationBridge.runJXA(source: source, opts: ["timeout": timeout])
             return [textBlock(jsonString(result))]
+
+        // MARK: REST
+        case "rest_call":
+            guard let url = input["url"] as? String,
+                  let parsed = URL(string: url) else {
+                return [textBlock("Error: rest_call requires a valid 'url'")]
+            }
+
+            // Secret scoping: check companion has access
+            if let secretName = input["secret"] as? String {
+                if let companionId = createdBy,
+                   let agent = appState.companions.first(where: { $0.id == companionId }) {
+                    let allowed = agent.secretNames ?? []
+                    if !allowed.contains(secretName) {
+                        return [textBlock("Error: companion does not have access to secret '\(secretName)'. Grant it in companion settings.")]
+                    }
+                }
+            }
+
+            let method = (input["method"] as? String ?? "GET").uppercased()
+            let timeoutMs = min(input["timeout"] as? Int ?? 30000, 120000)
+
+            var request = URLRequest(url: parsed)
+            request.httpMethod = method
+            request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
+
+            // Custom headers
+            if let headers = input["headers"] as? [String: String] {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+
+            // Body
+            if let body = input["body"] as? String {
+                request.httpBody = body.data(using: .utf8)
+                if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+            }
+
+            // Secret injection — the companion never sees the raw credential
+            if let secretName = input["secret"] as? String {
+                if let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) {
+                    request.setValue(headerValue, forHTTPHeaderField: headerName)
+                } else {
+                    return [textBlock("Error: secret '\(secretName)' not found. Add it in Settings > Secrets.")]
+                }
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let httpResponse = response as? HTTPURLResponse
+                let statusCode = httpResponse?.statusCode ?? 0
+
+                // Build response
+                var result: [String: Any] = ["status": statusCode]
+
+                // Response headers (selected useful ones)
+                if let headers = httpResponse?.allHeaderFields as? [String: String] {
+                    var filtered: [String: String] = [:]
+                    for key in ["content-type", "x-request-id", "x-ratelimit-remaining", "retry-after", "location"] {
+                        if let v = headers.first(where: { $0.key.lowercased() == key })?.value {
+                            filtered[key] = v
+                        }
+                    }
+                    if !filtered.isEmpty { result["headers"] = filtered }
+                }
+
+                // Body — auto-parse JSON
+                let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
+                if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
+                    result["body"] = json
+                } else if let text = String(data: data, encoding: .utf8) {
+                    // Truncate very large text responses
+                    result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
+                }
+
+                return [textBlock(jsonString(result))]
+            } catch {
+                return [textBlock(jsonString(["status": 0, "error": error.localizedDescription]))]
+            }
 
         // MARK: Browser
         case "browser_open":
@@ -932,183 +1124,30 @@ final class OutputBatcher {
     private let channelId: String
     private let companionName: String
     private weak var appState: AppState?
-    private var buffer = ""
-    private var flushTimer: Timer?
-    private var lastPosted = ""
+    private let processor: TerminalOutputProcessor
 
     init(portName: String, channelId: String, companionName: String, appState: AppState?) {
         self.portName = portName
         self.channelId = channelId
         self.companionName = companionName
         self.appState = appState
+        // Capture as locals so the closure doesn't retain self
+        let chId = channelId
+        let cName = companionName
+        let pName = portName
+        self.processor = TerminalOutputProcessor { [weak appState] content in
+            appState?.noteBridgeActivity(channelId: chId, companionName: cName, portName: pName)
+            appState?.terminalLoop(for: chId)?.receiveOutput(content)
+        }
     }
 
     func receive(_ raw: String) {
-        buffer += raw
-        // Show bridge indicator immediately when data arrives
+        // Dispatch to main: Timer in TerminalOutputProcessor requires main run loop
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.appState?.noteBridgeActivity(channelId: self.channelId, companionName: self.companionName, portName: self.portName)
+            self.processor.receive(raw)
         }
-        // Debounce: flush after 10s of quiet
-        flushTimer?.invalidate()
-        flushTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.flush()
-            }
-        }
-        // Force flush if buffer gets large
-        if buffer.count > 8000 {
-            flush()
-        }
-    }
-
-    private func flush() {
-        flushTimer?.invalidate()
-        guard !buffer.isEmpty else {
-            buffer = ""
-            return
-        }
-
-        let cleaned = OutputBatcher.stripANSI(buffer)
-        buffer = ""
-
-        let trimmed = OutputBatcher.collapseAndFilter(cleaned)
-        guard !trimmed.isEmpty else { return }
-
-        // Skip if identical to last posted (avoids repeated prompts)
-        guard trimmed != lastPosted else { return }
-        lastPosted = trimmed
-
-        // Truncate long output
-        let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n… (truncated)" : trimmed
-
-        guard let appState else { return }
-        // Show bridge-active indicator in chat (silent — no message posted)
-        appState.noteBridgeActivity(channelId: channelId, companionName: companionName, portName: portName)
-        // Feed cleaned output to the game loop (drives the agent↔terminal loop)
-        appState.terminalLoop(for: channelId)?.receiveOutput(content)
-    }
-
-    /// Full bridge filter: collapses \r overwrites, drops noise, collapses build phases,
-    /// deduplicates, and caps output so 800 lines of noise becomes ~5 lines of signal.
-    static func collapseAndFilter(_ str: String) -> String {
-        // 1. CR collapse — keep only the last \r segment per visual line
-        let rows = str.components(separatedBy: "\n").map { row -> String in
-            (row.components(separatedBy: "\r").last ?? row)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        // 2. Drop noise lines, collapse build phases, dedup
-        let spinnerChars = CharacterSet(charactersIn: "✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-        let signalPatterns: [NSRegularExpression] = [
-            "error[: ]", "warning[: ]", "fatal[: ]",
-            "^build complete", "^build failed", "^failed", "^passed",
-            "^error\\[", "undefined symbol", "exited with code",
-            "wrote ", "saved ", "created ", "deleted ", "updated ",
-            "^\\$\\s", "^>\\s", "^⏺", "file written", "\\.(swift|go|ts|js|py|rs):.*error"
-        ].compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
-
-        func isSignal(_ t: String) -> Bool {
-            let range = NSRange(t.startIndex..., in: t)
-            return signalPatterns.contains { $0.firstMatch(in: t, range: range) != nil }
-        }
-
-        func isNoise(_ t: String) -> Bool {
-            guard !t.isEmpty else { return true }
-            // Single character
-            if t.count == 1 { return true }
-            // Only spinner/symbol chars and whitespace
-            let nonSpaceScalars = t.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) }
-            if nonSpaceScalars.allSatisfy({ spinnerChars.contains($0)
-                || $0.properties.generalCategory == .otherSymbol
-                || $0.properties.generalCategory == .mathSymbol }) { return true }
-            // Token counter: optional spinner chars then digits only  e.g. "✻ 1337"
-            let stripped = t.unicodeScalars.filter { !spinnerChars.contains($0) && !CharacterSet.whitespaces.contains($0) }
-            if stripped.allSatisfy({ CharacterSet.decimalDigits.contains($0) }) { return true }
-            // Spinner word pattern: optional glyphs + word ending in "ing…" or "ing..."
-            if let r = try? NSRegularExpression(pattern: "^[✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\\s]*\\w+ing[…\\.]+\\s*$"),
-               r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil { return true }
-            // (thinking)
-            if t == "(thinking)" { return true }
-            // compiler notes (not warnings/errors)
-            if t.hasPrefix("note: ") { return true }
-            return false
-        }
-
-        // Build phase collapse
-        let buildPhasePattern = try? NSRegularExpression(
-            pattern: "^(?:\\[\\d+/\\d+\\]\\s+)?(?:Compiling|Linking|Build input file|Merging module|Emitting module)",
-            options: .caseInsensitive)
-
-        func buildPhasePrefix(_ t: String) -> String? {
-            guard let r = buildPhasePattern,
-                  let m = r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
-                  let range = Range(m.range, in: t) else { return nil }
-            // Normalise to bare verb: "Compiling", "Linking" etc
-            let raw = String(t[range]).trimmingCharacters(in: .whitespaces)
-            if raw.lowercased().contains("compil") { return "Compiling" }
-            if raw.lowercased().contains("link") { return "Linking" }
-            if raw.lowercased().contains("emit") { return "Emitting" }
-            if raw.lowercased().contains("merg") { return "Merging" }
-            return "Building"
-        }
-
-        var output: [String] = []
-        var seen: Set<String> = []
-        var currentPhase: String? = nil
-        var phaseCount = 0
-
-        func flushPhase() {
-            guard let phase = currentPhase, phaseCount > 0 else { return }
-            let summary = phaseCount == 1 ? "\(phase) 1 file…" : "\(phase) \(phaseCount) files…"
-            if !seen.contains(summary) {
-                output.append(summary)
-                seen.insert(summary)
-            }
-            currentPhase = nil
-            phaseCount = 0
-        }
-
-        for t in rows {
-            guard !isNoise(t) else { continue }
-
-            if let phase = buildPhasePrefix(t) {
-                if phase == currentPhase {
-                    phaseCount += 1
-                } else {
-                    flushPhase()
-                    currentPhase = phase
-                    phaseCount = 1
-                }
-                continue
-            }
-
-            // Non-build-phase line: flush any pending phase summary first
-            flushPhase()
-
-            // Dedup within window
-            if seen.contains(t) { continue }
-            seen.insert(t)
-            output.append(t)
-        }
-        flushPhase()
-
-        // Cap to 60 lines
-        let capped = output.count > 60 ? Array(output.suffix(60)) : output
-        return capped.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Strip ANSI escape sequences for clean text.
-    static func stripANSI(_ str: String) -> String {
-        guard let regex = try? NSRegularExpression(
-            pattern: "\\x1b(?:\\[[0-9;?]*[a-zA-Z]|\\].*?(?:\\x07|\\x1b\\\\)|[()][0-9A-Za-z]|[>=<]|\\[\\?[0-9;]*[hl])",
-            options: []
-        ) else { return str }
-        let range = NSRange(str.startIndex..., in: str)
-        var result = regex.stringByReplacingMatches(in: str, range: range, withTemplate: "")
-        result = result.replacingOccurrences(of: "\r", with: "")
-        return result
     }
 }
 

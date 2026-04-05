@@ -83,7 +83,7 @@ public final class GatewayProcess: ObservableObject {
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
-                    self?.process?.terminate()
+                    Task { @MainActor [weak self] in self?.process?.terminate() }
                 }
             }
         } catch {

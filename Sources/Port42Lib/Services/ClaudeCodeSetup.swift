@@ -203,7 +203,7 @@ public final class ClaudeCodeSetup: ObservableObject {
     // MARK: - Binary Detection
 
     /// Search PATH and common locations for a binary.
-    public static func findBinary(_ name: String) -> String? {
+    nonisolated public static func findBinary(_ name: String) -> String? {
         let commonPaths = [
             "/usr/local/bin/\(name)",
             "/opt/homebrew/bin/\(name)",

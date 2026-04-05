@@ -7,7 +7,7 @@ import WebKit
 /// Handles request/response matching via callId, and pushes live events to JS.
 public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObject {
 
-    private weak var webView: WKWebView?
+    private(set) weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
     public let channelId: String?
     public let messageId: String?
@@ -180,6 +180,34 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
+    // MARK: - File Drop
+
+    /// Handle files dropped onto the port window.
+    /// Terminal ports: pastes escaped paths into the terminal (requires terminal permission).
+    /// Other ports: triggers filesystem permission, then dispatches `port42:filedrop` to JS.
+    @MainActor
+    public func handleFileDrop(_ files: [[String: Any]]) async {
+        // Terminal ports: paste file paths directly into the terminal
+        if let tb = terminalBridge, tb.firstActiveSessionId != nil {
+            guard await checkPermission(for: "terminal.send") else { return }
+            let paths = files.compactMap { $0["path"] as? String }
+            let escaped = paths.map { path -> String in
+                // Shell-escape: wrap in single quotes, escape existing single quotes
+                "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            }
+            tb.sendToFirst(data: escaped.joined(separator: " "))
+            return
+        }
+
+        // Regular ports: dispatch JS event
+        guard await checkPermission(for: "fs.drop") else { return }
+        guard let json = try? JSONSerialization.data(withJSONObject: files),
+              let jsonStr = String(data: json, encoding: .utf8) else { return }
+        _ = try? await webView?.evaluateJavaScript(
+            "window.dispatchEvent(new CustomEvent('port42:filedrop', {detail: \(jsonStr)}))"
+        )
+    }
+
     // MARK: - Streaming Support
 
     /// Push a token to the port's JS context for streaming.
@@ -255,6 +283,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let state = state else { return ["error": "no app state"] }
 
         switch method {
+
+        // port42.help() — returns the full API reference
+        case "help", "-h":
+            if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
+               let text = try? String(contentsOf: url, encoding: .utf8) {
+                return text
+            }
+            return "API reference unavailable"
 
         // port42.user.get()
         case "user.get":
@@ -367,7 +403,32 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             guard let text = args.first as? String, !text.isEmpty else {
                 return ["error": "messages.send requires a non-empty text argument"]
             }
-            state.sendMessage(content: text)
+            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
+            state.sendMessage(content: text, toChannelId: targetChannelId)
+            return ["ok": true]
+
+        // port42.messages.sendAsCreator(text, channelId?)
+        // Sends attributed to this port's createdBy identity (companion name).
+        // Used by CLI terminal ports to post agent output to the channel.
+        case "messages.sendAsCreator":
+            guard let text = args.first as? String, !text.isEmpty else {
+                NSLog("[p42-bridge] sendAsCreator REJECTED: empty text, createdBy=%@", createdBy ?? "nil")
+                return ["error": "messages.sendAsCreator requires a non-empty text argument"]
+            }
+            guard let senderName = createdBy, !senderName.isEmpty else {
+                NSLog("[p42-bridge] sendAsCreator REJECTED: no createdBy on this port")
+                return ["error": "messages.sendAsCreator requires a port with createdBy set"]
+            }
+            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
+            NSLog("[p42-bridge] sendAsCreator: sender=%@ channel=%@ len=%d preview=\"%@\"",
+                  senderName, targetChannelId ?? "nil", text.count,
+                  String(text.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
+            state.sendMessageAsNamedAgent(content: text, senderName: senderName, toChannelId: targetChannelId)
+            // Clear typing indicator — terminal companions set it at routing time but have no stream delegate to clear it
+            if let cid = targetChannelId {
+                state.typingAgentNamesByChannel[cid, default: []].remove(senderName)
+                state.sync.sendTyping(channelId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
+            }
             return ["ok": true]
 
         // port42.port.info()
@@ -612,6 +673,42 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let applied = state.portWindows.updatePort(idOrTitle: id, html: patched)
             return ["ok": applied]
 
+        // port42.port.push(id, data) — push data to a port via CustomEvent
+        case "port.push":
+            guard let id = args.first as? String,
+                  args.count > 1 else {
+                return ["error": "port.push requires id and data"]
+            }
+            let data = args[1]
+            guard let webView = state.portWindows.webViews[id] else {
+                return ["error": "port '\(id)' not found or not active"]
+            }
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                return ["error": "could not serialize data"]
+            }
+            _ = try? await webView.evaluateJavaScript(
+                "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
+            )
+            return ["ok": true]
+
+        // port42.port.exec(id, js) — execute JS on a live port
+        case "port.exec":
+            guard let id = args.first as? String,
+                  let js = args.count > 1 ? args[1] as? String : nil else {
+                return ["error": "port.exec requires id and js"]
+            }
+            guard let webView = state.portWindows.webViews[id] else {
+                return ["error": "port '\(id)' not found or not active"]
+            }
+            do {
+                let result = try await webView.evaluateJavaScript(js)
+                if result is NSNull || result == nil { return ["ok": true] }
+                return ["result": result!]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
         // port42.port.history(id) — version history for a port
         case "port.history":
             guard let id = args.first as? String else {
@@ -840,6 +937,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             return ["cwd": NSNull()]
 
+        case "terminal.bridge":
+            // terminal.bridge(sessionId, channelId, name)
+            // Registers this terminal port so @mentions route into it.
+            guard let sessionId = args.first as? String else {
+                return ["error": "terminal.bridge requires sessionId"]
+            }
+            let bridgeChannelId = args.count > 1 ? args[1] as? String : nil
+            let bridgeName = args.count > 2 ? args[2] as? String : nil
+            await MainActor.run {
+                self.state?.bridgeTerminalPort(
+                    sessionId: sessionId,
+                    channelId: bridgeChannelId ?? self.channelId ?? "",
+                    name: bridgeName ?? ""
+                )
+            }
+            return ["ok": true]
+
         // MARK: Clipboard
 
         case "clipboard.read":
@@ -925,7 +1039,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.first as? [String: Any] ?? [:]
             if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
             let screenResult = await screenBridge!.capture(opts: opts)
-            if let dict = screenResult as? [String: Any], let b64 = dict["image"] as? String {
+            if let b64 = screenResult["image"] as? String {
                 postCapture(base64PNG: b64, type: "screen")
             }
             return screenResult
@@ -945,7 +1059,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.first as? [String: Any] ?? [:]
             if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
             let cameraResult = await cameraBridge!.capture(opts: opts)
-            if let dict = cameraResult as? [String: Any], let b64 = dict["image"] as? String {
+            if let b64 = cameraResult["image"] as? String {
                 postCapture(base64PNG: b64, type: "camera")
             }
             return cameraResult
@@ -1032,6 +1146,64 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if automationBridge == nil { automationBridge = AutomationBridge() }
             let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
             return await automationBridge!.runJXA(source: source, opts: opts)
+
+        // MARK: - REST (HTTP requests with secret injection)
+
+        // port42.rest.call(url, opts?)
+        case "rest.call":
+            guard let url = args.first as? String,
+                  let parsed = URL(string: url) else {
+                return ["error": "rest.call requires a valid URL"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
+            let method = (opts["method"] as? String ?? "GET").uppercased()
+            let timeoutMs = min(opts["timeout"] as? Int ?? 30000, 120000)
+
+            var request = URLRequest(url: parsed)
+            request.httpMethod = method
+            request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
+
+            if let headers = opts["headers"] as? [String: String] {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+            if let body = opts["body"] as? String {
+                request.httpBody = body.data(using: .utf8)
+                if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+            } else if let bodyObj = opts["body"] as? [String: Any],
+                      let jsonData = try? JSONSerialization.data(withJSONObject: bodyObj) {
+                request.httpBody = jsonData
+                if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+            }
+
+            // Secret injection
+            if let secretName = opts["secret"] as? String {
+                if let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) {
+                    request.setValue(headerValue, forHTTPHeaderField: headerName)
+                } else {
+                    return ["error": "secret '\(secretName)' not found"]
+                }
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let httpResponse = response as? HTTPURLResponse
+                var result: [String: Any] = ["status": httpResponse?.statusCode ?? 0]
+                let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
+                if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
+                    result["body"] = json
+                } else if let text = String(data: data, encoding: .utf8) {
+                    result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
+                }
+                return result
+            } catch {
+                return ["error": error.localizedDescription]
+            }
 
         // MARK: - Relationship state (swim-scoped read-only)
 
@@ -1147,6 +1319,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let images = opts?["images"] as? [String]
 
         let backend = resolvePortAIBackend(state: state)
+        backend.trackingSource = "port:\(title ?? createdBy ?? "unknown")"
         let handler = PortAIHandler(callId: callId, bridge: self, engine: backend)
         activeStreams[callId] = handler
 
@@ -1511,7 +1684,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
             messages: {
                 recent: (n) => call('messages.recent', [n || 20]),
-                send: (text) => call('messages.send', [text])
+                send: (text, channelId) => call('messages.send', [text, channelId]),
+                sendAsCreator: (text, channelId) => call('messages.sendAsCreator', [text, channelId])
             },
             user: {
                 get: () => call('user.get')
@@ -1538,6 +1712,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             port: {
                 info: () => call('port.info'),
                 close: () => call('port.close'),
+                setTitle: (title) => call('port.setTitle', [title]).then(r => r && r.ok),
+                setCapabilities: (caps) => call('port.setCapabilities', [caps]).then(r => r && r.ok),
+                rename: (id, title) => call('port.rename', [id, title]).then(r => r && r.ok),
                 resize: (w, h) => {
                     document.body.style.width = w + 'px';
                     document.body.style.height = h + 'px';
@@ -1546,6 +1723,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 update: (id, html) => call('port.update', [id, html]).then(r => r && r.ok),
                 getHtml: (id, version) => call('port.getHtml', version != null ? [id, version] : [id]).then(r => r ? r.html : null),
                 patch: (id, search, replace) => call('port.patch', [id, search, replace]).then(r => r && r.ok),
+                push: (id, data) => call('port.push', [id, data]).then(r => r && r.ok),
+                exec: (id, js) => call('port.exec', [id, js]).then(r => r ? r.result : null),
                 history: (id) => call('port.history', [id]),
                 manage: (id, action) => call('port.manage', [id, action]),
                 restore: (id, version) => call('port.restore', [id, version]).then(r => r && r.ok),
@@ -1560,6 +1739,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 send: (sessionId, data) => call('terminal.send', [sessionId, data]),
                 resize: (sessionId, cols, rows) => call('terminal.resize', [sessionId, cols, rows]),
                 kill: (sessionId) => call('terminal.kill', [sessionId]),
+                bridge: (sessionId, channelId, name) => call('terminal.bridge', [sessionId, channelId, name]),
                 on: function(event, callback) {
                     const fullEvent = 'terminal.' + event;
                     if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
@@ -1587,7 +1767,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             fs: {
                 pick: (opts) => call('fs.pick', [opts || {}]),
                 read: (path, opts) => call('fs.read', [path, opts || {}]),
-                write: (path, data, opts) => call('fs.write', [path, data, opts || {}])
+                write: (path, data, opts) => call('fs.write', [path, data, opts || {}]),
+                onFileDrop: function(callback) {
+                    window.addEventListener('port42:filedrop', (e) => callback(e.detail));
+                }
             },
             notify: {
                 send: (title, body, opts) => call('notify.send', [title, body || '', opts || {}])
@@ -1644,6 +1827,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             automation: {
                 runAppleScript: (source, opts) => call('automation.runAppleScript', [source, opts || {}]),
                 runJXA: (source, opts) => call('automation.runJXA', [source, opts || {}])
+            },
+            rest: {
+                call: (url, opts) => call('rest.call', [url, opts || {}])
             },
             viewport: {
                 width: window.innerWidth || 600,
