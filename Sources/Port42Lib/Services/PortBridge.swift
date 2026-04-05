@@ -424,6 +424,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                   senderName, targetChannelId ?? "nil", text.count,
                   String(text.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
             state.sendMessageAsNamedAgent(content: text, senderName: senderName, toChannelId: targetChannelId)
+            // Clear typing indicator — terminal companions set it at routing time but have no stream delegate to clear it
+            if let cid = targetChannelId {
+                state.typingAgentNamesByChannel[cid, default: []].remove(senderName)
+                state.sync.sendTyping(channelId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
+            }
             return ["ok": true]
 
         // port42.port.info()
