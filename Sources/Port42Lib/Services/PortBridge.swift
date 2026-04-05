@@ -407,6 +407,25 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             state.sendMessage(content: text, toChannelId: targetChannelId)
             return ["ok": true]
 
+        // port42.messages.sendAsCreator(text, channelId?)
+        // Sends attributed to this port's createdBy identity (companion name).
+        // Used by CLI terminal ports to post agent output to the channel.
+        case "messages.sendAsCreator":
+            guard let text = args.first as? String, !text.isEmpty else {
+                NSLog("[p42-bridge] sendAsCreator REJECTED: empty text, createdBy=%@", createdBy ?? "nil")
+                return ["error": "messages.sendAsCreator requires a non-empty text argument"]
+            }
+            guard let senderName = createdBy, !senderName.isEmpty else {
+                NSLog("[p42-bridge] sendAsCreator REJECTED: no createdBy on this port")
+                return ["error": "messages.sendAsCreator requires a port with createdBy set"]
+            }
+            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
+            NSLog("[p42-bridge] sendAsCreator: sender=%@ channel=%@ len=%d preview=\"%@\"",
+                  senderName, targetChannelId ?? "nil", text.count,
+                  String(text.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
+            state.sendMessageAsNamedAgent(content: text, senderName: senderName, toChannelId: targetChannelId)
+            return ["ok": true]
+
         // port42.port.info()
         case "port.info":
             var info: [String: Any] = [:]
@@ -1660,7 +1679,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
             messages: {
                 recent: (n) => call('messages.recent', [n || 20]),
-                send: (text) => call('messages.send', [text])
+                send: (text, channelId) => call('messages.send', [text, channelId]),
+                sendAsCreator: (text, channelId) => call('messages.sendAsCreator', [text, channelId])
             },
             user: {
                 get: () => call('user.get')

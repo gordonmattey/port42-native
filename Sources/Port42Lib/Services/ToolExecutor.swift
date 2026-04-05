@@ -1142,12 +1142,12 @@ final class OutputBatcher {
     }
 
     func receive(_ raw: String) {
-        // Show bridge indicator immediately when data arrives
+        // Dispatch to main: Timer in TerminalOutputProcessor requires main run loop
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.appState?.noteBridgeActivity(channelId: self.channelId, companionName: self.companionName, portName: self.portName)
+            self.processor.receive(raw)
         }
-        processor.receive(raw)
     }
 }
 

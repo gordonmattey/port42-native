@@ -297,7 +297,14 @@ curl -s http://127.0.0.1:4242/call \\
     private func companionRow(_ companion: AgentConfig) -> some View {
         let swimId = "swim-\(companion.id)"
         let depth = (try? appState.db.fetchFold(companionId: companion.id, channelId: swimId))?.depth
-        Button(action: { appState.startSwim(with: companion) }) {
+        let action: () -> Void = companion.openInTerminal
+            ? {
+                if let panelId = appState.bridgedTerminalNames[companion.displayName.lowercased()] {
+                    appState.portWindows.bringToFront(panelId)
+                }
+            }
+            : { appState.startSwim(with: companion) }
+        Button(action: action) {
             CompanionRow(
                 companion: companion,
                 isActive: appState.activeSwimCompanion?.id == companion.id,
@@ -313,6 +320,18 @@ curl -s http://127.0.0.1:4242/call \\
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(companion.id, forType: .string)
                 appState.toastMessage = "Companion ID copied"
+            }
+            let assignedChannels = appState.channels.filter { ch in
+                ((try? appState.db.getAgentsForChannel(channelId: ch.id)) ?? []).contains(where: { $0.id == companion.id })
+            }
+            if !assignedChannels.isEmpty {
+                Menu("Remove from Channel") {
+                    ForEach(assignedChannels) { ch in
+                        Button("#\(ch.name)") {
+                            appState.removeCompanionFromChannel(companion, channel: ch)
+                        }
+                    }
+                }
             }
             Button("Delete Companion", role: .destructive) {
                 companionToDelete = companion

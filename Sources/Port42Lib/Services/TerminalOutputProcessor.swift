@@ -8,10 +8,12 @@ import Foundation
 ///
 /// Used by `OutputBatcher` (bridge/OpenClaw path) and directly by
 /// `AppState.bridgeTerminalPort` (CLI terminal companion path).
+@MainActor
 final class TerminalOutputProcessor {
     private var buffer = ""
     private var flushTimer: Timer?
     private var lastPosted = ""
+    private var warmingUp = true  // discard startup dump until first prompt
     private let onFlush: @MainActor (String) -> Void
 
     init(onFlush: @escaping @MainActor (String) -> Void) {
@@ -20,12 +22,22 @@ final class TerminalOutputProcessor {
 
     func receive(_ raw: String) {
         buffer += raw
-        // Debounce: flush after 10s of quiet
-        flushTimer?.invalidate()
-        flushTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.flush()
+        // Prompt detection: flush immediately when CLI tool returns to its ready state
+        if TerminalOutputProcessor.endsWithPrompt(buffer) {
+            if warmingUp {
+                // First prompt = startup complete. Discard startup dump, start listening.
+                warmingUp = false
+                buffer = ""
+                flushTimer?.invalidate()
+                return
             }
+            flush()
+            return
+        }
+        // Fallback debounce: flush after 3s of quiet
+        flushTimer?.invalidate()
+        flushTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.flush() }
         }
         // Force flush if buffer gets large
         if buffer.count > 8000 {
@@ -53,17 +65,33 @@ final class TerminalOutputProcessor {
         // Truncate long output
         let content = trimmed.count > 2000 ? String(trimmed.prefix(2000)) + "\n… (truncated)" : trimmed
 
-        Task { @MainActor [onFlush] in
-            onFlush(content)
-        }
+        onFlush(content)
     }
 
     // MARK: - Static processing
 
+    /// Returns true if the buffer ends with a CLI ready prompt, meaning the tool
+    /// has finished processing and is waiting for input. Triggers an immediate flush.
+    /// Covers: Claude Code (> ), Gemini CLI (❯ ), bash/zsh ($ , % ), generic (> ).
+    static func endsWithPrompt(_ raw: String) -> Bool {
+        let stripped = stripANSI(raw)
+        // Get the last non-empty line after CR collapse
+        let lastLine = stripped
+            .components(separatedBy: "\n")
+            .map { $0.components(separatedBy: "\r").last ?? $0 }
+            .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+        let trimmed = lastLine.trimmingCharacters(in: .whitespaces)
+        // Match common interactive CLI prompts (check both raw and trimmed to catch trailing spaces)
+        return trimmed == ">" || trimmed == "❯" || trimmed == "$" || trimmed == "%" ||
+               lastLine.hasPrefix("> ") || lastLine.hasPrefix("❯ ") ||
+               lastLine.hasPrefix("$ ") || lastLine.hasPrefix("% ")
+    }
+
     /// Strip ANSI escape sequences for clean text.
     static func stripANSI(_ str: String) -> String {
+        // ECMA-48 comprehensive strip: CSI sequences, OSC sequences, 2-byte Fe sequences
         guard let regex = try? NSRegularExpression(
-            pattern: "\\x1b(?:\\[[0-9;?]*[a-zA-Z]|\\].*?(?:\\x07|\\x1b\\\\)|[()][0-9A-Za-z]|[>=<]|\\[\\?[0-9;]*[hl])",
+            pattern: "\\x1b(?:\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)|\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])",
             options: []
         ) else { return str }
         let range = NSRange(str.startIndex..., in: str)
@@ -82,7 +110,7 @@ final class TerminalOutputProcessor {
         }
 
         // 2. Drop noise lines, collapse build phases, dedup
-        let spinnerChars = CharacterSet(charactersIn: "✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+        let spinnerChars = CharacterSet(charactersIn: "✻✶✳✽✢·⟡◐◑◒◓⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏▗▖▘▝")
         let signalPatterns: [NSRegularExpression] = [
             "error[: ]", "warning[: ]", "fatal[: ]",
             "^build complete", "^build failed", "^failed", "^passed",
@@ -109,6 +137,15 @@ final class TerminalOutputProcessor {
                r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil { return true }
             if t == "(thinking)" { return true }
             if t.hasPrefix("note: ") { return true }
+            // Claude Code status/slash-command lines
+            if t.hasPrefix("/") && !t.contains(" ") { return true }  // bare /mcp /login /effort
+            if t.hasPrefix("⎿") { return true }  // tool result lines
+            if t.hasPrefix("?for") || t == "0q" { return true }  // ANSI remnants
+            if let r = try? NSRegularExpression(pattern: "^[◐◑◒◓✽✻✶]\\s+(low|medium|high|auto)"),
+               r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil { return true }
+            // Echo lines: [name]: message
+            if let r = try? NSRegularExpression(pattern: "^\\[\\w+\\]:"),
+               r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil { return true }
             return false
         }
 

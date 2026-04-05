@@ -3,6 +3,7 @@ import Foundation
 @testable import Port42Lib
 
 @Suite("TerminalOutputProcessor")
+@MainActor
 struct TerminalOutputProcessorTests {
 
     // MARK: - stripANSI
@@ -267,5 +268,56 @@ struct TerminalOutputProcessorTests {
         } else {
             // content may have been filtered to under 2000 after collapse — acceptable
         }
+    }
+
+    // MARK: - endsWithPrompt
+
+    @Test("endsWithPrompt detects Claude Code prompt")
+    func promptClaudeCode() {
+        #expect(TerminalOutputProcessor.endsWithPrompt("Some output\n> "))
+        #expect(TerminalOutputProcessor.endsWithPrompt("Some output\n>"))
+    }
+
+    @Test("endsWithPrompt detects Gemini CLI prompt")
+    func promptGemini() {
+        #expect(TerminalOutputProcessor.endsWithPrompt("Some output\n❯ "))
+        #expect(TerminalOutputProcessor.endsWithPrompt("❯"))
+    }
+
+    @Test("endsWithPrompt detects shell prompts")
+    func promptShell() {
+        #expect(TerminalOutputProcessor.endsWithPrompt("output\n$ "))
+        #expect(TerminalOutputProcessor.endsWithPrompt("output\n% "))
+    }
+
+    @Test("endsWithPrompt ignores prompt in middle of output")
+    func promptNotAtEnd() {
+        #expect(!TerminalOutputProcessor.endsWithPrompt("$ some command\nstill running"))
+    }
+
+    @Test("endsWithPrompt strips ANSI before checking")
+    func promptWithANSI() {
+        let raw = "output\n\u{1b}[32m>\u{1b}[0m "
+        #expect(TerminalOutputProcessor.endsWithPrompt(raw))
+    }
+
+    @Test("prompt detection discards startup dump on first prompt (warmup)")
+    func promptWarmsUpOnFirst() async throws {
+        var received: String?
+        let p = TerminalOutputProcessor { content in received = content }
+        // First prompt = startup complete, buffer discarded
+        p.receive("Claude Code v2.1\n> ")
+        #expect(received == nil)
+    }
+
+    @Test("prompt detection triggers flush after warmup")
+    func promptTriggersFlushing() async throws {
+        var received: String?
+        let p = TerminalOutputProcessor { content in received = content }
+        // First prompt clears warmup
+        p.receive("startup noise\n> ")
+        // Second prompt (real response) should flush
+        p.receive("⏺ Hello from Claude\n> ")
+        #expect(received != nil)
     }
 }

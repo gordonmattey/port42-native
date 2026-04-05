@@ -673,6 +673,8 @@ public final class AppState: ObservableObject {
     @Published public var aiPaused: Bool = false
     /// Terminal ports currently bridged to conversations: lowercased name → panelId
     public var bridgedTerminalNames: [String: String] = [:]
+    /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
+    private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Active terminal bridges per channel: channelId → [companionName: portName]
     @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
@@ -1289,9 +1291,15 @@ public final class AppState: ObservableObject {
     /// Called from `port42.terminal.bridge(sessionId, channelId, name)` in port JS.
     public func bridgeTerminalPort(sessionId: String, channelId: String, name: String) {
         // Find the panel whose bridge owns this session and store name → panelId
-        if let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) {
-            bridgedTerminalNames[name.lowercased()] = panel.id
+        guard let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) else {
+            NSLog("[Port42] bridgeTerminalPort: no panel found for session %@", sessionId)
+            return
         }
+        let panelId = panel.id
+        bridgedTerminalNames[name.lowercased()] = panelId
+
+        // Output capture is handled by cli-terminal.html via xterm buffer + messages.sendAsCreator.
+        // No native output observer needed for openInTerminal companions.
         NSLog("[Port42] Bridged terminal session %@ as '%@' in channel %@", sessionId, name, channelId)
     }
 
@@ -1446,6 +1454,10 @@ public final class AppState: ObservableObject {
 
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+
+                // openInTerminal companions are driven by routeMentionsToTerminals —
+                // they must NOT spawn background processes here or we get runaway forks.
+                guard !agent.openInTerminal else { return }
 
                 switch agent.mode {
                 case .llm:
@@ -2031,9 +2043,19 @@ public final class AppState: ObservableObject {
     /// Uses the provided senderName as identity instead of the current user.
     public func sendMessageAsNamedAgent(content: String, senderName: String, toChannelId: String? = nil) {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
+            NSLog("[p42-state] sendMessageAsNamedAgent: DROPPED empty content from %@", senderName)
+            return
+        }
         guard let channelId = toChannelId ?? currentChannel?.id,
-              channels.first(where: { $0.id == channelId }) != nil else { return }
+              channels.first(where: { $0.id == channelId }) != nil else {
+            NSLog("[p42-state] sendMessageAsNamedAgent: DROPPED — channel not found. toChannelId=%@ currentChannel=%@",
+                  toChannelId ?? "nil", currentChannel?.id ?? "nil")
+            return
+        }
+        NSLog("[p42-state] sendMessageAsNamedAgent: sender=%@ channel=%@ len=%d preview=\"%@\"",
+              senderName, channelId, trimmed.count,
+              String(trimmed.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
         let agentId = "cli-agent-\(senderName.lowercased().replacingOccurrences(of: " ", with: "-"))"
         let message = Message.create(
             channelId: channelId,
@@ -2073,28 +2095,39 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Failed to save companion: \(error)")
         }
-        if companion.openInTerminal, let command = companion.command {
-            spawnTerminalAgentPort(companion: companion, command: command)
-        }
     }
 
-    /// Pop a terminal port running a CLI agent and bridge it to the current channel.
-    private func spawnTerminalAgentPort(companion: AgentConfig, command: String) {
+    /// Pop a terminal port running a CLI agent and bridge it to the given channel.
+    private func spawnTerminalAgentPort(companion: AgentConfig, command: String, channelId: String) {
         let name = companion.displayName
-        let args = companion.args ?? []
+        var args = companion.args ?? []
         let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let channelId = currentChannel?.id ?? ""
+
+        let channelNameForPrompt = channels.first(where: { $0.id == channelId })?.name ?? channelId
+        // Only inject for claude CLI companions (not other tools)
+        let isClaude = command.hasSuffix("claude") || command.contains("/claude")
+        if isClaude && !args.contains("--append-system-prompt") {
+            let sysPrompt = "You are a Port42 channel companion named \"\(name)\", connected to channel #\(channelNameForPrompt). When responding to channel messages, wrap your reply in <p42>...</p42> tags. Only the content inside those tags gets posted to the channel. Keep responses concise and conversational."
+            args += ["--append-system-prompt", sysPrompt]
+        }
 
         let argsJS = args.map { "\"\($0.replacingOccurrences(of: "\"", with: "\\\""))\"" }.joined(separator: ", ")
-        let argsStr = args.joined(separator: " ")
+        // Shell-quote any arg containing spaces so the PTY parses it correctly
+        let argsStr = args.map { arg -> String in
+            guard arg.contains(" ") else { return arg }
+            let escaped = arg.replacingOccurrences(of: "'", with: "'\\''")
+            return "'\(escaped)'"
+        }.joined(separator: " ")
 
+        let channelName = channels.first(where: { $0.id == channelId })?.name ?? channelId
         guard let html = PortLibrary.load("cli-terminal", slots: [
-            "NAME":       name,
-            "COMMAND":    command.replacingOccurrences(of: "'", with: "\\'"),
-            "ARGS":       argsJS,
-            "ARGS_STR":   argsStr,
-            "CWD":        cwd.replacingOccurrences(of: "'", with: "\\'"),
-            "CHANNEL_ID": channelId
+            "NAME":         name,
+            "COMMAND":      command.replacingOccurrences(of: "'", with: "\\'"),
+            "ARGS":         argsJS,
+            "ARGS_STR":     argsStr.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'"),
+            "CWD":          cwd.replacingOccurrences(of: "'", with: "\\'"),
+            "CHANNEL_ID":   channelId,
+            "CHANNEL_NAME": channelName
         ]) else {
             NSLog("[Port42] cli-terminal port not found in library")
             return
@@ -2123,6 +2156,9 @@ public final class AppState: ObservableObject {
             Analytics.shared.companionAddedToChannel()
         } catch {
             print("[Port42] Failed to add companion to channel: \(error)")
+        }
+        if companion.openInTerminal, let command = companion.command {
+            spawnTerminalAgentPort(companion: companion, command: command, channelId: channel.id)
         }
     }
 
