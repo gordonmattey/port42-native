@@ -222,8 +222,6 @@ public struct ConversationContent: View {
     /// Returns true if a new port was activated (caller should trigger a scroll to settle layout).
     @discardableResult
     private func recomputeActivePortIDs() -> Bool {
-        // If no port has been auto-activated yet and a port-containing entry exists, activate the first one.
-        // This handles both initial load and the case where the first port arrives after non-port messages.
         var activated = false
         if cachedActivePortIDs.isEmpty, let first = entries.first(where: { $0.containsPort }) {
             cachedActivePortIDs.insert(first.id)
@@ -251,9 +249,16 @@ public struct ConversationContent: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                                MessageRow(entry: entry, localOwner: localOwner, portIsActive: cachedActivePortIDs.contains(entry.id))
+                                let portActive = cachedActivePortIDs.contains(entry.id)
+                                    || appState.pendingPortActivationId == entry.id
+                                MessageRow(entry: entry, localOwner: localOwner, portIsActive: portActive)
                                     .id(entry.id)
                                     .onAppear {
+                                        // Commit pending activation to stable state
+                                        if appState.pendingPortActivationId == entry.id {
+                                            cachedActivePortIDs.insert(entry.id)
+                                            appState.pendingPortActivationId = nil
+                                        }
                                         if index >= unreadStartIndex && unreadCount > 0 {
                                             let newCount = max(0, entries.count - 1 - index)
                                             if newCount < unreadCount {
@@ -326,6 +331,7 @@ public struct ConversationContent: View {
                             scrollToBottom(proxy: proxy)
                         }
                     }
+
                     .onAppear {
                         let activated = recomputeActivePortIDs()
                         proxy.scrollTo("bottom", anchor: .bottom)

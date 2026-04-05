@@ -173,10 +173,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             prev.resume(returning: false)
             permissionContinuation = nil
         }
-        // Ask the user
+        // Ask the user.
+        // Also directly notify AppState for inline ports — InlinePortView's .onReceive
+        // may not be subscribed yet if the LazyVStack row hasn't been rendered.
+        // Panels handle their own permission prompt and don't need this.
         return await withCheckedContinuation { continuation in
             permissionContinuation = continuation
             pendingPermission = perm
+            if let state = self.state,
+               !state.portWindows.panels.contains(where: { $0.bridge === self }) {
+                state.activePermissionBridge = self
+            }
         }
     }
 

@@ -898,10 +898,8 @@ public struct NewCompanionSheet: View {
                         panel.canChooseFiles = true
                         panel.canChooseDirectories = false
                         panel.allowsMultipleSelection = false
-                        panel.begin { response in
-                            if response == .OK, let url = panel.url {
-                                commandPath = url.path
-                            }
+                        if panel.runModal() == .OK, let url = panel.url {
+                            commandPath = url.path
                         }
                     }) {
                         Image(systemName: "folder")
@@ -951,10 +949,8 @@ public struct NewCompanionSheet: View {
                         panel.canChooseFiles = false
                         panel.canChooseDirectories = true
                         panel.allowsMultipleSelection = false
-                        panel.begin { response in
-                            if response == .OK, let url = panel.url {
-                                commandWorkDir = url.path
-                            }
+                        if panel.runModal() == .OK, let url = panel.url {
+                            commandWorkDir = url.path
                         }
                     }) {
                         Image(systemName: "folder")

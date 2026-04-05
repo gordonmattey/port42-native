@@ -624,6 +624,8 @@ public final class AppState: ObservableObject {
     @Published public var channels: [Channel] = []
     @Published public var currentChannel: Channel?
     @Published public var messages: [Message] = []
+    /// Message ID of a port that should auto-activate when it appears in the chat.
+    @Published public var pendingPortActivationId: String? = nil
     @Published public var currentUser: AppUser?
     @Published public var isSetupComplete = false
     @Published public var drafts: [String: String] = [:]
@@ -673,6 +675,8 @@ public final class AppState: ObservableObject {
     @Published public var aiPaused: Bool = false
     /// Terminal ports currently bridged to conversations: lowercased name → panelId
     public var bridgedTerminalNames: [String: String] = [:]
+    /// Inline (non-panel) terminal bridges: lowercased name → bridge (weak)
+    private var inlineTerminalBridges: [String: WeakBridge] = [:]
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Active terminal bridges per channel: channelId → [companionName: portName]
@@ -1265,7 +1269,7 @@ public final class AppState: ObservableObject {
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     private func routeMentionsToTerminals(content: String, senderName: String, channelId: String, implicitCompanion: AgentConfig? = nil) {
-        guard !bridgedTerminalNames.isEmpty else { return }
+        guard !bridgedTerminalNames.isEmpty || !inlineTerminalBridges.isEmpty else { return }
 
         // Build the set of keys to route to: explicit @mentions + implicit companion (Swim)
         var keys: [String] = MentionParser.extractMentions(from: content)
@@ -1277,11 +1281,15 @@ public final class AppState: ObservableObject {
 
         let line = "[\(senderName)]: \(content)\r"
         for key in keys {
-            guard let panelId = bridgedTerminalNames[key] else { continue }
-            if let panel = portWindows.panels.first(where: { $0.id == panelId }),
+            if let panelId = bridgedTerminalNames[key],
+               let panel = portWindows.panels.first(where: { $0.id == panelId }),
                let tb = panel.bridge.terminalBridge {
                 tb.sendToFirst(data: line)
                 NSLog("[Port42] Routed '%@' to terminal '%@'", key, panel.title)
+            } else if let tb = inlineTerminalBridges[key]?.bridge?.terminalBridge {
+                // Inline port (not yet popped out)
+                tb.sendToFirst(data: line)
+                NSLog("[Port42] Routed '%@' to inline terminal", key)
             } else if let session = portWindows.terminalSession(forPortNamed: key) {
                 _ = session.bridge.send(sessionId: session.sessionId, data: line)
                 NSLog("[Port42] Routed '%@' to terminal (session)", key)
@@ -1292,17 +1300,21 @@ public final class AppState: ObservableObject {
     /// Register a terminal session (by sessionId) as bridged to a channel under a given name.
     /// Called from `port42.terminal.bridge(sessionId, channelId, name)` in port JS.
     public func bridgeTerminalPort(sessionId: String, channelId: String, name: String) {
-        // Find the panel whose bridge owns this session and store name → panelId
-        guard let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) else {
-            NSLog("[Port42] bridgeTerminalPort: no panel found for session %@", sessionId)
+        let key = name.lowercased()
+        // First check floating panels
+        if let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) {
+            bridgedTerminalNames[key] = panel.id
+            inlineTerminalBridges.removeValue(forKey: key)
+            NSLog("[Port42] Bridged terminal session %@ as '%@' (panel) in channel %@", sessionId, name, channelId)
             return
         }
-        let panelId = panel.id
-        bridgedTerminalNames[name.lowercased()] = panelId
-
-        // Output capture is handled by cli-terminal.html via xterm buffer + messages.sendAsCreator.
-        // No native output observer needed for openInTerminal companions.
-        NSLog("[Port42] Bridged terminal session %@ as '%@' in channel %@", sessionId, name, channelId)
+        // Fallback: inline port (not yet popped out) — find via activeBridges
+        if let bridge = activeBridges.compactMap({ $0.bridge }).first(where: { $0.terminalBridge?.firstActiveSessionId == sessionId }) {
+            inlineTerminalBridges[key] = WeakBridge(bridge)
+            NSLog("[Port42] Bridged terminal session %@ as '%@' (inline) in channel %@", sessionId, name, channelId)
+            return
+        }
+        NSLog("[Port42] bridgeTerminalPort: no panel or inline bridge found for session %@", sessionId)
     }
 
     /// Mark a terminal bridge as active for a channel — shows indicator in chat.
@@ -2163,30 +2175,29 @@ public final class AppState: ObservableObject {
             return
         }
 
-        let bridge = PortBridge(appState: self, channelId: channelId.isEmpty ? nil : channelId, createdBy: name)
-        let panelId = portWindows.popOut(
-            html: html,
-            bridge: bridge,
-            channelId: channelId.isEmpty ? nil : channelId,
-            createdBy: name,
-            messageId: nil,
-            title: name,
-            in: CGSize(width: 800, height: 600)
-        )
-        bridgedTerminalNames[name.lowercased()] = panelId
-        NSLog("[Port42] Spawned terminal port for CLI agent '%@' (panel %@)", name, panelId)
-        // Post join announcement to the channel
+        // Post the terminal as an inline port message in the channel (user can pop it out)
+        // Also serves as the join announcement.
+        let portMessageId = UUID().uuidString
         if !channelId.isEmpty {
-            let joinMessage = Message.create(
+            let now = Date()
+            let portMsg = Message(
+                id: portMessageId,
                 channelId: channelId,
                 senderId: "cli-agent-\(name.lowercased())",
                 senderName: name,
-                content: "\(name) joined",
-                senderType: "system"
+                senderType: "agent",
+                content: "```port\n\(html)\n```",
+                timestamp: now,
+                replyToId: nil,
+                syncStatus: "sent",
+                createdAt: now
             )
-            try? db.saveMessage(joinMessage)
-            sync.sendMessage(joinMessage)
+            try? db.saveMessage(portMsg)
+            sync.sendMessage(portMsg)
+            pendingPortActivationId = portMessageId
         }
+
+        NSLog("[Port42] Spawned terminal port for CLI agent '%@' (inline, messageId=%@)", name, portMessageId)
     }
 
     public func addCompanionToChannel(_ companion: AgentConfig, channel: Channel) {
@@ -2230,7 +2241,9 @@ public final class AppState: ObservableObject {
         for panel in panelsToClose {
             portWindows.close(panel.id)
         }
-        bridgedTerminalNames.removeValue(forKey: companion.displayName.lowercased())
+        let companionKey = companion.displayName.lowercased()
+        bridgedTerminalNames.removeValue(forKey: companionKey)
+        inlineTerminalBridges.removeValue(forKey: companionKey)
 
         do {
             try db.deleteCreasesForCompanion(companion.id)
