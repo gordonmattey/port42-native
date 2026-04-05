@@ -2111,9 +2111,14 @@ public final class AppState: ObservableObject {
             let claudeMdPath = (cwd as NSString).appendingPathComponent("CLAUDE.md")
             let section = "\n\n# Port42 Channel Companion\n\nYou are \(name), a channel companion in Port42 connected to #\(channelNameForPrompt).\n\nChannel messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the channel, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the channel.\n"
             let existing = (try? String(contentsOfFile: claudeMdPath, encoding: .utf8)) ?? ""
-            if !existing.contains("Port42 Channel Companion") {
-                try? (existing + section).write(toFile: claudeMdPath, atomically: true, encoding: .utf8)
+            // Replace any existing Port42 section (stale name/channel) or append if not present
+            let updated: String
+            if let range = existing.range(of: "\n\n# Port42 Channel Companion", options: .literal) {
+                updated = String(existing[..<range.lowerBound]) + section
+            } else {
+                updated = existing + section
             }
+            try? updated.write(toFile: claudeMdPath, atomically: true, encoding: .utf8)
         }
 
         let argsJS = args.map { "\"\($0.replacingOccurrences(of: "\"", with: "\\\""))\"" }.joined(separator: ", ")
@@ -2150,6 +2155,18 @@ public final class AppState: ObservableObject {
         )
         bridgedTerminalNames[name.lowercased()] = panelId
         NSLog("[Port42] Spawned terminal port for CLI agent '%@' (panel %@)", name, panelId)
+        // Post join announcement to the channel
+        if !channelId.isEmpty {
+            let joinMessage = Message.create(
+                channelId: channelId,
+                senderId: "cli-agent-\(name.lowercased())",
+                senderName: name,
+                content: "\(name) joined",
+                senderType: "system"
+            )
+            try? db.saveMessage(joinMessage)
+            sync.sendMessage(joinMessage)
+        }
     }
 
     public func addCompanionToChannel(_ companion: AgentConfig, channel: Channel) {
