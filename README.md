@@ -14,6 +14,7 @@ Port42 is the first companion computing platform. Not another AI chat wrapper. A
 
 - **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed. Runs on Claude or Gemini — set per-companion.
 - **Command agents** Wrap any local binary or script as a companion. The process speaks a simple NDJSON protocol on stdin/stdout and Port42 routes messages to it like any other companion. Working directory and environment variables configurable per agent.
+- **Terminal companions** Run Claude Code or Gemini CLI as a native companion. Add one to a channel and it appears inline as a live terminal port — channel messages route directly into the CLI, and its responses post back to the channel. Pop it out to a floating window when you need more space.
 - **Provider companions** Connect GitHub, Stripe, Cloudflare — or any REST API — as companions. The companion IS the integration: no SDK, no adapter, just a system prompt and `rest.call`. Multiple providers in one channel synthesize across each other's data.
 - **Relationship memory** Companions carry persistent fold, position, and creases across every session. They know where they stand without being asked.
 - **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data, and can push live data into running ports without rebuilding them.
