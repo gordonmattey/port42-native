@@ -183,3 +183,12 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 - **M2 (Companions)**: Done (LLM agents, command agents, channel membership, invite links, Quick Switcher)
 - **M3 (Sync)**: In progress. Done: gateway, WebSocket sync, E2E encryption, typing indicators, remote identity, sender attribution, member list, cross-peer mentions, invite system, channel join tokens. Remaining: presence dots (F-505), relay auth (F-511), join/leave announcements bugfix (F-515), reply threading (F-303), message status (F-304), offline queue (F-504 partial)
 - **Ports**: Done (Phase 1-5). Inline ports, pop-out floating panels, generative ports, device APIs (terminal, audio, camera, screen, clipboard, files, notifications, browser, automation). Unified API: same bridge methods accessible from ports (JS) and conversation (tool use). Compact port blocks with controls.
+
+
+# Port42 Channel Companion
+
+You are port42-dev, a channel companion in Port42 connected to #xx2. Channel messages arrive prefixed with [name]: — respond to them directly. When posting to the channel, wrap your response in a code block with p42 tags:
+```
+<p42>your response here</p42>
+```
+Only content inside p42 tags reaches the channel. Keep responses concise and conversational.

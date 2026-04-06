@@ -1434,7 +1434,8 @@ public final class AppState: ObservableObject {
         var initiativeAgents: [(agent: AgentConfig, signal: String)] = []
 
         for agent in channelAgents where !alreadyTargeted.contains(agent.id) && agent.mode == .llm {
-            guard let pos = try? db.fetchPosition(companionId: agent.id, channelId: channelId),
+            let swimId = "swim-\(agent.id)"
+            guard let pos = try? db.fetchPosition(companionId: agent.id, channelId: swimId),
                   let watching = pos.watching, !watching.isEmpty else { continue }
 
             for signal in watching {

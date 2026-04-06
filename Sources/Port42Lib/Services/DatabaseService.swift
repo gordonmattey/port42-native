@@ -457,8 +457,11 @@ public final class DatabaseService {
         }
 
         migrator.registerMigration("v31-companion-engravings") { db in
-            // Clean up orphaned agentChannels rows — agents deleted without FK cascade fire
+            // Clean up all FK orphans — cascade was declared but never enforced (GRDB doesn't
+            // enable PRAGMA foreign_keys by default, so ON DELETE CASCADE never fired)
             try db.execute(sql: "DELETE FROM agentChannels WHERE agentId NOT IN (SELECT id FROM agents)")
+            try db.execute(sql: "DELETE FROM agentChannels WHERE channelId NOT IN (SELECT id FROM channels)")
+            try db.execute(sql: "DELETE FROM swimMessages WHERE companionId NOT IN (SELECT id FROM agents)")
 
             try db.create(table: "companion_engravings") { t in
                 t.column("id", .text).primaryKey()
@@ -470,6 +473,12 @@ public final class DatabaseService {
                 t.column("createdAt", .datetime).notNull()
                 t.column("touchedAt", .datetime).notNull()
             }
+        }
+
+        migrator.registerMigration("v32-fk-orphan-cleanup") { db in
+            // v31 ran on some databases before these two cleanups were added
+            try db.execute(sql: "DELETE FROM agentChannels WHERE channelId NOT IN (SELECT id FROM channels)")
+            try db.execute(sql: "DELETE FROM swimMessages WHERE companionId NOT IN (SELECT id FROM agents)")
         }
 
         try migrator.migrate(dbQueue)
@@ -559,6 +568,12 @@ public final class DatabaseService {
                 sql: "INSERT OR IGNORE INTO agentChannels (agentId, channelId) VALUES (?, ?)",
                 arguments: [agentId, channelId]
             )
+        }
+    }
+
+    public func removeAllChannelsForAgent(_ agentId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM agentChannels WHERE agentId = ?", arguments: [agentId])
         }
     }
 
