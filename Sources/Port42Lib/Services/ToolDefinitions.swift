@@ -60,6 +60,51 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "engrave_read",
+            "description": "Read your engravings — factual knowledge about the user's world. Context, preferences, constraints, goals, capabilities. Things learned about their situation, not breaks in your model. Read these alongside creases to understand who you're swimming with.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "limit": ["type": "integer", "description": "Max entries to return. Default 8."]
+                ]
+            ] as [String: Any]
+        ],
+        [
+            "name": "engrave_write",
+            "description": "Carve an engraving — a fact about the user's world worth keeping. Not what changed in you (that's a crease) — what you learned about their situation. Use category to classify: context, preference, constraint, goal, capability.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "content": ["type": "string", "description": "The factual knowledge about their world."],
+                    "category": ["type": "string", "description": "Optional: context, preference, constraint, goal, capability."],
+                    "channelId": ["type": "string", "description": "Omit for a global engraving that shapes all relationships."]
+                ],
+                "required": ["content"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "engrave_touch",
+            "description": "Mark an engraving as currently relevant to this response. Updates recency and increases weight. Use when an existing engraving is shaping what you say.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The engraving id (from engrave_read)."]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "engrave_forget",
+            "description": "Remove an engraving. Use when the fact is no longer true or no longer matters.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string", "description": "The engraving id to remove."]
+                ],
+                "required": ["id"]
+            ] as [String: Any]
+        ],
+        [
             "name": "fold_read",
             "description": "Read the fold — your orientation in this relationship. Returns established understandings, tensions being held, what you're carrying, and relational depth. If no fold exists yet, returns empty state.",
             "input_schema": ["type": "object", "properties": [String: Any]()]

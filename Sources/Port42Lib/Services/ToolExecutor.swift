@@ -225,6 +225,56 @@ public final class ToolExecutor {
             try appState.db.deleteCrease(id: id)
             return [textBlock("ok")]
 
+        case "engrave_read":
+            guard let companionId = createdBy else {
+                return [textBlock("Error: no companion context")]
+            }
+            let limit = input["limit"] as? Int ?? 8
+            let swimEngId = "swim-\(companionId)"
+            let engravings = (try? appState.db.fetchEngravings(
+                companionId: companionId,
+                channelId: swimEngId,
+                limit: limit
+            )) ?? []
+            if engravings.isEmpty {
+                return [textBlock("No engravings yet. Engravings form when you learn something about their world.")]
+            }
+            let lines = engravings.map { e -> String in
+                var line = "[\(e.id)] \(e.asPromptText())"
+                if e.channelId == nil { line += " (global)" }
+                return line
+            }
+            return [textBlock(lines.joined(separator: "\n"))]
+
+        case "engrave_write":
+            guard let companionId = createdBy,
+                  let content = input["content"] as? String, !content.isEmpty else {
+                return [textBlock("Error: engrave_write requires 'content'")]
+            }
+            let swimEngWriteId = "swim-\(companionId)"
+            let engraving = CompanionEngraving(
+                companionId: companionId,
+                channelId: swimEngWriteId,
+                content: content,
+                category: input["category"] as? String
+            )
+            try appState.db.saveEngraving(engraving)
+            return [textBlock(jsonString(["id": engraving.id, "ok": true]))]
+
+        case "engrave_touch":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: engrave_touch requires 'id'")]
+            }
+            try appState.db.touchEngraving(id: id)
+            return [textBlock("ok")]
+
+        case "engrave_forget":
+            guard let id = input["id"] as? String else {
+                return [textBlock("Error: engrave_forget requires 'id'")]
+            }
+            try appState.db.deleteEngraving(id: id)
+            return [textBlock("ok")]
+
         case "fold_read":
             // Accept explicit companionId arg (for HTTP callers with no implicit context)
             let resolvedCompanionId = (input["companionId"] as? String) ?? createdBy

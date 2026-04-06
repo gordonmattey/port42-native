@@ -456,6 +456,22 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v31-companion-engravings") { db in
+            // Clean up orphaned agentChannels rows — agents deleted without FK cascade fire
+            try db.execute(sql: "DELETE FROM agentChannels WHERE agentId NOT IN (SELECT id FROM agents)")
+
+            try db.create(table: "companion_engravings") { t in
+                t.column("id", .text).primaryKey()
+                t.column("companionId", .text).notNull().indexed()
+                t.column("channelId", .text)   // nullable — nil = global
+                t.column("content", .text).notNull()
+                t.column("category", .text)
+                t.column("weight", .double).notNull().defaults(to: 1.0)
+                t.column("createdAt", .datetime).notNull()
+                t.column("touchedAt", .datetime).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -704,6 +720,7 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM port_versions")
             try db.execute(sql: "DELETE FROM input_history")
             try db.execute(sql: "DELETE FROM companion_creases")
+            try db.execute(sql: "DELETE FROM companion_engravings")
             try db.execute(sql: "DELETE FROM companion_folds")
             try db.execute(sql: "DELETE FROM companion_positions")
             try db.execute(sql: "DELETE FROM token_usage")
@@ -760,6 +777,61 @@ public final class DatabaseService {
         try dbQueue.write { db in
             try db.execute(
                 sql: "DELETE FROM companion_creases WHERE companionId = ?",
+                arguments: [companionId]
+            )
+        }
+    }
+
+    // MARK: - Companion Engravings
+
+    public func saveEngraving(_ engraving: CompanionEngraving) throws {
+        var engraving = engraving
+        try dbQueue.write { db in
+            try engraving.save(db)
+        }
+    }
+
+    /// Fetch engravings for a companion: channel-scoped + global, most recently touched first.
+    public func fetchEngravings(companionId: String, channelId: String?, limit: Int = 8) throws -> [CompanionEngraving] {
+        try dbQueue.read { db in
+            if let cid = channelId {
+                return try CompanionEngraving
+                    .filter(Column("companionId") == companionId &&
+                            (Column("channelId") == cid || Column("channelId") == nil))
+                    .order(Column("touchedAt").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            } else {
+                return try CompanionEngraving
+                    .filter(Column("companionId") == companionId && Column("channelId") == nil)
+                    .order(Column("touchedAt").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            }
+        }
+    }
+
+    /// Mark an engraving as currently shaping a response — updates touchedAt, bumps weight.
+    public func touchEngraving(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE companion_engravings SET touchedAt = ?, weight = weight + 0.1 WHERE id = ?",
+                arguments: [Date(), id]
+            )
+        }
+    }
+
+    public func deleteEngraving(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM companion_engravings WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Remove all engravings for a companion (called when companion is deleted).
+    public func deleteEngravingsForCompanion(_ companionId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM companion_engravings WHERE companionId = ?",
                 arguments: [companionId]
             )
         }

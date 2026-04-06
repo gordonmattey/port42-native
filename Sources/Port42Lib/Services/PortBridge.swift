@@ -1244,6 +1244,58 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return entry
             }
 
+        // port42.engravings.read(opts?)
+        case "engravings.read":
+            guard let cid = channelId, cid.hasPrefix("swim-") else {
+                return ["error": "engravings.read is only available in a swim"]
+            }
+            let companionId = String(cid.dropFirst("swim-".count))
+            let opts = args.first as? [String: Any]
+            let limit = opts?["limit"] as? Int ?? 8
+            let engravings = (try? state.db.fetchEngravings(companionId: companionId, channelId: cid, limit: limit)) ?? []
+            return engravings.map { e -> [String: Any] in
+                var entry: [String: Any] = [
+                    "id": e.id,
+                    "content": e.content,
+                    "weight": e.weight,
+                    "createdAt": ISO8601DateFormatter().string(from: e.createdAt)
+                ]
+                if let cat = e.category { entry["category"] = cat }
+                return entry
+            }
+
+        // port42.engraving.write(content, opts?) — write a new engraving
+        case "engraving.write":
+            guard let companionId = createdBy,
+                  let content = args.first as? String, !content.isEmpty else {
+                return ["error": "engraving.write requires content and companion context"]
+            }
+            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
+            let engraving = CompanionEngraving(
+                companionId: companionId,
+                channelId: opts?["channelId"] as? String ?? channelId,
+                content: content,
+                category: opts?["category"] as? String
+            )
+            try? state.db.saveEngraving(engraving)
+            return ["id": engraving.id, "ok": true]
+
+        // port42.engraving.touch(id) — mark an engraving as active
+        case "engraving.touch":
+            guard let id = args.first as? String else {
+                return ["error": "engraving.touch requires id"]
+            }
+            try? state.db.touchEngraving(id: id)
+            return ["ok": true]
+
+        // port42.engraving.forget(id) — remove an engraving
+        case "engraving.forget":
+            guard let id = args.first as? String else {
+                return ["error": "engraving.forget requires id"]
+            }
+            try? state.db.deleteEngraving(id: id)
+            return ["ok": true]
+
         // port42.fold.read()
         case "fold.read":
             guard let cid = channelId, cid.hasPrefix("swim-") else {
@@ -1862,6 +1914,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 write: (content, opts) => call('crease.write', opts ? [content, opts] : [content]),
                 touch: (id) => call('crease.touch', [id]).then(r => r && r.ok),
                 forget: (id) => call('crease.forget', [id]).then(r => r && r.ok)
+            },
+            engravings: {
+                read: (opts) => call('engravings.read', opts ? [opts] : []),
+                write: (content, opts) => call('engraving.write', opts ? [content, opts] : [content]),
+                touch: (id) => call('engraving.touch', [id]).then(r => r && r.ok),
+                forget: (id) => call('engraving.forget', [id]).then(r => r && r.ok)
             },
             fold: {
                 read: () => call('fold.read'),

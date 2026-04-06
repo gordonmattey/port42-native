@@ -138,6 +138,52 @@ public struct CompanionCrease: FetchableRecord, MutablePersistableRecord, Codabl
     }
 }
 
+// MARK: - CompanionEngraving
+
+/// An engraving — a fact about the user's world, deliberately carved.
+/// Not a break in the companion's model (that's a crease) — a fact about their situation.
+/// Context, preferences, constraints, goals, capabilities. Things learned about them, not about you.
+/// חרת → בצר: engrave → fortify.
+public struct CompanionEngraving: FetchableRecord, MutablePersistableRecord, Codable {
+    public static let databaseTableName = "companion_engravings"
+
+    public var id: String
+    public var companionId: String
+    public var channelId: String?     // nil = global (shapes all relationships)
+    public var content: String        // the factual knowledge about their world
+    public var category: String?      // optional: "context", "preference", "constraint", "goal", "capability"
+    public var weight: Double
+    public var createdAt: Date
+    public var touchedAt: Date        // last time this shaped a response
+
+    public init(
+        id: String = UUID().uuidString,
+        companionId: String,
+        channelId: String?,
+        content: String,
+        category: String? = nil,
+        weight: Double = 1.0,
+        createdAt: Date = Date(),
+        touchedAt: Date = Date()
+    ) {
+        self.id = id
+        self.companionId = companionId
+        self.channelId = channelId
+        self.content = content
+        self.category = category
+        self.weight = weight
+        self.createdAt = createdAt
+        self.touchedAt = touchedAt
+    }
+
+    /// Format for injection into LLM context.
+    public func asPromptText() -> String {
+        var parts = [content]
+        if let cat = category, !cat.isEmpty { parts.append("[\(cat)]") }
+        return parts.joined(separator: " ")
+    }
+}
+
 // MARK: - CompanionFold
 
 /// The fold — orientation, not data. How the companion approaches this relationship,

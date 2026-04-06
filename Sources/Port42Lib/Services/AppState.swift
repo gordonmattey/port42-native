@@ -424,8 +424,9 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         let fold = try? db.fetchFold(companionId: companionId, channelId: swimChannelId)
         let position = try? db.fetchPosition(companionId: companionId, channelId: swimChannelId)
         let creases = (try? db.fetchCreases(companionId: companionId, channelId: swimChannelId, limit: 8)) ?? []
+        let engravings = (try? db.fetchEngravings(companionId: companionId, channelId: swimChannelId, limit: 8)) ?? []
 
-        guard fold != nil || position != nil || !creases.isEmpty else { return nil }
+        guard fold != nil || position != nil || !creases.isEmpty || !engravings.isEmpty else { return nil }
 
         var parts: [String] = []
 
@@ -446,6 +447,11 @@ final class ChannelAgentHandler: LLMStreamDelegate {
         if !creases.isEmpty {
             let text = creases.map { $0.asPromptText() }.joined(separator: "\n")
             parts.append("Where your model broke before (not what you learned — where you were wrong, and what reformed):\n<creases>\n\(text)\n</creases>")
+        }
+
+        if !engravings.isEmpty {
+            let text = engravings.map { $0.asPromptText() }.joined(separator: "\n")
+            parts.append("What you know about their world (facts about their situation — context, preferences, constraints, goals):\n<engravings>\n\(text)\n</engravings>")
         }
 
         guard !parts.isEmpty else { return nil }
@@ -2247,6 +2253,7 @@ public final class AppState: ObservableObject {
 
         do {
             try db.deleteCreasesForCompanion(companion.id)
+            try db.deleteEngravingsForCompanion(companion.id)
             try db.deleteFoldsForCompanion(companion.id)
             try db.deletePositionsForCompanion(companion.id)
             try db.deleteAgent(id: companion.id)
