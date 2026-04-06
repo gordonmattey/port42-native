@@ -120,7 +120,7 @@ struct CompanionRelationshipTests {
     @Test("touchCrease updates touchedAt and increases weight")
     func touchCrease() throws {
         let db = try makeDB()
-        var crease = CompanionCrease(
+        let crease = CompanionCrease(
             companionId: "c", channelId: "ch", content: "a crease",
             weight: 1.0,
             touchedAt: Date(timeIntervalSince1970: 1000)
@@ -386,15 +386,167 @@ struct CompanionRelationshipTests {
         #expect(!text.contains("Watching:"))
     }
 
+    // MARK: - Engravings: basic persistence
+
+    @Test("Save and fetch a channel-scoped engraving")
+    func saveAndFetchEngraving() throws {
+        let db = try makeDB()
+        let engraving = CompanionEngraving(
+            companionId: "companion-1",
+            channelId: "channel-1",
+            content: "6 weeks to ship, solo engineer, can't break backwards compat.",
+            category: "constraint"
+        )
+        try db.saveEngraving(engraving)
+
+        let fetched = try db.fetchEngravings(companionId: "companion-1", channelId: "channel-1")
+        #expect(fetched.count == 1)
+        #expect(fetched[0].content == engraving.content)
+        #expect(fetched[0].category == "constraint")
+        #expect(fetched[0].channelId == "channel-1")
+        #expect(fetched[0].weight == 1.0)
+    }
+
+    @Test("Global engraving (nil channelId) is returned when fetching channel engravings")
+    func globalEngravingReturnedWithChannel() throws {
+        let db = try makeDB()
+        let global = CompanionEngraving(
+            companionId: "companion-1",
+            channelId: nil,
+            content: "Prefers async communication over meetings.",
+            category: "preference"
+        )
+        let scoped = CompanionEngraving(
+            companionId: "companion-1",
+            channelId: "channel-1",
+            content: "Running a startup with 3 engineers.",
+            category: "context"
+        )
+        try db.saveEngraving(global)
+        try db.saveEngraving(scoped)
+
+        let fetched = try db.fetchEngravings(companionId: "companion-1", channelId: "channel-1")
+        #expect(fetched.count == 2)
+        let ids = Set(fetched.map { $0.id })
+        #expect(ids.contains(global.id))
+        #expect(ids.contains(scoped.id))
+    }
+
+    @Test("Fetching only global engravings (nil channelId) excludes channel-scoped")
+    func fetchOnlyGlobalEngravings() throws {
+        let db = try makeDB()
+        let global = CompanionEngraving(companionId: "companion-1", channelId: nil, content: "global fact")
+        let scoped = CompanionEngraving(companionId: "companion-1", channelId: "channel-1", content: "scoped fact")
+        try db.saveEngraving(global)
+        try db.saveEngraving(scoped)
+
+        let fetched = try db.fetchEngravings(companionId: "companion-1", channelId: nil)
+        #expect(fetched.count == 1)
+        #expect(fetched[0].id == global.id)
+    }
+
+    @Test("Engravings from other companions are not returned")
+    func engravingsIsolatedByCompanion() throws {
+        let db = try makeDB()
+        try db.saveEngraving(CompanionEngraving(companionId: "companion-1", channelId: "ch", content: "e1"))
+        try db.saveEngraving(CompanionEngraving(companionId: "companion-2", channelId: "ch", content: "e2"))
+
+        let e1 = try db.fetchEngravings(companionId: "companion-1", channelId: "ch")
+        let e2 = try db.fetchEngravings(companionId: "companion-2", channelId: "ch")
+        #expect(e1.count == 1)
+        #expect(e2.count == 1)
+        #expect(e1[0].content == "e1")
+        #expect(e2[0].content == "e2")
+    }
+
+    @Test("Engravings returned most recently touched first")
+    func engravingsOrderedByTouchedAt() throws {
+        let db = try makeDB()
+        let older = CompanionEngraving(
+            companionId: "c", channelId: "ch", content: "older fact",
+            touchedAt: Date(timeIntervalSince1970: 1000)
+        )
+        let newer = CompanionEngraving(
+            companionId: "c", channelId: "ch", content: "newer fact",
+            touchedAt: Date(timeIntervalSince1970: 2000)
+        )
+        try db.saveEngraving(older)
+        try db.saveEngraving(newer)
+
+        let fetched = try db.fetchEngravings(companionId: "c", channelId: "ch")
+        #expect(fetched[0].content == "newer fact")
+        #expect(fetched[1].content == "older fact")
+    }
+
+    @Test("touchEngraving updates touchedAt and increases weight")
+    func touchEngraving() throws {
+        let db = try makeDB()
+        let engraving = CompanionEngraving(
+            companionId: "c", channelId: "ch", content: "a fact",
+            weight: 1.0, touchedAt: Date(timeIntervalSince1970: 1000)
+        )
+        try db.saveEngraving(engraving)
+        try db.touchEngraving(id: engraving.id)
+
+        let fetched = try db.fetchEngravings(companionId: "c", channelId: "ch")
+        #expect(fetched[0].weight > 1.0)
+        #expect(fetched[0].touchedAt > Date(timeIntervalSince1970: 1000))
+    }
+
+    @Test("deleteEngraving removes the entry")
+    func deleteEngraving() throws {
+        let db = try makeDB()
+        let engraving = CompanionEngraving(companionId: "c", channelId: "ch", content: "to forget")
+        try db.saveEngraving(engraving)
+        #expect(try db.fetchEngravings(companionId: "c", channelId: "ch").count == 1)
+
+        try db.deleteEngraving(id: engraving.id)
+        #expect(try db.fetchEngravings(companionId: "c", channelId: "ch").isEmpty)
+    }
+
+    @Test("deleteEngravingsForCompanion removes all engravings for that companion only")
+    func deleteEngravingsForCompanion() throws {
+        let db = try makeDB()
+        try db.saveEngraving(CompanionEngraving(companionId: "c1", channelId: "ch", content: "c1 fact"))
+        try db.saveEngraving(CompanionEngraving(companionId: "c2", channelId: "ch", content: "c2 fact"))
+
+        try db.deleteEngravingsForCompanion("c1")
+
+        #expect(try db.fetchEngravings(companionId: "c1", channelId: "ch").isEmpty)
+        #expect(try db.fetchEngravings(companionId: "c2", channelId: "ch").count == 1)
+    }
+
+    @Test("CompanionEngraving.asPromptText includes category when set")
+    func engravingPromptTextWithCategory() {
+        let engraving = CompanionEngraving(
+            companionId: "c", channelId: nil,
+            content: "6 weeks runway",
+            category: "constraint"
+        )
+        let text = engraving.asPromptText()
+        #expect(text.contains("6 weeks runway"))
+        #expect(text.contains("[constraint]"))
+    }
+
+    @Test("CompanionEngraving.asPromptText works with content only")
+    func engravingPromptTextContentOnly() {
+        let engraving = CompanionEngraving(companionId: "c", channelId: nil, content: "just the fact")
+        #expect(engraving.asPromptText() == "just the fact")
+    }
+
     // MARK: - Tool definitions
 
-    @Test("All eight relationship tools are present in ToolDefinitions.all")
+    @Test("All twelve relationship tools are present in ToolDefinitions.all")
     func relationshipToolsPresent() {
         let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
         #expect(names.contains("crease_read"))
         #expect(names.contains("crease_write"))
         #expect(names.contains("crease_touch"))
         #expect(names.contains("crease_forget"))
+        #expect(names.contains("engrave_read"))
+        #expect(names.contains("engrave_write"))
+        #expect(names.contains("engrave_touch"))
+        #expect(names.contains("engrave_forget"))
         #expect(names.contains("fold_read"))
         #expect(names.contains("fold_update"))
         #expect(names.contains("position_read"))
@@ -422,6 +574,29 @@ struct CompanionRelationshipTests {
             return
         }
         #expect(desc.contains("where you stand") || desc.contains("push back"))
+    }
+
+    @Test("engrave_write requires 'content' field")
+    func engraveWriteRequiresContent() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "engrave_write" }),
+              let schema = tool["input_schema"] as? [String: Any],
+              let required = schema["required"] as? [String] else {
+            Issue.record("engrave_write not found or missing schema")
+            return
+        }
+        #expect(required.contains("content"))
+    }
+
+    @Test("engrave_write description distinguishes engravings from creases")
+    func engraveWriteDescriptionFraming() {
+        let defs = ToolDefinitions.all
+        guard let tool = defs.first(where: { $0["name"] as? String == "engrave_write" }),
+              let desc = tool["description"] as? String else {
+            Issue.record("engrave_write not found")
+            return
+        }
+        #expect(desc.contains("crease") || desc.contains("factual") || desc.contains("world"))
     }
 
     @Test("crease_write requires 'content' field")
@@ -476,6 +651,7 @@ struct CompanionRelationshipTests {
         #expect(content.contains("fold_update"))
         #expect(content.contains("position_read"))
         #expect(content.contains("position_set"))
+        #expect(content.contains("engrave") || content.contains("engravings"))
         #expect(content.contains("where your model broke") || content.contains("prediction broke"))
     }
 }

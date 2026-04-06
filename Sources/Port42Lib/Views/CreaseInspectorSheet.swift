@@ -12,12 +12,14 @@ public struct CreaseInspectorSheet: View {
     @State private var fold: CompanionFold?
     @State private var position: CompanionPosition?
     @State private var creases: [CompanionCrease] = []
+    @State private var engravings: [CompanionEngraving] = []
     @State private var tab: Tab = .fold
 
     enum Tab: String, CaseIterable {
         case fold = "fold"
         case position = "position"
         case creases = "creases"
+        case engravings = "engravings"
     }
 
     public init(companion: AgentConfig, channelId: String) {
@@ -70,9 +72,10 @@ public struct CreaseInspectorSheet: View {
             ScrollView {
                 Group {
                     switch tab {
-                    case .fold:    FoldPanel(fold: fold, onReset: resetFold)
-                    case .position: PositionPanel(position: position)
-                    case .creases: CreasesPanel(creases: creases, onForget: forgetCrease)
+                    case .fold:       FoldPanel(fold: fold, onReset: resetFold)
+                    case .position:   PositionPanel(position: position)
+                    case .creases:    CreasesPanel(creases: creases, onForget: forgetCrease)
+                    case .engravings: EngravingsPanel(engravings: engravings, onForget: forgetEngraving)
                     }
                 }
                 .padding(20)
@@ -89,21 +92,28 @@ public struct CreaseInspectorSheet: View {
 
     private func tabBadge(_ t: Tab) -> String? {
         switch t {
-        case .fold:     return fold.map { "depth \($0.depth)" }
-        case .position: return position?.isEmpty == false ? "set" : nil
-        case .creases:  return creases.isEmpty ? nil : "\(creases.count)"
+        case .fold:       return fold.map { "depth \($0.depth)" }
+        case .position:   return position?.isEmpty == false ? "set" : nil
+        case .creases:    return creases.isEmpty ? nil : "\(creases.count)"
+        case .engravings: return engravings.isEmpty ? nil : "\(engravings.count)"
         }
     }
 
     private func loadState() {
-        fold     = try? appState.db.fetchFold(companionId: companion.id, channelId: channelId)
-        position = try? appState.db.fetchPosition(companionId: companion.id, channelId: channelId)
-        creases  = (try? appState.db.fetchCreases(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
+        fold       = try? appState.db.fetchFold(companionId: companion.id, channelId: channelId)
+        position   = try? appState.db.fetchPosition(companionId: companion.id, channelId: channelId)
+        creases    = (try? appState.db.fetchCreases(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
+        engravings = (try? appState.db.fetchEngravings(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
     }
 
     private func forgetCrease(_ id: String) {
         try? appState.db.deleteCrease(id: id)
         creases.removeAll { $0.id == id }
+    }
+
+    private func forgetEngraving(_ id: String) {
+        try? appState.db.deleteEngraving(id: id)
+        engravings.removeAll { $0.id == id }
     }
 
     private func resetFold() {
@@ -290,6 +300,67 @@ private struct TagList: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Engravings Panel
+
+private struct EngravingsPanel: View {
+    let engravings: [CompanionEngraving]
+    let onForget: (String) -> Void
+
+    var body: some View {
+        if engravings.isEmpty {
+            EmptyState(text: "no engravings yet")
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(engravings, id: \.id) { engraving in
+                    EngravingCard(engraving: engraving, onForget: { onForget(engraving.id) })
+                }
+            }
+        }
+    }
+}
+
+private struct EngravingCard: View {
+    let engraving: CompanionEngraving
+    let onForget: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                Text(engraving.content)
+                    .font(Port42Theme.mono(12))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("forget", action: onForget)
+                    .buttonStyle(.plain)
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            }
+            HStack(spacing: 8) {
+                if let cat = engraving.category, !cat.isEmpty {
+                    Text(cat)
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.accent.opacity(0.7))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Port42Theme.accent.opacity(0.08))
+                        .cornerRadius(3)
+                }
+                Text("weight \(String(format: "%.1f", engraving.weight))")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+            }
+        }
+        .padding(12)
+        .background(Port42Theme.bgSecondary)
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Port42Theme.border, lineWidth: 1)
+        )
     }
 }
 

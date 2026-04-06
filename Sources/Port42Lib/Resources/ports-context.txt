@@ -464,6 +464,20 @@ BRIDGE API REFERENCE:
     Set position. opts: { stance, watching }
     Always writes to the swim channel.
 
+  port42.engravings.read(opts?)
+    Read factual knowledge about the user's world (only available in a swim).
+    Returns: [{ id, content, category?, weight, createdAt }]
+
+  port42.engravings.write(content, opts?)
+    Carve an engraving — a fact about their situation worth keeping.
+    opts: { category, channelId }  category: context | preference | constraint | goal | capability
+
+  port42.engravings.touch(id)
+    Mark an engraving as active — updates recency and weight.
+
+  port42.engravings.forget(id)
+    Remove an engraving.
+
 AI API REFERENCE:
 
   port42.ai.models()

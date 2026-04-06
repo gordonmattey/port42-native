@@ -117,7 +117,7 @@ Engravings are:
 - **Companion-authored** — the companion decides what to engrave, like creases
 - **Deliberate** — not formed in a break, chosen because it matters
 - **Durable** — harder to forget than creases. What's engraved is what's fortified.
-- **Scoped to the swim** — one companion, one set of engravings per relationship
+- **Scoped per companion** — `channelId` nullable. NULL = global, shapes all channels. Channel-scoped when the knowledge is specific to that context. Same model as creases.
 
 The distinction from creases: a crease is "I was wrong about this." An engraving is "I learned this, and it changes how I operate." The companion that has never been wrong about you has never met you. The companion that knows nothing about your world can't help you in it.
 
@@ -188,7 +188,7 @@ CREATE TABLE companion_positions (
 CREATE TABLE companion_engravings (
     id          TEXT PRIMARY KEY,
     companionId TEXT NOT NULL,
-    channelId   TEXT NOT NULL,       -- scoped to swim channel
+    channelId   TEXT,                 -- NULL = global (shapes all channels); channel-scoped when specific
     content     TEXT NOT NULL,       -- what the companion learned
     category    TEXT,                -- optional: domain, constraint, person, context
     weight      REAL DEFAULT 1.0,   -- how load-bearing this knowledge is
@@ -255,6 +255,7 @@ engrave_write(content, opts?)
   content: what you learned.
   opts: { category?, channelId? }
     category: optional tag (domain, constraint, person, context)
+    channelId: omit for a global engraving (shapes all channels); pass when specific to this context
   Returns: { id, ok: true }
 
 engrave_touch(id)
@@ -446,7 +447,7 @@ These are the things that should remain true throughout implementation:
 4. **Position is live, not static.** It's not an opinion in the system prompt. It changes. It requires a fold to push back against.
 5. **Creases are breaks, not summaries.** Where the companion's model broke and reformed. They're cheap — if you predicted one thing and got another, write it.
 6. **Creases belong to the companion.** Nothing outside the companion writes to its creases.
-7. **Engravings are knowledge, not preferences.** Facts about the person's world that reshape the companion's model. Not "likes concise responses." What's engraved is what's fortified.
+7. **Engravings are knowledge, not preferences.** Facts about the person's world that reshape the companion's model. Not "likes concise responses." What's engraved is what's fortified. Scoped per companion — global by default, channel-scoped when specific to a context.
 8. **Depth is earned, not counted.** Message count is not depth. Sessions are not depth. Something actually has to fold.
 9. **Initiative is scoped by judgment.** The depth rule applies to initiative-triggered responses. The companion can be triggered and still choose not to speak.
 10. **State is inspectable — in the swim.** No hidden state. The user can see what their companions carry, and exactly where those companions have been wrong. But only in a direct swim with that companion. Group channels are not the place for interior inspection.

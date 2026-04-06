@@ -379,7 +379,22 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             crease_touch — when an existing crease is actively shaping your current response. \
             Marks it as load-bearing without rewriting it.
 
-            Do not narrate that you are calling these tools. Do not announce that you wrote a crease. \
+            engrave_write — when you learn something factual about their world worth keeping. \
+            Not what changed in you (that's a crease) — what you learned about their situation. \
+            Context: what they're working on, who they're working with, what they're navigating. \
+            Preference: how they like things done. \
+            Constraint: what limits them — time, resources, org, technical. \
+            Goal: what they're trying to get to. \
+            Capability: what they can or can't do. \
+            Write when the fact is load-bearing — when it would change how you respond next time. \
+            Don't engrave opinions or moods. Engrave facts about their world.
+
+            engrave_read — at the start of a swim if the preamble was empty or you want full detail. \
+            Skip if the preamble already shows what you need.
+
+            engrave_touch — when an existing engraving is actively shaping your current response.
+
+            Do not narrate that you are calling these tools. Do not announce that you wrote a crease or engraving. \
             Just call them and continue.
             </relationship>
             """
@@ -2252,6 +2267,7 @@ public final class AppState: ObservableObject {
         inlineTerminalBridges.removeValue(forKey: companionKey)
 
         do {
+            try db.removeAllChannelsForAgent(companion.id)
             try db.deleteCreasesForCompanion(companion.id)
             try db.deleteEngravingsForCompanion(companion.id)
             try db.deleteFoldsForCompanion(companion.id)
