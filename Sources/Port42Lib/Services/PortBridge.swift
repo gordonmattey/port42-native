@@ -1,6 +1,11 @@
 import Foundation
 import WebKit
 
+// MARK: - Constants
+
+/// Default max tokens for port AI calls (ai.complete and port generation).
+private let portAIMaxTokens = 16384
+
 // MARK: - Port Bridge
 
 /// Bridges port42.* JS calls from a port's WKWebView to native Swift services.
@@ -1383,7 +1388,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let opts = args.count > 1 ? args[1] as? [String: Any] : nil
         let model = opts?["model"] as? String ?? resolveDefaultModel(state: state)
         let systemPrompt = opts?["systemPrompt"] as? String ?? "You are a helpful assistant."
-        let maxTokens = opts?["maxTokens"] as? Int ?? 4096
+        let maxTokens = opts?["maxTokens"] as? Int ?? portAIMaxTokens
         let images = opts?["images"] as? [String]
 
         let backend = resolvePortAIBackend(state: state)
@@ -1516,7 +1521,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 messages: messages,
                 systemPrompt: companionSystemPrompt,
                 model: model,
-                maxTokens: 4096,
+                maxTokens: portAIMaxTokens,
                 tools: nil,
                 thinkingEnabled: false,
                 thinkingEffort: "low",

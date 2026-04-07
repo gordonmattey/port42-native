@@ -1421,7 +1421,7 @@ public final class AppState: ObservableObject {
     }
 
     /// Launch agents with staggered delays so companions respond at different rates
-    /// Check if any companions' watching signals match the message content.
+    /// Check if any companions' watching signals or holding text match the message content.
     /// Only fires for companions NOT already being triggered by normal routing.
     /// Launches matching companions with an initiative-framed trigger.
     func checkInitiativeTriggers(
@@ -1431,17 +1431,35 @@ public final class AppState: ObservableObject {
         let channelAgents = (try? db.getAgentsForChannel(channelId: channelId)) ?? []
         let lowered = messageContent.lowercased()
 
-        var initiativeAgents: [(agent: AgentConfig, signal: String)] = []
+        // triggerText is the full initiative-framed content passed to the LLM
+        var initiativeAgents: [(agent: AgentConfig, triggerText: String, logLabel: String)] = []
 
         for agent in channelAgents where !alreadyTargeted.contains(agent.id) && agent.mode == .llm {
             let swimId = "swim-\(agent.id)"
-            guard let pos = try? db.fetchPosition(companionId: agent.id, channelId: swimId),
-                  let watching = pos.watching, !watching.isEmpty else { continue }
 
-            for signal in watching {
-                if lowered.contains(signal.lowercased()) {
-                    initiativeAgents.append((agent: agent, signal: signal))
-                    break // one signal match per companion is enough to trigger
+            // A — watching signals
+            if let pos = try? db.fetchPosition(companionId: agent.id, channelId: swimId),
+               let watching = pos.watching, !watching.isEmpty {
+                for signal in watching {
+                    if lowered.contains(signal.lowercased()) {
+                        let trigger = "[initiative: your watching signal was matched — \"\(signal)\"]\n\(messageContent)"
+                        initiativeAgents.append((agent: agent, triggerText: trigger, logLabel: "watching:\(signal)"))
+                        break
+                    }
+                }
+            }
+
+            // B — holding text: already triggered above? skip
+            guard !initiativeAgents.contains(where: { $0.agent.id == agent.id }) else { continue }
+            if let fold = try? db.fetchFold(companionId: agent.id, channelId: swimId),
+               let holding = fold.holding, !holding.isEmpty {
+                let keywords = holdingKeywords(from: holding)
+                for keyword in keywords {
+                    if lowered.contains(keyword) {
+                        let trigger = "[initiative: something you're holding is relevant]\nHolding: \(holding)\n\nMessage: \(messageContent)"
+                        initiativeAgents.append((agent: agent, triggerText: trigger, logLabel: "holding:\(keyword)"))
+                        break
+                    }
                 }
             }
         }
@@ -1456,19 +1474,34 @@ public final class AppState: ObservableObject {
             let jitter = Double.random(in: 0.5...1.5)
             let delay = baseDelay + jitter
 
-            let initiativeTrigger = "[initiative: your watching signal was matched — \"\(match.signal)\"]\n\(messageContent)"
-
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 let msgs = (try? self.db.getMessages(channelId: channelId)) ?? channelMessages
                 let handler = ChannelAgentHandler(agent: match.agent, channelId: channelId, appState: self)
                 self.activeAgentHandlers[handler.messageId] = handler
-                handler.start(channelMessages: msgs, triggerContent: initiativeTrigger)
+                handler.start(channelMessages: msgs, triggerContent: match.triggerText)
             }
 
-            NSLog("[Port42] Initiative trigger: %@ matched signal '%@' in channel %@",
-                  match.agent.displayName, match.signal, channelId)
+            NSLog("[Port42] Initiative trigger: %@ matched '%@' in channel %@",
+                  match.agent.displayName, match.logLabel, channelId)
         }
+    }
+
+    /// Extract content words from holding prose for keyword matching.
+    private func holdingKeywords(from text: String) -> [String] {
+        let stopwords: Set<String> = [
+            "a","an","the","and","or","but","in","on","at","to","for","of","with","by",
+            "from","about","as","is","are","was","were","be","been","has","have","had",
+            "do","does","did","will","would","could","should","may","might","must","can",
+            "not","no","it","its","this","that","i","you","he","she","we","they",
+            "my","your","his","her","our","their","what","which","who","when","where",
+            "how","if","so","just","also","too","very","more","most","some","any","all",
+            "still","yet","then","than","into","up","out","now","new","own","same","other"
+        ]
+        return text
+            .lowercased()
+            .components(separatedBy: .init(charactersIn: " .,;:—–-/\n\t\"'()[]"))
+            .filter { $0.count >= 4 && !stopwords.contains($0) }
     }
 
     private func launchAgents(
@@ -1959,11 +1992,20 @@ public final class AppState: ObservableObject {
             )
         }
 
-        // Initiative: check companions NOT already targeted for watching signal matches
-        let targetedIds = Set(targets.map { $0.id })
+        // Initiative: check companions NOT already targeted for watching signal matches.
+        // When @mentions are present, those companions are definitely targeted.
+        // When there are no @mentions, only allMessages companions are definitely
+        // responding — mentionOnly companions are not in normal routing and should
+        // be eligible for initiative even if they're channel members.
+        let initiativeExcluded: Set<String>
+        if mentions.isEmpty {
+            initiativeExcluded = Set(targets.filter { $0.trigger == .allMessages }.map { $0.id })
+        } else {
+            initiativeExcluded = Set(targets.map { $0.id })
+        }
         checkInitiativeTriggers(
             channelId: channel.id, messageContent: trimmed,
-            alreadyTargeted: targetedIds, senderId: user.id, senderName: user.displayName
+            alreadyTargeted: initiativeExcluded, senderId: user.id, senderName: user.displayName
         )
     }
 
