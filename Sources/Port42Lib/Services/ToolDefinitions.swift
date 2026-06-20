@@ -488,11 +488,11 @@ enum ToolDefinitions {
         ],
         [
             "name": "file_read",
-            "description": "Read the contents of a file. Path must have been previously approved by the user via file picker.",
+            "description": "Read a file. Use a relative path (e.g. \"scopes/strategy/scope.md\") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "path": ["type": "string", "description": "Absolute file path"],
+                    "path": ["type": "string", "description": "Relative path within Port42 data directory (e.g. \"scopes/strategy/scope.md\") or absolute path for picker-approved files."],
                     "encoding": ["type": "string", "description": "utf8 (default) or base64"]
                 ],
                 "required": ["path"]
@@ -500,15 +500,37 @@ enum ToolDefinitions {
         ],
         [
             "name": "file_write",
-            "description": "Write content to a file. Path must have been previously approved by the user via file picker.",
+            "description": "Write a file. Use a relative path (e.g. \"scopes/strategy/facts.md\") to write to the Port42 data directory — parent directories are created automatically. Use an absolute path for picker-approved files.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "path": ["type": "string", "description": "Absolute file path"],
+                    "path": ["type": "string", "description": "Relative path within Port42 data directory (e.g. \"scopes/strategy/facts.md\") or absolute path for picker-approved files."],
                     "data": ["type": "string", "description": "Content to write"],
                     "encoding": ["type": "string", "description": "utf8 (default) or base64"]
                 ],
                 "required": ["path", "data"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "file_list",
+            "description": "List the contents of a directory in the Port42 data directory. Relative paths only (e.g. \"scopes/strategy\" or \"scopes/strategy/decisions\"). Returns a sorted list of filenames.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "path": ["type": "string", "description": "Relative path to the directory (e.g. \"scopes/strategy\")"]
+                ],
+                "required": ["path"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "file_mkdir",
+            "description": "Create a directory (and any missing parent directories) in the Port42 data directory. Relative paths only (e.g. \"scopes/strategy/decisions\").",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "path": ["type": "string", "description": "Relative path to create (e.g. \"scopes/strategy/decisions\")"]
+                ],
+                "required": ["path"]
             ] as [String: Any]
         ],
         [
@@ -649,6 +671,7 @@ enum ToolDefinitions {
         case "screen_capture", "screen_windows", "camera_capture": return .screen
         case "terminal_exec", "terminal_send", "terminal_list", "terminal_bridge", "terminal_unbridge": return .terminal
         case "file_read", "file_write": return .filesystem
+        case "file_list", "file_mkdir": return nil  // relative paths only, Port42 data dir
         case "run_applescript", "run_jxa": return .automation
         case "browser_open", "browser_text", "browser_capture", "browser_close": return .browser
         case "notify_send": return .notification

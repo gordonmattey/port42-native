@@ -13,6 +13,7 @@ public struct EditCompanionSheet: View {
     @State private var thinkingEnabled: Bool
     @State private var thinkingEffort: String
     @State private var selectedSecrets: Set<String>
+    @State private var kbPath: String
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>, companion: AgentConfig) {
@@ -26,6 +27,7 @@ public struct EditCompanionSheet: View {
         self._thinkingEnabled = State(initialValue: companion.thinkingEnabled)
         self._thinkingEffort = State(initialValue: companion.thinkingEffort)
         self._selectedSecrets = State(initialValue: Set(companion.secretNames ?? []))
+        self._kbPath = State(initialValue: companion.scopePath ?? "")
     }
 
     public var body: some View {
@@ -70,6 +72,25 @@ public struct EditCompanionSheet: View {
                             .stroke(Port42Theme.border, lineWidth: 1)
                     )
                     .cornerRadius(6)
+            }
+
+            if companion.mode == .llm {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("KB Path")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    TextField("scopes/my-scope", text: $kbPath)
+                        .textFieldStyle(.plain)
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+                        .padding(10)
+                        .background(Port42Theme.bgInput)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                        .cornerRadius(6)
+                    Text("Relative path within Port42 data directory. Leave empty for no scope.")
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                }
             }
 
             ProviderModelSection(
@@ -216,6 +237,8 @@ public struct EditCompanionSheet: View {
         updated.thinkingEnabled = thinkingEnabled
         updated.thinkingEffort = thinkingEffort
         updated.secretNames = selectedSecrets.isEmpty ? nil : Array(selectedSecrets).sorted()
+        let trimmedKBPath = kbPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.scopePath = trimmedKBPath.isEmpty ? nil : trimmedKBPath
         appState.updateCompanion(updated)
         isPresented = false
     }

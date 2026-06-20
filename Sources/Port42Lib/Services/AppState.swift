@@ -225,6 +225,19 @@ final class ChannelAgentHandler: LLMStreamDelegate {
             <personality>
             \(basePrompt)
             </personality>
+            \(agent.scopePath.map { scopePath in """
+
+
+            <scope>
+            Your KB is at \(scopePath)/ (relative to the Port42 data directory).
+            At the start of every conversation:
+              1. Call file_read with path "\(scopePath)/scope.md" — read your identity, problem space, sources, done criteria.
+              2. Call file_read with path "\(scopePath)/directives.md" — if it exists, treat as priority overrides.
+              3. Call file_list with path "\(scopePath)" — orient yourself to what's in the KB.
+            Use file_read, file_write, file_list, file_mkdir throughout to maintain your KB.
+            Your self-assessments, session reports, facts, beliefs, gaps, and decisions all live here.
+            </scope>
+            """ } ?? "")
 
             <context>
             You are an AI companion in Port42, a personal AI system. \

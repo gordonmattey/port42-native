@@ -49,6 +49,9 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     // Secret access
     public var secretNames: [String]?  // named secrets this companion can use with rest.call
 
+    // Scope
+    public var scopePath: String?  // relative path e.g. "scopes/strategy" — nil = no scope
+
     public var createdAt: Date
 
     public init(
@@ -57,7 +60,8 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         providerBaseURL: String? = nil,
         model: String?, thinkingEnabled: Bool = false, thinkingEffort: String = "low",
         command: String?, args: [String]?, workingDir: String?,
-        envVars: [String: String]?, openInTerminal: Bool = false, createdAt: Date
+        envVars: [String: String]?, openInTerminal: Bool = false,
+        scopePath: String? = nil, createdAt: Date
     ) {
         self.id = id
         self.ownerId = ownerId
@@ -75,6 +79,7 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         self.workingDir = workingDir
         self.envVars = envVars
         self.openInTerminal = openInTerminal
+        self.scopePath = scopePath
         self.createdAt = createdAt
     }
 

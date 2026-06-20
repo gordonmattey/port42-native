@@ -481,6 +481,12 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM swimMessages WHERE companionId NOT IN (SELECT id FROM agents)")
         }
 
+        migrator.registerMigration("v33-agent-scope-path") { db in
+            try db.alter(table: "agents") { t in
+                t.add(column: "scopePath", .text)  // relative KB path e.g. "scopes/strategy", nullable
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

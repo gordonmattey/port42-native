@@ -352,6 +352,48 @@ struct CompanionPod: Identifiable {
     static let all: [CompanionPod] = [builders]
 }
 
+// MARK: - Companion Type Presets
+
+enum CompanionTypePreset: String, CaseIterable {
+    case architect, compiler, operatorType, echo
+
+    var displayName: String {
+        switch self {
+        case .architect: return "architect"
+        case .compiler: return "compiler"
+        case .operatorType: return "operator"
+        case .echo: return "echo"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .architect: return "decides what to build"
+        case .compiler: return "builds it correctly"
+        case .operatorType: return "keeps it running"
+        case .echo: return "holds context"
+        }
+    }
+
+    var defaultKBPath: String {
+        switch self {
+        case .architect: return "scopes/architect"
+        case .compiler: return "scopes/compiler"
+        case .operatorType: return "scopes/operator"
+        case .echo: return "scopes/echo"
+        }
+    }
+
+    var constitutionFile: String {
+        switch self {
+        case .architect: return "architect-constitution"
+        case .compiler: return "compiler-constitution"
+        case .operatorType: return "operator-constitution"
+        case .echo: return "echo-constitution"
+        }
+    }
+}
+
 public struct NewCompanionSheet: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
@@ -386,6 +428,10 @@ public struct NewCompanionSheet: View {
     @State private var commandEnvValue = ""
     @State private var commandOpenInTerminal = false
     @State private var selectedCLIPreset: AgentConfig.CLIPreset? = nil
+
+    // Companion type preset (Architect / Compiler / Operator / Echo)
+    @State private var selectedCompanionType: CompanionTypePreset? = nil
+    @State private var kbPath = ""
 
     enum CompanionMode { case llm, api, command }
 
@@ -429,8 +475,10 @@ public struct NewCompanionSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
             }
 
-            // LLM mode — Port42 presets + custom, then inputs
+            // LLM mode — Companion types + Port42 presets + custom, then inputs
             if companionMode == .llm {
+                companionTypeSection
+
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(CompanionPreset.presets) { preset in
                         templateRow(preset, action: { selectPreset(preset) })
@@ -440,6 +488,7 @@ public struct NewCompanionSheet: View {
 
                 nameField
                 systemPromptField
+                if selectedCompanionType != nil { kbPathField }
 
                 ProviderModelSection(
                     selectedProvider: $selectedProvider,
@@ -818,6 +867,71 @@ public struct NewCompanionSheet: View {
     }
 
     @ViewBuilder
+    private var companionTypeSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Companion Type")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+                .padding(.horizontal, 10)
+                .padding(.top, 4)
+            ForEach(CompanionTypePreset.allCases, id: \.rawValue) { type in
+                let isSelected = selectedCompanionType == type
+                Button(action: { selectCompanionType(type) }) {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(isSelected ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.4))
+                            .frame(width: 8, height: 8)
+                        Text(type.displayName)
+                            .font(Port42Theme.monoBold(12))
+                            .foregroundStyle(isSelected ? Port42Theme.textPrimary : Port42Theme.textSecondary)
+                        Text(type.label)
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                            .lineLimit(1)
+                        Spacer()
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Port42Theme.accent)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(isSelected ? Port42Theme.bgHover : Color.clear)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.bottom, 4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Port42Theme.accent.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var kbPathField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("KB Path")
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textSecondary)
+            TextField("scopes/my-scope", text: $kbPath)
+                .textFieldStyle(.plain)
+                .font(Port42Theme.mono(12))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .padding(10)
+                .background(Port42Theme.bgInput)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
+                .cornerRadius(6)
+            Text("Relative path within the Port42 data directory.")
+                .font(Port42Theme.mono(10))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+        }
+    }
+
+    @ViewBuilder
     private var cliPresetRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Preset")
@@ -1089,6 +1203,8 @@ public struct NewCompanionSheet: View {
     private func selectPreset(_ preset: CompanionPreset) {
         selectedPreset = preset.id
         customPresetSelected = false
+        selectedCompanionType = nil
+        kbPath = ""
         name = ""
         namePlaceholder = preset.name
         systemPrompt = preset.prompt
@@ -1097,11 +1213,39 @@ public struct NewCompanionSheet: View {
     private func selectCustom() {
         selectedPreset = nil
         customPresetSelected = true
+        selectedCompanionType = nil
+        kbPath = ""
         name = ""
         namePlaceholder = "companion name"
         systemPrompt = ""
         selectedSecrets = []
         showAddSecret = false
+    }
+
+    private func selectCompanionType(_ type: CompanionTypePreset) {
+        if selectedCompanionType == type {
+            // Deselect
+            selectedCompanionType = nil
+            kbPath = ""
+            systemPrompt = ""
+            selectedPreset = nil
+            customPresetSelected = false
+            return
+        }
+        selectedCompanionType = type
+        selectedPreset = nil
+        customPresetSelected = false
+        kbPath = type.defaultKBPath
+        name = ""
+        namePlaceholder = type.displayName
+        systemPrompt = loadConstitution(type)
+    }
+
+    private func loadConstitution(_ type: CompanionTypePreset) -> String {
+        guard let url = Bundle.module.url(forResource: type.constitutionFile, withExtension: "md",
+                                          subdirectory: "constitutions"),
+              let text = try? String(contentsOf: url) else { return "" }
+        return text
     }
 
     private func selectCustomApi() {
@@ -1261,6 +1405,8 @@ public struct NewCompanionSheet: View {
         companion.thinkingEnabled = thinkingEnabled
         companion.thinkingEffort = thinkingEffort
         companion.secretNames = selectedSecrets.isEmpty ? nil : Array(selectedSecrets).sorted()
+        let trimmedKBPath = kbPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        companion.scopePath = trimmedKBPath.isEmpty ? nil : trimmedKBPath
         appState.addCompanion(companion)
         isPresented = false
     }

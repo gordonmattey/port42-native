@@ -839,6 +839,20 @@ public final class ToolExecutor {
                 return [textBlock("Error: missing 'path' parameter")]
             }
             let encoding = input["encoding"] as? String ?? "utf8"
+            if !path.hasPrefix("/") {
+                let resolved = resolveFilePath(path)
+                do {
+                    if encoding == "base64" {
+                        let bytes = try Data(contentsOf: URL(fileURLWithPath: resolved))
+                        return [textBlock(jsonString(["data": bytes.base64EncodedString()]))]
+                    } else {
+                        let text = try String(contentsOfFile: resolved, encoding: .utf8)
+                        return [textBlock(jsonString(["data": text]))]
+                    }
+                } catch {
+                    return [textBlock(jsonString(["error": error.localizedDescription]))]
+                }
+            }
             let result = fileBridge.read(path: path, opts: ["encoding": encoding])
             return [textBlock(jsonString(result))]
 
@@ -848,8 +862,53 @@ public final class ToolExecutor {
                 return [textBlock("Error: missing 'path' or 'data' parameter")]
             }
             let encoding = input["encoding"] as? String ?? "utf8"
+            if !path.hasPrefix("/") {
+                let resolved = resolveFilePath(path)
+                let dir = (resolved as NSString).deletingLastPathComponent
+                do {
+                    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                    if encoding == "base64", let bytes = Data(base64Encoded: data) {
+                        try bytes.write(to: URL(fileURLWithPath: resolved))
+                    } else {
+                        try data.write(toFile: resolved, atomically: true, encoding: .utf8)
+                    }
+                    return [textBlock(jsonString(["ok": true]))]
+                } catch {
+                    return [textBlock(jsonString(["error": error.localizedDescription]))]
+                }
+            }
             let result = fileBridge.write(path: path, data: data, opts: ["encoding": encoding])
             return [textBlock(jsonString(result))]
+
+        case "file_list":
+            guard let path = input["path"] as? String else {
+                return [textBlock("Error: missing 'path' parameter")]
+            }
+            guard !path.hasPrefix("/") else {
+                return [textBlock("Error: file_list only supports relative paths within Port42 data directory")]
+            }
+            let resolved = resolveFilePath(path)
+            do {
+                let items = try FileManager.default.contentsOfDirectory(atPath: resolved)
+                return [textBlock(jsonString(["items": items.sorted()]))]
+            } catch {
+                return [textBlock(jsonString(["error": error.localizedDescription]))]
+            }
+
+        case "file_mkdir":
+            guard let path = input["path"] as? String else {
+                return [textBlock("Error: missing 'path' parameter")]
+            }
+            guard !path.hasPrefix("/") else {
+                return [textBlock("Error: file_mkdir only supports relative paths within Port42 data directory")]
+            }
+            let resolved = resolveFilePath(path)
+            do {
+                try FileManager.default.createDirectory(atPath: resolved, withIntermediateDirectories: true)
+                return [textBlock(jsonString(["ok": true]))]
+            } catch {
+                return [textBlock(jsonString(["error": error.localizedDescription]))]
+            }
 
         // MARK: Automation
         case "run_applescript":
@@ -1006,6 +1065,20 @@ public final class ToolExecutor {
         default:
             return [textBlock("Unknown tool: \(name)")]
         }
+    }
+
+    // MARK: - KB path helpers
+
+    private var port42DataDir: String {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first!.appendingPathComponent("Port42").path
+    }
+
+    /// Resolve a file path. Relative paths are scoped to the Port42 data directory.
+    /// Absolute paths are returned unchanged (handled by FileBridge).
+    private func resolveFilePath(_ path: String) -> String {
+        if path.hasPrefix("/") { return path }
+        return (port42DataDir as NSString).appendingPathComponent(path)
     }
 
     // MARK: - Escape Processing
