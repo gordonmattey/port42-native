@@ -2130,6 +2130,51 @@ public final class AppState: ObservableObject {
         )
     }
 
+    /// Publish a message to a bus topic. Does not trigger companion chat routing.
+    /// Used by bus_publish tool and internal signalling. Bus messages are excluded from the chat view.
+    public func publishToBus(spaceId: String, topic: String, payload: String, senderName: String) {
+        guard let user = currentUser else { return }
+        let message = Message.create(
+            spaceId: spaceId,
+            senderId: user.id,
+            senderName: senderName,
+            content: payload,
+            senderType: "agent",
+            topic: topic
+        )
+        do {
+            try db.saveMessage(message)
+            sync.sendMessage(message)
+        } catch {
+            NSLog("[p42-state] publishToBus error: %@", error.localizedDescription)
+        }
+        checkBusInitiativeTriggers(spaceId: spaceId, payload: payload, senderName: senderName)
+    }
+
+    /// Check if any companions' bus: watching signals match a newly published bus payload.
+    func checkBusInitiativeTriggers(spaceId: String, payload: String, senderName: String) {
+        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
+        let lowered = payload.lowercased()
+
+        for agent in spaceAgents where agent.mode == .llm {
+            let swimId = "swim-\(agent.id)"
+            guard let pos = try? db.fetchPosition(companionId: agent.id, spaceId: swimId),
+                  let watching = pos.watching else { continue }
+
+            for signal in watching where signal.hasPrefix("bus:") {
+                let stripped = String(signal.dropFirst(4)).lowercased()
+                guard !stripped.isEmpty, lowered.contains(stripped) else { continue }
+                let msgs = (try? db.getMessages(spaceId: spaceId, topic: "chat")) ?? []
+                let trigger = "[initiative: bus signal matched — \"\(signal)\"]\nPayload: \(payload)"
+                let handler = SpaceAgentHandler(agent: agent, spaceId: spaceId, appState: self)
+                activeAgentHandlers[handler.messageId] = handler
+                handler.start(spaceMessages: msgs, triggerContent: trigger)
+                NSLog("[Port42] Bus initiative trigger: %@ matched '%@'", agent.displayName, signal)
+                break
+            }
+        }
+    }
+
     /// Send a message attributed to a named external agent (HTTP CLI callers).
     /// Uses the provided senderName as identity instead of the current user.
     public func sendMessageAsNamedAgent(content: String, senderName: String, toSpaceId: String? = nil) {
@@ -2489,7 +2534,7 @@ public final class AppState: ObservableObject {
 
     private func startMessageObservation(spaceId: String) {
         messageObservation?.cancel()
-        messageObservation = db.observeMessages(spaceId: spaceId) { [weak self] dbMessages in
+        messageObservation = db.observeMessages(spaceId: spaceId, topic: "chat") { [weak self] dbMessages in
             Task { @MainActor in
                 guard let self else { return }
                 // Preserve in-memory streaming content for active agent handlers

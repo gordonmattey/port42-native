@@ -189,8 +189,22 @@ enum ToolDefinitions {
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "count": ["type": "integer", "description": "Number of messages to retrieve (default 20, max 100)"]
+                    "count": ["type": "integer", "description": "Number of messages to retrieve (default 20, max 100)"],
+                    "topic": ["type": "string", "description": "Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join/leave events."]
                 ]
+            ] as [String: Any]
+        ],
+        [
+            "name": "bus_read",
+            "description": "Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join/leave/presence), 'port:{portId}' (port-scoped events).",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "topic": ["type": "string", "description": "Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')"],
+                    "limit": ["type": "integer", "description": "Max messages to return (default 20)"],
+                    "space_id": ["type": "string", "description": "Space ID. Omit for current space."]
+                ],
+                "required": ["topic"]
             ] as [String: Any]
         ],
     ]
@@ -340,6 +354,19 @@ enum ToolDefinitions {
                     "js": ["type": "string", "description": "JavaScript code to execute in the port's context. Return a value to get it back in the response."]
                 ],
                 "required": ["id", "js"]
+            ] as [String: Any]
+        ],
+        [
+            "name": "bus_publish",
+            "description": "Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "topic": ["type": "string", "description": "Bus topic (e.g. 'bus', 'port:myPortId')"],
+                    "payload": ["type": "string", "description": "Message payload — any string, typically JSON"],
+                    "space_id": ["type": "string", "description": "Target space ID. Omit for current space."]
+                ],
+                "required": ["topic", "payload"]
             ] as [String: Any]
         ],
         [

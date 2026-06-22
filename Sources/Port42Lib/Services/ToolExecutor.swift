@@ -638,13 +638,41 @@ public final class ToolExecutor {
         case "messages_recent":
             let count = min(input["count"] as? Int ?? 20, 100)
             let chId = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
-            let msgs = (try? appState.db.getMessages(spaceId: chId)) ?? []
+            let topicFilter = input["topic"] as? String ?? "chat"
+            let msgs = (try? appState.db.getMessages(spaceId: chId, topic: topicFilter)) ?? []
             let recent = msgs.suffix(count).map { m -> [String: Any] in
                 ["sender": m.senderName, "content": m.content, "timestamp": m.timestamp.timeIntervalSince1970]
             }
             return [textBlock(jsonString(recent))]
 
+        case "bus_read":
+            guard let topic = input["topic"] as? String else {
+                return [textBlock("Error: missing 'topic' parameter")]
+            }
+            let limit = min(input["limit"] as? Int ?? 20, 100)
+            let busSpaceId = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
+            let msgs = (try? appState.db.getMessages(spaceId: busSpaceId, topic: topic)) ?? []
+            let recent = msgs.suffix(limit).map { m -> [String: Any] in
+                ["sender": m.senderName, "content": m.content, "timestamp": m.timestamp.timeIntervalSince1970, "topic": m.topic]
+            }
+            return [textBlock(jsonString(recent))]
+
         // MARK: Action tools
+        case "bus_publish":
+            guard let topic = input["topic"] as? String,
+                  let payload = input["payload"] as? String else {
+                return [textBlock("Error: missing 'topic' or 'payload' parameter")]
+            }
+            let busSpaceId = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
+            let senderName: String
+            if let cid = createdBy, let agent = appState.companions.first(where: { $0.id == cid }) {
+                senderName = agent.displayName
+            } else {
+                senderName = appState.currentUser?.displayName ?? "agent"
+            }
+            appState.publishToBus(spaceId: busSpaceId, topic: topic, payload: payload, senderName: senderName)
+            return [textBlock(jsonString(["ok": true, "topic": topic]))]
+
         case "messages_send":
             guard let text = input["text"] as? String else {
                 return [textBlock("Error: missing 'text' parameter")]

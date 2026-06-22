@@ -1063,6 +1063,16 @@ public final class DatabaseService {
         }
     }
 
+    public func getMessages(spaceId: String, topic: String) throws -> [Message] {
+        try dbQueue.read { db in
+            try Message
+                .filter(Column("spaceId") == spaceId)
+                .filter(Column("topic") == topic)
+                .order(Column("timestamp").asc)
+                .fetchAll(db)
+        }
+    }
+
     /// Returns distinct sender names for a space (unique posters)
     public func getUniqueSenders(spaceId: String) throws -> [String] {
         try dbQueue.read { db in
@@ -1173,6 +1183,24 @@ public final class DatabaseService {
             .tracking { db in
                 try Message
                     .filter(Column("spaceId") == spaceId)
+                    .order(Column("timestamp").asc)
+                    .fetchAll(db)
+            }
+            .start(in: dbQueue, onError: { error in
+                print("[Port42] Message observation error: \(error)")
+            }, onChange: onChange)
+    }
+
+    public func observeMessages(
+        spaceId: String,
+        topic: String,
+        onChange: @escaping ([Message]) -> Void
+    ) -> AnyDatabaseCancellable {
+        ValueObservation
+            .tracking { db in
+                try Message
+                    .filter(Column("spaceId") == spaceId)
+                    .filter(Column("topic") == topic)
                     .order(Column("timestamp").asc)
                     .fetchAll(db)
             }
