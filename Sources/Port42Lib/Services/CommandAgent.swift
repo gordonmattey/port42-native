@@ -10,7 +10,7 @@ import Foundation
 
 struct CommandAgentEvent: Encodable {
     let type: String          // "mention", "message", "shutdown"
-    let channelId: String?
+    let spaceId: String?
     let senderId: String?
     let senderName: String?
     let content: String?
@@ -33,16 +33,16 @@ struct CommandAgentResponse: Decodable {
 @MainActor
 final class CommandAgentHandler {
     private let agent: AgentConfig
-    private let channelId: String
+    private let spaceId: String
     let messageId: String
     private weak var appState: AppState?
 
     private var process: Process?
     private var stdinPipe: Pipe?
 
-    init(agent: AgentConfig, channelId: String, appState: AppState) {
+    init(agent: AgentConfig, spaceId: String, appState: AppState) {
         self.agent = agent
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.messageId = UUID().uuidString
         self.appState = appState
     }
@@ -56,7 +56,7 @@ final class CommandAgentHandler {
         // Insert placeholder message
         let placeholder = Message(
             id: messageId,
-            channelId: channelId,
+            spaceId: spaceId,
             senderId: agent.id,
             senderName: agent.displayName,
             senderType: "agent",
@@ -78,7 +78,7 @@ final class CommandAgentHandler {
 
         let event = CommandAgentEvent(
             type: "mention",
-            channelId: channelId,
+            spaceId: spaceId,
             senderId: senderId,
             senderName: senderName,
             content: triggerContent,
@@ -197,7 +197,7 @@ final class CommandAgentHandler {
                 await MainActor.run {
                     guard let appState = self.appState,
                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                    appState.typingAgentNamesByChannel[self.channelId, default: []].remove(self.agent.displayName)
+                    appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
                     if !appState.messages[idx].content.isEmpty {
                         do {
                             try appState.db.saveMessage(appState.messages[idx])
@@ -214,7 +214,7 @@ final class CommandAgentHandler {
             } catch {
                 NSLog("[Port42] Failed to spawn command agent: %@", error.localizedDescription)
                 await MainActor.run {
-                    self.appState?.typingAgentNamesByChannel[self.channelId, default: []].remove(self.agent.displayName)
+                    self.appState?.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
                     self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
                     self.appState?.activeCommandHandlers.removeValue(forKey: msgId)
                 }
@@ -225,7 +225,7 @@ final class CommandAgentHandler {
     func sendShutdown() {
         let event = CommandAgentEvent(
             type: "shutdown",
-            channelId: nil, senderId: nil, senderName: nil,
+            spaceId: nil, senderId: nil, senderName: nil,
             content: nil, mentionedAgents: nil
         )
         if let data = try? JSONEncoder().encode(event) {

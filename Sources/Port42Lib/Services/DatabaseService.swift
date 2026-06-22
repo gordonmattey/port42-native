@@ -487,6 +487,72 @@ public final class DatabaseService {
             }
         }
 
+        // v34 renames channels→spaces and recreates messages/agentSpaces to drop stale
+        // FK constraints that reference the old "channels" table name. SQLite may not
+        // update inline FK references when foreign_keys is OFF during RENAME TABLE.
+        migrator = migrator.disablingDeferredForeignKeyChecks()
+        migrator.registerMigration("v34-spaces") { db in
+            try db.execute(sql: "ALTER TABLE channels RENAME TO spaces")
+            try db.execute(sql: "ALTER TABLE agentChannels RENAME TO agentSpaces")
+            try db.execute(sql: "ALTER TABLE messages RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE agentSpaces RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE port_panels RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE port_storage RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE input_history RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE companion_positions RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE companion_folds RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE companion_creases RENAME COLUMN channelId TO spaceId")
+            try db.execute(sql: "ALTER TABLE companion_engravings RENAME COLUMN channelId TO spaceId")
+
+            // Recreate messages without the stale REFERENCES channels(...) FK constraint,
+            // and add the topic column in the same pass.
+            try db.execute(sql: """
+                CREATE TABLE messages_new (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    spaceId TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+                    senderId TEXT NOT NULL,
+                    senderName TEXT NOT NULL,
+                    senderType TEXT NOT NULL DEFAULT 'human',
+                    content TEXT NOT NULL,
+                    timestamp DATETIME NOT NULL,
+                    replyToId TEXT,
+                    syncStatus TEXT NOT NULL DEFAULT 'local',
+                    createdAt DATETIME NOT NULL,
+                    senderOwner TEXT,
+                    topic TEXT NOT NULL DEFAULT 'chat'
+                )
+            """)
+            try db.execute(sql: """
+                INSERT INTO messages_new
+                    (id, spaceId, senderId, senderName, senderType,
+                     content, timestamp, replyToId, syncStatus, createdAt, senderOwner)
+                SELECT id, spaceId, senderId, senderName, senderType,
+                       content, timestamp, replyToId, syncStatus, createdAt, senderOwner
+                FROM messages
+            """)
+            try db.execute(sql: "DROP TABLE messages")
+            try db.execute(sql: "ALTER TABLE messages_new RENAME TO messages")
+            try db.execute(sql: "CREATE INDEX idx_messages_channel ON messages (spaceId, timestamp)")
+
+            // Recreate agentSpaces without the stale REFERENCES channels(...) FK constraint.
+            try db.execute(sql: """
+                CREATE TABLE agentSpaces_new (
+                    agentId TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+                    spaceId TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+                    PRIMARY KEY (agentId, spaceId)
+                )
+            """)
+            try db.execute(sql: "INSERT INTO agentSpaces_new SELECT agentId, spaceId FROM agentSpaces")
+            try db.execute(sql: "DROP TABLE agentSpaces")
+            try db.execute(sql: "ALTER TABLE agentSpaces_new RENAME TO agentSpaces")
+
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "portType", .text).notNull().defaults(to: "web")
+                t.add(column: "dockOrder", .integer)
+                t.add(column: "isChatPort", .integer).notNull().defaults(to: 0)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -504,45 +570,45 @@ public final class DatabaseService {
         }
     }
 
-    // MARK: - Channels
+    // MARK: - Spaces
 
-    public func saveChannel(_ channel: Channel) throws {
+    public func saveSpace(_ space: Space) throws {
         try dbQueue.write { db in
-            try channel.save(db)
+            try space.save(db)
         }
     }
 
-    /// Insert or update a channel (used for swim channel creation).
-    public func upsertChannel(_ channel: Channel) throws {
+    /// Insert or update a space (used for swim space creation).
+    public func upsertSpace(_ space: Space) throws {
         try dbQueue.write { db in
-            try channel.upsert(db)
+            try space.upsert(db)
         }
     }
 
-    public func getAllChannels() throws -> [Channel] {
+    public func getAllSpaces() throws -> [Space] {
         try dbQueue.read { db in
-            try Channel.order(Column("createdAt").asc).fetchAll(db)
+            try Space.order(Column("createdAt").asc).fetchAll(db)
         }
     }
 
-    /// Non-swim channels only — use this for appState.channels.
-    public func getRegularChannels() throws -> [Channel] {
+    /// Non-swim spaces only — use this for appState.spaces.
+    public func getRegularSpaces() throws -> [Space] {
         try dbQueue.read { db in
-            try Channel.filter(Column("isSwim") == false)
+            try Space.filter(Column("isSwim") == false)
                 .order(Column("createdAt").asc)
                 .fetchAll(db)
         }
     }
 
-    public func getChannelKey(channelId: String) throws -> String? {
+    public func getSpaceKey(spaceId: String) throws -> String? {
         try dbQueue.read { db in
-            try Channel.fetchOne(db, id: channelId)?.encryptionKey
+            try Space.fetchOne(db, id: spaceId)?.encryptionKey
         }
     }
 
-    public func deleteChannel(id: String) throws {
+    public func deleteSpace(id: String) throws {
         try dbQueue.write { db in
-            _ = try Channel.deleteOne(db, id: id)
+            _ = try Space.deleteOne(db, id: id)
         }
     }
 
@@ -566,55 +632,55 @@ public final class DatabaseService {
         }
     }
 
-    // MARK: - Agent Channel Membership
+    // MARK: - Agent Space Membership
 
-    public func assignAgentToChannel(agentId: String, channelId: String) throws {
+    public func assignAgentToSpace(agentId: String, spaceId: String) throws {
         try dbQueue.write { db in
             try db.execute(
-                sql: "INSERT OR IGNORE INTO agentChannels (agentId, channelId) VALUES (?, ?)",
-                arguments: [agentId, channelId]
+                sql: "INSERT OR IGNORE INTO agentSpaces (agentId, spaceId) VALUES (?, ?)",
+                arguments: [agentId, spaceId]
             )
         }
     }
 
-    public func removeAllChannelsForAgent(_ agentId: String) throws {
+    public func removeAllSpacesForAgent(_ agentId: String) throws {
         try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM agentChannels WHERE agentId = ?", arguments: [agentId])
+            try db.execute(sql: "DELETE FROM agentSpaces WHERE agentId = ?", arguments: [agentId])
         }
     }
 
-    public func removeAgentFromChannel(agentId: String, channelId: String) throws {
+    public func removeAgentFromSpace(agentId: String, spaceId: String) throws {
         try dbQueue.write { db in
             try db.execute(
-                sql: "DELETE FROM agentChannels WHERE agentId = ? AND channelId = ?",
-                arguments: [agentId, channelId]
+                sql: "DELETE FROM agentSpaces WHERE agentId = ? AND spaceId = ?",
+                arguments: [agentId, spaceId]
             )
         }
     }
 
-    public func getAgentsForChannel(channelId: String) throws -> [AgentConfig] {
+    public func getAgentsForSpace(spaceId: String) throws -> [AgentConfig] {
         try dbQueue.read { db in
             try AgentConfig.fetchAll(
                 db,
                 sql: """
                     SELECT a.* FROM agents a
-                    INNER JOIN agentChannels ac ON ac.agentId = a.id
-                    WHERE ac.channelId = ?
+                    INNER JOIN agentSpaces ac ON ac.agentId = a.id
+                    WHERE ac.spaceId = ?
                     ORDER BY a.displayName ASC
                     """,
-                arguments: [channelId]
+                arguments: [spaceId]
             )
         }
     }
 
-    public func getChannelIdsForAgent(agentId: String) throws -> Set<String> {
+    public func getSpaceIdsForAgent(agentId: String) throws -> Set<String> {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(
                 db,
-                sql: "SELECT channelId FROM agentChannels WHERE agentId = ?",
+                sql: "SELECT spaceId FROM agentSpaces WHERE agentId = ?",
                 arguments: [agentId]
             )
-            return Set(rows.map { $0["channelId"] as String })
+            return Set(rows.map { $0["spaceId"] as String })
         }
     }
 
@@ -730,10 +796,10 @@ public final class DatabaseService {
 
     public func resetAll() throws {
         try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM agentChannels")
+            try db.execute(sql: "DELETE FROM agentSpaces")
             try db.execute(sql: "DELETE FROM swimMessages")
             try db.execute(sql: "DELETE FROM messages")
-            try db.execute(sql: "DELETE FROM channels")
+            try db.execute(sql: "DELETE FROM spaces")
             try db.execute(sql: "DELETE FROM agents")
             try db.execute(sql: "DELETE FROM users")
             try db.execute(sql: "DELETE FROM port_storage")
@@ -757,19 +823,19 @@ public final class DatabaseService {
         }
     }
 
-    /// Fetch creases for a companion: channel-scoped + global, most recently touched first.
-    public func fetchCreases(companionId: String, channelId: String?, limit: Int = 8) throws -> [CompanionCrease] {
+    /// Fetch creases for a companion: space-scoped + global, most recently touched first.
+    public func fetchCreases(companionId: String, spaceId: String?, limit: Int = 8) throws -> [CompanionCrease] {
         try dbQueue.read { db in
-            if let cid = channelId {
+            if let sid = spaceId {
                 return try CompanionCrease
                     .filter(Column("companionId") == companionId &&
-                            (Column("channelId") == cid || Column("channelId") == nil))
+                            (Column("spaceId") == sid || Column("spaceId") == nil))
                     .order(Column("touchedAt").desc)
                     .limit(limit)
                     .fetchAll(db)
             } else {
                 return try CompanionCrease
-                    .filter(Column("companionId") == companionId && Column("channelId") == nil)
+                    .filter(Column("companionId") == companionId && Column("spaceId") == nil)
                     .order(Column("touchedAt").desc)
                     .limit(limit)
                     .fetchAll(db)
@@ -812,19 +878,19 @@ public final class DatabaseService {
         }
     }
 
-    /// Fetch engravings for a companion: channel-scoped + global, most recently touched first.
-    public func fetchEngravings(companionId: String, channelId: String?, limit: Int = 8) throws -> [CompanionEngraving] {
+    /// Fetch engravings for a companion: space-scoped + global, most recently touched first.
+    public func fetchEngravings(companionId: String, spaceId: String?, limit: Int = 8) throws -> [CompanionEngraving] {
         try dbQueue.read { db in
-            if let cid = channelId {
+            if let sid = spaceId {
                 return try CompanionEngraving
                     .filter(Column("companionId") == companionId &&
-                            (Column("channelId") == cid || Column("channelId") == nil))
+                            (Column("spaceId") == sid || Column("spaceId") == nil))
                     .order(Column("touchedAt").desc)
                     .limit(limit)
                     .fetchAll(db)
             } else {
                 return try CompanionEngraving
-                    .filter(Column("companionId") == companionId && Column("channelId") == nil)
+                    .filter(Column("companionId") == companionId && Column("spaceId") == nil)
                     .order(Column("touchedAt").desc)
                     .limit(limit)
                     .fetchAll(db)
@@ -860,21 +926,21 @@ public final class DatabaseService {
 
     // MARK: - Companion Folds
 
-    public func fetchFold(companionId: String, channelId: String) throws -> CompanionFold? {
+    public func fetchFold(companionId: String, spaceId: String) throws -> CompanionFold? {
         try dbQueue.read { db in
             try CompanionFold
-                .filter(Column("companionId") == companionId && Column("channelId") == channelId)
+                .filter(Column("companionId") == companionId && Column("spaceId") == spaceId)
                 .fetchOne(db)
         }
     }
 
-    /// Upsert fold state for a companion×channel pair.
+    /// Upsert fold state for a companion×space pair.
     public func saveFold(_ fold: CompanionFold) throws {
         var fold = fold
         try dbQueue.write { db in
             // Check for existing fold
             if var existing = try CompanionFold
-                .filter(Column("companionId") == fold.companionId && Column("channelId") == fold.channelId)
+                .filter(Column("companionId") == fold.companionId && Column("spaceId") == fold.spaceId)
                 .fetchOne(db) {
                 existing.established = fold.established
                 existing.tensions = fold.tensions
@@ -900,20 +966,20 @@ public final class DatabaseService {
 
     // MARK: - Companion Positions
 
-    public func fetchPosition(companionId: String, channelId: String) throws -> CompanionPosition? {
+    public func fetchPosition(companionId: String, spaceId: String) throws -> CompanionPosition? {
         try dbQueue.read { db in
             try CompanionPosition
-                .filter(Column("companionId") == companionId && Column("channelId") == channelId)
+                .filter(Column("companionId") == companionId && Column("spaceId") == spaceId)
                 .fetchOne(db)
         }
     }
 
-    /// Upsert position for a companion×channel pair.
+    /// Upsert position for a companion×space pair.
     public func savePosition(_ position: CompanionPosition) throws {
         var position = position
         try dbQueue.write { db in
             if var existing = try CompanionPosition
-                .filter(Column("companionId") == position.companionId && Column("channelId") == position.channelId)
+                .filter(Column("companionId") == position.companionId && Column("spaceId") == position.spaceId)
                 .fetchOne(db) {
                 existing.read = position.read
                 existing.stance = position.stance
@@ -978,39 +1044,39 @@ public final class DatabaseService {
         }
     }
 
-    /// Mark all messages from a sender in a channel as read
-    public func markMessagesAsRead(channelId: String, bySenderId: String) throws {
+    /// Mark all messages from a sender in a space as read
+    public func markMessagesAsRead(spaceId: String, bySenderId: String) throws {
         try dbQueue.write { db in
             try db.execute(
-                sql: "UPDATE messages SET syncStatus = 'read' WHERE channelId = ? AND senderId = ? AND syncStatus IN ('local', 'synced', 'delivered')",
-                arguments: [channelId, bySenderId]
+                sql: "UPDATE messages SET syncStatus = 'read' WHERE spaceId = ? AND senderId = ? AND syncStatus IN ('local', 'synced', 'delivered')",
+                arguments: [spaceId, bySenderId]
             )
         }
     }
 
-    public func getMessages(channelId: String) throws -> [Message] {
+    public func getMessages(spaceId: String) throws -> [Message] {
         try dbQueue.read { db in
             try Message
-                .filter(Column("channelId") == channelId)
+                .filter(Column("spaceId") == spaceId)
                 .order(Column("timestamp").asc)
                 .fetchAll(db)
         }
     }
 
-    /// Returns distinct sender names for a channel (unique posters)
-    public func getUniqueSenders(channelId: String) throws -> [String] {
+    /// Returns distinct sender names for a space (unique posters)
+    public func getUniqueSenders(spaceId: String) throws -> [String] {
         try dbQueue.read { db in
             try String.fetchAll(db, sql: """
                 SELECT DISTINCT senderName FROM messages
-                WHERE channelId = ? AND senderType != 'system'
+                WHERE spaceId = ? AND senderType != 'system'
                 ORDER BY senderName
-                """, arguments: [channelId])
+                """, arguments: [spaceId])
         }
     }
 
-    /// Returns distinct channel members with type and owner info.
+    /// Returns distinct space members with type and owner info.
     /// Only includes actual message senders (human/agent), not system messages.
-    public func getChannelMembers(channelId: String) throws -> [ChannelMember] {
+    public func getSpaceMembers(spaceId: String) throws -> [SpaceMember] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT senderId,
@@ -1018,13 +1084,13 @@ public final class DatabaseService {
                        MAX(senderType) as memberType,
                        MAX(senderOwner) as senderOwner
                 FROM messages
-                WHERE channelId = ?
+                WHERE spaceId = ?
                   AND senderType != 'system'
                 GROUP BY senderId
                 ORDER BY MAX(senderType) ASC, MAX(senderName) ASC
-                """, arguments: [channelId])
+                """, arguments: [spaceId])
             return rows.map { row in
-                ChannelMember(
+                SpaceMember(
                     senderId: row["senderId"],
                     name: row["senderName"],
                     type: row["memberType"],
@@ -1034,8 +1100,8 @@ public final class DatabaseService {
         }
     }
 
-    /// Returns distinct remote human senders across all channels (excluding the local user).
-    public func getKnownFriends(excludingUserId: String) throws -> [ChannelMember] {
+    /// Returns distinct remote human senders across all spaces (excluding the local user).
+    public func getKnownFriends(excludingUserId: String) throws -> [SpaceMember] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT senderId,
@@ -1048,7 +1114,7 @@ public final class DatabaseService {
                 ORDER BY MAX(senderName) ASC
                 """, arguments: [excludingUserId])
             return rows.map { row in
-                ChannelMember(
+                SpaceMember(
                     senderId: row["senderId"],
                     name: row["senderName"],
                     type: "human",
@@ -1058,26 +1124,26 @@ public final class DatabaseService {
         }
     }
 
-    /// Returns the timestamp of the most recent message in a channel, or nil if empty.
-    public func getLastMessageTime(channelId: String) throws -> Date? {
+    /// Returns the timestamp of the most recent message in a space, or nil if empty.
+    public func getLastMessageTime(spaceId: String) throws -> Date? {
         try dbQueue.read { db in
             try Date.fetchOne(db, sql: """
                 SELECT MAX(timestamp) FROM messages
-                WHERE channelId = ? AND senderType != 'system'
-                """, arguments: [channelId])
+                WHERE spaceId = ? AND senderType != 'system'
+                """, arguments: [spaceId])
         }
     }
 
     /// Returns the timestamp of the most recent swim message for a companion.
     public func getLastSwimTime(companionId: String) throws -> Date? {
-        try getLastMessageTime(channelId: "swim-\(companionId)")
+        try getLastMessageTime(spaceId: "swim-\(companionId)")
     }
 
-    /// Find an existing DM channel for a specific remote user, or nil if none exists.
-    public func getDMChannel(friendId: String) throws -> Channel? {
+    /// Find an existing DM space for a specific remote user, or nil if none exists.
+    public func getDMSpace(friendId: String) throws -> Space? {
         try dbQueue.read { db in
-            try Channel.fetchOne(db, sql: """
-                SELECT * FROM channels
+            try Space.fetchOne(db, sql: """
+                SELECT * FROM spaces
                 WHERE type = 'dm' AND id = ?
                 """, arguments: ["dm-\(friendId)"])
         }
@@ -1085,28 +1151,28 @@ public final class DatabaseService {
 
     // MARK: - Observations
 
-    public func observeChannels(
-        onChange: @escaping ([Channel]) -> Void
+    public func observeSpaces(
+        onChange: @escaping ([Space]) -> Void
     ) -> AnyDatabaseCancellable {
         ValueObservation
             .tracking { db in
-                try Channel.filter(Column("isSwim") == false)
+                try Space.filter(Column("isSwim") == false)
                     .order(Column("createdAt").asc)
                     .fetchAll(db)
             }
             .start(in: dbQueue, onError: { error in
-                print("[Port42] Channel observation error: \(error)")
+                print("[Port42] Space observation error: \(error)")
             }, onChange: onChange)
     }
 
     public func observeMessages(
-        channelId: String,
+        spaceId: String,
         onChange: @escaping ([Message]) -> Void
     ) -> AnyDatabaseCancellable {
         ValueObservation
             .tracking { db in
                 try Message
-                    .filter(Column("channelId") == channelId)
+                    .filter(Column("spaceId") == spaceId)
                     .order(Column("timestamp").asc)
                     .fetchAll(db)
             }
@@ -1116,23 +1182,23 @@ public final class DatabaseService {
     }
 
     public func observeUnreadCounts(
-        excludingChannelId: String?,
+        excludingSpaceId: String?,
         since: [String: Date],
         onChange: @escaping ([String: Int]) -> Void
     ) -> AnyDatabaseCancellable {
         ValueObservation
             .tracking { db in
-                let channels = try Channel.fetchAll(db)
+                let spaces = try Space.fetchAll(db)
                 var counts: [String: Int] = [:]
-                for channel in channels {
-                    if channel.id == excludingChannelId { continue }
-                    let lastRead = since[channel.id] ?? Date.distantPast
+                for space in spaces {
+                    if space.id == excludingSpaceId { continue }
+                    let lastRead = since[space.id] ?? Date.distantPast
                     let count = try Message
-                        .filter(Column("channelId") == channel.id)
+                        .filter(Column("spaceId") == space.id)
                         .filter(Column("timestamp") > lastRead)
                         .fetchCount(db)
                     if count > 0 {
-                        counts[channel.id] = count
+                        counts[space.id] = count
                     }
                 }
                 return counts
@@ -1144,14 +1210,14 @@ public final class DatabaseService {
 
     // MARK: - Port Storage
 
-    /// scope is the channelId for channel-scoped storage, or "__global__" for global scope
+    /// scope is the spaceId for space-scoped storage, or "__global__" for global scope
     public func setPortStorage(key: String, value: String, scope: String, creatorId: String) throws {
         try dbQueue.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO port_storage (portKey, channelId, creatorId, value, updatedAt)
+                    INSERT INTO port_storage (portKey, spaceId, creatorId, value, updatedAt)
                     VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT (portKey, channelId, creatorId)
+                    ON CONFLICT (portKey, spaceId, creatorId)
                     DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt
                     """,
                 arguments: [key, scope, creatorId, value, Date()]
@@ -1163,7 +1229,7 @@ public final class DatabaseService {
         try dbQueue.read { db in
             try String.fetchOne(db, sql: """
                 SELECT value FROM port_storage
-                WHERE portKey = ? AND channelId = ? AND creatorId = ?
+                WHERE portKey = ? AND spaceId = ? AND creatorId = ?
                 """,
                 arguments: [key, scope, creatorId]
             )
@@ -1173,7 +1239,7 @@ public final class DatabaseService {
     public func deletePortStorage(key: String, scope: String, creatorId: String) throws {
         try dbQueue.write { db in
             try db.execute(
-                sql: "DELETE FROM port_storage WHERE portKey = ? AND channelId = ? AND creatorId = ?",
+                sql: "DELETE FROM port_storage WHERE portKey = ? AND spaceId = ? AND creatorId = ?",
                 arguments: [key, scope, creatorId]
             )
         }
@@ -1183,7 +1249,7 @@ public final class DatabaseService {
         try dbQueue.read { db in
             try String.fetchAll(db, sql: """
                 SELECT portKey FROM port_storage
-                WHERE channelId = ? AND creatorId = ?
+                WHERE spaceId = ? AND creatorId = ?
                 ORDER BY portKey
                 """,
                 arguments: [scope, creatorId]
@@ -1280,36 +1346,36 @@ public final class DatabaseService {
     // MARK: - Input History
 
     /// Append a sent message to input history for a channel. Caps at 100 per channel.
-    public func appendInputHistory(channelId: String, content: String) throws {
+    public func appendInputHistory(spaceId: String, content: String) throws {
         try dbQueue.write { db in
             try db.execute(
-                sql: "INSERT INTO input_history (channelId, content, createdAt) VALUES (?, ?, ?)",
-                arguments: [channelId, content, Date()]
+                sql: "INSERT INTO input_history (spaceId, content, createdAt) VALUES (?, ?, ?)",
+                arguments: [spaceId, content, Date()]
             )
-            // Keep only the most recent 100 entries per channel
+            // Keep only the most recent 100 entries per space
             try db.execute(
                 sql: """
                     DELETE FROM input_history WHERE id IN (
                         SELECT id FROM input_history
-                        WHERE channelId = ?
+                        WHERE spaceId = ?
                         ORDER BY createdAt DESC
                         LIMIT -1 OFFSET 100
                     )
                     """,
-                arguments: [channelId]
+                arguments: [spaceId]
             )
         }
     }
 
-    /// Fetch input history for a channel, newest first.
-    public func fetchInputHistory(channelId: String) throws -> [String] {
+    /// Fetch input history for a space, newest first.
+    public func fetchInputHistory(spaceId: String) throws -> [String] {
         try dbQueue.read { db in
             try String.fetchAll(db, sql: """
                 SELECT content FROM input_history
-                WHERE channelId = ?
+                WHERE spaceId = ?
                 ORDER BY createdAt DESC
                 """,
-                arguments: [channelId]
+                arguments: [spaceId]
             )
         }
     }
@@ -1350,7 +1416,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var id: String
     public var udid: String?
     public var html: String
-    public var channelId: String?
+    public var spaceId: String?
     public var createdBy: String?
     public var messageId: String?
     public var title: String
@@ -1364,13 +1430,16 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var grantedPermissions: String?
     public var userTitle: String?
     public var capabilities: String?
+    public var portType: String
+    public var dockOrder: Int?
+    public var isChatPort: Bool
     public var createdAt: Date
 
     public init(from panel: PortPanel) {
         self.id = panel.id
         self.udid = panel.udid
         self.html = panel.html
-        self.channelId = panel.channelId
+        self.spaceId = panel.spaceId
         self.createdBy = panel.createdBy
         self.messageId = panel.messageId
         self.title = panel.title
@@ -1389,6 +1458,9 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
            let str = String(data: json, encoding: .utf8) {
             self.capabilities = str
         }
+        self.portType = "web"
+        self.dockOrder = nil
+        self.isChatPort = false
         self.createdAt = Date()
     }
 }

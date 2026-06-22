@@ -6,15 +6,15 @@ import Foundation
 struct CLIIdentityTests {
 
     @MainActor
-    func makeStateReady() throws -> (AppState, Channel) {
+    func makeStateReady() throws -> (AppState, Space) {
         let db = try DatabaseService(inMemory: true)
         let state = AppState(db: db)
         let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
         state.currentUser = user
         state.completeSetup(displayName: "Gordon")
-        let channel = state.channels.first { !$0.isSwim }!
-        state.selectChannel(channel)
+        let channel = state.spaces.first { !$0.isSwim }!
+        state.selectSpace(channel)
         return (state, channel)
     }
 
@@ -25,9 +25,9 @@ struct CLIIdentityTests {
     func namedAgentMessageAttribution() throws {
         let (state, channel) = try makeStateReady()
 
-        state.sendMessageAsNamedAgent(content: "hello from bot", senderName: "test-bot", toChannelId: channel.id)
+        state.sendMessageAsNamedAgent(content: "hello from bot", senderName: "test-bot", toSpaceId: channel.id)
 
-        let messages = try state.db.getMessages(channelId: channel.id)
+        let messages = try state.db.getMessages(spaceId: channel.id)
         let botMsg = messages.first { $0.senderName == "test-bot" }
         #expect(botMsg != nil)
         #expect(botMsg?.senderName == "test-bot")
@@ -41,10 +41,10 @@ struct CLIIdentityTests {
     func namedAgentStableSenderId() throws {
         let (state, channel) = try makeStateReady()
 
-        state.sendMessageAsNamedAgent(content: "msg 1", senderName: "my-agent", toChannelId: channel.id)
-        state.sendMessageAsNamedAgent(content: "msg 2", senderName: "my-agent", toChannelId: channel.id)
+        state.sendMessageAsNamedAgent(content: "msg 1", senderName: "my-agent", toSpaceId: channel.id)
+        state.sendMessageAsNamedAgent(content: "msg 2", senderName: "my-agent", toSpaceId: channel.id)
 
-        let messages = try state.db.getMessages(channelId: channel.id).filter { $0.senderName == "my-agent" }
+        let messages = try state.db.getMessages(spaceId: channel.id).filter { $0.senderName == "my-agent" }
         #expect(messages.count == 2)
         // Both messages should have the same derived sender ID
         #expect(messages[0].senderId == messages[1].senderId)
@@ -54,11 +54,11 @@ struct CLIIdentityTests {
     @MainActor
     func namedAgentEmptyContentIgnored() throws {
         let (state, channel) = try makeStateReady()
-        let before = try state.db.getMessages(channelId: channel.id).count
+        let before = try state.db.getMessages(spaceId: channel.id).count
 
-        state.sendMessageAsNamedAgent(content: "   ", senderName: "bot", toChannelId: channel.id)
+        state.sendMessageAsNamedAgent(content: "   ", senderName: "bot", toSpaceId: channel.id)
 
-        let after = try state.db.getMessages(channelId: channel.id).count
+        let after = try state.db.getMessages(spaceId: channel.id).count
         #expect(after == before)
     }
 
@@ -68,7 +68,7 @@ struct CLIIdentityTests {
         let (state, _) = try makeStateReady()
 
         // Should not crash, just silently drop
-        state.sendMessageAsNamedAgent(content: "hello", senderName: "bot", toChannelId: "nonexistent-channel-id")
+        state.sendMessageAsNamedAgent(content: "hello", senderName: "bot", toSpaceId: "nonexistent-channel-id")
     }
 
     // MARK: - #9 stale presence eviction in SyncService

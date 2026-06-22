@@ -16,19 +16,19 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         let crease = CompanionCrease(
             companionId: "companion-1",
-            channelId: "channel-1",
+            spaceId: "channel-1",
             content: "I expected the technical path and they went to the cipher instead.",
             prediction: "technical path",
             actual: "cipher"
         )
         try db.saveCrease(crease)
 
-        let fetched = try db.fetchCreases(companionId: "companion-1", channelId: "channel-1")
+        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: "channel-1")
         #expect(fetched.count == 1)
         #expect(fetched[0].content == crease.content)
         #expect(fetched[0].prediction == "technical path")
         #expect(fetched[0].actual == "cipher")
-        #expect(fetched[0].channelId == "channel-1")
+        #expect(fetched[0].spaceId == "channel-1")
         #expect(fetched[0].weight == 1.0)
     }
 
@@ -37,18 +37,18 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         let global = CompanionCrease(
             companionId: "companion-1",
-            channelId: nil,
+            spaceId: nil,
             content: "Assumed speed was the goal. The goal is aliveness."
         )
         let scoped = CompanionCrease(
             companionId: "companion-1",
-            channelId: "channel-1",
+            spaceId: "channel-1",
             content: "Expected cautious; got oblique."
         )
         try db.saveCrease(global)
         try db.saveCrease(scoped)
 
-        let fetched = try db.fetchCreases(companionId: "companion-1", channelId: "channel-1")
+        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: "channel-1")
         #expect(fetched.count == 2)
         let ids = Set(fetched.map { $0.id })
         #expect(ids.contains(global.id))
@@ -58,12 +58,12 @@ struct CompanionRelationshipTests {
     @Test("Fetching only global creases (nil channelId) excludes channel-scoped")
     func fetchOnlyGlobalCreases() throws {
         let db = try makeDB()
-        let global = CompanionCrease(companionId: "companion-1", channelId: nil, content: "global crease")
-        let scoped = CompanionCrease(companionId: "companion-1", channelId: "channel-1", content: "scoped crease")
+        let global = CompanionCrease(companionId: "companion-1", spaceId: nil, content: "global crease")
+        let scoped = CompanionCrease(companionId: "companion-1", spaceId: "channel-1", content: "scoped crease")
         try db.saveCrease(global)
         try db.saveCrease(scoped)
 
-        let fetched = try db.fetchCreases(companionId: "companion-1", channelId: nil)
+        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: nil)
         #expect(fetched.count == 1)
         #expect(fetched[0].id == global.id)
     }
@@ -71,11 +71,11 @@ struct CompanionRelationshipTests {
     @Test("Creases from other companions are not returned")
     func creasesIsolatedByCompanion() throws {
         let db = try makeDB()
-        try db.saveCrease(CompanionCrease(companionId: "companion-1", channelId: "ch", content: "c1"))
-        try db.saveCrease(CompanionCrease(companionId: "companion-2", channelId: "ch", content: "c2"))
+        try db.saveCrease(CompanionCrease(companionId: "companion-1", spaceId: "ch", content: "c1"))
+        try db.saveCrease(CompanionCrease(companionId: "companion-2", spaceId: "ch", content: "c2"))
 
-        let c1 = try db.fetchCreases(companionId: "companion-1", channelId: "ch")
-        let c2 = try db.fetchCreases(companionId: "companion-2", channelId: "ch")
+        let c1 = try db.fetchCreases(companionId: "companion-1", spaceId: "ch")
+        let c2 = try db.fetchCreases(companionId: "companion-2", spaceId: "ch")
         #expect(c1.count == 1)
         #expect(c2.count == 1)
         #expect(c1[0].content == "c1")
@@ -87,12 +87,12 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         for i in 0..<10 {
             try db.saveCrease(CompanionCrease(
-                companionId: "c", channelId: "ch",
+                companionId: "c", spaceId: "ch",
                 content: "crease \(i)",
                 touchedAt: Date(timeIntervalSince1970: Double(i))
             ))
         }
-        let fetched = try db.fetchCreases(companionId: "c", channelId: "ch", limit: 3)
+        let fetched = try db.fetchCreases(companionId: "c", spaceId: "ch", limit: 3)
         #expect(fetched.count == 3)
     }
 
@@ -100,17 +100,17 @@ struct CompanionRelationshipTests {
     func creasesOrderedByTouchedAt() throws {
         let db = try makeDB()
         let older = CompanionCrease(
-            companionId: "c", channelId: "ch", content: "older",
+            companionId: "c", spaceId: "ch", content: "older",
             touchedAt: Date(timeIntervalSince1970: 1000)
         )
         let newer = CompanionCrease(
-            companionId: "c", channelId: "ch", content: "newer",
+            companionId: "c", spaceId: "ch", content: "newer",
             touchedAt: Date(timeIntervalSince1970: 2000)
         )
         try db.saveCrease(older)
         try db.saveCrease(newer)
 
-        let fetched = try db.fetchCreases(companionId: "c", channelId: "ch")
+        let fetched = try db.fetchCreases(companionId: "c", spaceId: "ch")
         #expect(fetched[0].content == "newer")
         #expect(fetched[1].content == "older")
     }
@@ -121,7 +121,7 @@ struct CompanionRelationshipTests {
     func touchCrease() throws {
         let db = try makeDB()
         let crease = CompanionCrease(
-            companionId: "c", channelId: "ch", content: "a crease",
+            companionId: "c", spaceId: "ch", content: "a crease",
             weight: 1.0,
             touchedAt: Date(timeIntervalSince1970: 1000)
         )
@@ -129,7 +129,7 @@ struct CompanionRelationshipTests {
 
         try db.touchCrease(id: crease.id)
 
-        let fetched = try db.fetchCreases(companionId: "c", channelId: "ch")
+        let fetched = try db.fetchCreases(companionId: "c", spaceId: "ch")
         #expect(fetched[0].weight > 1.0)
         #expect(fetched[0].touchedAt > Date(timeIntervalSince1970: 1000))
     }
@@ -137,24 +137,24 @@ struct CompanionRelationshipTests {
     @Test("deleteCrease removes the entry")
     func deleteCrease() throws {
         let db = try makeDB()
-        let crease = CompanionCrease(companionId: "c", channelId: "ch", content: "to forget")
+        let crease = CompanionCrease(companionId: "c", spaceId: "ch", content: "to forget")
         try db.saveCrease(crease)
-        #expect(try db.fetchCreases(companionId: "c", channelId: "ch").count == 1)
+        #expect(try db.fetchCreases(companionId: "c", spaceId: "ch").count == 1)
 
         try db.deleteCrease(id: crease.id)
-        #expect(try db.fetchCreases(companionId: "c", channelId: "ch").isEmpty)
+        #expect(try db.fetchCreases(companionId: "c", spaceId: "ch").isEmpty)
     }
 
     @Test("deleteCreasesForCompanion removes all creases for that companion only")
     func deleteCreasesForCompanion() throws {
         let db = try makeDB()
-        try db.saveCrease(CompanionCrease(companionId: "c1", channelId: "ch", content: "c1 crease"))
-        try db.saveCrease(CompanionCrease(companionId: "c2", channelId: "ch", content: "c2 crease"))
+        try db.saveCrease(CompanionCrease(companionId: "c1", spaceId: "ch", content: "c1 crease"))
+        try db.saveCrease(CompanionCrease(companionId: "c2", spaceId: "ch", content: "c2 crease"))
 
         try db.deleteCreasesForCompanion("c1")
 
-        #expect(try db.fetchCreases(companionId: "c1", channelId: "ch").isEmpty)
-        #expect(try db.fetchCreases(companionId: "c2", channelId: "ch").count == 1)
+        #expect(try db.fetchCreases(companionId: "c1", spaceId: "ch").isEmpty)
+        #expect(try db.fetchCreases(companionId: "c2", spaceId: "ch").count == 1)
     }
 
     // MARK: - Folds: basic persistence
@@ -164,7 +164,7 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         let fold = CompanionFold(
             companionId: "c1",
-            channelId: "ch1",
+            spaceId: "ch1",
             established: ["technical and oblique are not opposites here"],
             tensions: ["the question of what alive means architecturally"],
             holding: "something about the cipher that hasn't found its place",
@@ -172,7 +172,7 @@ struct CompanionRelationshipTests {
         )
         try db.saveFold(fold)
 
-        let fetched = try db.fetchFold(companionId: "c1", channelId: "ch1")
+        let fetched = try db.fetchFold(companionId: "c1", spaceId: "ch1")
         #expect(fetched != nil)
         #expect(fetched?.established == ["technical and oblique are not opposites here"])
         #expect(fetched?.tensions == ["the question of what alive means architecturally"])
@@ -183,21 +183,21 @@ struct CompanionRelationshipTests {
     @Test("fetchFold returns nil when no fold exists")
     func fetchFoldMissing() throws {
         let db = try makeDB()
-        let result = try db.fetchFold(companionId: "nobody", channelId: "nowhere")
+        let result = try db.fetchFold(companionId: "nobody", spaceId: "nowhere")
         #expect(result == nil)
     }
 
     @Test("saveFold upserts — second save updates the existing row")
     func saveFoldUpserts() throws {
         let db = try makeDB()
-        var fold = CompanionFold(companionId: "c1", channelId: "ch1", depth: 1)
+        var fold = CompanionFold(companionId: "c1", spaceId: "ch1", depth: 1)
         try db.saveFold(fold)
 
         fold.depth = 2
         fold.holding = "now holding something"
         try db.saveFold(fold)
 
-        let fetched = try db.fetchFold(companionId: "c1", channelId: "ch1")
+        let fetched = try db.fetchFold(companionId: "c1", spaceId: "ch1")
         #expect(fetched?.depth == 2)
         #expect(fetched?.holding == "now holding something")
 
@@ -205,29 +205,29 @@ struct CompanionRelationshipTests {
         let db2 = try makeDB()
         try db2.saveFold(fold)
         // Re-fetch and confirm single record behaviour (no duplicate)
-        let second = try db.fetchFold(companionId: "c1", channelId: "ch1")
+        let second = try db.fetchFold(companionId: "c1", spaceId: "ch1")
         #expect(second?.depth == 2)
     }
 
     @Test("Fold depth cannot go below zero via deleteFoldsForCompanion")
     func deleteFoldsForCompanion() throws {
         let db = try makeDB()
-        try db.saveFold(CompanionFold(companionId: "c1", channelId: "ch1", depth: 4))
-        try db.saveFold(CompanionFold(companionId: "c2", channelId: "ch1", depth: 2))
+        try db.saveFold(CompanionFold(companionId: "c1", spaceId: "ch1", depth: 4))
+        try db.saveFold(CompanionFold(companionId: "c2", spaceId: "ch1", depth: 2))
 
         try db.deleteFoldsForCompanion("c1")
 
-        #expect(try db.fetchFold(companionId: "c1", channelId: "ch1") == nil)
-        #expect(try db.fetchFold(companionId: "c2", channelId: "ch1") != nil)
+        #expect(try db.fetchFold(companionId: "c1", spaceId: "ch1") == nil)
+        #expect(try db.fetchFold(companionId: "c2", spaceId: "ch1") != nil)
     }
 
     @Test("Fold with nil arrays round-trips correctly")
     func foldNilArraysRoundTrip() throws {
         let db = try makeDB()
-        let fold = CompanionFold(companionId: "c", channelId: "ch")
+        let fold = CompanionFold(companionId: "c", spaceId: "ch")
         try db.saveFold(fold)
 
-        let fetched = try db.fetchFold(companionId: "c", channelId: "ch")
+        let fetched = try db.fetchFold(companionId: "c", spaceId: "ch")
         #expect(fetched?.established == nil)
         #expect(fetched?.tensions == nil)
         #expect(fetched?.holding == nil)
@@ -239,7 +239,7 @@ struct CompanionRelationshipTests {
     @Test("CompanionCrease.asPromptText includes prediction and actual when set")
     func creasePromptTextWithPredictionAndActual() {
         let crease = CompanionCrease(
-            companionId: "c", channelId: nil,
+            companionId: "c", spaceId: nil,
             content: "something reformed",
             prediction: "what I expected",
             actual: "what happened"
@@ -252,14 +252,14 @@ struct CompanionRelationshipTests {
 
     @Test("CompanionCrease.asPromptText works with content only")
     func creasePromptTextContentOnly() {
-        let crease = CompanionCrease(companionId: "c", channelId: nil, content: "just the break")
+        let crease = CompanionCrease(companionId: "c", spaceId: nil, content: "just the break")
         #expect(crease.asPromptText() == "just the break")
     }
 
     @Test("CompanionFold.asPromptText includes depth")
     func foldPromptTextIncludesDepth() {
         let fold = CompanionFold(
-            companionId: "c", channelId: "ch",
+            companionId: "c", spaceId: "ch",
             established: ["shared grammar"],
             depth: 5
         )
@@ -275,14 +275,14 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         let pos = CompanionPosition(
             companionId: "c1",
-            channelId: "ch1",
+            spaceId: "ch1",
             read: "this project is scope-creeping and nobody's naming it",
             stance: "someone needs to name the constraint",
             watching: ["another feature request", "timeline slipping again"]
         )
         try db.savePosition(pos)
 
-        let fetched = try db.fetchPosition(companionId: "c1", channelId: "ch1")
+        let fetched = try db.fetchPosition(companionId: "c1", spaceId: "ch1")
         #expect(fetched != nil)
         #expect(fetched?.read == "this project is scope-creeping and nobody's naming it")
         #expect(fetched?.stance == "someone needs to name the constraint")
@@ -292,21 +292,21 @@ struct CompanionRelationshipTests {
     @Test("fetchPosition returns nil when no position exists")
     func fetchPositionMissing() throws {
         let db = try makeDB()
-        let result = try db.fetchPosition(companionId: "nobody", channelId: "nowhere")
+        let result = try db.fetchPosition(companionId: "nobody", spaceId: "nowhere")
         #expect(result == nil)
     }
 
     @Test("savePosition upserts — second save updates the existing row")
     func savePositionUpserts() throws {
         let db = try makeDB()
-        var pos = CompanionPosition(companionId: "c1", channelId: "ch1", read: "first read")
+        var pos = CompanionPosition(companionId: "c1", spaceId: "ch1", read: "first read")
         try db.savePosition(pos)
 
         pos.read = "updated read"
         pos.stance = "new stance"
         try db.savePosition(pos)
 
-        let fetched = try db.fetchPosition(companionId: "c1", channelId: "ch1")
+        let fetched = try db.fetchPosition(companionId: "c1", spaceId: "ch1")
         #expect(fetched?.read == "updated read")
         #expect(fetched?.stance == "new stance")
     }
@@ -314,11 +314,11 @@ struct CompanionRelationshipTests {
     @Test("Positions are isolated by companion")
     func positionsIsolatedByCompanion() throws {
         let db = try makeDB()
-        try db.savePosition(CompanionPosition(companionId: "c1", channelId: "ch", read: "c1 read"))
-        try db.savePosition(CompanionPosition(companionId: "c2", channelId: "ch", read: "c2 read"))
+        try db.savePosition(CompanionPosition(companionId: "c1", spaceId: "ch", read: "c1 read"))
+        try db.savePosition(CompanionPosition(companionId: "c2", spaceId: "ch", read: "c2 read"))
 
-        let p1 = try db.fetchPosition(companionId: "c1", channelId: "ch")
-        let p2 = try db.fetchPosition(companionId: "c2", channelId: "ch")
+        let p1 = try db.fetchPosition(companionId: "c1", spaceId: "ch")
+        let p2 = try db.fetchPosition(companionId: "c2", spaceId: "ch")
         #expect(p1?.read == "c1 read")
         #expect(p2?.read == "c2 read")
     }
@@ -326,22 +326,22 @@ struct CompanionRelationshipTests {
     @Test("deletePositionsForCompanion removes only that companion's positions")
     func deletePositionsForCompanion() throws {
         let db = try makeDB()
-        try db.savePosition(CompanionPosition(companionId: "c1", channelId: "ch", read: "c1"))
-        try db.savePosition(CompanionPosition(companionId: "c2", channelId: "ch", read: "c2"))
+        try db.savePosition(CompanionPosition(companionId: "c1", spaceId: "ch", read: "c1"))
+        try db.savePosition(CompanionPosition(companionId: "c2", spaceId: "ch", read: "c2"))
 
         try db.deletePositionsForCompanion("c1")
 
-        #expect(try db.fetchPosition(companionId: "c1", channelId: "ch") == nil)
-        #expect(try db.fetchPosition(companionId: "c2", channelId: "ch") != nil)
+        #expect(try db.fetchPosition(companionId: "c1", spaceId: "ch") == nil)
+        #expect(try db.fetchPosition(companionId: "c2", spaceId: "ch") != nil)
     }
 
     @Test("Position with nil watching round-trips correctly")
     func positionNilWatchingRoundTrip() throws {
         let db = try makeDB()
-        let pos = CompanionPosition(companionId: "c", channelId: "ch", read: "something is happening")
+        let pos = CompanionPosition(companionId: "c", spaceId: "ch", read: "something is happening")
         try db.savePosition(pos)
 
-        let fetched = try db.fetchPosition(companionId: "c", channelId: "ch")
+        let fetched = try db.fetchPosition(companionId: "c", spaceId: "ch")
         #expect(fetched?.watching == nil)
         #expect(fetched?.stance == nil)
     }
@@ -350,20 +350,20 @@ struct CompanionRelationshipTests {
 
     @Test("CompanionPosition.isEmpty is true when no fields set")
     func positionIsEmpty() {
-        let pos = CompanionPosition(companionId: "c", channelId: "ch")
+        let pos = CompanionPosition(companionId: "c", spaceId: "ch")
         #expect(pos.isEmpty)
     }
 
     @Test("CompanionPosition.isEmpty is false when read is set")
     func positionNotEmpty() {
-        let pos = CompanionPosition(companionId: "c", channelId: "ch", read: "something is happening")
+        let pos = CompanionPosition(companionId: "c", spaceId: "ch", read: "something is happening")
         #expect(!pos.isEmpty)
     }
 
     @Test("CompanionPosition.asPromptText includes all non-nil fields")
     func positionPromptText() {
         let pos = CompanionPosition(
-            companionId: "c", channelId: "ch",
+            companionId: "c", spaceId: "ch",
             read: "prioritising speed but the real constraint is clarity",
             stance: "name the constraint",
             watching: ["another fast feature request"]
@@ -379,7 +379,7 @@ struct CompanionRelationshipTests {
 
     @Test("CompanionPosition.asPromptText omits missing fields")
     func positionPromptTextOmitsMissing() {
-        let pos = CompanionPosition(companionId: "c", channelId: "ch", read: "just the read")
+        let pos = CompanionPosition(companionId: "c", spaceId: "ch", read: "just the read")
         let text = pos.asPromptText()
         #expect(text.contains("Read:"))
         #expect(!text.contains("Stance:"))
@@ -393,17 +393,17 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         let engraving = CompanionEngraving(
             companionId: "companion-1",
-            channelId: "channel-1",
+            spaceId: "channel-1",
             content: "6 weeks to ship, solo engineer, can't break backwards compat.",
             category: "constraint"
         )
         try db.saveEngraving(engraving)
 
-        let fetched = try db.fetchEngravings(companionId: "companion-1", channelId: "channel-1")
+        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: "channel-1")
         #expect(fetched.count == 1)
         #expect(fetched[0].content == engraving.content)
         #expect(fetched[0].category == "constraint")
-        #expect(fetched[0].channelId == "channel-1")
+        #expect(fetched[0].spaceId == "channel-1")
         #expect(fetched[0].weight == 1.0)
     }
 
@@ -412,20 +412,20 @@ struct CompanionRelationshipTests {
         let db = try makeDB()
         let global = CompanionEngraving(
             companionId: "companion-1",
-            channelId: nil,
+            spaceId: nil,
             content: "Prefers async communication over meetings.",
             category: "preference"
         )
         let scoped = CompanionEngraving(
             companionId: "companion-1",
-            channelId: "channel-1",
+            spaceId: "channel-1",
             content: "Running a startup with 3 engineers.",
             category: "context"
         )
         try db.saveEngraving(global)
         try db.saveEngraving(scoped)
 
-        let fetched = try db.fetchEngravings(companionId: "companion-1", channelId: "channel-1")
+        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: "channel-1")
         #expect(fetched.count == 2)
         let ids = Set(fetched.map { $0.id })
         #expect(ids.contains(global.id))
@@ -435,12 +435,12 @@ struct CompanionRelationshipTests {
     @Test("Fetching only global engravings (nil channelId) excludes channel-scoped")
     func fetchOnlyGlobalEngravings() throws {
         let db = try makeDB()
-        let global = CompanionEngraving(companionId: "companion-1", channelId: nil, content: "global fact")
-        let scoped = CompanionEngraving(companionId: "companion-1", channelId: "channel-1", content: "scoped fact")
+        let global = CompanionEngraving(companionId: "companion-1", spaceId: nil, content: "global fact")
+        let scoped = CompanionEngraving(companionId: "companion-1", spaceId: "channel-1", content: "scoped fact")
         try db.saveEngraving(global)
         try db.saveEngraving(scoped)
 
-        let fetched = try db.fetchEngravings(companionId: "companion-1", channelId: nil)
+        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: nil)
         #expect(fetched.count == 1)
         #expect(fetched[0].id == global.id)
     }
@@ -448,11 +448,11 @@ struct CompanionRelationshipTests {
     @Test("Engravings from other companions are not returned")
     func engravingsIsolatedByCompanion() throws {
         let db = try makeDB()
-        try db.saveEngraving(CompanionEngraving(companionId: "companion-1", channelId: "ch", content: "e1"))
-        try db.saveEngraving(CompanionEngraving(companionId: "companion-2", channelId: "ch", content: "e2"))
+        try db.saveEngraving(CompanionEngraving(companionId: "companion-1", spaceId: "ch", content: "e1"))
+        try db.saveEngraving(CompanionEngraving(companionId: "companion-2", spaceId: "ch", content: "e2"))
 
-        let e1 = try db.fetchEngravings(companionId: "companion-1", channelId: "ch")
-        let e2 = try db.fetchEngravings(companionId: "companion-2", channelId: "ch")
+        let e1 = try db.fetchEngravings(companionId: "companion-1", spaceId: "ch")
+        let e2 = try db.fetchEngravings(companionId: "companion-2", spaceId: "ch")
         #expect(e1.count == 1)
         #expect(e2.count == 1)
         #expect(e1[0].content == "e1")
@@ -463,17 +463,17 @@ struct CompanionRelationshipTests {
     func engravingsOrderedByTouchedAt() throws {
         let db = try makeDB()
         let older = CompanionEngraving(
-            companionId: "c", channelId: "ch", content: "older fact",
+            companionId: "c", spaceId: "ch", content: "older fact",
             touchedAt: Date(timeIntervalSince1970: 1000)
         )
         let newer = CompanionEngraving(
-            companionId: "c", channelId: "ch", content: "newer fact",
+            companionId: "c", spaceId: "ch", content: "newer fact",
             touchedAt: Date(timeIntervalSince1970: 2000)
         )
         try db.saveEngraving(older)
         try db.saveEngraving(newer)
 
-        let fetched = try db.fetchEngravings(companionId: "c", channelId: "ch")
+        let fetched = try db.fetchEngravings(companionId: "c", spaceId: "ch")
         #expect(fetched[0].content == "newer fact")
         #expect(fetched[1].content == "older fact")
     }
@@ -482,13 +482,13 @@ struct CompanionRelationshipTests {
     func touchEngraving() throws {
         let db = try makeDB()
         let engraving = CompanionEngraving(
-            companionId: "c", channelId: "ch", content: "a fact",
+            companionId: "c", spaceId: "ch", content: "a fact",
             weight: 1.0, touchedAt: Date(timeIntervalSince1970: 1000)
         )
         try db.saveEngraving(engraving)
         try db.touchEngraving(id: engraving.id)
 
-        let fetched = try db.fetchEngravings(companionId: "c", channelId: "ch")
+        let fetched = try db.fetchEngravings(companionId: "c", spaceId: "ch")
         #expect(fetched[0].weight > 1.0)
         #expect(fetched[0].touchedAt > Date(timeIntervalSince1970: 1000))
     }
@@ -496,30 +496,30 @@ struct CompanionRelationshipTests {
     @Test("deleteEngraving removes the entry")
     func deleteEngraving() throws {
         let db = try makeDB()
-        let engraving = CompanionEngraving(companionId: "c", channelId: "ch", content: "to forget")
+        let engraving = CompanionEngraving(companionId: "c", spaceId: "ch", content: "to forget")
         try db.saveEngraving(engraving)
-        #expect(try db.fetchEngravings(companionId: "c", channelId: "ch").count == 1)
+        #expect(try db.fetchEngravings(companionId: "c", spaceId: "ch").count == 1)
 
         try db.deleteEngraving(id: engraving.id)
-        #expect(try db.fetchEngravings(companionId: "c", channelId: "ch").isEmpty)
+        #expect(try db.fetchEngravings(companionId: "c", spaceId: "ch").isEmpty)
     }
 
     @Test("deleteEngravingsForCompanion removes all engravings for that companion only")
     func deleteEngravingsForCompanion() throws {
         let db = try makeDB()
-        try db.saveEngraving(CompanionEngraving(companionId: "c1", channelId: "ch", content: "c1 fact"))
-        try db.saveEngraving(CompanionEngraving(companionId: "c2", channelId: "ch", content: "c2 fact"))
+        try db.saveEngraving(CompanionEngraving(companionId: "c1", spaceId: "ch", content: "c1 fact"))
+        try db.saveEngraving(CompanionEngraving(companionId: "c2", spaceId: "ch", content: "c2 fact"))
 
         try db.deleteEngravingsForCompanion("c1")
 
-        #expect(try db.fetchEngravings(companionId: "c1", channelId: "ch").isEmpty)
-        #expect(try db.fetchEngravings(companionId: "c2", channelId: "ch").count == 1)
+        #expect(try db.fetchEngravings(companionId: "c1", spaceId: "ch").isEmpty)
+        #expect(try db.fetchEngravings(companionId: "c2", spaceId: "ch").count == 1)
     }
 
     @Test("CompanionEngraving.asPromptText includes category when set")
     func engravingPromptTextWithCategory() {
         let engraving = CompanionEngraving(
-            companionId: "c", channelId: nil,
+            companionId: "c", spaceId: nil,
             content: "6 weeks runway",
             category: "constraint"
         )
@@ -530,7 +530,7 @@ struct CompanionRelationshipTests {
 
     @Test("CompanionEngraving.asPromptText works with content only")
     func engravingPromptTextContentOnly() {
-        let engraving = CompanionEngraving(companionId: "c", channelId: nil, content: "just the fact")
+        let engraving = CompanionEngraving(companionId: "c", spaceId: nil, content: "just the fact")
         #expect(engraving.asPromptText() == "just the fact")
     }
 

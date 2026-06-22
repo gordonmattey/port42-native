@@ -289,18 +289,18 @@ public struct TransitionRoot: View {
             }
 
         case "channel":
-            guard let invite = ChannelInvite.parse(url: url) else {
+            guard let invite = SpaceInvite.parse(url: url) else {
                 NSLog("[Port42] Failed to parse channel invite: %@", url.absoluteString)
                 return
             }
             // If invite contains an encryption key it's an agent invite — show connect sheet
             if invite.encryptionKey != nil {
-                let channel = Channel.create(name: invite.channelName)
-                appState.agentConnectChannel = channel
+                let channel = Space.create(name: invite.spaceName)
+                appState.agentConnectSpace = channel
                 appState.agentConnectInviteURL = url.absoluteString
                 appState.showAgentConnectSheet = true
             } else {
-                appState.joinChannelFromInvite(invite)
+                appState.joinSpaceFromInvite(invite)
             }
 
         case "openclaw":
@@ -313,8 +313,8 @@ public struct TransitionRoot: View {
                 let dict = Dictionary(items.compactMap { i in i.value.map { (i.name, $0) } },
                                       uniquingKeysWith: { _, last in last })
                 let channelName = dict["name"] ?? "channel"
-                let channel = Channel.create(name: channelName)
-                appState.agentConnectChannel = channel
+                let channel = Space.create(name: channelName)
+                appState.agentConnectSpace = channel
                 appState.agentConnectInviteURL = inviteParam
                 appState.showAgentConnectSheet = true
             }

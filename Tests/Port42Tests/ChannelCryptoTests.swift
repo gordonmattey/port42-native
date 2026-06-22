@@ -2,14 +2,14 @@ import Testing
 import Foundation
 @testable import Port42Lib
 
-@Suite("ChannelCrypto")
-struct ChannelCryptoTests {
+@Suite("SpaceCrypto")
+struct SpaceCryptoTests {
 
     // MARK: - Key Generation
 
     @Test("Generated key is valid 32-byte base64")
     func generatedKeyIsValid() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let data = Data(base64Encoded: key)
         #expect(data != nil)
         #expect(data?.count == 32)
@@ -17,8 +17,8 @@ struct ChannelCryptoTests {
 
     @Test("Generated keys are unique")
     func generatedKeysAreUnique() {
-        let key1 = ChannelCrypto.generateKey()
-        let key2 = ChannelCrypto.generateKey()
+        let key1 = SpaceCrypto.generateKey()
+        let key2 = SpaceCrypto.generateKey()
         #expect(key1 != key2)
     }
 
@@ -26,7 +26,7 @@ struct ChannelCryptoTests {
 
     @Test("Encrypt then decrypt roundtrip")
     func roundtrip() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "Gordon",
             senderType: "human",
@@ -34,10 +34,10 @@ struct ChannelCryptoTests {
             replyToId: nil
         )
 
-        let blob = ChannelCrypto.encrypt(payload, keyBase64: key)
+        let blob = SpaceCrypto.encrypt(payload, keyBase64: key)
         #expect(blob != nil)
 
-        let decrypted = ChannelCrypto.decrypt(blob: blob!, keyBase64: key)
+        let decrypted = SpaceCrypto.decrypt(blob: blob!, keyBase64: key)
         #expect(decrypted != nil)
         #expect(decrypted?.senderName == "Gordon")
         #expect(decrypted?.content == "hello world")
@@ -47,7 +47,7 @@ struct ChannelCryptoTests {
 
     @Test("Roundtrip preserves replyToId")
     func roundtripWithReplyToId() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "Alice",
             senderType: "agent",
@@ -55,14 +55,14 @@ struct ChannelCryptoTests {
             replyToId: "msg-123"
         )
 
-        let blob = ChannelCrypto.encrypt(payload, keyBase64: key)!
-        let decrypted = ChannelCrypto.decrypt(blob: blob, keyBase64: key)!
+        let blob = SpaceCrypto.encrypt(payload, keyBase64: key)!
+        let decrypted = SpaceCrypto.decrypt(blob: blob, keyBase64: key)!
         #expect(decrypted.replyToId == "msg-123")
     }
 
     @Test("Roundtrip with empty content")
     func roundtripEmptyContent() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "Bot",
             senderType: "agent",
@@ -70,14 +70,14 @@ struct ChannelCryptoTests {
             replyToId: nil
         )
 
-        let blob = ChannelCrypto.encrypt(payload, keyBase64: key)!
-        let decrypted = ChannelCrypto.decrypt(blob: blob, keyBase64: key)!
+        let blob = SpaceCrypto.encrypt(payload, keyBase64: key)!
+        let decrypted = SpaceCrypto.decrypt(blob: blob, keyBase64: key)!
         #expect(decrypted.content == "")
     }
 
     @Test("Roundtrip with unicode content")
     func roundtripUnicode() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "test",
             senderType: "human",
@@ -85,8 +85,8 @@ struct ChannelCryptoTests {
             replyToId: nil
         )
 
-        let blob = ChannelCrypto.encrypt(payload, keyBase64: key)!
-        let decrypted = ChannelCrypto.decrypt(blob: blob, keyBase64: key)!
+        let blob = SpaceCrypto.encrypt(payload, keyBase64: key)!
+        let decrypted = SpaceCrypto.decrypt(blob: blob, keyBase64: key)!
         #expect(decrypted.content == "hello there friend")
     }
 
@@ -94,7 +94,7 @@ struct ChannelCryptoTests {
 
     @Test("Encrypt produces different ciphertext each time (random nonce)")
     func differentCiphertextEachTime() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "test",
             senderType: "human",
@@ -102,8 +102,8 @@ struct ChannelCryptoTests {
             replyToId: nil
         )
 
-        let blob1 = ChannelCrypto.encrypt(payload, keyBase64: key)!
-        let blob2 = ChannelCrypto.encrypt(payload, keyBase64: key)!
+        let blob1 = SpaceCrypto.encrypt(payload, keyBase64: key)!
+        let blob2 = SpaceCrypto.encrypt(payload, keyBase64: key)!
         #expect(blob1 != blob2)
     }
 
@@ -111,8 +111,8 @@ struct ChannelCryptoTests {
 
     @Test("Decrypt with wrong key returns nil")
     func decryptWrongKey() {
-        let key1 = ChannelCrypto.generateKey()
-        let key2 = ChannelCrypto.generateKey()
+        let key1 = SpaceCrypto.generateKey()
+        let key2 = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "test",
             senderType: "human",
@@ -120,30 +120,30 @@ struct ChannelCryptoTests {
             replyToId: nil
         )
 
-        let blob = ChannelCrypto.encrypt(payload, keyBase64: key1)!
-        let decrypted = ChannelCrypto.decrypt(blob: blob, keyBase64: key2)
+        let blob = SpaceCrypto.encrypt(payload, keyBase64: key1)!
+        let decrypted = SpaceCrypto.decrypt(blob: blob, keyBase64: key2)
         #expect(decrypted == nil)
     }
 
     @Test("Decrypt with corrupted data returns nil")
     func decryptCorrupted() {
-        let key = ChannelCrypto.generateKey()
-        let decrypted = ChannelCrypto.decrypt(blob: "not-valid-base64!!!", keyBase64: key)
+        let key = SpaceCrypto.generateKey()
+        let decrypted = SpaceCrypto.decrypt(blob: "not-valid-base64!!!", keyBase64: key)
         #expect(decrypted == nil)
     }
 
     @Test("Decrypt with truncated blob returns nil")
     func decryptTruncated() {
-        let key = ChannelCrypto.generateKey()
+        let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
             senderName: "test",
             senderType: "human",
             content: "hello",
             replyToId: nil
         )
-        let blob = ChannelCrypto.encrypt(payload, keyBase64: key)!
+        let blob = SpaceCrypto.encrypt(payload, keyBase64: key)!
         let truncated = String(blob.prefix(blob.count / 2))
-        let decrypted = ChannelCrypto.decrypt(blob: truncated, keyBase64: key)
+        let decrypted = SpaceCrypto.decrypt(blob: truncated, keyBase64: key)
         #expect(decrypted == nil)
     }
 
@@ -155,7 +155,7 @@ struct ChannelCryptoTests {
             content: "hello",
             replyToId: nil
         )
-        let result = ChannelCrypto.encrypt(payload, keyBase64: "not-a-key")
+        let result = SpaceCrypto.encrypt(payload, keyBase64: "not-a-key")
         #expect(result == nil)
     }
 
@@ -168,13 +168,13 @@ struct ChannelCryptoTests {
             replyToId: nil
         )
         let shortKey = Data(repeating: 0, count: 16).base64EncodedString()
-        let result = ChannelCrypto.encrypt(payload, keyBase64: shortKey)
+        let result = SpaceCrypto.encrypt(payload, keyBase64: shortKey)
         #expect(result == nil)
     }
 
     @Test("Decrypt with invalid key returns nil")
     func decryptInvalidKey() {
-        let result = ChannelCrypto.decrypt(blob: "someblob", keyBase64: "not-a-key")
+        let result = SpaceCrypto.decrypt(blob: "someblob", keyBase64: "not-a-key")
         #expect(result == nil)
     }
 }

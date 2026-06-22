@@ -37,7 +37,7 @@ struct AudioBridgeTests {
     @Test("new AudioBridge is not capturing")
     @MainActor
     func newBridgeNotCapturing() {
-        let bridge = PortBridge(appState: DummyAppState(), channelId: nil)
+        let bridge = PortBridge(appState: DummyAppState(), spaceId: nil)
         let ab = AudioBridge(bridge: bridge)
         #expect(!ab.capturing)
     }
@@ -45,7 +45,7 @@ struct AudioBridgeTests {
     @Test("stopCapture returns error when not capturing")
     @MainActor
     func stopCaptureWhenNotCapturing() {
-        let bridge = PortBridge(appState: DummyAppState(), channelId: nil)
+        let bridge = PortBridge(appState: DummyAppState(), spaceId: nil)
         let ab = AudioBridge(bridge: bridge)
         let result = ab.stopCapture()
         #expect(result["error"] as? String == "no active capture")
@@ -54,7 +54,7 @@ struct AudioBridgeTests {
     @Test("stop returns ok even when nothing playing")
     @MainActor
     func stopWhenNothingPlaying() {
-        let bridge = PortBridge(appState: DummyAppState(), channelId: nil)
+        let bridge = PortBridge(appState: DummyAppState(), spaceId: nil)
         let ab = AudioBridge(bridge: bridge)
         let result = ab.stop()
         #expect(result["ok"] as? Bool == true)
@@ -63,7 +63,7 @@ struct AudioBridgeTests {
     @Test("play with invalid base64 returns error")
     @MainActor
     func playInvalidBase64() {
-        let bridge = PortBridge(appState: DummyAppState(), channelId: nil)
+        let bridge = PortBridge(appState: DummyAppState(), spaceId: nil)
         let ab = AudioBridge(bridge: bridge)
         let result = ab.play(data: "not-valid-base64!!!", opts: nil)
         #expect(result["error"] != nil)
@@ -72,7 +72,7 @@ struct AudioBridgeTests {
     @Test("play with empty data returns error")
     @MainActor
     func playEmptyData() {
-        let bridge = PortBridge(appState: DummyAppState(), channelId: nil)
+        let bridge = PortBridge(appState: DummyAppState(), spaceId: nil)
         let ab = AudioBridge(bridge: bridge)
         let result = ab.play(data: "", opts: nil)
         #expect(result["error"] != nil)
@@ -81,7 +81,7 @@ struct AudioBridgeTests {
     @Test("cleanup when not active does not crash")
     @MainActor
     func cleanupWhenIdle() {
-        let bridge = PortBridge(appState: DummyAppState(), channelId: nil)
+        let bridge = PortBridge(appState: DummyAppState(), spaceId: nil)
         let ab = AudioBridge(bridge: bridge)
         ab.cleanup()
         #expect(!ab.capturing)

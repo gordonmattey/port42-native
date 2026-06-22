@@ -1,19 +1,19 @@
 import Foundation
 import GRDB
 
-public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
-    public static let databaseTableName = "channels"
+public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "spaces"
 
     public var id: String
     public var name: String
     public var type: String
     public var createdAt: Date
     /// Base64-encoded AES-256-GCM symmetric key for E2E encryption.
-    /// Nil for channels created before encryption was added.
+    /// Nil for spaces created before encryption was added.
     public var encryptionKey: String?
-    /// Whether this channel participates in WebSocket sync. False for swim channels.
+    /// Whether this space participates in WebSocket sync. False for swim spaces.
     public var syncEnabled: Bool
-    /// Whether this is a swim channel (1:1 with a companion, not synced).
+    /// Whether this is a swim space (1:1 with a companion, not synced).
     public var isSwim: Bool
     /// Heartbeat interval in minutes. 0 = off. Fires a prompt to wake up companions.
     public var heartbeatInterval: Int
@@ -32,18 +32,18 @@ public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.heartbeatPrompt = heartbeatPrompt
     }
 
-    public static func create(name: String, type: String = "team") -> Channel {
-        Channel(
+    public static func create(name: String, type: String = "team") -> Space {
+        Space(
             id: UUID().uuidString,
             name: name,
             type: type,
             createdAt: Date(),
-            encryptionKey: ChannelCrypto.generateKey()
+            encryptionKey: SpaceCrypto.generateKey()
         )
     }
 
-    public static func swim(companion: AgentConfig) -> Channel {
-        Channel(
+    public static func swim(companion: AgentConfig) -> Space {
+        Space(
             id: "swim-\(companion.id)",
             name: companion.displayName,
             type: "direct",
@@ -55,8 +55,8 @@ public struct Channel: Codable, FetchableRecord, PersistableRecord, Identifiable
     }
 }
 
-/// A channel participant derived from message history
-public struct ChannelMember: Identifiable, Equatable {
+/// A space participant derived from message history
+public struct SpaceMember: Identifiable, Equatable {
     public let senderId: String
     public let name: String
     public let type: String   // "human" or "agent"

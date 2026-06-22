@@ -55,7 +55,7 @@ public enum AgentRouter {
     public static func findTargetAgents(
         content: String,
         agents: [AgentConfig],
-        channelAgentIds: Set<String> = [],
+        spaceAgentIds: Set<String> = [],
         localOwner: String? = nil,
         requireNamespace: Bool = false
     ) -> [AgentConfig] {
@@ -64,7 +64,7 @@ public enum AgentRouter {
 
         // @all targets every channel member
         if mentions.contains("all") {
-            return agents.filter { channelAgentIds.contains($0.id) }
+            return agents.filter { spaceAgentIds.contains($0.id) }
         }
 
         if !mentions.isEmpty {
@@ -91,6 +91,6 @@ public enum AgentRouter {
         }
 
         // No @mentions: only channel members respond
-        return agents.filter { channelAgentIds.contains($0.id) }
+        return agents.filter { spaceAgentIds.contains($0.id) }
     }
 }

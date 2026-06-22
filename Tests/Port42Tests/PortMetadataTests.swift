@@ -10,10 +10,10 @@ struct PortMetadataTests {
     @Test("userTitle nil falls back to HTML title")
     @MainActor
     func titleFallsBackToHtml() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "x", udid: "x", html: "<title>html-title</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: nil, size: CGSize(width: 400, height: 300)
         )
         #expect(panel.title == "html-title")
@@ -22,10 +22,10 @@ struct PortMetadataTests {
     @Test("userTitle overrides HTML title")
     @MainActor
     func userTitleOverridesHtml() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "x", udid: "x", html: "<title>html-title</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: "my title", size: CGSize(width: 400, height: 300)
         )
         #expect(panel.title == "my title")
@@ -34,10 +34,10 @@ struct PortMetadataTests {
     @Test("empty userTitle falls back to HTML title")
     @MainActor
     func emptyUserTitleFallsBackToHtml() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "x", udid: "x", html: "<title>html-title</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: "", size: CGSize(width: 400, height: 300)
         )
         #expect(panel.title == "html-title")
@@ -46,10 +46,10 @@ struct PortMetadataTests {
     @Test("no HTML title falls back to 'port'")
     @MainActor
     func titleFallsBackToPort() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "x", udid: "x", html: "<div>no title</div>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: nil, size: CGSize(width: 400, height: 300)
         )
         #expect(panel.title == "port")
@@ -61,10 +61,10 @@ struct PortMetadataTests {
     @MainActor
     func userTitleRoundTrips() throws {
         let db = try DatabaseService(inMemory: true)
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "p1", udid: "p1", html: "<title>html</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: "custom name", size: CGSize(width: 400, height: 300)
         )
         try db.savePortPanel(PersistedPortPanel(from: panel))
@@ -78,10 +78,10 @@ struct PortMetadataTests {
     @MainActor
     func nilUserTitleStoredAsNil() throws {
         let db = try DatabaseService(inMemory: true)
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "p2", udid: "p2", html: "<title>html</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: nil, size: CGSize(width: 400, height: 300)
         )
         try db.savePortPanel(PersistedPortPanel(from: panel))
@@ -94,10 +94,10 @@ struct PortMetadataTests {
     @MainActor
     func capabilitiesRoundTrip() throws {
         let db = try DatabaseService(inMemory: true)
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "p3", udid: "p3", html: "<title>t</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: nil, storedCapabilities: ["claude-code", "browser"],
             size: CGSize(width: 400, height: 300)
         )
@@ -114,10 +114,10 @@ struct PortMetadataTests {
     @MainActor
     func emptyCapabilitiesStoredAsNil() throws {
         let db = try DatabaseService(inMemory: true)
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let panel = PortPanel(
             id: "p4", udid: "p4", html: "<title>t</title>",
-            bridge: bridge, channelId: nil, createdBy: nil, messageId: nil,
+            bridge: bridge, spaceId: nil, createdBy: nil, messageId: nil,
             userTitle: nil, storedCapabilities: [],
             size: CGSize(width: 400, height: 300)
         )

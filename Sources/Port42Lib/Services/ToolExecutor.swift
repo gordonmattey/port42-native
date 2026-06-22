@@ -7,7 +7,7 @@ import WebKit
 @MainActor
 public final class ToolExecutor {
     private weak var appState: AppState?
-    private let channelId: String?
+    private let spaceId: String?
     let createdBy: String?
 
     /// Granted permissions for this conversation (per-companion, per-channel).
@@ -35,13 +35,13 @@ public final class ToolExecutor {
     /// Output batchers for active terminal bridges (keyed by lowercased port name)
     private static var outputBatchers: [String: OutputBatcher] = [:]
 
-    init(appState: AppState, channelId: String?, createdBy: String? = nil) {
+    init(appState: AppState, spaceId: String?, createdBy: String? = nil) {
         self.appState = appState
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.createdBy = createdBy
         // Restore previously granted permissions so the user isn't re-prompted
-        if let by = createdBy, let cid = channelId {
-            self.grantedPermissions = appState.companionPermissions(createdBy: by, channelId: cid)
+        if let by = createdBy, let cid = spaceId {
+            self.grantedPermissions = appState.companionPermissions(createdBy: by, spaceId: cid)
         }
     }
 
@@ -82,8 +82,8 @@ public final class ToolExecutor {
                 }
                 grantedPermissions.insert(perm)
                 // Persist now that the set includes the newly granted permission
-                if let by = createdBy, let cid = channelId {
-                    appState?.saveCompanionPermissions(grantedPermissions, createdBy: by, channelId: cid)
+                if let by = createdBy, let cid = spaceId {
+                    appState?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: cid)
                 }
                 NSLog("[Port42] ToolExecutor: %@ permission granted for %@", perm.rawValue, name)
             }
@@ -129,10 +129,10 @@ public final class ToolExecutor {
 
     /// Bridge all terminal ports already open in this channel/swim at conversation start.
     /// Called by ChannelAgentHandler.start() so output flows without needing terminal_send first.
-    func bridgeChannelTerminals() {
-        guard let appState, let chId = channelId else { return }
+    func bridgeSpaceTerminals() {
+        guard let appState, let chId = spaceId else { return }
         for panel in appState.portWindows.panels {
-            guard panel.channelId == chId else { continue }
+            guard panel.spaceId == chId else { continue }
             guard let tb = panel.bridge.terminalBridge,
                   let sid = tb.firstActiveSessionId else { continue }
             autoStartOutputBridge(portTitle: panel.title, termBridge: tb, sessionId: sid)
@@ -145,11 +145,11 @@ public final class ToolExecutor {
         guard let appState else { return }
         let key = portTitle.lowercased()
         guard appState.bridgedTerminalNames[key] == nil else { return }
-        let chId = channelId ?? appState.currentChannel?.id ?? ""
+        let chId = spaceId ?? appState.currentSpace?.id ?? ""
         guard !chId.isEmpty else { return }
         let panelId = appState.portWindows.panels.first(where: { $0.bridge.terminalBridge === termBridge })?.id ?? key
         appState.bridgedTerminalNames[key] = panelId
-        let batcher = OutputBatcher(portName: portTitle, channelId: chId, companionName: createdBy ?? "bridge", appState: appState)
+        let batcher = OutputBatcher(portName: portTitle, spaceId: chId, companionName: createdBy ?? "bridge", appState: appState)
         Self.outputBatchers[key] = batcher
         termBridge.session(for: sessionId)?.addOutputObserver { [weak batcher] rawOutput in
             Task { @MainActor in
@@ -157,7 +157,7 @@ public final class ToolExecutor {
             }
         }
         // Start the game loop — scoped to the owning companion so only they react
-        appState.startTerminalLoop(channelId: chId, portTitle: portTitle, createdBy: createdBy)
+        appState.startTerminalLoop(spaceId: chId, portTitle: portTitle, createdBy: createdBy)
         NSLog("[Port42] Auto-bridged terminal '%@' → channel %@", portTitle, chId)
     }
 
@@ -181,7 +181,7 @@ public final class ToolExecutor {
             let swimCreaseId = "swim-\(companionId)"
             let creases = (try? appState.db.fetchCreases(
                 companionId: companionId,
-                channelId: swimCreaseId,
+                spaceId: swimCreaseId,
                 limit: limit
             )) ?? []
             if creases.isEmpty {
@@ -189,7 +189,7 @@ public final class ToolExecutor {
             }
             let lines = creases.map { c -> String in
                 var line = "[\(c.id)] \(c.asPromptText())"
-                if c.channelId == nil { line += " (global)" }
+                if c.spaceId == nil { line += " (global)" }
                 return line
             }
             return [textBlock(lines.joined(separator: "\n"))]
@@ -203,7 +203,7 @@ public final class ToolExecutor {
             let swimWriteId = "swim-\(companionId)"
             let crease = CompanionCrease(
                 companionId: companionId,
-                channelId: swimWriteId,
+                spaceId: swimWriteId,
                 content: content,
                 prediction: input["prediction"] as? String,
                 actual: input["actual"] as? String
@@ -233,7 +233,7 @@ public final class ToolExecutor {
             let swimEngId = "swim-\(companionId)"
             let engravings = (try? appState.db.fetchEngravings(
                 companionId: companionId,
-                channelId: swimEngId,
+                spaceId: swimEngId,
                 limit: limit
             )) ?? []
             if engravings.isEmpty {
@@ -241,7 +241,7 @@ public final class ToolExecutor {
             }
             let lines = engravings.map { e -> String in
                 var line = "[\(e.id)] \(e.asPromptText())"
-                if e.channelId == nil { line += " (global)" }
+                if e.spaceId == nil { line += " (global)" }
                 return line
             }
             return [textBlock(lines.joined(separator: "\n"))]
@@ -254,7 +254,7 @@ public final class ToolExecutor {
             let swimEngWriteId = "swim-\(companionId)"
             let engraving = CompanionEngraving(
                 companionId: companionId,
-                channelId: swimEngWriteId,
+                spaceId: swimEngWriteId,
                 content: content,
                 category: input["category"] as? String
             )
@@ -282,9 +282,9 @@ public final class ToolExecutor {
                 return [textBlock("Error: no companion/channel context — pass companionId arg")]
             }
             let swimId = "swim-\(companionId)"
-            let cid = channelId ?? swimId
-            if let fold = try appState.db.fetchFold(companionId: companionId, channelId: swimId)
-                ?? appState.db.fetchFold(companionId: companionId, channelId: cid) {
+            let cid = spaceId ?? swimId
+            if let fold = try appState.db.fetchFold(companionId: companionId, spaceId: swimId)
+                ?? appState.db.fetchFold(companionId: companionId, spaceId: cid) {
                 return [textBlock(jsonString([
                     "established": fold.established ?? [],
                     "tensions": fold.tensions ?? [],
@@ -301,8 +301,8 @@ public final class ToolExecutor {
             }
             // Fold always writes to the swim channel — canonical relationship state
             let swimId = "swim-\(companionId)"
-            var fold = (try? appState.db.fetchFold(companionId: companionId, channelId: swimId))
-                ?? CompanionFold(companionId: companionId, channelId: swimId)
+            var fold = (try? appState.db.fetchFold(companionId: companionId, spaceId: swimId))
+                ?? CompanionFold(companionId: companionId, spaceId: swimId)
             if let est = input["established"] as? [String] { fold.established = est }
             if let ten = input["tensions"] as? [String] { fold.tensions = ten }
             if let h = input["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
@@ -318,7 +318,7 @@ public final class ToolExecutor {
             }
             // Position reads from swim (canonical)
             let swimId = "swim-\(companionId)"
-            if let pos = try appState.db.fetchPosition(companionId: companionId, channelId: swimId), !pos.isEmpty {
+            if let pos = try appState.db.fetchPosition(companionId: companionId, spaceId: swimId), !pos.isEmpty {
                 return [textBlock(jsonString([
                     "read": pos.read ?? "",
                     "stance": pos.stance ?? "",
@@ -338,8 +338,8 @@ public final class ToolExecutor {
             }
             // Position always writes to the swim channel — canonical relationship state
             let swimId = "swim-\(companionId)"
-            var pos = (try? appState.db.fetchPosition(companionId: companionId, channelId: swimId))
-                ?? CompanionPosition(companionId: companionId, channelId: swimId)
+            var pos = (try? appState.db.fetchPosition(companionId: companionId, spaceId: swimId))
+                ?? CompanionPosition(companionId: companionId, spaceId: swimId)
             pos.read = read
             if let stance = input["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
             if let watching = input["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }
@@ -355,14 +355,14 @@ public final class ToolExecutor {
             return [textBlock(jsonString(["id": user.id, "displayName": user.displayName]))]
 
         case "channel_current":
-            guard let ch = appState.currentChannel else {
+            guard let ch = appState.currentSpace else {
                 return [textBlock("No channel selected")]
             }
-            let members = (try? appState.db.getChannelMembers(channelId: ch.id))?.count ?? 0
+            let members = (try? appState.db.getSpaceMembers(spaceId: ch.id))?.count ?? 0
             return [textBlock(jsonString(["id": ch.id, "name": ch.name, "memberCount": members]))]
 
         case "channel_list":
-            let channels = appState.channels.map { ["id": $0.id, "name": $0.name] }
+            let channels = appState.spaces.map { ["id": $0.id, "name": $0.name] }
             return [textBlock(jsonString(channels))]
 
         case "companions_list":
@@ -386,7 +386,7 @@ public final class ToolExecutor {
         case "ports_list":
             let filterCaps = (input["capabilities"] as? [String]) ?? []
             let floating = appState.portWindows.allPorts()
-            let inline = appState.inlinePorts().filter { $0.channelId == channelId || channelId == nil }.suffix(5)
+            let inline = appState.inlinePorts().filter { $0.spaceId == spaceId || spaceId == nil }.suffix(5)
             typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?)
             let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y) }
                 + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none) }
@@ -454,7 +454,7 @@ public final class ToolExecutor {
                        let html = extractPortHtml(from: msg.content) {
                         let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
                         let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-                        appState.portWindows.popOut(html: html, bridge: bridge, channelId: bridge.channelId, createdBy: bridge.createdBy, messageId: mid, in: bounds)
+                        appState.portWindows.popOut(html: html, bridge: bridge, spaceId: bridge.spaceId, createdBy: bridge.createdBy, messageId: mid, in: bounds)
                         return [textBlock("Popped out inline port '\(id)'")]
                     }
                 }
@@ -637,8 +637,8 @@ public final class ToolExecutor {
 
         case "messages_recent":
             let count = min(input["count"] as? Int ?? 20, 100)
-            let chId = input["channel_id"] as? String ?? channelId ?? appState.currentChannel?.id ?? ""
-            let msgs = (try? appState.db.getMessages(channelId: chId)) ?? []
+            let chId = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
+            let msgs = (try? appState.db.getMessages(spaceId: chId)) ?? []
             let recent = msgs.suffix(count).map { m -> [String: Any] in
                 ["sender": m.senderName, "content": m.content, "timestamp": m.timestamp.timeIntervalSince1970]
             }
@@ -649,12 +649,12 @@ public final class ToolExecutor {
             guard let text = input["text"] as? String else {
                 return [textBlock("Error: missing 'text' parameter")]
             }
-            let targetChannel = input["channel_id"] as? String ?? channelId
+            let targetChannel = input["space_id"] as? String ?? spaceId
             let overrideName = input["senderName"] as? String ?? input["sender_name"] as? String
             if let name = overrideName, !name.isEmpty {
-                appState.sendMessageAsNamedAgent(content: text, senderName: name, toChannelId: targetChannel)
+                appState.sendMessageAsNamedAgent(content: text, senderName: name, toSpaceId: targetChannel)
             } else {
-                appState.sendMessage(content: text, toChannelId: targetChannel)
+                appState.sendMessage(content: text, toSpaceId: targetChannel)
             }
             return [textBlock(jsonString(["ok": true]))]
 
@@ -827,7 +827,7 @@ public final class ToolExecutor {
             let key = name.lowercased()
             if appState.bridgedTerminalNames.removeValue(forKey: key) != nil {
                 Self.outputBatchers.removeValue(forKey: key)
-                if let chId = channelId { appState.stopTerminalLoop(channelId: chId) }
+                if let chId = spaceId { appState.stopTerminalLoop(spaceId: chId) }
                 NSLog("[Port42] Terminal bridge stopped: %@", name)
                 return [textBlock("Stopped bridging '\(name)'")]
             }
@@ -1124,7 +1124,7 @@ public final class ToolExecutor {
     // MARK: - Capture Persistence
 
     private func postCapture(base64PNG: String, type: String) {
-        guard let appState = appState, let channelId = channelId else { return }
+        guard let appState = appState, let spaceId = spaceId else { return }
 
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let capturesDir = appSupport.appendingPathComponent("Port42/captures", isDirectory: true)
@@ -1144,7 +1144,7 @@ public final class ToolExecutor {
         }
 
         let msg = Message.create(
-            channelId: channelId,
+            spaceId: spaceId,
             senderId: createdBy ?? "system",
             senderName: createdBy ?? "system",
             content: "[capture:\(type):\(fileURL.path)]",
@@ -1244,22 +1244,22 @@ public final class ToolExecutor {
 @MainActor
 final class OutputBatcher {
     private let portName: String
-    private let channelId: String
+    private let spaceId: String
     private let companionName: String
     private weak var appState: AppState?
     private let processor: TerminalOutputProcessor
 
-    init(portName: String, channelId: String, companionName: String, appState: AppState?) {
+    init(portName: String, spaceId: String, companionName: String, appState: AppState?) {
         self.portName = portName
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.companionName = companionName
         self.appState = appState
         // Capture as locals so the closure doesn't retain self
-        let chId = channelId
+        let chId = spaceId
         let cName = companionName
         let pName = portName
         self.processor = TerminalOutputProcessor { [weak appState] content in
-            appState?.noteBridgeActivity(channelId: chId, companionName: cName, portName: pName)
+            appState?.noteBridgeActivity(spaceId: chId, companionName: cName, portName: pName)
             appState?.terminalLoop(for: chId)?.receiveOutput(content)
         }
     }
@@ -1268,7 +1268,7 @@ final class OutputBatcher {
         // Dispatch to main: Timer in TerminalOutputProcessor requires main run loop
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.appState?.noteBridgeActivity(channelId: self.channelId, companionName: self.companionName, portName: self.portName)
+            self.appState?.noteBridgeActivity(spaceId: self.spaceId, companionName: self.companionName, portName: self.portName)
             self.processor.receive(raw)
         }
     }
@@ -1291,7 +1291,7 @@ public final class RemoteToolExecutor: ObservableObject {
         self.appState = appState
         self.senderId = senderId
         self.senderName = senderName
-        self.internalExecutor = ToolExecutor(appState: appState, channelId: nil, createdBy: senderName)
+        self.internalExecutor = ToolExecutor(appState: appState, spaceId: nil, createdBy: senderName)
     }
 
     public func execute(method: String, input: [String: Any]) async -> Any {

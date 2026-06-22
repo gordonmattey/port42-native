@@ -8,7 +8,7 @@ import SwiftUI
 struct AgentConnectSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var appState: AppState
-    let channel: Channel
+    let space: Space
     let inviteURL: String?
 
     enum SDKChoice { case python, openclaw }
@@ -68,7 +68,7 @@ struct AgentConnectSheet: View {
                 Text("channel")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text("#\(channel.name)")
+                Text("#\(space.name)")
                     .font(Port42Theme.monoBold(11))
                     .foregroundStyle(Port42Theme.accent)
             }
@@ -132,7 +132,7 @@ struct AgentConnectSheet: View {
 
             // Connect button
             Button(action: connect) {
-                Text("connect to #\(channel.name)")
+                Text("connect to #\(space.name)")
                     .font(Port42Theme.monoBold(12))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -193,14 +193,14 @@ struct AgentConnectSheet: View {
 
         switch sdk {
         case .python:
-            appState.pythonAgentChannel = channel
+            appState.pythonAgentSpace = space
             appState.pythonAgentName = name
             appState.pythonAgentTrigger = trigger
             appState.pythonAgentPrefilledInviteURL = inviteURL
             appState.showPythonAgentSheet = true
 
         case .openclaw:
-            appState.openClawChannel = channel
+            appState.openClawSpace = space
             appState.showOpenClawSheet = true
         }
     }

@@ -4,7 +4,7 @@ import AppKit
 public struct ContentView: View {
     public init() {}
     @EnvironmentObject var appState: AppState
-    @State private var showNewChannel = false
+    @State private var showNewSpace = false
     @State private var showNewCompanion = false
     @State private var showQuickSwitcher = false
     @State private var showHelp = false
@@ -18,7 +18,7 @@ public struct ContentView: View {
                 SidebarHeader()
                 Divider().background(Port42Theme.border)
                 SidebarView(
-                    showNewChannel: $showNewChannel,
+                    showNewSpace: $showNewSpace,
                     showNewCompanion: $showNewCompanion
                 )
             }
@@ -35,16 +35,16 @@ public struct ContentView: View {
 
                 Group {
                     if let companion = appState.activeSwimCompanion,
-                       let channel = appState.currentChannel, channel.isSwim {
+                       let channel = appState.currentSpace, channel.isSwim {
                         SwimView(
                             companion: companion,
-                            channelId: channel.id,
+                            spaceId: channel.id,
                             userName: appState.currentUser?.displayName ?? "You",
                             onExit: { appState.exitSwim() }
                         )
                         .environmentObject(appState)
                         .id(companion.id)
-                    } else if let channel = appState.currentChannel {
+                    } else if let channel = appState.currentSpace {
                         ChatView()
                             .id(channel.id)
                     } else {
@@ -61,8 +61,8 @@ public struct ContentView: View {
             }
             .ignoresSafeArea(edges: .top)
         }
-        .sheet(isPresented: $showNewChannel) {
-            NewChannelSheet(isPresented: $showNewChannel)
+        .sheet(isPresented: $showNewSpace) {
+            NewSpaceSheet(isPresented: $showNewSpace)
         }
         .sheet(isPresented: $showNewCompanion) {
             NewCompanionSheet(isPresented: $showNewCompanion)
@@ -78,29 +78,29 @@ public struct ContentView: View {
                 .environmentObject(appState)
         }
         .sheet(isPresented: $appState.showOpenClawSheet) {
-            if let channel = appState.openClawChannel {
-                OpenClawSheet(isPresented: $appState.showOpenClawSheet, channel: channel)
+            if let channel = appState.openClawSpace {
+                OpenClawSheet(isPresented: $appState.showOpenClawSheet, space: channel)
                     .environmentObject(appState)
             }
         }
         .sheet(isPresented: $appState.showPythonAgentSheet) {
-            if let channel = appState.pythonAgentChannel {
-                PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, channel: channel)
+            if let channel = appState.pythonAgentSpace {
+                PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, space: channel)
                     .environmentObject(appState)
             }
         }
         .sheet(isPresented: $appState.showAgentConnectSheet) {
-            if let channel = appState.agentConnectChannel {
+            if let channel = appState.agentConnectSpace {
                 AgentConnectSheet(
                     isPresented: $appState.showAgentConnectSheet,
-                    channel: channel,
+                    space: channel,
                     inviteURL: appState.agentConnectInviteURL
                 )
                 .environmentObject(appState)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
-            showNewChannel = true
+            showNewSpace = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .dismissAllSheets)) { _ in
             showSignOut = false
@@ -217,17 +217,17 @@ struct ChatHeader: View {
         }
     }
 
-    private var members: [ChannelMember] {
-        guard let id = appState.currentChannel?.id else { return [] }
-        var result = (try? appState.db.getChannelMembers(channelId: id)) ?? []
+    private var members: [SpaceMember] {
+        guard let id = appState.currentSpace?.id else { return [] }
+        var result = (try? appState.db.getSpaceMembers(spaceId: id)) ?? []
         if let user = appState.currentUser,
            !result.contains(where: { $0.senderId == user.id }) {
-            result.insert(ChannelMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
+            result.insert(SpaceMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
         }
-        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
+        let channelAgents = (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
         for agent in channelAgents {
             if !result.contains(where: { $0.senderId == agent.id }) {
-                result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
+                result.append(SpaceMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
         }
         let onlineIds = appState.sync.onlineUsers[id] ?? []
@@ -235,14 +235,14 @@ struct ChatHeader: View {
             if result.contains(where: { $0.senderId == userId }) { continue }
             if userId == appState.currentUser?.id { continue }
             if let name = appState.sync.knownNames[userId] {
-                result.append(ChannelMember(senderId: userId, name: name, type: "agent", owner: nil))
+                result.append(SpaceMember(senderId: userId, name: name, type: "agent", owner: nil))
             }
         }
         return result
     }
 
     private var onlineIds: Set<String> {
-        guard let id = appState.currentChannel?.id else { return [] }
+        guard let id = appState.currentSpace?.id else { return [] }
         var ids = appState.sync.onlineUsers[id] ?? []
         if let userId = appState.currentUser?.id { ids.insert(userId) }
         for companion in appState.companions { ids.insert(companion.id) }
@@ -258,7 +258,7 @@ struct ChatHeader: View {
                 Text(companion.displayName)
                     .font(Port42Theme.monoBold(13))
                     .foregroundStyle(Port42Theme.textAgent)
-            } else if let channel = appState.currentChannel {
+            } else if let channel = appState.currentSpace {
                 Text("#")
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(Port42Theme.textSecondary)

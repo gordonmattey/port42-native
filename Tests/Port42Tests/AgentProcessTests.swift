@@ -57,7 +57,7 @@ struct AgentProcessTests {
         let event = AgentEvent.mention(
             messageId: "msg-1", content: "@test-bot hello",
             sender: "Gordon", senderId: "u1",
-            channel: "test", channelId: "c1",
+            channel: "test", spaceId: "c1",
             timestamp: Date(), history: []
         )
 
@@ -98,7 +98,7 @@ struct AgentProcessTests {
         let event = AgentEvent.mention(
             messageId: "msg-1", content: "@slow-bot hello",
             sender: "Gordon", senderId: "u1",
-            channel: "test", channelId: "c1",
+            channel: "test", spaceId: "c1",
             timestamp: Date(), history: []
         )
 
@@ -156,7 +156,7 @@ struct AgentProcessTests {
         // Send a message and wait for response to ensure the script has fully started
         let event = AgentEvent.mention(
             messageId: "m", content: "@log-bot hi",
-            sender: "X", senderId: "u", channel: "c", channelId: "ci",
+            sender: "X", senderId: "u", channel: "c", spaceId: "ci",
             timestamp: Date(), history: []
         )
         _ = try await process.send(event, timeout: 5.0)
@@ -199,7 +199,7 @@ struct AgentProcessTests {
 
         let event = AgentEvent.mention(
             messageId: "m", content: "@env-bot check",
-            sender: "X", senderId: "u", channel: "c", channelId: "ci",
+            sender: "X", senderId: "u", channel: "c", spaceId: "ci",
             timestamp: Date(), history: []
         )
 

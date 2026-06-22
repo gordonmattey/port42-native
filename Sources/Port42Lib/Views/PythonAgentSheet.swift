@@ -7,7 +7,7 @@ import SwiftUI
 struct PythonAgentSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var appState: AppState
-    let channel: Channel
+    let space: Space
 
     @State private var agentName = "my-agent"
     @State private var trigger: AgentTrigger = .mentionOnly
@@ -94,7 +94,7 @@ struct PythonAgentSheet: View {
                 Text("channel")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text("#\(channel.name)")
+                Text("#\(space.name)")
                     .font(Port42Theme.monoBold(11))
                     .foregroundStyle(Port42Theme.accent)
             }
@@ -289,14 +289,14 @@ struct PythonAgentSheet: View {
         isGenerating = true
 
         Task {
-            let secured = appState.ensureEncryptionKey(for: channel)
+            let secured = appState.ensureEncryptionKey(for: space)
             let rawGW = appState.sync.gatewayURL ?? "ws://127.0.0.1:4242"
             let isRemote = !rawGW.contains("127.0.0.1") && !rawGW.contains("localhost")
 
             // Local: use 127.0.0.1 (no token needed — gateway allows localhost without token)
             // Remote: use tunnel URL + single-use join token
             let gatewayWS = isRemote ? rawGW : "ws://127.0.0.1:4242"
-            let token = isRemote ? (try? await appState.sync.requestToken(channelId: secured.id)) : nil
+            let token = isRemote ? (try? await appState.sync.requestToken(spaceId: secured.id)) : nil
 
             // Build invite URL
             var items: [URLQueryItem] = [

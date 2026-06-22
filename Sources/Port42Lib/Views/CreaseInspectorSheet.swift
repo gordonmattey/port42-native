@@ -7,7 +7,7 @@ public struct CreaseInspectorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let companion: AgentConfig
-    let channelId: String
+    let spaceId: String
 
     @State private var fold: CompanionFold?
     @State private var position: CompanionPosition?
@@ -22,9 +22,9 @@ public struct CreaseInspectorSheet: View {
         case engravings = "engravings"
     }
 
-    public init(companion: AgentConfig, channelId: String) {
+    public init(companion: AgentConfig, spaceId: String) {
         self.companion = companion
-        self.channelId = channelId
+        self.spaceId = spaceId
     }
 
     public var body: some View {
@@ -100,10 +100,10 @@ public struct CreaseInspectorSheet: View {
     }
 
     private func loadState() {
-        fold       = try? appState.db.fetchFold(companionId: companion.id, channelId: channelId)
-        position   = try? appState.db.fetchPosition(companionId: companion.id, channelId: channelId)
-        creases    = (try? appState.db.fetchCreases(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
-        engravings = (try? appState.db.fetchEngravings(companionId: companion.id, channelId: channelId, limit: 20)) ?? []
+        fold       = try? appState.db.fetchFold(companionId: companion.id, spaceId: spaceId)
+        position   = try? appState.db.fetchPosition(companionId: companion.id, spaceId: spaceId)
+        creases    = (try? appState.db.fetchCreases(companionId: companion.id, spaceId: spaceId, limit: 20)) ?? []
+        engravings = (try? appState.db.fetchEngravings(companionId: companion.id, spaceId: spaceId, limit: 20)) ?? []
     }
 
     private func forgetCrease(_ id: String) {

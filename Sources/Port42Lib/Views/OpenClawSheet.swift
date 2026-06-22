@@ -8,7 +8,7 @@ import SwiftUI
 struct OpenClawSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var appState: AppState
-    let channel: Channel
+    let space: Space
 
     @StateObject private var openclaw = OpenClawService()
     @State private var selectedAgent: String?
@@ -73,7 +73,7 @@ struct OpenClawSheet: View {
                 Text("channel")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text("#\(channel.name)")
+                Text("#\(space.name)")
                     .font(Port42Theme.monoBold(11))
                     .foregroundStyle(Port42Theme.accent)
             }
@@ -268,7 +268,7 @@ struct OpenClawSheet: View {
                     ProgressView()
                         .scaleEffect(0.6)
                 }
-                Text(isWorking ? "connecting..." : "connect to #\(channel.name)")
+                Text(isWorking ? "connecting..." : "connect to #\(space.name)")
                     .font(Port42Theme.monoBold(12))
             }
             .frame(maxWidth: .infinity)
@@ -367,11 +367,11 @@ struct OpenClawSheet: View {
 
         Task {
             // Generate invite link for this channel
-            let secured = appState.ensureEncryptionKey(for: channel)
-            let token = try? await appState.sync.requestToken(channelId: secured.id)
+            let secured = appState.ensureEncryptionKey(for: space)
+            let token = try? await appState.sync.requestToken(spaceId: secured.id)
 
-            guard let inviteURL = ChannelInvite.generateInviteURL(
-                channel: secured,
+            guard let inviteURL = SpaceInvite.generateInviteURL(
+                space: secured,
                 hostName: appState.currentUser?.displayName,
                 syncGatewayURL: appState.sync.gatewayURL,
                 token: token
@@ -391,7 +391,7 @@ struct OpenClawSheet: View {
             isWorking = false
 
             if success {
-                successMessage = "@\(agentId) connected to #\(channel.name)"
+                successMessage = "@\(agentId) connected to #\(space.name)"
                 Analytics.shared.openClawConnected()
             }
         }

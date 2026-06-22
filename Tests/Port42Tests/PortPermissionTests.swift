@@ -138,14 +138,14 @@ struct PortPermissionTests {
 
     @Test("AI permission does not grant terminal")
     func aiDoesNotGrantTerminal() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         bridge.grantedPermissions.insert(.ai)
         #expect(!bridge.grantedPermissions.contains(.terminal))
     }
 
     @Test("terminal permission does not grant microphone")
     func terminalDoesNotGrantMicrophone() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         bridge.grantedPermissions.insert(.terminal)
         #expect(!bridge.grantedPermissions.contains(.microphone))
     }
@@ -173,26 +173,26 @@ struct PortPermissionTests {
 
     @Test("new bridge has empty grantedPermissions")
     func newBridgeEmptyPermissions() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         #expect(bridge.grantedPermissions.isEmpty)
     }
 
     @Test("granted permission persists within session")
     func grantedPermissionPersists() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         bridge.grantedPermissions.insert(.ai)
         #expect(bridge.grantedPermissions.contains(.ai))
     }
 
     @Test("new bridge has no active streams")
     func newBridgeNoStreams() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         #expect(bridge.activeStreams.isEmpty)
     }
 
     @Test("pending permission starts nil")
     func pendingPermissionNil() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         #expect(bridge.pendingPermission == nil)
     }
 
@@ -203,7 +203,7 @@ struct PortPermissionTests {
     func companionPermissionsUnknown() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
-        let perms = appState.companionPermissions(createdBy: "unknown-companion", channelId: "unknown-channel")
+        let perms = appState.companionPermissions(createdBy: "unknown-companion", spaceId: "unknown-channel")
         #expect(perms.isEmpty)
     }
 
@@ -214,13 +214,13 @@ struct PortPermissionTests {
         let appState = AppState(db: db)
         let key = "test-companion-\(UUID().uuidString)"
         let channelId = "test-channel-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal, .ai], createdBy: key, channelId: channelId)
-        let restored = appState.companionPermissions(createdBy: key, channelId: channelId)
+        appState.saveCompanionPermissions([.terminal, .ai], createdBy: key, spaceId: channelId)
+        let restored = appState.companionPermissions(createdBy: key, spaceId: channelId)
         #expect(restored.contains(.terminal))
         #expect(restored.contains(.ai))
         #expect(!restored.contains(.camera))
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: key, channelId: channelId)
+        appState.saveCompanionPermissions([], createdBy: key, spaceId: channelId)
     }
 
     @Test("companion permissions are scoped to channelId — different channel gets empty set")
@@ -231,11 +231,11 @@ struct PortPermissionTests {
         let companion = "test-companion-\(UUID().uuidString)"
         let channelA = "channel-a-\(UUID().uuidString)"
         let channelB = "channel-b-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companion, channelId: channelA)
-        let permsB = appState.companionPermissions(createdBy: companion, channelId: channelB)
+        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: channelA)
+        let permsB = appState.companionPermissions(createdBy: companion, spaceId: channelB)
         #expect(permsB.isEmpty)
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: companion, channelId: channelA)
+        appState.saveCompanionPermissions([], createdBy: companion, spaceId: channelA)
     }
 
     @Test("companion permissions are scoped to createdBy — different companion gets empty set")
@@ -246,11 +246,11 @@ struct PortPermissionTests {
         let channelId = "test-channel-\(UUID().uuidString)"
         let companionA = "companion-a-\(UUID().uuidString)"
         let companionB = "companion-b-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companionA, channelId: channelId)
-        let permsB = appState.companionPermissions(createdBy: companionB, channelId: channelId)
+        appState.saveCompanionPermissions([.terminal], createdBy: companionA, spaceId: channelId)
+        let permsB = appState.companionPermissions(createdBy: companionB, spaceId: channelId)
         #expect(permsB.isEmpty)
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: companionA, channelId: channelId)
+        appState.saveCompanionPermissions([], createdBy: companionA, spaceId: channelId)
     }
 
     @Test("saving empty permissions removes the entry")
@@ -260,9 +260,9 @@ struct PortPermissionTests {
         let appState = AppState(db: db)
         let companion = "test-companion-\(UUID().uuidString)"
         let channelId = "test-channel-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companion, channelId: channelId)
-        appState.saveCompanionPermissions([], createdBy: companion, channelId: channelId)
-        let perms = appState.companionPermissions(createdBy: companion, channelId: channelId)
+        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: channelId)
+        appState.saveCompanionPermissions([], createdBy: companion, spaceId: channelId)
+        let perms = appState.companionPermissions(createdBy: companion, spaceId: channelId)
         #expect(perms.isEmpty)
     }
 }

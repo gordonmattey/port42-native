@@ -1,9 +1,9 @@
 import Foundation
 import CryptoKit
 
-/// Per-channel AES-256-GCM encryption for E2E message privacy.
+/// Per-space AES-256-GCM encryption for E2E message privacy.
 /// The gateway sees only encrypted blobs and routing metadata.
-public enum ChannelCrypto {
+public enum SpaceCrypto {
 
     /// Generate a new 256-bit symmetric key, returned as base64.
     public static func generateKey() -> String {

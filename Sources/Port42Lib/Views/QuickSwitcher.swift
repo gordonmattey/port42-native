@@ -10,9 +10,9 @@ struct QuickSwitcherItem: Identifiable {
     let kind: Kind
 
     enum Kind {
-        case channel(Channel)
+        case space(Space)
         case companion(AgentConfig)
-        case friend(ChannelMember)
+        case friend(SpaceMember)
     }
 }
 
@@ -77,7 +77,7 @@ public struct QuickSwitcher: View {
                     Image(systemName: "link")
                         .font(.system(size: 12))
                         .foregroundStyle(Port42Theme.accent)
-                    Text("press enter to join #\(inviteInfo.channelName)")
+                    Text("press enter to join #\(inviteInfo.spaceName)")
                         .font(Port42Theme.mono(12))
                         .foregroundStyle(Port42Theme.accent)
                     if let host = inviteInfo.hostName {
@@ -159,9 +159,9 @@ public struct QuickSwitcher: View {
 
     // MARK: - Data
 
-    private var channelItems: [QuickSwitcherItem] {
-        appState.channels.filter { $0.type != "dm" }.map { ch in
-            QuickSwitcherItem(id: "ch-\(ch.id)", icon: "#", name: ch.name, kind: .channel(ch))
+    private var spaceItems: [QuickSwitcherItem] {
+        appState.spaces.filter { $0.type != "dm" }.map { ch in
+            QuickSwitcherItem(id: "ch-\(ch.id)", icon: "#", name: ch.name, kind: .space(ch))
         }
     }
 
@@ -180,7 +180,7 @@ public struct QuickSwitcher: View {
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         // Empty query: show channels only (companions and friends are in sidebar)
-        guard !raw.isEmpty else { return channelItems }
+        guard !raw.isEmpty else { return spaceItems }
 
         // @ prefix: search companions and friends
         if raw.hasPrefix("@") {
@@ -193,12 +193,12 @@ public struct QuickSwitcher: View {
         // # prefix: search channels only
         if raw.hasPrefix("#") {
             let q = String(raw.dropFirst())
-            if q.isEmpty { return channelItems }
-            return channelItems.filter { match(q, $0.name.lowercased()) }
+            if q.isEmpty { return spaceItems }
+            return spaceItems.filter { match(q, $0.name.lowercased()) }
         }
 
         // No prefix: search all
-        let all = channelItems + companionItems + friendItems
+        let all = spaceItems + companionItems + friendItems
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -232,7 +232,7 @@ public struct QuickSwitcher: View {
         return nil
     }
 
-    private var parsedInvite: ChannelInviteData? {
+    private var parsedInvite: SpaceInviteData? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Try parsing the input directly, or extract a URL from surrounding text
@@ -242,7 +242,7 @@ public struct QuickSwitcher: View {
             // Direct port42:// deep link
             if candidate.hasPrefix("port42://channel"),
                let url = URL(string: candidate) {
-                return ChannelInvite.parse(url: url)
+                return SpaceInvite.parse(url: url)
             }
 
             // HTTPS invite page link (e.g. https://port42.ai/invite.html?gateway=wss://...&id=...&name=...)
@@ -256,7 +256,7 @@ public struct QuickSwitcher: View {
                     item.value.map { (item.name, $0) }
                 }, uniquingKeysWith: { _, last in last })
 
-                guard let channelId = dict["id"],
+                guard let spaceId = dict["id"],
                       let name = dict["name"] else { continue }
 
                 // Prefer explicit gateway param (new format via port42.ai)
@@ -271,10 +271,10 @@ public struct QuickSwitcher: View {
                     gateway = "\(scheme)://\(host)\(port)"
                 }
 
-                return ChannelInviteData(
+                return SpaceInviteData(
                     gateway: gateway,
-                    channelId: channelId,
-                    channelName: name,
+                    spaceId: spaceId,
+                    spaceName: name,
                     encryptionKey: dict["key"],
                     token: dict["token"],
                     hostName: dict["host"]
@@ -289,7 +289,7 @@ public struct QuickSwitcher: View {
 
     private func selectCurrent() {
         if let invite = parsedInvite {
-            appState.joinChannelFromInvite(invite)
+            appState.joinSpaceFromInvite(invite)
             isPresented = false
             return
         }
@@ -300,8 +300,8 @@ public struct QuickSwitcher: View {
 
     private func select(_ item: QuickSwitcherItem) {
         switch item.kind {
-        case .channel(let channel):
-            appState.selectChannel(channel)
+        case .space(let channel):
+            appState.selectSpace(channel)
         case .companion(let companion):
             appState.startSwim(with: companion)
         case .friend(let friend):
@@ -314,7 +314,7 @@ public struct QuickSwitcher: View {
 
     private func iconColor(_ item: QuickSwitcherItem) -> Color {
         switch item.kind {
-        case .channel: return Port42Theme.accent
+        case .space: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
         case .friend: return Port42Theme.accent.opacity(0.6)
         }
@@ -322,7 +322,7 @@ public struct QuickSwitcher: View {
 
     private func kindLabel(_ item: QuickSwitcherItem) -> String {
         switch item.kind {
-        case .channel: return "channel"
+        case .space: return "channel"
         case .companion: return "🏊"
         case .friend: return "friend"
         }

@@ -158,7 +158,7 @@ public struct ConversationContent: View {
     let bridgeNames: [String: String]
     let mentionCandidates: [MentionSuggestion]
     let localOwner: String?
-    let channelId: String?
+    let spaceId: String?
     let onSend: (String) -> Void
     let onStop: (() -> Void)?
     let onRetry: (() -> Void)?
@@ -191,7 +191,7 @@ public struct ConversationContent: View {
         bridgeNames: [String: String] = [:],
         mentionCandidates: [MentionSuggestion] = [],
         localOwner: String? = nil,
-        channelId: String? = nil,
+        spaceId: String? = nil,
         onSend: @escaping (String) -> Void,
         onStop: (() -> Void)? = nil,
         onRetry: (() -> Void)? = nil,
@@ -208,7 +208,7 @@ public struct ConversationContent: View {
         self.bridgeNames = bridgeNames
         self.mentionCandidates = mentionCandidates
         self.localOwner = localOwner
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.onSend = onSend
         self.onStop = onStop
         self.onRetry = onRetry
@@ -492,7 +492,7 @@ public struct ConversationContent: View {
                             return .handled
                         }
                         // Browse input history when draft is empty or already in history
-                        guard let cid = channelId else { return .ignored }
+                        guard let cid = spaceId else { return .ignored }
                         let history = appState.inputHistory(for: cid)
                         guard !history.isEmpty else { return .ignored }
                         if historyIndex == -1 {
@@ -516,7 +516,7 @@ public struct ConversationContent: View {
                         if historyIndex < 0 {
                             draft = savedDraft
                         } else {
-                            let history = appState.inputHistory(for: channelId ?? "")
+                            let history = appState.inputHistory(for: spaceId ?? "")
                             draft = history[historyIndex]
                         }
                         return .handled
@@ -601,8 +601,8 @@ public struct ConversationContent: View {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
         onTypingChanged?(false)
-        if let cid = channelId {
-            appState.appendInputHistory(channelId: cid, content: content)
+        if let cid = spaceId {
+            appState.appendInputHistory(spaceId: cid, content: content)
         }
         onSend(content)
         draft = ""
@@ -767,11 +767,11 @@ struct MessageRow: View, Equatable {
                                             NSLog("[Port42] PortCompactBlock onPopOut: keyWindow=\(String(describing: NSApp.keyWindow)), mainWindow=\(String(describing: NSApp.mainWindow))")
                                             let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
                                             let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-                                            let bridge = PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: msgId, createdBy: entry.senderName)
+                                            let bridge = PortBridge(appState: appState, spaceId: appState.currentSpace?.id, messageId: msgId, createdBy: entry.senderName)
                                             appState.portWindows.popOut(
                                                 html: html,
                                                 bridge: bridge,
-                                                channelId: appState.currentChannel?.id,
+                                                spaceId: appState.currentSpace?.id,
                                                 createdBy: entry.senderName,
                                                 messageId: msgId,
                                                 in: bounds
@@ -827,7 +827,7 @@ struct InlinePortView: View {
         self.messageId = messageId
         self.createdBy = createdBy
         let htmlTitle = PortPanel.extractTitle(from: html)
-        _bridge = StateObject(wrappedValue: PortBridge(appState: appState, channelId: appState.currentChannel?.id, messageId: messageId, createdBy: createdBy, title: htmlTitle))
+        _bridge = StateObject(wrappedValue: PortBridge(appState: appState, spaceId: appState.currentSpace?.id, messageId: messageId, createdBy: createdBy, title: htmlTitle))
     }
 
     var body: some View {
@@ -950,7 +950,7 @@ struct InlinePortView: View {
         appState.portWindows.popOut(
             html: html,
             bridge: bridge,
-            channelId: appState.currentChannel?.id,
+            spaceId: appState.currentSpace?.id,
             createdBy: createdBy,
             messageId: messageId,
             in: bounds

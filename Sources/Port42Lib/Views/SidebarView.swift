@@ -3,13 +3,13 @@ import AppKit
 
 /// A unified sidebar entry that wraps channels and companions (+ friends) for sorted display.
 private enum SidebarItem: Identifiable {
-    case channel(Channel)
+    case space(Space)
     case companion(AgentConfig)
-    case friend(ChannelMember)
+    case friend(SpaceMember)
 
     var id: String {
         switch self {
-        case .channel(let c): return "ch-\(c.id)"
+        case .space(let c): return "ch-\(c.id)"
         case .companion(let c): return "comp-\(c.id)"
         case .friend(let f): return "fr-\(f.senderId)"
         }
@@ -18,7 +18,7 @@ private enum SidebarItem: Identifiable {
     /// Display name for this sidebar item
     var swimmerName: String? {
         switch self {
-        case .channel: return nil
+        case .space: return nil
         case .companion(let c): return c.displayName
         case .friend(let f): return f.name
         }
@@ -27,15 +27,15 @@ private enum SidebarItem: Identifiable {
 
 public struct SidebarView: View {
     @EnvironmentObject var appState: AppState
-    @Binding var showNewChannel: Bool
+    @Binding var showNewSpace: Bool
     @Binding var showNewCompanion: Bool
     @State private var editingCompanion: AgentConfig?
-    @State private var editingChannel: Channel?
-    @State private var channelToDelete: Channel?
+    @State private var editingSpace: Space?
+    @State private var spaceToDelete: Space?
     @State private var companionToDelete: AgentConfig?
 
-    public init(showNewChannel: Binding<Bool>, showNewCompanion: Binding<Bool>) {
-        self._showNewChannel = showNewChannel
+    public init(showNewSpace: Binding<Bool>, showNewCompanion: Binding<Bool>) {
+        self._showNewSpace = showNewSpace
         self._showNewCompanion = showNewCompanion
     }
 
@@ -44,10 +44,10 @@ public struct SidebarView: View {
     private var sortedItems: [SidebarItem] {
         var items: [(SidebarItem, Date)] = []
 
-        for channel in appState.channels {
-            if channel.type == "dm" { continue }
-            let t = appState.lastActivityTimes[channel.id] ?? channel.createdAt
-            items.append((.channel(channel), t))
+        for space in appState.spaces {
+            if space.type == "dm" { continue }
+            let t = appState.lastActivityTimes[space.id] ?? space.createdAt
+            items.append((.space(space), t))
         }
 
         for companion in appState.companions {
@@ -70,7 +70,7 @@ public struct SidebarView: View {
         VStack(spacing: 0) {
             // New channel/companion header
             HStack(spacing: 6) {
-                Button(action: { showNewChannel = true }) {
+                Button(action: { showNewSpace = true }) {
                     Label("New Channel", systemImage: "number")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary)
@@ -100,8 +100,8 @@ public struct SidebarView: View {
                 LazyVStack(spacing: 2) {
                     ForEach(sortedItems) { item in
                         switch item {
-                        case .channel(let channel):
-                            channelRow(channel)
+                        case .space(let space):
+                            spaceRow(space)
                         case .companion(let companion):
                             companionRow(companion)
                         case .friend(let friend):
@@ -157,20 +157,20 @@ public struct SidebarView: View {
             )
             .environmentObject(appState)
         }
-        .sheet(isPresented: Binding(get: { editingChannel != nil }, set: { if !$0 { editingChannel = nil } })) {
-            EditChannelSheet(channel: $editingChannel)
+        .sheet(isPresented: Binding(get: { editingSpace != nil }, set: { if !$0 { editingSpace = nil } })) {
+            EditSpaceSheet(space: $editingSpace)
                 .environmentObject(appState)
         }
         .confirmationDialog(
-            "Delete \(channelToDelete?.name ?? "channel")?",
-            isPresented: Binding(get: { channelToDelete != nil }, set: { if !$0 { channelToDelete = nil } }),
+            "Delete \(spaceToDelete?.name ?? "channel")?",
+            isPresented: Binding(get: { spaceToDelete != nil }, set: { if !$0 { spaceToDelete = nil } }),
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let ch = channelToDelete { appState.deleteChannel(ch) }
-                channelToDelete = nil
+                if let ch = spaceToDelete { appState.deleteSpace(ch) }
+                spaceToDelete = nil
             }
-            Button("Cancel", role: .cancel) { channelToDelete = nil }
+            Button("Cancel", role: .cancel) { spaceToDelete = nil }
         } message: {
             Text("This will permanently delete the channel and all its messages.")
         }
@@ -190,22 +190,22 @@ public struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func channelRow(_ channel: Channel) -> some View {
-        let companionNames = ((try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []).map { $0.displayName }
-        let uniqueSenders = (try? appState.db.getUniqueSenders(channelId: channel.id)) ?? []
-        Button(action: { appState.selectChannel(channel) }) {
-            ChannelRow(
-                channel: channel,
+    private func spaceRow(_ space: Space) -> some View {
+        let companionNames = ((try? appState.db.getAgentsForSpace(spaceId: space.id)) ?? []).map { $0.displayName }
+        let uniqueSenders = (try? appState.db.getUniqueSenders(spaceId: space.id)) ?? []
+        Button(action: { appState.selectSpace(space) }) {
+            SpaceRow(
+                space: space,
                 isActive: appState.activeSwimCompanion == nil
-                    && appState.currentChannel?.id == channel.id,
-                unreadCount: appState.unreadCounts[channel.id] ?? 0,
+                    && appState.currentSpace?.id == space.id,
+                unreadCount: appState.unreadCounts[space.id] ?? 0,
                 companionNames: companionNames,
                 onlineCount: max(1, uniqueSenders.count)
             )
         }
         .buttonStyle(.plain)
         .contextMenu {
-            let assigned = (try? appState.db.getAgentsForChannel(channelId: channel.id)) ?? []
+            let assigned = (try? appState.db.getAgentsForSpace(spaceId: space.id)) ?? []
             let assignedIds = Set(assigned.map { $0.id })
             let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
 
@@ -214,7 +214,7 @@ public struct SidebarView: View {
                     Section("Local") {
                         ForEach(unassigned) { comp in
                             Button("@\(comp.displayName)") {
-                                appState.addCompanionToChannel(comp, channel: channel)
+                                appState.addCompanionToSpace(comp, space: space)
                             }
                         }
                     }
@@ -222,15 +222,15 @@ public struct SidebarView: View {
 
                 Section("Remote") {
                     Button("Connect OpenClaw Agent...") {
-                        appState.openClawChannel = channel
+                        appState.openClawSpace = space
                         appState.showOpenClawSheet = true
                     }
                     Button("Connect Python Agent...") {
-                        appState.pythonAgentChannel = channel
+                        appState.pythonAgentSpace = space
                         appState.showPythonAgentSheet = true
                     }
                     Button("Connect LLM CLI") {
-                        let secured = appState.ensureEncryptionKey(for: channel)
+                        let secured = appState.ensureEncryptionKey(for: space)
                         Task {
                             let hostName = appState.currentUser?.displayName ?? "Port42"
                             let prompt = """
@@ -257,10 +257,10 @@ curl -s http://127.0.0.1:4242/call \\
                         }
                     }
                     Button("Connect with Invitation Link") {
-                        let secured = appState.ensureEncryptionKey(for: channel)
+                        let secured = appState.ensureEncryptionKey(for: space)
                         Task {
-                            let token = try? await appState.sync.requestToken(channelId: secured.id)
-                            ChannelInvite.copyToClipboard(channel: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                            let token = try? await appState.sync.requestToken(spaceId: secured.id)
+                            SpaceInvite.copyToClipboard(space: secured, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
                             appState.toastMessage = appState.tunnel.publicURL != nil ? "Copied to clipboard" : "Copied to clipboard (local network only — start ngrok for remote sharing)"
                         }
                     }
@@ -271,24 +271,24 @@ curl -s http://127.0.0.1:4242/call \\
                 Menu("Remove Companion") {
                     ForEach(assigned) { comp in
                         Button("@\(comp.displayName)") {
-                            appState.removeCompanionFromChannel(comp, channel: channel)
+                            appState.removeCompanionFromSpace(comp, space: space)
                         }
                     }
                 }
             }
 
             Button("Edit Channel") {
-                editingChannel = channel
+                editingSpace = space
             }
 
             Button("Copy Channel ID") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(channel.id, forType: .string)
+                NSPasteboard.general.setString(space.id, forType: .string)
                 appState.toastMessage = "Channel ID copied"
             }
 
             Button("Delete Channel", role: .destructive) {
-                channelToDelete = channel
+                spaceToDelete = space
             }
         }
     }
@@ -296,7 +296,7 @@ curl -s http://127.0.0.1:4242/call \\
     @ViewBuilder
     private func companionRow(_ companion: AgentConfig) -> some View {
         let swimId = "swim-\(companion.id)"
-        let depth = (try? appState.db.fetchFold(companionId: companion.id, channelId: swimId))?.depth
+        let depth = (try? appState.db.fetchFold(companionId: companion.id, spaceId: swimId))?.depth
         let action: () -> Void = companion.openInTerminal
             ? {
                 if let panelId = appState.bridgedTerminalNames[companion.displayName.lowercased()] {
@@ -321,14 +321,14 @@ curl -s http://127.0.0.1:4242/call \\
                 NSPasteboard.general.setString(companion.id, forType: .string)
                 appState.toastMessage = "Companion ID copied"
             }
-            let assignedChannels = appState.channels.filter { ch in
-                ((try? appState.db.getAgentsForChannel(channelId: ch.id)) ?? []).contains(where: { $0.id == companion.id })
+            let assignedSpaces = appState.spaces.filter { ch in
+                ((try? appState.db.getAgentsForSpace(spaceId: ch.id)) ?? []).contains(where: { $0.id == companion.id })
             }
-            if !assignedChannels.isEmpty {
+            if !assignedSpaces.isEmpty {
                 Menu("Remove from Channel") {
-                    ForEach(assignedChannels) { ch in
+                    ForEach(assignedSpaces) { ch in
                         Button("#\(ch.name)") {
-                            appState.removeCompanionFromChannel(companion, channel: ch)
+                            appState.removeCompanionFromSpace(companion, space: ch)
                         }
                     }
                 }
@@ -340,10 +340,10 @@ curl -s http://127.0.0.1:4242/call \\
     }
 
     @ViewBuilder
-    private func friendRow(_ friend: ChannelMember) -> some View {
+    private func friendRow(_ friend: SpaceMember) -> some View {
         let dmId = "dm-\(friend.senderId)"
         let isActive = appState.activeSwimCompanion == nil
-            && appState.currentChannel?.id == dmId
+            && appState.currentSpace?.id == dmId
         let displayName = friend.displayName(localOwner: appState.currentUser?.displayName)
         Button(action: { appState.startDM(with: friend) }) {
             CompanionRow(
@@ -410,8 +410,8 @@ public struct CompanionRow: View {
     }
 }
 
-public struct ChannelRow: View {
-    let channel: Channel
+public struct SpaceRow: View {
+    let space: Space
     let isActive: Bool
     let unreadCount: Int
     let companionNames: [String]
@@ -419,8 +419,8 @@ public struct ChannelRow: View {
 
     @State private var isHovered = false
 
-    public init(channel: Channel, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0) {
-        self.channel = channel
+    public init(space: Space, isActive: Bool, unreadCount: Int, companionNames: [String] = [], onlineCount: Int = 0) {
+        self.space = space
         self.isActive = isActive
         self.unreadCount = unreadCount
         self.companionNames = companionNames
@@ -428,7 +428,7 @@ public struct ChannelRow: View {
     }
 
     private var isEncrypted: Bool {
-        channel.encryptionKey != nil
+        space.encryptionKey != nil
     }
 
     public var body: some View {
@@ -439,7 +439,7 @@ public struct ChannelRow: View {
                     isActive ? Port42Theme.accent : Port42Theme.textSecondary
                 )
 
-            Text(channel.name)
+            Text(space.name)
                 .font(Port42Theme.mono(13))
                 .foregroundStyle(
                     isActive ? Port42Theme.accent

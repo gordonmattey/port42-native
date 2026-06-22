@@ -9,14 +9,14 @@ struct PortAITests {
 
     @Test("handler stores callId")
     @MainActor func handlerStoresCallId() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let handler = PortAIHandler(callId: 123, bridge: bridge)
         #expect(handler.callId == 123)
     }
 
     @Test("handler creates engine")
     @MainActor func handlerCreatesEngine() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let handler = PortAIHandler(callId: 1, bridge: bridge)
         #expect(handler.engine is LLMEngine)
     }
@@ -25,7 +25,7 @@ struct PortAITests {
 
     @Test("activeStreams tracks handlers by callId")
     @MainActor func activeStreamsTracking() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let handler = PortAIHandler(callId: 42, bridge: bridge)
         bridge.activeStreams[42] = handler
         #expect(bridge.activeStreams[42] != nil)
@@ -34,7 +34,7 @@ struct PortAITests {
 
     @Test("removeStream cleans up handler")
     @MainActor func removeStreamCleanup() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let handler = PortAIHandler(callId: 5, bridge: bridge)
         bridge.activeStreams[5] = handler
         bridge.removeStream(5)
@@ -43,7 +43,7 @@ struct PortAITests {
 
     @Test("multiple streams can coexist")
     @MainActor func multipleStreams() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let h1 = PortAIHandler(callId: 1, bridge: bridge)
         let h2 = PortAIHandler(callId: 2, bridge: bridge)
         let h3 = PortAIHandler(callId: 3, bridge: bridge)
@@ -55,7 +55,7 @@ struct PortAITests {
 
     @Test("removing one stream does not affect others")
     @MainActor func removeOneStream() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let h1 = PortAIHandler(callId: 1, bridge: bridge)
         let h2 = PortAIHandler(callId: 2, bridge: bridge)
         bridge.activeStreams[1] = h1
@@ -77,7 +77,7 @@ struct PortAITests {
 
     @Test("granting .ai permission covers both ai.complete and companions.invoke")
     func grantCoversAll() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         bridge.grantedPermissions.insert(.ai)
         // Both methods map to .ai
         let p1 = PortPermission.permissionForMethod("ai.complete")

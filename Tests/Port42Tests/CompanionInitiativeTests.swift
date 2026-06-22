@@ -61,13 +61,13 @@ struct CompanionInitiativeTests {
         let db = try makeDB()
         let pos = CompanionPosition(
             companionId: "analyst",
-            channelId: "general",
+            spaceId: "general",
             read: "project is drifting",
             watching: ["scope creep", "another feature", "timeline slip"]
         )
         try db.savePosition(pos)
 
-        let fetched = try db.fetchPosition(companionId: "analyst", channelId: "general")
+        let fetched = try db.fetchPosition(companionId: "analyst", spaceId: "general")
         #expect(fetched?.watching == ["scope creep", "another feature", "timeline slip"])
     }
 
@@ -75,7 +75,7 @@ struct CompanionInitiativeTests {
     func noPositionNoTrigger() throws {
         let db = try makeDB()
         // No position saved — fetchPosition returns nil
-        let pos = try db.fetchPosition(companionId: "muse", channelId: "general")
+        let pos = try db.fetchPosition(companionId: "muse", spaceId: "general")
         #expect(pos == nil)
         // Initiative check: nil position → no watching list → no trigger
         let watching = pos?.watching ?? []
@@ -86,12 +86,12 @@ struct CompanionInitiativeTests {
     func emptyWatchingNoTrigger() throws {
         let db = try makeDB()
         let pos = CompanionPosition(
-            companionId: "sage", channelId: "general",
+            companionId: "sage", spaceId: "general",
             read: "something is happening", watching: []
         )
         try db.savePosition(pos)
 
-        let fetched = try db.fetchPosition(companionId: "sage", channelId: "general")
+        let fetched = try db.fetchPosition(companionId: "sage", spaceId: "general")
         let watching = fetched?.watching ?? []
         let matched = matchedSignal(watching: watching, in: "another feature request")
         #expect(matched == nil)
@@ -104,7 +104,7 @@ struct CompanionInitiativeTests {
         let db = try makeDB()
         try db.savePosition(CompanionPosition(
             companionId: "engineer",
-            channelId: "general",
+            spaceId: "general",
             read: "feature creep",
             watching: ["feature request"]
         ))
@@ -121,18 +121,18 @@ struct CompanionInitiativeTests {
     func multipleCompanionsMatch() throws {
         let db = try makeDB()
         try db.savePosition(CompanionPosition(
-            companionId: "analyst", channelId: "ch",
+            companionId: "analyst", spaceId: "ch",
             watching: ["scope creep"]
         ))
         try db.savePosition(CompanionPosition(
-            companionId: "sage", channelId: "ch",
+            companionId: "sage", spaceId: "ch",
             watching: ["narrative", "story"]
         ))
 
         let message = "this is scope creep and we need a better narrative"
 
-        let analystPos = try db.fetchPosition(companionId: "analyst", channelId: "ch")
-        let sagePos = try db.fetchPosition(companionId: "sage", channelId: "ch")
+        let analystPos = try db.fetchPosition(companionId: "analyst", spaceId: "ch")
+        let sagePos = try db.fetchPosition(companionId: "sage", spaceId: "ch")
 
         let analystMatch = matchedSignal(watching: analystPos?.watching ?? [], in: message)
         let sageMatch = matchedSignal(watching: sagePos?.watching ?? [], in: message)
@@ -145,12 +145,12 @@ struct CompanionInitiativeTests {
     func watchingScopedToChannel() throws {
         let db = try makeDB()
         try db.savePosition(CompanionPosition(
-            companionId: "analyst", channelId: "channel-A",
+            companionId: "analyst", spaceId: "channel-A",
             watching: ["scope creep"]
         ))
 
         // No position in channel-B
-        let posB = try db.fetchPosition(companionId: "analyst", channelId: "channel-B")
+        let posB = try db.fetchPosition(companionId: "analyst", spaceId: "channel-B")
         #expect(posB == nil)
         let watching = posB?.watching ?? []
         let match = matchedSignal(watching: watching, in: "massive scope creep happening")

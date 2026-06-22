@@ -13,39 +13,39 @@ public struct ChatView: View {
                 ConversationContent(
                     entries: channelEntries,
                     placeholder: "chat with your reality... (press ? for help)",
-                    error: appState.channelErrors[appState.currentChannel?.id ?? ""],
+                    error: appState.spaceErrors[appState.currentSpace?.id ?? ""],
                     typingNames: Array(appState.typingAgentNames.union(
-                        appState.sync.remoteTypingNames[appState.currentChannel?.id ?? ""] ?? []
+                        appState.sync.remoteTypingNames[appState.currentSpace?.id ?? ""] ?? []
                     )),
                     toolingNames: Array(appState.toolingAgentNames),
-                    bridgeNames: appState.activeBridgeNames[appState.currentChannel?.id ?? ""] ?? [:],
+                    bridgeNames: appState.activeBridgeNames[appState.currentSpace?.id ?? ""] ?? [:],
                     mentionCandidates: buildMentionCandidates(),
                     localOwner: appState.currentUser?.displayName,
-                    channelId: appState.currentChannel?.id,
+                    spaceId: appState.currentSpace?.id,
                     onSend: { content in appState.sendMessage(content: content) },
                     onStop: {
-                        if let channelId = appState.currentChannel?.id {
-                            appState.cancelStreaming(channelId: channelId)
+                        if let spaceId = appState.currentSpace?.id {
+                            appState.cancelStreaming(spaceId: spaceId)
                         }
                     },
                     onRetry: {
-                        if let channelId = appState.currentChannel?.id {
+                        if let spaceId = appState.currentSpace?.id {
                             AgentAuthResolver.shared.clearCache()
-                            appState.retryLastMessage(channelId: channelId)
+                            appState.retryLastMessage(spaceId: spaceId)
                         }
                     },
                     onDismissError: {
-                        if let channelId = appState.currentChannel?.id {
-                            appState.channelErrors[channelId] = nil
+                        if let spaceId = appState.currentSpace?.id {
+                            appState.spaceErrors[spaceId] = nil
                         }
                     },
                     onOpenSettings: {
                         NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
                     },
                     onTypingChanged: { isTyping in
-                        if let channelId = appState.currentChannel?.id,
+                        if let spaceId = appState.currentSpace?.id,
                            let userName = appState.currentUser?.displayName {
-                            appState.sync.sendTyping(channelId: channelId, senderName: userName, isTyping: isTyping)
+                            appState.sync.sendTyping(spaceId: spaceId, senderName: userName, isTyping: isTyping)
                         }
                     }
                 )
@@ -85,8 +85,8 @@ public struct ChatView: View {
     }
 
     private func copyConversation() {
-        guard let channelId = appState.currentChannel?.id else { return }
-        let msgs = (try? appState.db.getMessages(channelId: channelId)) ?? []
+        guard let spaceId = appState.currentSpace?.id else { return }
+        let msgs = (try? appState.db.getMessages(spaceId: spaceId)) ?? []
         let text = msgs.map { "\($0.senderName): \($0.content)" }.joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -132,8 +132,8 @@ public struct ChatView: View {
         }
 
         // Remote members from channel message history
-        guard let channelId = appState.currentChannel?.id else { return candidates }
-        let members = (try? appState.db.getChannelMembers(channelId: channelId)) ?? []
+        guard let spaceId = appState.currentSpace?.id else { return candidates }
+        let members = (try? appState.db.getSpaceMembers(spaceId: spaceId)) ?? []
 
         for member in members {
             if member.senderId == localUserId { continue }
@@ -147,7 +147,7 @@ public struct ChatView: View {
         }
 
         // Online users from presence who haven't messaged yet
-        let onlineIds = appState.sync.onlineUsers[channelId] ?? []
+        let onlineIds = appState.sync.onlineUsers[spaceId] ?? []
         for userId in onlineIds {
             if userId == localUserId { continue }
             if seenIds.contains(userId) { continue }
@@ -168,15 +168,15 @@ public struct ChannelHeader: View {
     @EnvironmentObject var appState: AppState
     @State private var showMembers = false
 
-    private var members: [ChannelMember] {
-        guard let id = appState.currentChannel?.id else { return [] }
+    private var members: [SpaceMember] {
+        guard let id = appState.currentSpace?.id else { return [] }
         // Include local companions assigned to this channel
-        let channelAgents = (try? appState.db.getAgentsForChannel(channelId: id)) ?? []
+        let channelAgents = (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
         let assignedNames = Set(channelAgents.map { $0.displayName.lowercased() })
         let onlineSet = Set(appState.sync.onlineUsers[id] ?? [])
 
         // Filter history members: keep humans and remote/online agents, drop agents no longer assigned
-        var history = (try? appState.db.getChannelMembers(channelId: id)) ?? []
+        var history = (try? appState.db.getSpaceMembers(spaceId: id)) ?? []
         history = history.filter { m in
             m.type == "human" || assignedNames.contains(m.name.lowercased()) || onlineSet.contains(m.senderId)
         }
@@ -187,12 +187,12 @@ public struct ChannelHeader: View {
         // Always include the current user even if they haven't messaged yet
         if let user = appState.currentUser,
            !result.contains(where: { $0.senderId == user.id }) {
-            result.insert(ChannelMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
+            result.insert(SpaceMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
         }
 
         for agent in channelAgents {
             if !result.contains(where: { $0.name == agent.displayName }) {
-                result.append(ChannelMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
+                result.append(SpaceMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
         }
 
@@ -202,7 +202,7 @@ public struct ChannelHeader: View {
             if result.contains(where: { $0.senderId == userId }) { continue }
             if userId == appState.currentUser?.id { continue }
             if let name = appState.sync.knownNames[userId] {
-                result.append(ChannelMember(senderId: userId, name: name, type: "agent", owner: nil))
+                result.append(SpaceMember(senderId: userId, name: name, type: "agent", owner: nil))
             }
         }
 
@@ -210,7 +210,7 @@ public struct ChannelHeader: View {
     }
 
     private var onlineIds: Set<String> {
-        guard let id = appState.currentChannel?.id else { return [] }
+        guard let id = appState.currentSpace?.id else { return [] }
         var ids = appState.sync.onlineUsers[id] ?? []
         // Current user is always online
         if let userId = appState.currentUser?.id { ids.insert(userId) }
@@ -224,7 +224,7 @@ public struct ChannelHeader: View {
             Text("#")
                 .font(Port42Theme.mono(16))
                 .foregroundStyle(Port42Theme.textSecondary)
-            Text(appState.currentChannel?.name ?? "")
+            Text(appState.currentSpace?.name ?? "")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 
@@ -281,8 +281,8 @@ public struct ChannelHeader: View {
     }
 
     private func copyConversation() {
-        guard let channelId = appState.currentChannel?.id else { return }
-        let messages = (try? appState.db.getMessages(channelId: channelId)) ?? []
+        guard let spaceId = appState.currentSpace?.id else { return }
+        let messages = (try? appState.db.getMessages(spaceId: spaceId)) ?? []
         let lines: [String] = messages.map { msg in
             "\(msg.senderName): \(msg.content)"
         }
@@ -294,7 +294,7 @@ public struct ChannelHeader: View {
 
 /// Avatar circle for a channel member. Teal dot for companions, green dot for humans.
 struct MemberAvatar: View {
-    let member: ChannelMember
+    let member: SpaceMember
     let size: CGFloat
     var isOnline: Bool = false
 

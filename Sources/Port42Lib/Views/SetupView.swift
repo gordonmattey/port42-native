@@ -766,8 +766,8 @@ public struct SetupView: View {
             Color(red: 0.0, green: 0.15, blue: 0.3).opacity(0.3).ignoresSafeArea()
 
             if let companion = appState.activeSwimCompanion,
-               let channel = appState.currentChannel, channel.isSwim {
-                let channelId = channel.id
+               let channel = appState.currentSpace, channel.isSwim {
+                let spaceId = channel.id
                 let userName = submittedName ?? displayName
                 let isStreaming = appState.typingAgentNames.contains(companion.displayName)
                 let currentUserId = appState.currentUser?.id
@@ -830,15 +830,15 @@ public struct SetupView: View {
                         entries: entries,
                         placeholder: "Message \(companion.displayName)...",
                         isStreaming: isStreaming,
-                        error: appState.channelErrors[channelId],
+                        error: appState.spaceErrors[spaceId],
                         typingNames: isStreaming ? [companion.displayName] : [],
                         onSend: { content in appState.sendMessage(content: content) },
-                        onStop: { appState.cancelStreaming(channelId: channelId) },
+                        onStop: { appState.cancelStreaming(spaceId: spaceId) },
                         onRetry: {
                             AgentAuthResolver.shared.clearCache()
-                            appState.retryLastMessage(channelId: channelId)
+                            appState.retryLastMessage(spaceId: spaceId)
                         },
-                        onDismissError: { appState.channelErrors[channelId] = nil },
+                        onDismissError: { appState.spaceErrors[spaceId] = nil },
                         onOpenSettings: { showSettings = true }
                     )
                     .environmentObject(appState)

@@ -14,7 +14,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     private(set) weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
-    public let channelId: String?
+    public let spaceId: String?
     public let messageId: String?
     public let createdBy: String?
 
@@ -69,9 +69,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Camera bridge. Created lazily on first camera call.
     private var cameraBridge: CameraBridge?
 
-    public init(appState: AnyObject, channelId: String?, messageId: String? = nil, createdBy: String? = nil, title: String? = nil) {
+    public init(appState: AnyObject, spaceId: String?, messageId: String? = nil, createdBy: String? = nil, title: String? = nil) {
         self.appState = appState
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.messageId = messageId
         self.createdBy = createdBy
         self.title = title
@@ -86,8 +86,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 grantedPermissions = cached
             }
             // 2. Companion-level persistence (P-260): auto-restore permissions for same companion+channel
-            if let by = createdBy, let cid = channelId {
-                let companionPerms = state.companionPermissions(createdBy: by, channelId: cid)
+            if let by = createdBy, let cid = spaceId {
+                let companionPerms = state.companionPermissions(createdBy: by, spaceId: cid)
                 if !companionPerms.isEmpty {
                     grantedPermissions.formUnion(companionPerms)
                 }
@@ -153,8 +153,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Persist to DB so permissions survive app restart
         state?.portWindows.persistPermissions(for: self)
         // Companion-level persistence (P-260): save so future ports by same companion auto-grant
-        if let by = createdBy, let cid = channelId {
-            state?.saveCompanionPermissions(grantedPermissions, createdBy: by, channelId: cid)
+        if let by = createdBy, let cid = spaceId {
+            state?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: cid)
         }
     }
 
@@ -359,9 +359,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "channel.current":
             // Check if we're in a swim
             if let companion = state.activeSwimCompanion,
-               let channel = state.currentChannel, channel.isSwim {
+               let space = state.currentSpace, space.isSwim {
                 return [
-                    "id": channel.id,
+                    "id": space.id,
                     "name": companion.displayName,
                     "type": "swim",
                     "members": [
@@ -370,16 +370,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     ]
                 ] as [String: Any]
             }
-            // Otherwise return current channel
-            if let channel = state.currentChannel {
-                let channelMembers = (try? state.db.getChannelMembers(channelId: channel.id)) ?? []
-                let members: [[String: String]] = channelMembers.map {
+            // Otherwise return current space
+            if let space = state.currentSpace {
+                let spaceMembers = (try? state.db.getSpaceMembers(spaceId: space.id)) ?? []
+                let members: [[String: String]] = spaceMembers.map {
                     ["name": $0.name, "type": $0.type]
                 }
                 return [
-                    "id": channel.id,
-                    "name": channel.name,
-                    "type": channel.type,
+                    "id": space.id,
+                    "name": space.name,
+                    "type": space.type,
                     "members": members
                 ] as [String: Any]
             }
@@ -387,12 +387,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.channel.list()
         case "channel.list":
-            return state.channels.map { ch -> [String: Any] in
+            return state.spaces.map { ch -> [String: Any] in
                 [
                     "id": ch.id,
                     "name": ch.name,
                     "type": ch.type,
-                    "isCurrent": ch.id == state.currentChannel?.id
+                    "isCurrent": ch.id == state.currentSpace?.id
                 ]
             }
 
@@ -401,8 +401,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             guard let id = args.first as? String else {
                 return ["error": "channel.switchTo requires a channel id"]
             }
-            if let channel = state.channels.first(where: { $0.id == id }) {
-                state.selectChannel(channel)
+            if let space = state.spaces.first(where: { $0.id == id }) {
+                state.selectSpace(space)
                 return ["ok": true]
             }
             return ["error": "channel not found"]
@@ -415,20 +415,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             guard let text = args.first as? String, !text.isEmpty else {
                 return ["error": "messages.send requires a non-empty text argument"]
             }
-            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
+            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? spaceId
             if let senderName = createdBy, !senderName.isEmpty {
                 NSLog("[p42-bridge] messages.send from companion port '%@' — redirecting to sendAsCreator", senderName)
-                state.sendMessageAsNamedAgent(content: text, senderName: senderName, toChannelId: targetChannelId)
+                state.sendMessageAsNamedAgent(content: text, senderName: senderName, toSpaceId: targetChannelId)
                 if let cid = targetChannelId {
-                    state.typingAgentNamesByChannel[cid, default: []].remove(senderName)
-                    state.sync.sendTyping(channelId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
+                    state.typingAgentNamesBySpace[cid, default: []].remove(senderName)
+                    state.sync.sendTyping(spaceId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
                 }
             } else {
-                state.sendMessage(content: text, toChannelId: targetChannelId)
+                state.sendMessage(content: text, toSpaceId: targetChannelId)
             }
             return ["ok": true]
 
-        // port42.messages.sendAsCreator(text, channelId?)
+        // port42.messages.sendAsCreator(text, spaceId?)
         // Sends attributed to this port's createdBy identity (companion name).
         // Used by CLI terminal ports to post agent output to the channel.
         case "messages.sendAsCreator":
@@ -440,15 +440,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 NSLog("[p42-bridge] sendAsCreator REJECTED: no createdBy on this port")
                 return ["error": "messages.sendAsCreator requires a port with createdBy set"]
             }
-            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? channelId
+            let targetChannelId = (args.count > 1 ? args[1] as? String : nil) ?? spaceId
             NSLog("[p42-bridge] sendAsCreator: sender=%@ channel=%@ len=%d preview=\"%@\"",
                   senderName, targetChannelId ?? "nil", text.count,
                   String(text.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
-            state.sendMessageAsNamedAgent(content: text, senderName: senderName, toChannelId: targetChannelId)
+            state.sendMessageAsNamedAgent(content: text, senderName: senderName, toSpaceId: targetChannelId)
             // Clear typing indicator — terminal companions set it at routing time but have no stream delegate to clear it
             if let cid = targetChannelId {
-                state.typingAgentNamesByChannel[cid, default: []].remove(senderName)
-                state.sync.sendTyping(channelId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
+                state.typingAgentNamesBySpace[cid, default: []].remove(senderName)
+                state.sync.sendTyping(spaceId: cid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
             }
             return ["ok": true]
 
@@ -457,7 +457,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             var info: [String: Any] = [:]
             if let mid = messageId { info["messageId"] = mid }
             if let creator = createdBy { info["createdBy"] = creator }
-            if let cid = channelId { info["channelId"] = cid }
+            if let cid = spaceId { info["spaceId"] = cid }
             return info
 
         // port42.ai.models()
@@ -636,7 +636,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.first as? [String: Any]
             let filterCaps = opts?["capabilities"] as? [String] ?? []
             let floating = state.portWindows.allPorts()
-            let inline = state.inlinePorts().filter { $0.channelId == channelId || channelId == nil }.suffix(5)
+            let inline = state.inlinePorts().filter { $0.spaceId == spaceId || spaceId == nil }.suffix(5)
             typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?)
             let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y) }
                 + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none) }
@@ -826,7 +826,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.count > 1 ? args[1] as? [String: Any] : nil
             let crease = CompanionCrease(
                 companionId: companionId,
-                channelId: opts?["channelId"] as? String ?? channelId,
+                spaceId: opts?["spaceId"] as? String ?? spaceId,
                 content: content,
                 prediction: opts?["prediction"] as? String,
                 actual: opts?["actual"] as? String
@@ -857,8 +857,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             let opts = args.first as? [String: Any] ?? [:]
             let swimId = "swim-\(companionId)"
-            var fold = (try? state.db.fetchFold(companionId: companionId, channelId: swimId))
-                ?? CompanionFold(companionId: companionId, channelId: swimId)
+            var fold = (try? state.db.fetchFold(companionId: companionId, spaceId: swimId))
+                ?? CompanionFold(companionId: companionId, spaceId: swimId)
             if let est = opts["established"] as? [String] { fold.established = est }
             if let ten = opts["tensions"] as? [String] { fold.tensions = ten }
             if let h = opts["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
@@ -877,8 +877,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             let opts = args.count > 1 ? args[1] as? [String: Any] : nil
             let swimId = "swim-\(companionId)"
-            var pos = (try? state.db.fetchPosition(companionId: companionId, channelId: swimId))
-                ?? CompanionPosition(companionId: companionId, channelId: swimId)
+            var pos = (try? state.db.fetchPosition(companionId: companionId, spaceId: swimId))
+                ?? CompanionPosition(companionId: companionId, spaceId: swimId)
             pos.read = read
             if let stance = opts?["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
             if let watching = opts?["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }
@@ -959,7 +959,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             return ["cwd": NSNull()]
 
         case "terminal.bridge":
-            // terminal.bridge(sessionId, channelId, name)
+            // terminal.bridge(sessionId, spaceId, name)
             // Registers this terminal port so @mentions route into it.
             guard let sessionId = args.first as? String else {
                 return ["error": "terminal.bridge requires sessionId"]
@@ -969,7 +969,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             await MainActor.run {
                 self.state?.bridgeTerminalPort(
                     sessionId: sessionId,
-                    channelId: bridgeChannelId ?? self.channelId ?? "",
+                    spaceId: bridgeChannelId ?? self.spaceId ?? "",
                     name: bridgeName ?? ""
                 )
             }
@@ -1230,13 +1230,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.creases.read(opts?)
         case "creases.read":
-            guard let cid = channelId, cid.hasPrefix("swim-") else {
+            guard let cid = spaceId, cid.hasPrefix("swim-") else {
                 return ["error": "creases.read is only available in a swim"]
             }
             let companionId = String(cid.dropFirst("swim-".count))
             let opts = args.first as? [String: Any]
             let limit = opts?["limit"] as? Int ?? 8
-            let creases = (try? state.db.fetchCreases(companionId: companionId, channelId: cid, limit: limit)) ?? []
+            let creases = (try? state.db.fetchCreases(companionId: companionId, spaceId: cid, limit: limit)) ?? []
             return creases.map { c -> [String: Any] in
                 var entry: [String: Any] = [
                     "id": c.id,
@@ -1251,13 +1251,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.engravings.read(opts?)
         case "engravings.read":
-            guard let cid = channelId, cid.hasPrefix("swim-") else {
+            guard let cid = spaceId, cid.hasPrefix("swim-") else {
                 return ["error": "engravings.read is only available in a swim"]
             }
             let companionId = String(cid.dropFirst("swim-".count))
             let opts = args.first as? [String: Any]
             let limit = opts?["limit"] as? Int ?? 8
-            let engravings = (try? state.db.fetchEngravings(companionId: companionId, channelId: cid, limit: limit)) ?? []
+            let engravings = (try? state.db.fetchEngravings(companionId: companionId, spaceId: cid, limit: limit)) ?? []
             return engravings.map { e -> [String: Any] in
                 var entry: [String: Any] = [
                     "id": e.id,
@@ -1278,7 +1278,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.count > 1 ? args[1] as? [String: Any] : nil
             let engraving = CompanionEngraving(
                 companionId: companionId,
-                channelId: opts?["channelId"] as? String ?? channelId,
+                spaceId: opts?["spaceId"] as? String ?? spaceId,
                 content: content,
                 category: opts?["category"] as? String
             )
@@ -1303,11 +1303,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.fold.read()
         case "fold.read":
-            guard let cid = channelId, cid.hasPrefix("swim-") else {
+            guard let cid = spaceId, cid.hasPrefix("swim-") else {
                 return ["error": "fold.read is only available in a swim"]
             }
             let companionId = String(cid.dropFirst("swim-".count))
-            guard let fold = try? state.db.fetchFold(companionId: companionId, channelId: cid) else {
+            guard let fold = try? state.db.fetchFold(companionId: companionId, spaceId: cid) else {
                 return ["depth": 0, "established": [], "tensions": [], "holding": NSNull()] as [String: Any]
             }
             return [
@@ -1319,11 +1319,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.position.read()
         case "position.read":
-            guard let cid = channelId, cid.hasPrefix("swim-") else {
+            guard let cid = spaceId, cid.hasPrefix("swim-") else {
                 return ["error": "position.read is only available in a swim"]
             }
             let companionId = String(cid.dropFirst("swim-".count))
-            guard let pos = try? state.db.fetchPosition(companionId: companionId, channelId: cid), !pos.isEmpty else {
+            guard let pos = try? state.db.fetchPosition(companionId: companionId, spaceId: cid), !pos.isEmpty else {
                 return ["read": NSNull(), "stance": NSNull(), "watching": []] as [String: Any]
             }
             return [
@@ -1343,7 +1343,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Save a captured PNG to disk and post an inline system message to the channel.
     @MainActor
     private func postCapture(base64PNG: String, type: String) {
-        guard let state = state, let channelId = channelId else { return }
+        guard let state = state, let spaceId = spaceId else { return }
 
         // Resolve captures directory
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -1364,7 +1364,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
 
         let msg = Message.create(
-            channelId: channelId,
+            spaceId: spaceId,
             senderId: createdBy ?? "system",
             senderName: createdBy ?? "system",
             content: "[capture:\(type):\(fileURL.path)]",
@@ -1467,11 +1467,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let userName = state.currentUser?.displayName ?? "someone"
         let contextDescription: String
         if let companion = state.activeSwimCompanion,
-           let ch = state.currentChannel, ch.isSwim {
+           let ch = state.currentSpace, ch.isSwim {
             contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(companion.displayName)."
-        } else if let cid = channelId, let ch = state.channels.first(where: { $0.id == cid }) {
+        } else if let cid = spaceId, let ch = state.spaces.first(where: { $0.id == cid }) {
             contextDescription = "You are in the #\(ch.name) channel."
-        } else if let ch = state.currentChannel {
+        } else if let ch = state.currentSpace {
             contextDescription = "You are in the #\(ch.name) channel."
         } else {
             contextDescription = "You are in a Port42 conversation."
@@ -1602,13 +1602,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     // MARK: - Storage Helpers
 
     /// Resolve storage scope and creator from JS options.
-    /// scope: channelId or "__global__", creator: createdBy or "__shared__"
+    /// scope: spaceId or "__global__", creator: createdBy or "__shared__"
     private func storageScope(opts: [String: Any]?) -> (scope: String, creator: String)? {
         let scope: String
         if let s = opts?["scope"] as? String, s == "global" {
             scope = "__global__"
         } else {
-            guard let cid = channelId else { return nil }
+            guard let cid = spaceId else { return nil }
             scope = cid
         }
         let shared = opts?["shared"] as? Bool ?? false
@@ -1757,8 +1757,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
             messages: {
                 recent: (n) => call('messages.recent', [n || 20]),
-                send: (text, channelId) => call('messages.send', [text, channelId]),
-                sendAsCreator: (text, channelId) => call('messages.sendAsCreator', [text, channelId])
+                send: (text, spaceId) => call('messages.send', [text, spaceId]),
+                sendAsCreator: (text, spaceId) => call('messages.sendAsCreator', [text, spaceId])
             },
             user: {
                 get: () => call('user.get')
@@ -1812,7 +1812,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 send: (sessionId, data) => call('terminal.send', [sessionId, data]),
                 resize: (sessionId, cols, rows) => call('terminal.resize', [sessionId, cols, rows]),
                 kill: (sessionId) => call('terminal.kill', [sessionId]),
-                bridge: (sessionId, channelId, name) => call('terminal.bridge', [sessionId, channelId, name]),
+                bridge: (sessionId, spaceId, name) => call('terminal.bridge', [sessionId, spaceId, name]),
                 on: function(event, callback) {
                     const fullEvent = 'terminal.' + event;
                     if (!_listeners[fullEvent]) _listeners[fullEvent] = [];

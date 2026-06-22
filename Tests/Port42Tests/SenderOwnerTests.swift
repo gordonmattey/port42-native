@@ -10,7 +10,7 @@ struct SenderOwnerTests {
     @Test("Human message has senderOwner set to own name")
     func humanMessageSelfOwner() {
         let msg = Message.create(
-            channelId: "ch1", senderId: "user1",
+            spaceId: "ch1", senderId: "user1",
             senderName: "Gordon", content: "hello"
         )
         #expect(msg.senderOwner == "Gordon")
@@ -19,7 +19,7 @@ struct SenderOwnerTests {
     @Test("Agent message preserves senderOwner on init")
     func agentMessageOwner() {
         let msg = Message(
-            id: "m1", channelId: "ch1", senderId: "agent1",
+            id: "m1", spaceId: "ch1", senderId: "agent1",
             senderName: "Echo", senderType: "agent",
             content: "hi", timestamp: Date(),
             replyToId: nil, syncStatus: "local",
@@ -153,7 +153,7 @@ struct SenderOwnerTests {
             encrypted: false, senderOwner: "Gordon"
         )
         let envelope = SyncEnvelope(
-            type: "message", channelId: "ch1",
+            type: "message", spaceId: "ch1",
             senderId: "user1", messageId: "m1",
             payload: payload,
             timestamp: 1710000000000
@@ -162,7 +162,7 @@ struct SenderOwnerTests {
         let decoded = try JSONDecoder().decode(SyncEnvelope.self, from: data)
         #expect(decoded.payload?.senderOwner == "Gordon")
         #expect(decoded.type == "message")
-        #expect(decoded.channelId == "ch1")
+        #expect(decoded.spaceId == "ch1")
     }
 
     // MARK: - Database Persistence
@@ -174,11 +174,11 @@ struct SenderOwnerTests {
         let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
 
-        let channel = Channel.create(name: "general")
-        try db.saveChannel(channel)
+        let channel = Space.create(name: "general")
+        try db.saveSpace(channel)
 
         let msg = Message(
-            id: "m1", channelId: channel.id, senderId: "agent1",
+            id: "m1", spaceId: channel.id, senderId: "agent1",
             senderName: "Echo", senderType: "agent",
             content: "hello", timestamp: Date(),
             replyToId: nil, syncStatus: "local",
@@ -186,7 +186,7 @@ struct SenderOwnerTests {
         )
         try db.saveMessage(msg)
 
-        let messages = try db.getMessages(channelId: channel.id)
+        let messages = try db.getMessages(spaceId: channel.id)
         #expect(messages.count == 1)
         #expect(messages[0].senderOwner == "Gordon")
     }
@@ -198,68 +198,68 @@ struct SenderOwnerTests {
         let user = AppUser.createForTesting(displayName: "Alice")
         try db.saveUser(user)
 
-        let channel = Channel.create(name: "general")
-        try db.saveChannel(channel)
+        let channel = Space.create(name: "general")
+        try db.saveSpace(channel)
 
         let msg = Message.create(
-            channelId: channel.id, senderId: user.id,
+            spaceId: channel.id, senderId: user.id,
             senderName: "Alice", content: "hey"
         )
         try db.saveMessage(msg)
 
-        let messages = try db.getMessages(channelId: channel.id)
+        let messages = try db.getMessages(spaceId: channel.id)
         #expect(messages.count == 1)
         #expect(messages[0].senderOwner == "Alice")
     }
 
-    // MARK: - ChannelMember
+    // MARK: - SpaceMember
 
-    @Test("ChannelMember displayName without owner")
+    @Test("SpaceMember displayName without owner")
     func channelMemberNoOwner() {
-        let m = ChannelMember(senderId: "u1", name: "Gordon", type: "human", owner: nil)
+        let m = SpaceMember(senderId: "u1", name: "Gordon", type: "human", owner: nil)
         #expect(m.displayName() == "Gordon")
         #expect(!m.isAgent)
     }
 
-    @Test("ChannelMember displayName with different owner uses namespace")
+    @Test("SpaceMember displayName with different owner uses namespace")
     func channelMemberWithOwner() {
-        let m = ChannelMember(senderId: "a1", name: "Echo", type: "agent", owner: "Gordon")
+        let m = SpaceMember(senderId: "a1", name: "Echo", type: "agent", owner: "Gordon")
         #expect(m.displayName() == "Echo@Gordon")
         #expect(m.isAgent)
     }
 
-    @Test("ChannelMember displayName suppresses namespace when name equals owner")
+    @Test("SpaceMember displayName suppresses namespace when name equals owner")
     func channelMemberSameNameAsOwner() {
-        let m = ChannelMember(senderId: "u1", name: "Gordon", type: "human", owner: "Gordon")
+        let m = SpaceMember(senderId: "u1", name: "Gordon", type: "human", owner: "Gordon")
         #expect(m.displayName() == "Gordon")
     }
 
-    @Test("ChannelMember displayName strips namespace for local owner")
+    @Test("SpaceMember displayName strips namespace for local owner")
     func channelMemberLocalOwner() {
-        let m = ChannelMember(senderId: "a1", name: "Echo", type: "agent", owner: "Gordon")
+        let m = SpaceMember(senderId: "a1", name: "Echo", type: "agent", owner: "Gordon")
         #expect(m.displayName(localOwner: "Gordon") == "Echo")
     }
 
-    @Test("getChannelMembers returns distinct members with type and owner")
+    @Test("getSpaceMembers returns distinct members with type and owner")
     func channelMembersFromDB() throws {
         let db = try DatabaseService(inMemory: true)
 
         let user = AppUser.createForTesting(displayName: "Gordon")
         try db.saveUser(user)
 
-        let channel = Channel.create(name: "general")
-        try db.saveChannel(channel)
+        let channel = Space.create(name: "general")
+        try db.saveSpace(channel)
 
         // Human message
         let m1 = Message(
-            id: "m1", channelId: channel.id, senderId: user.id,
+            id: "m1", spaceId: channel.id, senderId: user.id,
             senderName: "Gordon", senderType: "human",
             content: "hello", timestamp: Date(),
             replyToId: nil, syncStatus: "local", createdAt: Date()
         )
         // Agent message with owner
         let m2 = Message(
-            id: "m2", channelId: channel.id, senderId: "agent1",
+            id: "m2", spaceId: channel.id, senderId: "agent1",
             senderName: "Echo", senderType: "agent",
             content: "hey", timestamp: Date(),
             replyToId: nil, syncStatus: "local", createdAt: Date(),
@@ -267,14 +267,14 @@ struct SenderOwnerTests {
         )
         // Remote human
         let m3 = Message(
-            id: "m3", channelId: channel.id, senderId: "user2",
+            id: "m3", spaceId: channel.id, senderId: "user2",
             senderName: "Alice", senderType: "human",
             content: "hi", timestamp: Date(),
             replyToId: nil, syncStatus: "synced", createdAt: Date()
         )
         // Remote agent
         let m4 = Message(
-            id: "m4", channelId: channel.id, senderId: "agent2",
+            id: "m4", spaceId: channel.id, senderId: "agent2",
             senderName: "Echo", senderType: "agent",
             content: "yo", timestamp: Date(),
             replyToId: nil, syncStatus: "synced", createdAt: Date(),
@@ -285,7 +285,7 @@ struct SenderOwnerTests {
         try db.saveMessage(m3)
         try db.saveMessage(m4)
 
-        let members = try db.getChannelMembers(channelId: channel.id)
+        let members = try db.getSpaceMembers(spaceId: channel.id)
         #expect(members.count == 4)
 
         // Humans sorted first (type ASC: "agent" < "human"), then by name

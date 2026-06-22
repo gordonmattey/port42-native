@@ -15,7 +15,7 @@ struct AgentProtocolTests {
             sender: "Gordon",
             senderId: "user-1",
             channel: "builders",
-            channelId: "chan-1",
+            spaceId: "chan-1",
             timestamp: Date(timeIntervalSince1970: 1000),
             history: [
                 AgentEvent.HistoryEntry(sender: "Alice", content: "check this out", timestamp: "2026-03-06T14:00:00Z")
@@ -43,7 +43,7 @@ struct AgentProtocolTests {
             sender: "Bob",
             senderId: "user-2",
             channel: "team",
-            channelId: "chan-2",
+            spaceId: "chan-2",
             timestamp: Date(timeIntervalSince1970: 2000),
             history: []
         )
@@ -77,7 +77,7 @@ struct AgentProtocolTests {
     func eventIsSingleLine() throws {
         let event = AgentEvent.mention(
             messageId: "m", content: "test", sender: "X", senderId: "u",
-            channel: "c", channelId: "ci",
+            channel: "c", spaceId: "ci",
             timestamp: Date(), history: []
         )
         let data = try AgentProtocol.encode(event)

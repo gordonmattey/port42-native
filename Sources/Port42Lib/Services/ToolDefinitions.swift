@@ -32,7 +32,7 @@ enum ToolDefinitions {
                     "content": ["type": "string", "description": "Your words about what reformed in the break."],
                     "prediction": ["type": "string", "description": "What you expected."],
                     "actual": ["type": "string", "description": "What happened instead."],
-                    "channelId": ["type": "string", "description": "Omit for a global crease that shapes all relationships."]
+                    "spaceId": ["type": "string", "description": "Omit for a global crease that shapes all relationships."]
                 ],
                 "required": ["content"]
             ] as [String: Any]
@@ -77,7 +77,7 @@ enum ToolDefinitions {
                 "properties": [
                     "content": ["type": "string", "description": "The factual knowledge about their world."],
                     "category": ["type": "string", "description": "Optional: context, preference, constraint, goal, capability."],
-                    "channelId": ["type": "string", "description": "Omit for a global engraving that shapes all relationships."]
+                    "spaceId": ["type": "string", "description": "Omit for a global engraving that shapes all relationships."]
                 ],
                 "required": ["content"]
             ] as [String: Any]
@@ -349,7 +349,7 @@ enum ToolDefinitions {
                 "type": "object",
                 "properties": [
                     "text": ["type": "string", "description": "The message text to send"],
-                    "channel_id": ["type": "string", "description": "Target channel ID (from channel_list). Omit for current channel."]
+                    "space_id": ["type": "string", "description": "Target channel ID (from channel_list). Omit for current channel."]
                 ],
                 "required": ["text"]
             ] as [String: Any]

@@ -11,7 +11,7 @@ public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Coda
 
     public var id: String
     public var companionId: String
-    public var channelId: String
+    public var spaceId: String
     public var read: String?       // what the companion thinks is actually happening
     public var stance: String?     // what the companion thinks needs to happen
     public var watching: [String]? // signals being tracked
@@ -19,13 +19,13 @@ public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Coda
     public var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, companionId, channelId, read, stance, watching, confidence, updatedAt
+        case id, companionId, spaceId, read, stance, watching, confidence, updatedAt
     }
 
     public init(
         id: String = UUID().uuidString,
         companionId: String,
-        channelId: String,
+        spaceId: String,
         read: String? = nil,
         stance: String? = nil,
         watching: [String]? = nil,
@@ -34,7 +34,7 @@ public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Coda
     ) {
         self.id = id
         self.companionId = companionId
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.read = read
         self.stance = stance
         self.watching = watching
@@ -45,7 +45,7 @@ public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Coda
     public func encode(to container: inout PersistenceContainer) throws {
         container["id"] = id
         container["companionId"] = companionId
-        container["channelId"] = channelId
+        container["spaceId"] = spaceId
         container["read"] = read
         container["stance"] = stance
         container["confidence"] = confidence
@@ -60,7 +60,7 @@ public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Coda
     public init(row: Row) throws {
         id = row["id"]
         companionId = row["companionId"]
-        channelId = row["channelId"]
+        spaceId = row["spaceId"]
         read = row["read"]
         stance = row["stance"]
         confidence = row["confidence"] ?? 0.5
@@ -94,7 +94,7 @@ public struct CompanionCrease: FetchableRecord, MutablePersistableRecord, Codabl
 
     public var id: String
     public var companionId: String
-    public var channelId: String?     // nil = global (shapes all relationships)
+    public var spaceId: String?     // nil = global (shapes all relationships)
     public var content: String        // companion's own words about what reformed
     public var prediction: String?    // what the companion expected
     public var actual: String?        // what happened instead
@@ -105,7 +105,7 @@ public struct CompanionCrease: FetchableRecord, MutablePersistableRecord, Codabl
     public init(
         id: String = UUID().uuidString,
         companionId: String,
-        channelId: String?,
+        spaceId: String?,
         content: String,
         prediction: String? = nil,
         actual: String? = nil,
@@ -115,7 +115,7 @@ public struct CompanionCrease: FetchableRecord, MutablePersistableRecord, Codabl
     ) {
         self.id = id
         self.companionId = companionId
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.content = content
         self.prediction = prediction
         self.actual = actual
@@ -149,7 +149,7 @@ public struct CompanionEngraving: FetchableRecord, MutablePersistableRecord, Cod
 
     public var id: String
     public var companionId: String
-    public var channelId: String?     // nil = global (shapes all relationships)
+    public var spaceId: String?     // nil = global (shapes all relationships)
     public var content: String        // the factual knowledge about their world
     public var category: String?      // optional: "context", "preference", "constraint", "goal", "capability"
     public var weight: Double
@@ -159,7 +159,7 @@ public struct CompanionEngraving: FetchableRecord, MutablePersistableRecord, Cod
     public init(
         id: String = UUID().uuidString,
         companionId: String,
-        channelId: String?,
+        spaceId: String?,
         content: String,
         category: String? = nil,
         weight: Double = 1.0,
@@ -168,7 +168,7 @@ public struct CompanionEngraving: FetchableRecord, MutablePersistableRecord, Cod
     ) {
         self.id = id
         self.companionId = companionId
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.content = content
         self.category = category
         self.weight = weight
@@ -193,7 +193,7 @@ public struct CompanionFold: FetchableRecord, MutablePersistableRecord, Codable 
 
     public var id: String
     public var companionId: String
-    public var channelId: String
+    public var spaceId: String
     public var established: [String]?  // shared understandings, encoded as JSON
     public var tensions: [String]?     // unresolved threads in productive suspension
     public var holding: String?        // the one thread the companion is carrying
@@ -202,13 +202,13 @@ public struct CompanionFold: FetchableRecord, MutablePersistableRecord, Codable 
 
     // Custom coding keys to handle JSON-encoded array fields
     enum CodingKeys: String, CodingKey {
-        case id, companionId, channelId, established, tensions, holding, depth, updatedAt
+        case id, companionId, spaceId, established, tensions, holding, depth, updatedAt
     }
 
     public init(
         id: String = UUID().uuidString,
         companionId: String,
-        channelId: String,
+        spaceId: String,
         established: [String]? = nil,
         tensions: [String]? = nil,
         holding: String? = nil,
@@ -217,7 +217,7 @@ public struct CompanionFold: FetchableRecord, MutablePersistableRecord, Codable 
     ) {
         self.id = id
         self.companionId = companionId
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.established = established
         self.tensions = tensions
         self.holding = holding
@@ -229,7 +229,7 @@ public struct CompanionFold: FetchableRecord, MutablePersistableRecord, Codable 
     public func encode(to container: inout PersistenceContainer) throws {
         container["id"] = id
         container["companionId"] = companionId
-        container["channelId"] = channelId
+        container["spaceId"] = spaceId
         container["holding"] = holding
         container["depth"] = depth
         container["updatedAt"] = updatedAt
@@ -249,7 +249,7 @@ public struct CompanionFold: FetchableRecord, MutablePersistableRecord, Codable 
     public init(row: Row) throws {
         id = row["id"]
         companionId = row["companionId"]
-        channelId = row["channelId"]
+        spaceId = row["spaceId"]
         holding = row["holding"]
         depth = row["depth"] ?? 0
         updatedAt = row["updatedAt"]

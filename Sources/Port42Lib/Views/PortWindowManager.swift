@@ -10,7 +10,7 @@ public struct PortPanel: Identifiable {
     public let udid: String
     public var html: String
     public let bridge: PortBridge
-    public let channelId: String?
+    public let spaceId: String?
     public let createdBy: String?
     public let messageId: String?
     /// User-set title. Takes priority over HTML <title> extraction.
@@ -100,7 +100,7 @@ public final class PortWindowManager: ObservableObject {
         do {
             let saved = try db.fetchPortPanels()
             for row in saved {
-                let bridge = PortBridge(appState: appState, channelId: row.channelId, messageId: row.messageId, createdBy: row.createdBy)
+                let bridge = PortBridge(appState: appState, spaceId: row.spaceId, messageId: row.messageId, createdBy: row.createdBy)
                 // Restore previously granted permissions so the user isn't re-prompted
                 if let permsStr = row.grantedPermissions {
                     let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
@@ -121,7 +121,7 @@ public final class PortWindowManager: ObservableObject {
                     udid: row.udid ?? row.id,
                     html: row.html,
                     bridge: bridge,
-                    channelId: row.channelId,
+                    spaceId: row.spaceId,
                     createdBy: row.createdBy,
                     messageId: row.messageId,
                     userTitle: row.userTitle,
@@ -199,7 +199,7 @@ public final class PortWindowManager: ObservableObject {
 
     /// Pop a port out from inline into a floating panel.
     @discardableResult
-    public func popOut(html: String, bridge: PortBridge, channelId: String?, createdBy: String?, messageId: String?, title: String? = nil, in bounds: CGSize) -> String {
+    public func popOut(html: String, bridge: PortBridge, spaceId: String?, createdBy: String?, messageId: String?, title: String? = nil, in bounds: CGSize) -> String {
         // Check for existing panel from the same message and update it
         if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
             let existingId = panels[idx].id
@@ -210,7 +210,7 @@ public final class PortWindowManager: ObservableObject {
                 udid: existingUdid,
                 html: html,
                 bridge: bridge,
-                channelId: channelId,
+                spaceId: spaceId,
                 createdBy: createdBy,
                 messageId: messageId,
                 userTitle: title ?? panels[idx].userTitle,
@@ -246,7 +246,7 @@ public final class PortWindowManager: ObservableObject {
             udid: newUdid,
             html: html,
             bridge: bridge,
-            channelId: channelId,
+            spaceId: spaceId,
             createdBy: createdBy,
             messageId: messageId,
             userTitle: title,

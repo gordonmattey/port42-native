@@ -39,8 +39,8 @@ struct ModelTests {
     // MARK: - Channel
 
     @Test("Create channel")
-    func createChannel() {
-        let channel = Channel.create(name: "builders")
+    func createSpace() {
+        let channel = Space.create(name: "builders")
         #expect(channel.name == "builders")
         #expect(channel.type == "team")
         #expect(!channel.id.isEmpty)
@@ -48,7 +48,7 @@ struct ModelTests {
 
     @Test("Create channel with custom type")
     func createDMChannel() {
-        let channel = Channel.create(name: "alice", type: "dm")
+        let channel = Space.create(name: "alice", type: "dm")
         #expect(channel.type == "dm")
     }
 
@@ -57,7 +57,7 @@ struct ModelTests {
     @Test("Create message")
     func createMessage() {
         let msg = Message.create(
-            channelId: "chan-1",
+            spaceId: "chan-1",
             senderId: "user-1",
             senderName: "Gordon",
             content: "hello world"
@@ -73,7 +73,7 @@ struct ModelTests {
     @Test("Agent message flags")
     func agentMessage() {
         let msg = Message.create(
-            channelId: "chan-1",
+            spaceId: "chan-1",
             senderId: "agent-1",
             senderName: "@ai-engineer",
             content: "analyzing...",
@@ -86,7 +86,7 @@ struct ModelTests {
     @Test("System message flags")
     func systemMessage() {
         let msg = Message.create(
-            channelId: "chan-1",
+            spaceId: "chan-1",
             senderId: "system",
             senderName: "Port42",
             content: "Welcome",
@@ -99,15 +99,15 @@ struct ModelTests {
     @Test("Message formatted time is not empty")
     func formattedTime() {
         let msg = Message.create(
-            channelId: "c", senderId: "u", senderName: "X", content: "test"
+            spaceId: "c", senderId: "u", senderName: "X", content: "test"
         )
         #expect(!msg.formattedTime.isEmpty)
     }
 
     @Test("Two messages get unique IDs")
     func uniqueMessageIds() {
-        let a = Message.create(channelId: "c", senderId: "u", senderName: "X", content: "one")
-        let b = Message.create(channelId: "c", senderId: "u", senderName: "X", content: "two")
+        let a = Message.create(spaceId: "c", senderId: "u", senderName: "X", content: "one")
+        let b = Message.create(spaceId: "c", senderId: "u", senderName: "X", content: "two")
         #expect(a.id != b.id)
     }
 }

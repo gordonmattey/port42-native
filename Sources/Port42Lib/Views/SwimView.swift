@@ -5,16 +5,16 @@ import SwiftUI
 public struct SwimView: View {
     @EnvironmentObject var appState: AppState
     let companion: AgentConfig
-    let channelId: String
+    let spaceId: String
     let userName: String
     let onExit: () -> Void
 
     @State private var showInspector = false
     @State private var activePerm: PortPermission?
 
-    public init(companion: AgentConfig, channelId: String, userName: String = "You", onExit: @escaping () -> Void) {
+    public init(companion: AgentConfig, spaceId: String, userName: String = "You", onExit: @escaping () -> Void) {
         self.companion = companion
-        self.channelId = channelId
+        self.spaceId = spaceId
         self.userName = userName
         self.onExit = onExit
     }
@@ -82,7 +82,7 @@ public struct SwimView: View {
             .frame(height: 44)
             .background(Port42Theme.bgPrimary)
             .sheet(isPresented: $showInspector) {
-                CreaseInspectorSheet(companion: companion, channelId: channelId)
+                CreaseInspectorSheet(companion: companion, spaceId: spaceId)
                     .environmentObject(appState)
             }
 
@@ -92,18 +92,18 @@ public struct SwimView: View {
                 entries: chatEntries,
                 placeholder: "Message \(companion.displayName)...",
                 isStreaming: isStreaming,
-                error: appState.channelErrors[channelId],
+                error: appState.spaceErrors[spaceId],
                 typingNames: isStreaming ? [companion.displayName] : [],
                 toolingNames: isTooling ? [companion.displayName] : [],
-                bridgeNames: appState.activeBridgeNames[channelId] ?? [:],
-                channelId: channelId,
+                bridgeNames: appState.activeBridgeNames[spaceId] ?? [:],
+                spaceId: spaceId,
                 onSend: { content in appState.sendMessage(content: content) },
-                onStop: { appState.cancelStreaming(channelId: channelId) },
+                onStop: { appState.cancelStreaming(spaceId: spaceId) },
                 onRetry: {
                     AgentAuthResolver.shared.clearCache()
-                    appState.retryLastMessage(channelId: channelId)
+                    appState.retryLastMessage(spaceId: spaceId)
                 },
-                onDismissError: { appState.channelErrors[channelId] = nil },
+                onDismissError: { appState.spaceErrors[spaceId] = nil },
                 onOpenSettings: {
                     NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
                 }

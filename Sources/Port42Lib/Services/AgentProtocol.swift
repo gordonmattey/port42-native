@@ -18,11 +18,11 @@ public enum AgentEvent {
     case system(content: String)
     case mention(
         messageId: String, content: String, sender: String, senderId: String,
-        channel: String, channelId: String, timestamp: Date, history: [HistoryEntry]
+        channel: String, spaceId: String, timestamp: Date, history: [HistoryEntry]
     )
     case message(
         messageId: String, content: String, sender: String, senderId: String,
-        channel: String, channelId: String, timestamp: Date, history: [HistoryEntry]
+        channel: String, spaceId: String, timestamp: Date, history: [HistoryEntry]
     )
     case shutdown
 }
@@ -93,28 +93,28 @@ public enum AgentProtocol {
             dict["content"] = content
 
         case .mention(let messageId, let content, let sender, let senderId,
-                      let channel, let channelId, let timestamp, let history):
+                      let channel, let spaceId, let timestamp, let history):
             dict["event"] = "mention"
             dict["message_id"] = messageId
             dict["content"] = content
             dict["sender"] = sender
             dict["sender_id"] = senderId
             dict["channel"] = channel
-            dict["channel_id"] = channelId
+            dict["channel_id"] = spaceId
             dict["timestamp"] = isoFormatter.string(from: timestamp)
             dict["history"] = history.map { entry in
                 ["sender": entry.sender, "content": entry.content, "timestamp": entry.timestamp]
             }
 
         case .message(let messageId, let content, let sender, let senderId,
-                      let channel, let channelId, let timestamp, let history):
+                      let channel, let spaceId, let timestamp, let history):
             dict["event"] = "message"
             dict["message_id"] = messageId
             dict["content"] = content
             dict["sender"] = sender
             dict["sender_id"] = senderId
             dict["channel"] = channel
-            dict["channel_id"] = channelId
+            dict["channel_id"] = spaceId
             dict["timestamp"] = isoFormatter.string(from: timestamp)
             dict["history"] = history.map { entry in
                 ["sender": entry.sender, "content": entry.content, "timestamp": entry.timestamp]

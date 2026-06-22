@@ -88,7 +88,7 @@ public struct SignOutSheet: View {
 
             // Stats
             VStack(spacing: 10) {
-                statRow(label: "channels", value: "\(appState.channels.count)")
+                statRow(label: "channels", value: "\(appState.spaces.count)")
                 statRow(label: "companions", value: "\(appState.companions.count)")
                 statRow(label: "messages", value: "\(appState.messages.count)+")
             }

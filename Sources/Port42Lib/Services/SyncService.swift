@@ -51,7 +51,7 @@ enum JSONValue: Codable {
 
 struct SyncEnvelope: Codable {
     let type: String
-    var channelId: String?
+    var spaceId: String?
     var senderId: String?
     var senderName: String?
     var peerId: String?
@@ -81,7 +81,7 @@ struct SyncEnvelope: Codable {
 
     enum CodingKeys: String, CodingKey {
         case type
-        case channelId = "channel_id"
+        case spaceId = "channel_id"
         case senderId = "sender_id"
         case senderName = "sender_name"
         case peerId = "peer_id"
@@ -142,20 +142,20 @@ public final class SyncService: NSObject, ObservableObject {
     private var userId: String?
     private var userName: String?
     private weak var db: DatabaseService?
-    private var joinedChannels: Set<String> = []
+    private var joinedSpaces: Set<String> = []
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
     private var didSendIdentify = false
-    /// Pending token request continuations: channelId -> continuation
+    /// Pending token request continuations: spaceId -> continuation
     private var tokenContinuations: [String: CheckedContinuation<String, Error>] = [:]
     /// Apple auth service for remote gateway authentication
     private var appleAuth: AppleAuthService?
     /// Stored Apple user ID for silent re-auth
     private var appleUserID: String?
 
-    /// Called when a message arrives from the network (channelId, message)
+    /// Called when a message arrives from the network (spaceId, message)
     public var onMessageReceived: ((String, Message) -> Void)?
-    /// Called when a peer's presence changes (channelId, senderId, senderName, status "online"/"offline")
+    /// Called when a peer's presence changes (spaceId, senderId, senderName, status "online"/"offline")
     public var onPresenceChanged: ((String, String, String?, String) -> Void)?
     /// Set to true only for the primary Port42 app so the gateway registers it as the RPC host.
     /// CLI tools and other peers must leave this false.
@@ -241,35 +241,35 @@ public final class SyncService: NSObject, ObservableObject {
     // MARK: - Channel Management
 
     /// Companion IDs per channel, sent to gateway on join for cross-instance presence
-    private var channelCompanions: [String: [String]] = [:]
+    private var spaceCompanions: [String: [String]] = [:]
 
     /// Tokens received from the gateway for channel joins (persisted across reconnects)
-    private var channelTokens: [String: String] = [:]
+    private var spaceTokens: [String: String] = [:]
 
-    public func joinChannel(_ channelId: String, companionIds: [String] = [], token: String? = nil) {
-        let alreadyJoined = joinedChannels.contains(channelId)
-        channelCompanions[channelId] = companionIds
-        if let token { channelTokens[channelId] = token }
-        joinedChannels.insert(channelId)
+    public func joinSpace(_ spaceId: String, companionIds: [String] = [], token: String? = nil) {
+        let alreadyJoined = joinedSpaces.contains(spaceId)
+        spaceCompanions[spaceId] = companionIds
+        if let token { spaceTokens[spaceId] = token }
+        joinedSpaces.insert(spaceId)
         guard isConnected else { return }
         // Skip sending join if already joined (prevents duplicate presence broadcasts)
         guard !alreadyJoined else { return }
-        var envelope = SyncEnvelope(type: "join", channelId: channelId, companionIds: companionIds.isEmpty ? nil : companionIds)
-        envelope.token = channelTokens[channelId]
+        var envelope = SyncEnvelope(type: "join", spaceId: spaceId, companionIds: companionIds.isEmpty ? nil : companionIds)
+        envelope.token = spaceTokens[spaceId]
         send(envelope)
     }
 
-    public func leaveChannel(_ channelId: String) {
-        joinedChannels.remove(channelId)
+    public func leaveSpace(_ spaceId: String) {
+        joinedSpaces.remove(spaceId)
         guard isConnected else { return }
-        send(SyncEnvelope(type: "leave", channelId: channelId))
+        send(SyncEnvelope(type: "leave", spaceId: spaceId))
     }
 
-    public func joinAllChannels() {
-        for channelId in joinedChannels {
-            let companions = channelCompanions[channelId]
-            var envelope = SyncEnvelope(type: "join", channelId: channelId, companionIds: companions?.isEmpty == false ? companions : nil)
-            envelope.token = channelTokens[channelId]
+    public func joinAllSpaces() {
+        for spaceId in joinedSpaces {
+            let companions = spaceCompanions[spaceId]
+            var envelope = SyncEnvelope(type: "join", spaceId: spaceId, companionIds: companions?.isEmpty == false ? companions : nil)
+            envelope.token = spaceTokens[spaceId]
             send(envelope)
         }
     }
@@ -286,8 +286,8 @@ public final class SyncService: NSObject, ObservableObject {
         )
 
         let payload: SyncPayload
-        if let key = try? db?.getChannelKey(channelId: message.channelId),
-           let blob = ChannelCrypto.encrypt(clearPayload, keyBase64: key) {
+        if let key = try? db?.getSpaceKey(spaceId: message.spaceId),
+           let blob = SpaceCrypto.encrypt(clearPayload, keyBase64: key) {
             // Encrypted: content is the blob, senderName masked
             payload = SyncPayload(
                 senderName: "",
@@ -303,7 +303,7 @@ public final class SyncService: NSObject, ObservableObject {
 
         let envelope = SyncEnvelope(
             type: "message",
-            channelId: message.channelId,
+            spaceId: message.spaceId,
             senderId: message.senderId,
             messageId: message.id,
             payload: payload,
@@ -314,10 +314,10 @@ public final class SyncService: NSObject, ObservableObject {
     }
 
     /// Broadcast typing indicator to other peers
-    public func sendTyping(channelId: String, senderName: String, isTyping: Bool, senderOwner: String? = nil) {
+    public func sendTyping(spaceId: String, senderName: String, isTyping: Bool, senderOwner: String? = nil) {
         let envelope = SyncEnvelope(
             type: "typing",
-            channelId: channelId,
+            spaceId: spaceId,
             payload: SyncPayload(
                 senderName: senderName,
                 senderType: "agent",
@@ -326,15 +326,15 @@ public final class SyncService: NSObject, ObservableObject {
                 senderOwner: senderOwner
             )
         )
-        print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) channel=\(channelId)")
+        print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) channel=\(spaceId)")
         send(envelope)
     }
 
     /// Request a single-use join token for a channel from the gateway.
-    public func requestToken(channelId: String) async throws -> String {
+    public func requestToken(spaceId: String) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
-            tokenContinuations[channelId] = continuation
-            send(SyncEnvelope(type: "create_token", channelId: channelId))
+            tokenContinuations[spaceId] = continuation
+            send(SyncEnvelope(type: "create_token", spaceId: spaceId))
         }
     }
 
@@ -405,7 +405,7 @@ public final class SyncService: NSObject, ObservableObject {
             print("[sync] connected as \(envelope.senderId ?? "?")")
             isConnected = true
             onlineUsers = [:] // Reset on reconnect
-            joinAllChannels()
+            joinAllSpaces()
 
         case "message":
             handleIncomingMessage(envelope)
@@ -440,8 +440,8 @@ public final class SyncService: NSObject, ObservableObject {
         case "error":
             print("[sync] gateway error: \(envelope.error ?? "unknown")")
             // Check if this error is for a pending token request
-            if let channelId = envelope.channelId,
-               let continuation = tokenContinuations.removeValue(forKey: channelId) {
+            if let spaceId = envelope.spaceId,
+               let continuation = tokenContinuations.removeValue(forKey: spaceId) {
                 continuation.resume(throwing: NSError(domain: "SyncService", code: -1,
                     userInfo: [NSLocalizedDescriptionKey: envelope.error ?? "unknown error"]))
             }
@@ -452,7 +452,7 @@ public final class SyncService: NSObject, ObservableObject {
     }
 
     private func handleIncomingMessage(_ envelope: SyncEnvelope) {
-        guard let channelId = envelope.channelId,
+        guard let spaceId = envelope.spaceId,
               let senderId = envelope.senderId,
               let messageId = envelope.messageId,
               let payload = envelope.payload else {
@@ -467,9 +467,9 @@ public final class SyncService: NSObject, ObservableObject {
         // Decrypt if encrypted
         let resolvedPayload: SyncPayload
         if payload.encrypted == true {
-            guard let key = try? db?.getChannelKey(channelId: channelId),
-                  let decrypted = ChannelCrypto.decrypt(blob: payload.content, keyBase64: key) else {
-                NSLog("[sync] failed to decrypt message %@ in channel %@", messageId, channelId)
+            guard let key = try? db?.getSpaceKey(spaceId: spaceId),
+                  let decrypted = SpaceCrypto.decrypt(blob: payload.content, keyBase64: key) else {
+                NSLog("[sync] failed to decrypt message %@ in channel %@", messageId, spaceId)
                 return
             }
             resolvedPayload = decrypted
@@ -486,7 +486,7 @@ public final class SyncService: NSObject, ObservableObject {
 
         let message = Message(
             id: messageId,
-            channelId: channelId,
+            spaceId: spaceId,
             senderId: senderId,
             senderName: resolvedPayload.senderName,
             senderType: resolvedPayload.senderType,
@@ -500,15 +500,15 @@ public final class SyncService: NSObject, ObservableObject {
 
         do {
             try db?.saveMessage(message)
-            print("[sync] received message from \(resolvedPayload.senderName) in channel \(channelId)")
-            onMessageReceived?(channelId, message)
+            print("[sync] received message from \(resolvedPayload.senderName) in channel \(spaceId)")
+            onMessageReceived?(spaceId, message)
         } catch {
             print("[sync] failed to save incoming message: \(error)")
         }
     }
 
     private func handleHistoryMessage(_ envelope: SyncEnvelope) {
-        guard let channelId = envelope.channelId,
+        guard let spaceId = envelope.spaceId,
               let senderId = envelope.senderId,
               let messageId = envelope.messageId,
               let payload = envelope.payload else {
@@ -518,8 +518,8 @@ public final class SyncService: NSObject, ObservableObject {
         // Decrypt if encrypted
         let resolvedPayload: SyncPayload
         if payload.encrypted == true {
-            guard let key = try? db?.getChannelKey(channelId: channelId),
-                  let decrypted = ChannelCrypto.decrypt(blob: payload.content, keyBase64: key) else {
+            guard let key = try? db?.getSpaceKey(spaceId: spaceId),
+                  let decrypted = SpaceCrypto.decrypt(blob: payload.content, keyBase64: key) else {
                 return
             }
             resolvedPayload = decrypted
@@ -536,7 +536,7 @@ public final class SyncService: NSObject, ObservableObject {
 
         let message = Message(
             id: messageId,
-            channelId: channelId,
+            spaceId: spaceId,
             senderId: senderId,
             senderName: resolvedPayload.senderName,
             senderType: resolvedPayload.senderType,
@@ -578,29 +578,29 @@ public final class SyncService: NSObject, ObservableObject {
     }
 
     private func handleReadReceipt(_ envelope: SyncEnvelope) {
-        guard let channelId = envelope.channelId,
+        guard let spaceId = envelope.spaceId,
               let senderId = envelope.senderId,
               senderId != userId else { return }
         // Mark all our messages in this channel as read
         do {
-            try db?.markMessagesAsRead(channelId: channelId, bySenderId: userId ?? "")
+            try db?.markMessagesAsRead(spaceId: spaceId, bySenderId: userId ?? "")
         } catch {
             print("[sync] failed to update read status: \(error)")
         }
     }
 
     /// Send a read receipt for a channel (call when user views messages)
-    public func sendReadReceipt(channelId: String) {
-        send(SyncEnvelope(type: "read", channelId: channelId, senderId: userId))
+    public func sendReadReceipt(spaceId: String) {
+        send(SyncEnvelope(type: "read", spaceId: spaceId, senderId: userId))
     }
 
     private func handlePresence(_ envelope: SyncEnvelope) {
-        guard let channelId = envelope.channelId else { return }
+        guard let spaceId = envelope.spaceId else { return }
 
         if let onlineIds = envelope.onlineIds {
             // Full presence list (sent on join)
-            onlineUsers[channelId] = Set(onlineIds)
-            print("[sync] presence for \(channelId): \(onlineIds.count) online")
+            onlineUsers[spaceId] = Set(onlineIds)
+            print("[sync] presence for \(spaceId): \(onlineIds.count) online")
         } else if let senderId = envelope.senderId, let status = envelope.status {
             // Skip our own presence events
             guard senderId != userId else { return }
@@ -609,7 +609,7 @@ public final class SyncService: NSObject, ObservableObject {
                 knownNames[senderId] = name
             }
             // Single user update
-            var members = onlineUsers[channelId] ?? []
+            var members = onlineUsers[spaceId] ?? []
             if status == "online" {
                 // Evict any stale entry with the same display name (reconnect with new peer ID)
                 if let name = envelope.senderName, !name.isEmpty {
@@ -620,15 +620,15 @@ public final class SyncService: NSObject, ObservableObject {
             } else {
                 members.remove(senderId)
             }
-            onlineUsers[channelId] = members
+            onlineUsers[spaceId] = members
             let name = envelope.senderName
-            print("[sync] \(name ?? senderId) went \(status) in \(channelId)")
-            onPresenceChanged?(channelId, senderId, name, status)
+            print("[sync] \(name ?? senderId) went \(status) in \(spaceId)")
+            onPresenceChanged?(spaceId, senderId, name, status)
         }
     }
 
     private func handleTyping(_ envelope: SyncEnvelope) {
-        guard let channelId = envelope.channelId,
+        guard let spaceId = envelope.spaceId,
               let senderName = envelope.payload?.senderName,
               let content = envelope.payload?.content else { return }
 
@@ -640,12 +640,12 @@ public final class SyncService: NSObject, ObservableObject {
         }
 
         if content == "typing" {
-            var names = remoteTypingNames[channelId] ?? []
+            var names = remoteTypingNames[spaceId] ?? []
             names.insert(displayName)
-            remoteTypingNames[channelId] = names
-            print("[sync] typing: \(displayName) in \(channelId)")
+            remoteTypingNames[spaceId] = names
+            print("[sync] typing: \(displayName) in \(spaceId)")
         } else {
-            remoteTypingNames[channelId]?.remove(displayName)
+            remoteTypingNames[spaceId]?.remove(displayName)
         }
     }
 
@@ -692,12 +692,12 @@ public final class SyncService: NSObject, ObservableObject {
     }
 
     private func handleToken(_ envelope: SyncEnvelope) {
-        guard let channelId = envelope.channelId,
+        guard let spaceId = envelope.spaceId,
               let token = envelope.token else { return }
-        if let continuation = tokenContinuations.removeValue(forKey: channelId) {
+        if let continuation = tokenContinuations.removeValue(forKey: spaceId) {
             continuation.resume(returning: token)
         }
-        print("[sync] received join token for channel \(channelId)")
+        print("[sync] received join token for channel \(spaceId)")
     }
 
     private func handleCall(_ envelope: SyncEnvelope) {

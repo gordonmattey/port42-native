@@ -32,7 +32,7 @@ struct TerminalBridgeTests {
     @Test("spawn returns a session ID")
     @MainActor
     func spawnReturnsSessionId() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -44,7 +44,7 @@ struct TerminalBridgeTests {
     @Test("spawned session is running")
     @MainActor
     func spawnedSessionIsRunning() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -55,7 +55,7 @@ struct TerminalBridgeTests {
     @Test("send returns true for running session")
     @MainActor
     func sendToRunningSession() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -67,7 +67,7 @@ struct TerminalBridgeTests {
     @Test("send returns false for unknown session")
     @MainActor
     func sendToUnknownSession() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
 
         let ok = tb.send(sessionId: "nonexistent", data: "echo hello\n")
@@ -77,7 +77,7 @@ struct TerminalBridgeTests {
     @Test("resize returns true for running session")
     @MainActor
     func resizeRunningSession() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -89,7 +89,7 @@ struct TerminalBridgeTests {
     @Test("kill returns true and session stops")
     @MainActor
     func killSession() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
 
         let sessionId = tb.spawn()!
@@ -105,7 +105,7 @@ struct TerminalBridgeTests {
     @Test("kill returns false for unknown session")
     @MainActor
     func killUnknownSession() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
 
         let ok = tb.kill(sessionId: "nonexistent")
@@ -115,7 +115,7 @@ struct TerminalBridgeTests {
     @Test("killAll cleans up all sessions")
     @MainActor
     func killAllSessions() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
 
         let id1 = tb.spawn()!
@@ -130,7 +130,7 @@ struct TerminalBridgeTests {
     @Test("spawn with custom shell")
     @MainActor
     func spawnCustomShell() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -141,7 +141,7 @@ struct TerminalBridgeTests {
     @Test("spawn with custom dimensions")
     @MainActor
     func spawnCustomDimensions() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -154,7 +154,7 @@ struct TerminalBridgeTests {
     @Test("sendToFirst returns true when session exists")
     @MainActor
     func sendToFirstWithActiveSession() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -166,7 +166,7 @@ struct TerminalBridgeTests {
     @Test("sendToFirst returns false when no sessions")
     @MainActor
     func sendToFirstNoSessions() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
 
         let ok = tb.sendToFirst(data: "echo hello\n")
@@ -176,7 +176,7 @@ struct TerminalBridgeTests {
     @Test("sendToFirst returns false after killAll")
     @MainActor
     func sendToFirstAfterKill() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
 
         _ = tb.spawn()
@@ -214,7 +214,7 @@ struct TerminalBridgeTests {
     @Test("cwd returns nil for unknown session")
     @MainActor
     func cwdUnknownSession() {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         #expect(tb.cwd(sessionId: "no-such-id") == nil)
     }
@@ -222,7 +222,7 @@ struct TerminalBridgeTests {
     @Test("cwd returns nil before any OSC 7 is received")
     @MainActor
     func cwdNilBeforeOsc7() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -234,7 +234,7 @@ struct TerminalBridgeTests {
     @Test("updateCwd sets cwd on the session")
     @MainActor
     func updateCwdSetsProperty() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 
@@ -248,7 +248,7 @@ struct TerminalBridgeTests {
     @Test("firstActiveSessionCwd reflects updateCwd")
     @MainActor
     func firstActiveSessionCwdReflectsUpdate() async throws {
-        let bridge = PortBridge(appState: NSObject(), channelId: nil)
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
         let tb = TerminalBridge(bridge: bridge)
         defer { tb.killAll() }
 

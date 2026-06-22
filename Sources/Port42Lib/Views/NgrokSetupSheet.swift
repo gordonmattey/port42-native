@@ -110,13 +110,13 @@ public struct NgrokSetupSheet: View {
         Analytics.shared.ngrokConfigured()
 
         // Copy the pending invite link now that tunnel is configured
-        if let channel = appState.pendingInviteChannel {
+        if let channel = appState.pendingInviteSpace {
             Task {
-                let token = try? await appState.sync.requestToken(channelId: channel.id)
-                ChannelInvite.copyToClipboard(channel: channel, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                let token = try? await appState.sync.requestToken(spaceId: channel.id)
+                SpaceInvite.copyToClipboard(space: channel, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
                 appState.toastMessage = "Copied to clipboard"
             }
-            appState.pendingInviteChannel = nil
+            appState.pendingInviteSpace = nil
         }
 
         isPresented = false

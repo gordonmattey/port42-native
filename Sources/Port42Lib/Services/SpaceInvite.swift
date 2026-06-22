@@ -1,23 +1,23 @@
 import Foundation
 import AppKit
 
-public struct ChannelInviteData {
+public struct SpaceInviteData {
     public let gateway: String
-    public let channelId: String
-    public let channelName: String
+    public let spaceId: String
+    public let spaceName: String
     public let encryptionKey: String?
     public let token: String?
     public let hostName: String?
 }
 
-public enum ChannelInvite {
+public enum SpaceInvite {
 
-    /// Generate a port42://channel? invite link for sharing a channel.
+    /// Generate a port42://space? invite link for sharing a space.
     /// Uses the gateway this user is actually connected to. If connected to
     /// a remote gateway (joined from someone else's invite), the link points
     /// back to that original host so new peers join the same gateway.
     @MainActor
-    public static func generateLink(channel: Channel, syncGatewayURL: String? = nil, token: String? = nil) -> String {
+    public static func generateLink(space: Space, syncGatewayURL: String? = nil, token: String? = nil) -> String {
         let resolvedGW: String
 
         // If connected to a remote gateway, use that
@@ -36,10 +36,10 @@ public enum ChannelInvite {
         components.host = "channel"
         var items = [
             URLQueryItem(name: "gateway", value: resolvedGW),
-            URLQueryItem(name: "id", value: channel.id),
-            URLQueryItem(name: "name", value: channel.name),
+            URLQueryItem(name: "id", value: space.id),
+            URLQueryItem(name: "name", value: space.name),
         ]
-        if let key = channel.encryptionKey {
+        if let key = space.encryptionKey {
             // URLComponents leaves `+` unencoded in query values (ambiguous in form encoding),
             // but base64 decoders (e.g. Python's b64decode) interpret `+` as space, corrupting the key.
             let encodedKey = key.replacingOccurrences(of: "+", with: "%2B")
@@ -52,32 +52,9 @@ public enum ChannelInvite {
         return components.string ?? ""
     }
 
-    /// Get the first non-loopback IPv4 address (LAN IP).
-    private static func localIPAddress() -> String? {
-        var address: String?
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
-        defer { freeifaddrs(ifaddr) }
 
-        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
-            let sa = ptr.pointee.ifa_addr.pointee
-            guard sa.sa_family == UInt8(AF_INET) else { continue }
-            let name = String(cString: ptr.pointee.ifa_name)
-            guard name.hasPrefix("en") else { continue }
-
-            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            if getnameinfo(ptr.pointee.ifa_addr, socklen_t(sa.sa_len),
-                           &hostname, socklen_t(hostname.count),
-                           nil, 0, NI_NUMERICHOST) == 0 {
-                address = String(cString: hostname)
-                break
-            }
-        }
-        return address
-    }
-
-    /// Parse a port42://channel? invite link.
-    public static func parse(url: URL) -> ChannelInviteData? {
+/// Parse a port42://channel? invite link.
+    public static func parse(url: URL) -> SpaceInviteData? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme == "port42",
               components.host == "channel" else {
@@ -90,19 +67,19 @@ public enum ChannelInvite {
         }, uniquingKeysWith: { _, last in last })
 
         guard let gateway = dict["gateway"],
-              let channelId = dict["id"],
+              let spaceId = dict["id"],
               let name = dict["name"] else {
             return nil
         }
 
-        return ChannelInviteData(gateway: gateway, channelId: channelId, channelName: name, encryptionKey: dict["key"], token: dict["token"], hostName: dict["host"])
+        return SpaceInviteData(gateway: gateway, spaceId: spaceId, spaceName: name, encryptionKey: dict["key"], token: dict["token"], hostName: dict["host"])
     }
 
     /// Build an HTTPS invite URL on port42.ai that constructs the deep link
     /// client-side. The gateway WSS address is passed as a query param so the
     /// page can build the port42:// link without hosting its own gateway.
     @MainActor
-    public static func generateInviteURL(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) -> String? {
+    public static func generateInviteURL(space: Space, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) -> String? {
         let gatewayWSS: String
         if let gw = syncGatewayURL, !gw.contains("localhost"), !gw.contains("127.0.0.1") {
             gatewayWSS = gw.replacingOccurrences(of: "/ws", with: "")
@@ -119,10 +96,10 @@ public enum ChannelInvite {
         var components = URLComponents(string: "https://port42.ai/invite.html")
         var items = [
             URLQueryItem(name: "gateway", value: gatewayWSS),
-            URLQueryItem(name: "id", value: channel.id),
-            URLQueryItem(name: "name", value: channel.name),
+            URLQueryItem(name: "id", value: space.id),
+            URLQueryItem(name: "name", value: space.name),
         ]
-        if let key = channel.encryptionKey {
+        if let key = space.encryptionKey {
             let encodedKey = key.replacingOccurrences(of: "+", with: "%2B")
             items.append(URLQueryItem(name: "key", value: encodedKey))
         }
@@ -139,13 +116,13 @@ public enum ChannelInvite {
     /// Copy an invite link to the clipboard. Prefers the landing page URL
     /// so recipients get download/connect options on the page itself.
     @MainActor
-    public static func copyToClipboard(channel: Channel, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) {
+    public static func copyToClipboard(space: Space, hostName: String? = nil, syncGatewayURL: String? = nil, token: String? = nil) {
         let host = hostName ?? "Port42"
         let message: String
-        if let inviteURL = generateInviteURL(channel: channel, hostName: hostName, syncGatewayURL: syncGatewayURL, token: token) {
+        if let inviteURL = generateInviteURL(space: space, hostName: hostName, syncGatewayURL: syncGatewayURL, token: token) {
             message = "Join first companions on \(host)'s Port42\n\(inviteURL)"
         } else {
-            let deepLink = generateLink(channel: channel, syncGatewayURL: syncGatewayURL, token: token)
+            let deepLink = generateLink(space: space, syncGatewayURL: syncGatewayURL, token: token)
             guard !deepLink.isEmpty else { return }
             message = "Join first companions on \(host)'s Port42\n\(deepLink)"
         }

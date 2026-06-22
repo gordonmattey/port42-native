@@ -7,43 +7,43 @@ import Foundation
 @Suite("Step 2 — Channel swim factory and sync filtering")
 struct ChannelSwimModelTests {
 
-    @Test("Channel.create() defaults: syncEnabled=true, isSwim=false")
-    func createChannelDefaults() throws {
-        let channel = Channel.create(name: "general")
+    @Test("Space.create() defaults: syncEnabled=true, isSwim=false")
+    func createSpaceDefaults() throws {
+        let channel = Space.create(name: "general")
         #expect(channel.syncEnabled == true)
         #expect(channel.isSwim == false)
         #expect(channel.type == "team")
     }
 
-    @Test("Channel.swim() produces correct id, type, flags")
+    @Test("Space.swim() produces correct id, type, flags")
     func swimFactory() throws {
         let companion = AgentConfig.createLLM(
             ownerId: "u1", displayName: "Echo",
             systemPrompt: "hi", provider: .anthropic,
             model: "claude-opus-4-6", trigger: .mentionOnly
         )
-        let swimChannel = Channel.swim(companion: companion)
-        #expect(swimChannel.id == "swim-\(companion.id)")
-        #expect(swimChannel.name == "Echo")
-        #expect(swimChannel.type == "direct")
-        #expect(swimChannel.syncEnabled == false)
-        #expect(swimChannel.isSwim == true)
-        #expect(swimChannel.encryptionKey == nil)
+        let swimSpace = Space.swim(companion: companion)
+        #expect(swimSpace.id == "swim-\(companion.id)")
+        #expect(swimSpace.name == "Echo")
+        #expect(swimSpace.type == "direct")
+        #expect(swimSpace.syncEnabled == false)
+        #expect(swimSpace.isSwim == true)
+        #expect(swimSpace.encryptionKey == nil)
     }
 
     @Test("Swim channel round-trips through DatabaseService")
-    func swimChannelPersists() throws {
+    func swimSpacePersists() throws {
         let db = try DatabaseService(inMemory: true)
         let companion = AgentConfig.createLLM(
             ownerId: "u1", displayName: "Echo",
             systemPrompt: "hi", provider: .anthropic,
             model: "claude-opus-4-6", trigger: .mentionOnly
         )
-        let swimChannel = Channel.swim(companion: companion)
-        try db.upsertChannel(swimChannel)
+        let swimSpace = Space.swim(companion: companion)
+        try db.upsertSpace(swimSpace)
 
-        let all = try db.getAllChannels()
-        let loaded = all.first { $0.id == swimChannel.id }
+        let all = try db.getAllSpaces()
+        let loaded = all.first { $0.id == swimSpace.id }
         #expect(loaded != nil)
         #expect(loaded?.syncEnabled == false)
         #expect(loaded?.isSwim == true)
@@ -58,19 +58,19 @@ struct ChannelSwimModelTests {
             systemPrompt: "hi", provider: .anthropic,
             model: "claude-opus-4-6", trigger: .mentionOnly
         )
-        let swimChannel = Channel.swim(companion: companion)
-        try db.upsertChannel(swimChannel)
-        try db.upsertChannel(swimChannel) // second upsert should not throw
-        #expect(try db.getAllChannels().count == 1)
+        let swimSpace = Space.swim(companion: companion)
+        try db.upsertSpace(swimSpace)
+        try db.upsertSpace(swimSpace) // second upsert should not throw
+        #expect(try db.getAllSpaces().count == 1)
     }
 
     @Test("Regular channel does not appear as swim")
     func regularChannelNotSwim() throws {
         let db = try DatabaseService(inMemory: true)
-        let channel = Channel.create(name: "dev")
-        try db.saveChannel(channel)
+        let channel = Space.create(name: "dev")
+        try db.saveSpace(channel)
 
-        let loaded = try db.getAllChannels().first!
+        let loaded = try db.getAllSpaces().first!
         #expect(loaded.isSwim == false)
         #expect(loaded.syncEnabled == true)
     }
@@ -92,17 +92,17 @@ struct AppStateChannelErrorTests {
     @MainActor
     func channelErrorsEmpty() throws {
         let state = try makeState()
-        #expect(state.channelErrors.isEmpty)
+        #expect(state.spaceErrors.isEmpty)
     }
 
     @Test("channelErrors can be set and cleared")
     @MainActor
     func channelErrorsSetClear() throws {
         let state = try makeState()
-        state.channelErrors["chan-1"] = "Something went wrong"
-        #expect(state.channelErrors["chan-1"] == "Something went wrong")
-        state.channelErrors["chan-1"] = nil
-        #expect(state.channelErrors["chan-1"] == nil)
+        state.spaceErrors["chan-1"] = "Something went wrong"
+        #expect(state.spaceErrors["chan-1"] == "Something went wrong")
+        state.spaceErrors["chan-1"] = nil
+        #expect(state.spaceErrors["chan-1"] == nil)
     }
 
     @Test("cancelStreaming on empty handlers is a no-op")
@@ -110,7 +110,7 @@ struct AppStateChannelErrorTests {
     func cancelStreamingNoHandlers() throws {
         let state = try makeState()
         // Should not crash with no active handlers
-        state.cancelStreaming(channelId: "some-channel")
+        state.cancelStreaming(spaceId: "some-channel")
         #expect(state.activeAgentHandlers.isEmpty)
     }
 
@@ -119,10 +119,10 @@ struct AppStateChannelErrorTests {
     func retryClears() throws {
         let state = try makeState()
         // Put an error in and call retry with no messages
-        state.channelErrors["chan-1"] = "error"
-        state.retryLastMessage(channelId: "chan-1")
+        state.spaceErrors["chan-1"] = "error"
+        state.retryLastMessage(spaceId: "chan-1")
         // Error should be cleared even with no messages to retry
-        #expect(state.channelErrors["chan-1"] == nil)
+        #expect(state.spaceErrors["chan-1"] == nil)
     }
 
     @Test("retryLastMessage sends last user message in channel")
@@ -133,16 +133,16 @@ struct AppStateChannelErrorTests {
         let user = AppUser.createForTesting(displayName: "Alice")
         try db.saveUser(user)
         state.currentUser = user
-        let channel = Channel.create(name: "test")
-        try db.saveChannel(channel)
+        let channel = Space.create(name: "test")
+        try db.saveSpace(channel)
 
         // Populate messages array directly (simulating loaded state)
-        let msg = Message.create(channelId: channel.id, senderId: user.id, senderName: "Alice", content: "retry this")
+        let msg = Message.create(spaceId: channel.id, senderId: user.id, senderName: "Alice", content: "retry this")
         state.messages = [msg]
-        state.currentChannel = channel
+        state.currentSpace = channel
 
         // retryLastMessage should find the user message (won't actually send since no agent, but shouldn't crash)
-        state.retryLastMessage(channelId: channel.id)
+        state.retryLastMessage(spaceId: channel.id)
         // No crash = pass
     }
 }
@@ -167,23 +167,23 @@ struct SwimChannelInfraTests {
         )
         try db.saveAgent(companion)
         state.companions = [companion]
-        let general = Channel.create(name: "general")
-        try db.saveChannel(general)
-        state.channels = [general]
+        let general = Space.create(name: "general")
+        try db.saveSpace(general)
+        state.spaces = [general]
         return (state, companion)
     }
 
     @Test("startSwim creates a swim channel in the database")
     @MainActor
-    func swimCreatesChannel() throws {
+    func swimCreatesSpace() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
 
-        let allChannels = try state.db.getAllChannels()
-        let swimChannel = allChannels.first { $0.id == "swim-\(companion.id)" }
-        #expect(swimChannel != nil)
-        #expect(swimChannel?.isSwim == true)
-        #expect(swimChannel?.syncEnabled == false)
+        let allChannels = try state.db.getAllSpaces()
+        let swimSpace = allChannels.first { $0.id == "swim-\(companion.id)" }
+        #expect(swimSpace != nil)
+        #expect(swimSpace?.isSwim == true)
+        #expect(swimSpace?.syncEnabled == false)
     }
 
     @Test("startSwim sets activeSwimCompanion")
@@ -194,16 +194,16 @@ struct SwimChannelInfraTests {
         #expect(state.activeSwimCompanion?.id == companion.id)
     }
 
-    @Test("startSwim sets currentChannel to swim channel")
+    @Test("startSwim sets currentSpace to swim channel")
     @MainActor
-    func swimSetsCurrentChannel() throws {
+    func swimSetsCurrentSpace() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.currentChannel?.id == "swim-\(companion.id)")
-        #expect(state.currentChannel?.isSwim == true)
+        #expect(state.currentSpace?.id == "swim-\(companion.id)")
+        #expect(state.currentSpace?.isSwim == true)
     }
 
-    @Test("exitSwim clears activeSwimCompanion and currentChannel")
+    @Test("exitSwim clears activeSwimCompanion and currentSpace")
     @MainActor
     func exitSwimClears() throws {
         let (state, companion) = try makeStateWithCompanion()
@@ -212,7 +212,7 @@ struct SwimChannelInfraTests {
 
         state.exitSwim()
         #expect(state.activeSwimCompanion == nil)
-        #expect(state.currentChannel == nil)
+        #expect(state.currentSpace == nil)
     }
 
     @Test("swim channel has syncEnabled=false so it will not be synced")
@@ -221,20 +221,20 @@ struct SwimChannelInfraTests {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
 
-        let allChannels = try state.db.getAllChannels()
-        let swimChannel = allChannels.first { $0.id == "swim-\(companion.id)" }
-        #expect(swimChannel?.syncEnabled == false)
+        let allChannels = try state.db.getAllSpaces()
+        let swimSpace = allChannels.first { $0.id == "swim-\(companion.id)" }
+        #expect(swimSpace?.syncEnabled == false)
     }
 
-    @Test("selectChannel with regular channel clears activeSwimCompanion")
+    @Test("selectSpace with regular channel clears activeSwimCompanion")
     @MainActor
-    func selectChannelClearsSwim() throws {
+    func selectSpaceClearsSwim() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
         #expect(state.activeSwimCompanion != nil)
 
-        let regularChannel = state.channels.first { !$0.isSwim }!
-        state.selectChannel(regularChannel)
+        let regularChannel = state.spaces.first { !$0.isSwim }!
+        state.selectSpace(regularChannel)
         #expect(state.activeSwimCompanion == nil)
     }
 
@@ -257,8 +257,8 @@ struct SwimChannelInfraTests {
         state.startSwim(with: companion)
         state.startSwim(with: companion)
 
-        let swimChannels = try state.db.getAllChannels().filter { $0.isSwim }
-        #expect(swimChannels.count == 1)
+        let swimSpaces = try state.db.getAllSpaces().filter { $0.isSwim }
+        #expect(swimSpaces.count == 1)
     }
 
     @Test("companion is assigned to swim channel after startSwim")
@@ -267,15 +267,15 @@ struct SwimChannelInfraTests {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
 
-        let assigned = try state.db.getAgentsForChannel(channelId: "swim-\(companion.id)")
+        let assigned = try state.db.getAgentsForSpace(spaceId: "swim-\(companion.id)")
         #expect(assigned.first?.id == companion.id)
     }
 
     @Test("swim channel id follows swim-{companionId} convention")
     @MainActor
-    func swimChannelIdConvention() throws {
+    func swimSpaceIdConvention() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.currentChannel?.id == "swim-\(companion.id)")
+        #expect(state.currentSpace?.id == "swim-\(companion.id)")
     }
 }
