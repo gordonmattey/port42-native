@@ -8,70 +8,25 @@ public struct ContentView: View {
     @State private var showNewCompanion = false
     @State private var showQuickSwitcher = false
     @State private var showHelp = false
-    @State private var showSignOut = false
-    @State private var showUsage = false
 
     public var body: some View {
-        HSplitView {
-            // Left pane: PORT42 header + sidebar
-            VStack(spacing: 0) {
-                SidebarHeader()
-                Divider().background(Port42Theme.border)
-                SidebarView(
-                    showNewSpace: $showNewSpace,
-                    showNewCompanion: $showNewCompanion
-                )
-            }
-            .ignoresSafeArea(edges: .top)
-            .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
-
-            // Right pane: channel header + chat
-            VStack(spacing: 0) {
-                ChatHeader(
-                    showSignOut: $showSignOut,
-                    showUsage: $showUsage
-                )
-                Divider().background(Port42Theme.border)
-
-                Group {
-                    if let companion = appState.activeSwimCompanion,
-                       let channel = appState.currentSpace, channel.isSwim {
-                        SwimView(
-                            companion: companion,
-                            spaceId: channel.id,
-                            userName: appState.currentUser?.displayName ?? "You",
-                            onExit: { appState.exitSwim() }
-                        )
-                        .environmentObject(appState)
-                        .id(companion.id)
-                    } else if let channel = appState.currentSpace {
-                        ChatView()
-                            .id(channel.id)
-                    } else {
-                        VStack {
-                            Text("Select a channel")
-                                .font(Port42Theme.mono(14))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Port42Theme.bgPrimary)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .ignoresSafeArea(edges: .top)
+        // Sidebar only — chat lives in the floating chat port
+        VStack(spacing: 0) {
+            SidebarHeader()
+            Divider().background(Port42Theme.border)
+            SidebarView(
+                showNewSpace: $showNewSpace,
+                showNewCompanion: $showNewCompanion
+            )
         }
+        .ignoresSafeArea(edges: .top)
+        .frame(minWidth: 180, maxWidth: .infinity)
+        .background(Port42Theme.bgSidebar)
         .sheet(isPresented: $showNewSpace) {
             NewSpaceSheet(isPresented: $showNewSpace)
         }
         .sheet(isPresented: $showNewCompanion) {
             NewCompanionSheet(isPresented: $showNewCompanion)
-        }
-        .sheet(isPresented: $showUsage) {
-            UsageSheet(isPresented: $showUsage)
-        }
-        .sheet(isPresented: $showSignOut) {
-            SignOutSheet(isPresented: $showSignOut)
         }
         .sheet(isPresented: $appState.showNgrokSetup) {
             NgrokSetupSheet(isPresented: $appState.showNgrokSetup)
@@ -103,11 +58,7 @@ public struct ContentView: View {
             showNewSpace = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .dismissAllSheets)) { _ in
-            showSignOut = false
             showNewCompanion = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
-            showSignOut = true
         }
         .overlay {
             if showQuickSwitcher {
@@ -170,10 +121,21 @@ public struct ContentView: View {
     }
 }
 
-// MARK: - Sidebar Header (PORT42 branding, top of left pane)
+// MARK: - Sidebar Header
 
 struct SidebarHeader: View {
     @EnvironmentObject var appState: AppState
+    @State private var showSignOut = false
+    @State private var showUsage = false
+
+    private var authDotColor: Color {
+        switch appState.authStatus {
+        case .connected: return .green
+        case .checking, .unknown: return Port42Theme.accent
+        case .noCredential: return .orange
+        case .error: return .red
+        }
+    }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -191,12 +153,63 @@ struct SidebarHeader: View {
                     .foregroundStyle(Port42Theme.accent)
             }
             Spacer()
+            if let user = appState.currentUser {
+                HStack(spacing: 10) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(authDotColor)
+                            .frame(width: 7, height: 7)
+                        Text(user.displayName)
+                            .font(Port42Theme.mono(12))
+                            .foregroundStyle(Port42Theme.textPrimary)
+                    }
+
+                    Button(action: {
+                        appState.aiPaused.toggle()
+                        LLMEngine.paused = appState.aiPaused
+                    }) {
+                        Image(systemName: appState.aiPaused ? "pause.circle.fill" : "pause.circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(appState.aiPaused ? .red : Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(appState.aiPaused ? "AI paused. Click to resume." : "Pause all AI calls")
+
+                    Button(action: { showUsage = true }) {
+                        Image(systemName: "chart.bar")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Token usage")
+
+                    Button(action: { showSignOut = true }) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Settings")
+                }
+            }
         }
         .help(appState.tunnel.publicURL ?? appState.sync.gatewayURL ?? "no gateway")
-        .padding(.leading, 68) // space for traffic light buttons
+        .padding(.leading, 68)
         .padding(.trailing, 12)
         .frame(height: 38)
         .background(Port42Theme.bgSidebar)
+        .sheet(isPresented: $showSignOut) {
+            SignOutSheet(isPresented: $showSignOut)
+        }
+        .sheet(isPresented: $showUsage) {
+            UsageSheet(isPresented: $showUsage)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
+            showSignOut = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dismissAllSheets)) { _ in
+            showSignOut = false
+        }
     }
 }
 

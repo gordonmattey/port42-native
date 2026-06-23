@@ -30,8 +30,7 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         setupCustomCursor()
         NSLog("[Port42] Sparkle feedURL=%@", updaterController.updater.feedURL?.absoluteString ?? "nil")
 
-        // Lock screen is always full screen. Save the autosaved frame first so
-        // we can restore it after unlock, then maximize.
+        // Save current frame (user's preferred sidebar size) then maximize for the login screen.
         DispatchQueue.main.async {
             guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
             let frame = window.frame
@@ -174,12 +173,12 @@ struct Port42App: App {
         WindowGroup {
             TransitionRoot(appState: appState, useBreakoutVideo: true)
                 .environmentObject(appState)
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: 180, minHeight: 400)
                 .background(Port42Theme.bgPrimary)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1200, height: 800)
+        .defaultSize(width: 220, height: 700)
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates...") {

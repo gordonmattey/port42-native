@@ -1486,9 +1486,9 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
            let str = String(data: json, encoding: .utf8) {
             self.capabilities = str
         }
-        self.portType = "web"
+        self.portType = panel.portType
         self.dockOrder = nil
-        self.isChatPort = false
+        self.isChatPort = panel.isChatPort
         self.createdAt = Date()
     }
 }

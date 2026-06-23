@@ -21,6 +21,8 @@ public struct PortPanel: Identifiable {
     public var position: CGPoint?
     public var isAlwaysOnTop: Bool = false
     public var isBackground: Bool = false
+    public var portType: String = "web"
+    public var isChatPort: Bool = false
 
     /// Resolved display title: userTitle > HTML <title> > "port"
     public var title: String {
@@ -65,12 +67,22 @@ public final class PortWindowManager: ObservableObject {
     /// Database for persisting port panel state across restarts.
     private weak var db: DatabaseService?
 
+    /// AppState reference for injecting environment into chat port content views.
+    public weak var appState: AppState?
+
+    /// Currently active space ID for port visibility management.
+    public var activeSpaceId: String? = nil
+
     /// When true, window close events skip DB cleanup (app is quitting).
     /// nonisolated(unsafe): written synchronously on .main queue in willTerminate before windows close.
     private nonisolated(unsafe) var isTerminating = false
 
+    /// True after showRestoredFloatingPanels() has run (lock screen is gone).
+    /// switchToSpace creates windows only when this is true.
+    var panelsVisible: Bool = false
+
     /// Native windows for floating panels, keyed by panel ID.
-    private var windows: [String: NSPanel] = [:]
+    var windows: [String: NSPanel] = [:]
 
     /// Persistent WKWebViews, keyed by panel ID. Created once, reparented on dock/undock.
     public var webViews: [String: WKWebView] = [:]
@@ -129,10 +141,14 @@ public final class PortWindowManager: ObservableObject {
                     size: CGSize(width: row.width, height: row.height),
                     position: pos,
                     isAlwaysOnTop: row.isAlwaysOnTop,
-                    isBackground: row.isBackground
+                    isBackground: row.isBackground,
+                    portType: row.portType,
+                    isChatPort: row.isChatPort
                 )
                 panels.append(panel)
-                createPortWebView(for: panel)
+                if !panel.isChatPort {
+                    createPortWebView(for: panel)
+                }
 
                 // Floating windows are NOT created here; they appear after
                 // the lock screen dismisses via showRestoredFloatingPanels().
@@ -145,18 +161,20 @@ public final class PortWindowManager: ObservableObject {
         }
     }
 
-    /// Create floating windows for any restored panels that don't have windows yet.
-    /// Called at the same moment as the main window frame restore, so everything appears together.
+    /// Create floating windows for restored web/terminal ports. Sets panelsVisible so that
+    /// subsequent switchToSpace calls can create chat port windows on demand.
     public func showRestoredFloatingPanels() {
-        for panel in panels where !panel.isBackground && windows[panel.id] == nil {
+        panelsVisible = true
+        for panel in panels where !panel.isBackground && !panel.isChatPort && windows[panel.id] == nil {
             NSLog("[Port42] Creating restored window for: %@", panel.title)
-            let bounds = NSApp.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+            let bounds = NSApp?.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
             createWindow(for: panel, in: bounds)
         }
     }
 
     /// Hide all floating panel windows (when lock screen or dreamscape shows).
     public func hideFloatingPanels() {
+        panelsVisible = false
         for (id, window) in windows {
             if let nsPanel = window as? PortNSPanel {
                 nsPanel.onClose = nil
@@ -218,7 +236,9 @@ public final class PortWindowManager: ObservableObject {
                 size: panels[idx].size,
                 position: panels[idx].position,
                 isAlwaysOnTop: panels[idx].isAlwaysOnTop,
-                isBackground: wasBackground
+                isBackground: wasBackground,
+                portType: panels[idx].portType,
+                isChatPort: panels[idx].isChatPort
             )
             // Recreate webview with new HTML content
             destroyWebView(existingId)
@@ -287,7 +307,9 @@ public final class PortWindowManager: ObservableObject {
             window.close()
         }
         windows.removeValue(forKey: id)
-        destroyWebView(id)
+        if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
+            destroyWebView(id)
+        }
         unpersistPanel(id)
         Analytics.shared.portClosed()
         panels.removeAll { $0.id == id }
@@ -574,6 +596,7 @@ public final class PortWindowManager: ObservableObject {
     // MARK: - Native Window Management
 
     private func createWindow(for panel: PortPanel, in bounds: CGSize) {
+        guard NSApp != nil else { return }
         var windowFrame: CGRect
         if let pos = panel.position {
             // Restore saved position
@@ -582,7 +605,7 @@ public final class PortWindowManager: ObservableObject {
             // Position relative to the main window
             let offset = CGFloat(windows.count % 5) * 24
             windowFrame = CGRect(x: 100 + offset, y: 100 + offset, width: panel.size.width, height: panel.size.height)
-            if let mainWindow = NSApp.keyWindow {
+            if let mainWindow = NSApp?.keyWindow {
                 let mainFrame = mainWindow.frame
                 windowFrame.origin.x = mainFrame.midX - panel.size.width / 2 + offset
                 windowFrame.origin.y = mainFrame.midY - panel.size.height / 2 - offset
@@ -646,27 +669,88 @@ public final class PortWindowManager: ObservableObject {
 
     private func createWindowForExistingPanel(_ panel: PortPanel) {
         guard windows[panel.id] == nil else { return }
-        let bounds = NSApp.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+        let bounds = NSApp?.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
         createWindow(for: panel, in: bounds)
     }
 
     private func updateWindowContent(_ window: NSPanel, panel: PortPanel) {
-        let contentView = PortPanelContentView(
-            panel: panel,
-            manager: self
-        )
+        guard let appState = appState else { return }
+        let contentView = PortPanelContentView(panel: panel, manager: self, isChatPort: panel.isChatPort)
+            .environmentObject(appState)
         let hv = NSHostingView(rootView: contentView)
-        hv.sizingOptions = []  // prevent content changes from ever resizing the window
+        hv.sizingOptions = []
         window.contentView = hv
     }
 
     private func panelWindowClosed(_ id: String) {
         windows.removeValue(forKey: id)
-        destroyWebView(id)
+        if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
+            destroyWebView(id)
+        }
         if !isTerminating {
             unpersistPanel(id)
         }
         panels.removeAll { $0.id == id }
+    }
+
+    // MARK: - Space-Aware Port Visibility
+
+    /// Switch to a new space: hide old space's ports, show new space's ports.
+    /// Before unlock (panelsVisible = false): only the chat port record is ensured, no windows created.
+    /// After unlock (panelsVisible = true): chat port window created on demand; web ports use makeKeyAndOrderFront.
+    public func switchToSpace(_ spaceId: String, spaceName: String) {
+        if let oldId = activeSpaceId, oldId != spaceId {
+            for panel in panels where panel.spaceId == oldId {
+                windows[panel.id]?.orderOut(nil)
+            }
+        }
+
+        // Capture the current chat port's frame before updating activeSpaceId,
+        // so the new space's chat port can inherit position/size.
+        let inheritFrame: CGRect? = activeSpaceId.flatMap { oldId in
+            panels.first(where: { $0.isChatPort && $0.spaceId == oldId && !$0.isBackground })
+                .flatMap { windows[$0.id]?.frame }
+        }
+
+        activeSpaceId = spaceId
+        ensureChatPort(spaceId: spaceId, spaceName: spaceName, inheritFrame: inheritFrame)
+
+        for panel in panels where panel.spaceId == spaceId && !panel.isBackground {
+            if panel.isChatPort && panelsVisible && windows[panel.id] == nil {
+                createWindowForExistingPanel(panel)
+            } else {
+                windows[panel.id]?.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
+    /// Ensure a chat port record exists for the space (record only — no window).
+    /// If inheritFrame is provided, the new port inherits that size/position so it
+    /// appears where the previous space's chat port was.
+    private func ensureChatPort(spaceId: String, spaceName: String, inheritFrame: CGRect? = nil) {
+        guard let appState = appState else { return }
+        guard !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
+        let newId = UUID().uuidString
+        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: nil, createdBy: nil)
+        let size = inheritFrame?.size ?? CGSize(width: 480, height: 680)
+        let position = inheritFrame.map { CGPoint(x: $0.origin.x, y: $0.origin.y) }
+        var panel = PortPanel(
+            id: newId,
+            udid: newId,
+            html: "",
+            bridge: bridge,
+            spaceId: spaceId,
+            createdBy: nil,
+            messageId: nil,
+            userTitle: "chat",
+            size: size,
+            position: position
+        )
+        panel.portType = "chat"
+        panel.isChatPort = true
+        panels.append(panel)
+        persistPanel(panel.id)
+        NSLog("[Port42] Registered chat port for space: %@", spaceName)
     }
 }
 
@@ -938,6 +1022,8 @@ class PortNSPanel: NSPanel {
 struct PortPanelContentView: View {
     let panel: PortPanel
     @ObservedObject var manager: PortWindowManager
+    var isChatPort: Bool = false
+    @EnvironmentObject var appState: AppState
     @State private var showCode = false
     @State private var pendingPerm: PortPermission?
     @State private var nsWindow: NSWindow? = nil
@@ -962,7 +1048,10 @@ struct PortPanelContentView: View {
     var body: some View {
         ZStack(alignment: .top) {
             // Content fills edge to edge
-            if showCode {
+            if isChatPort {
+                ChatView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if showCode {
                 ScrollView(.vertical) {
                     Text(panel.html)
                         .font(Port42Theme.mono(12))
@@ -988,7 +1077,7 @@ struct PortPanelContentView: View {
             // Title bar overlay — timed flash on hover/focus, always on for code view
             if showBar || showCode || showVersions {
                 VStack(alignment: .leading, spacing: 0) {
-                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions)
+                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions, isChatPort: isChatPort)
                     if showVersions {
                         HStack {
                             PortVersionDropdown(panel: panel, manager: manager, isPresented: $showVersions)
@@ -1156,6 +1245,7 @@ struct PortPanelTitleBar: View {
     @Binding var showCode: Bool
     @State private var versionHovered = false
     @Binding var showVersions: Bool
+    var isChatPort: Bool = false
 
     /// Always read the live panel from manager so rename/title updates reflect immediately.
     private var livePanel: PortPanel {
@@ -1198,47 +1288,49 @@ struct PortPanelTitleBar: View {
             }
             .background(PortDragArea())
 
-            // Buttons (not draggable) — mode-dependent
-            if showCode {
-                Button(action: { showCode = false }) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Port42Theme.accent)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Run port")
-            } else {
-                Button(action: { showCode = true }) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Stop")
+            // Buttons (not draggable) — mode-dependent; web-only buttons hidden for chat ports
+            if !isChatPort {
+                if showCode {
+                    Button(action: { showCode = false }) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.accent)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Run port")
+                } else {
+                    Button(action: { showCode = true }) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop")
 
-                Button(action: { manager.restart(panel.id) }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Restart")
+                    Button(action: { manager.restart(panel.id) }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Restart")
 
-                Button(action: { showCode = true }) {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                    Button(action: { showCode = true }) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("View source")
                 }
-                .buttonStyle(.plain)
-                .help("View source")
             }
 
             Button(action: { manager.toggleAlwaysOnTop(panel.id) }) {

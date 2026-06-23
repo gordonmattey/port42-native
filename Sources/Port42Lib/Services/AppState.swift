@@ -661,7 +661,13 @@ public final class AppState: ObservableObject {
     /// Message ID of a port that should auto-activate when it appears in the chat.
     @Published public var pendingPortActivationId: String? = nil
     @Published public var currentUser: AppUser?
-    @Published public var isSetupComplete = false
+    @Published public var isSetupComplete = false {
+        didSet {
+            if isSetupComplete && !oldValue && portPanelsRestored, let space = currentSpace {
+                portWindows.switchToSpace(space.id, spaceName: space.name)
+            }
+        }
+    }
     @Published public var drafts: [String: String] = [:]
     @Published public var unreadCounts: [String: Int] = [:]
     @Published public var lastReadDates: [String: Date] = [:]
@@ -739,6 +745,9 @@ public final class AppState: ObservableObject {
     /// Manages popped-out and docked port panels
     @Published public var portWindows = PortWindowManager()
 
+    /// True after restoreFromDB completes; gates switchToSpace calls in selectSpace.
+    private var portPanelsRestored = false
+
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
 
@@ -805,13 +814,19 @@ public final class AppState: ObservableObject {
             self?.objectWillChange.send()
         }
         portWindows.setDatabase(db)
+        portWindows.appState = self
         TokenTracker.shared.db = db
         loadInitialState()
         setupPortEventObservers()
-        // Restore persisted port panels after a brief delay so the window is ready
+        // Restore persisted port panels after a brief delay so the window is ready,
+        // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             self.portWindows.restoreFromDB(appState: self)
+            self.portPanelsRestored = true
+            if self.isSetupComplete, let space = self.currentSpace {
+                self.portWindows.switchToSpace(space.id, spaceName: space.name)
+            }
         }
     }
 
@@ -1653,6 +1668,9 @@ public final class AppState: ObservableObject {
 
         currentSpace = space
         lastReadDates[space.id] = Date()
+        if portPanelsRestored && isSetupComplete {
+            portWindows.switchToSpace(space.id, spaceName: space.name)
+        }
         Analytics.shared.channelSwitched()
         Analytics.shared.screen("Channel")
 

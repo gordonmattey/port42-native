@@ -71,6 +71,8 @@ public struct TransitionRoot: View {
                         diveProgress = 1.0
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        // Resize to sidebar width while fully covered by dive overlay
+                        restoreWindowFrame()
                         transitionPhase = .none
                         withAnimation(.easeOut(duration: 1.0)) {
                             diveProgress = 0.0
@@ -144,11 +146,16 @@ public struct TransitionRoot: View {
             if appState.isSetupComplete || appState.showDreamscape {
                 bootCinematicDone = true
             }
-            // Returning user: blue flash then reveal
+            // Returning user: resize window while covered by launch overlay, then reveal.
+            // Call unlock() after the animation so port windows appear (same gate as post-lock reveal).
             if appState.isSetupComplete && !appState.showDreamscape {
+                restoreWindowFrame()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation(.easeOut(duration: 0.8)) {
                         launchRevealProgress = 0.0
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        appState.unlock()
                     }
                 }
             } else {
@@ -227,17 +234,28 @@ public struct TransitionRoot: View {
     }
 
     private func restoreWindowFrame() {
-        guard let frameString = UserDefaults.standard.string(forKey: "p42MainWindowFrame"),
-              let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
-        let frame = NSRectFromString(frameString)
-        guard frame.width > 100 && frame.height > 100 else { return }
-        // Skip restore if the saved frame is essentially the same as full screen
-        // (first-time user who hasn't arranged their window yet)
-        if let screen = window.screen ?? NSScreen.main {
-            let screenFrame = screen.visibleFrame
-            if abs(frame.width - screenFrame.width) < 20 && abs(frame.height - screenFrame.height) < 20 { return }
+        guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
+        let screen = window.screen ?? NSScreen.main
+        let screenFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+
+        // If we have a saved frame that isn't full-screen, restore it
+        if let frameString = UserDefaults.standard.string(forKey: "p42MainWindowFrame") {
+            let frame = NSRectFromString(frameString)
+            if frame.width > 100 && frame.height > 100 {
+                let isFullScreen = abs(frame.width - screenFrame.width) < 20 && abs(frame.height - screenFrame.height) < 20
+                if !isFullScreen {
+                    window.setFrame(frame, display: true, animate: false)
+                    return
+                }
+            }
         }
-        window.setFrame(frame, display: true, animate: false)
+
+        // No usable saved frame — set a narrow sidebar default
+        let sidebarWidth: CGFloat = 220
+        let sidebarHeight: CGFloat = min(700, screenFrame.height - 40)
+        let x = screenFrame.minX + 40
+        let y = screenFrame.midY - sidebarHeight / 2
+        window.setFrame(CGRect(x: x, y: y, width: sidebarWidth, height: sidebarHeight), display: true, animate: false)
     }
 
     private func startEnterAquariumTransition() {
