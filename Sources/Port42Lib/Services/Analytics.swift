@@ -111,11 +111,11 @@ public final class Analytics {
         track("setup_step", properties: ["step": step])
     }
 
-    // MARK: - Channels
+    // MARK: - Spaces
 
-    public func channelCreated() { track("channel_created") }
+    public func spaceCreated() { track("space_created") }
 
-    public func channelSwitched() { track("channel_switched") }
+    public func spaceSwitched() { track("space_switched") }
 
     // MARK: - Messages
 
@@ -125,7 +125,7 @@ public final class Analytics {
 
     public func companionCreated() { track("companion_created") }
 
-    public func companionAddedToChannel() { track("companion_added_to_channel") }
+    public func companionAddedToSpace() { track("companion_added_to_space") }
 
     // MARK: - Swims
 
@@ -165,7 +165,7 @@ public final class Analytics {
     /// Port42 plugin installed into OpenClaw.
     public func openClawPluginInstalled() { track("openclaw_plugin_installed") }
 
-    /// User connected an OpenClaw agent to a channel.
+    /// User connected an OpenClaw agent to a space.
     public func openClawConnected() { track("openclaw_agent_connected") }
 
     // MARK: - Tunneling

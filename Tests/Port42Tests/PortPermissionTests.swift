@@ -47,9 +47,9 @@ struct PortPermissionTests {
         #expect(PortPermission.permissionForMethod("messages.send") == nil)
     }
 
-    @Test("channel.current requires no permission")
-    func channelCurrentNoPermission() {
-        #expect(PortPermission.permissionForMethod("channel.current") == nil)
+    @Test("space.current requires no permission")
+    func spaceCurrentNoPermission() {
+        #expect(PortPermission.permissionForMethod("space.current") == nil)
     }
 
     @Test("storage.set requires no permission")
@@ -198,12 +198,12 @@ struct PortPermissionTests {
 
     // MARK: - Companion-Level Persistence (P-260)
 
-    @Test("companionPermissions returns empty set for unknown companion+channel")
+    @Test("companionPermissions returns empty set for unknown companion+space")
     @MainActor
     func companionPermissionsUnknown() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
-        let perms = appState.companionPermissions(createdBy: "unknown-companion", spaceId: "unknown-channel")
+        let perms = appState.companionPermissions(createdBy: "unknown-companion", spaceId: "unknown-space")
         #expect(perms.isEmpty)
     }
 
@@ -213,29 +213,29 @@ struct PortPermissionTests {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
         let key = "test-companion-\(UUID().uuidString)"
-        let channelId = "test-channel-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal, .ai], createdBy: key, spaceId: channelId)
-        let restored = appState.companionPermissions(createdBy: key, spaceId: channelId)
+        let spaceId = "test-space-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal, .ai], createdBy: key, spaceId: spaceId)
+        let restored = appState.companionPermissions(createdBy: key, spaceId: spaceId)
         #expect(restored.contains(.terminal))
         #expect(restored.contains(.ai))
         #expect(!restored.contains(.camera))
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: key, spaceId: channelId)
+        appState.saveCompanionPermissions([], createdBy: key, spaceId: spaceId)
     }
 
-    @Test("companion permissions are scoped to channelId — different channel gets empty set")
+    @Test("companion permissions are scoped to spaceId — different space gets empty set")
     @MainActor
-    func companionPermissionsScopedToChannel() throws {
+    func companionPermissionsScopedToSpace() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
         let companion = "test-companion-\(UUID().uuidString)"
-        let channelA = "channel-a-\(UUID().uuidString)"
-        let channelB = "channel-b-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: channelA)
-        let permsB = appState.companionPermissions(createdBy: companion, spaceId: channelB)
+        let spaceA = "space-a-\(UUID().uuidString)"
+        let spaceB = "space-b-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: spaceA)
+        let permsB = appState.companionPermissions(createdBy: companion, spaceId: spaceB)
         #expect(permsB.isEmpty)
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: companion, spaceId: channelA)
+        appState.saveCompanionPermissions([], createdBy: companion, spaceId: spaceA)
     }
 
     @Test("companion permissions are scoped to createdBy — different companion gets empty set")
@@ -243,14 +243,14 @@ struct PortPermissionTests {
     func companionPermissionsScopedToCompanion() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
-        let channelId = "test-channel-\(UUID().uuidString)"
+        let spaceId = "test-space-\(UUID().uuidString)"
         let companionA = "companion-a-\(UUID().uuidString)"
         let companionB = "companion-b-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companionA, spaceId: channelId)
-        let permsB = appState.companionPermissions(createdBy: companionB, spaceId: channelId)
+        appState.saveCompanionPermissions([.terminal], createdBy: companionA, spaceId: spaceId)
+        let permsB = appState.companionPermissions(createdBy: companionB, spaceId: spaceId)
         #expect(permsB.isEmpty)
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: companionA, spaceId: channelId)
+        appState.saveCompanionPermissions([], createdBy: companionA, spaceId: spaceId)
     }
 
     @Test("saving empty permissions removes the entry")
@@ -259,10 +259,10 @@ struct PortPermissionTests {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
         let companion = "test-companion-\(UUID().uuidString)"
-        let channelId = "test-channel-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: channelId)
-        appState.saveCompanionPermissions([], createdBy: companion, spaceId: channelId)
-        let perms = appState.companionPermissions(createdBy: companion, spaceId: channelId)
+        let spaceId = "test-space-\(UUID().uuidString)"
+        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: spaceId)
+        appState.saveCompanionPermissions([], createdBy: companion, spaceId: spaceId)
+        let perms = appState.companionPermissions(createdBy: companion, spaceId: spaceId)
         #expect(perms.isEmpty)
     }
 }

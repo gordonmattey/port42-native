@@ -52,48 +52,48 @@ struct DatabaseTests {
         #expect(fetched?.appleUserID == nil)
     }
 
-    // MARK: - Channels
+    // MARK: - Spaces
 
-    @Test("Create and list channels")
-    func createAndListChannels() throws {
+    @Test("Create and list spaces")
+    func createAndListSpaces() throws {
         let db = try makeDB()
         let c1 = Space.create(name: "general")
         let c2 = Space.create(name: "builders")
         try db.saveSpace(c1)
         try db.saveSpace(c2)
 
-        let channels = try db.getAllSpaces()
-        #expect(channels.count == 2)
-        #expect(channels[0].name == "general")
-        #expect(channels[1].name == "builders")
+        let spaces = try db.getAllSpaces()
+        #expect(spaces.count == 2)
+        #expect(spaces[0].name == "general")
+        #expect(spaces[1].name == "builders")
     }
 
-    @Test("Delete channel")
+    @Test("Delete space")
     func deleteSpace() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "temp")
-        try db.saveSpace(channel)
+        let space = Space.create(name: "temp")
+        try db.saveSpace(space)
         #expect(try db.getAllSpaces().count == 1)
 
-        try db.deleteSpace(id: channel.id)
+        try db.deleteSpace(id: space.id)
         #expect(try db.getAllSpaces().count == 0)
     }
 
-    @Test("Delete channel cascades messages")
+    @Test("Delete space cascades messages")
     func deleteCascadesMessages() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "temp")
-        try db.saveSpace(channel)
+        let space = Space.create(name: "temp")
+        try db.saveSpace(space)
 
         let msg = Message.create(
-            spaceId: channel.id, senderId: "u1",
+            spaceId: space.id, senderId: "u1",
             senderName: "Test", content: "hello"
         )
         try db.saveMessage(msg)
-        #expect(try db.getMessages(spaceId: channel.id).count == 1)
+        #expect(try db.getMessages(spaceId: space.id).count == 1)
 
-        try db.deleteSpace(id: channel.id)
-        #expect(try db.getMessages(spaceId: channel.id).count == 0)
+        try db.deleteSpace(id: space.id)
+        #expect(try db.getMessages(spaceId: space.id).count == 0)
     }
 
     // MARK: - Messages
@@ -101,21 +101,21 @@ struct DatabaseTests {
     @Test("Save and retrieve messages")
     func saveAndGetMessages() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "test")
-        try db.saveSpace(channel)
+        let space = Space.create(name: "test")
+        try db.saveSpace(space)
 
         let m1 = Message.create(
-            spaceId: channel.id, senderId: "u1",
+            spaceId: space.id, senderId: "u1",
             senderName: "Alice", content: "first"
         )
         let m2 = Message.create(
-            spaceId: channel.id, senderId: "u2",
+            spaceId: space.id, senderId: "u2",
             senderName: "Bob", content: "second"
         )
         try db.saveMessage(m1)
         try db.saveMessage(m2)
 
-        let messages = try db.getMessages(spaceId: channel.id)
+        let messages = try db.getMessages(spaceId: space.id)
         #expect(messages.count == 2)
         #expect(messages[0].content == "first")
         #expect(messages[1].content == "second")
@@ -124,17 +124,17 @@ struct DatabaseTests {
     @Test("Messages are ordered by timestamp")
     func messageOrdering() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "test")
-        try db.saveSpace(channel)
+        let space = Space.create(name: "test")
+        try db.saveSpace(space)
 
         let earlier = Message(
-            id: UUID().uuidString, spaceId: channel.id,
+            id: UUID().uuidString, spaceId: space.id,
             senderId: "u1", senderName: "A", senderType: "human",
             content: "earlier", timestamp: Date(timeIntervalSince1970: 1000),
             replyToId: nil, syncStatus: "local", createdAt: Date()
         )
         let later = Message(
-            id: UUID().uuidString, spaceId: channel.id,
+            id: UUID().uuidString, spaceId: space.id,
             senderId: "u1", senderName: "A", senderType: "human",
             content: "later", timestamp: Date(timeIntervalSince1970: 2000),
             replyToId: nil, syncStatus: "local", createdAt: Date()
@@ -143,13 +143,13 @@ struct DatabaseTests {
         try db.saveMessage(later)
         try db.saveMessage(earlier)
 
-        let messages = try db.getMessages(spaceId: channel.id)
+        let messages = try db.getMessages(spaceId: space.id)
         #expect(messages[0].content == "earlier")
         #expect(messages[1].content == "later")
     }
 
-    @Test("Messages scoped to channel")
-    func messagesPerChannel() throws {
+    @Test("Messages scoped to space")
+    func messagesPerSpace() throws {
         let db = try makeDB()
         let c1 = Space.create(name: "one")
         let c2 = Space.create(name: "two")
@@ -168,13 +168,13 @@ struct DatabaseTests {
         #expect(try db.getMessages(spaceId: c1.id).first?.content == "in one")
     }
 
-    @Test("Empty channel returns no messages")
-    func emptyChannel() throws {
+    @Test("Empty space returns no messages")
+    func emptySpace() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "empty")
-        try db.saveSpace(channel)
+        let space = Space.create(name: "empty")
+        try db.saveSpace(space)
 
-        let messages = try db.getMessages(spaceId: channel.id)
+        let messages = try db.getMessages(spaceId: space.id)
         #expect(messages.isEmpty)
     }
 }

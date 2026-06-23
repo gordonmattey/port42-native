@@ -31,14 +31,14 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"comman
 # Take a screenshot
 curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
 
-# Send a message (triggers companions; add "channel_id" to target a specific channel)
+# Send a message (triggers companions; add "space_id" to target a specific space)
 curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
 
-# Read recent channel messages
+# Read recent space messages
 curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
 
-# List all channels
-curl -s http://127.0.0.1:4242/call -d '{"method":"channel.list"}'
+# List all spaces
+curl -s http://127.0.0.1:4242/call -d '{"method":"space.list"}'
 
 # List companions
 curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
@@ -49,15 +49,15 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ## Available Methods
 
-### User & Channel
+### User & Space
 
   user.get                        → { id, name }
   companions.list                 → [{ id, name, model, isActive }]
   companions.get(id)              → { id, name, model, isActive } | null
-  channel.current                 → { id, name, type, members } | null
-  channel.list                    → [{ id, name, type, isCurrent }]
+  space.current                   → { id, name, type, members } | null
+  space.list                      → [{ id, name, type, isCurrent }]
   messages.recent(count?)         → [{ id, sender, content, timestamp, isCompanion }]
-  messages.send(text, channel_id?) → sends message and triggers companions (default: current channel)
+  messages.send(text, space_id?)  → sends message and triggers companions (default: current space)
 
 ### Ports
 
@@ -81,7 +81,7 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   terminal.send(id, data)         → send keystrokes to a terminal port (append \r for Enter)
 
   terminal_list                   → ports with active terminal sessions
-  terminal_bridge(name)           → start routing terminal output to channel
+  terminal_bridge(name)           → start routing terminal output to space
   terminal_unbridge(name)         → stop routing
 
 ### Screen & Display
@@ -154,11 +154,11 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Storage
 
-  storage.get(key, opts?)         → read stored value (scoped per-companion per-channel)
+  storage.get(key, opts?)         → read stored value (scoped per-companion per-space)
   storage.set(key, value, opts?)  → write value (string, number, object, array)
   storage.delete(key, opts?)      → remove a key
   storage.list(opts?)             → list all keys
-                                    opts: { scope: 'global' } for cross-channel access
+                                    opts: { scope: 'global' } for cross-space access
 
 ### AI
 
@@ -184,5 +184,5 @@ process. Pre-approve categories in Settings → Remote Access to skip future pro
 | AI | ai.complete |
 | REST | rest.call |
 
-No permission required: user.get, companions.list, channel.*, messages.*, ports.list,
+No permission required: user.get, companions.list, space.*, messages.*, ports.list,
 port.*, storage.*, screen.displays, audio.speak, audio.play, audio.stop.

@@ -11,29 +11,29 @@ struct CompanionRelationshipTests {
 
     // MARK: - Creases: basic persistence
 
-    @Test("Save and fetch a channel-scoped crease")
+    @Test("Save and fetch a space-scoped crease")
     func saveAndFetchCrease() throws {
         let db = try makeDB()
         let crease = CompanionCrease(
             companionId: "companion-1",
-            spaceId: "channel-1",
+            spaceId: "space-1",
             content: "I expected the technical path and they went to the cipher instead.",
             prediction: "technical path",
             actual: "cipher"
         )
         try db.saveCrease(crease)
 
-        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: "channel-1")
+        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: "space-1")
         #expect(fetched.count == 1)
         #expect(fetched[0].content == crease.content)
         #expect(fetched[0].prediction == "technical path")
         #expect(fetched[0].actual == "cipher")
-        #expect(fetched[0].spaceId == "channel-1")
+        #expect(fetched[0].spaceId == "space-1")
         #expect(fetched[0].weight == 1.0)
     }
 
-    @Test("Global crease (nil channelId) is returned when fetching channel creases")
-    func globalCreaseReturnedWithChannel() throws {
+    @Test("Global crease (nil spaceId) is returned when fetching space creases")
+    func globalCreaseReturnedWithSpace() throws {
         let db = try makeDB()
         let global = CompanionCrease(
             companionId: "companion-1",
@@ -42,24 +42,24 @@ struct CompanionRelationshipTests {
         )
         let scoped = CompanionCrease(
             companionId: "companion-1",
-            spaceId: "channel-1",
+            spaceId: "space-1",
             content: "Expected cautious; got oblique."
         )
         try db.saveCrease(global)
         try db.saveCrease(scoped)
 
-        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: "channel-1")
+        let fetched = try db.fetchCreases(companionId: "companion-1", spaceId: "space-1")
         #expect(fetched.count == 2)
         let ids = Set(fetched.map { $0.id })
         #expect(ids.contains(global.id))
         #expect(ids.contains(scoped.id))
     }
 
-    @Test("Fetching only global creases (nil channelId) excludes channel-scoped")
+    @Test("Fetching only global creases (nil spaceId) excludes space-scoped")
     func fetchOnlyGlobalCreases() throws {
         let db = try makeDB()
         let global = CompanionCrease(companionId: "companion-1", spaceId: nil, content: "global crease")
-        let scoped = CompanionCrease(companionId: "companion-1", spaceId: "channel-1", content: "scoped crease")
+        let scoped = CompanionCrease(companionId: "companion-1", spaceId: "space-1", content: "scoped crease")
         try db.saveCrease(global)
         try db.saveCrease(scoped)
 
@@ -388,27 +388,27 @@ struct CompanionRelationshipTests {
 
     // MARK: - Engravings: basic persistence
 
-    @Test("Save and fetch a channel-scoped engraving")
+    @Test("Save and fetch a space-scoped engraving")
     func saveAndFetchEngraving() throws {
         let db = try makeDB()
         let engraving = CompanionEngraving(
             companionId: "companion-1",
-            spaceId: "channel-1",
+            spaceId: "space-1",
             content: "6 weeks to ship, solo engineer, can't break backwards compat.",
             category: "constraint"
         )
         try db.saveEngraving(engraving)
 
-        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: "channel-1")
+        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: "space-1")
         #expect(fetched.count == 1)
         #expect(fetched[0].content == engraving.content)
         #expect(fetched[0].category == "constraint")
-        #expect(fetched[0].spaceId == "channel-1")
+        #expect(fetched[0].spaceId == "space-1")
         #expect(fetched[0].weight == 1.0)
     }
 
-    @Test("Global engraving (nil channelId) is returned when fetching channel engravings")
-    func globalEngravingReturnedWithChannel() throws {
+    @Test("Global engraving (nil spaceId) is returned when fetching space engravings")
+    func globalEngravingReturnedWithSpace() throws {
         let db = try makeDB()
         let global = CompanionEngraving(
             companionId: "companion-1",
@@ -418,25 +418,25 @@ struct CompanionRelationshipTests {
         )
         let scoped = CompanionEngraving(
             companionId: "companion-1",
-            spaceId: "channel-1",
+            spaceId: "space-1",
             content: "Running a startup with 3 engineers.",
             category: "context"
         )
         try db.saveEngraving(global)
         try db.saveEngraving(scoped)
 
-        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: "channel-1")
+        let fetched = try db.fetchEngravings(companionId: "companion-1", spaceId: "space-1")
         #expect(fetched.count == 2)
         let ids = Set(fetched.map { $0.id })
         #expect(ids.contains(global.id))
         #expect(ids.contains(scoped.id))
     }
 
-    @Test("Fetching only global engravings (nil channelId) excludes channel-scoped")
+    @Test("Fetching only global engravings (nil spaceId) excludes space-scoped")
     func fetchOnlyGlobalEngravings() throws {
         let db = try makeDB()
         let global = CompanionEngraving(companionId: "companion-1", spaceId: nil, content: "global fact")
-        let scoped = CompanionEngraving(companionId: "companion-1", spaceId: "channel-1", content: "scoped fact")
+        let scoped = CompanionEngraving(companionId: "companion-1", spaceId: "space-1", content: "scoped fact")
         try db.saveEngraving(global)
         try db.saveEngraving(scoped)
 
@@ -653,5 +653,26 @@ struct CompanionRelationshipTests {
         #expect(content.contains("position_set"))
         #expect(content.contains("engrave") || content.contains("engravings"))
         #expect(content.contains("where your model broke") || content.contains("prediction broke"))
+    }
+
+    // MARK: - Space tool names (no "channel" in tool API)
+
+    @Test("space_current tool is present in ToolDefinitions")
+    func spaceCurrentToolPresent() {
+        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+        #expect(names.contains("space_current"))
+    }
+
+    @Test("space_list tool is present in ToolDefinitions")
+    func spaceListToolPresent() {
+        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+        #expect(names.contains("space_list"))
+    }
+
+    @Test("no tool in ToolDefinitions is named with 'channel'")
+    func noDeprecatedTermInToolNames() {
+        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+        let deprecated = names.filter { $0.contains("channel") }
+        #expect(deprecated.isEmpty, "Found deprecated tool names: \(deprecated)")
     }
 }

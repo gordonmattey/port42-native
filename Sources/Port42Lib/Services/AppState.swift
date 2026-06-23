@@ -4,12 +4,12 @@ import Combine
 
 // MARK: - File Content Resolution
 
-/// Resolves file paths in messages and manages per-channel directory allowlists.
+/// Resolves file paths in messages and manages per-space directory allowlists.
 /// When a user shares a file path, the parent directory is added to the allowlist.
 /// Short filenames (like "readme.md") are resolved against allowed directories.
 @MainActor
 final class FileResolver {
-    /// Allowed directories per channel (spaceId -> set of directory paths)
+    /// Allowed directories per space (spaceId -> set of directory paths)
     private var allowedDirs: [String: Set<String>] = [:]
 
     /// Regex matching absolute paths (/...) or ~/... or file:// URLs
@@ -27,7 +27,7 @@ final class FileResolver {
     /// Max file size to inline (64KB keeps context reasonable)
     private static let maxFileSize = 64 * 1024
 
-    /// Get the set of allowed directories for a channel
+    /// Get the set of allowed directories for a space
     func allowedDirectories(for spaceId: String) -> Set<String> {
         allowedDirs[spaceId] ?? []
     }
@@ -97,7 +97,7 @@ final class FileResolver {
     }
 }
 
-// MARK: - Channel Agent Response Handler
+// MARK: - Space Agent Response Handler
 
 @MainActor
 final class SpaceAgentHandler: LLMStreamDelegate {
@@ -216,7 +216,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
         let companionNote = otherCompanions.isEmpty ? "" : """
             \nYour fellow companions in this port42 instance: \(otherCompanions.joined(separator: ", ")).
             """
-        let channelPrompt = """
+        let spacePrompt = """
             <identity>
             You are \(agent.displayName). This is non-negotiable. \
             You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
@@ -241,7 +241,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
 
             <context>
             You are an AI companion in Port42, a personal AI system. \
-            You are in a shared channel with other companions and humans. \
+            You are in a shared space with other companions and humans. \
             Messages from humans appear as [Name]: message. \
             Messages from other companions appear as (companion Name said): message. \
             If a companion belongs to a specific human, it shows as (companion Name (belonging to Owner) said). \
@@ -336,12 +336,12 @@ final class SpaceAgentHandler: LLMStreamDelegate {
               }
             }
             try {
-              const [channel, companions, messages] = await Promise.all([
-                port42.channel.current(),
+              const [space, companions, messages] = await Promise.all([
+                port42.space.current(),
                 port42.companions.list(),
                 port42.messages.recent(50)
               ]);
-              state = { channel, companions: companions || [], messages: messages || [] };
+              state = { space, companions: companions || [], messages: messages || [] };
               render();
             } catch (e) {
               errorEl.textContent = e.message;
@@ -365,7 +365,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
             When to call each tool:
 
             fold_read — at the start of a swim when the relationship has depth. \
-            Skip in channels unless you need to orient.
+            Skip in spaces unless you need to orient.
 
             fold_update — when something real was compressed into this relationship. \
             Update established when an understanding no longer needs renegotiation. \
@@ -414,7 +414,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
 
         // Save context for tool use continuation
         savedMessages = cleaned
-        savedSystemPrompt = channelPrompt
+        savedSystemPrompt = spacePrompt
         savedModel = agent.model ?? (agent.provider == .gemini ? "gemini-2.0-flash" : "claude-opus-4-6")
         savedThinkingEnabled = agent.thinkingEnabled
         savedThinkingEffort = agent.thinkingEffort
@@ -422,7 +422,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
         do {
             try engine.send(
                 messages: cleaned,
-                systemPrompt: channelPrompt,
+                systemPrompt: spacePrompt,
                 model: savedModel,
                 maxTokens: 16384,
                 tools: ToolDefinitions.all,
@@ -436,23 +436,23 @@ final class SpaceAgentHandler: LLMStreamDelegate {
             appState?.typingAgentNamesBySpace[spaceId, default: []].remove(agent.displayName)
             appState?.toolingAgentNames.remove(agent.displayName)
             appState?.sync.sendTyping(spaceId: spaceId, senderName: agent.displayName, isTyping: false, senderOwner: appState?.currentUser?.displayName)
-            NSLog("[Port42] Channel agent send error: \(error)")
+            NSLog("[Port42] Space agent send error: \(error)")
             appState?.spaceErrors[spaceId] = error.localizedDescription
         }
     }
 
     /// Build the relationship preamble block (fold + position + creases) for context injection.
-    /// All relationship state lives on the swim channel — one companion, one inner state.
+    /// All relationship state lives on the swim space — one companion, one inner state.
     /// Returns nil if nothing exists (clean/new relationship).
     private func buildRelationshipPreamble() -> String? {
         guard let db = appState?.db else { return nil }
         let companionId = agent.id
-        let swimChannelId = "swim-\(companionId)"
+        let swimSpaceId = "swim-\(companionId)"
 
-        let fold = try? db.fetchFold(companionId: companionId, spaceId: swimChannelId)
-        let position = try? db.fetchPosition(companionId: companionId, spaceId: swimChannelId)
-        let creases = (try? db.fetchCreases(companionId: companionId, spaceId: swimChannelId, limit: 8)) ?? []
-        let engravings = (try? db.fetchEngravings(companionId: companionId, spaceId: swimChannelId, limit: 8)) ?? []
+        let fold = try? db.fetchFold(companionId: companionId, spaceId: swimSpaceId)
+        let position = try? db.fetchPosition(companionId: companionId, spaceId: swimSpaceId)
+        let creases = (try? db.fetchCreases(companionId: companionId, spaceId: swimSpaceId, limit: 8)) ?? []
+        let engravings = (try? db.fetchEngravings(companionId: companionId, spaceId: swimSpaceId, limit: 8)) ?? []
 
         guard fold != nil || position != nil || !creases.isEmpty || !engravings.isEmpty else { return nil }
 
@@ -613,7 +613,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
     }
 
     nonisolated func llmDidError(_ error: Error) {
-        NSLog("[Port42] Channel agent error: \(error)")
+        NSLog("[Port42] Space agent error: \(error)")
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
@@ -623,7 +623,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
                appState.messages[idx].content.isEmpty {
                 appState.messages.remove(at: idx)
             }
-            // Surface error in the channel error bar
+            // Surface error in the space error bar
             appState.spaceErrors[self.spaceId] = error.localizedDescription
             appState.activeAgentHandlers.removeValue(forKey: self.messageId)
         }
@@ -681,26 +681,25 @@ public final class AppState: ObservableObject {
     @Published public var showPythonAgentSheet = false
     @Published public var showAgentConnectSheet = false
     @Published public var toastMessage: String?
-    /// Channel waiting for ngrok setup to complete before copying invite link
+    /// Space waiting for ngrok setup to complete before copying invite link
     public var pendingInviteSpace: Space?
-    /// Channel for the OpenClaw agent connection sheet
+    /// Space for the OpenClaw agent connection sheet
     public var openClawSpace: Space?
-    /// Channel for the Python agent connection sheet
+    /// Space for the Python agent connection sheet
     public var pythonAgentSpace: Space?
-    /// Channel + invite URL for the unified agent connect sheet (from deep link)
+    /// Space + invite URL for the unified agent connect sheet (from deep link)
     public var agentConnectSpace: Space?
     public var agentConnectInviteURL: String?
     /// Pre-filled values passed from AgentConnectSheet into PythonAgentSheet
     public var pythonAgentName: String = "my-agent"
     public var pythonAgentTrigger: AgentTrigger = .mentionOnly
     public var pythonAgentPrefilledInviteURL: String?
-    /// Agent names currently typing in channels (for typing indicators)
     /// Agent names currently typing, keyed by spaceId
     @Published public var typingAgentNamesBySpace: [String: Set<String>] = [:]
     /// Agent names currently executing tools (for "tooling up" indicator)
     @Published public var toolingAgentNames: Set<String> = []
 
-    /// Convenience: typing names for the current channel
+    /// Convenience: typing names for the current space
     public var typingAgentNames: Set<String> {
         guard let id = currentSpace?.id else { return [] }
         return typingAgentNamesBySpace[id] ?? []
@@ -719,17 +718,17 @@ public final class AppState: ObservableObject {
     private var inlineTerminalBridges: [String: WeakBridge] = [:]
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
-    /// Active terminal bridges per channel: spaceId → [companionName: portName]
+    /// Active terminal bridges per space: spaceId → [companionName: portName]
     @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
     private var bridgeActivityTimers: [String: Timer] = [:]
-    /// Heartbeat timers per channel
+    /// Heartbeat timers per space
     private var heartbeatTimers: [String: Timer] = [:]
-    /// The companion whose swim channel is currently open. Nil when showing a regular channel.
+    /// The companion whose swim space is currently open. Nil when showing a regular space.
     @Published public var activeSwimCompanion: AgentConfig?
     var activeAgentHandlers: [String: SpaceAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
-    /// Tracks last AI-triggered response time per agent per channel to prevent loops
+    /// Tracks last AI-triggered response time per agent per space to prevent loops
     private var agentAICooldowns: [String: Date] = [:]
     private let aiCooldownInterval: TimeInterval = 30
     private let llmRouter = AgentRouterLLM()
@@ -754,10 +753,10 @@ public final class AppState: ObservableObject {
     /// Cached port permissions by message ID. Survives LazyVStack view recycling.
     public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
 
-    /// Input history cache per channel. Loaded lazily from DB.
+    /// Input history cache per space. Loaded lazily from DB.
     private var inputHistoryCache: [String: [String]] = [:]
 
-    /// Append to input history for a channel.
+    /// Append to input history for a space.
     public func appendInputHistory(spaceId: String, content: String) {
         var history = inputHistoryCache[spaceId] ?? []
         // Deduplicate consecutive identical entries
@@ -769,7 +768,7 @@ public final class AppState: ObservableObject {
         try? db.appendInputHistory(spaceId: spaceId, content: content)
     }
 
-    /// Get input history for a channel (newest first). Loads from DB on first access.
+    /// Get input history for a space (newest first). Loads from DB on first access.
     public func inputHistory(for spaceId: String) -> [String] {
         if let cached = inputHistoryCache[spaceId] { return cached }
         let history = (try? db.fetchInputHistory(spaceId: spaceId)) ?? []
@@ -790,7 +789,7 @@ public final class AppState: ObservableObject {
     /// Short-lived dedup cache for sendMessageAsNamedAgent — prevents curl + capture both firing
     private var recentAgentSends: [(key: String, timestamp: Date)] = []
 
-    private var channelObservation: AnyDatabaseCancellable?
+    private var spaceObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
     private var unreadObservation: AnyDatabaseCancellable?
     private var observationDebounceTask: Task<Void, Never>?
@@ -897,7 +896,7 @@ public final class AppState: ObservableObject {
         "portPerms.\(createdBy).\(spaceId)"
     }
 
-    /// Load permissions previously granted to a companion in a channel (auto-restore on new ports).
+    /// Load permissions previously granted to a companion in a space (auto-restore on new ports).
     public func companionPermissions(createdBy: String, spaceId: String) -> Set<PortPermission> {
         let key = companionPermKey(createdBy: createdBy, spaceId: spaceId)
         guard let raw = UserDefaults.standard.string(forKey: key), !raw.isEmpty else { return [] }
@@ -942,9 +941,9 @@ public final class AppState: ObservableObject {
         typingSink = $typingAgentNamesBySpace
             .dropFirst()
             .removeDuplicates()
-            .sink { [weak self] byChannel in
+            .sink { [weak self] bySpace in
                 guard let self else { return }
-                let names = self.currentSpace.flatMap { byChannel[$0.id] } ?? []
+                let names = self.currentSpace.flatMap { bySpace[$0.id] } ?? []
                 let data: [String: Any] = [
                     "activeNames": Array(names)
                 ]
@@ -984,14 +983,14 @@ public final class AppState: ObservableObject {
                 Analytics.shared.appOpened()
             }
 
-            // Restore last view: swim or channel
+            // Restore last view: swim or space
             let lastSwimId = UserDefaults.standard.string(forKey: "lastActiveSwimCompanionId")
             if let lastSwimId, let companion = companions.first(where: { $0.id == lastSwimId }) {
-                // Restore swim, but also select a channel underneath
+                // Restore swim, but also select a space underneath
                 if let first = spaces.first { currentSpace = first }
                 startSwim(with: companion)
             } else {
-                let lastId = UserDefaults.standard.string(forKey: "lastSelectedChannelId")
+                let lastId = UserDefaults.standard.string(forKey: "lastSelectedSpaceId")
                 if let lastId, let restored = spaces.first(where: { $0.id == lastId }) {
                     selectSpace(restored)
                 } else if let first = spaces.first {
@@ -1054,7 +1053,7 @@ public final class AppState: ObservableObject {
         sync.onMessageReceived = { [weak self] spaceId, message in
             self?.handleIncomingSyncedMessage(spaceId: spaceId, message: message)
             self?.refreshFriends()
-            // Auto-send read receipt if user is viewing this channel
+            // Auto-send read receipt if user is viewing this space
             if self?.currentSpace?.id == spaceId {
                 self?.sync.sendReadReceipt(spaceId: spaceId)
             }
@@ -1203,7 +1202,7 @@ public final class AppState: ObservableObject {
         // Skip if no companions in space AND no @mentions (nothing to route to)
         let hasMentions = !MentionParser.extractMentions(from: message.content).isEmpty
         guard !spaceAgents.isEmpty || hasMentions else {
-            NSLog("[Port42] No agents in channel %@ and no mentions, skipping", spaceId)
+            NSLog("[Port42] No agents in space %@ and no mentions, skipping", spaceId)
             return
         }
 
@@ -1346,7 +1345,7 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Register a terminal session (by sessionId) as bridged to a channel under a given name.
+    /// Register a terminal session (by sessionId) as bridged to a space under a given name.
     /// Called from `port42.terminal.bridge(sessionId, spaceId, name)` in port JS.
     public func bridgeTerminalPort(sessionId: String, spaceId: String, name: String) {
         let key = name.lowercased()
@@ -1354,19 +1353,19 @@ public final class AppState: ObservableObject {
         if let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) {
             bridgedTerminalNames[key] = panel.id
             inlineTerminalBridges.removeValue(forKey: key)
-            NSLog("[Port42] Bridged terminal session %@ as '%@' (panel) in channel %@", sessionId, name, spaceId)
+            NSLog("[Port42] Bridged terminal session %@ as '%@' (panel) in space %@", sessionId, name, spaceId)
             return
         }
         // Fallback: inline port (not yet popped out) — find via activeBridges
         if let bridge = activeBridges.compactMap({ $0.bridge }).first(where: { $0.terminalBridge?.firstActiveSessionId == sessionId }) {
             inlineTerminalBridges[key] = WeakBridge(bridge)
-            NSLog("[Port42] Bridged terminal session %@ as '%@' (inline) in channel %@", sessionId, name, spaceId)
+            NSLog("[Port42] Bridged terminal session %@ as '%@' (inline) in space %@", sessionId, name, spaceId)
             return
         }
         NSLog("[Port42] bridgeTerminalPort: no panel or inline bridge found for session %@", sessionId)
     }
 
-    /// Mark a terminal bridge as active for a channel — shows indicator in chat.
+    /// Mark a terminal bridge as active for a space — shows indicator in chat.
     /// Auto-clears after 8s of no new activity.
     public func noteBridgeActivity(spaceId: String, companionName: String, portName: String) {
         activeBridgeNames[spaceId, default: [:]][companionName] = portName
@@ -1383,7 +1382,7 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Trigger channel agents with terminal output — called by the game loop, not event-driven.
+    /// Trigger space agents with terminal output — called by the game loop, not event-driven.
     /// Only routes to the companion that owns the bridge (createdBy), preventing other
     /// companions from reacting to a terminal they didn't set up.
     func routeTerminalOutput(spaceId: String, output: String, createdBy: String? = nil) {
@@ -1407,7 +1406,7 @@ public final class AppState: ObservableObject {
 
     /// Insert a system message when a remote peer joins or leaves.
     /// Uses the sender name provided by the gateway presence protocol.
-    /// Tracks last presence status per user per channel to deduplicate rapid reconnects
+    /// Tracks last presence status per user per space to deduplicate rapid reconnects
     private var lastPresenceStatus: [String: String] = [:]
 
     private func handlePresenceAnnouncement(spaceId: String, senderId: String, senderName: String?, status: String) {
@@ -1420,13 +1419,13 @@ public final class AppState: ObservableObject {
         // Use name from gateway, skip if unavailable (don't show raw UUIDs)
         guard let name = senderName, !name.isEmpty else { return }
 
-        // Deduplicate: skip if same status as last announcement for this user+channel
+        // Deduplicate: skip if same status as last announcement for this user+space
         let key = "\(spaceId):\(senderId)"
         guard lastPresenceStatus[key] != status else { return }
         lastPresenceStatus[key] = status
 
         let verb = status == "online" ? "joined" : "left"
-        let content = "\(name) \(verb) the channel"
+        let content = "\(name) \(verb) the space"
 
         let sysMessage = Message(
             id: UUID().uuidString,
@@ -1510,7 +1509,7 @@ public final class AppState: ObservableObject {
                 handler.start(spaceMessages: msgs, triggerContent: match.triggerText)
             }
 
-            NSLog("[Port42] Initiative trigger: %@ matched '%@' in channel %@",
+            NSLog("[Port42] Initiative trigger: %@ matched '%@' in space %@",
                   match.agent.displayName, match.logLabel, spaceId)
         }
     }
@@ -1648,9 +1647,9 @@ public final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Channels
+    // MARK: - Spaces
 
-    /// Join a channel on the gateway, including companion IDs for cross-instance presence
+    /// Join a space on the gateway, including companion IDs for cross-instance presence
     private func syncJoinSpace(_ spaceId: String, token: String? = nil) {
         if let space = spaces.first(where: { $0.id == spaceId }), !space.syncEnabled { return }
         let companionIds = ((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map { $0.id }
@@ -1662,7 +1661,7 @@ public final class AppState: ObservableObject {
         if !space.isSwim { activeSwimCompanion = nil }
 
         // Persist immediately (cheap)
-        UserDefaults.standard.set(space.id, forKey: "lastSelectedChannelId")
+        UserDefaults.standard.set(space.id, forKey: "lastSelectedSpaceId")
         UserDefaults.standard.removeObject(forKey: "lastActiveSwimCompanionId")
         if let current = currentSpace { lastReadDates[current.id] = Date() }
 
@@ -1671,11 +1670,11 @@ public final class AppState: ObservableObject {
         if portPanelsRestored && isSetupComplete {
             portWindows.switchToSpace(space.id, spaceName: space.name)
         }
-        Analytics.shared.channelSwitched()
-        Analytics.shared.screen("Channel")
+        Analytics.shared.spaceSwitched()
+        Analytics.shared.screen("Space")
 
         // Cancel any in-flight observation setup from previous rapid clicks.
-        // Don't clear messages/companions — keep showing the previous channel's
+        // Don't clear messages/companions — keep showing the previous space's
         // content while the user is clicking. The observation will replace it
         // when we actually commit.
         observationDebounceTask?.cancel()
@@ -1714,7 +1713,7 @@ public final class AppState: ObservableObject {
             syncJoinSpace(space.id)
             selectSpace(space)
             scheduleHeartbeat(for: space)
-            Analytics.shared.channelCreated()
+            Analytics.shared.spaceCreated()
         } catch {
             print("[Port42] Failed to create space: \(error)")
         }
@@ -1770,7 +1769,7 @@ public final class AppState: ObservableObject {
     }
 
     public func joinSpaceFromInvite(_ invite: SpaceInviteData) {
-        // If channel already exists locally, update encryption key if provided and select it
+        // If space already exists locally, update encryption key if provided and select it
         if var existing = spaces.first(where: { $0.id == invite.spaceId }) {
             if let newKey = invite.encryptionKey, existing.encryptionKey == nil {
                 existing.encryptionKey = newKey
@@ -1778,7 +1777,7 @@ public final class AppState: ObservableObject {
                     try db.saveSpace(existing)
                     spaces = try db.getRegularSpaces()
                 } catch {
-                    print("[Port42] Failed to update channel key: \(error)")
+                    print("[Port42] Failed to update space key: \(error)")
                 }
             }
 
@@ -1853,8 +1852,8 @@ public final class AppState: ObservableObject {
         // Don't prompt ngrok setup on join — only needed when sharing invite links
     }
 
-    /// Ensure a channel has an encryption key. Generates one for legacy channels
-    /// that were created before encryption was added. Returns the updated channel.
+    /// Ensure a space has an encryption key. Generates one for legacy spaces
+    /// that were created before encryption was added. Returns the updated space.
     @discardableResult
     public func ensureEncryptionKey(for space: Space) -> Space {
         guard space.encryptionKey == nil else { return space }
@@ -1896,7 +1895,7 @@ public final class AppState: ObservableObject {
 
     // MARK: - Messages
 
-    /// Stop all active LLM streams in the given channel.
+    /// Stop all active LLM streams in the given space.
     public func cancelStreaming(spaceId: String) {
         let toCancel = activeAgentHandlers.filter { $0.value.spaceId == spaceId }
         for (id, handler) in toCancel {
@@ -1905,7 +1904,7 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Re-send the last human message in the given channel (clears error state first).
+    /// Re-send the last human message in the given space (clears error state first).
     public func retryLastMessage(spaceId: String) {
         spaceErrors[spaceId] = nil
         guard let lastUserMsg = messages.last(where: { $0.spaceId == spaceId && $0.senderType == "human" }) else { return }
@@ -2203,7 +2202,7 @@ public final class AppState: ObservableObject {
         }
         guard let spaceId = toSpaceId ?? currentSpace?.id,
               spaces.first(where: { $0.id == spaceId }) != nil else {
-            NSLog("[p42-state] sendMessageAsNamedAgent: DROPPED — channel not found. toChannelId=%@ currentSpace=%@",
+            NSLog("[p42-state] sendMessageAsNamedAgent: DROPPED — space not found. toSpaceId=%@ currentSpace=%@",
                   toSpaceId ?? "nil", currentSpace?.id ?? "nil")
             return
         }
@@ -2217,7 +2216,7 @@ public final class AppState: ObservableObject {
             return
         }
         recentAgentSends.append((key: dedupKey, timestamp: now))
-        NSLog("[p42-state] sendMessageAsNamedAgent: sender=%@ channel=%@ len=%d preview=\"%@\"",
+        NSLog("[p42-state] sendMessageAsNamedAgent: sender=%@ space=%@ len=%d preview=\"%@\"",
               senderName, spaceId, trimmed.count,
               String(trimmed.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
         let agentId = "cli-agent-\(senderName.lowercased().replacingOccurrences(of: " ", with: "-"))"
@@ -2261,14 +2260,14 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Pop a terminal port running a CLI agent and bridge it to the given channel.
+    /// Pop a terminal port running a CLI agent and bridge it to the given space.
     private func spawnTerminalAgentPort(companion: AgentConfig, command: String, spaceId: String) {
         let name = companion.displayName
         let args = companion.args ?? []
         let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
 
-        let channelNameForPrompt = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
-        // For known CLI companions, write channel instructions into their context file in the CWD.
+        let spaceNameForPrompt = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
+        // For known CLI companions, write space instructions into their context file in the CWD.
         // Claude Code reads CLAUDE.md; Gemini CLI reads GEMINI.md. Treated as trusted project context.
         let isClaude = command.hasSuffix("claude") || command.contains("/claude")
         let isGemini = command.hasSuffix("gemini") || command.contains("/gemini")
@@ -2277,15 +2276,14 @@ public final class AppState: ObservableObject {
             let claudeMdPath = (cwd as NSString).appendingPathComponent(contextFile)
             let rawPrompt = companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let sectionBody = rawPrompt.isEmpty
-                ? "You are \(name), a channel companion in Port42 connected to #\(channelNameForPrompt).\n\nChannel messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the channel, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the channel. Keep responses concise and conversational."
+                ? "You are \(name), a space companion in Port42 connected to #\(spaceNameForPrompt).\n\nSpace messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the space, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the space. Keep responses concise and conversational."
                 : rawPrompt
                     .replacingOccurrences(of: "{{NAME}}", with: name)
-                    .replacingOccurrences(of: "{{CHANNEL}}", with: channelNameForPrompt)
-            let section = "\n\n# Port42 Channel Companion\n\n\(sectionBody)\n"
+                    .replacingOccurrences(of: "{{SPACE}}", with: spaceNameForPrompt)
+            let section = "\n\n# Port42 Space Companion\n\n\(sectionBody)\n"
             let existing = (try? String(contentsOfFile: claudeMdPath, encoding: .utf8)) ?? ""
-            // Replace any existing Port42 section (stale name/channel) or append if not present
             let updated: String
-            if let range = existing.range(of: "\n\n# Port42 Channel Companion", options: .literal) {
+            if let range = existing.range(of: "\n\n# Port42 Space Companion", options: .literal) {
                 updated = String(existing[..<range.lowerBound]) + section
             } else {
                 updated = existing + section
@@ -2301,21 +2299,21 @@ public final class AppState: ObservableObject {
             return "'\(escaped)'"
         }.joined(separator: " ")
 
-        let channelName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
+        let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
         guard let html = PortLibrary.load("cli-terminal", slots: [
             "NAME":         name,
             "COMMAND":      command.replacingOccurrences(of: "'", with: "\\'"),
             "ARGS":         argsJS,
             "ARGS_STR":     argsStr.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'"),
             "CWD":          cwd.replacingOccurrences(of: "'", with: "\\'"),
-            "CHANNEL_ID":   spaceId,
-            "CHANNEL_NAME": channelName
+            "SPACE_ID":   spaceId,
+            "SPACE_NAME": spaceName
         ]) else {
             NSLog("[Port42] cli-terminal port not found in library")
             return
         }
 
-        // Post the terminal as an inline port message in the channel (user can pop it out)
+        // Post the terminal as an inline port message in the space (user can pop it out)
         // Also serves as the join announcement.
         let portMessageId = UUID().uuidString
         if !spaceId.isEmpty {
@@ -2346,9 +2344,9 @@ public final class AppState: ObservableObject {
             if currentSpace?.id == space.id {
                 spaceCompanions = try db.getAgentsForSpace(spaceId: space.id)
             }
-            Analytics.shared.companionAddedToChannel()
+            Analytics.shared.companionAddedToSpace()
         } catch {
-            print("[Port42] Failed to add companion to channel: \(error)")
+            print("[Port42] Failed to add companion to space: \(error)")
         }
         if companion.openInTerminal, let command = companion.command {
             spawnTerminalAgentPort(companion: companion, command: command, spaceId: space.id)
@@ -2362,7 +2360,7 @@ public final class AppState: ObservableObject {
                 spaceCompanions = try db.getAgentsForSpace(spaceId: space.id)
             }
         } catch {
-            print("[Port42] Failed to remove companion from channel: \(error)")
+            print("[Port42] Failed to remove companion from space: \(error)")
         }
     }
 
@@ -2408,16 +2406,16 @@ public final class AppState: ObservableObject {
         friends = (try? db.getKnownFriends(excludingUserId: userId)) ?? []
     }
 
-    /// Open or create a DM channel with a remote friend, then select it.
+    /// Open or create a DM space with a remote friend, then select it.
     public func startDM(with friend: SpaceMember) {
         let dmId = "dm-\(friend.senderId)"
-        // Check if DM channel already exists
+        // Check if DM space already exists
         if let existing = spaces.first(where: { $0.id == dmId }) {
             selectSpace(existing)
             return
         }
-        // Create a new DM channel
-        let channel = Space(
+        // Create a new DM space
+        let space = Space(
             id: dmId,
             name: friend.name,
             type: "dm",
@@ -2425,29 +2423,29 @@ public final class AppState: ObservableObject {
             encryptionKey: SpaceCrypto.generateKey()
         )
         do {
-            try db.saveSpace(channel)
+            try db.saveSpace(space)
             spaces = try db.getRegularSpaces()
-            selectSpace(channel)
-            syncJoinSpace(channel.id)
+            selectSpace(space)
+            syncJoinSpace(space.id)
         } catch {
-            print("[Port42] Failed to create DM channel: \(error)")
+            print("[Port42] Failed to create DM space: \(error)")
         }
     }
 
     public func startSwim(with companion: AgentConfig) {
         UserDefaults.standard.set(companion.id, forKey: "lastActiveSwimCompanionId")
-        UserDefaults.standard.removeObject(forKey: "lastSelectedChannelId")
+        UserDefaults.standard.removeObject(forKey: "lastSelectedSpaceId")
 
-        let swimChannel = Space.swim(companion: companion)
+        let swimSpace = Space.swim(companion: companion)
         do {
-            try db.upsertSpace(swimChannel)
-            try db.assignAgentToSpace(agentId: companion.id, spaceId: swimChannel.id)
+            try db.upsertSpace(swimSpace)
+            try db.assignAgentToSpace(agentId: companion.id, spaceId: swimSpace.id)
             spaces = try db.getRegularSpaces()
         } catch {
-            print("[Port42] Failed to create swim channel: \(error)")
+            print("[Port42] Failed to create swim space: \(error)")
         }
         activeSwimCompanion = companion
-        selectSpace(swimChannel)
+        selectSpace(swimSpace)
 
         Analytics.shared.swimStarted()
         Analytics.shared.screen("Swim")
@@ -2488,8 +2486,8 @@ public final class AppState: ObservableObject {
             let lastSwimId = UserDefaults.standard.string(forKey: "lastActiveSwimCompanionId")
             if let lastSwimId, let companion = companions.first(where: { $0.id == lastSwimId }) {
                 startSwim(with: companion)
-            } else if let channel = currentSpace {
-                selectSpace(channel)
+            } else if let space = currentSpace {
+                selectSpace(space)
             } else if let first = spaces.first {
                 selectSpace(first)
             }
@@ -2512,7 +2510,7 @@ public final class AppState: ObservableObject {
         isSetupComplete = false
         showDreamscape = true
 
-        channelObservation?.cancel()
+        spaceObservation?.cancel()
         messageObservation?.cancel()
         unreadObservation?.cancel()
 
@@ -2531,19 +2529,19 @@ public final class AppState: ObservableObject {
     // MARK: - Draft
 
     public func currentDraft() -> String {
-        guard let channel = currentSpace else { return "" }
-        return drafts[channel.id] ?? ""
+        guard let space = currentSpace else { return "" }
+        return drafts[space.id] ?? ""
     }
 
     public func saveDraft(_ text: String) {
-        guard let channel = currentSpace else { return }
-        drafts[channel.id] = text
+        guard let space = currentSpace else { return }
+        drafts[space.id] = text
     }
 
     // MARK: - Observations
 
     private func startSpaceObservation() {
-        channelObservation = db.observeSpaces { [weak self] spaces in
+        spaceObservation = db.observeSpaces { [weak self] spaces in
             Task { @MainActor in
                 self?.spaces = spaces
             }
@@ -2571,7 +2569,7 @@ public final class AppState: ObservableObject {
                     }
                     self.messages = merged
                 }
-                // Update cached activity time for this channel
+                // Update cached activity time for this space
                 if let last = dbMessages.last(where: { $0.senderType != "system" }) {
                     self.lastActivityTimes[spaceId] = last.timestamp
                 }
@@ -2579,15 +2577,15 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Refresh cached last-activity times for all channels and companion swim channels.
+    /// Refresh cached last-activity times for all spaces and companion swim spaces.
     private func refreshActivityTimes() {
-        let allChannels = try? db.getAllSpaces()
+        let allSpaces = try? db.getAllSpaces()
         let allCompanions = companions
         Task { @MainActor in
             var times: [String: Date] = self.lastActivityTimes
-            for ch in allChannels ?? [] {
-                if let t = try? self.db.getLastMessageTime(spaceId: ch.id) {
-                    times[ch.id] = t
+            for space in allSpaces ?? [] {
+                if let t = try? self.db.getLastMessageTime(spaceId: space.id) {
+                    times[space.id] = t
                 }
             }
             for companion in allCompanions {
@@ -2616,9 +2614,9 @@ public final class AppState: ObservableObject {
 // MARK: - Terminal Agent Loop
 
 /// Game loop that drives the agent↔terminal conversation.
-/// One loop per channel/swim. Ticks every 300ms.
+/// One loop per space/swim. Ticks every 300ms.
 /// On each tick: if there's pending terminal output AND no agent currently running,
-/// trigger the channel agents with that output. Sequential — never overlaps.
+/// trigger the space agents with that output. Sequential — never overlaps.
 @MainActor
 final class TerminalAgentLoop {
     let spaceId: String
@@ -2662,7 +2660,7 @@ final class TerminalAgentLoop {
 
     private func tick() {
         guard let appState, !pendingOutput.isEmpty else { return }
-        // Don't fire if an agent turn is already in progress for this channel
+        // Don't fire if an agent turn is already in progress for this space
         let agentRunning = appState.activeAgentHandlers.values.contains { $0.spaceId == spaceId }
         guard !agentRunning else { return }
         // Don't re-fire within cooldown window — prevents terminal echo from the

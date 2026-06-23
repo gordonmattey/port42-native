@@ -73,7 +73,7 @@ public final class InstructionService: ObservableObject {
 # Port42 Instructions
 
 You are running as \(toolName) alongside Port42 — a macOS companion computing platform. \
-Port42 exposes all its device and channel APIs to you via a local HTTP gateway.
+Port42 exposes all its device and space APIs to you via a local HTTP gateway.
 
 ## Calling Port42 APIs
 

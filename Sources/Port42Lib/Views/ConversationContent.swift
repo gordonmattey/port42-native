@@ -1,13 +1,13 @@
 import SwiftUI
 
-// MARK: - Unified chat renderer for both channels and swims
+// MARK: - Unified chat renderer for both spaces and swims
 
 public enum MessageSegment {
     case text(String)
     case port(String)
 }
 
-/// A single message entry that both channel Messages and SwimMessages can map to.
+/// A single message entry that both space Messages and SwimMessages can map to.
 public struct ChatEntry: Identifiable, Equatable {
     public let id: String
     public let senderName: String
@@ -218,7 +218,7 @@ public struct ConversationContent: View {
     }
 
     /// No inline ports autoplay; user activates them manually.
-    /// Exception: the first port in a swim or channel auto-activates on load/entry.
+    /// Exception: the first port in a swim or space auto-activates on load/entry.
     /// Returns true if a new port was activated (caller should trigger a scroll to settle layout).
     @discardableResult
     private func recomputeActivePortIDs() -> Bool {
@@ -294,10 +294,10 @@ public struct ConversationContent: View {
                         updateNearBottom()
                     }
                     .onChange(of: entries.count) { old, new in
-                        // Channel switch: 80ms debounce in selectChannel clears messages after
-                        // onAppear fires. If onAppear activated a port from the previous channel,
+                        // Space switch: 80ms debounce in selectSpace clears messages after
+                        // onAppear fires. If onAppear activated a port from the previous space,
                         // cachedActivePortIDs is stale. Reset it when entries empties so the first
-                        // port in the new channel/swim can activate.
+                        // port in the new space/swim can activate.
                         if new == 0 { cachedActivePortIDs = [] }
                         let activated = recomputeActivePortIDs()
                         let userSent = new > old && entries.last?.isAgent == false

@@ -14,7 +14,7 @@ struct AgentProtocolTests {
             content: "@ai-engineer review this code",
             sender: "Gordon",
             senderId: "user-1",
-            channel: "builders",
+            space: "builders",
             spaceId: "chan-1",
             timestamp: Date(timeIntervalSince1970: 1000),
             history: [
@@ -28,7 +28,7 @@ struct AgentProtocolTests {
         #expect(json["event"] as? String == "mention")
         #expect(json["content"] as? String == "@ai-engineer review this code")
         #expect(json["sender"] as? String == "Gordon")
-        #expect(json["channel"] as? String == "builders")
+        #expect(json["space"] as? String == "builders")
 
         let history = json["history"] as! [[String: Any]]
         #expect(history.count == 1)
@@ -42,7 +42,7 @@ struct AgentProtocolTests {
             content: "hello everyone",
             sender: "Bob",
             senderId: "user-2",
-            channel: "team",
+            space: "team",
             spaceId: "chan-2",
             timestamp: Date(timeIntervalSince1970: 2000),
             history: []
@@ -77,7 +77,7 @@ struct AgentProtocolTests {
     func eventIsSingleLine() throws {
         let event = AgentEvent.mention(
             messageId: "m", content: "test", sender: "X", senderId: "u",
-            channel: "c", spaceId: "ci",
+            space: "c", spaceId: "ci",
             timestamp: Date(), history: []
         )
         let data = try AgentProtocol.encode(event)

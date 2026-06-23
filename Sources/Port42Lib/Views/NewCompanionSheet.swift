@@ -970,7 +970,7 @@ public struct NewCompanionSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
 
             if commandOpenInTerminal {
-                Text("Opens a terminal port running the CLI, bridged to this channel.")
+                Text("Opens a terminal port running the CLI, bridged to this space.")
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
             }
@@ -1092,7 +1092,7 @@ public struct NewCompanionSheet: View {
                     .background(Port42Theme.bgInput)
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Port42Theme.border, lineWidth: 1))
                     .cornerRadius(6)
-                Text("Delivered as first stdin message before channel messages arrive.")
+                Text("Delivered as first stdin message before space messages arrive.")
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
             }
@@ -1386,7 +1386,7 @@ public struct NewCompanionSheet: View {
         let finalPrompt = trimmedPrompt.isEmpty
             ? """
               You are \(trimmedName), a companion in Port42. Port42 is a personal AI system \
-              where humans and AI companions coexist in channels and direct conversations \
+              where humans and AI companions coexist in spaces and direct conversations \
               called "swims." You are \(trimmedName). Not an assistant. A companion. \
               Keep responses concise and conversational. Use lowercase unless emphasis matters.
               """

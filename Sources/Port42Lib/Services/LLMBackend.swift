@@ -4,7 +4,7 @@ import Foundation
 
 /// Common interface for all LLM provider engines.
 /// Each engine owns its own streaming parser, tool schema format, and auth.
-/// ChannelAgentHandler talks only to this protocol — it doesn't know which provider is running.
+/// SpaceAgentHandler talks only to this protocol — it doesn't know which provider is running.
 public protocol LLMBackend: AnyObject {
     /// Label for token tracking (e.g. companion name, "router", "port:MyPort")
     var trackingSource: String { get set }

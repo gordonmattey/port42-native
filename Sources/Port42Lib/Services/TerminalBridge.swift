@@ -17,7 +17,7 @@ public final class TerminalBridge {
         let pid: pid_t
         private(set) var isRunning: Bool = true
         private var readThread: Thread?
-        /// Additional output observers (for terminal bridge to channel).
+        /// Additional output observers (for terminal bridge to space).
         private var outputObservers: [(String) -> Void] = []
         /// Current working directory, updated via OSC 7 sequences.
         public private(set) var cwd: String?

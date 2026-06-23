@@ -13,9 +13,9 @@ struct CLIIdentityTests {
         try db.saveUser(user)
         state.currentUser = user
         state.completeSetup(displayName: "Gordon")
-        let channel = state.spaces.first { !$0.isSwim }!
-        state.selectSpace(channel)
-        return (state, channel)
+        let space = state.spaces.first { !$0.isSwim }!
+        state.selectSpace(space)
+        return (state, space)
     }
 
     // MARK: - #7 senderName override
@@ -23,11 +23,11 @@ struct CLIIdentityTests {
     @Test("sendMessageAsNamedAgent stores message with agent name not host name")
     @MainActor
     func namedAgentMessageAttribution() throws {
-        let (state, channel) = try makeStateReady()
+        let (state, space) = try makeStateReady()
 
-        state.sendMessageAsNamedAgent(content: "hello from bot", senderName: "test-bot", toSpaceId: channel.id)
+        state.sendMessageAsNamedAgent(content: "hello from bot", senderName: "test-bot", toSpaceId: space.id)
 
-        let messages = try state.db.getMessages(spaceId: channel.id)
+        let messages = try state.db.getMessages(spaceId: space.id)
         let botMsg = messages.first { $0.senderName == "test-bot" }
         #expect(botMsg != nil)
         #expect(botMsg?.senderName == "test-bot")
@@ -39,12 +39,12 @@ struct CLIIdentityTests {
     @Test("sendMessageAsNamedAgent uses stable derived senderId")
     @MainActor
     func namedAgentStableSenderId() throws {
-        let (state, channel) = try makeStateReady()
+        let (state, space) = try makeStateReady()
 
-        state.sendMessageAsNamedAgent(content: "msg 1", senderName: "my-agent", toSpaceId: channel.id)
-        state.sendMessageAsNamedAgent(content: "msg 2", senderName: "my-agent", toSpaceId: channel.id)
+        state.sendMessageAsNamedAgent(content: "msg 1", senderName: "my-agent", toSpaceId: space.id)
+        state.sendMessageAsNamedAgent(content: "msg 2", senderName: "my-agent", toSpaceId: space.id)
 
-        let messages = try state.db.getMessages(spaceId: channel.id).filter { $0.senderName == "my-agent" }
+        let messages = try state.db.getMessages(spaceId: space.id).filter { $0.senderName == "my-agent" }
         #expect(messages.count == 2)
         // Both messages should have the same derived sender ID
         #expect(messages[0].senderId == messages[1].senderId)
@@ -53,22 +53,22 @@ struct CLIIdentityTests {
     @Test("sendMessageAsNamedAgent ignores empty content")
     @MainActor
     func namedAgentEmptyContentIgnored() throws {
-        let (state, channel) = try makeStateReady()
-        let before = try state.db.getMessages(spaceId: channel.id).count
+        let (state, space) = try makeStateReady()
+        let before = try state.db.getMessages(spaceId: space.id).count
 
-        state.sendMessageAsNamedAgent(content: "   ", senderName: "bot", toSpaceId: channel.id)
+        state.sendMessageAsNamedAgent(content: "   ", senderName: "bot", toSpaceId: space.id)
 
-        let after = try state.db.getMessages(spaceId: channel.id).count
+        let after = try state.db.getMessages(spaceId: space.id).count
         #expect(after == before)
     }
 
-    @Test("sendMessageAsNamedAgent ignores unknown channel")
+    @Test("sendMessageAsNamedAgent ignores unknown space")
     @MainActor
-    func namedAgentUnknownChannel() throws {
+    func namedAgentUnknownSpace() throws {
         let (state, _) = try makeStateReady()
 
         // Should not crash, just silently drop
-        state.sendMessageAsNamedAgent(content: "hello", senderName: "bot", toSpaceId: "nonexistent-channel-id")
+        state.sendMessageAsNamedAgent(content: "hello", senderName: "bot", toSpaceId: "nonexistent-space-id")
     }
 
     // MARK: - #9 stale presence eviction in SyncService
@@ -83,14 +83,14 @@ struct CLIIdentityTests {
 
         let newId = "new-id"
         let newName = "port42-growth"
-        let channelId = "chan-1"
+        let spaceId = "chan-1"
 
         // Apply the same logic as SyncService.handlePresence
-        var members = onlineUsers[channelId] ?? []
+        var members = onlineUsers[spaceId] ?? []
         let stale = members.filter { knownNames[$0] == newName && $0 != newId }
         stale.forEach { members.remove($0) }
         members.insert(newId)
-        onlineUsers[channelId] = members
+        onlineUsers[spaceId] = members
         knownNames[newId] = newName
 
         #expect(onlineUsers["chan-1"]?.contains("old-id") == false)
@@ -107,13 +107,13 @@ struct CLIIdentityTests {
 
         let newId = "peer-c"
         let newName = "agent-gamma"
-        let channelId = "chan-1"
+        let spaceId = "chan-1"
 
-        var members = onlineUsers[channelId] ?? []
+        var members = onlineUsers[spaceId] ?? []
         let stale = members.filter { knownNames[$0] == newName && $0 != newId }
         stale.forEach { members.remove($0) }
         members.insert(newId)
-        onlineUsers[channelId] = members
+        onlineUsers[spaceId] = members
 
         #expect(onlineUsers["chan-1"]?.count == 3)
     }

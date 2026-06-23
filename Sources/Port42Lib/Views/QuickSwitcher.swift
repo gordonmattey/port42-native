@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - Quick Switcher (F-203)
-// Cmd+K overlay with fuzzy search across channels, companions, and swims.
+// Cmd+K overlay with fuzzy search across spaces, companions, and swims.
 
 struct QuickSwitcherItem: Identifiable {
     let id: String
@@ -179,7 +179,7 @@ public struct QuickSwitcher: View {
 
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Empty query: show channels only (companions and friends are in sidebar)
+        // Empty query: show spaces only (companions and friends are in sidebar)
         guard !raw.isEmpty else { return spaceItems }
 
         // @ prefix: search companions and friends
@@ -190,7 +190,7 @@ public struct QuickSwitcher: View {
             return people.filter { match(q, $0.name.lowercased()) }
         }
 
-        // # prefix: search channels only
+        // # prefix: search spaces only
         if raw.hasPrefix("#") {
             let q = String(raw.dropFirst())
             if q.isEmpty { return spaceItems }
@@ -240,7 +240,7 @@ public struct QuickSwitcher: View {
 
         for candidate in candidates {
             // Direct port42:// deep link
-            if candidate.hasPrefix("port42://channel"),
+            if candidate.hasPrefix("port42://space"),
                let url = URL(string: candidate) {
                 return SpaceInvite.parse(url: url)
             }
@@ -300,8 +300,8 @@ public struct QuickSwitcher: View {
 
     private func select(_ item: QuickSwitcherItem) {
         switch item.kind {
-        case .space(let channel):
-            appState.selectSpace(channel)
+        case .space(let space):
+            appState.selectSpace(space)
         case .companion(let companion):
             appState.startSwim(with: companion)
         case .friend(let friend):
@@ -322,7 +322,7 @@ public struct QuickSwitcher: View {
 
     private func kindLabel(_ item: QuickSwitcherItem) -> String {
         switch item.kind {
-        case .space: return "channel"
+        case .space: return "space"
         case .companion: return "🏊"
         case .friend: return "friend"
         }

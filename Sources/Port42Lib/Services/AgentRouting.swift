@@ -45,11 +45,11 @@ public enum MentionParser {
 public enum AgentRouter {
 
     /// Find agents that should receive this message based on mentions, trigger mode,
-    /// and channel membership.
+    /// and space membership.
     /// If explicit @mentions are present, ONLY those companions respond.
     /// Namespaced mentions like `@Echo@gordon` only match if the owner matches `localOwner`.
     /// Bare mentions like `@Echo` match local agents directly (unless `requireNamespace` is true).
-    /// Otherwise, channel members and global listeners respond.
+    /// Otherwise, space members and global listeners respond.
     /// - `requireNamespace`: When true, bare @mentions are ignored (used for remote messages
     ///   where the sender's app handles bare mentions).
     public static func findTargetAgents(
@@ -62,7 +62,7 @@ public enum AgentRouter {
         let mentions = MentionParser.extractMentions(from: content)
             .map { String($0.dropFirst()).lowercased() } // strip leading @
 
-        // @all targets every channel member
+        // @all targets every space member
         if mentions.contains("all") {
             return agents.filter { spaceAgentIds.contains($0.id) }
         }
@@ -86,11 +86,11 @@ public enum AgentRouter {
                     }
                 }
             }
-            // If mentions were present but none matched, don't fall through to channel routing
+            // If mentions were present but none matched, don't fall through to space routing
             return matched
         }
 
-        // No @mentions: only channel members respond
+        // No @mentions: only space members respond
         return agents.filter { spaceAgentIds.contains($0.id) }
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 
 /// TerminalOutputProcessor — raw terminal bytes in, cleaned signal out.
 ///
-/// Pure pipeline: no AppState, no channel knowledge. Accumulates raw terminal
+/// Pure pipeline: no AppState, no space knowledge. Accumulates raw terminal
 /// output, debounces 10s, force-flushes at 8KB, strips ANSI, collapses noise,
 /// deduplicates, then calls `onFlush` with the cleaned result.
 ///

@@ -306,15 +306,15 @@ public struct TransitionRoot: View {
                 NSLog("[Port42] Failed to parse agent invite: %@", error.localizedDescription)
             }
 
-        case "channel":
+        case "space":
             guard let invite = SpaceInvite.parse(url: url) else {
-                NSLog("[Port42] Failed to parse channel invite: %@", url.absoluteString)
+                NSLog("[Port42] Failed to parse space invite: %@", url.absoluteString)
                 return
             }
             // If invite contains an encryption key it's an agent invite — show connect sheet
             if invite.encryptionKey != nil {
-                let channel = Space.create(name: invite.spaceName)
-                appState.agentConnectSpace = channel
+                let space = Space.create(name: invite.spaceName)
+                appState.agentConnectSpace = space
                 appState.agentConnectInviteURL = url.absoluteString
                 appState.showAgentConnectSheet = true
             } else {
@@ -325,14 +325,14 @@ public struct TransitionRoot: View {
             let outerComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
             if let inviteParam = outerComponents?.queryItems?.first(where: { $0.name == "invite" })?.value {
                 NSLog("[Port42] Agent deep link with invite: %@", inviteParam)
-                // Parse channel name from invite URL (works with both port42:// and https:// formats)
+                // Parse space name from invite URL (works with both port42:// and https:// formats)
                 let innerComponents = URLComponents(string: inviteParam)
                 let items = innerComponents?.queryItems ?? []
                 let dict = Dictionary(items.compactMap { i in i.value.map { (i.name, $0) } },
                                       uniquingKeysWith: { _, last in last })
-                let channelName = dict["name"] ?? "channel"
-                let channel = Space.create(name: channelName)
-                appState.agentConnectSpace = channel
+                let spaceName = dict["name"] ?? "space"
+                let space = Space.create(name: spaceName)
+                appState.agentConnectSpace = space
                 appState.agentConnectInviteURL = inviteParam
                 appState.showAgentConnectSheet = true
             }

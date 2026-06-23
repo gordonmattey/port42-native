@@ -14,7 +14,7 @@ public struct NewSpaceSheet: View {
 
     public var body: some View {
         VStack(spacing: 20) {
-            Text("New Channel")
+            Text("New Space")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 
@@ -24,7 +24,7 @@ public struct NewSpaceSheet: View {
                         .font(Port42Theme.mono(14))
                         .foregroundStyle(Port42Theme.textSecondary)
 
-                    TextField("channel-name", text: $spaceName)
+                    TextField("space-name", text: $spaceName)
                         .textFieldStyle(.plain)
                         .font(Port42Theme.mono(14))
                         .foregroundStyle(Port42Theme.textPrimary)

@@ -20,10 +20,10 @@ struct BridgeJSTests {
         // port42.messages
         ("messages", "recent"),
         ("messages", "send"),
-        // port42.channel
-        ("channel", "current"),
-        ("channel", "list"),
-        ("channel", "switchTo"),
+        // port42.space
+        ("space", "current"),
+        ("space", "list"),
+        ("space", "switchTo"),
         // port42.port
         ("port", "info"),
         ("port", "close"),

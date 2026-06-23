@@ -186,9 +186,9 @@ struct Port42App: App {
                 }
             }
             CommandGroup(replacing: .newItem) {
-                Button("New Channel") {
+                Button("New Space") {
                     NotificationCenter.default.post(
-                        name: .newChannelRequested, object: nil
+                        name: .newSpaceRequested, object: nil
                     )
                 }
                 .keyboardShortcut("n", modifiers: .command)

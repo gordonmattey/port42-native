@@ -28,7 +28,7 @@ public struct NgrokSetupSheet: View {
             Divider().background(Port42Theme.border)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("to invite others to your channels, Port42 uses ngrok to create a secure tunnel to your local gateway.")
+                Text("to invite others to your spaces, Port42 uses ngrok to create a secure tunnel to your local gateway.")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -110,10 +110,10 @@ public struct NgrokSetupSheet: View {
         Analytics.shared.ngrokConfigured()
 
         // Copy the pending invite link now that tunnel is configured
-        if let channel = appState.pendingInviteSpace {
+        if let space = appState.pendingInviteSpace {
             Task {
-                let token = try? await appState.sync.requestToken(spaceId: channel.id)
-                SpaceInvite.copyToClipboard(space: channel, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
+                let token = try? await appState.sync.requestToken(spaceId: space.id)
+                SpaceInvite.copyToClipboard(space: space, hostName: appState.currentUser?.displayName, syncGatewayURL: appState.sync.gatewayURL, token: token)
                 appState.toastMessage = "Copied to clipboard"
             }
             appState.pendingInviteSpace = nil

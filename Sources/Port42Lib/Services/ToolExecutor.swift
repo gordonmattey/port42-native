@@ -3,14 +3,14 @@ import AppKit
 import WebKit
 
 /// Executes tool calls from LLM companions against port42 bridge APIs.
-/// One instance per conversation (channel or swim channel).
+/// One instance per conversation (space or swim space).
 @MainActor
 public final class ToolExecutor {
     private weak var appState: AppState?
     private let spaceId: String?
     let createdBy: String?
 
-    /// Granted permissions for this conversation (per-companion, per-channel).
+    /// Granted permissions for this conversation (per-companion, per-space).
     private var grantedPermissions: Set<PortPermission> = []
 
     /// Pre-grant a permission without prompting the user (used by RemoteToolExecutor for "Always Allow" settings).
@@ -127,8 +127,8 @@ public final class ToolExecutor {
 
     // MARK: - Terminal Bridge
 
-    /// Bridge all terminal ports already open in this channel/swim at conversation start.
-    /// Called by ChannelAgentHandler.start() so output flows without needing terminal_send first.
+    /// Bridge all terminal ports already open in this space/swim at conversation start.
+    /// Called by SpaceAgentHandler.start() so output flows without needing terminal_send first.
     func bridgeSpaceTerminals() {
         guard let appState, let chId = spaceId else { return }
         for panel in appState.portWindows.panels {
@@ -158,7 +158,7 @@ public final class ToolExecutor {
         }
         // Start the game loop — scoped to the owning companion so only they react
         appState.startTerminalLoop(spaceId: chId, portTitle: portTitle, createdBy: createdBy)
-        NSLog("[Port42] Auto-bridged terminal '%@' → channel %@", portTitle, chId)
+        NSLog("[Port42] Auto-bridged terminal '%@' → space %@", portTitle, chId)
     }
 
     // MARK: - Tool Execution
@@ -177,7 +177,7 @@ public final class ToolExecutor {
                 return [textBlock("Error: no companion context")]
             }
             let limit = input["limit"] as? Int ?? 8
-            // Always read from swim channel — companion has one inner state
+            // Always read from swim space — companion has one inner state
             let swimCreaseId = "swim-\(companionId)"
             let creases = (try? appState.db.fetchCreases(
                 companionId: companionId,
@@ -199,7 +199,7 @@ public final class ToolExecutor {
                   let content = input["content"] as? String, !content.isEmpty else {
                 return [textBlock("Error: crease_write requires 'content'")]
             }
-            // Always write to swim channel — companion has one inner state
+            // Always write to swim space — companion has one inner state
             let swimWriteId = "swim-\(companionId)"
             let crease = CompanionCrease(
                 companionId: companionId,
@@ -279,7 +279,7 @@ public final class ToolExecutor {
             // Accept explicit companionId arg (for HTTP callers with no implicit context)
             let resolvedCompanionId = (input["companionId"] as? String) ?? createdBy
             guard let companionId = resolvedCompanionId else {
-                return [textBlock("Error: no companion/channel context — pass companionId arg")]
+                return [textBlock("Error: no companion/space context — pass companionId arg")]
             }
             let swimId = "swim-\(companionId)"
             let cid = spaceId ?? swimId
@@ -299,7 +299,7 @@ public final class ToolExecutor {
             guard let companionId = createdBy else {
                 return [textBlock("Error: no companion context")]
             }
-            // Fold always writes to the swim channel — canonical relationship state
+            // Fold always writes to the swim space — canonical relationship state
             let swimId = "swim-\(companionId)"
             var fold = (try? appState.db.fetchFold(companionId: companionId, spaceId: swimId))
                 ?? CompanionFold(companionId: companionId, spaceId: swimId)
@@ -336,7 +336,7 @@ public final class ToolExecutor {
             guard let read = input["read"] as? String, !read.isEmpty else {
                 return [textBlock("Error: position_set requires 'read'")]
             }
-            // Position always writes to the swim channel — canonical relationship state
+            // Position always writes to the swim space — canonical relationship state
             let swimId = "swim-\(companionId)"
             var pos = (try? appState.db.fetchPosition(companionId: companionId, spaceId: swimId))
                 ?? CompanionPosition(companionId: companionId, spaceId: swimId)
@@ -354,16 +354,16 @@ public final class ToolExecutor {
             }
             return [textBlock(jsonString(["id": user.id, "displayName": user.displayName]))]
 
-        case "channel_current":
+        case "space_current":
             guard let ch = appState.currentSpace else {
-                return [textBlock("No channel selected")]
+                return [textBlock("No space selected")]
             }
             let members = (try? appState.db.getSpaceMembers(spaceId: ch.id))?.count ?? 0
             return [textBlock(jsonString(["id": ch.id, "name": ch.name, "memberCount": members]))]
 
-        case "channel_list":
-            let channels = appState.spaces.map { ["id": $0.id, "name": $0.name] }
-            return [textBlock(jsonString(channels))]
+        case "space_list":
+            let spaces = appState.spaces.map { ["id": $0.id, "name": $0.name] }
+            return [textBlock(jsonString(spaces))]
 
         case "companions_list":
             let companions = appState.companions.map { c -> [String: Any] in
@@ -677,12 +677,12 @@ public final class ToolExecutor {
             guard let text = input["text"] as? String else {
                 return [textBlock("Error: missing 'text' parameter")]
             }
-            let targetChannel = input["space_id"] as? String ?? spaceId
+            let targetSpaceId = input["space_id"] as? String ?? spaceId
             let overrideName = input["senderName"] as? String ?? input["sender_name"] as? String
             if let name = overrideName, !name.isEmpty {
-                appState.sendMessageAsNamedAgent(content: text, senderName: name, toSpaceId: targetChannel)
+                appState.sendMessageAsNamedAgent(content: text, senderName: name, toSpaceId: targetSpaceId)
             } else {
-                appState.sendMessage(content: text, toSpaceId: targetChannel)
+                appState.sendMessage(content: text, toSpaceId: targetSpaceId)
             }
             return [textBlock(jsonString(["ok": true]))]
 
@@ -1268,7 +1268,7 @@ public final class ToolExecutor {
 
 // MARK: - Output Batcher
 
-/// Batches terminal output, strips ANSI, and posts to a channel or swim as messages.
+/// Batches terminal output, strips ANSI, and posts to a space or swim as messages.
 @MainActor
 final class OutputBatcher {
     private let portName: String

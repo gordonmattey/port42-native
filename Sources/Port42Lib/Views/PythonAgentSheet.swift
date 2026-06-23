@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - Python Agent Sheet
 
-/// Sheet for connecting a Python SDK agent to a Port42 channel.
-/// Generates a ready-to-run code snippet with channel + token pre-filled.
+/// Sheet for connecting a Python SDK agent to a Port42 space.
+/// Generates a ready-to-run code snippet with space + token pre-filled.
 struct PythonAgentSheet: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var appState: AppState
@@ -89,9 +89,9 @@ struct PythonAgentSheet: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
 
-            // Channel
+            // Space
             HStack(spacing: 6) {
-                Text("channel")
+                Text("space")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                 Text("#\(space.name)")
@@ -312,9 +312,9 @@ struct PythonAgentSheet: View {
             }
             var components = URLComponents()
             components.scheme = "port42"
-            components.host = "channel"
+            components.host = "space"
             components.queryItems = items
-            let inviteURL = components.string ?? "port42://channel"
+            let inviteURL = components.string ?? "port42://space"
 
             await MainActor.run {
                 let b = buildSnippet(name: name, inviteURL: inviteURL, triggerStr: triggerStr, t: .basic)

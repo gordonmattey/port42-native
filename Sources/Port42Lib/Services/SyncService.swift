@@ -130,9 +130,9 @@ public struct SyncPayload: Codable {
 public final class SyncService: NSObject, ObservableObject {
     @Published public var isConnected = false
     @Published public var gatewayURL: String?
-    /// Online user IDs per channel
+    /// Online user IDs per space
     @Published public var onlineUsers: [String: Set<String>] = [:]
-    /// Remote typing indicators: channel -> set of sender names currently typing
+    /// Remote typing indicators: spaceId -> set of sender names currently typing
     @Published public var remoteTypingNames: [String: Set<String>] = [:]
     /// Cached display names from presence events: userId -> displayName
     @Published public var knownNames: [String: String] = [:]
@@ -238,12 +238,12 @@ public final class SyncService: NSObject, ObservableObject {
         knownNames = [:]
     }
 
-    // MARK: - Channel Management
+    // MARK: - Space Management
 
-    /// Companion IDs per channel, sent to gateway on join for cross-instance presence
+    /// Companion IDs per space, sent to gateway on join for cross-instance presence
     private var spaceCompanions: [String: [String]] = [:]
 
-    /// Tokens received from the gateway for channel joins (persisted across reconnects)
+    /// Tokens received from the gateway for space joins (persisted across reconnects)
     private var spaceTokens: [String: String] = [:]
 
     public func joinSpace(_ spaceId: String, companionIds: [String] = [], token: String? = nil) {
@@ -326,11 +326,11 @@ public final class SyncService: NSObject, ObservableObject {
                 senderOwner: senderOwner
             )
         )
-        print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) channel=\(spaceId)")
+        print("[sync] sendTyping: \(senderName) isTyping=\(isTyping) space=\(spaceId)")
         send(envelope)
     }
 
-    /// Request a single-use join token for a channel from the gateway.
+    /// Request a single-use join token for a space from the gateway.
     public func requestToken(spaceId: String) async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             tokenContinuations[spaceId] = continuation
@@ -469,7 +469,7 @@ public final class SyncService: NSObject, ObservableObject {
         if payload.encrypted == true {
             guard let key = try? db?.getSpaceKey(spaceId: spaceId),
                   let decrypted = SpaceCrypto.decrypt(blob: payload.content, keyBase64: key) else {
-                NSLog("[sync] failed to decrypt message %@ in channel %@", messageId, spaceId)
+                NSLog("[sync] failed to decrypt message %@ in space %@", messageId, spaceId)
                 return
             }
             resolvedPayload = decrypted
@@ -500,7 +500,7 @@ public final class SyncService: NSObject, ObservableObject {
 
         do {
             try db?.saveMessage(message)
-            print("[sync] received message from \(resolvedPayload.senderName) in channel \(spaceId)")
+            print("[sync] received message from \(resolvedPayload.senderName) in space \(spaceId)")
             onMessageReceived?(spaceId, message)
         } catch {
             print("[sync] failed to save incoming message: \(error)")
@@ -581,7 +581,7 @@ public final class SyncService: NSObject, ObservableObject {
         guard let spaceId = envelope.spaceId,
               let senderId = envelope.senderId,
               senderId != userId else { return }
-        // Mark all our messages in this channel as read
+        // Mark all our messages in this space as read
         do {
             try db?.markMessagesAsRead(spaceId: spaceId, bySenderId: userId ?? "")
         } catch {
@@ -589,7 +589,7 @@ public final class SyncService: NSObject, ObservableObject {
         }
     }
 
-    /// Send a read receipt for a channel (call when user views messages)
+    /// Send a read receipt for a space (call when user views messages)
     public func sendReadReceipt(spaceId: String) {
         send(SyncEnvelope(type: "read", spaceId: spaceId, senderId: userId))
     }
@@ -697,7 +697,7 @@ public final class SyncService: NSObject, ObservableObject {
         if let continuation = tokenContinuations.removeValue(forKey: spaceId) {
             continuation.resume(returning: token)
         }
-        print("[sync] received join token for channel \(spaceId)")
+        print("[sync] received join token for space \(spaceId)")
     }
 
     private func handleCall(_ envelope: SyncEnvelope) {

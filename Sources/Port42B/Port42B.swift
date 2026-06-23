@@ -27,8 +27,8 @@ struct Port42B: App {
         .defaultSize(width: 1200, height: 800)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Channel") {
-                    NotificationCenter.default.post(name: .newChannelRequested, object: nil)
+                Button("New Space") {
+                    NotificationCenter.default.post(name: .newSpaceRequested, object: nil)
                 }
                 .keyboardShortcut("n", modifiers: .command)
 

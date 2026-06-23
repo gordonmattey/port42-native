@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - CompanionPosition
 
-/// The companion's live read of a channel — not stored opinions but active interpretation.
+/// The companion's live read of a space — not stored opinions but active interpretation.
 /// What the companion currently thinks is happening, what it thinks needs to happen,
 /// and what signals it's watching that would confirm or change that read.
 public struct CompanionPosition: FetchableRecord, MutablePersistableRecord, Codable {
@@ -187,7 +187,7 @@ public struct CompanionEngraving: FetchableRecord, MutablePersistableRecord, Cod
 // MARK: - CompanionFold
 
 /// The fold — orientation, not data. How the companion approaches this relationship,
-/// shaped by every crease that came before. Belongs to the companion×channel intersection.
+/// shaped by every crease that came before. Belongs to the companion×space intersection.
 public struct CompanionFold: FetchableRecord, MutablePersistableRecord, Codable {
     public static let databaseTableName = "companion_folds"
 

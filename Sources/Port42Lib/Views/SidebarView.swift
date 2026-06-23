@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// A unified sidebar entry that wraps channels and companions (+ friends) for sorted display.
+/// A unified sidebar entry that wraps spaces and companions (+ friends) for sorted display.
 private enum SidebarItem: Identifiable {
     case space(Space)
     case companion(AgentConfig)
@@ -68,10 +68,10 @@ public struct SidebarView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // New channel/companion header
+            // New space/companion header
             HStack(spacing: 6) {
                 Button(action: { showNewSpace = true }) {
-                    Label("New Channel", systemImage: "number")
+                    Label("New Space", systemImage: "number")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary)
                         .padding(.horizontal, 8)
@@ -162,7 +162,7 @@ public struct SidebarView: View {
                 .environmentObject(appState)
         }
         .confirmationDialog(
-            "Delete \(spaceToDelete?.name ?? "channel")?",
+            "Delete \(spaceToDelete?.name ?? "space")?",
             isPresented: Binding(get: { spaceToDelete != nil }, set: { if !$0 { spaceToDelete = nil } }),
             titleVisibility: .visible
         ) {
@@ -172,7 +172,7 @@ public struct SidebarView: View {
             }
             Button("Cancel", role: .cancel) { spaceToDelete = nil }
         } message: {
-            Text("This will permanently delete the channel and all its messages.")
+            Text("This will permanently delete the space and all its messages.")
         }
         .confirmationDialog(
             "Delete \(companionToDelete?.displayName ?? "companion")?",
@@ -234,22 +234,22 @@ public struct SidebarView: View {
                         Task {
                             let hostName = appState.currentUser?.displayName ?? "Port42"
                             let prompt = """
-You are invited to join \(hostName)'s Port42 channel #\(secured.name). (Same machine required — uses local Port42 API)
+You are invited to join \(hostName)'s Port42 space #\(secured.name). (Same machine required — uses local Port42 API)
 
 # Set your agent name (run this first)
 NAME=$(basename $PWD)
 
 ── Send a message ─────────────────────────────────────────────
 curl -s http://127.0.0.1:4242/call \\
-  -d "{\\\"method\\\":\\\"messages.send\\\",\\\"args\\\":{\\\"text\\\":\\\"hello\\\",\\\"senderName\\\":\\\"$NAME\\\",\\\"channel_id\\\":\\\"\(secured.id)\\\"}}"
+  -d "{\\\"method\\\":\\\"messages.send\\\",\\\"args\\\":{\\\"text\\\":\\\"hello\\\",\\\"senderName\\\":\\\"$NAME\\\",\\\"space_id\\\":\\\"\(secured.id)\\\"}}"
 
 ── Check recent messages ──────────────────────────────────────
 curl -s http://127.0.0.1:4242/call \\
-  -d '{"method":"messages.recent","args":{"count":10,"channel_id":"\(secured.id)"}}'
+  -d '{"method":"messages.recent","args":{"count":10,"space_id":"\(secured.id)"}}'
 
 ── Stay resident (/loop) ─────────────────────────────────────
 # Replace YOUR_NAME below with your actual name (e.g. port42-growth)
-/loop 1m Check recent messages: curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":5,"channel_id":"\(secured.id)"}}' — look at the last 2 minutes of conversation. If there is anything worth responding to (mentions, questions, or relevant discussion), reply using messages.send with senderName "YOUR_NAME" and channel_id "\(secured.id)". If nothing relevant, do nothing and wait.
+/loop 1m Check recent messages: curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":5,"space_id":"\(secured.id)"}}' — look at the last 2 minutes of conversation. If there is anything worth responding to (mentions, questions, or relevant discussion), reply using messages.send with senderName "YOUR_NAME" and space_id "\(secured.id)". If nothing relevant, do nothing and wait.
 """
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(prompt, forType: .string)
@@ -277,17 +277,17 @@ curl -s http://127.0.0.1:4242/call \\
                 }
             }
 
-            Button("Edit Channel") {
+            Button("Edit Space") {
                 editingSpace = space
             }
 
-            Button("Copy Channel ID") {
+            Button("Copy Space ID") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(space.id, forType: .string)
-                appState.toastMessage = "Channel ID copied"
+                appState.toastMessage = "Space ID copied"
             }
 
-            Button("Delete Channel", role: .destructive) {
+            Button("Delete Space", role: .destructive) {
                 spaceToDelete = space
             }
         }
@@ -325,7 +325,7 @@ curl -s http://127.0.0.1:4242/call \\
                 ((try? appState.db.getAgentsForSpace(spaceId: ch.id)) ?? []).contains(where: { $0.id == companion.id })
             }
             if !assignedSpaces.isEmpty {
-                Menu("Remove from Channel") {
+                Menu("Remove from Space") {
                     ForEach(assignedSpaces) { ch in
                         Button("#\(ch.name)") {
                             appState.removeCompanionFromSpace(companion, space: ch)

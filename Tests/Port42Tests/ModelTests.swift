@@ -36,20 +36,20 @@ struct ModelTests {
         #expect(a.id != b.id)
     }
 
-    // MARK: - Channel
+    // MARK: - Space
 
-    @Test("Create channel")
+    @Test("Create space")
     func createSpace() {
-        let channel = Space.create(name: "builders")
-        #expect(channel.name == "builders")
-        #expect(channel.type == "team")
-        #expect(!channel.id.isEmpty)
+        let space = Space.create(name: "builders")
+        #expect(space.name == "builders")
+        #expect(space.type == "team")
+        #expect(!space.id.isEmpty)
     }
 
-    @Test("Create channel with custom type")
-    func createDMChannel() {
-        let channel = Space.create(name: "alice", type: "dm")
-        #expect(channel.type == "dm")
+    @Test("Create space with custom type")
+    func createDMSpace() {
+        let space = Space.create(name: "alice", type: "dm")
+        #expect(space.type == "dm")
     }
 
     // MARK: - Message

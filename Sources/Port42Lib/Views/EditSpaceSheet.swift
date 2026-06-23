@@ -23,7 +23,7 @@ public struct EditSpaceSheet: View {
     @ViewBuilder
     private func content(_ ch: Space) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Edit Channel")
+            Text("Edit Space")
                 .font(Port42Theme.monoBold(16))
                 .foregroundStyle(Port42Theme.textPrimary)
 
@@ -36,7 +36,7 @@ public struct EditSpaceSheet: View {
                     Text("#")
                         .font(Port42Theme.mono(14))
                         .foregroundStyle(Port42Theme.textSecondary)
-                    TextField("channel-name", text: $spaceName)
+                    TextField("space-name", text: $spaceName)
                         .textFieldStyle(.plain)
                         .font(Port42Theme.mono(14))
                         .foregroundStyle(Port42Theme.textPrimary)

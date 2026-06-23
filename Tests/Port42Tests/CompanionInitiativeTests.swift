@@ -110,9 +110,9 @@ struct CompanionInitiativeTests {
         ))
 
         let alreadyTargeted: Set<String> = ["engineer"]
-        let channelAgents = ["engineer", "analyst"] // analyst has no position
+        let spaceAgents = ["engineer", "analyst"] // analyst has no position
 
-        let candidateIds = channelAgents.filter { !alreadyTargeted.contains($0) }
+        let candidateIds = spaceAgents.filter { !alreadyTargeted.contains($0) }
         #expect(!candidateIds.contains("engineer"))
         #expect(candidateIds.contains("analyst"))
     }
@@ -141,16 +141,16 @@ struct CompanionInitiativeTests {
         #expect(sageMatch == "narrative")
     }
 
-    @Test("Positions are channel-scoped — watching list in one channel does not affect another")
-    func watchingScopedToChannel() throws {
+    @Test("Positions are space-scoped — watching list in one space does not affect another")
+    func watchingScopedToSpace() throws {
         let db = try makeDB()
         try db.savePosition(CompanionPosition(
-            companionId: "analyst", spaceId: "channel-A",
+            companionId: "analyst", spaceId: "space-A",
             watching: ["scope creep"]
         ))
 
-        // No position in channel-B
-        let posB = try db.fetchPosition(companionId: "analyst", spaceId: "channel-B")
+        // No position in space-B
+        let posB = try db.fetchPosition(companionId: "analyst", spaceId: "space-B")
         #expect(posB == nil)
         let watching = posB?.watching ?? []
         let match = matchedSignal(watching: watching, in: "massive scope creep happening")

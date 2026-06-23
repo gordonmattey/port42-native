@@ -11,7 +11,7 @@ public struct ChatView: View {
             VStack(spacing: 0) {
                 // Shared conversation content
                 ConversationContent(
-                    entries: channelEntries,
+                    entries: spaceEntries,
                     placeholder: "chat with your reality... (press ? for help)",
                     error: appState.spaceErrors[appState.currentSpace?.id ?? ""],
                     typingNames: Array(appState.typingAgentNames.union(
@@ -93,7 +93,7 @@ public struct ChatView: View {
         appState.toastMessage = "Copied"
     }
 
-    private var channelEntries: [ChatEntry] {
+    private var spaceEntries: [ChatEntry] {
         let currentUserId = appState.currentUser?.id
         return appState.messages.compactMap { message in
             // Hide empty placeholders (agent is still typing)
@@ -112,7 +112,7 @@ public struct ChatView: View {
         }
     }
 
-    /// Build mention candidates from local companions + remote channel members.
+    /// Build mention candidates from local companions + remote space members.
     /// Local entities show bare names, remote entities show namespaced names.
     private func buildMentionCandidates() -> [MentionSuggestion] {
         var seenIds = Set<String>()
@@ -131,7 +131,7 @@ public struct ChatView: View {
             }
         }
 
-        // Remote members from channel message history
+        // Remote members from space message history
         guard let spaceId = appState.currentSpace?.id else { return candidates }
         let members = (try? appState.db.getSpaceMembers(spaceId: spaceId)) ?? []
 
@@ -163,16 +163,15 @@ public struct ChatView: View {
     }
 }
 
-public struct ChannelHeader: View {
+public struct SpaceHeader: View {
     public init() {}
     @EnvironmentObject var appState: AppState
     @State private var showMembers = false
 
     private var members: [SpaceMember] {
         guard let id = appState.currentSpace?.id else { return [] }
-        // Include local companions assigned to this channel
-        let channelAgents = (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
-        let assignedNames = Set(channelAgents.map { $0.displayName.lowercased() })
+        let spaceAgents = (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
+        let assignedNames = Set(spaceAgents.map { $0.displayName.lowercased() })
         let onlineSet = Set(appState.sync.onlineUsers[id] ?? [])
 
         // Filter history members: keep humans and remote/online agents, drop agents no longer assigned
@@ -190,7 +189,7 @@ public struct ChannelHeader: View {
             result.insert(SpaceMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
         }
 
-        for agent in channelAgents {
+        for agent in spaceAgents {
             if !result.contains(where: { $0.name == agent.displayName }) {
                 result.append(SpaceMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
@@ -292,7 +291,7 @@ public struct ChannelHeader: View {
     }
 }
 
-/// Avatar circle for a channel member. Teal dot for companions, green dot for humans.
+/// Avatar circle for a space member. Teal dot for companions, green dot for humans.
 struct MemberAvatar: View {
     let member: SpaceMember
     let size: CGFloat

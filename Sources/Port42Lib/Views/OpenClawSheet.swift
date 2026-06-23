@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - OpenClaw Agent Sheet
 
-/// Sheet for connecting an OpenClaw agent to a Port42 channel.
+/// Sheet for connecting an OpenClaw agent to a Port42 space.
 /// Auto-detects local OpenClaw gateway, lists available agents,
 /// and configures the connection with one click.
 struct OpenClawSheet: View {
@@ -68,9 +68,9 @@ struct OpenClawSheet: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Channel target
+            // Space target
             HStack(spacing: 6) {
-                Text("channel")
+                Text("space")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                 Text("#\(space.name)")
@@ -286,7 +286,7 @@ struct OpenClawSheet: View {
             Text(message)
                 .font(Port42Theme.monoBold(12))
                 .foregroundStyle(Port42Theme.accent)
-            Text("the agent will appear in the channel shortly")
+            Text("the agent will appear in the space shortly")
                 .font(Port42Theme.mono(11))
                 .foregroundStyle(Port42Theme.textSecondary)
         }
@@ -366,7 +366,7 @@ struct OpenClawSheet: View {
         isWorking = true
 
         Task {
-            // Generate invite link for this channel
+            // Generate invite link for this space
             let secured = appState.ensureEncryptionKey(for: space)
             let token = try? await appState.sync.requestToken(spaceId: secured.id)
 
@@ -381,7 +381,7 @@ struct OpenClawSheet: View {
                 return
             }
 
-            let success = await openclaw.addChannelAgent(
+            let success = await openclaw.addSpaceAgent(
                 agentId: agentId,
                 inviteURL: inviteURL,
                 trigger: trigger,

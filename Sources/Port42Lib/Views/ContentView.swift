@@ -33,28 +33,28 @@ public struct ContentView: View {
                 .environmentObject(appState)
         }
         .sheet(isPresented: $appState.showOpenClawSheet) {
-            if let channel = appState.openClawSpace {
-                OpenClawSheet(isPresented: $appState.showOpenClawSheet, space: channel)
+            if let space = appState.openClawSpace {
+                OpenClawSheet(isPresented: $appState.showOpenClawSheet, space: space)
                     .environmentObject(appState)
             }
         }
         .sheet(isPresented: $appState.showPythonAgentSheet) {
-            if let channel = appState.pythonAgentSpace {
-                PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, space: channel)
+            if let space = appState.pythonAgentSpace {
+                PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, space: space)
                     .environmentObject(appState)
             }
         }
         .sheet(isPresented: $appState.showAgentConnectSheet) {
-            if let channel = appState.agentConnectSpace {
+            if let space = appState.agentConnectSpace {
                 AgentConnectSheet(
                     isPresented: $appState.showAgentConnectSheet,
-                    space: channel,
+                    space: space,
                     inviteURL: appState.agentConnectInviteURL
                 )
                 .environmentObject(appState)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .newChannelRequested)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .newSpaceRequested)) { _ in
             showNewSpace = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .dismissAllSheets)) { _ in
@@ -213,7 +213,7 @@ struct SidebarHeader: View {
     }
 }
 
-// MARK: - Chat Header (channel name + members + user controls, top of right pane)
+// MARK: - Chat Header (space name + members + user controls, top of right pane)
 
 struct ChatHeader: View {
     @EnvironmentObject var appState: AppState
@@ -237,8 +237,8 @@ struct ChatHeader: View {
            !result.contains(where: { $0.senderId == user.id }) {
             result.insert(SpaceMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
         }
-        let channelAgents = (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
-        for agent in channelAgents {
+        let spaceAgents = (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
+        for agent in spaceAgents {
             if !result.contains(where: { $0.senderId == agent.id }) {
                 result.append(SpaceMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
             }
@@ -271,11 +271,11 @@ struct ChatHeader: View {
                 Text(companion.displayName)
                     .font(Port42Theme.monoBold(13))
                     .foregroundStyle(Port42Theme.textAgent)
-            } else if let channel = appState.currentSpace {
+            } else if let space = appState.currentSpace {
                 Text("#")
                     .font(Port42Theme.mono(13))
                     .foregroundStyle(Port42Theme.textSecondary)
-                Text(channel.name)
+                Text(space.name)
                     .font(Port42Theme.monoBold(13))
                     .foregroundStyle(Port42Theme.textPrimary)
 
@@ -397,7 +397,7 @@ struct HelpOverlay: View {
                 VStack(alignment: .leading, spacing: 16) {
                     helpSection("shortcuts", items: [
                         ("Cmd+K", "quick switcher / paste invite link"),
-                        ("Cmd+N", "new channel"),
+                        ("Cmd+N", "new space"),
                         ("Cmd+/", "this help"),
                     ])
 
@@ -412,7 +412,7 @@ struct HelpOverlay: View {
                     ])
 
                     helpSection("context menus", items: [
-                        ("right-click channel", "add companions, copy invite link"),
+                        ("right-click space", "add companions, copy invite link"),
                         ("right-click companion", "edit or delete"),
                     ])
                 }

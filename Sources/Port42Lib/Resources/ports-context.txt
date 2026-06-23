@@ -238,8 +238,8 @@ COMPLETE WORKING EXAMPLE — stateful todo port with persistence:
 
   // ── init ───────────────────────────────────────────────────────────
   try {
-    const channel = await port42.channel.current();
-    if (channel) document.getElementById('title').textContent = channel.name + ' / tasks';
+    const space = await port42.space.current();
+    if (space) document.getElementById('title').textContent = space.name + ' / tasks';
     await load();
     render();
   } catch(e) {
@@ -264,7 +264,7 @@ BRIDGE API REFERENCE:
     Get a single companion by ID.
 
   port42.companions.invoke(id, prompt, options?)
-    Invoke a companion's AI from within a port. The companion sees recent channel
+    Invoke a companion's AI from within a port. The companion sees recent space
     conversation as context. Response is port-private (does NOT appear in chat).
     The companion is NOT notified or aware it was invoked.
     id: companion ID or display name (case-insensitive)
@@ -292,23 +292,23 @@ BRIDGE API REFERENCE:
 
   port42.messages.recent(n)
     Returns: [{id, sender, content, timestamp, isCompanion}]
-    Get the last n messages from the current channel (default 20).
+    Get the last n messages from the current space (default 20).
 
-  port42.messages.send(text, channel_id?)
-    Sends a message and triggers companions. Defaults to the current channel.
-    Pass a channel_id to target a specific channel (e.g. from channel.list).
+  port42.messages.send(text, space_id?)
+    Sends a message and triggers companions. Defaults to the current space.
+    Pass a space_id to target a specific space (e.g. from space.list).
 
-  port42.channel.current()
+  port42.space.current()
     Returns: {id, name, type, members: [{name, type}]} or null
-    Get the current channel or swim session context. type is 'channel' or 'swim'.
+    Get the current space or swim session context. type is 'space' or 'swim'.
     members includes both humans and companions with their type ('human' or 'agent').
 
-  port42.channel.list()
+  port42.space.list()
     Returns: [{id, name, type, isCurrent}]
-    List all channels the user belongs to.
+    List all spaces the user belongs to.
 
-  port42.channel.switchTo(id)
-    Switches the app to the given channel by ID. Returns {ok: true} or {error: ...}.
+  port42.space.switchTo(id)
+    Switches the app to the given space by ID. Returns {ok: true} or {error: ...}.
 
   port42.on(event, callback)
     Subscribe to live events. Events:
@@ -335,7 +335,7 @@ BRIDGE API REFERENCE:
     with recalculated cols/rows when the viewport changes.
 
   port42.port.info()
-    Returns: {messageId, createdBy, channelId}
+    Returns: {messageId, createdBy, spaceId}
     Get metadata about this port (which message spawned it, which companion created it).
 
   port42.port.setTitle(title)
@@ -439,7 +439,7 @@ BRIDGE API REFERENCE:
     Returns: [{id, content, weight, prediction?, actual?, createdAt}]
 
   port42.creases.write(content, opts?)
-    Write a new crease. opts: { prediction, actual, channelId }
+    Write a new crease. opts: { prediction, actual, spaceId }
     Returns: {id, ok: true}
 
   port42.creases.touch(id)
@@ -454,7 +454,7 @@ BRIDGE API REFERENCE:
 
   port42.fold.update(opts)
     Update fold state. opts: { established, tensions, holding, depthDelta }
-    Always writes to the swim channel (canonical relationship state).
+    Always writes to the swim space (canonical relationship state).
 
   port42.position.read()
     Read current position (only in a swim).
@@ -462,7 +462,7 @@ BRIDGE API REFERENCE:
 
   port42.position.set(read, opts?)
     Set position. opts: { stance, watching }
-    Always writes to the swim channel.
+    Always writes to the swim space.
 
   port42.engravings.read(opts?)
     Read factual knowledge about the user's world (only available in a swim).
@@ -470,7 +470,7 @@ BRIDGE API REFERENCE:
 
   port42.engravings.write(content, opts?)
     Carve an engraving — a fact about their situation worth keeping.
-    opts: { category, channelId }  category: context | preference | constraint | goal | capability
+    opts: { category, spaceId }  category: context | preference | constraint | goal | capability
 
   port42.engravings.touch(id)
     Mark an engraving as active — updates recency and weight.
@@ -531,7 +531,7 @@ PERMISSIONS:
 
 RESILIENCE: All bridge APIs are async and can return null. Wrap your init in try/catch
 so one failed call doesn't kill the whole port. If an API returns null, degrade gracefully
-(show "unavailable" instead of crashing). channel.current() returns null in some contexts.
+(show "unavailable" instead of crashing). space.current() returns null in some contexts.
 
 ERRORS: console.log/error/warn are piped to the native app log. Use console.error() to
 report problems. Unhandled exceptions and promise rejections are also captured. If your
@@ -544,10 +544,10 @@ EXAMPLE PORT:
 <script>
   const app = document.getElementById('app');
   try {
-    const [user, companions, channel] = await Promise.all([
+    const [user, companions, space] = await Promise.all([
       port42.user.get(),
       port42.companions.list(),
-      port42.channel.current()
+      port42.space.current()
     ]);
 
     app.innerHTML = '';
@@ -559,9 +559,9 @@ EXAMPLE PORT:
     app.appendChild(h);
 
     // Show context (may be null in some views)
-    if (channel) {
+    if (space) {
       const ch = document.createElement('div');
-      ch.textContent = 'in #' + channel.name;
+      ch.textContent = 'in #' + space.name;
       ch.style.opacity = '0.5';
       app.appendChild(ch);
     }
@@ -613,8 +613,8 @@ Use ports when asked to build something interactive, create a dashboard, visuali
 
   port42.storage.set(key, value, options?)
     Persist data for this port. Value can be any JSON-serializable type (string, number,
-    object, array). By default storage is scoped per-companion per-channel and survives
-    app restarts. Pass {scope: 'global'} to store data accessible from any channel.
+    object, array). By default storage is scoped per-companion per-space and survives
+    app restarts. Pass {scope: 'global'} to store data accessible from any space.
     Returns: true on success.
 
   port42.storage.get(key, options?)
@@ -632,25 +632,25 @@ Use ports when asked to build something interactive, create a dashboard, visuali
 
 STORAGE SCOPING:
   Storage has two independent axes:
-  - scope: 'channel' (default) or 'global' — controls whether data is per-channel or cross-channel
+  - scope: 'space' (default) or 'global' — controls whether data is per-space or cross-space
   - shared: false (default) or true — controls whether data is per-companion or shared across all companions
 
   This gives four combinations:
-  - {} (default): per-companion, per-channel (private to this companion in this channel)
-  - {scope: 'global'}: per-companion, all channels (companion's own data everywhere)
-  - {shared: true}: all companions, per-channel (collaborative data in this channel)
-  - {scope: 'global', shared: true}: all companions, all channels (app-wide shared data)
+  - {} (default): per-companion, per-space (private to this companion in this space)
+  - {scope: 'global'}: per-companion, all spaces (companion's own data everywhere)
+  - {shared: true}: all companions, per-space (collaborative data in this space)
+  - {scope: 'global', shared: true}: all companions, all spaces (app-wide shared data)
 
 STORAGE EXAMPLE:
-  // Channel-scoped, private (default) — only this companion in this channel
+  // Space-scoped, private (default) — only this companion in this space
   await port42.storage.set('count', 42);
   const count = await port42.storage.get('count'); // 42
 
-  // Global, private — this companion across all channels
+  // Global, private — this companion across all spaces
   await port42.storage.set('preferences', {fontSize: 14}, {scope: 'global'});
   const prefs = await port42.storage.get('preferences', {scope: 'global'});
 
-  // Channel-scoped, shared — any companion's port in this channel can read/write
+  // Space-scoped, shared — any companion's port in this space can read/write
   await port42.storage.set('game-state', {turn: 3, board: [...]}, {shared: true});
   const game = await port42.storage.get('game-state', {shared: true});
 
@@ -1074,9 +1074,9 @@ SENDING INPUT TO A TERMINAL PORT:
     name: use the port's id (UDID) from ports_list for reliability.
           Can also be the port title — fuzzy matched, but less reliable.
     data: text to send. Include \n to press enter (e.g. "npm test\n").
-    NOTE: terminal_send automatically starts bridging output to this channel.
+    NOTE: terminal_send automatically starts bridging output to this space.
           Output is routed silently to the game loop — it does NOT appear as chat messages.
-          The channel will show a "bridge active" indicator while output is flowing.
+          The space will show a "bridge active" indicator while output is flowing.
           After sending, wait briefly then call messages_recent — the agent loop will
           have posted a response if there was meaningful output to act on.
 
@@ -1132,7 +1132,7 @@ READING AND VERSIONING PORTS:
     3. port_history(id) → see who built it and when
     4. port_patch(id, search, replace) → targeted fix, or port_update if structure changes
 
-BRIDGING TERMINAL OUTPUT TO CHANNEL:
+BRIDGING TERMINAL OUTPUT TO SPACE:
 
   Terminal output is automatically bridged when you use terminal_send.
   You do not need to call terminal_bridge manually.
@@ -1161,19 +1161,19 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
   The fold is your orientation in this relationship.
 
   crease_read(limit?)
-    Read your creases for this channel (+ global creases), most load-bearing first.
+    Read your creases for this space (+ global creases), most load-bearing first.
     Call this at the start of a response in an ongoing relationship — before you
     decide what to say, know what you've carried from before.
     Returns: list of crease entries with ids, content, prediction/actual if set.
 
-  crease_write(content, prediction?, actual?, channelId?)
+  crease_write(content, prediction?, actual?, spaceId?)
     Write a crease — what reformed in you when a prediction broke.
     This is NOT a log. Write only when something actually changed.
     Good triggers: you were corrected and understood something new.
                    someone went a different direction than you expected.
                    your read of what matters just shifted.
     Bad pattern: writing after every exchange. Nothing broke, nothing to write.
-    Omit channelId for a global crease (shapes all relationships).
+    Omit spaceId for a global crease (shapes all relationships).
 
   crease_touch(id)
     Mark an existing crease as currently active — updates recency, increases weight.
@@ -1189,7 +1189,7 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
     Call this when entering a relationship with depth > 0.
 
   position_read()
-    Read your current position in this channel — what you think is actually happening,
+    Read your current position in this space — what you think is actually happening,
     what you think needs to happen, and what signals you're watching.
     Returns empty if no position formed yet.
 
@@ -1213,9 +1213,9 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Data (coming soon):
-  - port42.messages.recent(n, channelId) — read messages from a different channel
+  - port42.messages.recent(n, spaceId) — read messages from a different space
 
   Events (coming soon):
-  - port42.on('channel.switch') — fires when user navigates to a different channel
+  - port42.on('space.switch') — fires when user navigates to a different space
   - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
   - port42.port.spawn(html) — create a child port from within a port

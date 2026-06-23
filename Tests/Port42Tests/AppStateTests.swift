@@ -22,7 +22,7 @@ struct AppStateTests {
         return state
     }
 
-    /// makeState with user + completeSetup + navigate to general channel.
+    /// makeState with user + completeSetup + navigate to general space.
     @MainActor
     func makeStateReady(displayName: String = "Test") throws -> AppState {
         let state = try makeStateWithUser(displayName: displayName)
@@ -43,7 +43,7 @@ struct AppStateTests {
         #expect(state.currentSpace == nil)
     }
 
-    @Test("Complete setup creates user, channel, companion, and swim session")
+    @Test("Complete setup creates user, space, companion, and swim session")
     @MainActor
     func completeSetup() throws {
         let state = try makeStateWithUser(displayName: "Gordon")
@@ -68,48 +68,48 @@ struct AppStateTests {
         #expect(state.currentSpace?.isSwim == true)
     }
 
-    // MARK: - Channels
+    // MARK: - Spaces
 
-    @Test("Create channel")
+    @Test("Create space")
     @MainActor
     func createSpace() throws {
         let state = try makeStateReady()
 
         state.createSpace(name: "Builders Club")
 
-        let channels = try state.db.getAllSpaces()
+        let spaces = try state.db.getAllSpaces()
         // general + swim + builders-club
-        #expect(channels.count == 3)
+        #expect(spaces.count == 3)
         #expect(state.currentSpace?.name == "builders-club")
     }
 
-    @Test("Create channel normalizes name")
+    @Test("Create space normalizes name")
     @MainActor
-    func channelNameNormalization() throws {
+    func spaceNameNormalization() throws {
         let state = try makeStateReady()
 
-        state.createSpace(name: "  My Cool Channel  ")
-        #expect(state.currentSpace?.name == "my-cool-channel")
+        state.createSpace(name: "  My Cool Space  ")
+        #expect(state.currentSpace?.name == "my-cool-space")
     }
 
-    @Test("Empty channel name is rejected")
+    @Test("Empty space name is rejected")
     @MainActor
-    func emptyChannelName() throws {
+    func emptySpaceName() throws {
         let state = try makeStateReady()
 
         state.createSpace(name: "   ")
-        let channels = try state.db.getAllSpaces()
-        #expect(channels.count == 2) // general + swim
+        let spaces = try state.db.getAllSpaces()
+        #expect(spaces.count == 2) // general + swim
     }
 
-    @Test("Delete channel switches to another")
+    @Test("Delete space switches to another")
     @MainActor
     func deleteSpace() throws {
         let state = try makeStateReady()
         state.createSpace(name: "temp")
 
-        let channels = try state.db.getAllSpaces()
-        let temp = channels.first(where: { $0.name == "temp" })!
+        let spaces = try state.db.getAllSpaces()
+        let temp = spaces.first(where: { $0.name == "temp" })!
         state.selectSpace(temp)
         state.deleteSpace(temp)
 
@@ -118,12 +118,12 @@ struct AppStateTests {
         #expect(state.currentSpace?.name == "general")
     }
 
-    @Test("Cannot delete last channel")
+    @Test("Cannot delete last space")
     @MainActor
-    func cannotDeleteLastChannel() throws {
+    func cannotDeleteLastSpace() throws {
         let state = try makeStateReady()
 
-        // Delete general; swim channel remains
+        // Delete general; swim space remains
         let general = state.spaces.first { !$0.isSwim }!
         state.deleteSpace(general)
         #expect(try state.db.getAllSpaces().count == 1)
@@ -154,9 +154,9 @@ struct AppStateTests {
         #expect(messages.count == 1) // only welcome
     }
 
-    @Test("Messages are per-channel")
+    @Test("Messages are per space")
     @MainActor
-    func messagesPerChannel() throws {
+    func messagesPerSpace() throws {
         let state = try makeStateReady()
 
         let generalId = state.currentSpace!.id
@@ -175,15 +175,15 @@ struct AppStateTests {
 
     // MARK: - Drafts
 
-    @Test("Draft preserved per channel")
+    @Test("Draft preserved per space")
     @MainActor
     func draftPreservation() throws {
         let state = try makeStateReady()
         state.createSpace(name: "other")
 
-        let channels = try state.db.getAllSpaces()
-        let general = channels.first(where: { $0.name == "general" })!
-        let other = channels.first(where: { $0.name == "other" })!
+        let spaces = try state.db.getAllSpaces()
+        let general = spaces.first(where: { $0.name == "general" })!
+        let other = spaces.first(where: { $0.name == "other" })!
 
         state.selectSpace(general)
         state.saveDraft("draft in general")

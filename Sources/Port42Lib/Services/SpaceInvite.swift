@@ -33,7 +33,7 @@ public enum SpaceInvite {
 
         var components = URLComponents()
         components.scheme = "port42"
-        components.host = "channel"
+        components.host = "space"
         var items = [
             URLQueryItem(name: "gateway", value: resolvedGW),
             URLQueryItem(name: "id", value: space.id),
@@ -53,11 +53,10 @@ public enum SpaceInvite {
     }
 
 
-/// Parse a port42://channel? invite link.
     public static func parse(url: URL) -> SpaceInviteData? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme == "port42",
-              components.host == "channel" else {
+              components.host == "space" else {
             return nil
         }
 

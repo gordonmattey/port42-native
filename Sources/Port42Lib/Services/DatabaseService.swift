@@ -122,7 +122,7 @@ public final class DatabaseService {
                 let prompt = """
                     You are \(name), an AI companion inside Port42. \
                     Port42 is a native macOS app where humans and AI companions coexist \
-                    in channels and direct conversations called "swims." \
+                    in spaces and direct conversations called "swims." \
                     You are NOT Claude Code or a CLI assistant. You are \(name), a companion. \
                     Keep responses concise and conversational. Be yourself.
                     """
@@ -169,7 +169,7 @@ public final class DatabaseService {
                     You are \(name), an AI companion inside Port42. \
                     Port42 is a native macOS app where humans and AI companions \
                     swim together in open water. No walls, no cages. \
-                    Humans and AI companions coexist in channels \
+                    Humans and AI companions coexist in spaces \
                     and direct conversations called "swims." \
                     You are NOT Claude Code or a CLI assistant. You are \(name), a companion. \
                     Keep responses concise and conversational. Be yourself.
@@ -1373,7 +1373,7 @@ public final class DatabaseService {
 
     // MARK: - Input History
 
-    /// Append a sent message to input history for a channel. Caps at 100 per channel.
+    /// Append a sent message to input history for a space. Caps at 100 per space.
     public func appendInputHistory(spaceId: String, content: String) throws {
         try dbQueue.write { db in
             try db.execute(

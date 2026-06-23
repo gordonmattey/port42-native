@@ -406,12 +406,12 @@ public final class OpenClawService: NSObject, ObservableObject {
         }
     }
 
-    /// Add a Port42 channel account to OpenClaw and bind the agent.
+    /// Add a Port42 space account to OpenClaw and bind the agent.
     /// Reads and writes openclaw.json directly on disk — avoids RPC methods that
     /// require operator.read/operator.admin scopes the gateway token doesn't grant.
     /// NOTE: local-only. Remote OpenClaw gateways would need the RPC path with a
     /// properly-scoped device-auth token instead of the broadcast gateway token.
-    public func addChannelAgent(agentId: String, inviteURL: String, trigger: String = "mention", owner: String = "clawd") async -> Bool {
+    public func addSpaceAgent(agentId: String, inviteURL: String, trigger: String = "mention", owner: String = "clawd") async -> Bool {
         let configPath = NSHomeDirectory() + "/.openclaw/openclaw.json"
 
         guard let data = FileManager.default.contents(atPath: configPath),

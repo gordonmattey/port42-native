@@ -2,68 +2,68 @@ import Testing
 import Foundation
 @testable import Port42Lib
 
-// MARK: - Step 2: Channel Model + Encryption Key
+// MARK: - Step 2: Space Model + Encryption Key
 
-@Suite("Channel Encryption Key")
-struct ChannelEncryptionKeyTests {
+@Suite("Space Encryption Key")
+struct SpaceEncryptionKeyTests {
 
     func makeDB() throws -> DatabaseService {
         try DatabaseService(inMemory: true)
     }
 
-    @Test("New channel has non-nil encryptionKey")
-    func newChannelHasKey() {
-        let channel = Space.create(name: "secret-channel")
-        #expect(channel.encryptionKey != nil)
+    @Test("New space has non-nil encryptionKey")
+    func newSpaceHasKey() {
+        let space = Space.create(name: "secret-space")
+        #expect(space.encryptionKey != nil)
     }
 
-    @Test("Channel key is valid base64 and 32 bytes")
-    func channelKeyIsValid() {
-        let channel = Space.create(name: "test")
-        let keyData = Data(base64Encoded: channel.encryptionKey!)
+    @Test("Space key is valid base64 and 32 bytes")
+    func spaceKeyIsValid() {
+        let space = Space.create(name: "test")
+        let keyData = Data(base64Encoded: space.encryptionKey!)
         #expect(keyData != nil)
         #expect(keyData?.count == 32)
     }
 
-    @Test("Channel without key (pre-migration) has nil encryptionKey")
-    func channelWithoutKey() {
-        let channel = Space(id: "old-1", name: "legacy", type: "team", createdAt: Date())
-        #expect(channel.encryptionKey == nil)
+    @Test("Space without key (pre-migration) has nil encryptionKey")
+    func spaceWithoutKey() {
+        let space = Space(id: "old-1", name: "legacy", type: "team", createdAt: Date())
+        #expect(space.encryptionKey == nil)
     }
 
-    @Test("Channel with key persists and loads from DB")
-    func channelKeyPersists() throws {
+    @Test("Space with key persists and loads from DB")
+    func spaceKeyPersists() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "encrypted")
-        let originalKey = channel.encryptionKey
-        try db.saveSpace(channel)
+        let space = Space.create(name: "encrypted")
+        let originalKey = space.encryptionKey
+        try db.saveSpace(space)
 
-        let channels = try db.getAllSpaces()
-        #expect(channels.count == 1)
-        #expect(channels[0].encryptionKey == originalKey)
+        let spaces = try db.getAllSpaces()
+        #expect(spaces.count == 1)
+        #expect(spaces[0].encryptionKey == originalKey)
     }
 
-    @Test("getSpaceKey returns key for encrypted channel")
+    @Test("getSpaceKey returns key for encrypted space")
     func getSpaceKeyReturnsKey() throws {
         let db = try makeDB()
-        let channel = Space.create(name: "test")
-        try db.saveSpace(channel)
+        let space = Space.create(name: "test")
+        try db.saveSpace(space)
 
-        let key = try db.getSpaceKey(spaceId: channel.id)
-        #expect(key == channel.encryptionKey)
+        let key = try db.getSpaceKey(spaceId: space.id)
+        #expect(key == space.encryptionKey)
     }
 
-    @Test("getSpaceKey returns nil for channel without key")
+    @Test("getSpaceKey returns nil for space without key")
     func getSpaceKeyReturnsNilForLegacy() throws {
         let db = try makeDB()
-        let channel = Space(id: "legacy-1", name: "old", type: "team", createdAt: Date())
-        try db.saveSpace(channel)
+        let space = Space(id: "legacy-1", name: "old", type: "team", createdAt: Date())
+        try db.saveSpace(space)
 
-        let key = try db.getSpaceKey(spaceId: channel.id)
+        let key = try db.getSpaceKey(spaceId: space.id)
         #expect(key == nil)
     }
 
-    @Test("getSpaceKey returns nil for nonexistent channel")
+    @Test("getSpaceKey returns nil for nonexistent space")
     func getSpaceKeyNonexistent() throws {
         let db = try makeDB()
         let key = try db.getSpaceKey(spaceId: "does-not-exist")
@@ -76,7 +76,7 @@ struct ChannelEncryptionKeyTests {
 @Suite("Encrypt on Send")
 struct EncryptOnSendTests {
 
-    @Test("Message to channel with key produces encrypted payload")
+    @Test("Message to space with key produces encrypted payload")
     func encryptedPayload() {
         let key = SpaceCrypto.generateKey()
         let payload = SyncPayload(
@@ -123,7 +123,7 @@ struct EncryptOnSendTests {
         #expect(wirePayload.content == blob)
     }
 
-    @Test("Message to channel without key sends plaintext (backward compat)")
+    @Test("Message to space without key sends plaintext (no encryption key set)")
     func plaintextWithoutKey() {
         let payload = SyncPayload(
             senderName: "Gordon",
@@ -270,22 +270,21 @@ struct DecryptOnReceiveTests {
 @Suite("Invite Link Key Exchange")
 struct InviteLinkKeyExchangeTests {
 
-    @Test("Invite link for channel with key includes key param")
+    @Test("Invite link for space with key includes key param")
     func inviteLinkIncludesKey() {
         let key = SpaceCrypto.generateKey()
-        let channel = Space(
-            id: "ch-1", name: "secure", type: "team",
+        let space = Space(
+            id: "sp-1", name: "secure", type: "team",
             createdAt: Date(), encryptionKey: key
         )
 
-        // Build a port42://channel? URL manually to test parse
         var components = URLComponents()
         components.scheme = "port42"
-        components.host = "channel"
+        components.host = "space"
         components.queryItems = [
             URLQueryItem(name: "gateway", value: "wss://example.com/ws"),
-            URLQueryItem(name: "id", value: channel.id),
-            URLQueryItem(name: "name", value: channel.name),
+            URLQueryItem(name: "id", value: space.id),
+            URLQueryItem(name: "name", value: space.name),
             URLQueryItem(name: "key", value: key),
         ]
 
@@ -295,14 +294,14 @@ struct InviteLinkKeyExchangeTests {
         #expect(parsed?.encryptionKey == key)
     }
 
-    @Test("Invite link for channel without key omits key param")
+    @Test("Invite link for space without key omits key param")
     func inviteLinkOmitsKeyWhenNone() {
         var components = URLComponents()
         components.scheme = "port42"
-        components.host = "channel"
+        components.host = "space"
         components.queryItems = [
             URLQueryItem(name: "gateway", value: "wss://example.com/ws"),
-            URLQueryItem(name: "id", value: "ch-old"),
+            URLQueryItem(name: "id", value: "sp-old"),
             URLQueryItem(name: "name", value: "legacy"),
         ]
 
@@ -315,13 +314,13 @@ struct InviteLinkKeyExchangeTests {
     @Test("Parse extracts key correctly")
     func parseExtractsKey() {
         let testKey = "dGVzdGtleTEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNA=="
-        let urlString = "port42://channel?gateway=wss%3A%2F%2Fexample.com%2Fws&id=ch-1&name=test&key=\(testKey)"
+        let urlString = "port42://space?gateway=wss%3A%2F%2Fexample.com%2Fws&id=sp-1&name=test&key=\(testKey)"
         let url = URL(string: urlString)!
 
         let parsed = SpaceInvite.parse(url: url)
         #expect(parsed != nil)
         #expect(parsed?.encryptionKey == testKey)
-        #expect(parsed?.spaceId == "ch-1")
+        #expect(parsed?.spaceId == "sp-1")
         #expect(parsed?.spaceName == "test")
     }
 
@@ -330,40 +329,64 @@ struct InviteLinkKeyExchangeTests {
         let key = SpaceCrypto.generateKey()
         var components = URLComponents()
         components.scheme = "port42"
-        components.host = "channel"
+        components.host = "space"
         components.queryItems = [
             URLQueryItem(name: "gateway", value: "wss://gw.example.com/ws"),
-            URLQueryItem(name: "id", value: "channel-abc"),
-            URLQueryItem(name: "name", value: "my-channel"),
+            URLQueryItem(name: "id", value: "space-abc"),
+            URLQueryItem(name: "name", value: "my-space"),
             URLQueryItem(name: "key", value: key),
         ]
 
-        let parsed = SpaceInvite.parse(url: components.url!)!
+        guard let parsed = SpaceInvite.parse(url: components.url!) else {
+            Issue.record("SpaceInvite.parse returned nil for port42://space URL")
+            return
+        }
         #expect(parsed.gateway == "wss://gw.example.com/ws")
-        #expect(parsed.spaceId == "channel-abc")
-        #expect(parsed.spaceName == "my-channel")
+        #expect(parsed.spaceId == "space-abc")
+        #expect(parsed.spaceName == "my-space")
         #expect(parsed.encryptionKey == key)
     }
 
-    @Test("Joining from invite stores key in channel record")
+    @Test("SpaceInvite generateLink produces port42://space host")
+    @MainActor
+    func generateLinkUsesSpaceHost() {
+        let space = Space(id: "sp-1", name: "test", type: "team", createdAt: Date())
+        let link = SpaceInvite.generateLink(space: space)
+        guard let url = URL(string: link),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            Issue.record("generateLink returned invalid URL: \(link)")
+            return
+        }
+        #expect(components.scheme == "port42")
+        #expect(components.host == "space", "Expected host 'space', got '\(components.host ?? "nil")'")
+    }
+
+    @Test("port42://channel URL is rejected by SpaceInvite.parse")
+    func oldSchemeURLRejected() {
+        let url = URL(string: "port42://channel?gateway=wss://x/ws&id=1&name=test")!
+        let parsed = SpaceInvite.parse(url: url)
+        #expect(parsed == nil, "port42://channel should be rejected — use port42://space")
+    }
+
+    @Test("Joining from invite stores key in space record")
     func joinFromInviteStoresKey() throws {
         let db = try DatabaseService(inMemory: true)
         let key = SpaceCrypto.generateKey()
 
         // Simulate what AppState.joinSpaceFromInvite does
-        let channel = Space(
-            id: "invited-ch", name: "invited",
+        let space = Space(
+            id: "invited-sp", name: "invited",
             type: "team", createdAt: Date(), encryptionKey: key
         )
-        try db.saveSpace(channel)
+        try db.saveSpace(space)
 
-        let storedKey = try db.getSpaceKey(spaceId: "invited-ch")
+        let storedKey = try db.getSpaceKey(spaceId: "invited-sp")
         #expect(storedKey == key)
     }
 
     @Test("Invalid scheme is rejected")
     func invalidSchemeRejected() {
-        let url = URL(string: "https://channel?gateway=wss://x/ws&id=1&name=test")!
+        let url = URL(string: "https://space?gateway=wss://x/ws&id=1&name=test")!
         let parsed = SpaceInvite.parse(url: url)
         #expect(parsed == nil)
     }
@@ -371,19 +394,19 @@ struct InviteLinkKeyExchangeTests {
     @Test("Missing required fields returns nil")
     func missingFieldsReturnsNil() {
         // Missing 'name'
-        let url = URL(string: "port42://channel?gateway=wss://x/ws&id=1")!
+        let url = URL(string: "port42://space?gateway=wss://x/ws&id=1")!
         let parsed = SpaceInvite.parse(url: url)
         #expect(parsed == nil)
     }
 
-    @Test("Rejoin existing channel updates encryption key")
+    @Test("Rejoin existing space updates encryption key")
     func rejoinUpdatesKey() throws {
         let db = try DatabaseService(inMemory: true)
-        // Legacy channel with no key
-        let legacy = Space(id: "ch-legacy", name: "old-channel", type: "team", createdAt: Date())
+        // Legacy space with no key
+        let legacy = Space(id: "sp-legacy", name: "old-space", type: "team", createdAt: Date())
         try db.saveSpace(legacy)
 
-        let storedKey = try db.getSpaceKey(spaceId: "ch-legacy")
+        let storedKey = try db.getSpaceKey(spaceId: "sp-legacy")
         #expect(storedKey == nil)
 
         // Rejoin with invite that has a key
@@ -392,7 +415,7 @@ struct InviteLinkKeyExchangeTests {
         updated.encryptionKey = newKey
         try db.saveSpace(updated)
 
-        let afterKey = try db.getSpaceKey(spaceId: "ch-legacy")
+        let afterKey = try db.getSpaceKey(spaceId: "sp-legacy")
         #expect(afterKey == newKey)
     }
 
@@ -400,12 +423,12 @@ struct InviteLinkKeyExchangeTests {
     func rejoinDoesNotOverwrite() throws {
         let db = try DatabaseService(inMemory: true)
         let originalKey = SpaceCrypto.generateKey()
-        let channel = Space(id: "ch-1", name: "secure", type: "team", createdAt: Date(), encryptionKey: originalKey)
-        try db.saveSpace(channel)
+        let space = Space(id: "sp-1", name: "secure", type: "team", createdAt: Date(), encryptionKey: originalKey)
+        try db.saveSpace(space)
 
         // Simulate rejoin with a different key (should not overwrite)
         // This mirrors the AppState logic: only update if existing key is nil
-        let existingKey = try db.getSpaceKey(spaceId: "ch-1")
+        let existingKey = try db.getSpaceKey(spaceId: "sp-1")
         #expect(existingKey == originalKey)
 
         // The AppState code checks: if existing.encryptionKey == nil, then update

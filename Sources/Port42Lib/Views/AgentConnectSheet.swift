@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Agent Connect Sheet
 
-/// Unified "Bring Your Own Agent" sheet. Shown when a channel invite deep link
+/// Unified "Bring Your Own Agent" sheet. Shown when a space invite deep link
 /// contains an encryption key — lets the user choose OpenClaw or Python/LangChain,
 /// with common fields (agent name, trigger) shared up top.
 struct AgentConnectSheet: View {
@@ -63,9 +63,9 @@ struct AgentConnectSheet: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
 
-            // Channel
+            // Space
             HStack(spacing: 6) {
-                Text("channel")
+                Text("space")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                 Text("#\(space.name)")

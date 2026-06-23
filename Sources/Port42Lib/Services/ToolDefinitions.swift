@@ -111,7 +111,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "position_read",
-            "description": "Read your current position in this channel — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.",
+            "description": "Read your current position in this space — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.",
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
@@ -158,13 +158,13 @@ enum ToolDefinitions {
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
-            "name": "channel_current",
-            "description": "Get the current channel's metadata (id, name, member count)",
+            "name": "space_current",
+            "description": "Get the current space's metadata (id, name, member count)",
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
-            "name": "channel_list",
-            "description": "List all channels the user belongs to",
+            "name": "space_list",
+            "description": "List all spaces the user belongs to",
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
@@ -185,7 +185,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "messages_recent",
-            "description": "Get the most recent messages from the current channel",
+            "description": "Get the most recent messages from the current space",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -371,12 +371,12 @@ enum ToolDefinitions {
         ],
         [
             "name": "messages_send",
-            "description": "Send a message to a channel and trigger companions. Defaults to the current channel if channel_id is omitted.",
+            "description": "Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.",
             "input_schema": [
                 "type": "object",
                 "properties": [
                     "text": ["type": "string", "description": "The message text to send"],
-                    "space_id": ["type": "string", "description": "Target channel ID (from channel_list). Omit for current channel."]
+                    "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."]
                 ],
                 "required": ["text"]
             ] as [String: Any]
@@ -476,7 +476,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_send",
-            "description": "Send input to a terminal port. Commands are automatically executed (\\r appended if not present — no need to include it). Automatically bridges output back to this channel — follow up with messages_recent to read what the terminal printed. Use the port's id (UDID from ports_list) for reliable routing. Do NOT use screen_capture to read terminal output — use terminal_send + messages_recent instead.",
+            "description": "Send input to a terminal port. Commands are automatically executed (\\r appended if not present — no need to include it). Automatically bridges output back to this space — follow up with messages_recent to read what the terminal printed. Use the port's id (UDID from ports_list) for reliable routing. Do NOT use screen_capture to read terminal output — use terminal_send + messages_recent instead.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -493,7 +493,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_bridge",
-            "description": "Start bridging a port terminal's output to the current channel. Output is ANSI-stripped and posted as messages so companions can see what the terminal is doing.",
+            "description": "Start bridging a port terminal's output to the current space. Output is ANSI-stripped and posted as messages so companions can see what the terminal is doing.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -504,7 +504,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_unbridge",
-            "description": "Stop bridging a port terminal's output to the channel.",
+            "description": "Stop bridging a port terminal's output to the space.",
             "input_schema": [
                 "type": "object",
                 "properties": [
