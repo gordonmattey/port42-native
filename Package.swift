@@ -18,15 +18,26 @@ let package = Package(
                 .process("Resources")
             ]
         ),
+        .binaryTarget(
+            name: "GhosttyKit",
+            path: "GhosttyKit.xcframework"
+        ),
         .target(
             name: "Port42Lib",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "PostHog", package: "posthog-ios")
+                .product(name: "PostHog", package: "posthog-ios"),
+                "GhosttyKit"
             ],
             path: "Sources/Port42Lib",
             resources: [
                 .process("Resources")
+            ],
+            linkerSettings: [
+                // GhosttyKit is a static archive; the consuming app must link the
+                // system frameworks it references. Carbon provides the Text Input
+                // Source APIs (TISCopyCurrentKeyboardLayoutInputSource etc.).
+                .linkedFramework("Carbon")
             ]
         ),
         .executableTarget(

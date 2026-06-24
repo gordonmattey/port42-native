@@ -85,6 +85,28 @@ else
     echo "[build] Icon assets up to date."
 fi
 
+# --- Download GhosttyKit.xcframework (native terminal engine) ---
+GHOSTTY_COMMIT="fc2d507dcf4d67228e56c6d69ad9e9aa2080a6dc"
+GHOSTTYKIT_SHA256="cbe4a8b5f8c00ea9ffe4274e5e764009b6efe2dc877646fd6fa12d34146ce8fe"  # verified 2026-06-24
+GHOSTTYKIT_URL="https://github.com/manaflow-ai/ghostty/releases/download/xcframework-${GHOSTTY_COMMIT}-crashsubdir-cmux-crash-v1/GhosttyKit.xcframework.tar.gz"
+GHOSTTY_SLICE="$DIR/GhosttyKit.xcframework/macos-arm64_x86_64"
+if [ ! -d "$DIR/GhosttyKit.xcframework" ]; then
+    echo "[build] Downloading GhosttyKit ($GHOSTTY_COMMIT)..."
+    curl -fL -o /tmp/ghosttykit.tar.gz "$GHOSTTYKIT_URL"
+    echo "[build] Verifying checksum..."
+    echo "$GHOSTTYKIT_SHA256  /tmp/ghosttykit.tar.gz" | shasum -a 256 -c -
+    tar -xz -C "$DIR" -f /tmp/ghosttykit.tar.gz
+    # The macOS slice ships as ghostty-internal.a (no lib prefix); SwiftPM
+    # rejects static libraries that aren't lib-prefixed. Rename it and patch
+    # the xcframework Info.plist to match. (iOS slices are already lib-prefixed.)
+    if [ -f "$GHOSTTY_SLICE/ghostty-internal.a" ]; then
+        mv "$GHOSTTY_SLICE/ghostty-internal.a" "$GHOSTTY_SLICE/libghostty-internal.a"
+        sed -i '' 's|>ghostty-internal.a<|>libghostty-internal.a<|g' "$DIR/GhosttyKit.xcframework/Info.plist"
+        echo "[build] Renamed macOS slice to libghostty-internal.a (SwiftPM lib-prefix requirement)."
+    fi
+    echo "[build] GhosttyKit.xcframework extracted."
+fi
+
 # Build Swift + Go (shared by both app and peer)
 echo "[build] Swift ($CONFIG)..."
 cd "$DIR"

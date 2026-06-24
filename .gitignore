@@ -5,6 +5,9 @@ port42-gateway
 Port42.app/
 gateway/gateway
 
+# GhosttyKit xcframework (downloaded at build time, ~130MB)
+GhosttyKit.xcframework/
+
 # Xcode / SwiftPM
 .swiftpm/
 

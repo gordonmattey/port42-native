@@ -265,6 +265,16 @@ Verified from codebase before starting — do not re-derive:
 - **`PortPanel.portType: String = "web"`** — already a field on `PortPanel` (`Sources/Port42Lib/Views/PortWindowManager.swift:24`). Only `popOut`'s signature needs updating (see Gap #2 below).
 - **Shim module** — standalone Go module at `shim/` (repo root-level sibling of `gateway/`), its own `go.mod`. Not part of the gateway module. Built separately in `build.sh`.
 
+### Step 1 findings (verified 2026-06-24 — corrections to original plan)
+
+- **GhosttyKit ships as a static `.a`, not a dylib.** The macOS slice is `ghostty-internal.a` (an `ar` archive). Consequences:
+  - **`otool -L | grep Ghostty` will NEVER match** — static symbols fold into the binary. The plan's Step 1 verify command is wrong. Use `nm <binary> | grep ghostty_info` instead (symbol shows as `T`). Secondary signal: the Port42 binary grows ~18MB → ~49MB.
+  - **No dylib/framework needs bundling into `.app`** — Ghostty is compiled in. No extra `cp`/`codesign` step in `build.sh`.
+- **SwiftPM requires the static lib to be `lib`-prefixed.** The macOS slice violates this (`ghostty-internal.a`), producing `error: unexpected binary name … Static libraries should be prefixed with lib`. **Fixed in `build.sh`**: after extraction it renames to `libghostty-internal.a` and patches the xcframework `Info.plist`. (iOS slices are already `libghostty-internal-fat.a`.)
+- **Carbon.framework must be linked.** The archive references Text Input Source symbols (`TISCopyCurrentKeyboardLayoutInputSource`, `TISGetInputSourceProperty`, `kTISPropertyInputSourceID`, `kTISPropertyUnicodeKeyLayoutData`). **Fixed in `Package.swift`**: `.linkedFramework("Carbon")` on `Port42Lib` (propagates to the executable). All other frameworks Ghostty needs are already satisfied transitively — only these 4 symbols were undefined.
+- **`ghostty_config_new()` exists** (header line 1095) — the plan's warning not to assume it was incorrect. So does `ghostty_init(uintptr_t, char**)` (line 1089), a likely-mandatory global init to call before `ghostty_app_new` (confirm in Step 2).
+- **Probe uses `ghostty_info()`**, not `ghostty_app_new()` — a pure function needing no app/surface/callbacks, the cheapest call that proves linkage. Lives in `Sources/Port42Lib/Services/GhosttyProbe.swift`, called from `applicationDidFinishLaunching`.
+
 ---
 
 ## GhosttyKit Release (pinned 2026-06-24)
@@ -274,9 +284,16 @@ GHOSTTY_COMMIT="fc2d507dcf4d67228e56c6d69ad9e9aa2080a6dc"
 GHOSTTYKIT_SHA256="cbe4a8b5f8c00ea9ffe4274e5e764009b6efe2dc877646fd6fa12d34146ce8fe"
 ```
 
-**⚠️ SHA256 must be verified** on first `./build.sh` run — value came from a web agent that cannot compute checksums. If `shasum -c` fails, recompute with `shasum -a 256 /tmp/ghosttykit.tar.gz` and update this doc + `build.sh`.
+**✅ SHA256 verified 2026-06-24** — actual checksum of the downloaded tarball matches
+the pinned value exactly. No re-pin needed.
 
 Commit message: "Clamp pixel scroll only past viewport boundaries" (2026-06-16). Releases are frequent; re-pin if a breaking API change is needed.
+
+**Runtime probe confirmed (Step 1, 2026-06-24):**
+```
+[Port42] GhosttyKit probe: true (version=1.3.2-cmux-ios-pixel-scroll-49cb-+fc2d507dc, build=release-fast)
+```
+The embedded library is a **release-fast** build of Ghostty 1.3.2 at commit fc2d507dc.
 
 ---
 
@@ -477,7 +494,9 @@ func ghosttyProbe() -> Bool {
 Call at app launch and log the result.
 
 **Verify:** `./build.sh` succeeds. App launches. Log shows `[Port42] GhosttyKit probe: true`.
-`otool -L .build/debug/Port42 | grep Ghostty` shows the framework linked.
+GhosttyKit is a **static** archive, so verify linkage with
+`nm .build/debug/Port42 | grep ghostty_info` (symbol present as `T`), NOT `otool -L`
+(static symbols don't appear there). ✅ Done 2026-06-24.
 
 **Risk eliminated:** SPM binary target integration, architecture compatibility, header
 bridging, build system conflicts. Nothing else can proceed until this is green.
