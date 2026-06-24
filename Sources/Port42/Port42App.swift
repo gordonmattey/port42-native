@@ -28,6 +28,7 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupCustomCursor()
+        UserDefaults.standard.set(100, forKey: "NSInitialToolTipDelay")
         NSLog("[Port42] Sparkle feedURL=%@", updaterController.updater.feedURL?.absoluteString ?? "nil")
 
         // Save current frame (user's preferred sidebar size) then maximize for the login screen.

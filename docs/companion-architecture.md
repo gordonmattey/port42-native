@@ -1,7 +1,7 @@
 # Companion Architecture
 
-**Status:** Fold ✅ | Position ✅ | Crease ✅ | Engrave ⬜ | Initiative ✅
-**Last updated:** 2026-03-26
+**Status:** Fold ✅ | Position ✅ | Crease ✅ | Engrave ✅ | Initiative ✅
+**Last updated:** 2026-04-17
 **Context:** [ports-spec.md](ports-spec.md), [game-loop-v2.md](~/port42-specs/game-loop-v2.md)
 
 ---
@@ -410,11 +410,15 @@ Database, tools (`position_read`, `position_set`), context injection. Position s
 ### Crease ✅
 Database, tools (`crease_read`, `crease_write`, `crease_touch`, `crease_forget`), context injection. Crease inspector UI in swim. Threshold softened — creases are cheap.
 
-### Engrave ⬜
-Not yet built. Needs: database migration, tool definitions (`engrave_read`, `engrave_write`, `engrave_touch`, `engrave_forget`), context injection as `<engravings>` block, relationship block guidance, bridge API.
+### Engrave ✅
+Database migration, tool definitions (`engrave_read`, `engrave_write`, `engrave_touch`, `engrave_forget`), context injection as `<engravings>` block in preamble, relationship block guidance in swim system prompt, bridge API (`port42.engravings.*`), inspector UI tab.
 
 ### Initiative ✅
-Watching signal matching on incoming messages. Initiative-framed trigger routed through existing agent launch path. Companion can choose silence. Currently reactive only (triggered by messages); proactive initiative (time-based) deferred.
+Two reactive triggers implemented:
+- **A — Watching signals**: companion's `position.watching` array matched against incoming messages via substring. Fires with `[initiative: your watching signal was matched — "..."]`.
+- **B — Holding-triggered**: companion's `fold.holding` prose extracted to content keywords, matched against incoming messages. Fires with `[initiative: something you're holding is relevant]` + full holding text injected as context.
+
+Initiative-framed trigger routed through existing agent launch path with 4s+ staggered delay. Companion can choose silence. Proactive initiative (time-based) deferred.
 
 ### Access Model ✅
 State scoped to swim channel. Bridge API guards on swim channel ID. Companion state only visible in direct swim. Crease inspector swim-only.

@@ -121,6 +121,35 @@ public struct ContentView: View {
     }
 }
 
+// MARK: - AppKit tooltip overlay
+//
+// .help() doesn't fire in hiddenTitleBar windows. TooltipHost is placed as an
+// overlay (not background) so it is the topmost NSView under the cursor —
+// that's what AppKit needs to trigger the tooltip tracking area. hitTest
+// returns nil so clicks fall through to the underlying buttons.
+
+private class PassthroughTooltipView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private struct TooltipHost: NSViewRepresentable {
+    let tooltip: String
+    func makeNSView(context: Context) -> PassthroughTooltipView {
+        let v = PassthroughTooltipView()
+        v.toolTip = tooltip
+        return v
+    }
+    func updateNSView(_ nsView: PassthroughTooltipView, context: Context) {
+        nsView.toolTip = tooltip
+    }
+}
+
+private extension View {
+    func appKitTooltip(_ text: String) -> some View {
+        self.overlay(TooltipHost(tooltip: text))
+    }
+}
+
 // MARK: - Sidebar Header
 
 struct SidebarHeader: View {
@@ -137,32 +166,50 @@ struct SidebarHeader: View {
         }
     }
 
+    private var gatewayTooltip: String {
+        appState.sync.isConnected
+            ? "Gateway connected — \(appState.sync.gatewayURL ?? "local")"
+            : "Gateway disconnected"
+    }
+
+    private var authTooltip: String {
+        switch appState.authStatus {
+        case .connected(let type, _):
+            return "Anthropic \(TokenDetector.humanLabel(type)) active"
+        case .checking, .unknown: return "Checking credentials…"
+        case .noCredential: return "No Anthropic key — open Settings"
+        case .error(let msg): return "Anthropic auth error: \(msg)"
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
-            Text("PORT42")
-                .font(Port42Theme.monoBold(13))
-                .foregroundStyle(Port42Theme.accent)
-            if appState.sync.isConnected {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 5, height: 5)
-            }
-            if appState.tunnel.publicURL != nil {
-                Image(systemName: "globe")
-                    .font(.system(size: 8))
-                    .foregroundStyle(Port42Theme.accent)
-            }
+        HStack(spacing: 0) {
             Spacer()
             if let user = appState.currentUser {
-                HStack(spacing: 10) {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(authDotColor)
-                            .frame(width: 7, height: 7)
-                        Text(user.displayName)
-                            .font(Port42Theme.mono(12))
-                            .foregroundStyle(Port42Theme.textPrimary)
+                HStack(spacing: 8) {
+                    Text(user.displayName)
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.textPrimary)
+
+                    // Gateway status
+                    Image(systemName: appState.sync.isConnected ? "bolt.fill" : "bolt.slash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(appState.sync.isConnected ? .green : Port42Theme.textSecondary)
+                        .appKitTooltip(gatewayTooltip)
+
+                    // Tunnel status (only when active)
+                    if let url = appState.tunnel.publicURL {
+                        Image(systemName: "globe")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.accent)
+                            .appKitTooltip("Tunnel active — \(url)")
                     }
+
+                    // API key status
+                    Image(systemName: "key.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(authDotColor)
+                        .appKitTooltip(authTooltip)
 
                     Button(action: {
                         appState.aiPaused.toggle()
@@ -173,7 +220,7 @@ struct SidebarHeader: View {
                             .foregroundStyle(appState.aiPaused ? .red : Port42Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help(appState.aiPaused ? "AI paused. Click to resume." : "Pause all AI calls")
+                    .appKitTooltip(appState.aiPaused ? "AI paused — click to resume" : "Pause all AI calls")
 
                     Button(action: { showUsage = true }) {
                         Image(systemName: "chart.bar")
@@ -181,7 +228,7 @@ struct SidebarHeader: View {
                             .foregroundStyle(Port42Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Token usage")
+                    .appKitTooltip("Token usage")
 
                     Button(action: { showSignOut = true }) {
                         Image(systemName: "gearshape")
@@ -189,11 +236,10 @@ struct SidebarHeader: View {
                             .foregroundStyle(Port42Theme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Settings")
+                    .appKitTooltip("Settings")
                 }
             }
         }
-        .help(appState.tunnel.publicURL ?? appState.sync.gatewayURL ?? "no gateway")
         .padding(.leading, 68)
         .padding(.trailing, 12)
         .frame(height: 38)
