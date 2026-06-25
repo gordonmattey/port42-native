@@ -184,10 +184,15 @@ public enum TerminalSessionBootstrap {
     /// Build a per-session temp dir + `claude` shim symlink + hooks socket path + env vars.
     /// If the shim is unavailable, PATH is left unmodified and `claude` falls back to the
     /// user's own login (no hooks) — graceful degradation, not an error.
+    /// `claudePath` / `oauthToken` are nil in production (resolved via `ClaudeCodeSetup`
+    /// and the Keychain); tests pass them explicitly to avoid the slow `which` spawn and
+    /// the Keychain access (which can block or prompt in a test process).
     public static func make(sessionId: String,
                             spaceId: String,
                             spaceName: String,
-                            shimPath: String? = bundledShimPath()) -> TerminalHookSession {
+                            shimPath: String? = bundledShimPath(),
+                            claudePath: String? = nil,
+                            oauthToken: String? = nil) -> TerminalHookSession {
         let shortId = String(sessionId.replacingOccurrences(of: "-", with: "").prefix(8))
         let tempDir = "/tmp/port42-shim-\(shortId)"
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
@@ -200,14 +205,22 @@ public enum TerminalSessionBootstrap {
         ]
 
         // Real claude path so the shim execs it directly and can never find itself.
-        if let real = ClaudeCodeSetup.findBinary("claude") {
+        if let real = claudePath ?? ClaudeCodeSetup.findBinary("claude") {
             env["PORT42_CLAUDE_PATH"] = real
         }
 
-        // Symlink `claude` → shim inside the session dir, and put that dir first on PATH so
-        // typing `claude` resolves to the shim.
+        // Intercept `claude` so it routes through the shim. Two mechanisms, because a PATH
+        // entry alone LOSES to the user's interactive shell startup re-prepending its own
+        // dirs (e.g. `.zshrc` doing `export PATH="$HOME/.local/bin:$PATH"`):
+        //   1. PRIMARY (zsh): a `claude` shell FUNCTION defined via ZDOTDIR. A shell
+        //      function always wins over PATH lookup, so it survives any PATH reordering.
+        //   2. FALLBACK (non-zsh): a `claude` symlink in a PATH-prepended dir.
+        // Both call the same shim, which injects --settings and execs the real claude.
         var pathPrefix = ""
         if let shimPath {
+            env["PORT42_CLAUDE_SHIM"] = shimPath
+
+            // (2) symlink fallback
             let link = "\(tempDir)/claude"
             try? FileManager.default.removeItem(atPath: link)
             do {
@@ -215,6 +228,12 @@ public enum TerminalSessionBootstrap {
                 pathPrefix = tempDir
             } catch {
                 NSLog("[hooks] failed to symlink claude shim: \(error)")
+            }
+
+            // (1) zsh function via ZDOTDIR
+            if writeZshIntegration(tempDir: tempDir) {
+                env["ZDOTDIR"] = tempDir
+                env["PORT42_REAL_ZDOTDIR"] = ProcessInfo.processInfo.environment["ZDOTDIR"] ?? NSHomeDirectory()
             }
         }
         let existing = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -224,11 +243,37 @@ public enum TerminalSessionBootstrap {
         // holds an API key for a different connection). The store secret is named
         // `claude-oauth`; its value is injected as CLAUDE_CODE_OAUTH_TOKEN (what the claude
         // CLI reads). Absent → CLI falls back to its own login.
-        if let token = Port42AuthStore.shared.loadSecretValue(name: claudeOAuthSecretName), !token.isEmpty {
+        if let token = oauthToken ?? Port42AuthStore.shared.loadSecretValue(name: claudeOAuthSecretName), !token.isEmpty {
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
         }
 
         return TerminalHookSession(socketPath: socketPath, tempDir: tempDir, env: env)
+    }
+
+    /// Write the zsh startup files into `dir` (used as ZDOTDIR). Each sources the user's
+    /// real equivalent (from `$PORT42_REAL_ZDOTDIR`, default `$HOME`); `.zshrc` additionally
+    /// defines the `claude()` interceptor. Returns false if any write fails (caller then
+    /// relies on the PATH-symlink fallback). zsh-only: bash/fish ignore ZDOTDIR.
+    private static func writeZshIntegration(tempDir dir: String) -> Bool {
+        let real = "${PORT42_REAL_ZDOTDIR:-$HOME}"
+        func sourceLine(_ f: String) -> String { "[ -f \"\(real)/\(f)\" ] && source \"\(real)/\(f)\"\n" }
+        let zshrc =
+            sourceLine(".zshrc")
+            + "# Port42: intercept `claude` with a function — wins over any PATH entry.\n"
+            + "if [ -n \"$PORT42_CLAUDE_SHIM\" ]; then\n"
+            + "  claude() { \"$PORT42_CLAUDE_SHIM\" \"$@\"; }\n"
+            + "fi\n"
+        let files: [String: String] = [
+            ".zshenv":   sourceLine(".zshenv"),
+            ".zprofile": sourceLine(".zprofile"),
+            ".zlogin":   sourceLine(".zlogin"),
+            ".zshrc":    zshrc,
+        ]
+        for (name, body) in files {
+            do { try body.write(toFile: "\(dir)/\(name)", atomically: true, encoding: .utf8) }
+            catch { NSLog("[hooks] failed to write \(name): \(error)"); return false }
+        }
+        return true
     }
 
     public static func cleanup(tempDir: String) {

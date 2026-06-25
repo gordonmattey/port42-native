@@ -786,12 +786,19 @@ original Step 7 text below where they conflict:
 > - **OAuth token IS injected** when the `claude-oauth` secret exists in `Port42AuthStore`
 >   (`CLAUDE_CODE_OAUTH_TOKEN`). `printenv | grep PORT42` hides it (name has no "PORT42").
 >
-> **⚠️ OPEN ISSUE — PATH priority (must fix before Step 8's real companion flow):** typing `claude`
-> resolves to `~/.local/bin/claude`, NOT our shim, because the interactive shell's startup
-> (`.zshrc` / cmux) re-prepends its own dirs *after* our injected `PATH`. The mechanism was proven
-> by invoking the shim via absolute path (`"$(dirname "$PORT42_HOOKS_SOCKET")/claude"`). Step 8
-> needs `claude`-by-name to hit the shim — candidate fixes: `ZDOTDIR` re-prepend wrapper, or
-> inject hooks via a settings file instead of a PATH shim (needs a Claude Code docs check).
+> **✅ RESOLVED — PATH priority via a `claude` shell FUNCTION (2026-06-25).** A PATH symlink alone
+> loses: the interactive shell's startup (`.zshrc`/cmux) re-prepends `~/.local/bin` *after* our
+> injected `PATH`, so `which claude` → `~/.local/bin/claude`. Fix (independent of, but conceptually
+> like, how cmux does it — a shell function always wins over PATH lookup): `TerminalSessionBootstrap`
+> writes zsh startup files into a per-session dir used as `ZDOTDIR`; each sources the user's real
+> equivalent (`$PORT42_REAL_ZDOTDIR`, default `$HOME`), and `.zshrc` then defines
+> `claude() { "$PORT42_CLAUDE_SHIM" "$@"; }`. The PATH symlink stays as a non-zsh fallback. The shim's
+> `main` now treats any non-`notify` invocation as claude-injection (so the function calling it
+> directly works, not just the `claude`-named symlink). **Verified live:** typing `claude` (no abs
+> path) → `[port42-claude-shim] injecting hooks` → `[hooks] ✅ turnComplete text="Banana."`.
+> Doc-confirmed facts behind the decision: Claude Code hooks MERGE across settings sources; `-p` fires
+> `Stop`; `CLAUDE_CONFIG_DIR` would REPLACE `~/.claude` (breaks auth, rejected). Tests: the make()
+> claude-path/Keychain lookups are now injectable so the bootstrap test is fast (was 490s → 0.001s).
 
 **Do:**
 1. Write `port42-claude-shim` Go binary: detects invocation as `claude`, reads

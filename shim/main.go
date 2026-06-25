@@ -30,7 +30,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -43,13 +42,11 @@ func main() {
 		return
 	}
 
-	// claude-injection / passthrough mode: invoked via the `claude` symlink.
-	if filepath.Base(os.Args[0]) == "claude" {
-		runClaude()
-		return
-	}
-
-	fmt.Fprintln(os.Stderr, "port42-claude-shim: nothing to do (not invoked as 'claude', no 'notify' subcommand)")
+	// Otherwise we are standing in for `claude` — either via the `claude` PATH symlink
+	// (argv[0] basename == "claude") OR via the injected shell function that calls this
+	// binary directly (argv[0] basename == "port42-claude-shim"). Both mean: inject
+	// Port42 hooks and exec the real claude.
+	runClaude()
 }
 
 // runClaude execs the real claude, injecting Port42 hooks via --settings when a hook socket

@@ -74,13 +74,29 @@ struct TerminalHooksServiceTests {
     func bootstrapEnv() {
         let session = TerminalSessionBootstrap.make(
             sessionId: "ABCDEF12-3456-7890-ABCD-EF1234567890",
-            spaceId: "space-1", spaceName: "demo", shimPath: nil
+            spaceId: "space-1", spaceName: "demo", shimPath: nil,
+            claudePath: "/usr/bin/true", oauthToken: ""   // skip the slow which/Keychain lookups
         )
         #expect(session.env["PORT42_HOOKS_SOCKET"] == session.socketPath)
         #expect(session.env["PORT42_SPACE_ID"] == "space-1")
         #expect(session.env["PORT42_SPACE_NAME"] == "demo")
         #expect(session.env["PATH"]?.isEmpty == false)
         #expect(session.socketPath.count < 104)   // sockaddr_un.sun_path limit
+    }
+
+    @Test("zsh integration injects a winning claude() function when a shim is present")
+    func zshIntegration() throws {
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "ZSHTEST0-1111-2222-3333-444444444444",
+            spaceId: "s", spaceName: "n", shimPath: "/tmp/fake-port42-shim",
+            claudePath: "/usr/bin/true", oauthToken: "")
+        defer { TerminalSessionBootstrap.cleanup(tempDir: session.tempDir) }
+        #expect(session.env["PORT42_CLAUDE_SHIM"] == "/tmp/fake-port42-shim")
+        #expect(session.env["ZDOTDIR"] == session.tempDir)
+        let zshrc = try String(contentsOfFile: "\(session.tempDir)/.zshrc", encoding: .utf8)
+        #expect(zshrc.contains("claude() {"))
+        #expect(zshrc.contains("$PORT42_CLAUDE_SHIM"))
+        #expect(zshrc.contains("source"))   // sources the user's real .zshrc first
         TerminalSessionBootstrap.cleanup(tempDir: session.tempDir)
     }
 }
