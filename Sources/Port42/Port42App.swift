@@ -212,8 +212,11 @@ struct Port42App: App {
 
             #if DEBUG
             CommandMenu("Ghostty Debug") {
-                Button("Test Ghostty Surface") {
+                Button("Test Ghostty Surface (Steps 2–4, bare AppKit)") {
                     GhosttyDebugHarness.shared.runSurfaceTest()
+                }
+                Button("Test Ghostty SwiftUI Panel (Step 5)") {
+                    GhosttyDebugHarness.shared.runSwiftUIPanelTest()
                 }
             }
             #endif

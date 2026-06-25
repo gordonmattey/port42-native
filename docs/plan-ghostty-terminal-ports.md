@@ -641,7 +641,34 @@ SwiftUI-specific.
 
 ---
 
-### Step 5 — NSViewRepresentable wrapping works inside NSHostingView
+### Step 5 — NSViewRepresentable wrapping works inside NSHostingView ✅ DONE 2026-06-24
+
+> Result: positively verified through the production stack (`GhosttyTerminalView` →
+> `NSHostingView` → `NSPanel`). Renders, types (`tee:swiftui` shows keystrokes flowing),
+> resize reflows, and focus/cursor-blink toggles on window key changes. No crash.
+>
+> **Step 5 architecture (done as part of this step):**
+> - **Extracted `GhosttyApp` (`Services/GhosttyApp.swift`, production `@MainActor` singleton)** —
+>   owns `ghostty_init`, config, the 7 runtime callbacks, the app handle, `ensureApp()`, `tick()`.
+>   **One app, many surfaces.** The debug harness now uses `GhosttyApp.shared` too, so there is a
+>   single process-wide app (never freed) regardless of how many terminals open.
+> - **Promoted `GhosttyInputView` to production** (`Views/GhosttyTerminalView.swift`); was DEBUG-only.
+> - **`GhosttyTerminalView: NSViewRepresentable` + `Coordinator`** — `makeNSView` creates view→surface
+>   (view ptr first, gap #4), installs the tee (delivers via `onTee`; Step 6 wires `TerminalOutputProcessor`),
+>   stashes the surface in the Coordinator. `dismantleNSView` → `Coordinator.teardown()` clears the tee +
+>   nulls the view ref before `ghostty_surface_free`.
+> - **`TerminalPortConfig` introduced now** (Codable) so the view signature doesn't churn in Step 8;
+>   env/hooks fields present but unused until Steps 7–8.
+>
+> **Step 5 findings:**
+> - **Focus must track WINDOW key state, not first-responder.** When a window resigns key the view stays
+>   its first responder, so `resignFirstResponder` never fires → cursor kept blinking on an unfocused
+>   terminal. Fix: observe `NSWindow.didBecomeKey/didResignKeyNotification` on the view's window →
+>   `ghostty_surface_set_focus`. (Mirrors how Ghostty.app itself drives focus.)
+> - **Scale is unknown at `makeNSView`** (view not yet in a window) — set `sc.scale_factor = 2.0` as a
+>   placeholder, then apply the real `backingScaleFactor` in `viewDidMoveToWindow` + `viewDidChangeBackingProperties`.
+> - **NSPanel must take key** (`becomesKeyOnlyIfNeeded = false`) or typing/focus never reach the surface.
+> - **IME / dead keys still deferred** to a later polish step (`NSTextInputClient`); ASCII + special keys work.
 
 **Do:** Wrap Step 4 in `GhosttyTerminalView: NSViewRepresentable`. Place in `NSHostingView`
 inside `NSPanel` — the exact production stack.
