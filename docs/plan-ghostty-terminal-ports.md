@@ -333,7 +333,16 @@ Confirmed from the header + a working harness (`GhosttyDebugHarness.swift`, DEBU
 - **Gap #8 resolved** — `command` is a single `const char*`; `/bin/zsh` with no args works. Pass via `withCString` so it stays valid across the `ghostty_surface_new` call. `io_mode` defaults to `GHOSTTY_SURFACE_IO_EXEC` (Ghostty owns the PTY) — no need to set it.
 - **`NSLog` variadic form is unavailable** in Port42Lib under this SDK — use string interpolation (`NSLog("…\(x)")`), matching the existing Port42Lib convention.
 - **Keyboard input is NOT wired at Step 2** — a bare `NSView` renders and the shell runs, but nothing forwards `keyDown:` → `ghostty_surface_key()`. Typing arrives in Step 4 (NSView subclass) / Step 5 (NSViewRepresentable). Expected, by design.
-- **Harness teardown** frees on window close (`windowWillClose`), surface-before-app. A debug harness may briefly orphan the zsh child on teardown — harmless; the production `NSViewRepresentable` lifecycle (Step 5) handles this.
+- **Ghostty app handle is a process-wide singleton** — create it once (`ghostty_init` → `ghostty_app_new`) and NEVER free it mid-process. It registers global/atexit cleanup with JIT trampolines; calling `ghostty_app_free` while the process keeps running unmaps those pages and `exit()`'s `__cxa_finalize` later jumps into the freed page → crash. The harness now frees only the **surface** on window close; the app singleton lives for the whole process. The production `NSViewRepresentable` (Step 5) must follow the same rule.
+
+### Dev-workflow gotcha — NEVER rebuild over a running instance (cost ~an hour of false crashes)
+
+Several `EXC_BAD_ACCESS / SIGKILL (Code Signature Invalid) / CODESIGNING "Invalid Page"` crashes during Step 2 debugging were **NOT Ghostty bugs** — they were a build-hygiene artifact:
+
+- `build.sh` copies the binary with `cp` (in place, same inode) and then `codesign --force` (rewrites in place). Doing this to a **live** process mutates the file backing its mmap. macOS maps the mach-o lazily; a page touched only later (e.g. a C++ static-mutex destructor at `exit()`, or a not-yet-rendered Ghostty code path) gets paged in *after* the overwrite, its hash no longer matches the signature, and the kernel kills the process with `CODESIGNING Invalid Page`.
+- **Tell-tale:** faulting address is in a **file-backed `__DATA`/`__TEXT` page** (`vmRegionInfo` shows `SM=COW … /Port42`), and the termination namespace is `CODESIGNING`, not `KERN_INVALID_ADDRESS`. A genuine use-after-free looks different.
+- **Distinguish from the real JIT crash (gap #10):** that one faults in **anonymous** executable memory (not in any image) and is fixed by `allow-jit`. This one faults in the **signed binary's own pages** and is fixed by not rebuilding over a running app.
+- **Fix (in `build.sh`):** `pkill -x Port42` before the `cp`/`codesign` packaging step. **For manual testing during these steps, run an immutable copy outside Dropbox** (`cp -R .build/Port42.app /tmp/Port42-test.app && open /tmp/Port42-test.app`) so neither a rebuild nor Dropbox can mutate the bundle mid-run. Confirmed: the `/tmp` copy survives surface-create → window-close → ⌘Q cleanly.
 
 ---
 

@@ -121,6 +121,22 @@ cd "$DIR/gateway"
 GATEWAY_BIN="$DIR/.build/port42-gateway"
 go build -ldflags "-X main.posthogAPIKey=${POSTHOG_API_KEY:-}" -o "$GATEWAY_BIN" .
 
+# Kill any running app + gateway BEFORE we overwrite/re-sign the bundle in place.
+# `cp` and `codesign --force` modify Contents/MacOS/Port42 in place (same inode);
+# doing that to a *live* process corrupts its memory mapping, and the next lazy
+# page-in (e.g. a C++ static destructor at exit) is killed by the kernel with
+# "EXC_BAD_ACCESS / SIGKILL (Code Signature Invalid) / CODESIGNING Invalid Page".
+# We also kill the bundled gateway so the relaunched app gets a fresh one on
+# port 4242 instead of talking to a stale process. This is the single place that
+# owns "clean up before rebuild" — rebuild.sh just delegates here.
+echo "[build] Killing any running Port42 + gateway before rebuild..."
+pkill -x Port42 2>/dev/null || true
+pkill -x port42-gateway 2>/dev/null || true
+for i in {1..10}; do pgrep -x Port42 >/dev/null 2>&1 || break; sleep 0.3; done
+pkill -9 -x Port42 2>/dev/null || true
+pkill -9 -x port42-gateway 2>/dev/null || true
+sleep 0.3
+
 # --- Package the main app ---
 APP="$DIR/.build/Port42.app"
 MACOS="$APP/Contents/MacOS"
@@ -265,8 +281,8 @@ fi
 
 if $RUN; then
     echo "[build] Launching..."
-    # Kill existing instance so macOS doesn't reuse the old binary
-    pkill -x Port42 2>/dev/null && sleep 1
+    # Any prior instance was already killed before packaging (see the kill block
+    # above), so nothing to stop here — just launch the freshly built bundle.
     open "$APP"
 fi
 
