@@ -7,6 +7,22 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Keep the SwiftPM build dir OUTSIDE Dropbox. Dropbox races/evicts files inside
+# .build — that corrupts package resolution AND modifies the running app binary
+# on disk (→ "CODESIGNING Invalid Page" SIGKILLs). So when this project lives
+# under a Dropbox path, .build is a symlink to a local, un-synced directory.
+# Auto-created here so it's never a manual step (and you can see where builds go).
+if [[ "$DIR" == */Dropbox/* ]] && [ ! -L "$DIR/.build" ]; then
+    EXTERNAL_BUILD="$HOME/port42-build"
+    if [ -d "$DIR/.build" ]; then
+        echo "[build] .build is a real dir inside Dropbox — relocating outside Dropbox..."
+        rm -rf "$DIR/.build"
+    fi
+    mkdir -p "$EXTERNAL_BUILD"
+    ln -s "$EXTERNAL_BUILD" "$DIR/.build"
+    echo "[build] Linked .build -> $EXTERNAL_BUILD (outside Dropbox; builds live here, not in the repo)"
+fi
+
 # Load secrets from .env and .secrets if present
 if [ -f "$DIR/.env" ]; then
     set -a; source "$DIR/.env"; set +a
