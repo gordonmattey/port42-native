@@ -67,7 +67,7 @@ ghostty_surface_set_pty_tee_cb(surface, callback, userdata)
 ```c
 ghostty_surface_new(app, &config)   // Ghostty spawns the shell here; NSView must exist first
 ghostty_surface_free(surface)       // call on main actor only
-ghostty_surface_set_size(surface, uint32_t cols, uint32_t rows)
+ghostty_surface_set_size(surface, uint32_t width_px, uint32_t height_px)  // PIXELS, not cols/rows (verified Step 4) — Ghostty derives the grid from cell size
 ghostty_surface_set_content_scale(surface, dx, dy)  // must fire on screen/display change
 ghostty_surface_set_display_id(surface, id)         // hooks CVDisplayLink to correct display
 ```
@@ -397,7 +397,7 @@ Add `GhosttyKit.xcframework` to `.gitignore`.
 - Register surface in `AppState.ghosttyTerminalSurfaces[companionName.lowercased()]` on makeNSView
 - Unregister and call `ghostty_surface_free` in `dismantleNSView`
 - Handle `viewDidChangeBackingProperties` → `ghostty_surface_set_content_scale`
-- Handle frame resize → `ghostty_surface_set_size(surface, UInt32(cols), UInt32(rows))`
+- Handle frame resize → `ghostty_surface_set_size(surface, UInt32(width_px), UInt32(height_px))` — **PIXELS** (points × backingScaleFactor), NOT cols/rows (verified Step 4)
 - Handle `NSWindow.didChangeScreenNotification` → `ghostty_surface_set_display_id`
 
 Config struct (JSON-encoded in `PortPanel.html`):
@@ -600,7 +600,33 @@ bytes-copy-before-return pattern. Eliminates all `<p42>` capture risk at the byt
 
 ---
 
-### Step 4 — Ghostty renders in a real NSPanel (no SwiftUI)
+### Step 4 — Ghostty renders in a real NSPanel (no SwiftUI) ✅ DONE 2026-06-24
+
+> Result: positively verified. A `GhosttyInputView: NSView` subclass (in `GhosttyDebugHarness.swift`)
+> forwards AppKit input to the surface and keeps size/scale/display in sync. The tee stream proved
+> typing reaches the PTY — keystrokes (`echo hello`) echoed back, and **arrow-key history works**
+> (`\u{1B}[A` up-arrow recalled a prior command), confirming the `text=nil → Ghostty synthesizes
+> from keycode+mods via Carbon` path for non-printable keys. Resize reflow confirmed by hand. No crash.
+>
+> **Step 4 findings:**
+> - **`ghostty_surface_set_size` takes PIXELS** (`width_px, height_px`), not cols/rows — the original
+>   plan was wrong. `ghostty_surface_size_s` distinguishes `columns/rows` (u16) from `width_px/height_px`
+>   (u32); `set_size` takes the u32 pair. Pass `points × backingScaleFactor`.
+> - **`keycode` = macOS virtual `event.keyCode`** (u32 in `ghostty_input_key_s`). Ghostty maps it via
+>   the Carbon keymap linked in Step 1 — that Carbon dependency is exactly for this.
+> - **Text policy that works:** provide `key.text` only for printable chars (first scalar ≥ 0x20, not
+>   DEL, not 0xF700–0xF8FF function PUA, not while ⌘ is held); leave `text=nil` otherwise so Ghostty
+>   generates control/nav/arrow sequences itself. IME / dead keys deferred to Step 5 (`NSTextInputClient`).
+> - **mods bitmask:** combine `GHOSTTY_MODS_*.rawValue` and build with `ghostty_input_mods_e(rawValue:)`.
+> - **Focus:** `becomeFirstResponder`/`resignFirstResponder` → `ghostty_surface_set_focus`. Window must
+>   `makeFirstResponder(view)` and the view must return `acceptsFirstResponder = true`, or keys never arrive
+>   (and AppKit beeps — that beep in Steps 2/3 was the *absence* of this, not a bug).
+> - **Retina/multi-monitor (#3) not hardware-verifiable here** (no second display). The `content_scale`
+>   path is wired to `viewDidChangeBackingProperties` — the same callback that set the correct initial
+>   scale — and `set_display_id` to `viewDidMoveToWindow` + `didChangeScreenNotification`. Correct by
+>   construction; re-verify on a HiDPI/multi-display machine before shipping.
+> - **Teardown safety:** null the view's `surface` ref *before* `ghostty_surface_free` so queued AppKit
+>   events (key/resize/mouse) can't call into a freed surface.
 
 **Do:** Standalone debug `NSWindowController` (no SwiftUI). Real `NSView` subview passed to
 surface config. Drive wakeup loop. Show panel.

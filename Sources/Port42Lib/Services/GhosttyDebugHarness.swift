@@ -16,6 +16,146 @@ import GhosttyKit
 // it mid-process unmaps those pages and `exit()`'s __cxa_finalize later jumps
 // into the invalidated page → SIGKILL (Code Signature Invalid). So we free only
 // the *surface* per window; the app is never freed.
+
+// Step 4: NSView subclass that forwards AppKit input to a Ghostty surface and
+// keeps surface pixel-size / content-scale / display-id in sync with the view.
+// No SwiftUI — this is the isolated AppKit host so any Step 5 failure is provably
+// SwiftUI-specific. The surface pointer is injected AFTER ghostty_surface_new
+// (which needs this view's pointer first — gap #4), and nulled on teardown so
+// queued AppKit events can't call into a freed surface.
+@MainActor
+final class GhosttyInputView: NSView {
+    var surface: ghostty_surface_t?
+    private var screenObserver: NSObjectProtocol?
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+
+    // MARK: focus
+    override func becomeFirstResponder() -> Bool {
+        if let s = surface { ghostty_surface_set_focus(s, true) }
+        return super.becomeFirstResponder()
+    }
+    override func resignFirstResponder() -> Bool {
+        if let s = surface { ghostty_surface_set_focus(s, false) }
+        return super.resignFirstResponder()
+    }
+
+    // MARK: size & content scale
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        pushSize()
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        guard let s = surface else { return }
+        let scale = window?.backingScaleFactor ?? 2.0
+        ghostty_surface_set_content_scale(s, scale, scale)
+        pushSize()
+    }
+    func pushSize() {
+        guard let s = surface else { return }
+        let scale = window?.backingScaleFactor ?? 2.0
+        // CORRECTION to plan: ghostty_surface_set_size takes PIXELS (width_px,
+        // height_px), NOT cols/rows. Ghostty derives the grid from cell size.
+        let w = UInt32(max(1, bounds.width * scale))
+        let h = UInt32(max(1, bounds.height * scale))
+        ghostty_surface_set_size(s, w, h)
+    }
+
+    // MARK: display id (HiDPI / multi-monitor → CVDisplayLink on the right display)
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let o = screenObserver { NotificationCenter.default.removeObserver(o); screenObserver = nil }
+        pushDisplayID()
+        if let win = window {
+            screenObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification, object: win, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pushDisplayID() }
+            }
+        }
+    }
+    private func pushDisplayID() {
+        guard let s = surface,
+              let num = window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        else { return }
+        ghostty_surface_set_display_id(s, num.uint32Value)
+    }
+
+    // MARK: keyboard
+    override func keyDown(with event: NSEvent) {
+        sendKey(event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
+    }
+    override func keyUp(with event: NSEvent) {
+        sendKey(event, action: GHOSTTY_ACTION_RELEASE)
+    }
+    private func sendKey(_ event: NSEvent, action: ghostty_input_action_e) {
+        guard let s = surface else { return }
+        var key = ghostty_input_key_s()
+        key.action = action
+        key.mods = Self.mods(from: event.modifierFlags)
+        key.consumed_mods = GHOSTTY_MODS_NONE
+        key.keycode = UInt32(event.keyCode)          // macOS virtual keycode; Ghostty maps via Carbon
+        key.unshifted_codepoint = event.charactersIgnoringModifiers?.unicodeScalars.first?.value ?? 0
+        key.composing = false
+
+        // Provide committed text only for printable input; for control / nav /
+        // function keys leave text null so Ghostty synthesizes the sequence from
+        // keycode+mods. (IME / dead keys deferred to Step 5 NSTextInputClient.)
+        let chars = event.characters ?? ""
+        let printable: Bool = {
+            guard let first = chars.unicodeScalars.first else { return false }
+            if first.value < 0x20 || first.value == 0x7f { return false }   // control / DEL
+            if (0xF700...0xF8FF).contains(first.value) { return false }     // function-key PUA
+            if event.modifierFlags.contains(.command) { return false }     // ⌘ shortcuts
+            return true
+        }()
+        if printable {
+            chars.withCString { cptr in
+                key.text = cptr
+                _ = ghostty_surface_key(s, key)
+            }
+        } else {
+            _ = ghostty_surface_key(s, key)
+        }
+    }
+    static func mods(from flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var m = GHOSTTY_MODS_NONE.rawValue
+        if flags.contains(.shift)    { m |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.control)  { m |= GHOSTTY_MODS_CTRL.rawValue }
+        if flags.contains(.option)   { m |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.command)  { m |= GHOSTTY_MODS_SUPER.rawValue }
+        if flags.contains(.capsLock) { m |= GHOSTTY_MODS_CAPS.rawValue }
+        return ghostty_input_mods_e(rawValue: m)
+    }
+
+    // MARK: mouse (cheap usability; not part of the Step-4 verify list)
+    override func mouseDown(with e: NSEvent)      { mouseButton(e, GHOSTTY_MOUSE_PRESS,   GHOSTTY_MOUSE_LEFT) }
+    override func mouseUp(with e: NSEvent)        { mouseButton(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) }
+    override func rightMouseDown(with e: NSEvent) { mouseButton(e, GHOSTTY_MOUSE_PRESS,   GHOSTTY_MOUSE_RIGHT) }
+    override func rightMouseUp(with e: NSEvent)   { mouseButton(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT) }
+    override func mouseDragged(with e: NSEvent)   { mousePos(e) }
+    private func mouseButton(_ e: NSEvent, _ state: ghostty_input_mouse_state_e, _ btn: ghostty_input_mouse_button_e) {
+        guard let s = surface else { return }
+        mousePos(e)
+        _ = ghostty_surface_mouse_button(s, state, btn, Self.mods(from: e.modifierFlags))
+    }
+    private func mousePos(_ e: NSEvent) {
+        guard let s = surface else { return }
+        let p = convert(e.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(s, Double(p.x), Double(bounds.height - p.y), Self.mods(from: e.modifierFlags))
+    }
+    override func scrollWheel(with e: NSEvent) {
+        guard let s = surface else { return }
+        ghostty_surface_mouse_scroll(s, Double(e.scrollingDeltaX), Double(e.scrollingDeltaY), 0)
+    }
+
+    deinit {
+        if let o = screenObserver { NotificationCenter.default.removeObserver(o) }
+    }
+}
+
 @MainActor
 public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
     public static let shared = GhosttyDebugHarness()
@@ -26,6 +166,7 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
 
     private var surface: ghostty_surface_t?
     private var window: NSWindow?
+    private weak var inputView: GhosttyInputView?   // Step 4: window owns it; we null its surface ref on teardown
     private var tearingDown = false   // gates tick() so no app_tick runs against a freed surface
 
     /// Create the process-wide Ghostty app exactly once; reuse thereafter.
@@ -87,7 +228,7 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
                 backing: .buffered,
                 defer: false
             )
-            w.title = "Ghostty Debug Surface (Step 3) — close to free surface (app stays up)"
+            w.title = "Ghostty Debug Surface (Step 4) — type/resize/retina; close to free surface"
             w.isReleasedWhenClosed = false   // we own the lifetime; avoid AppKit release
             w.delegate = self
             w.center()
@@ -95,10 +236,12 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
         }()
         self.window = win
 
-        // NSView must exist BEFORE surface creation (gap #4). Fresh view per run.
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        // NSView must exist BEFORE surface creation (gap #4). Step 4: input-handling
+        // subclass. Fresh view per run.
+        let view = GhosttyInputView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.wantsLayer = true
         win.contentView = view
+        self.inputView = view
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -120,6 +263,7 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
             return
         }
         self.surface = surface
+        view.surface = surface   // Step 4: now the view can forward input / sync size
         NSLog("[Ghostty] surface created: \(surface)")
 
         // Step 3: install the PTY tee. Fires on Ghostty's IO read thread for every
@@ -135,6 +279,13 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
         }, Unmanaged.passUnretained(self).toOpaque())
 
         ghostty_surface_set_content_scale(surface, scale, scale)
+
+        // Step 4: focus + explicit initial pixel size, then make the view key so
+        // keyDown/keyUp flow to ghostty_surface_key.
+        win.makeFirstResponder(view)
+        ghostty_surface_set_focus(surface, true)
+        view.pushSize()
+
         ghostty_app_tick(app)  // initial pump so the shell starts producing IO
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
@@ -169,6 +320,7 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
         let shellPid = pid_t(truncatingIfNeeded: ghostty_surface_foreground_pid(s))
         tearingDown = true
         surface = nil
+        inputView?.surface = nil   // Step 4: stop AppKit events reaching the surface being freed
         ghostty_surface_free(s)
         tearingDown = false
         NSLog("[Ghostty] surface freed (window hidden); app singleton kept alive. Shell pid was \(shellPid).")
