@@ -319,6 +319,22 @@ These must be resolved during implementation — they are not assumptions that c
 
 9. **`<p42>` during warmup** — `TerminalOutputProcessor` discards all output until first prompt. Tags emitted before warmup completes are silently lost. `extractP42Tags` must also run on the raw buffer path during warmup, bypassing the discard for tag extraction only.
 
+10. **JIT / executable-memory entitlement (Apple Silicon) — REQUIRED, discovered Step 2.** GhosttyKit allocates **anonymous executable memory at runtime** (GPU/font path, hit the moment a surface renders — NOT during the lightweight `ghostty_info()` probe). On Apple Silicon the kernel kills the process with `EXC_BAD_ACCESS / SIGKILL (Code Signature Invalid)`, namespace `CODESIGNING`, "Invalid Page" — the faulting PC sits in anonymous memory just past the app image. ✅ RESOLVED: added `com.apple.security.cs.allow-jit` + `com.apple.security.cs.allow-unsigned-executable-memory` to **all three** entitlement files (`Port42.dev.entitlements`, `Port42.entitlements`, `Port42.release.entitlements`). Mirrors what the upstream Ghostty.app ships with; notarization permits them. This applies to **every** build config — debug (took effect even with hardened runtime off, `flags=0x0`) and the future notarized release.
+
+---
+
+## Step 2 findings (verified 2026-06-24)
+
+Confirmed from the header + a working harness (`GhosttyDebugHarness.swift`, DEBUG-only menu "Ghostty Debug → Test Ghostty Surface"):
+
+- **Init sequence that works:** `ghostty_init(0, nil)` (once/process) → `ghostty_config_new()` + `ghostty_config_finalize()` → fill `ghostty_runtime_config_s` (all 7 callbacks) → `ghostty_app_new(&rt, cfg)` → create `NSView` → `ghostty_surface_config_new()` + set `platform_tag`/`nsview`/`scale_factor`/`command` → `ghostty_surface_new(app, &sc)` → `ghostty_surface_set_content_scale` → `ghostty_app_tick`.
+- **Gap #3 resolved** — the 7 mandatory callbacks: `wakeup_cb` (drives `ghostty_app_tick` on main via `DispatchQueue.main.async`), `action_cb`→false, `read_clipboard_cb`→false, `confirm_read_clipboard_cb`/`write_clipboard_cb`/`close_surface_cb`/`tmux_control_cb` no-op. `userdata` = `Unmanaged.passUnretained(harness).toOpaque()` so the C callback can reach the app handle.
+- **Gap #4 resolved** — NSView created before `ghostty_surface_new`; pass `Unmanaged.passUnretained(view).toOpaque()` into `sc.platform.macos.nsview`.
+- **Gap #8 resolved** — `command` is a single `const char*`; `/bin/zsh` with no args works. Pass via `withCString` so it stays valid across the `ghostty_surface_new` call. `io_mode` defaults to `GHOSTTY_SURFACE_IO_EXEC` (Ghostty owns the PTY) — no need to set it.
+- **`NSLog` variadic form is unavailable** in Port42Lib under this SDK — use string interpolation (`NSLog("…\(x)")`), matching the existing Port42Lib convention.
+- **Keyboard input is NOT wired at Step 2** — a bare `NSView` renders and the shell runs, but nothing forwards `keyDown:` → `ghostty_surface_key()`. Typing arrives in Step 4 (NSView subclass) / Step 5 (NSViewRepresentable). Expected, by design.
+- **Harness teardown** frees on window close (`windowWillClose`), surface-before-app. A debug harness may briefly orphan the zsh child on teardown — harmless; the production `NSViewRepresentable` lifecycle (Step 5) handles this.
+
 ---
 
 ## File-by-File Changes
@@ -503,7 +519,13 @@ bridging, build system conflicts. Nothing else can proceed until this is green.
 
 ---
 
-### Step 2 — App + surface create without crash
+### Step 2 — App + surface create without crash ✅ DONE 2026-06-24
+
+> Result: window opens, `/bin/zsh` renders with a live prompt, `process_exited=false`,
+> clean teardown on window close, no crash. The one real blocker was the **JIT entitlement**
+> (gap #10) — without it Apple Silicon SIGKILLs the process the moment the surface renders.
+> See "Step 2 findings" above. (Harness changed from a 1s auto-free to staying open until the
+> window is closed, so success is visually unambiguous.)
 
 **Do:** Behind `#if DEBUG`, add a menu item "Test Ghostty Surface": create
 `ghostty_runtime_config_s` with stubbed callbacks (wakeup calls `ghostty_app_tick`, others

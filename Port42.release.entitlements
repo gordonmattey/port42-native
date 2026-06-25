@@ -10,5 +10,12 @@
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<!-- GhosttyKit allocates executable memory at runtime (GPU/font stack);
+	     Apple Silicon kills the process without these. Matches Ghostty.app.
+	     Notarization permits these (Ghostty ships notarized with allow-jit). -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
 </dict>
 </plist>

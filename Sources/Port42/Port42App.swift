@@ -209,6 +209,14 @@ struct Port42App: App {
                 }
                 .keyboardShortcut("/", modifiers: .command)
             }
+
+            #if DEBUG
+            CommandMenu("Ghostty Debug") {
+                Button("Test Ghostty Surface") {
+                    GhosttyDebugHarness.shared.runSurfaceTest()
+                }
+            }
+            #endif
         }
     }
 }
