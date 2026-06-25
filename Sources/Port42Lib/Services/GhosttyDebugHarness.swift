@@ -28,6 +28,10 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     // Step 6: tee → TerminalOutputProcessor → <p42> extraction (retain it)
     private var outputProcessor: TerminalOutputProcessor?
+    // Step 7: hooks receiver + per-session bootstrap (retain so they outlive the panel)
+    private var hooksService: TerminalHooksService?
+    private var hookSession: TerminalHookSession?
+    private var hooksTask: Task<Void, Never>?
 
     // MARK: Steps 2–4 — bare AppKit surface
     public func runSurfaceTest() {
@@ -144,6 +148,70 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
         NSLog("[Ghostty] Step 5 SwiftUI panel shown")
     }
 
+    // MARK: Step 7 — hooks: env injection + shim + Stop→turnComplete over a socket
+    public func runHooksTest() {
+        if let panel { panel.makeKeyAndOrderFront(nil); return }
+
+        // Assemble the per-session environment (shim PATH, hooks socket, real-claude path,
+        // space identity, CLI OAuth token from the secrets store).
+        // Distinct values so `printenv | grep PORT42` clearly shows two SEPARATE variables.
+        let sessionId = UUID().uuidString
+        let session = TerminalSessionBootstrap.make(
+            sessionId: sessionId,
+            spaceId: "debug-space-\(sessionId.prefix(8))",
+            spaceName: "Debug Space"
+        )
+        self.hookSession = session
+        NSLog("[hooks] session vars=\(session.env.keys.sorted()) socket=\(session.socketPath) shim=\(TerminalSessionBootstrap.bundledShimPath() ?? "nil")")
+
+        // General receiver: decode normalized events, log turnComplete (Step 7 wires only it).
+        let hooks = TerminalHooksService(socketPath: session.socketPath)
+        self.hooksService = hooks
+        self.hooksTask = Task {
+            for await event in await hooks.events() {
+                switch event {
+                case .turnComplete(let text, let code):
+                    NSLog("[hooks] ✅ turnComplete (exit=\(code)) text=\(text.debugDescription)")
+                default:
+                    NSLog("[hooks] event=\(event)")
+                }
+            }
+        }
+
+        // Keep the Step 6 <p42> fallback path live too (harmless here).
+        let processor = TerminalOutputProcessor { _ in }
+        processor.onP42Output = { tags in NSLog("[p42:TAGS] \(tags)") }
+        self.outputProcessor = processor
+
+        let cfg = TerminalPortConfig(
+            command: "/bin/zsh", args: [], cwd: NSHomeDirectory(),
+            spaceId: "debug", spaceName: "debug", companionName: "step7", createdBy: "debug"
+        )
+        let root = GhosttyTerminalView(config: cfg, env: session.env) { str in
+            processor.receive(str)
+        }
+        let hosting = NSHostingView(rootView: root)
+        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 520)
+
+        let p = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 520),
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
+            backing: .buffered, defer: false
+        )
+        p.title = "Ghostty Step 7 — hooks (run: claude -p \"say the word banana\")"
+        p.isReleasedWhenClosed = false
+        p.isFloatingPanel = true
+        p.hidesOnDeactivate = false
+        p.becomesKeyOnlyIfNeeded = false
+        p.delegate = self
+        p.contentView = hosting
+        p.center()
+        self.panel = p
+        p.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        NSLog("[hooks] Step 7 panel shown. In the terminal: `printenv | grep PORT42`, then `claude -p \"say the word banana\"`.")
+    }
+
     // MARK: teardown (bare-AppKit path)
     public func windowShouldClose(_ sender: NSWindow) -> Bool {
         // The SwiftUI panel frees its surface via dismantleNSView on dealloc; just
@@ -152,6 +220,12 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
             sender.orderOut(nil)
             self.panel = nil   // drop ref → SwiftUI tears down the representable → surface freed
             self.outputProcessor = nil
+            // Step 7 teardown: stop the socket listener, cancel the observer, remove temp dir.
+            if let hooks = hooksService { Task { await hooks.stop() } }
+            hooksService = nil
+            hooksTask?.cancel(); hooksTask = nil
+            if let dir = hookSession?.tempDir { TerminalSessionBootstrap.cleanup(tempDir: dir) }
+            hookSession = nil
             return false
         }
         teardownSurface()

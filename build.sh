@@ -137,6 +137,13 @@ cd "$DIR/gateway"
 GATEWAY_BIN="$DIR/.build/port42-gateway"
 go build -ldflags "-X main.posthogAPIKey=${POSTHOG_API_KEY:-}" -o "$GATEWAY_BIN" .
 
+# port42-claude-shim — standalone Go module (sibling of gateway/). PATH shim + hook
+# notifier for the `claude` CLI in native Ghostty terminals (Step 7). Bundled in MacOS/.
+echo "[build] Go shim (port42-claude-shim)..."
+cd "$DIR/shim"
+SHIM_BIN="$DIR/.build/port42-claude-shim"
+go build -o "$SHIM_BIN" .
+
 # Kill any running app + gateway BEFORE we overwrite/re-sign the bundle in place.
 # `cp` and `codesign --force` modify Contents/MacOS/Port42 in place (same inode);
 # doing that to a *live* process corrupts its memory mapping, and the next lazy
@@ -167,6 +174,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/Port42"
 cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
+cp "$SHIM_BIN" "$MACOS/port42-claude-shim"
 
 # Add rpath so the binary can find frameworks in Contents/Frameworks/
 install_name_tool -add_rpath "@loader_path/../Frameworks" "$MACOS/Port42" 2>/dev/null || true
@@ -202,6 +210,7 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     # Release: hardened runtime + timestamp + embedded profile
     [ -f "$RELEASE_PROFILE" ] && cp "$RELEASE_PROFILE" "$APP/Contents/embedded.provisionprofile"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-gateway"
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-claude-shim"
     # Sign Sparkle framework and all nested components (inside-out)
     if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
         SPARKLE_ENT="$DIR/Sparkle.entitlements"
@@ -319,6 +328,7 @@ if $PEER; then
     cp "$DIR/.build/$CONFIG/Port42" "$PEER_MACOS/Port42-Peer"
     install_name_tool -add_rpath "@loader_path/../Frameworks" "$PEER_MACOS/Port42-Peer" 2>/dev/null || true
     cp "$GATEWAY_BIN" "$PEER_MACOS/port42-gateway"
+    cp "$SHIM_BIN" "$PEER_MACOS/port42-claude-shim"
     cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$PEER_RESOURCES/AppIcon.icns"
     for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
         [ -d "$bundle" ] && cp -R "$bundle" "$PEER_RESOURCES/"

@@ -218,6 +218,9 @@ struct Port42App: App {
                 Button("Test Ghostty SwiftUI Panel (Step 5)") {
                     GhosttyDebugHarness.shared.runSwiftUIPanelTest()
                 }
+                Button("Test Ghostty Hooks (Step 7)") {
+                    GhosttyDebugHarness.shared.runHooksTest()
+                }
             }
             #endif
         }

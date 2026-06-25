@@ -103,8 +103,43 @@ final class GhosttyInputView: NSView {
 
     // MARK: keyboard
     override func keyDown(with event: NSEvent) {
+        // ⌘V / ⌘C (no other modifiers) → clipboard, not a key to the PTY. Ghostty's
+        // own clipboard callbacks are stubbed off, so we drive the pasteboard directly.
+        let f = event.modifierFlags
+        if f.contains(.command), !f.contains(.control), !f.contains(.option) {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "v": pasteFromClipboard(); return
+            case "c": if copySelectionToClipboard() { return }   // no selection → fall through
+            default: break
+            }
+        }
         sendKey(event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
     }
+
+    // MARK: clipboard
+    private func pasteFromClipboard() {
+        guard let s = surface,
+              let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
+        // ghostty_surface_text = bracketed-paste delivery (vs. text_input keystrokes).
+        str.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
+    }
+    @discardableResult
+    private func copySelectionToClipboard() -> Bool {
+        guard let s = surface, ghostty_surface_has_selection(s) else { return false }
+        var t = ghostty_text_s()
+        guard ghostty_surface_read_selection(s, &t) else { return false }
+        defer { ghostty_surface_free_text(s, &t) }
+        guard let ptr = t.text, t.text_len > 0 else { return false }
+        let str = String(decoding: Data(bytes: ptr, count: Int(t.text_len)), as: UTF8.self)
+        guard !str.isEmpty else { return false }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(str, forType: .string)
+        return true
+    }
+    // Standard responder actions so the Edit menu's ⌘V/⌘C (handled before keyDown
+    // when an Edit menu exists) also reach us.
+    @objc func paste(_ sender: Any?) { pasteFromClipboard() }
+    @objc func copy(_ sender: Any?) { copySelectionToClipboard() }
     override func keyUp(with event: NSEvent) {
         sendKey(event, action: GHOSTTY_ACTION_RELEASE)
     }
@@ -180,6 +215,10 @@ final class GhosttyInputView: NSView {
 // `onTee`; wiring into TerminalOutputProcessor is Step 6.
 struct GhosttyTerminalView: NSViewRepresentable {
     let config: TerminalPortConfig
+    // Extra environment injected into the surface's shell at spawn (Step 7): hooks socket,
+    // shim PATH, real-claude path, space identity, CLI OAuth token. Assembled by the caller
+    // (TerminalSessionBootstrap); the view just applies it to env_vars.
+    var env: [String: String] = [:]
     var onTee: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(onTee: onTee) }
@@ -200,12 +239,32 @@ struct GhosttyTerminalView: NSViewRepresentable {
         sc.platform.macos.nsview = Unmanaged.passUnretained(view).toOpaque()
         sc.scale_factor = 2.0
 
+        // Build the env_vars C array. Both `command` and the env strings must stay valid
+        // across ghostty_surface_new (Ghostty copies them internally during the call), so we
+        // strdup the env strings, hold a stable pointer to the array, and free after.
+        var cStrings: [UnsafeMutablePointer<CChar>] = []
+        func dup(_ s: String) -> UnsafePointer<CChar>? {
+            guard let p = strdup(s) else { return nil }
+            cStrings.append(p)
+            return UnsafePointer(p)
+        }
+        var envVars: [ghostty_env_var_s] = env.map { key, value in
+            ghostty_env_var_s(key: dup(key), value: dup(value))
+        }
+
         // `command` is a single const char*; keep it valid across the call via
         // withCString (gap #8). args passing is Step 8.
         let surface: ghostty_surface_t? = config.command.withCString { cmd in
             sc.command = cmd
-            return ghostty_surface_new(app, &sc)
+            return envVars.withUnsafeMutableBufferPointer { buf -> ghostty_surface_t? in
+                if let base = buf.baseAddress, !buf.isEmpty {
+                    sc.env_vars = base
+                    sc.env_var_count = buf.count
+                }
+                return ghostty_surface_new(app, &sc)
+            }
         }
+        cStrings.forEach { free($0) }
         guard let surface else {
             NSLog("[Ghostty] makeNSView: ghostty_surface_new returned nil")
             return view

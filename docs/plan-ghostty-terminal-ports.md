@@ -718,7 +718,80 @@ corrupt tag extraction. Warmup bypass works. Fragmentation-safe.
 
 ---
 
-### Step 7 — Hooks shim injects into `claude`, `Stop` event received
+### Step 7 design decisions (resolved 2026-06-25, before implementation)
+
+Two plan errors found by verifying Claude Code hook behavior against current docs
+(claude-code-guide), plus an auth correction from the project owner. These OVERRIDE the
+original Step 7 text below where they conflict:
+
+1. **The `Stop` hook carries NO response text.** Its stdin payload is only
+   `session_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`,
+   `stop_hook_active`, `effort`. To get the assistant's reply you MUST read
+   `transcript_path` (a JSONL file) and take the last `assistant` entry's text blocks
+   (`message.content[].text`). The "transcript parser is deferred / Stop delivers text"
+   claim elsewhere in this doc is wrong — a minimal last-assistant-text parse is REQUIRED
+   in Step 7. (Richer parsing still deferred.)
+
+2. **The pinned `nc -U` notifier and the `--settings` JSON shape were both wrong.**
+   - Correct Stop registration is nested under a matcher object, not a flat array:
+     ```json
+     {"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"<cmd>"}]}]}}
+     ```
+   - A bare `read -r … | nc -U` can neither read the transcript nor translate events.
+     **Decision: `port42-claude-shim` IS the notifier.** Registered command is
+     `'<abs shim path>' notify turnComplete`. Invoked that way the shim reads Claude's
+     compact-JSON stdin (single line — `read`-safe), parses the transcript for
+     `turnComplete`, and writes **Port42 normalized JSON** to `$PORT42_HOOKS_SOCKET`.
+     `TerminalHooksService` therefore stays fully Claude-agnostic (matches the plan's
+     stated design intent).
+
+3. **Auth = OAuth token from the SECRETS STORE, not `ANTHROPIC_API_KEY`, not the LLM
+   resolver.** `AgentAuthResolver.resolve()` returns an API key tied to the in-app LLM
+   subscription connection — the wrong credential for the `claude` CLI. Instead read a
+   named secret via `AgentAuthResolver.shared.loadSecretValue(name: "CLAUDE_CODE_OAUTH_TOKEN")`
+   and inject it as env `CLAUDE_CODE_OAUTH_TOKEN` (Claude Code's documented headless-auth
+   var; accepts `sk-ant-oat01-` tokens). If the secret is absent, inject nothing — the CLI
+   falls back to its own login (same as the old xterm path, which injected no token at all).
+   **Populating that secret is a setup concern, out of Step 7 scope.**
+
+4. **Socket path lives in `/tmp`** (`/tmp/port42-shim-<id>/h.sock`), NOT
+   `~/Library/Application Support/Port42/…` — the latter risks exceeding the 104-char
+   `sockaddr_un.sun_path` limit. Co-located with the per-session shim temp dir for unified
+   cleanup.
+
+5. **Env + hooks service are owned by the CALLER** (debug harness in Step 7, `AppState` in
+   Step 8), not by `GhosttyTerminalView`. The view just gains an `env: [String:String]`
+   param it applies to `env_vars`. Keeps the view dumb and matches Step 8 wiring. (Minor
+   deviation from "the view creates the service".)
+
+6. **Scope:** the full `TerminalHookEvent` enum + normalized JSON protocol are defined now
+   (so Steps 8/9 don't churn the wire format), but only `Stop → turnComplete` is *wired/
+   registered* in Step 7. Ghostty's default login shell is used (no forced `-l`).
+
+### Step 7 — Hooks shim injects into `claude`, `Stop` event received ✅ MECHANISM DONE 2026-06-25
+
+> Result: full chain verified — `[hooks] ✅ turnComplete (exit=0) text="banana"`. Env injection
+> (`PORT42_HOOKS_SOCKET`/`PORT42_CLAUDE_PATH`/`PORT42_SPACE_ID`/`PORT42_SPACE_NAME` +
+> `CLAUDE_CODE_OAUTH_TOKEN` from the secrets store) → shim injects `--settings` → Claude `Stop`
+> hook → `port42-claude-shim notify turnComplete` → transcript parse → Unix socket →
+> `TerminalHooksService` → `turnComplete("banana")`. Paste/copy (⌘V/⌘C) also wired.
+>
+> **Step 7 findings:**
+> - **Read-after-write race on the transcript.** The `Stop` hook fires a few ms before the final
+>   assistant message is flushed to the transcript JSONL, so the first read returned `text=""`.
+>   Fixed: `lastAssistantTextWithRetry` polls (20 × 50 ms) until non-empty. Verified: empty → "banana".
+> - **Paste/copy were dead** (Ghostty clipboard callbacks are stubbed off). Wired ⌘V →
+>   `ghostty_surface_text` (bracketed paste) and ⌘C → `ghostty_surface_read_selection`, plus the
+>   standard `paste(_:)`/`copy(_:)` responder actions, directly in `GhosttyInputView`.
+> - **OAuth token IS injected** when the `claude-oauth` secret exists in `Port42AuthStore`
+>   (`CLAUDE_CODE_OAUTH_TOKEN`). `printenv | grep PORT42` hides it (name has no "PORT42").
+>
+> **⚠️ OPEN ISSUE — PATH priority (must fix before Step 8's real companion flow):** typing `claude`
+> resolves to `~/.local/bin/claude`, NOT our shim, because the interactive shell's startup
+> (`.zshrc` / cmux) re-prepends its own dirs *after* our injected `PATH`. The mechanism was proven
+> by invoking the shim via absolute path (`"$(dirname "$PORT42_HOOKS_SOCKET")/claude"`). Step 8
+> needs `claude`-by-name to hit the shim — candidate fixes: `ZDOTDIR` re-prepend wrapper, or
+> inject hooks via a settings file instead of a PATH shim (needs a Claude Code docs check).
 
 **Do:**
 1. Write `port42-claude-shim` Go binary: detects invocation as `claude`, reads
@@ -732,17 +805,15 @@ corrupt tag extraction. Warmup bypass works. Fragmentation-safe.
    - `PORT42_CLAUDE_PATH` = `ClaudeCodeSetup.findBinary("claude")` resolved at spawn time
    - `PORT42_SPACE_ID` = `config.spaceId`
    - `PORT42_SPACE_NAME` = `config.spaceName`
-   - `ANTHROPIC_API_KEY` injected from keychain if present
+   - `CLAUDE_CODE_OAUTH_TOKEN` = `AgentAuthResolver.shared.loadSecretValue(name: "CLAUDE_CODE_OAUTH_TOKEN")` if the secret exists (see decision #3 — NOT `ANTHROPIC_API_KEY`, NOT the LLM resolver)
    Create `TerminalHooksService`, pass env to surface env_vars.
 4. Subscribe to `TerminalHookEvent.turnComplete` → `print` the response text.
 
-**Notifier command (pin before implementing):** The command Claude runs when a hook fires
-is an inline shell one-liner written into the `--settings` JSON by the shim:
-```sh
-read -r payload; printf '%s' "$payload" | nc -U "$PORT42_HOOKS_SOCKET"
-```
-`nc -U` writes stdin to the Unix domain socket and exits. This is portable on macOS (no
-extra binary needed). The shim encodes this as the `command` value for each hook type.
+**Notifier command (SUPERSEDED — see "Step 7 design decisions" above):** the original
+`read -r … | nc -U` one-liner cannot read the transcript (needed for the Stop text) or
+translate to Port42's normalized vocabulary. Replaced by **the shim as notifier**: the
+registered `command` is `'<abs shim path>' notify turnComplete`, and the shim writes
+normalized JSON to `$PORT42_HOOKS_SOCKET` itself. No `nc`/`jq` shell dependency.
 
 **Verify:** In the live Ghostty terminal, run `claude -p "say the word banana"`. Log shows:
 - Shim detected `PORT42_CLAUDE_PATH` and exec'd it (add a shim log line for this)
@@ -797,6 +868,34 @@ for SwiftUI dealloc. Add Ghostty lookup in `routeMentionsToTerminals`.
 still works.
 
 **Risk eliminated:** Regression in user-built web ports. Dead code removed cleanly.
+
+---
+
+### Step 11 — Setup: provision the `claude` CLI OAuth token (credential handling)
+
+**Context:** native terminals inject `CLAUDE_CODE_OAUTH_TOKEN` from a secrets-store entry
+named **`claude-oauth`** (`TerminalSessionBootstrap.claudeOAuthSecretName`); the value is the
+CLI's OAuth token (`sk-ant-oat01-…`). This is intentionally NOT the in-app LLM credential
+(`AgentAuthResolver.resolve()` returns an API key for a different connection). Until the
+`claude-oauth` secret exists, native terminals fall back to the user's own `claude` login (or
+fail if there is none). Step 7's verification relies on the secret being created **manually**.
+This step makes acquisition first-class in setup instead of a hand keychain edit.
+
+**Do:**
+- In the setup / auth flow, add a path to capture a Claude Code OAuth token — run
+  `claude setup-token` (already wrapped by `ClaudeCodeSetup`) or accept a pasted
+  `sk-ant-oat01-…` token — and store it via
+  `Port42AuthStore.shared.saveSecret(name: TerminalSessionBootstrap.claudeOAuthSecretName, type: .bearerToken, value: token)`.
+- Surface presence/absence in the companion / auth UI so the user knows native terminals are
+  auth-wired (distinct from the in-app LLM key indicator).
+- Keep the secret name and env-var name decoupled and centralized on the
+  `claudeOAuthSecretName` constant so the bootstrap and setup never drift.
+
+**Verify:** with no prior standalone `claude` login, after setup stores the token a fresh
+native terminal runs `claude -p …` with no auth prompt and `turnComplete` posts to the space.
+
+**Why last:** the terminal + hooks plumbing (Steps 7–10) already works with a manually stored
+secret; setup polish is the final integration, not a blocker for the earlier steps.
 
 ---
 
