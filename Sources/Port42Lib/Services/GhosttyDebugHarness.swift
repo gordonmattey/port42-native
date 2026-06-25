@@ -2,12 +2,13 @@
 import AppKit
 import GhosttyKit
 
-// Step 2 harness: create a Ghostty app + surface around a bare NSView, spawn
+// Step 2/3 harness: create a Ghostty app + surface around a bare NSView, spawn
 // /bin/zsh, confirm the shell is alive. De-risks the mandatory-callback wiring
 // (gap #3), the app_new/surface_new ABI, struct layouts, NSView-before-surface
 // ordering (gap #4), and the single-string `command` format (gap #8).
-// Intentionally minimal: no tee callback (Step 3), no resize/retina/focus
-// handling (Step 4), no SwiftUI wrapping (Step 5).
+// Step 3 adds the PTY tee callback to prove the cmux fork's pty_tee_cb exists and
+// that bytes can be copied off the IO thread (gap #5). Still minimal: no
+// resize/retina/focus handling (Step 4), no SwiftUI wrapping (Step 5).
 //
 // IMPORTANT lifecycle rule (learned the hard way): the Ghostty *app* handle is a
 // process-wide singleton that registers global/atexit cleanup (with JIT
@@ -86,7 +87,7 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
                 backing: .buffered,
                 defer: false
             )
-            w.title = "Ghostty Debug Surface (Step 2) — close to free surface (app stays up)"
+            w.title = "Ghostty Debug Surface (Step 3) — close to free surface (app stays up)"
             w.isReleasedWhenClosed = false   // we own the lifetime; avoid AppKit release
             w.delegate = self
             w.center()
@@ -120,6 +121,18 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
         }
         self.surface = surface
         NSLog("[Ghostty] surface created: \(surface)")
+
+        // Step 3: install the PTY tee. Fires on Ghostty's IO read thread for every
+        // byte slice BEFORE the VT parser. The bytes pointer is valid ONLY during
+        // the call (gap #5) — copy synchronously, then hand off to main. Never touch
+        // MainActor state inline on the IO thread. debugDescription so CR/LF/ANSI
+        // escapes are visible (proves bytes are intact + fragmentation is observable).
+        ghostty_surface_set_pty_tee_cb(surface, { _, bytes, len in
+            guard let bytes, len > 0 else { return }
+            let copied = Data(bytes: UnsafeRawPointer(bytes), count: Int(len))
+            let str = String(decoding: copied, as: UTF8.self)
+            Task { @MainActor in NSLog("[tee] \(str.debugDescription)") }
+        }, Unmanaged.passUnretained(self).toOpaque())
 
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_app_tick(app)  // initial pump so the shell starts producing IO

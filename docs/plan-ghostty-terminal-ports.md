@@ -344,6 +344,24 @@ Several `EXC_BAD_ACCESS / SIGKILL (Code Signature Invalid) / CODESIGNING "Invali
 - **Distinguish from the real JIT crash (gap #10):** that one faults in **anonymous** executable memory (not in any image) and is fixed by `allow-jit`. This one faults in the **signed binary's own pages** and is fixed by not rebuilding over a running app.
 - **Fix (in `build.sh`):** `pkill -x Port42` before the `cp`/`codesign` packaging step. **For manual testing during these steps, run an immutable copy outside Dropbox** (`cp -R .build/Port42.app /tmp/Port42-test.app && open /tmp/Port42-test.app`) so neither a rebuild nor Dropbox can mutate the bundle mid-run. Confirmed: the `/tmp` copy survives surface-create → window-close → ⌘Q cleanly.
 
+### Dev-workflow gotcha — how to read the verification logs (cost ~an hour of chasing the wrong log window in Step 3)
+
+The running Port42 instance is a **live dev environment**: it restores ~28 port panels on launch, including a `port42-dev` CLI terminal companion that is itself running a **Claude Code TUI** (this is often the very session driving the build). Two consequences pollute the logs and made Step 3's `[Ghostty]`/`[tee]` evidence nearly impossible to find:
+
+- **Legacy xterm port floods the log.** `cli-terminal.html` (the path Step 10 deletes) calls `log()` on *every* PTY output chunk (`[Port42:port:log] [p42-terminal:…] chunk #N …` and `extractTaggedContent text[0..200]…`). A static shell logs almost nothing, but an **animated agent TUI repaints several times/sec** → hundreds of lines/second, each a snapshot of the screen (often the build conversation echoed back). **Do not close this panel to quiet it — it may be the session you are working in.** Filter it instead.
+- **`[sync]` presence spam.** The WebSocket sync layer logs continuous online/offline presence churn.
+
+**Process logs like this:**
+1. **Capture each run's stderr to a uniquely-named file** (e.g. `p3.log`, `p4.log`) and **read by PID** — launch races (`pkill; sleep 1; launch &` plus SwiftUI reopen) routinely produce 2+ instances writing the same file. Confirm which PID wrote the probe line and follow that PID only.
+2. **Filter the noise on read** to get the real app lifecycle:
+   ```bash
+   grep -vE 'p42-terminal|\[sync\]' run.log | grep -E '\[Ghostty\]|\[tee\]|GhosttyKit probe'
+   ```
+3. **Beware buffering:** stderr→file is block-buffered, but the companion/sync spam flushes it constantly, so freshly-written `[Ghostty]` lines do appear — if they're genuinely absent, the harness didn't run (don't assume buffering).
+4. **NSLog does not reach `log show`** for this app under `get-task-allow` debug builds — it goes to stderr only. The unified log is a dead end; always redirect stderr to a file.
+
+> Step 3 lesson: the `[Ghostty] app created`, `surface created`, and `[tee] "Last login: …\r\n"` lines were present the whole time — buried under thousands of `p42-terminal` redraw lines from an accidentally-launched second session. Filter first, then conclude.
+
 ---
 
 ## File-by-File Changes
