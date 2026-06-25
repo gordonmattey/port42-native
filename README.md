@@ -596,6 +596,22 @@ Requires macOS 14+, Swift 6, and Go 1.21+.
 
 Always use `./build.sh`, not raw `swift build` or `go build`.
 
+### Build directory (`.build`)
+
+Build artifacts do **not** live in the repo folder. `.build` is a **symlink** to
+`~/port42-build`, and `build.sh` creates it automatically on first run.
+
+This is deliberate: if the project is checked out inside a **Dropbox** (or other
+cloud-synced) folder, the sync client races and evicts files inside `.build`. That
+corrupts SwiftPM package resolution **and** mutates the running app binary on disk,
+which the kernel kills with `EXC_BAD_ACCESS / SIGKILL (Code Signature Invalid) /
+CODESIGNING "Invalid Page"`. Keeping the build dir outside the synced tree avoids
+the whole class of problem. `ls -la .build` shows the arrow to where builds actually
+live. No manual setup needed — `build.sh` handles it (existing symlinks are respected).
+
+Related: `build.sh` also kills any running `Port42` + gateway before repackaging, so it
+never overwrites a live app bundle in place (same CODESIGNING failure mode).
+
 ## Contributing
 
 Bug fixes and small improvements: just open a PR. New features and major changes require a [Port42 Proposal (P42P)](CONTRIBUTING.md) before any code is written.
