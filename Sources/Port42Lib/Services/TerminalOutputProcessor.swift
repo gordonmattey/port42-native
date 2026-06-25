@@ -16,6 +16,12 @@ final class TerminalOutputProcessor {
     private var warmingUp = true  // discard startup dump until first prompt
     private let onFlush: @MainActor (String) -> Void
 
+    /// Fires with every `<p42>…</p42>` payload found in the raw stream. Independent
+    /// of `onFlush` and of the `lastPosted` dedup — each emitted tag is delivered.
+    /// Runs even during warmup (gap #9), so tags emitted before the first prompt
+    /// are not lost to the startup discard.
+    var onP42Output: (([String]) -> Void)?
+
     init(onFlush: @escaping @MainActor (String) -> Void) {
         self.onFlush = onFlush
     }
@@ -25,7 +31,9 @@ final class TerminalOutputProcessor {
         // Prompt detection: flush immediately when CLI tool returns to its ready state
         if TerminalOutputProcessor.endsWithPrompt(buffer) {
             if warmingUp {
-                // First prompt = startup complete. Discard startup dump, start listening.
+                // First prompt = startup complete. Extract any <p42> tags emitted
+                // during startup BEFORE discarding (gap #9), then discard the dump.
+                emitP42Tags(in: buffer)
                 warmingUp = false
                 buffer = ""
                 flushTimer?.invalidate()
@@ -52,6 +60,10 @@ final class TerminalOutputProcessor {
             return
         }
 
+        // Extract <p42> tags from the raw buffer BEFORE collapse/dedup — both would
+        // shred or drop tags. Independent of the onFlush signal path below.
+        emitP42Tags(in: buffer)
+
         let cleaned = TerminalOutputProcessor.stripANSI(buffer)
         buffer = ""
 
@@ -68,7 +80,29 @@ final class TerminalOutputProcessor {
         onFlush(content)
     }
 
+    private func emitP42Tags(in raw: String) {
+        let tags = TerminalOutputProcessor.extractP42Tags(from: raw)
+        if !tags.isEmpty { onP42Output?(tags) }
+    }
+
     // MARK: - Static processing
+
+    /// Extract the inner text of every `<p42>…</p42>` block in the stream.
+    /// ANSI-stripped first so color codes / CR around the tag don't break the match.
+    /// `[\s\S]*?` spans newlines (terminal-wrapped payloads). Tolerates a stray `\`
+    /// before the closing slash, matching the legacy xterm extractor.
+    static func extractP42Tags(from text: String) -> [String] {
+        let stripped = stripANSI(text)
+        guard let regex = try? NSRegularExpression(
+            pattern: "<p42>([\\s\\S]*?)<\\\\?/p42>", options: .caseInsensitive
+        ) else { return [] }
+        let range = NSRange(stripped.startIndex..., in: stripped)
+        return regex.matches(in: stripped, range: range).compactMap { m in
+            guard let r = Range(m.range(at: 1), in: stripped) else { return nil }
+            let inner = String(stripped[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return inner.isEmpty ? nil : inner
+        }
+    }
 
     /// Returns true if the buffer ends with a CLI ready prompt, meaning the tool
     /// has finished processing and is waiting for input. Triggers an immediate flush.

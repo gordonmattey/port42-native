@@ -681,7 +681,29 @@ mapping to Ghostty surface lifecycle.
 
 ---
 
-### Step 6 — `<p42>` detected from live terminal output
+### Step 6 — `<p42>` detected from live terminal output ✅ DONE 2026-06-24
+
+> Result: positively verified. Tee bytes → `TerminalOutputProcessor.receive()` → `extractP42Tags`
+> via `onP42Output`. Three extractions confirmed in the live SwiftUI panel:
+> - **Warmup** (gap #9): startup script `cat`'d `<p42>hello from file</p42>` before the first prompt;
+>   `[p42:TAGS] ["hello from file"]` fired in the warmup branch *before* the discard.
+> - **Clean path:** `cat /tmp/p42test.txt` → `["hello from file"]`, exactly once (real PTY ANSI/CR
+>   doesn't corrupt the match).
+> - **Fragmentation:** `cat /tmp/p42big.txt` (6 KB prefix + tag) → `["fragmented tag works"]` despite
+>   the tag spanning multiple tee chunks.
+>
+> **Step 6 findings:**
+> - **Fragmentation-safety is inherent to buffering:** the tee delivers chunks, but `buffer` accumulates
+>   across `receive()` calls and extraction only runs at flush/warmup — so a split tag is already
+>   reassembled. No per-chunk matching, no boundary handling needed.
+> - **Extract from the RAW buffer before `collapseAndFilter`/dedup** — `collapseAndFilter` drops/rewrites
+>   lines and would shred tags. `extractP42Tags` runs `stripANSI` itself.
+> - **`onP42Output` is independent of the `lastPosted` dedup** — every emitted tag is delivered.
+> - **Interactive `echo '<p42>…</p42>'` double-counts** (PTY echoes the typed command *and* its output);
+>   not a production bug — real companions emit tags programmatically (one occurrence). Tested via
+>   `cat`-from-file so the command line carries no tag, matching production.
+> - Debug command points at `/tmp/p42warmup.sh` (falls back to `/bin/zsh` if absent) so every launch
+>   exercises the warmup path.
 
 **Do:** Wire tee bytes into `TerminalOutputProcessor.receive()` for the live terminal from
 Step 5. Add `extractP42Tags`. Manually type `echo '<p42>hello</p42>'`. Confirm via `print`

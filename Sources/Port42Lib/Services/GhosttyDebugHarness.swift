@@ -26,6 +26,8 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
 
     // Step 5 SwiftUI-panel path (retain so it isn't deallocated)
     private var panel: NSPanel?
+    // Step 6: tee → TerminalOutputProcessor → <p42> extraction (retain it)
+    private var outputProcessor: TerminalOutputProcessor?
 
     // MARK: Steps 2–4 — bare AppKit surface
     public func runSurfaceTest() {
@@ -98,12 +100,27 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
     public func runSwiftUIPanelTest() {
         if let panel { panel.makeKeyAndOrderFront(nil); return }
 
+        // Step 6: tee bytes → TerminalOutputProcessor → <p42> extraction.
+        let processor = TerminalOutputProcessor { signal in
+            NSLog("[p42:onFlush] \(signal.debugDescription)")
+        }
+        processor.onP42Output = { tags in
+            NSLog("[p42:TAGS] \(tags)")
+        }
+        self.outputProcessor = processor
+
+        // Step 6: command is the warmup script (cats a <p42> tag during startup,
+        // then exec's an interactive zsh) so every launch exercises the warmup-discard
+        // extraction path (gap #9). Falls back to /bin/zsh if the script is absent.
+        let warmupScript = "/tmp/p42warmup.sh"
+        let command = FileManager.default.isExecutableFile(atPath: warmupScript) ? warmupScript : "/bin/zsh"
         let cfg = TerminalPortConfig(
-            command: "/bin/zsh", args: [], cwd: NSHomeDirectory(),
-            spaceId: "debug", spaceName: "debug", companionName: "step5", createdBy: "debug"
+            command: command, args: [], cwd: NSHomeDirectory(),
+            spaceId: "debug", spaceName: "debug", companionName: "step6", createdBy: "debug"
         )
         let root = GhosttyTerminalView(config: cfg) { str in
             NSLog("[tee:swiftui] \(str.debugDescription)")
+            processor.receive(str)
         }
         let hosting = NSHostingView(rootView: root)
         hosting.frame = NSRect(x: 0, y: 0, width: 800, height: 480)
@@ -134,6 +151,7 @@ public final class GhosttyDebugHarness: NSObject, NSWindowDelegate {
         if sender === panel {
             sender.orderOut(nil)
             self.panel = nil   // drop ref → SwiftUI tears down the representable → surface freed
+            self.outputProcessor = nil
             return false
         }
         teardownSurface()
