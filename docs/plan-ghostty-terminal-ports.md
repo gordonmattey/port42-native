@@ -528,13 +528,26 @@ bridging, build system conflicts. Nothing else can proceed until this is green.
 
 ---
 
-### Step 2 — App + surface create without crash ✅ DONE 2026-06-24
+### Step 2 — App + surface create without crash ✅ DONE 2026-06-24 (positively verified)
 
-> Result: window opens, `/bin/zsh` renders with a live prompt, `process_exited=false`,
-> clean teardown on window close, no crash. The one real blocker was the **JIT entitlement**
-> (gap #10) — without it Apple Silicon SIGKILLs the process the moment the surface renders.
-> See "Step 2 findings" above. (Harness changed from a 1s auto-free to staying open until the
-> window is closed, so success is visually unambiguous.)
+> Result: window opens, `/bin/zsh` renders with a live prompt, `process_exited=false`. Closing
+> the window frees the surface and the app stays alive; the harness then **positively verifies
+> shutdown** — it captures the PTY shell PID via `ghostty_surface_foreground_pid`, frees the
+> surface, and confirms `kill(pid,0)==ESRCH` (`✅ reaped`), proving Ghostty killed/reaped the
+> child with no orphan. Not just "no crash" — provable correct teardown.
+>
+> Two real issues surfaced and were fixed (neither was a Ghostty bug):
+> 1. **JIT entitlement** (gap #10) — Apple Silicon SIGKILLs the process the moment the surface
+>    renders without `allow-jit`. See "Step 2 findings".
+> 2. **CODESIGNING "Invalid Page" crashes were the build environment**, not Ghostty: the binary
+>    was being modified on disk while running — by Dropbox racing/evicting `.build`, and by
+>    `build.sh` rebuilding over the live bundle in place. Fixed by symlinking `.build` outside
+>    Dropbox + `pkill` before packaging in `build.sh`. (See ghostty-teardown-rca.md.)
+>
+> Harness teardown follows cmux's `disposeSurface()` ordering: a `tearingDown` flag gates
+> `tick()` and the surface ref is nulled before `ghostty_surface_free`, so no `ghostty_app_tick`
+> can run against a freed surface. `windowShouldClose` returns false + `orderOut` so closing the
+> throwaway debug window doesn't terminate the host SwiftUI app.
 
 **Do:** Behind `#if DEBUG`, add a menu item "Test Ghostty Surface": create
 `ghostty_runtime_config_s` with stubbed callbacks (wakeup calls `ghostty_app_tick`, others

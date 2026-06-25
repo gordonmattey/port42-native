@@ -141,6 +141,12 @@ sleep 0.3
 APP="$DIR/.build/Port42.app"
 MACOS="$APP/Contents/MacOS"
 RESOURCES="$APP/Contents/Resources"
+# Repackage into a FRESH bundle each build. SwiftPM resource files (e.g.
+# PrivacyInfo.xcprivacy) and signed framework files are read-only, so cp -R
+# over an existing bundle fails with "Permission denied". Removing first makes
+# packaging idempotent. (Previously masked because Dropbox wiped .build between
+# builds; now that .build lives outside Dropbox, the stale bundle persists.)
+rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/Port42"
@@ -291,6 +297,7 @@ if $PEER; then
     PEER_APP="$DIR/.build/Port42-Peer.app"
     PEER_MACOS="$PEER_APP/Contents/MacOS"
     PEER_RESOURCES="$PEER_APP/Contents/Resources"
+    rm -rf "$PEER_APP"
     mkdir -p "$PEER_MACOS" "$PEER_RESOURCES"
 
     cp "$DIR/.build/$CONFIG/Port42" "$PEER_MACOS/Port42-Peer"
