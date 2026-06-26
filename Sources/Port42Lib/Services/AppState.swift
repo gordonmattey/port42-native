@@ -721,6 +721,12 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// Space messages waiting for a (re)spawning native terminal companion to become ready,
+    /// keyed by lowercased companion name. Drained by the controller on CLI readiness.
+    var pendingTerminalInjections: [String: [String]] = [:]
+    /// Safety timers that auto-clear a native terminal companion's "typing…" indicator if no
+    /// reply arrives (e.g. a (re)spawn that never reaches turnComplete). Keyed by "spaceId:name".
+    private var terminalTypingTimers: [String: Timer] = [:]
     /// Live Ghostty surfaces for native terminal ports, keyed by lowercased companion
     /// name. Populated/cleared by the terminal view (Step 9: @mention routing to stdin).
     public var ghosttyTerminalSurfaces: [String: OpaquePointer] = [:]
@@ -1323,7 +1329,12 @@ public final class AppState: ObservableObject {
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     private func routeMentionsToTerminals(content: String, senderName: String, spaceId: String, implicitCompanion: AgentConfig? = nil) {
-        guard !bridgedTerminalNames.isEmpty || !inlineTerminalBridges.isEmpty || !terminalControllers.isEmpty else { return }
+        // Proceed if there's any terminal bridge/controller OR any openInTerminal companion —
+        // the last case lets a mention auto-reopen a companion whose port is currently closed
+        // (no live controller), which the early-return would otherwise prevent.
+        let hasTerminalCompanions = companions.contains(where: { $0.openInTerminal })
+        guard !bridgedTerminalNames.isEmpty || !inlineTerminalBridges.isEmpty
+                || !terminalControllers.isEmpty || hasTerminalCompanions else { return }
 
         // Build the set of keys to route to: explicit @mentions + implicit companion (Swim)
         var keys: [String] = MentionParser.extractMentions(from: content)
@@ -1331,9 +1342,14 @@ public final class AppState: ObservableObject {
         if let implicit = implicitCompanion, !keys.contains(implicit.displayName.lowercased()) {
             keys.append(implicit.displayName.lowercased())
         }
+        // Never route a message back into the sender's own terminal (a companion @mentioning
+        // itself would otherwise self-inject and could loop).
+        keys.removeAll { $0 == senderName.lowercased() }
         guard !keys.isEmpty else { return }
 
-        let line = "[\(senderName)]: \(content)\r"
+        // Prefix the sender with "@" so terminal companions see usernames in the same
+        // @mention form they use to reference others — consistent referencing the LLM learns from.
+        let line = "[@\(senderName)]: \(content)\r"
         for key in keys {
             if let panelId = bridgedTerminalNames[key],
                let panel = portWindows.panels.first(where: { $0.id == panelId }),
@@ -1347,15 +1363,89 @@ public final class AppState: ObservableObject {
             } else if let session = portWindows.terminalSession(forPortNamed: key) {
                 _ = session.bridge.send(sessionId: session.sessionId, data: line)
                 NSLog("[Port42] Routed '%@' to terminal (session)", key)
-            } else if let controller = terminalControllers.values.first(where: {
-                $0.config.companionName.lowercased() == key
+            } else if let companion = companions.first(where: {
+                $0.displayName.lowercased() == key && $0.openInTerminal
             }) {
-                // Native Ghostty terminal: inject into the surface AND arm the next
-                // turnComplete so only this reply is broadcast back to the space.
-                controller.inject(line)
-                NSLog("[Port42] Routed '%@' to native terminal", key)
+                // Native Ghostty terminal companion. Set the "typing…" indicator HERE
+                // (cleared by the controller's post closure on turnComplete). launchAgents
+                // skips openInTerminal companions, so the optimistic typing loops must NOT
+                // set it — this route is the only point a native terminal companion is driven.
+                let name = companion.displayName
+                if let controller = terminalControllers.values.first(where: {
+                    $0.config.companionName.lowercased() == key
+                }), controller.isSurfaceBound {
+                    // Live terminal: inject now AND arm the next turnComplete so only this
+                    // reply is broadcast back to the space.
+                    controller.inject(line)
+                    setTerminalTyping(name: name, spaceId: spaceId)
+                    NSLog("[Port42] Routed '%@' to native terminal", key)
+                } else {
+                    // Terminal closed/minimized (or mid-(re)spawn): queue the message and
+                    // ensure a live terminal exists. The controller drains the queue once the
+                    // CLI signals readiness (SessionStart). Auto-reopen + deliver.
+                    pendingTerminalInjections[key, default: []].append(line)
+                    ensureTerminalLive(companion: companion, spaceId: spaceId)
+                    setTerminalTyping(name: name, spaceId: spaceId)
+                    NSLog("[Port42] Queued '%@' for native terminal (auto-reopen)", key)
+                }
             }
         }
+    }
+
+    /// Ensure a live native terminal exists for a CLI companion, idempotently. Used by the
+    /// auto-reopen path: @mentioning an `openInTerminal` companion whose port was closed or
+    /// minimized rebuilds it. Safe to call repeatedly — it no-ops when a terminal already
+    /// exists or is mid-build (popOut appends the panel synchronously, so a second call sees it).
+    func ensureTerminalLive(companion: AgentConfig, spaceId: String) {
+        let key = companion.displayName.lowercased()
+        // Already has a live controller → nothing to do.
+        if terminalControllers.values.contains(where: { $0.config.companionName.lowercased() == key }) {
+            return
+        }
+        // A panel already exists for this companion: restore it if backgrounded (minimized),
+        // otherwise it is mid-build — leave it (its controller will appear shortly).
+        if let panel = portWindows.panels.first(where: { $0.terminalConfig?.companionName.lowercased() == key }) {
+            if panel.isBackground {
+                NSLog("[Port42] Restoring backgrounded terminal for '%@'", key)
+                portWindows.restore(panel.id)
+            }
+            return
+        }
+        // No panel at all → fully closed → spawn a fresh terminal port.
+        guard let command = companion.command else {
+            NSLog("[Port42] ensureTerminalLive: '%@' has no command, cannot respawn", key)
+            return
+        }
+        NSLog("[Port42] Respawning closed terminal for '%@'", key)
+        spawnTerminalAgentPort(companion: companion, command: command, spaceId: spaceId)
+    }
+
+    /// Set a native terminal companion's "typing…" indicator and arm a safety timeout so it can
+    /// never hang: if no reply clears it within the window (e.g. a (re)spawn that never reaches
+    /// turnComplete), it auto-clears. Cleared early by `clearTerminalTyping` on turnComplete.
+    func setTerminalTyping(name: String, spaceId: String) {
+        typingAgentNamesBySpace[spaceId, default: []].insert(name)
+        sync.sendTyping(spaceId: spaceId, senderName: name, isTyping: true,
+                        senderOwner: currentUser?.displayName)
+        let key = "\(spaceId):\(name)"
+        terminalTypingTimers[key]?.invalidate()
+        terminalTypingTimers[key] = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                NSLog("[Port42] Terminal typing safety-timeout fired for '%@' — clearing", name)
+                self.clearTerminalTyping(name: name, spaceId: spaceId)
+            }
+        }
+    }
+
+    /// Clear a native terminal companion's "typing…" indicator and cancel its safety timeout.
+    func clearTerminalTyping(name: String, spaceId: String) {
+        typingAgentNamesBySpace[spaceId, default: []].remove(name)
+        sync.sendTyping(spaceId: spaceId, senderName: name, isTyping: false,
+                        senderOwner: currentUser?.displayName)
+        let key = "\(spaceId):\(name)"
+        terminalTypingTimers[key]?.invalidate()
+        terminalTypingTimers[key] = nil
     }
 
     /// Register a terminal session (by sessionId) as bridged to a space under a given name.
@@ -1986,8 +2076,11 @@ public final class AppState: ObservableObject {
         if shouldRoute {
             // LLM routing: haiku decides who speaks
             let recentMessages = chMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
-            // Show typing for all targets optimistically while router runs
-            for agent in targets { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
+            // Show typing for all targets optimistically while router runs.
+            // openInTerminal companions are driven by routeMentionsToTerminals (which sets
+            // their typing) and skipped by launchAgents, so excluding them here avoids a
+            // typing indicator that would never be cleared.
+            for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
             let capturedTargets = targets
             let capturedSpace = space
             let capturedMessages = chMessages
@@ -2026,8 +2119,9 @@ public final class AppState: ObservableObject {
                 }
             }
         } else {
-            // Direct routing: @mentions or single companion — no LLM needed
-            for agent in targets { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
+            // Direct routing: @mentions or single companion — no LLM needed.
+            // Skip openInTerminal companions (driven + typing-tracked by routeMentionsToTerminals).
+            for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
             launchAgents(
                 targets, spaceId: space.id, spaceAgentIds: spaceAgentIds,
                 spaceMessages: chMessages, triggerContent: trimmed,
@@ -2055,6 +2149,12 @@ public final class AppState: ObservableObject {
     /// Route a companion's response to other companions via the LLM router.
     /// Applies AI-to-AI cooldown to prevent loops. Router decides who (if anyone) responds.
     func routeCompanionResponse(content: String, senderId: String, senderName: String, spaceId: String) {
+        // A companion's @mention of a native terminal companion must reach that terminal too.
+        // User + synced messages route via routeMentionsToTerminals, but companion-originated
+        // messages did not — so e.g. an LLM companion @mentioning a terminal companion was
+        // silently dropped (never injected into its stdin).
+        routeMentionsToTerminals(content: content, senderName: senderName, spaceId: spaceId)
+
         let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
         let spaceAgentIds = Set(spaceAgents.map { $0.id })
         let targets = AgentRouter.findTargetAgents(
@@ -2147,12 +2247,18 @@ public final class AppState: ObservableObject {
             return
         }
 
+        // Route this companion's @mentions of native terminal companions into their stdin.
+        routeMentionsToTerminals(content: trimmed, senderName: companion.displayName, spaceId: spaceId)
+
         let spaceAgentIds = Set(spaceCompanions.map { $0.id })
         let targets = AgentRouter.findTargetAgents(
             content: trimmed, agents: companions,
             spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName
         ).filter { $0.id != companion.id } // don't trigger the sender
-        for agent in targets { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
+        // Skip openInTerminal companions: launchAgents drops them, so their typing would
+        // never clear (this was the cross-companion stuck-typing bug). routeMentionsToTerminals
+        // owns native terminal typing.
+        for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
         launchAgents(
             targets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
             spaceMessages: messages, triggerContent: trimmed,
@@ -2248,12 +2354,16 @@ public final class AppState: ObservableObject {
             NSLog("[Port42] sendMessageAsNamedAgent failed: %@", error.localizedDescription)
             return
         }
+        // Route this agent's @mentions of native terminal companions into their stdin.
+        routeMentionsToTerminals(content: trimmed, senderName: senderName, spaceId: spaceId)
+
         let spaceAgentIds = Set(spaceCompanions.map { $0.id })
         let targets = AgentRouter.findTargetAgents(
             content: trimmed, agents: companions,
             spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName
         )
-        for agent in targets { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
+        // Skip openInTerminal companions (launchAgents drops them → typing never clears).
+        for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
         launchAgents(
             targets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
             spaceMessages: messages, triggerContent: trimmed,
@@ -2285,19 +2395,25 @@ public final class AppState: ObservableObject {
         // decoupled from AppState (and unit-testable).
         let post: (String) -> Void = { [weak self] content in
             guard let self else { return }
-            // The companion replied → clear its "typing…" indicator. Native terminal companions
-            // are skipped by launchAgents (which is what clears typing for LLM/command agents),
-            // so without this the indicator hangs forever.
-            self.typingAgentNamesBySpace[config.spaceId, default: []].remove(config.companionName)
-            self.sync.sendTyping(spaceId: config.spaceId, senderName: config.companionName,
-                                 isTyping: false, senderOwner: self.currentUser?.displayName)
+            // The companion replied → clear its "typing…" indicator (and cancel the safety
+            // timeout). Native terminal companions are skipped by launchAgents (which is what
+            // clears typing for LLM/command agents), so without this the indicator hangs forever.
+            self.clearTerminalTyping(name: config.companionName, spaceId: config.spaceId)
             if let companion = self.companions.first(where: { $0.displayName == config.companionName }) {
                 self.sendMessageAsCompanion(companion, content: content, spaceId: config.spaceId)
             } else {
                 self.sendMessageAsNamedAgent(content: content, senderName: config.companionName, toSpaceId: config.spaceId)
             }
         }
-        let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post)
+        // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
+        let drainKey = config.companionName.lowercased()
+        let drainPending: () -> [String] = { [weak self] in
+            guard let self else { return [] }
+            let lines = self.pendingTerminalInjections[drainKey] ?? []
+            self.pendingTerminalInjections[drainKey] = nil
+            return lines
+        }
+        let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post, drainPending: drainPending)
         terminalControllers[panel.id] = controller
         return controller
     }
@@ -2325,7 +2441,7 @@ public final class AppState: ObservableObject {
         // NOTE: companions also see the global Port42 RPC API reference (~/.claude/CLAUDE.md),
         // so they may try to `curl` send_message to post. That double-delivers (API + turnComplete).
         // Explicitly steer replies through the automatic path only.
-        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceNameForPrompt). Space messages arrive prefixed with [name]: — respond to them directly and conversationally. To reply, just write your response normally — it is delivered to the space automatically. Do NOT use curl or the Port42 API to post messages to the space. Keep responses concise."
+        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceNameForPrompt). Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy it into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:4242/call -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. Keep responses concise."
         let userPrompt = (companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceNameForPrompt)
@@ -2402,8 +2518,11 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Failed to add companion to space: \(error)")
         }
-        if companion.openInTerminal, let command = companion.command {
-            spawnTerminalAgentPort(companion: companion, command: command, spaceId: space.id)
+        if companion.openInTerminal {
+            // Idempotent: routeMentionsToTerminals may have already spawned the port for the
+            // triggering @mention (it runs before this). ensureTerminalLive no-ops if a panel
+            // or controller already exists, so we never double-spawn.
+            ensureTerminalLive(companion: companion, spaceId: space.id)
         }
     }
 

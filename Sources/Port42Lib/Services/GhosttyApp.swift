@@ -33,6 +33,13 @@ public final class GhosttyApp {
         }
 
         let cfg = ghostty_config_new()
+        // Match the Port42 chat-port look: pure-black background (Port42Theme.bgPrimary
+        // = 0x000000), accent cursor. Ghostty config syntax; the 4th arg is a source label
+        // for diagnostics. Applied to every surface (all terminal ports).
+        let cfgText = "background = 000000\ncursor-color = 00d4aa\n"
+        cfgText.withCString { s in
+            ghostty_config_load_string(cfg, s, UInt(strlen(s)), "port42")
+        }
         ghostty_config_finalize(cfg)
 
         // All 7 callbacks are mandatory (gap #3). wakeup_cb drives the IO loop;

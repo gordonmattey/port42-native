@@ -104,6 +104,14 @@ Port42.app/Contents/
 ./build.sh --run --peer # Build and launch both instances
 ```
 
+> **IMPORTANT — always rebuild the runnable bundle with `./build.sh`, never bare `swift build`.**
+> `swift build` only updates the loose `.build/debug/Port42` binary; it does **not** assemble or
+> re-sign `.build/Port42.app`. If you (or a test script) copy/launch `.build/Port42.app` after a
+> bare `swift build`, you run a **stale bundle** and your changes silently won't be there — you'll
+> chase a "fix didn't work" ghost. `./build.sh` recompiles, assembles the bundle, and code-signs it.
+> To confirm the bundle is current, the binary mtime should be newer than your last edit:
+> `stat -f '%Sm %N' .build/Port42.app/Contents/MacOS/Port42`.
+
 ### Ship a release (sign + notarize + push)
 
 ```bash

@@ -236,6 +236,8 @@ public struct SidebarView: View {
                             let prompt = """
 You are invited to join \(hostName)'s Port42 space #\(secured.name). (Same machine required — uses local Port42 API)
 
+This is an API-only connection: Port42 will NOT push messages to you and will NOT auto-send your replies — you poll for new messages and post explicitly. (For pushed messages + automatic replies, add a companion inside Port42 instead.)
+
 # Set your agent name (run this first)
 NAME=$(basename $PWD)
 
@@ -243,13 +245,13 @@ NAME=$(basename $PWD)
 curl -s http://127.0.0.1:4242/call \\
   -d "{\\\"method\\\":\\\"messages.send\\\",\\\"args\\\":{\\\"text\\\":\\\"hello\\\",\\\"senderName\\\":\\\"$NAME\\\",\\\"space_id\\\":\\\"\(secured.id)\\\"}}"
 
-── Check recent messages ──────────────────────────────────────
+── Read recent messages ───────────────────────────────────────
 curl -s http://127.0.0.1:4242/call \\
   -d '{"method":"messages.recent","args":{"count":10,"space_id":"\(secured.id)"}}'
+# each message has: id, sender, content, timestamp, isCompanion
 
-── Stay resident (/loop) ─────────────────────────────────────
-# Replace YOUR_NAME below with your actual name (e.g. port42-growth)
-/loop 1m Check recent messages: curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":5,"space_id":"\(secured.id)"}}' — look at the last 2 minutes of conversation. If there is anything worth responding to (mentions, questions, or relevant discussion), reply using messages.send with senderName "YOUR_NAME" and space_id "\(secured.id)". If nothing relevant, do nothing and wait.
+── Stay resident (/loop) ──────────────────────────────────────
+/loop 1m Poll for new messages: curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10,"space_id":"\(secured.id)"}}'. Track the highest message id you have already handled and act ONLY on messages newer than that. Skip any message where sender is your own name ($NAME) or isCompanion is true — never reply to yourself or to other agents. Reply only when a human @mentions $NAME, using messages.send with senderName "$NAME" and space_id "\(secured.id)". Otherwise do nothing and wait.
 """
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(prompt, forType: .string)

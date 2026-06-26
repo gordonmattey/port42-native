@@ -29,6 +29,14 @@ struct CompanionPostGateTests {
         #expect(gate.onTurnComplete("no prefix here") == ["no prefix here"])  // unaffected
     }
 
+    @Test("strips an echoed sender label even when the LLM omits the colon")
+    func stripsEchoedPrefixNoColon() {
+        var gate = CompanionPostGate(hooksCapable: true)
+        gate.arm()
+        // The LLM sometimes writes "[@gordon] reply" with no colon — must still be stripped.
+        #expect(gate.onTurnComplete("[@gordon] the directory is empty") == ["the directory is empty"])
+    }
+
     @Test("turnComplete preserves whitespace (clean transcript, not mangled tee)")
     func turnCompleteKeepsSpaces() {
         var gate = CompanionPostGate(hooksCapable: true)

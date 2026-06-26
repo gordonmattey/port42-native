@@ -911,6 +911,27 @@ for SwiftUI dealloc. Add Ghostty lookup in `routeMentionsToTerminals`.
 
 ---
 
+### Step 10 — EXPANDED SCOPE (owner, 2026-06-26)
+
+Beyond removing xterm, Step 10 should also cover port-spawn coverage + space metadata:
+
+1. **xterm removal is small/safe:** `loadXterm` does NOT exist in Swift (was JS-only in
+   cli-terminal.html). Nothing in `Sources/` references bundled `xterm.js/css` (only a stray
+   comment at `PortWindowManager.swift:991`). The 4 file deletions are already staged. Keep the
+   `terminal.*` PTY bridge (`PortBridge.swift:891+`, `TerminalBridge`) — that's the web-port API.
+   Confirm nothing still loads `cli-terminal.html` (rewritten spawnTerminalAgentPort doesn't).
+2. **Spawn coverage:** terminals must be spawnable (a) from chat (companion added to space →
+   spawnTerminalAgentPort ✓), AND (b) by the **claude CLI companion itself** (e.g. via the RPC
+   API / a port-create method). Verify the CLI path can spawn a terminal port.
+3. **Space metadata for ALL port spawns (needs a trace):** ports already carry `PortPanel.spaceId`
+   via `popOut(…, spaceId:)` and it persists/restores. BUT verify the **RPC/tool-use port-create
+   path threads the correct spaceId** — a CLI companion has `PORT42_SPACE_ID` in its env, so a
+   port it creates should land in that space, not orphaned. Review every port-spawn entry point
+   (chat tool-use, RPC `/call`, JS bridge, companion spawn) and confirm each captures spaceId.
+   We can tweak the API surface here if needed.
+
+---
+
 ### Step 10 — Remove xterm path, verify no regression
 
 **Do:** Remove `cli-terminal.html`, `xterm.js`, `xterm.css`. Remove `useGhosttyTerminal` flag.

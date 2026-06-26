@@ -34,9 +34,11 @@ struct CompanionPostGate {
 
     private mutating func emit(_ content: String) -> [String] {
         var trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Companions often echo the inbound "[name]: " convention onto their own reply.
-        // Strip a single leading "[anything]: " — sender attribution is already applied.
-        if let r = trimmed.range(of: "^\\[[^\\]]+\\]:[ \t]*", options: .regularExpression) {
+        // Companions often echo the inbound "[@name]: " sender prefix onto their own reply.
+        // Strip a single leading "[anything]" with an OPTIONAL trailing colon — the LLM
+        // sometimes writes "[@gordon] reply" with no colon — since sender attribution is
+        // already applied when the message is posted.
+        if let r = trimmed.range(of: "^\\[[^\\]]+\\]:?[ \t]*", options: .regularExpression) {
             trimmed = String(trimmed[r.upperBound...])
         }
         if trimmed.isEmpty { lastSkipReason = "empty"; return [] }
@@ -66,18 +68,30 @@ final class GhosttyTerminalController {
     private let processor: TerminalOutputProcessor
 
     private let post: (String) -> Void
+    /// Returns (and clears) any space messages that arrived while this terminal was still
+    /// (re)spawning, so they can be injected once the CLI is ready. Injected by the caller
+    /// (AppState) so the queue stays decoupled and testable. Defaults to no-op for tests.
+    private let drainPending: () -> [String]
     private var injectToSurface: ((String) -> Void)?
     private var gate: CompanionPostGate
     private let hooksCapable: Bool
+    /// True once the CLI has signalled it is ready to receive injected input (SessionStart),
+    /// or once the fallback settle window has elapsed for non-hooks tools.
+    private var didFlushPending = false
 
     var env: [String: String] { session.env }
+    /// Whether a live Ghostty surface is bound — i.e. inject() can reach the PTY right now.
+    var isSurfaceBound: Bool { injectToSurface != nil }
 
     private func log(_ msg: String) { NSLog("[ctl:%@] %@", config.companionName, msg) }
 
-    init(panelId: String, config: TerminalPortConfig, post: @escaping (String) -> Void) {
+    init(panelId: String, config: TerminalPortConfig,
+         post: @escaping (String) -> Void,
+         drainPending: @escaping () -> [String] = { [] }) {
         self.panelId = panelId
         self.config = config
         self.post = post
+        self.drainPending = drainPending
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
 
@@ -141,6 +155,8 @@ final class GhosttyTerminalController {
             log("event=inputSubmitted prompt=\(prompt.prefix(40).debugDescription)")
         case .sessionStarted:
             log("event=sessionStarted")
+            // CLI is up → deliver any messages queued while it was (re)spawning.
+            flushPending(reason: "sessionStarted")
         case .sessionEnded:
             log("event=sessionEnded")
         }
@@ -158,6 +174,29 @@ final class GhosttyTerminalController {
     func bindSurface(_ inject: ((String) -> Void)?) {
         log(inject == nil ? "surface unbound" : "surface bound")
         injectToSurface = inject
+        guard inject != nil else { return }
+        // Fallback for non-hooks tools (no SessionStart event): if nothing has flushed the
+        // pending queue shortly after the surface is live, flush it anyway so queued messages
+        // aren't stranded. Hooks-capable tools normally flush earlier on sessionStarted.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            self?.flushPending(reason: "surface-bound fallback")
+        }
+    }
+
+    /// Inject any messages queued while this terminal was (re)spawning. Idempotent: runs at
+    /// most once (whichever readiness signal fires first). Each line arms the gate so its
+    /// reply is broadcast back to the space, exactly like a live inject.
+    private func flushPending(reason: String) {
+        guard !didFlushPending else { return }
+        // Defer (don't drain) until a surface is bound, so a readiness signal that races ahead
+        // of surface binding doesn't lose the queued messages — the bind-time fallback retries.
+        guard isSurfaceBound else { return }
+        let lines = drainPending()
+        guard !lines.isEmpty else { return }
+        didFlushPending = true
+        log("flushPending (\(reason)): \(lines.count) queued message(s)")
+        for line in lines { inject(line) }
     }
 
     /// Feed raw PTY bytes (from the Ghostty tee) into the `<p42>` extractor.
