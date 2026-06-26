@@ -69,6 +69,11 @@ func runClaude() {
 	} else {
 		fmt.Fprintf(os.Stderr, "[port42-claude-shim] no PORT42_HOOKS_SOCKET; passthrough exec %s\n", real)
 	}
+
+	// Companion identity → append to the system prompt (no file mutation). Independent of hooks.
+	if prompt := os.Getenv("PORT42_COMPANION_PROMPT"); prompt != "" {
+		argv = append(argv, "--append-system-prompt", prompt)
+	}
 	argv = append(argv, os.Args[1:]...)
 
 	if err := syscall.Exec(real, argv, os.Environ()); err != nil {
@@ -184,9 +189,13 @@ func lastAssistantTextWithRetry(path string) string {
 	return lastAssistantText(path)
 }
 
-// lastAssistantText reads a Claude Code transcript JSONL file and returns the text of the
-// last assistant turn (concatenated text blocks). Tool-only assistant entries (no text) are
-// skipped so we return the final spoken response.
+// lastAssistantText reads a Claude Code transcript JSONL and returns the assistant reply for
+// the CURRENT turn: the last non-empty assistant text that appears AFTER the most recent user
+// message. This avoids an off-by-one — when the Stop hook fires, Claude Code may not have
+// flushed THIS turn's assistant message yet, so the overall "last assistant" entry can still be
+// the PREVIOUS turn's reply. Returning "" until the assistant-after-last-user exists lets the
+// retry loop wait for the flush rather than delivering a stale, lagged reply.
+// (Each injected space message becomes a `user` entry, so "after the last user" = this turn.)
 func lastAssistantText(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -198,7 +207,8 @@ func lastAssistantText(path string) string {
 	// Transcript lines can be large (tool outputs); raise the line cap well above the default 64KB.
 	scanner.Buffer(make([]byte, 0, 1024*1024), 32*1024*1024)
 
-	last := ""
+	type turn struct{ role, text string }
+	var turns []turn
 	for scanner.Scan() {
 		var entry struct {
 			Type    string `json:"type"`
@@ -214,11 +224,24 @@ func lastAssistantText(path string) string {
 		if role == "" {
 			role = entry.Message.Role
 		}
-		if role != "assistant" {
-			continue
+		turns = append(turns, turn{role: role, text: extractText(entry.Message.Content)})
+	}
+
+	// Most recent user message = the turn we're answering.
+	lastUser := -1
+	for i, t := range turns {
+		if t.role == "user" {
+			lastUser = i
 		}
-		if text := extractText(entry.Message.Content); strings.TrimSpace(text) != "" {
-			last = text
+	}
+
+	// Last non-empty assistant text AFTER that user message = this turn's reply.
+	last := ""
+	for i := lastUser + 1; i < len(turns); i++ {
+		if turns[i].role == "assistant" {
+			if s := strings.TrimSpace(turns[i].text); s != "" {
+				last = s
+			}
 		}
 	}
 	return strings.TrimSpace(last)

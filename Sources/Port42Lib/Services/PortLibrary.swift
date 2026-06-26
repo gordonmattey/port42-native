@@ -12,7 +12,7 @@ public struct PortLibrary {
 
     /// Load a named port, filling in slot values.
     /// - Parameters:
-    ///   - name: filename without extension (e.g. "cli-terminal")
+    ///   - name: filename without extension
     ///   - slots: dictionary of {{KEY}} → replacement value
     /// - Returns: rendered HTML, or nil if the port file is not found
     public static func load(_ name: String, slots: [String: String] = [:]) -> String? {

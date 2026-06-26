@@ -190,6 +190,7 @@ public enum TerminalSessionBootstrap {
     public static func make(sessionId: String,
                             spaceId: String,
                             spaceName: String,
+                            companionPrompt: String? = nil,
                             shimPath: String? = bundledShimPath(),
                             claudePath: String? = nil,
                             oauthToken: String? = nil) -> TerminalHookSession {
@@ -203,6 +204,12 @@ public enum TerminalSessionBootstrap {
             "PORT42_SPACE_ID": spaceId,
             "PORT42_SPACE_NAME": spaceName,
         ]
+
+        // Companion identity injected into the CLI via the shim's --append-system-prompt.
+        // Replaces the old CLAUDE.md mutation (which clobbered project files / polluted home).
+        if let companionPrompt, !companionPrompt.isEmpty {
+            env["PORT42_COMPANION_PROMPT"] = companionPrompt
+        }
 
         // Real claude path so the shim execs it directly and can never find itself.
         if let real = claudePath ?? ClaudeCodeSetup.findBinary("claude") {

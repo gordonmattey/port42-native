@@ -718,6 +718,12 @@ public final class AppState: ObservableObject {
     private var inlineTerminalBridges: [String: WeakBridge] = [:]
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
+    /// Native (Ghostty) terminal companion controllers: panelId → controller.
+    /// One per native terminal port; owns its hooks socket + output processor + env.
+    var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// Live Ghostty surfaces for native terminal ports, keyed by lowercased companion
+    /// name. Populated/cleared by the terminal view (Step 9: @mention routing to stdin).
+    public var ghosttyTerminalSurfaces: [String: OpaquePointer] = [:]
     /// Active terminal bridges per space: spaceId → [companionName: portName]
     @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
@@ -1317,7 +1323,7 @@ public final class AppState: ObservableObject {
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     private func routeMentionsToTerminals(content: String, senderName: String, spaceId: String, implicitCompanion: AgentConfig? = nil) {
-        guard !bridgedTerminalNames.isEmpty || !inlineTerminalBridges.isEmpty else { return }
+        guard !bridgedTerminalNames.isEmpty || !inlineTerminalBridges.isEmpty || !terminalControllers.isEmpty else { return }
 
         // Build the set of keys to route to: explicit @mentions + implicit companion (Swim)
         var keys: [String] = MentionParser.extractMentions(from: content)
@@ -1341,6 +1347,13 @@ public final class AppState: ObservableObject {
             } else if let session = portWindows.terminalSession(forPortNamed: key) {
                 _ = session.bridge.send(sessionId: session.sessionId, data: line)
                 NSLog("[Port42] Routed '%@' to terminal (session)", key)
+            } else if let controller = terminalControllers.values.first(where: {
+                $0.config.companionName.lowercased() == key
+            }) {
+                // Native Ghostty terminal: inject into the surface AND arm the next
+                // turnComplete so only this reply is broadcast back to the space.
+                controller.inject(line)
+                NSLog("[Port42] Routed '%@' to native terminal", key)
             }
         }
     }
@@ -2260,6 +2273,40 @@ public final class AppState: ObservableObject {
         }
     }
 
+    /// Create (or recreate) the controller backing a native terminal port. Called from
+    /// `PortWindowManager` when a `portType == "terminal"` window is built — covers both
+    /// fresh pop-outs and DB-restored panels. Recreates fresh each time so a rebuilt window
+    /// never shares a stale hooks socket. Returns nil if the panel isn't a terminal port.
+    @discardableResult
+    func makeTerminalController(for panel: PortPanel) -> GhosttyTerminalController? {
+        guard let config = panel.terminalConfig else { return nil }
+        teardownTerminalController(panelId: panel.id)
+        // Inject the space-posting behaviour so the controller's gate/dedup logic stays
+        // decoupled from AppState (and unit-testable).
+        let post: (String) -> Void = { [weak self] content in
+            guard let self else { return }
+            // The companion replied → clear its "typing…" indicator. Native terminal companions
+            // are skipped by launchAgents (which is what clears typing for LLM/command agents),
+            // so without this the indicator hangs forever.
+            self.typingAgentNamesBySpace[config.spaceId, default: []].remove(config.companionName)
+            self.sync.sendTyping(spaceId: config.spaceId, senderName: config.companionName,
+                                 isTyping: false, senderOwner: self.currentUser?.displayName)
+            if let companion = self.companions.first(where: { $0.displayName == config.companionName }) {
+                self.sendMessageAsCompanion(companion, content: content, spaceId: config.spaceId)
+            } else {
+                self.sendMessageAsNamedAgent(content: content, senderName: config.companionName, toSpaceId: config.spaceId)
+            }
+        }
+        let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post)
+        terminalControllers[panel.id] = controller
+        return controller
+    }
+
+    /// Tear down and drop a native terminal controller (window closed/minimized).
+    func teardownTerminalController(panelId: String) {
+        terminalControllers.removeValue(forKey: panelId)?.teardown()
+    }
+
     /// Pop a terminal port running a CLI agent and bridge it to the given space.
     private func spawnTerminalAgentPort(companion: AgentConfig, command: String, spaceId: String) {
         let name = companion.displayName
@@ -2267,75 +2314,82 @@ public final class AppState: ObservableObject {
         let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
 
         let spaceNameForPrompt = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
-        // For known CLI companions, write space instructions into their context file in the CWD.
-        // Claude Code reads CLAUDE.md; Gemini CLI reads GEMINI.md. Treated as trusted project context.
-        let isClaude = command.hasSuffix("claude") || command.contains("/claude")
-        let isGemini = command.hasSuffix("gemini") || command.contains("/gemini")
-        if isClaude || isGemini {
-            let contextFile = isGemini ? "GEMINI.md" : "CLAUDE.md"
-            let claudeMdPath = (cwd as NSString).appendingPathComponent(contextFile)
-            let rawPrompt = companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let sectionBody = rawPrompt.isEmpty
-                ? "You are \(name), a space companion in Port42 connected to #\(spaceNameForPrompt).\n\nSpace messages arrive prefixed with [name]: — respond to them directly.\n\nWhen posting to the space, wrap your response in a code block with p42 tags:\n```\n<p42>your response here</p42>\n```\nOnly content inside p42 tags reaches the space. Keep responses concise and conversational."
-                : rawPrompt
-                    .replacingOccurrences(of: "{{NAME}}", with: name)
-                    .replacingOccurrences(of: "{{SPACE}}", with: spaceNameForPrompt)
-            let section = "\n\n# Port42 Space Companion\n\n\(sectionBody)\n"
-            let existing = (try? String(contentsOfFile: claudeMdPath, encoding: .utf8)) ?? ""
-            let updated: String
-            if let range = existing.range(of: "\n\n# Port42 Space Companion", options: .literal) {
-                updated = String(existing[..<range.lowerBound]) + section
-            } else {
-                updated = existing + section
-            }
-            try? updated.write(toFile: claudeMdPath, atomically: true, encoding: .utf8)
-        }
+        // Companion identity — injected into the CLI via the shim's --append-system-prompt
+        // (env PORT42_COMPANION_PROMPT), NOT a CLAUDE.md file (which clobbered project files and,
+        // with the workingDir bug, polluted the global ~/CLAUDE.md). No <p42> instruction: a
+        // hooks companion replies conversationally and turnComplete delivers it.
+        // {{NAME}}/{{SPACE}} substituted when a custom systemPrompt is set.
+        // Two layers: Port42 operational framing (ALWAYS, under the hood) + the user's optional
+        // system prompt (personality/role) APPENDED on top — not either/or. The framing gives the
+        // companion what it needs to function in the space loop; the user prompt customizes it.
+        // NOTE: companions also see the global Port42 RPC API reference (~/.claude/CLAUDE.md),
+        // so they may try to `curl` send_message to post. That double-delivers (API + turnComplete).
+        // Explicitly steer replies through the automatic path only.
+        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceNameForPrompt). Space messages arrive prefixed with [name]: — respond to them directly and conversationally. To reply, just write your response normally — it is delivered to the space automatically. Do NOT use curl or the Port42 API to post messages to the space. Keep responses concise."
+        let userPrompt = (companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            .replacingOccurrences(of: "{{NAME}}", with: name)
+            .replacingOccurrences(of: "{{SPACE}}", with: spaceNameForPrompt)
+        let companionPrompt = userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
 
-        let argsJS = args.map { "\"\($0.replacingOccurrences(of: "\"", with: "\\\""))\"" }.joined(separator: ", ")
-        // Shell-quote any arg containing spaces so the PTY parses it correctly
-        let argsStr = args.map { arg -> String in
-            guard arg.contains(" ") else { return arg }
-            let escaped = arg.replacingOccurrences(of: "'", with: "'\\''")
-            return "'\(escaped)'"
+        // Shell line typed into the interactive shell once ready: command + quoted args.
+        // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
+        // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
+        let quotedArgs = args.map { arg -> String in
+            guard arg.contains(" ") || arg.contains("'") else { return arg }
+            return "'\(arg.replacingOccurrences(of: "'", with: "'\\''"))'"
         }.joined(separator: " ")
+        // For hooks-capable CLIs (claude/gemini) type the BARE name so the shim shell-function
+        // (`claude() { … }`, injected via ZDOTDIR) intercepts it. A full path bypasses the
+        // function entirely → no --settings → no hooks → nothing posts. Other tools run as given.
+        let cmdName = (command as NSString).lastPathComponent
+        let launchCmd = GhosttyTerminalController.isHooksCapable(cmdName) ? cmdName : command
+        let startupCommand = quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)"
 
         let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
-        guard let html = PortLibrary.load("cli-terminal", slots: [
-            "NAME":         name,
-            "COMMAND":      command.replacingOccurrences(of: "'", with: "\\'"),
-            "ARGS":         argsJS,
-            "ARGS_STR":     argsStr.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'"),
-            "CWD":          cwd.replacingOccurrences(of: "'", with: "\\'"),
-            "SPACE_ID":   spaceId,
-            "SPACE_NAME": spaceName
-        ]) else {
-            NSLog("[Port42] cli-terminal port not found in library")
+        let config = TerminalPortConfig(
+            command: "/bin/zsh",
+            args: [],
+            startupCommand: startupCommand,
+            cwd: cwd,
+            spaceId: spaceId,
+            spaceName: spaceName,
+            companionName: name,
+            createdBy: currentUser?.id ?? "",
+            companionPrompt: companionPrompt
+        )
+        guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
+            NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", name)
             return
         }
 
-        // Post the terminal as an inline port message in the space (user can pop it out)
-        // Also serves as the join announcement.
+        // Native terminals can't render inline — pop out a floating native window directly.
+        // The bridge is unused by the terminal path but popOut's signature requires one.
         let portMessageId = UUID().uuidString
+        let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: portMessageId, createdBy: name)
+        portWindows.popOut(html: json, bridge: bridge, spaceId: spaceId, createdBy: name,
+                           messageId: portMessageId, title: name, portType: "terminal",
+                           in: CGSize(width: 800, height: 600))
+
+        // Post a plain-text join announcement so the space records the companion's arrival.
         if !spaceId.isEmpty {
             let now = Date()
-            let portMsg = Message(
-                id: portMessageId,
+            let joinMsg = Message(
+                id: UUID().uuidString,
                 spaceId: spaceId,
                 senderId: "cli-agent-\(name.lowercased())",
                 senderName: name,
-                senderType: "agent",
-                content: "```port\n\(html)\n```",
+                senderType: "system",
+                content: "\(name) joined the space",
                 timestamp: now,
                 replyToId: nil,
                 syncStatus: "sent",
                 createdAt: now
             )
-            try? db.saveMessage(portMsg)
-            sync.sendMessage(portMsg)
-            pendingPortActivationId = portMessageId
+            try? db.saveMessage(joinMsg)
+            sync.sendMessage(joinMsg)
         }
 
-        NSLog("[Port42] Spawned terminal port for CLI agent '%@' (inline, messageId=%@)", name, portMessageId)
+        NSLog("[Port42] Spawned native terminal port for CLI agent '%@' (panel messageId=%@)", name, portMessageId)
     }
 
     public func addCompanionToSpace(_ companion: AgentConfig, space: Space) {

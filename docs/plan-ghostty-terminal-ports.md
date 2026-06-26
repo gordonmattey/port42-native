@@ -833,6 +833,50 @@ carries clean response text. Space context env vars wired. All without terminal 
 
 ---
 
+### Steps 8+9 CORRECTED ARCHITECTURE (decided 2026-06-25 with owner — supersedes the original Step 8/9 text below)
+
+The original framing was wrong: it treated `<p42>` as a primary output path. **`<p42>` is a
+FALLBACK** (for non-hooks tools only). The real companion loop:
+
+```
+space message ──inject "[sender]: text\r" via ghostty_surface_text_input──▶ claude in terminal
+claude replies ──Stop hook → turnComplete (the reply text)──▶ post to space
+```
+
+**Confirmed decisions:**
+1. **Input is the primary, currently-BROKEN path.** `ghosttyTerminalSurfaces` is declared in
+   AppState but never populated, and `routeMentionsToTerminals` only handles the old
+   `TerminalBridge`/`inlineTerminalBridges` (xterm) path. Mirror that path for Ghostty:
+   route by @mention key → `ghostty_surface_text_input(surface, "[sender]: content\r")`.
+2. **Output = `turnComplete` posts the reply text DIRECTLY** (no `<p42>` extraction from it).
+   The "full engineering dump" seen in testing was an un-framed claude answering as Claude Code,
+   not the loop misbehaving.
+3. **Armed gate (owner decision B):** a companion's `turnComplete` posts to the space ONLY if that
+   turn answered an injected space message. Injecting arms the controller; the next `turnComplete`
+   posts and disarms. Private typing in the terminal is NOT broadcast.
+4. **No `<p42>` INSTRUCTIONS for anyone (decision A).** Hooks companions (claude/gemini) reply
+   conversationally → `turnComplete`. The tee→`<p42>` extractor stays as a PASSIVE fallback for any
+   non-hooks tool that emits tags; bash is never framed/instructed. Tee path is gated OFF for
+   hooks-capable companions (TUI rendering mangles whitespace — spaces become ANSI cursor-moves that
+   `stripANSI` strips).
+5. **Companion framing via `--append-system-prompt`, NOT `CLAUDE.md`.** The old code appended a
+   `# Port42 Space Companion` section to a `CLAUDE.md` in the cwd — which (a) can clobber a real
+   project file and (b) with the broken `workingDir` fell back to HOME, polluting the global
+   `CLAUDE.md` for every claude session. Replace with: Port42 sets `PORT42_COMPANION_PROMPT`; the
+   shim appends `--append-system-prompt "$PORT42_COMPANION_PROMPT"` (flag confirmed in `claude --help`).
+   Prompt says "you are <name>, a space companion in #<space>; messages arrive as `[name]: …`; reply
+   conversationally" — no `<p42>` instruction. Zero file mutation.
+6. **`workingDir` bug:** the create-dialog path isn't persisted/applied (falls back to home), and the
+   surface doesn't set `working_directory = config.cwd` (opens in the app's cwd). Set the surface
+   working_directory; dialog-persistence is a separate UI/DB fix.
+
+**Testability:** refactor `GhosttyTerminalController` to take injected `post:`/`inject:` closures (not
+direct AppState/surface coupling) so the armed gate + dedup + tee-gate are unit-testable. Tests: arm→
+turnComplete posts; un-armed turnComplete doesn't; dedup; `routeMentionsToTerminals` reaches a native
+controller by name.
+
+---
+
 ### Step 8 — One companion, one native terminal, hooks post to space
 
 **Do:** Add `portType:` to `popOut`. Add `portType == "terminal"` branch in `createWindow`.

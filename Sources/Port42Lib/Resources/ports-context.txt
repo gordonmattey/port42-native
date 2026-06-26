@@ -703,10 +703,9 @@ TERMINAL API REFERENCE:
   port42.terminal.on('exit', callback)
     Fires when the process terminates. Callback receives {sessionId, code}.
 
-  port42.terminal.loadXterm()
-    Loads the bundled xterm.js terminal emulator library. Returns the Terminal
-    class. Use this for full terminal rendering with ANSI colors, cursor movement,
-    and TUI app support (vim, htop, claude, etc).
+  Note: there is no bundled terminal renderer. The port CSP blocks external
+  scripts, so render output yourself (append to a <pre>, or strip/interpret ANSI
+  as needed). For a full GPU terminal, use a native terminal companion instead.
 
 TERMINAL PATTERNS:
 
@@ -721,9 +720,8 @@ TERMINAL PATTERNS:
     }, 500);
 
   Running a TUI app (claude, vim, htop, etc):
-    Spawn with cwd set to the project directory, then send the command with \r.
-    The xterm.js renderer handles all ANSI escape sequences, colors, and cursor
-    movement automatically. TUI apps work out of the box.
+    A plain <pre> renderer cannot handle full-screen ANSI/cursor control, so TUI
+    apps render poorly in a web port. Use a native terminal companion for those.
 
   Launching Claude Code in a project:
     const result = await port42.terminal.spawn({
@@ -734,53 +732,33 @@ TERMINAL PATTERNS:
       port42.terminal.send(result.sessionId, 'claude\r');
     }, 500);
 
-TERMINAL PORT EXAMPLE:
+TERMINAL PORT EXAMPLE (plain <pre> renderer — line-oriented output, no TUI):
 
 ```port
 <title>Terminal</title>
-<div id="terminal" style="width:100%;height:100vh;"></div>
+<pre id="out" style="margin:0;padding:8px;white-space:pre-wrap;word-break:break-all;height:100vh;overflow:auto;"></pre>
 <script>
-  const Terminal = await port42.terminal.loadXterm();
-  const term = new Terminal({
-    fontSize: 13,
-    fontFamily: '"SF Mono", "Fira Code", monospace',
-    theme: { background: '#111', foreground: '#e0e0e0', cursor: '#00ff41', selectionBackground: '#00ff4133' },
-    cursorBlink: true,
-    convertEol: true
-  });
-  term.open(document.getElementById('terminal'));
-
-  const cols = term.cols;
-  const rows = term.rows;
-
-  // Set cwd to the relevant directory when the user specifies one
-  const result = await port42.terminal.spawn({cols, rows});
+  const out = document.getElementById('out');
+  const result = await port42.terminal.spawn({cols: 80, rows: 24});
   const sessionId = result.sessionId;
 
+  // Minimal output: strip ANSI escape sequences and append text.
+  const ansi = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g;
   port42.terminal.on('output', (e) => {
-    if (e.sessionId === sessionId) term.write(e.data);
+    if (e.sessionId !== sessionId) return;
+    out.textContent += e.data.replace(ansi, '');
+    out.scrollTop = out.scrollHeight;
   });
-
   port42.terminal.on('exit', (e) => {
-    if (e.sessionId === sessionId) term.write('\r\n[exited with code ' + e.code + ']');
+    if (e.sessionId === sessionId) out.textContent += '\n[exited with code ' + e.code + ']';
   });
 
-  term.onData((data) => port42.terminal.send(sessionId, data));
-  term.onResize(({cols, rows}) => port42.terminal.resize(sessionId, cols, rows));
-
-  // Reflow terminal when port is resized
-  port42.viewport.on('resize', () => {
-    const container = document.getElementById('terminal');
-    const cellWidth = term._core._renderService.dimensions.css.cell.width;
-    const cellHeight = term._core._renderService.dimensions.css.cell.height;
-    if (cellWidth && cellHeight) {
-      const newCols = Math.floor(container.clientWidth / cellWidth);
-      const newRows = Math.floor(container.clientHeight / cellHeight);
-      if (newCols > 0 && newRows > 0) term.resize(newCols, newRows);
-    }
+  // Forward typed keys to the PTY.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key.length === 1) port42.terminal.send(sessionId, ev.key);
+    else if (ev.key === 'Enter') port42.terminal.send(sessionId, '\r');
+    else if (ev.key === 'Backspace') port42.terminal.send(sessionId, '\x7f');
   });
-
-  term.focus();
 </script>
 ```
 

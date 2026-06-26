@@ -7,13 +7,49 @@ import GhosttyKit
 // Env/hooks fields (spaceId/spaceName/…) are unused until Steps 7–8 but are present
 // now so the view signature doesn't churn later.
 struct TerminalPortConfig: Codable {
+    /// The surface's process — an interactive login shell (e.g. /bin/zsh). Ghostty's
+    /// `command` is a single binary path with no args (gap #8), and the hooks shim is
+    /// verified against an interactive zsh (ZDOTDIR function), so the companion's real
+    /// command is TYPED IN via `startupCommand` rather than exec'd as the surface process.
     let command: String
     let args: [String]
+    /// Full shell line typed into the shell once it's ready (companion command + quoted
+    /// args). Empty = just an interactive shell, type nothing.
+    var startupCommand: String = ""
     let cwd: String
     let spaceId: String
     let spaceName: String
     let companionName: String
     let createdBy: String
+    /// Companion identity/behaviour, injected into the CLI via the shim's
+    /// `--append-system-prompt` (env `PORT42_COMPANION_PROMPT`). No file mutation; empty =
+    /// don't append anything.
+    var companionPrompt: String = ""
+
+    init(command: String, args: [String], startupCommand: String = "", cwd: String,
+         spaceId: String, spaceName: String, companionName: String, createdBy: String,
+         companionPrompt: String = "") {
+        self.command = command; self.args = args; self.startupCommand = startupCommand
+        self.cwd = cwd; self.spaceId = spaceId; self.spaceName = spaceName
+        self.companionName = companionName; self.createdBy = createdBy
+        self.companionPrompt = companionPrompt
+    }
+
+    // Tolerant decoder: Swift's synthesized Decodable throws on a missing key even when a
+    // property has a default, so older stored panel JSON (no startupCommand/companionPrompt)
+    // would fail to decode → blank terminal. decodeIfPresent restores the defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        command = try c.decode(String.self, forKey: .command)
+        args = try c.decodeIfPresent([String].self, forKey: .args) ?? []
+        startupCommand = try c.decodeIfPresent(String.self, forKey: .startupCommand) ?? ""
+        cwd = try c.decode(String.self, forKey: .cwd)
+        spaceId = try c.decode(String.self, forKey: .spaceId)
+        spaceName = try c.decode(String.self, forKey: .spaceName)
+        companionName = try c.decode(String.self, forKey: .companionName)
+        createdBy = try c.decode(String.self, forKey: .createdBy)
+        companionPrompt = try c.decodeIfPresent(String.self, forKey: .companionPrompt) ?? ""
+    }
 }
 
 // NSView subclass that forwards AppKit input to a Ghostty surface and keeps the
@@ -220,8 +256,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
     // (TerminalSessionBootstrap); the view just applies it to env_vars.
     var env: [String: String] = [:]
     var onTee: ((String) -> Void)? = nil
+    /// Called once the surface exists (and with nil on teardown) to hand the owner a writer
+    /// that injects bytes into this surface — used for chat→terminal routing.
+    var onInject: (((String) -> Void)?) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onTee: onTee) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTee: onTee, startupCommand: config.startupCommand, onInject: onInject)
+    }
 
     func makeNSView(context: Context) -> GhosttyInputView {
         let view = GhosttyInputView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
@@ -250,6 +291,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
         var envVars: [ghostty_env_var_s] = env.map { key, value in
             ghostty_env_var_s(key: dup(key), value: dup(value))
+        }
+
+        // Run the companion in its configured working directory (not the app's cwd).
+        // Expand a leading `~` — chdir/working_directory does NOT expand it (only shells do),
+        // so a stored "~/projects/x" would silently fail and inherit the app's cwd.
+        if !config.cwd.isEmpty {
+            let expanded = (config.cwd as NSString).expandingTildeInPath
+            if let cwd = dup(expanded) { sc.working_directory = cwd }
         }
 
         // `command` is a single const char*; keep it valid across the call via
@@ -281,8 +330,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
             let coord = Unmanaged<Coordinator>.fromOpaque(ud).takeUnretainedValue()
             let copied = Data(bytes: UnsafeRawPointer(bytes), count: Int(len))
             let str = String(decoding: copied, as: UTF8.self)
-            Task { @MainActor in coord.onTee?(str) }
+            Task { @MainActor in coord.handleTee(str) }
         }, Unmanaged.passUnretained(context.coordinator).toOpaque())
+
+        // Hand the controller a writer for this surface so chat→terminal routing
+        // (routeMentionsToTerminals → controller.inject) can reach it. Reads the
+        // coordinator's current surface each call, so it no-ops after teardown.
+        context.coordinator.onInject({ [weak coord = context.coordinator] line in
+            guard let s = coord?.surface else { return }
+            line.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+        })
 
         GhosttyApp.shared.tick()  // initial pump so the shell starts producing IO
         return view
@@ -305,9 +362,33 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var surface: ghostty_surface_t?
         weak var view: GhosttyInputView?
         let onTee: ((String) -> Void)?
-        init(onTee: ((String) -> Void)?) { self.onTee = onTee }
+        let onInject: (((String) -> Void)?) -> Void
+        private let startupCommand: String
+        private var startupSent = false
+        init(onTee: ((String) -> Void)?, startupCommand: String = "",
+             onInject: @escaping (((String) -> Void)?) -> Void = { _ in }) {
+            self.onTee = onTee
+            self.startupCommand = startupCommand
+            self.onInject = onInject
+        }
+
+        /// Per-chunk tee handler: forward bytes, and once the shell has produced its first
+        /// output, type the companion's startup command (only once). A short delay lets the
+        /// prompt settle. Ghostty's `command` can't carry args, so the command is typed in.
+        func handleTee(_ str: String) {
+            onTee?(str)
+            guard !startupSent, !startupCommand.isEmpty, surface != nil else { return }
+            startupSent = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, let s = self.surface else { return }
+                let line = self.startupCommand + "\r"
+                line.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+                NSLog("[Ghostty] typed startup command (%d chars)", self.startupCommand.count)
+            }
+        }
 
         func teardown() {
+            onInject(nil)   // controller drops its surface writer
             guard let s = surface else { return }
             surface = nil
             view?.surface = nil

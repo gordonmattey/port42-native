@@ -30,6 +30,13 @@ public struct PortPanel: Identifiable {
         return PortPanel.extractTitle(from: html)
     }
 
+    /// For native terminal ports, the `html` field holds a JSON-encoded `TerminalPortConfig`
+    /// (not HTML). Decode it; nil for any non-terminal port.
+    var terminalConfig: TerminalPortConfig? {
+        guard portType == "terminal" else { return nil }
+        return try? JSONDecoder().decode(TerminalPortConfig.self, from: Data(html.utf8))
+    }
+
     /// Extract title from HTML <title> tag, fallback to "port"
     static func extractTitle(from html: String) -> String {
         if let start = html.range(of: "<title>"),
@@ -146,7 +153,9 @@ public final class PortWindowManager: ObservableObject {
                     isChatPort: row.isChatPort
                 )
                 panels.append(panel)
-                if !panel.isChatPort {
+                // Chat ports render ChatView; terminal ports host a Ghostty surface —
+                // only web ports get a WKWebView.
+                if !panel.isChatPort && panel.portType != "terminal" {
                     createPortWebView(for: panel)
                 }
 
@@ -183,6 +192,9 @@ public final class PortWindowManager: ObservableObject {
             windows.removeValue(forKey: id)
             // Keep the panel and webview alive, just remove the window
             webViews[id]?.removeFromSuperview()
+            // Closing the window freed any Ghostty surface it hosted; drop the controller.
+            // showRestoredFloatingPanels rebuilds both when the panels reappear.
+            appState?.teardownTerminalController(panelId: id)
         }
     }
 
@@ -217,7 +229,7 @@ public final class PortWindowManager: ObservableObject {
 
     /// Pop a port out from inline into a floating panel.
     @discardableResult
-    public func popOut(html: String, bridge: PortBridge, spaceId: String?, createdBy: String?, messageId: String?, title: String? = nil, in bounds: CGSize) -> String {
+    public func popOut(html: String, bridge: PortBridge, spaceId: String?, createdBy: String?, messageId: String?, title: String? = nil, portType: String = "web", in bounds: CGSize) -> String {
         // Check for existing panel from the same message and update it
         if let idx = panels.firstIndex(where: { $0.messageId == messageId && messageId != nil }) {
             let existingId = panels[idx].id
@@ -240,9 +252,12 @@ public final class PortWindowManager: ObservableObject {
                 portType: panels[idx].portType,
                 isChatPort: panels[idx].isChatPort
             )
-            // Recreate webview with new HTML content
-            destroyWebView(existingId)
-            createPortWebView(for: panels[idx])
+            // Recreate webview with new content — skipped for native terminal ports,
+            // which host a Ghostty surface (no WKWebView).
+            if panels[idx].portType != "terminal" {
+                destroyWebView(existingId)
+                createPortWebView(for: panels[idx])
+            }
             persistPanel(existingId)
             // If backgrounded, restore it since new content was created
             if wasBackground {
@@ -261,7 +276,7 @@ public final class PortWindowManager: ObservableObject {
         let h: CGFloat = screen.height * 0.4
 
         let newUdid = UUID().uuidString
-        let panel = PortPanel(
+        var panel = PortPanel(
             id: newUdid,
             udid: newUdid,
             html: html,
@@ -272,10 +287,13 @@ public final class PortWindowManager: ObservableObject {
             userTitle: title,
             size: CGSize(width: w, height: h)
         )
+        panel.portType = portType
         panels.append(panel)
 
-        // Create the WKWebView once
-        createPortWebView(for: panel)
+        // Native terminal ports host a Ghostty surface, not a WKWebView.
+        if portType != "terminal" {
+            createPortWebView(for: panel)
+        }
         persistPanel(panel.id)
 
         // Create native floating window
@@ -310,6 +328,7 @@ public final class PortWindowManager: ObservableObject {
         if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
             destroyWebView(id)
         }
+        appState?.teardownTerminalController(panelId: id)
         unpersistPanel(id)
         Analytics.shared.portClosed()
         panels.removeAll { $0.id == id }
@@ -367,6 +386,9 @@ public final class PortWindowManager: ObservableObject {
         }
         windows.removeValue(forKey: id)
         webViews[id]?.removeFromSuperview()
+        // The Ghostty surface lives in the (now-closed) window's content view; closing it
+        // freed the surface, so drop the controller. Restoring rebuilds both.
+        appState?.teardownTerminalController(panelId: id)
 
         panels[idx].isBackground = true
         persistPanel(id)
@@ -396,11 +418,16 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port stopped: %@", panels.first(where: { $0.id == id })?.title ?? id)
     }
 
-    /// Restart a port by reloading its HTML content.
+    /// Restart a port by reloading its content. Web ports reload the WKWebView; native
+    /// terminal ports rebuild the Ghostty surface via a fresh controller.
     public func restart(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
-        destroyWebView(id)
-        createPortWebView(for: panels[idx])
+        if panels[idx].portType == "terminal" {
+            appState?.makeTerminalController(for: panels[idx])
+        } else {
+            destroyWebView(id)
+            createPortWebView(for: panels[idx])
+        }
         if let window = windows[id] {
             updateWindowContent(window, panel: panels[idx])
         }
@@ -650,6 +677,12 @@ public final class PortWindowManager: ObservableObject {
             forName: NSWindow.didResizeNotification, object: window, queue: .main
         ) { [weak self] _ in Task { @MainActor [weak self] in self?.windowFrameChanged(panelId) } }
 
+        // Native terminal ports need their controller (hooks socket + env) ready BEFORE
+        // updateWindowContent builds the GhosttyTerminalView, which reads the env.
+        if panel.portType == "terminal" {
+            appState?.makeTerminalController(for: panel)
+        }
+
         updateWindowContent(window, panel: panel)
         // Install hover tracking AFTER contentView is set by updateWindowContent
         window.installHoverTracking()
@@ -687,6 +720,7 @@ public final class PortWindowManager: ObservableObject {
         if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
             destroyWebView(id)
         }
+        appState?.teardownTerminalController(panelId: id)
         if !isTerminating {
             unpersistPanel(id)
         }
@@ -1051,6 +1085,15 @@ struct PortPanelContentView: View {
             if isChatPort {
                 ChatView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if panel.portType == "terminal", let cfg = panel.terminalConfig,
+                      let controller = appState.terminalControllers[panel.id] {
+                GhosttyTerminalView(
+                    config: cfg,
+                    env: controller.env,
+                    onTee: { controller.receiveTee($0) },
+                    onInject: { controller.bindSurface($0) }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if showCode {
                 ScrollView(.vertical) {
                     Text(panel.html)
@@ -1077,7 +1120,7 @@ struct PortPanelContentView: View {
             // Title bar overlay — timed flash on hover/focus, always on for code view
             if showBar || showCode || showVersions {
                 VStack(alignment: .leading, spacing: 0) {
-                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions, isChatPort: isChatPort)
+                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions, isChatPort: isChatPort, isTerminal: panel.portType == "terminal")
                     if showVersions {
                         HStack {
                             PortVersionDropdown(panel: panel, manager: manager, isPresented: $showVersions)
@@ -1246,6 +1289,8 @@ struct PortPanelTitleBar: View {
     @State private var versionHovered = false
     @Binding var showVersions: Bool
     var isChatPort: Bool = false
+    /// Native terminal ports have no source/stop/restart concept — hide those buttons.
+    var isTerminal: Bool = false
 
     /// Always read the live panel from manager so rename/title updates reflect immediately.
     private var livePanel: PortPanel {
@@ -1288,8 +1333,9 @@ struct PortPanelTitleBar: View {
             }
             .background(PortDragArea())
 
-            // Buttons (not draggable) — mode-dependent; web-only buttons hidden for chat ports
-            if !isChatPort {
+            // Buttons (not draggable) — mode-dependent; web-only buttons hidden for chat
+            // and native terminal ports
+            if !isChatPort && !isTerminal {
                 if showCode {
                     Button(action: { showCode = false }) {
                         Image(systemName: "play.fill")

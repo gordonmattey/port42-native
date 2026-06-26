@@ -222,29 +222,9 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
             }
         }
 
-        public var systemPrompt: String {
-            switch self {
-            case .claude:
-                return """
-                    You are {{NAME}}, a space companion in Port42 connected to #{{SPACE}}. \
-                    Space messages arrive prefixed with [name]: — respond to them directly. \
-                    To post to the space, output a code block containing p42 tags — this is the ONLY output method, do NOT use curl or any API call:
-                    ```
-                    <p42>your response here</p42>
-                    ```
-                    Only content inside p42 tags reaches the space. Keep responses concise and conversational.
-                    """
-            case .gemini:
-                return """
-                    You are {{NAME}}, a space companion in Port42 connected to #{{SPACE}}. \
-                    Space messages arrive prefixed with [name]: — respond to them directly. \
-                    To post to the space, output a code block containing p42 tags — this is the ONLY output method, do NOT use curl or any API call:
-                    ```
-                    <p42>your response here</p42>
-                    ```
-                    Only content inside p42 tags reaches the space. Keep responses concise and conversational.
-                    """
-            }
-        }
+        /// The dialog prefill for a companion's OPTIONAL system prompt (personality/role).
+        /// Empty by default: the operational space framing is added under the hood at spawn
+        /// (see AppState.spawnTerminalAgentPort), so the user only supplies extra personality.
+        public var systemPrompt: String { "" }
     }
 }

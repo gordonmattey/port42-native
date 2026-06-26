@@ -24,6 +24,41 @@ func TestLastAssistantText(t *testing.T) {
 	}
 }
 
+// Off-by-one regression: with multiple turns, return the reply to the LATEST user message,
+// not an earlier turn's reply.
+func TestLastAssistantTextLatestTurn(t *testing.T) {
+	dir := t.TempDir()
+	tp := filepath.Join(dir, "transcript.jsonl")
+	lines := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"test 1"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reply one"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"test 2"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reply two"}]}}
+`
+	if err := os.WriteFile(tp, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastAssistantText(tp); got != "reply two" {
+		t.Fatalf("lastAssistantText = %q, want %q (must be the latest turn, not lagged)", got, "reply two")
+	}
+}
+
+// When the latest user message has no assistant reply flushed yet, return "" so the retry waits
+// (rather than returning the PREVIOUS turn's reply).
+func TestLastAssistantTextWaitsForCurrentTurn(t *testing.T) {
+	dir := t.TempDir()
+	tp := filepath.Join(dir, "transcript.jsonl")
+	lines := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"test 1"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reply one"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"test 2"}]}}
+`
+	if err := os.WriteFile(tp, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastAssistantText(tp); got != "" {
+		t.Fatalf("lastAssistantText = %q, want empty (current turn not flushed → must not return prior reply)", got)
+	}
+}
+
 func TestExtractTextStringContent(t *testing.T) {
 	if got := extractText(json.RawMessage(`"hello"`)); got != "hello" {
 		t.Fatalf("extractText(string) = %q, want hello", got)

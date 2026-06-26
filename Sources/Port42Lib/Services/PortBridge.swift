@@ -886,14 +886,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             try? state.db.savePosition(pos)
             return ["ok": true]
 
-        // MARK: Resources
-
-        case "terminal.xtermjs":
-            // Serve bundled xterm.js + CSS for terminal ports
-            let js = PortBridge.bundledXtermJS ?? ""
-            let css = PortBridge.bundledXtermCSS ?? ""
-            return ["js": js, "css": css]
-
         // MARK: Terminal
 
         case "terminal.spawn":
@@ -1632,20 +1624,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         webView?.evaluateJavaScript("port42._heartbeat()") { _, _ in }
     }
 
-    // MARK: - Bundled Resources
-
-    /// Bundled xterm.js library for terminal ports
-    static let bundledXtermJS: String? = {
-        guard let url = Bundle.module.url(forResource: "xterm", withExtension: "js") else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
-    }()
-
-    /// Bundled xterm.css for terminal ports
-    static let bundledXtermCSS: String? = {
-        guard let url = Bundle.module.url(forResource: "xterm", withExtension: "css") else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
-    }()
-
     // MARK: - Injected JavaScript
 
     /// The port42.* namespace injected into every port webview
@@ -1817,20 +1795,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     const fullEvent = 'terminal.' + event;
                     if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
                     _listeners[fullEvent].push(callback);
-                },
-                loadXterm: async function() {
-                    const res = await call('terminal.xtermjs');
-                    if (res && res.js) {
-                        const style = document.createElement('style');
-                        style.textContent = res.css || '';
-                        document.head.appendChild(style);
-                        const script = document.createElement('script');
-                        script.textContent = res.js;
-                        document.head.appendChild(script);
-                        // xterm.js exports to window.Terminal
-                        return window.Terminal;
-                    }
-                    return null;
                 }
             },
             clipboard: {
