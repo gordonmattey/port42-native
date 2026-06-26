@@ -107,11 +107,20 @@ GHOSTTYKIT_SHA256="cbe4a8b5f8c00ea9ffe4274e5e764009b6efe2dc877646fd6fa12d34146ce
 GHOSTTYKIT_URL="https://github.com/manaflow-ai/ghostty/releases/download/xcframework-${GHOSTTY_COMMIT}-crashsubdir-cmux-crash-v1/GhosttyKit.xcframework.tar.gz"
 GHOSTTY_SLICE="$DIR/GhosttyKit.xcframework/macos-arm64_x86_64"
 if [ ! -d "$DIR/GhosttyKit.xcframework" ]; then
-    echo "[build] Downloading GhosttyKit ($GHOSTTY_COMMIT)..."
-    curl -fL -o /tmp/ghosttykit.tar.gz "$GHOSTTYKIT_URL"
+    # Prefer the vendored tarball (committed via Git LFS) so the build doesn't depend on an
+    # external URL staying up. Fall back to downloading if it's absent (e.g. LFS not pulled).
+    VENDORED_TARBALL="$DIR/vendor/GhosttyKit.xcframework.tar.gz"
+    if [ -f "$VENDORED_TARBALL" ] && [ "$(wc -c < "$VENDORED_TARBALL")" -gt 1000000 ]; then
+        echo "[build] Using vendored GhosttyKit (vendor/GhosttyKit.xcframework.tar.gz)..."
+        GHOSTTYKIT_TARBALL="$VENDORED_TARBALL"
+    else
+        echo "[build] Downloading GhosttyKit ($GHOSTTY_COMMIT)..."
+        curl -fL -o /tmp/ghosttykit.tar.gz "$GHOSTTYKIT_URL"
+        GHOSTTYKIT_TARBALL=/tmp/ghosttykit.tar.gz
+    fi
     echo "[build] Verifying checksum..."
-    echo "$GHOSTTYKIT_SHA256  /tmp/ghosttykit.tar.gz" | shasum -a 256 -c -
-    tar -xz -C "$DIR" -f /tmp/ghosttykit.tar.gz
+    echo "$GHOSTTYKIT_SHA256  $GHOSTTYKIT_TARBALL" | shasum -a 256 -c -
+    tar -xz -C "$DIR" -f "$GHOSTTYKIT_TARBALL"
     # The macOS slice ships as ghostty-internal.a (no lib prefix); SwiftPM
     # rejects static libraries that aren't lib-prefixed. Rename it and patch
     # the xcframework Info.plist to match. (iOS slices are already lib-prefixed.)
