@@ -15,11 +15,23 @@ input via the C API.
 
 ### License / IP Note
 
-manaflow/cmux is **GPL-3.0** (dual-licensed: GPL or commercial from Manaflow, Inc.).
+**The GhosttyKit binary Port42 ships is MIT-licensed.** It is built from
+`manaflow-ai/ghostty` — a fork of upstream Ghostty (also MIT). The fork's LICENSE is MIT
+(`Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors`). MIT permits use,
+modification, and redistribution — including inside a closed-source app and cached in a
+public repo — provided the copyright + permission notice is preserved. That attribution is
+included in `Sources/Port42Lib/Resources/THIRD-PARTY-LICENSES.txt`, bundled into the app.
+
+**Do NOT confuse this with `manaflow-ai/cmux`** — Manaflow's *product* repo, which is
+GPL-3.0. Port42 does not use, link, or ship any cmux code; only the MIT Ghostty fork's
+xcframework. (An earlier version of this note wrongly described the dependency as GPL — it
+is not. There are no GPL obligations on Port42.)
+
 **No cmux code is copied.** Port42 implements the same conceptual approach independently:
 the hook injection mechanism, socket protocol, and transcript parsing are all derived from
-public Anthropic documentation and standard Unix patterns — none of which are copyrightable.
-All Port42 naming is independent (no "cmux" identifiers anywhere in code or comments).
+public Anthropic documentation and standard Unix patterns. The "cmux" strings that remain in
+the repo are (a) the fork's upstream release-tag URL in `build.sh` and (b) provenance docs
+like this one — not copied code or branding in Port42's shipping source.
 
 ---
 
