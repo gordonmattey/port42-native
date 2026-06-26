@@ -52,7 +52,6 @@ final class CommandAgentHandler {
             NSLog("[Port42] Command agent has no command path")
             return
         }
-
         // Insert placeholder message
         let placeholder = Message(
             id: messageId,
@@ -93,8 +92,19 @@ final class CommandAgentHandler {
                 let stdoutPipe = Pipe()
                 let stderrPipe = Pipe()
 
-                process.executableURL = URL(fileURLWithPath: command)
-                process.arguments = agentArgs
+                // If `command` is a real executable path, exec it directly (protocol agents:
+                // args + NDJSON over stdin/stdout). Otherwise treat it as a shell command line
+                // (e.g. "bash | printf …", "echo hi") so pipes/globs work and its stdout is
+                // captured + posted — a literal path can't express a pipeline.
+                let runViaShell = !FileManager.default.isExecutableFile(atPath: command)
+                if runViaShell {
+                    let shellLine = agentArgs.isEmpty ? command : ([command] + agentArgs).joined(separator: " ")
+                    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+                    process.arguments = ["-lc", shellLine]
+                } else {
+                    process.executableURL = URL(fileURLWithPath: command)
+                    process.arguments = agentArgs
+                }
                 process.standardInput = stdinPipe
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
@@ -126,70 +136,86 @@ final class CommandAgentHandler {
                     self.stdinPipe = stdinPipe
                 }
 
-                // Send the event via stdin
-                let encoder = JSONEncoder()
-                if let eventData = try? encoder.encode(event) {
-                    stdinPipe.fileHandleForWriting.write(eventData)
-                    stdinPipe.fileHandleForWriting.write("\n".data(using: .utf8)!)
+                // Protocol agents get the trigger event as NDJSON on stdin. Shell commands don't
+                // speak the protocol — close stdin so a command that reads it (e.g. bash) gets
+                // EOF and exits instead of hanging.
+                if runViaShell {
+                    try? stdinPipe.fileHandleForWriting.close()
+                } else {
+                    let encoder = JSONEncoder()
+                    if let eventData = try? encoder.encode(event) {
+                        stdinPipe.fileHandleForWriting.write(eventData)
+                        stdinPipe.fileHandleForWriting.write("\n".data(using: .utf8)!)
+                    }
                 }
 
-                // Read stdout line by line
+                // Read stdout to EOF.
                 let stdout = stdoutPipe.fileHandleForReading
                 var buffer = Data()
                 var fullContent = ""
+                var rawStdout = ""   // non-NDJSON output (a plain command like bash just prints text)
+                let decoder = JSONDecoder()
 
-                while process.isRunning || stdout.availableData.count > 0 {
-                    let chunk = stdout.availableData
-                    if chunk.isEmpty {
-                        if !process.isRunning { break }
-                        try await Task.sleep(nanoseconds: 10_000_000)
-                        continue
+                // Handle one output line: NDJSON protocol message, or raw text (accumulated and
+                // posted at the end). Shared so the final newline-less remnant is handled too.
+                func handleLine(_ lineData: Data) async {
+                    guard let line = String(data: lineData, encoding: .utf8),
+                          !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    guard let response = try? decoder.decode(CommandAgentResponse.self, from: lineData) else {
+                        rawStdout += line + "\n"
+                        return
                     }
-                    buffer.append(chunk)
+                    switch response.type {
+                    case "content", "done":
+                        if let content = response.content {
+                            fullContent = response.type == "done" ? content : fullContent + content
+                            let snapshot = fullContent
+                            await MainActor.run {
+                                guard let appState = self.appState,
+                                      let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
+                                appState.messages[idx].content = snapshot
+                            }
+                        }
+                    case "error":
+                        NSLog("[Port42] Command agent error: %@", response.content ?? "unknown")
+                        await MainActor.run {
+                            self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
+                        }
+                    default:
+                        break
+                    }
+                }
 
-                    // Process complete lines
-                    while let newlineRange = buffer.range(of: "\n".data(using: .utf8)!) {
+                // availableData blocks until data arrives or returns empty at EOF. Do NOT test
+                // availableData in a loop condition — that read consumes a chunk that the body
+                // then misses (lost the output of fast-exiting commands like `echo`).
+                while true {
+                    let chunk = stdout.availableData
+                    if chunk.isEmpty { break }   // EOF: process exited and the pipe drained
+                    buffer.append(chunk)
+                    while let newlineRange = buffer.range(of: Data([0x0a])) {
                         let lineData = buffer.subdata(in: buffer.startIndex..<newlineRange.lowerBound)
                         buffer.removeSubrange(buffer.startIndex...newlineRange.lowerBound)
+                        await handleLine(lineData)
+                    }
+                }
+                // Final line with no trailing newline (e.g. `printf 'x'`).
+                if !buffer.isEmpty { await handleLine(buffer) }
 
-                        guard let line = String(data: lineData, encoding: .utf8),
-                              !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-
-                        let decoder = JSONDecoder()
-                        guard let response = try? decoder.decode(CommandAgentResponse.self, from: lineData) else {
-                            NSLog("[Port42] Command agent sent non-JSON line: %@", line)
-                            continue
+                // Fall back to raw stdout for commands that don't speak the NDJSON protocol.
+                // Prefer explicitly-tagged <p42> content; otherwise post the raw output.
+                if fullContent.isEmpty && !rawStdout.isEmpty {
+                    let captured = rawStdout
+                    fullContent = await MainActor.run { () -> String in
+                        let tags = TerminalOutputProcessor.extractP42Tags(from: captured)
+                        let content = tags.isEmpty
+                            ? captured.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : tags.joined(separator: "\n")
+                        if let appState = self.appState,
+                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) {
+                            appState.messages[idx].content = content
                         }
-
-                        switch response.type {
-                        case "content":
-                            if let content = response.content {
-                                fullContent += content
-                                let snapshot = fullContent
-                                await MainActor.run {
-                                    guard let appState = self.appState,
-                                          let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                                    appState.messages[idx].content = snapshot
-                                }
-                            }
-                        case "done":
-                            if let content = response.content {
-                                fullContent = content
-                                let snapshot = fullContent
-                                await MainActor.run {
-                                    guard let appState = self.appState,
-                                          let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                                    appState.messages[idx].content = snapshot
-                                }
-                            }
-                        case "error":
-                            NSLog("[Port42] Command agent error: %@", response.content ?? "unknown")
-                            await MainActor.run {
-                                self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
-                            }
-                        default:
-                            break
-                        }
+                        return content
                     }
                 }
 

@@ -19,8 +19,8 @@
 //        - Write Port42-normalized JSON to $PORT42_HOOKS_SOCKET and exit. We write NOTHING
 //          to stdout (stdout from a hook is interpreted by Claude as hook output / can block).
 //
-// No third-party deps. No "cmux" identifiers — the approach is derived from public Claude
-// Code hook docs + standard Unix patterns.
+// No third-party deps. The approach is derived from public Claude Code hook docs +
+// standard Unix patterns.
 package main
 
 import (

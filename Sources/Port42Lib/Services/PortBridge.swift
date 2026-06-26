@@ -896,8 +896,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.first as? [String: Any] ?? [:]
             let shell = opts["shell"] as? String ?? "/bin/zsh"
             let cwd = opts["cwd"] as? String
-            let cols = UInt16(opts["cols"] as? Int ?? 80)
-            let rows = UInt16(opts["rows"] as? Int ?? 24)
+            // Clamp to a valid range — a port restoring into a not-yet-laid-out window can
+            // compute a negative cols/rows, and UInt16(negative) traps ("Negative value is not
+            // representable") → startup crash. clamping + max(1,…) makes it crash-proof.
+            let cols = UInt16(clamping: max(1, opts["cols"] as? Int ?? 80))
+            let rows = UInt16(clamping: max(1, opts["rows"] as? Int ?? 24))
             let env = opts["env"] as? [String: String]
             if terminalBridge == nil {
                 terminalBridge = TerminalBridge(bridge: self)
@@ -927,7 +930,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                   let rows = args.count > 2 ? args[2] as? Int : nil else {
                 return ["error": "terminal.resize requires sessionId, cols, rows"]
             }
-            let ok = terminalBridge?.resize(sessionId: sessionId, cols: UInt16(cols), rows: UInt16(rows)) ?? false
+            let ok = terminalBridge?.resize(sessionId: sessionId, cols: UInt16(clamping: max(1, cols)), rows: UInt16(clamping: max(1, rows))) ?? false
             if ok {
                 return ["ok": true]
             } else {
