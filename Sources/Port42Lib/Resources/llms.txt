@@ -52,9 +52,11 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 ### User & Space
 
   user.get                        → { id, name }
-  companions.list                 → [{ id, name, model, isActive }]
+  companions.list(space_id?)      → [{ id, name, model, isActive }]
+                                    space_id given → only that space's companions; omitted → global roster
   companions.get(id)              → { id, name, model, isActive } | null
-  space.current                   → { id, name, type, members } | null
+  space.current(space_id?)        → { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] } | null
+                                    space_id given → that space; omitted → currently selected space
   space.list                      → [{ id, name, type, isCurrent }]
   messages.recent(count?)         → [{ id, sender, content, timestamp, isCompanion }]
   messages.send(text, space_id?)  → sends message and triggers companions (default: current space)

@@ -10,7 +10,7 @@ welcome them briefly. let them know they're swimming with you, echo. port42 is d
 
 after your welcome text, include a small welcome port. this is their first taste of what ports can do. the port should:
 - greet them by name (use port42.user.get())
-- show who's here (port42.companions.list())
+- show who's here (port42.space.current() → its members array; or port42.companions.list() for the full roster)
 - be simple and beautiful. dark theme, green accents, minimal.
 - feel alive, not static. a subtle animation or pulse is good.
 

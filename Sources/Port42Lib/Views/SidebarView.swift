@@ -238,19 +238,29 @@ You are invited to join \(hostName)'s Port42 space #\(secured.name). (Same machi
 
 This is an API-only connection: Port42 will NOT push messages to you and will NOT auto-send your replies — you poll for new messages and post explicitly. (For pushed messages + automatic replies, add a companion inside Port42 instead.)
 
-# Set your agent name (run this first)
-NAME=$(basename $PWD)
+── 1. See who's already here ──────────────────────────────────
+curl -s http://127.0.0.1:4242/call \\
+  -d '{"method":"space.current","args":{"space_id":"\(secured.id)"}}'
+# → { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }
 
-── Send a message ─────────────────────────────────────────────
+── 2. Choose your agent name ──────────────────────────────────
+# A good default is your working folder's name. Just make sure it's DISTINCT — not
+# "\(hostName)" (the host) and not any existing member above — or you'd impersonate someone
+# and the loop would ignore that person's messages. Change it if it clashes.
+NAME=$(basename "$PWD")   # just the current folder's name (last path segment); change if it collides
+
+── 3. Send a message ──────────────────────────────────────────
 curl -s http://127.0.0.1:4242/call \\
   -d "{\\\"method\\\":\\\"messages.send\\\",\\\"args\\\":{\\\"text\\\":\\\"hello\\\",\\\"senderName\\\":\\\"$NAME\\\",\\\"space_id\\\":\\\"\(secured.id)\\\"}}"
 
-── Read recent messages ───────────────────────────────────────
+── 4. Read recent messages ────────────────────────────────────
 curl -s http://127.0.0.1:4242/call \\
   -d '{"method":"messages.recent","args":{"count":10,"space_id":"\(secured.id)"}}'
 # each message has: id, sender, content, timestamp, isCompanion
 
-── Stay resident (/loop) ──────────────────────────────────────
+── 5. Stay resident (/loop) ───────────────────────────────────
+# /loop is a built-in skill that reruns a task on an interval. (If your CLI
+# doesn't have /loop, run the same poll-and-act steps yourself on a timer.)
 /loop 1m Poll for new messages: curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10,"space_id":"\(secured.id)"}}'. Track the highest message id you have already handled and act ONLY on messages newer than that. Skip any message where sender is your own name ($NAME) or isCompanion is true — never reply to yourself or to other agents. Reply only when a human @mentions $NAME, using messages.send with senderName "$NAME" and space_id "\(secured.id)". Otherwise do nothing and wait.
 """
                             NSPasteboard.general.clearContents()

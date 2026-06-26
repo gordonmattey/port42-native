@@ -159,8 +159,13 @@ enum ToolDefinitions {
         ],
         [
             "name": "space_current",
-            "description": "Get the current space's metadata (id, name, member count)",
-            "input_schema": ["type": "object", "properties": [String: Any]()]
+            "description": "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "space_id": ["type": "string", "description": "Optional space id to inspect. Defaults to the currently selected space."]
+                ]
+            ] as [String: Any]
         ],
         [
             "name": "space_list",
@@ -169,8 +174,13 @@ enum ToolDefinitions {
         ],
         [
             "name": "companions_list",
-            "description": "List all companions in this Port42 instance with their names, models, and trigger modes",
-            "input_schema": ["type": "object", "properties": [String: Any]()]
+            "description": "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "space_id": ["type": "string", "description": "Optional space id to filter companions to that space's members."]
+                ]
+            ] as [String: Any]
         ],
         [
             "name": "companions_get",

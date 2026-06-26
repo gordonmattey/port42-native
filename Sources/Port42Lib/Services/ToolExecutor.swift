@@ -355,21 +355,30 @@ public final class ToolExecutor {
             return [textBlock(jsonString(["id": user.id, "displayName": user.displayName]))]
 
         case "space_current":
-            guard let ch = appState.currentSpace else {
+            // Optional space_id lets a caller inspect ANY space — e.g. a terminal companion
+            // querying its own space (PORT42_SPACE_ID), which is usually not the UI's current one.
+            let sid = input["space_id"] as? String
+            guard let ch = (sid.flatMap { id in appState.spaces.first(where: { $0.id == id }) } ?? appState.currentSpace) else {
                 return [textBlock("No space selected")]
             }
-            let members = (try? appState.db.getSpaceMembers(spaceId: ch.id))?.count ?? 0
-            return [textBlock(jsonString(["id": ch.id, "name": ch.name, "memberCount": members]))]
+            let list = (try? appState.db.getSpaceMembers(spaceId: ch.id)) ?? []
+            let members = list.map { Port42Members.dict($0) }
+            return [textBlock(jsonString([
+                "id": ch.id, "name": ch.name, "type": ch.type,
+                "memberCount": list.count, "members": members
+            ]))]
 
         case "space_list":
             let spaces = appState.spaces.map { ["id": $0.id, "name": $0.name] }
             return [textBlock(jsonString(spaces))]
 
         case "companions_list":
-            let companions = appState.companions.map { c -> [String: Any] in
+            // Optional space_id filters the global roster to companions assigned to that space.
+            let companions = Port42Members.companions(appState: appState, spaceId: input["space_id"] as? String)
+            let out = companions.map { c -> [String: Any] in
                 ["id": c.id, "name": c.displayName, "model": c.model ?? "unknown", "trigger": c.trigger.rawValue]
             }
-            return [textBlock(jsonString(companions))]
+            return [textBlock(jsonString(out))]
 
         case "companions_get":
             guard let id = input["id"] as? String,

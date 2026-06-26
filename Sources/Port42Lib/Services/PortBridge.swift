@@ -314,7 +314,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // port42.companions.list()
         case "companions.list":
             let typingNames = state.typingAgentNames
-            return state.companions.map { agent -> [String: Any] in
+            // Optional space_id (positional) filters the global roster to that space's companions.
+            let roster = Port42Members.companions(appState: state, spaceId: args.first as? String)
+            return roster.map { agent -> [String: Any] in
                 [
                     "id": agent.id,
                     "name": agent.displayName,
@@ -360,27 +362,29 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             // Check if we're in a swim
             if let companion = state.activeSwimCompanion,
                let space = state.currentSpace, space.isSwim {
+                let members: [[String: Any]] = [
+                    ["name": state.currentUser?.displayName ?? "you", "type": "human"],
+                    ["name": companion.displayName, "type": "agent"]
+                ]
                 return [
                     "id": space.id,
                     "name": companion.displayName,
                     "type": "swim",
-                    "members": [
-                        ["name": state.currentUser?.displayName ?? "you", "type": "human"],
-                        ["name": companion.displayName, "type": "companion"]
-                    ]
+                    "memberCount": members.count,
+                    "members": members
                 ] as [String: Any]
             }
-            // Otherwise return current space
-            if let space = state.currentSpace {
-                let spaceMembers = (try? state.db.getSpaceMembers(spaceId: space.id)) ?? []
-                let members: [[String: String]] = spaceMembers.map {
-                    ["name": $0.name, "type": $0.type]
-                }
+            // Optional space_id (positional) — inspect any space, default to current. Lets a
+            // terminal companion query its OWN space (PORT42_SPACE_ID), not just the UI's current.
+            let sid = args.first as? String
+            if let space = (sid.flatMap { id in state.spaces.first(where: { $0.id == id }) } ?? state.currentSpace) {
+                let list = (try? state.db.getSpaceMembers(spaceId: space.id)) ?? []
                 return [
                     "id": space.id,
                     "name": space.name,
                     "type": space.type,
-                    "members": members
+                    "memberCount": list.count,
+                    "members": list.map { Port42Members.dict($0) }
                 ] as [String: Any]
             }
             return NSNull()
