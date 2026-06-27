@@ -727,9 +727,6 @@ public final class AppState: ObservableObject {
     /// Safety timers that auto-clear a native terminal companion's "typing…" indicator if no
     /// reply arrives (e.g. a (re)spawn that never reaches turnComplete). Keyed by "spaceId:name".
     private var terminalTypingTimers: [String: Timer] = [:]
-    /// Live Ghostty surfaces for native terminal ports, keyed by lowercased companion
-    /// name. Populated/cleared by the terminal view (Step 9: @mention routing to stdin).
-    public var ghosttyTerminalSurfaces: [String: OpaquePointer] = [:]
     /// Active terminal bridges per space: spaceId → [companionName: portName]
     @Published public var activeBridgeNames: [String: [String: String]] = [:]
     /// Timers that clear bridge activity after quiet period
@@ -2423,6 +2420,62 @@ public final class AppState: ObservableObject {
         terminalControllers.removeValue(forKey: panelId)?.teardown()
     }
 
+    /// Create a native Ghostty `terminal` port and return its **port id** (UDID).
+    ///
+    /// This is the generic spawn used by every native-terminal caller (companion spawns, the
+    /// `terminal_spawn` tool, RPC). It owns the shared work: resolving the startup shell line,
+    /// building the `TerminalPortConfig`, and popping out a floating native window. Caller-specific
+    /// concerns (companion identity prompt, join announcements) stay with the caller.
+    ///
+    /// Returns the port id on success (== `terminalControllers` key, since `popOut` →
+    /// `createWindow` → `makeTerminalController` keys on the same `panel.id`), or `nil` if the
+    /// config failed to encode.
+    @discardableResult
+    func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
+                                 spaceId: String, title: String, companionName: String,
+                                 companionPrompt: String? = nil) -> String? {
+        // Shell line typed into the interactive shell once ready: command + quoted args.
+        // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
+        // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
+        let quotedArgs = args.map { arg -> String in
+            guard arg.contains(" ") || arg.contains("'") else { return arg }
+            return "'\(arg.replacingOccurrences(of: "'", with: "'\\''"))'"
+        }.joined(separator: " ")
+        // For hooks-capable CLIs (claude/gemini) type the BARE name so the shim shell-function
+        // (`claude() { … }`, injected via ZDOTDIR) intercepts it. A full path bypasses the
+        // function entirely → no --settings → no hooks → nothing posts. Other tools run as given.
+        let cmdName = (command as NSString).lastPathComponent
+        let launchCmd = GhosttyTerminalController.isHooksCapable(cmdName) ? cmdName : command
+        let startupCommand = quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)"
+
+        let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
+        let config = TerminalPortConfig(
+            command: "/bin/zsh",
+            args: [],
+            startupCommand: startupCommand,
+            cwd: cwd,
+            spaceId: spaceId,
+            spaceName: spaceName,
+            companionName: companionName,
+            createdBy: currentUser?.id ?? "",
+            companionPrompt: companionPrompt ?? ""
+        )
+        guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
+            NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
+            return nil
+        }
+
+        // Native terminals can't render inline — pop out a floating native window directly.
+        // The bridge is unused by the terminal path but popOut's signature requires one.
+        let portMessageId = UUID().uuidString
+        let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: portMessageId, createdBy: companionName)
+        let portId = portWindows.popOut(html: json, bridge: bridge, spaceId: spaceId, createdBy: companionName,
+                                        messageId: portMessageId, title: title, portType: "terminal",
+                                        in: CGSize(width: 800, height: 600))
+        NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
+        return portId
+    }
+
     /// Pop a terminal port running a CLI agent and bridge it to the given space.
     private func spawnTerminalAgentPort(companion: AgentConfig, command: String, spaceId: String) {
         let name = companion.displayName
@@ -2447,44 +2500,11 @@ public final class AppState: ObservableObject {
             .replacingOccurrences(of: "{{SPACE}}", with: spaceNameForPrompt)
         let companionPrompt = userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
 
-        // Shell line typed into the interactive shell once ready: command + quoted args.
-        // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
-        // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
-        let quotedArgs = args.map { arg -> String in
-            guard arg.contains(" ") || arg.contains("'") else { return arg }
-            return "'\(arg.replacingOccurrences(of: "'", with: "'\\''"))'"
-        }.joined(separator: " ")
-        // For hooks-capable CLIs (claude/gemini) type the BARE name so the shim shell-function
-        // (`claude() { … }`, injected via ZDOTDIR) intercepts it. A full path bypasses the
-        // function entirely → no --settings → no hooks → nothing posts. Other tools run as given.
-        let cmdName = (command as NSString).lastPathComponent
-        let launchCmd = GhosttyTerminalController.isHooksCapable(cmdName) ? cmdName : command
-        let startupCommand = quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)"
-
-        let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
-        let config = TerminalPortConfig(
-            command: "/bin/zsh",
-            args: [],
-            startupCommand: startupCommand,
-            cwd: cwd,
-            spaceId: spaceId,
-            spaceName: spaceName,
-            companionName: name,
-            createdBy: currentUser?.id ?? "",
-            companionPrompt: companionPrompt
-        )
-        guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
-            NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", name)
+        guard spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
+                                      spaceId: spaceId, title: name,
+                                      companionName: name, companionPrompt: companionPrompt) != nil else {
             return
         }
-
-        // Native terminals can't render inline — pop out a floating native window directly.
-        // The bridge is unused by the terminal path but popOut's signature requires one.
-        let portMessageId = UUID().uuidString
-        let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: portMessageId, createdBy: name)
-        portWindows.popOut(html: json, bridge: bridge, spaceId: spaceId, createdBy: name,
-                           messageId: portMessageId, title: name, portType: "terminal",
-                           in: CGSize(width: 800, height: 600))
 
         // Post a plain-text join announcement so the space records the companion's arrival.
         if !spaceId.isEmpty {
@@ -2504,8 +2524,6 @@ public final class AppState: ObservableObject {
             try? db.saveMessage(joinMsg)
             sync.sendMessage(joinMsg)
         }
-
-        NSLog("[Port42] Spawned native terminal port for CLI agent '%@' (panel messageId=%@)", name, portMessageId)
     }
 
     public func addCompanionToSpace(_ companion: AgentConfig, space: Space) {
