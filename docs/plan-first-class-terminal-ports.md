@@ -595,10 +595,22 @@ verify each target. Pure-testable piece: factor the path shell-escaping into a f
 (`escapeDroppedPaths([String]) -> String`) and unit-test quoting (spaces, single-quotes, multiple
 files) — shared by targets (1) and (3).
 
-### Step 6 (unchanged, tiny)
+### Step 6 — DONE / VERIFIED (2026-06-27)
 
-spaceId already resolved in-case in `terminal_spawn` (done Step 2); confirm no
-`RemoteToolExecutor(spaceId:)` init change is needed. Verify-only.
+No code change. `terminal_spawn` (`ToolExecutor.swift:740`) resolves spaceId in-case:
+`input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""` — same pattern as the
+other 4 space-scoped tools. The remote path needs no `RemoteToolExecutor(spaceId:)` change: the
+fallback covers a nil executor spaceId. Verified live (gateway row 1 spawned into a specific
+`space_id`; row 6's `<p42>` posted there).
+
+---
+
+## STATUS: Steps 1–6 COMPLETE + verified (2026-06-27)
+
+The first-class-terminal-ports milestone is done. All terminal creation yields native Ghostty
+`terminal` ports; the legacy `TerminalBridge`/xterm path is deleted; inline cards + file drop work.
+Backlogged separately (not blockers): native output-streaming bridge, and `ports.list` JSON-vs-text
+format (both in `summer2026-todo.md`).
 
 ## Verification
 
