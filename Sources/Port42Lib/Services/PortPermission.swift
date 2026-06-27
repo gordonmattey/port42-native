@@ -41,8 +41,12 @@ public enum PortPermission: String, Hashable {
             return .browser
         case "clipboard.read", "clipboard.write":
             return .clipboard
-        case "fs.pick", "fs.read", "fs.write", "fs.drop":
+        case "fs.pick", "fs.read", "fs.write":
             return .filesystem
+        case "fs.drop":
+            return nil // explicit user gesture (drag) scoped to the dropped file; reading its
+                       // contents still goes through fs.read (.filesystem). Gating the drop itself
+                       // made drops silently fail for ports without filesystem permission.
         case "notify.send":
             return .notification
         case "automation.runAppleScript", "automation.runJXA":

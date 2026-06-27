@@ -195,6 +195,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard await checkPermission(for: "fs.drop") else { return }
         guard let json = try? JSONSerialization.data(withJSONObject: files),
               let jsonStr = String(data: json, encoding: .utf8) else { return }
+        NSLog("[Port42] handleFileDrop: dispatching port42:filedrop for %d file(s)", files.count)
         _ = try? await webView?.evaluateJavaScript(
             "window.dispatchEvent(new CustomEvent('port42:filedrop', {detail: \(jsonStr)}))"
         )
