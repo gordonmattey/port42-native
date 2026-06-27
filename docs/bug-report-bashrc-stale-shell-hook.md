@@ -76,17 +76,8 @@ to ship a shell hook, make the trap no-op gracefully when the binary is absent
 
 ---
 
-## Secondary observation (separate, unfixed): `ports.list` vs `terminal.list` inconsistencies
+## Secondary observation (split out)
 
-Noticed while verifying the above. Two smells in the gateway tool output:
-
-1. **Format inconsistency.** `ports.list` returns a **human-readable text blob**
-   (`"37 ports:\n\ntitle: …\nid: …"`), while `terminal.list` returns **JSON**. Callers
-   can't parse `ports.list` as JSON.
-2. **Capabilities mismatch.** The same native terminal port reports
-   `capabilities: []` in `ports.list` but `capabilities: ["terminal"]` in
-   `terminal.list`.
-
-Not investigated further; logged here so it isn't lost. Likely candidates: the
-`ports_list` tool formatter (stringifies for LLM readability) and a capabilities field
-that isn't populated on the panel model used by `ports.list`.
+The `ports.list` raw-text-not-JSON format issue and the `capabilities` mismatch vs
+`terminal.list`, also noticed while verifying the above, are logged separately in
+**`docs/bug-report-ports-list-format-and-capabilities.md`**.

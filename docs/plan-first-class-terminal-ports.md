@@ -34,7 +34,7 @@ few local commits): native terminal companion messaging (typing/auto-reopen/rout
 posts), space-membership API, command-agent shell-exec + stdout, startup crash guard, Ghostty
 scroll/inject-submit/gate fixes, licensing + vendored GhosttyKit, dev-reboot settle fix.
 
-Forward-looking model that should *steer* (not block) this build: **`docs/summer2026.md`** —
+Forward-looking model that should *steer* (not block) this build: **`docs/summer2026-todo.md`** —
 swim collapses into space (space-scoped relationship memory), and per-(companion,space) terminal
 session ids (`UUIDv5(companion.id+space.id)`, `--session-id`/`--resume`, drop `--continue`).
 
