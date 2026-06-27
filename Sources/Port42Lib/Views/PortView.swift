@@ -36,13 +36,8 @@ class FileDropWebView: WKWebView {
               let urls = sender.draggingPasteboard.readObjects(
                 forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !urls.isEmpty else { return super.performDragOperation(sender) }
-        let files: [[String: Any]] = urls.map { url in
-            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-            return ["path": url.path, "name": url.lastPathComponent,
-                    "size": (attrs?[.size] as? Int) ?? 0,
-                    "isDirectory": (attrs?[.type] as? FileAttributeType) == .typeDirectory]
-        }
-        Task { @MainActor in await bridge.handleFileDrop(files) }
+        let paths = urls.map { $0.path }
+        Task { @MainActor in await bridge.handleFileDrop(paths) }
         return true
     }
 }

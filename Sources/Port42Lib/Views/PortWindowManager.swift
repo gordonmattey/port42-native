@@ -1519,35 +1519,7 @@ class PortWebViewContainer: NSView {
         }
     }
 
-    // MARK: - File Drop
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else {
-            return []
-        }
-        return .copy
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-              !urls.isEmpty,
-              let bridge = bridge else { return false }
-
-        let files: [[String: Any]] = urls.map { url in
-            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-            return [
-                "path": url.path,
-                "name": url.lastPathComponent,
-                "size": (attrs?[.size] as? Int) ?? 0,
-                "isDirectory": (attrs?[.type] as? FileAttributeType) == .typeDirectory
-            ]
-        }
-
-        Task { @MainActor in
-            await bridge.handleFileDrop(files)
-        }
-        return true
-    }
+    // File drops are handled by FileDropWebView (the webview subview), not the container.
 }
 
 // MARK: - Drag Area (makes region draggable by window)

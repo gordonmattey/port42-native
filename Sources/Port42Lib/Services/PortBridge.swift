@@ -190,12 +190,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Handle files dropped onto the port window.
     /// Ports: triggers filesystem permission, then dispatches `port42:filedrop` to JS.
     @MainActor
-    public func handleFileDrop(_ files: [[String: Any]]) async {
-        // Regular ports: dispatch JS event
+    /// Dispatch dropped file paths to the port's JS as `port42:filedrop` (an array of path
+    /// strings). Reading a file's contents still goes through `fs.read` (.filesystem permission).
+    public func handleFileDrop(_ paths: [String]) async {
+        guard !paths.isEmpty else { return }
         guard await checkPermission(for: "fs.drop") else { return }
-        guard let json = try? JSONSerialization.data(withJSONObject: files),
+        guard let json = try? JSONSerialization.data(withJSONObject: paths),
               let jsonStr = String(data: json, encoding: .utf8) else { return }
-        NSLog("[Port42] handleFileDrop: dispatching port42:filedrop for %d file(s)", files.count)
+        NSLog("[Port42] handleFileDrop: dispatching port42:filedrop for %d path(s)", paths.count)
         _ = try? await webView?.evaluateJavaScript(
             "window.dispatchEvent(new CustomEvent('port42:filedrop', {detail: \(jsonStr)}))"
         )

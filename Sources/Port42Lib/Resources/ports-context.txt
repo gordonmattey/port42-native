@@ -696,12 +696,13 @@ Security: Only paths explicitly chosen by the user via the picker are accessible
 
 ### File Drop
 
-  Ports accept file drops from Finder. Triggers filesystem permission on first drop.
+  Ports accept file drops from Finder. The drop itself needs no permission (it's an explicit
+  user gesture); reading a dropped file's contents still requires fs.read (filesystem permission).
 
-  port42.fs.onFileDrop(async (files) => {
-    // files is an array of { path, name, size, isDirectory }
-    for (const file of files) {
-      const {data} = await port42.fs.read(file.path);
+  port42.fs.onFileDrop(async (paths) => {
+    // paths is an array of absolute path strings
+    for (const path of paths) {
+      const {data} = await port42.fs.read(path);
       // ... process file
     }
   });
