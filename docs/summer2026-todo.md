@@ -115,6 +115,27 @@ consistent. Look at the `ports_list` vs `terminal_list` handlers (`ToolExecutor.
 
 ---
 
+## TODO: documented gateway APIs that return `Unknown tool`
+
+Several methods listed in the API reference (global `CLAUDE.md`) are **not implemented** in the
+gateway / `RemoteToolExecutor`, so calling them over `http://127.0.0.1:4242/call` returns
+`{"content":"Unknown tool: <name>"}`. Found while repositioning a floating terminal port:
+
+- `port.position` → `Unknown tool: port_position` (docs say → `{x,y,width,height}`)
+- `screen.displays` → `Unknown tool: screen_displays` (docs say → display bounds array,
+  "no permissions required")
+- `port.move` — untested; may also be missing (the documented write-side counterpart to
+  `port.position`).
+
+Impact: external callers can't read a port's geometry or the display layout, so they can't
+compute a safe on-screen position (e.g. to rescue an off-screen / hidden floating port — the
+exact case that surfaced this). Workaround used: `port.manage dock` then `undock` + `focus`.
+
+Fix direction: either implement these in the gateway tool surface, or correct the API reference
+so it only advertises what's wired. Corroborates the existing port-positioning-gap note.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
