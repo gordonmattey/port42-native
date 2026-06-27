@@ -768,6 +768,23 @@ public final class ToolExecutor {
             return [textBlock(jsonString(result))]
 
         // MARK: Terminal
+        case "terminal_spawn":
+            // Open a VISIBLE native Ghostty terminal port and return its id. This is the only
+            // visible-terminal path (terminal_exec stays headless). Companions drive it with
+            // terminal_send using the returned id — they must never hand-roll xterm in a web port.
+            let command = input["command"] as? String ?? ""
+            let cwd = input["cwd"] as? String ?? FileManager.default.homeDirectoryForCurrentUser.path
+            let title = (input["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? (command.isEmpty ? "terminal" : (command as NSString).lastPathComponent)
+            // Land in the caller's space: explicit space_id wins, else this executor's space, else UI's.
+            let sid = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
+            guard let portId = appState.spawnNativeTerminalPort(command: command, cwd: cwd,
+                                                                spaceId: sid, title: title,
+                                                                companionName: title) else {
+                return [textBlock("Error: failed to spawn terminal")]
+            }
+            return [textBlock(jsonString(["id": portId, "title": title]))]
+
         case "terminal_exec":
             guard let command = input["command"] as? String else {
                 return [textBlock("Error: missing 'command' parameter")]

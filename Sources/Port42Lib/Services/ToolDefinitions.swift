@@ -472,6 +472,19 @@ enum ToolDefinitions {
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
+            "name": "terminal_spawn",
+            "description": "Open a native terminal as a `terminal` port and return its id. Use this to create a terminal — NEVER hand-roll a terminal inside an HTML/web port. Runs in /bin/zsh; pass an optional command to run on launch (e.g. \"htop\", \"npm test\", or \"claude\"). Drive it afterwards with terminal_send using the returned id. Pass space_id to open it in a specific space (defaults to the current one).",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "command": ["type": "string", "description": "Optional command to run on launch (typed into the shell). Omit for a plain shell."],
+                    "cwd": ["type": "string", "description": "Working directory (default: home)"],
+                    "title": ["type": "string", "description": "Window/port title (default: the command, or \"terminal\")"],
+                    "space_id": ["type": "string", "description": "Space to open the terminal in (default: current space)"]
+                ]
+            ] as [String: Any]
+        ],
+        [
             "name": "terminal_exec",
             "description": "Execute a shell command and return the output. Runs in /bin/zsh.",
             "input_schema": [
@@ -706,7 +719,7 @@ enum ToolDefinitions {
         switch toolName {
         case "clipboard_read", "clipboard_write": return .clipboard
         case "screen_capture", "screen_windows", "camera_capture": return .screen
-        case "terminal_exec", "terminal_send", "terminal_list", "terminal_bridge", "terminal_unbridge": return .terminal
+        case "terminal_spawn", "terminal_exec", "terminal_send", "terminal_list", "terminal_bridge", "terminal_unbridge": return .terminal
         case "file_read", "file_write": return .filesystem
         case "file_list", "file_mkdir": return nil  // relative paths only, Port42 data dir
         case "run_applescript", "run_jxa": return .automation
