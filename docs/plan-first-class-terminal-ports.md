@@ -390,10 +390,18 @@ Step-5 TerminalBridge sweep so Step 3 stays a focused, green diff.
 
 #### Runnable test matrix (gateway / curl)
 
-Status: **Step 3 committed `738c686`** (resolver unit test green: 6/6). Manual matrix below
-**not yet run** — needs the freshly-built bundle launched (`./build.sh --run`; build alone kills
-the old instance without relaunching). Drive it through the local gateway — dot-notation maps to
-the underscore tools (`terminal.spawn → terminal_spawn`, etc.) via `RemoteToolExecutor`.
+Status: **Step 3 committed `738c686`** (resolver unit test green: 6/6). **Gateway/curl matrix
+rows 1–7 RUN & GREEN (2026-06-27)** — all passed via the local gateway against the live bundle
+(row 6 posted `render-fix-ok` to the space; row 7 returned `Unknown tool: terminal_bridge`). The
+3 subtler in-app behavioral checks below (non-arming, no-live-surface, claude `turnComplete`)
+remain **not yet verified** — they need timing/observation inside the app, not curl. Drive the
+matrix through the local gateway — dot-notation maps to the underscore tools
+(`terminal.spawn → terminal_spawn`, etc.) via `RemoteToolExecutor`.
+
+> Aside (resolved 2026-06-27): verifying this matrix surfaced a `SidebarView` render storm —
+> synchronous per-render DB queries (`getAgentsForSpace`/`getUniqueSenders`) pegging the main
+> thread and dropping the gateway host WS. Fixed in `77b266a` (reactive `spaceAgentIds`/
+> `spaceSenderCounts` caches; `SidebarView.body` is now DB-free). Unrelated to terminal-ports.
 
 Endpoint: `curl -s http://127.0.0.1:4242/call -d '{"method":"<m>","args":{...}}'`
 
