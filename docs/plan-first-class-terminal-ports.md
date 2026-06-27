@@ -2,11 +2,31 @@
 
 ## Status / resume (2026-06-27)
 
-**Nothing in this plan is implemented yet — Step 1 is the next action.** All decisions are
-locked (D1 native-only / D2 `terminal_exec` headless / D3 spaceId threading) and the code has
-been traced (see "Corrections found while tracing"). Begin at **Migration step 1** →
-**"Step 1 — detailed plan"** below: extract `spawnNativeTerminalPort` returning the port id and
-delete the dead `ghosttyTerminalSurfaces` dict (no behavior change).
+**⚠ ON RESTART — TRUST GIT, NOT THE CHAT.** This session's chat history reverts on reboot
+(`--continue` resumes an older transcript; see dev-reboot notes). The code + commits are the only
+truth. **Before re-planning, run `git log --oneline -10` and
+`grep -rn spawnNativeTerminalPort Sources/`** and read the step table below against the tree.
+Do NOT "start Step 1" — it's long done. Commit after every step so nothing rides uncommitted.
+
+**Steps 1 AND 2 are DONE and committed** — `da42eb1` (Step 1: extract `spawnNativeTerminalPort`,
+drop the dead `ghosttyTerminalSurfaces` dict) and `d05c89e` (Step 2: `terminal_spawn` tool →
+`spawnNativeTerminalPort`, returns the port id). Build green.
+
+**Next action is Step 3** — re-point `terminal_send` to resolve native controllers by id
+(`terminalControllers[id] → controller.inject`); add a `[name: id]` alias for friendly-name
+routing. NOTE **D4** (below): output-streaming is descoped and **`terminal_bridge` raw-output is
+dropped**, so Step 3 is now just `terminal_send`, not `terminal_bridge`. Then Step 5 (D1 deletion
+of `TerminalBridge` + PortBridge `terminal.*` cases — both still present) and Step 6 (spaceId).
+
+**Motivation resolved — output-streaming is DESCOPED (see "Review + descope (2026-06-26)").**
+The reason this work started today was to live-stream a claude terminal's output back into chat.
+That need is *already met by the committed hooks/`turnComplete` path* — and raw-streaming a TUI
+was the wrong mechanism anyway (claude is a TUI; teeing its bytes streams redraw garbage, which is
+exactly why hooks terminals suppress the tee). So the remaining value is **not** streaming — it is
+**giving companions a native terminal instead of a hand-rolled xterm `web` port**, plus cleanup.
+`terminal_bridge` raw-output-to-space is dropped (D4).
+
+Decisions still locked: D1 native-only / D2 `terminal_exec` headless / D3 spaceId.
 
 Already-committed groundwork this is built on (HEAD ≈ `b9136bf`, all pushed except the latest
 few local commits): native terminal companion messaging (typing/auto-reopen/routing/proactive
@@ -142,21 +162,80 @@ native terminals on demand; nobody hand-rolls xterm.
   accumulates `rawStdout`, runs `extractP42Tags`, and posts. Migration step 4 is now
   verify-only, not a fix.
 
+## Review + descope (2026-06-26)
+
+Done after tracing the code that Steps 2–6 actually touch. Supersedes the original migration-step
+prose where they conflict.
+
+- **D4 — drop output-streaming-to-chat.** The original `terminal_bridge` streamed raw PTY bytes
+  into the space as messages (`autoStartOutputBridge` → `OutputBatcher`). The native equivalent is
+  *technically* free to restore — the Ghostty PTY tee already feeds `TerminalOutputProcessor`,
+  whose cleaned `onFlush` is currently discarded (`GhosttyTerminalController.swift:114`,
+  `onFlush = { _ in }`) — but the **use case is dead**: claude output via the tee is TUI garbage,
+  and claude's real reply already posts via `turnComplete`. So: keep the always-on `<p42>` +
+  `turnComplete` posting (free, already wired); **remove `terminal_bridge` / `terminal_unbridge`
+  and the auto-bridge raw-streaming path entirely.** A companion drives a terminal with
+  `terminal_send`; meaningful output comes back via `<p42>` (bash) or `turnComplete` (claude).
+
+- **`terminal_send` arming side-effect.** `controller.inject(_:)`
+  (`GhosttyTerminalController.swift:170`) *arms the post gate* (next `turnComplete` broadcasts) and
+  drops silently if no surface is bound (`:173`). For the `terminal_send` tool, add a **raw,
+  non-arming send** path + a real "no live surface" error — don't reuse the companion message-
+  inject path.
+
+- **Step 3 / Step 5 scope is wider than the original list.** `TerminalBridge` is read in
+  `PortBridge` (property + spawn/send/resize/kill/cwd `:46–955`), `PortWindowManager`
+  (`terminalSession(forPortNamed:)` `:462–541`), `ToolExecutor` (`autoStartOutputBridge` + all
+  terminal cases), **and AppState's whole inline-bridge machinery** (`inlineTerminalBridges`
+  `:1333–1356, :1453–1461, :2575`). Step 3 must re-point or delete *every* read before Step 5 can
+  compile. Upside: since `spawnNativeTerminalPort` always pops out a window, native terminals are
+  never inline — so the `inlineTerminalBridges` path becomes **dead code to delete, not port**.
+
+- **Inline placeholder (Step 5).** Native Ghostty can't render in the WKWebView DOM, but the chat
+  should still show an inline artifact. Reuse `PortCompactBlock` (`ConversationContent.swift:965`,
+  the collapsed "click to open" card used for non-autoplay ports): a `terminal` variant (terminal
+  icon, "Open terminal") whose action pops out the floating native window. `spawnNativeTerminalPort`
+  posts the placeholder rather than only auto-popping a floating window. This *is* the terminal's
+  inline presence.
+
+- **`name→id` alias is unnecessary.** Companions already resolve by value-scan over
+  `terminalControllers.values` on `config.companionName` (`AppState.swift:1371, :1399`). Step 3
+  just needs a native title/name resolver to replace the `TerminalBridge`-based
+  `terminalSession(forPortNamed:)`.
+
+- **Step 6 is narrower than written.** Don't mutate `RemoteToolExecutor`'s
+  `ToolExecutor(spaceId: nil)` init (changes every remote tool). Resolve spaceId **inside the
+  `terminal_spawn` case** with the existing 4×-used pattern
+  `input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""`.
+
+- **Test coverage.** Pure pieces are covered (`TerminalOutputProcessorTests`,
+  `CompanionPostGateTests`, `TerminalPortConfigTests`, `TerminalControllerDrainTests`). Gaps to add:
+  Step 2 — assert `terminal_spawn` is in `ToolDefinitions` + `permission(for:) == .terminal` +
+  spaceId resolution; Step 3 — factor a pure `resolveTerminalController(idOrName:)` and test
+  id-hit / name-scan / not-found. Window-spawn + inline placeholder = manual verify (this codebase
+  has ~no view tests). `TerminalBridgeTests` is deleted with the class in Step 5.
+
 ## Migration steps (incremental, verifiable)
 
-1. Extract `spawnNativeTerminalPort` returning the **port id**; delete the dead
-   `ghosttyTerminalSurfaces` dict (no behaviour change; companion path uses it). **Detailed below.**
-2. Add a `terminal_spawn` tool (does not exist today — that absence is why companions
-   hand-roll xterm) → calls `spawnNativeTerminalPort`, returns the id. Verify a companion
-   "spawn a terminal" yields a `terminal` port (not `web`/xterm).
-3. Re-point `terminal_send` / `terminal_bridge` to resolve native controllers by id
-   (`terminalControllers[id]` → `controller.inject`); today they only find legacy
-   `TerminalBridge`/inline/title sessions. Add a `[name: id]` alias for non-companion
-   friendly-name routing. Verify send + output-to-space on a native terminal.
+1. **DONE (`da42eb1`).** Extracted `spawnNativeTerminalPort` returning the **port id**; deleted the
+   dead `ghosttyTerminalSurfaces` dict (no behaviour change). **Detailed below.**
+2. **(next)** Add a `terminal_spawn` tool (does not exist today — that absence is why companions
+   hand-roll xterm) → calls `spawnNativeTerminalPort`, returns the id. Add it to the
+   `permission(for:)` switch (`ToolDefinitions.swift:709`, `.terminal`) and resolve spaceId via the
+   `input["space_id"] ?? spaceId ?? current` pattern. Verify a companion "spawn a terminal" yields a
+   `terminal` port (not `web`/xterm).
+3. Re-point `terminal_send` to resolve native controllers by id (`terminalControllers[id]`) with a
+   **raw, non-arming send** + a native title/name resolver (replacing the `TerminalBridge`-based
+   `terminalSession(forPortNamed:)`); `terminal_list` reads native controllers. **Remove
+   `terminal_bridge`/`terminal_unbridge` + `autoStartOutputBridge` (D4).** Verify `terminal_send`
+   drives a native terminal; `<p42>`/`turnComplete` posting still works.
 4. Verify the command-agent stdout path still posts a plain `bash` agent (already fixed).
-5. Apply D1 — delete `TerminalBridge`, the `terminal.*` cases in `PortBridge` (`:895–964`),
-   the JS `terminal` object, and the `ports-context.txt` terminal section.
-6. spaceId audit (D3): default `RemoteToolExecutor` spaceId from `input["space_id"]`.
+5. Apply D1 — delete `TerminalBridge`, the `terminal.*` cases in `PortBridge` (`:895–964`), the JS
+   `terminal` object, the `ports-context.txt` terminal section, **and the now-dead
+   `inlineTerminalBridges` machinery**. Add the `PortCompactBlock` terminal-placeholder variant so a
+   spawned terminal has inline chat presence.
+6. spaceId audit (D3): confirm `terminal_spawn` resolves spaceId in-case (done in Step 2); no
+   `RemoteToolExecutor` init change.
 
 ## Step 1 — detailed plan
 
@@ -209,8 +288,12 @@ no name→id alias yet (step 3 — id-addressing already works via `terminalCont
 ## Verification
 
 - Companion `@echo spawn a terminal` → a **`terminal`** port opens (native Ghostty), no xterm.
-- `terminal_send <id> "ls\n"` → runs in that native terminal; `terminal_bridge` posts output.
+- The spawned terminal shows an inline `PortCompactBlock` placeholder in chat; clicking it pops out
+  the floating native window.
+- `terminal_send <id> "ls\n"` → runs in that native terminal (raw, non-arming send).
 - A `bash` `terminal` companion emitting `<p42>hi</p42>` → "hi" posts to the space (tee path).
+- A claude `terminal` companion's reply posts via `turnComplete` (the resolved original motivation).
 - A background `bash` command agent printing raw text → posts again (regression fixed).
 - A new terminal spawned by a CLI companion lands in **its** space (`PORT42_SPACE_ID`).
-- No `web` port is ever created for a terminal request.
+- No `web` port is ever created for a terminal request; `terminal_bridge`/`terminal_unbridge` no
+  longer exist (D4).
