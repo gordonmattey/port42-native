@@ -531,16 +531,69 @@ the class + tests; iterate on compile errors until green.
   now shows `capabilities:["terminal"]` for a spawned terminal; file-drop onto a normal web port
   still dispatches `port42:filedrop`; build launches without the removed JS breaking existing ports.
 
-### Step 5b — inline terminal placeholder (sketch; plan in full before coding)
+### Step 5b — inline terminal placeholder (detailed; 2026-06-27)
 
-- Add a segment/marker for a native terminal (e.g. a `.terminalPort(id:title:)` `ChatEntry`
-  segment, or a sentinel fence the parser maps) so a chat message can represent a terminal.
-- Add a `PortCompactBlock` terminal variant (terminal SF Symbol, title, "Open terminal") whose
-  action **undock+focus**es the existing native window by id (reuse `port.manage`), instead of
-  `popOut(html:)`.
-- `spawnNativeTerminalPort` posts the placeholder message instead of only auto-popping the float.
-- No view-test infra in this repo → manual verify (spawn → see inline card → click → window
-  focuses). Decide: one placeholder per spawn vs per-companion dedupe.
+**Decision (gordon):** reuse the existing *cached-but-not-running* port compact block — the
+minimal inline card with a play button shown for old ports in the chat (`PortCompactBlock`,
+`ConversationContent.swift:965`, gated by `portIsActive`/`activatedPortIndices` at `:756`). For a
+**terminal** port the play button **always pops out** the native window (a terminal can't run
+inline in the WKWebView DOM), reusing that exact style.
+
+**The seam — how a terminal gets an inline card.** A normal port card is driven by a `.port(html)`
+segment parsed from a ```port fence (`ChatEntry.messageSegments`). A native terminal has no HTML.
+Cleanest fit that reuses the existing renderer:
+
+- `spawnNativeTerminalPort` posts a chat message containing a **sentinel fence** the parser maps to
+  a new `MessageSegment.terminalPort(id:title:)` — e.g. a fenced block ```terminal\nid=<UDID>\ntitle=<t>\n```
+  (parsed alongside ```port in `messageSegments`). Keeps persistence/replay free (it's just message
+  content), and the card survives reloads like any port card.
+- Render that segment with a **terminal variant of `PortCompactBlock`** (terminal SF Symbol e.g.
+  `terminal`, the title, a single play/▶ button labelled "Open terminal"). No `onRun` inline-activate
+  branch — the one action calls a new `onOpenTerminal` that resolves the live controller by id and
+  **undock+focus**es the window (reuse the SidebarView pattern:
+  `terminalControllers[id]` → `portWindows.bringToFront(id)`; if no live controller, respawn/auto-reopen).
+- `InlinePortView`/`portIsActive` never applies to terminal segments (skip the activate path) — a
+  terminal card is *always* the compact block; clicking always pops out.
+
+**Edits (sketch):**
+1. `ConversationContent.swift` — add `case terminalPort(id:String, title:String)` to `MessageSegment`;
+   parse the ```terminal fence in `messageSegments`; render via the new compact-block variant.
+2. `PortCompactBlock` — add a terminal initializer/variant (icon + title + single "Open terminal"
+   action), or a sibling `TerminalCompactBlock` reusing the same visual style.
+3. `AppState.spawnNativeTerminalPort` — after creating the port, post the sentinel message into the
+   target space (one card per spawn; dedupe not needed — each spawn is a distinct port id).
+4. Open action resolver: `terminalControllers[id]` live → `bringToFront`; else auto-reopen.
+- No view-test infra → manual verify (spawn → inline card appears → click → native window focuses;
+  reload app → card still there, click still focuses/respawns).
+
+### Step 5c — file drop (all three targets; gordon: "needs to work on all three")
+
+Re-traced 2026-06-27. Three distinct surfaces, three fixes:
+
+- **(1) Native terminal port — currently UNWIRED.** Native terminals render via `GhosttyInputView`
+  (`GhosttyTerminalView.swift:61`), which is NOT the web-port drag container
+  (`PortWebViewContainer`, `PortWindowManager.swift:1497`) — so dropping a file does nothing. The
+  view already pastes via `ghostty_surface_text` (bracketed paste, `:159`). **Fix:** on
+  `GhosttyInputView` add `registerForDraggedTypes([.fileURL])` + `draggingEntered` (`.copy` for
+  fileURLs) + `performDragOperation` that shell-escapes the dropped paths
+  (`'…'` quoting) and pastes them via `ghostty_surface_text`. Self-contained in the view.
+- **(2) Web port — chain exists, VERIFY then fix.** `PortWebViewContainer` → `handleFileDrop` →
+  `port42:filedrop` JS event is intact post-5a (`fs.drop` is ungated — `permissionForMethod` returns
+  nil → allowed). Likely "nothing happens" because the *port's JS* doesn't listen for
+  `port42:filedrop`, which is the port author's job, not a bug. **Action:** verify in-app with a port
+  that listens (`port42.fs.onFileDrop(cb)`); only chase a code fix if a real port that *does* listen
+  doesn't receive the event (candidate causes: WKWebView swallowing the drag, container hit-testing).
+- **(3) Chat — net-new, no drag-drop exists.** No `onDrop`/`DropDelegate` in `ChatView`/`InputView`/
+  `ConversationContent`. **Design decision needed (see question):** what should dropping a file into
+  the conversation DO? Default proposal: insert the shell-escaped path(s) into the input draft so the
+  user can reference/send them (lowest-risk, composes with companions that read paths). Alternatives:
+  capture-and-reference via the existing `[capture:type:path]` system message, or a real attach/upload.
+  Implement once the behaviour is chosen.
+
+**Tests:** drag-drop + Ghostty paste are not unit-testable here (need a real surface/window) → manual
+verify each target. Pure-testable piece: factor the path shell-escaping into a free helper
+(`escapeDroppedPaths([String]) -> String`) and unit-test quoting (spaces, single-quotes, multiple
+files) — shared by targets (1) and (3).
 
 ### Step 6 (unchanged, tiny)
 
