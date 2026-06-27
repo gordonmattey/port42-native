@@ -74,6 +74,27 @@ per-(companion,space) too. Sequence the session-id change with that.
 
 ---
 
+## TODO: shim `.zshenv` recursion / job-table error on terminal startup
+
+Observed on every native-terminal spawn (e.g. during `dev-reboot`):
+
+```
+/tmp/port42-shim-<id>/.zshenv:1: job table full or recursion limit exceeded
+```
+
+The per-session shim `ZDOTDIR` (`TerminalSessionBootstrap`) writes startup files that source the
+user's real equivalent (`$PORT42_REAL_ZDOTDIR`, default `$HOME`). The error means the generated
+`.zshenv` is **re-sourcing itself** (or the user's `.zshenv` re-enters the per-session dir) →
+infinite recursion until zsh's job table fills. Non-fatal (the shell still comes up), but it
+spams every terminal and risks subtle env breakage.
+
+Fix direction: guard against re-entry — e.g. set a sentinel env var the first time the generated
+`.zshenv` runs and bail if it's already set, and ensure sourcing the real `ZDOTDIR` can't point
+back at the per-session dir. Verify with a clean spawn (no error line) + `which claude` still
+resolves the shim function.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
