@@ -165,6 +165,22 @@ seam survives the sweep and this feature can wire onto it later.
 
 ---
 
+## TODO: browser port type
+
+A first-class **`browser`** port type — a real, navigable browser surface as a port (parallels how
+`terminal` is a native Ghostty surface, distinct from a `web` port that just renders
+companion-authored HTML). Today the four-ish port shapes are `web` / `chat` / `terminal`, and the
+`browser.*` bridge API drives an out-of-band browser session; a browser *port* would make a live
+web page a first-class, addressable, dockable/floatable port in the space.
+
+Open questions to flesh out later: WKWebView vs a real browser engine; how it relates to the
+existing `browser.*` API (back it onto the port? deprecate?); navigation/permission model;
+whether companions can drive it (navigate/capture/execute) the way they drive terminals. Mirrors
+the terminal-ports work — likely an analogous `browser_spawn`/`browser_*` tool surface + inline
+card.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
