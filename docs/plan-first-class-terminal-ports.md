@@ -388,6 +388,34 @@ Step-5 TerminalBridge sweep so Step 3 stays a focused, green diff.
   - `terminal_list` shows the native terminal with `surfaceBound: true` once open.
   - `terminal_bridge` / `terminal_unbridge` are gone from the tool list (D4).
 
+#### Runnable test matrix (gateway / curl)
+
+Status: **Step 3 committed `738c686`** (resolver unit test green: 6/6). Manual matrix below
+**not yet run** — needs the freshly-built bundle launched (`./build.sh --run`; build alone kills
+the old instance without relaunching). Drive it through the local gateway — dot-notation maps to
+the underscore tools (`terminal.spawn → terminal_spawn`, etc.) via `RemoteToolExecutor`.
+
+Endpoint: `curl -s http://127.0.0.1:4242/call -d '{"method":"<m>","args":{...}}'`
+
+| # | Call | Expect (proves) |
+|---|------|-----------------|
+| 1 | `terminal.spawn {command:"bash", title:"t1"}` | returns `{id, title}`; a **native Ghostty** window opens (not xterm) — Step 2 native path |
+| 2 | `terminal.list` | lists `t1` with `surfaceBound:true` once open — `terminal_list` reads `terminalControllers` |
+| 3 | `terminal.send {name:<id>, data:"ls\n"}` | `ls` runs in that window; `"Sent to t1"` — resolver id-hit + `sendRaw` |
+| 4 | `terminal.send {name:"t1", data:"echo hi\n"}` | resolves by **name** too |
+| 5 | `terminal.send {name:"bogus", data:"x"}` | `Error: no terminal found… Available terminals: 't1' (id: …)` — not-found lists natives |
+| 6 | `terminal.send {name:"t1", data:"echo '<p42>hi</p42>'\n"}` | "hi" posts to the space — tee path unaffected |
+| 7 | `terminal.bridge` / `terminal.unbridge` | method **gone** (D4) |
+
+Subtler, eyeball in-app (not gateway-scriptable):
+- **Non-arming (#8):** a bare `terminal_send` does **not** arm the next `turnComplete` to
+  broadcast — distinct from a companion @mention inject.
+- **No-live-surface:** `terminal_send` to a real id before its surface binds → `"…has no live
+  surface"`, not a silent drop and not the not-found error.
+- **claude `turnComplete`:** a `claude` terminal's reply still posts (the original motivation).
+
+Run rows 1–7 in a throwaway space to avoid cluttering #port42-app.
+
 ## Verification
 
 - Companion `@echo spawn a terminal` → a **`terminal`** port opens (native Ghostty), no xterm.
