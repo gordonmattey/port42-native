@@ -719,6 +719,16 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+    /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
+    /// keyed by the card's (original) port id. `terminalLiveIds` maps that stable card id to the
+    /// currently-live port id (changes on respawn). In-memory: lost across app restarts (after a
+    /// restart the persisted panel restores under its original id, so the card still resolves).
+    struct TerminalSpawnRecord {
+        let command: String; let args: [String]; let cwd: String; let spaceId: String
+        let title: String; let companionName: String; let companionPrompt: String?
+    }
+    private var terminalSpawnRecords: [String: TerminalSpawnRecord] = [:]
+    private var terminalLiveIds: [String: String] = [:]
     /// Space messages waiting for a (re)spawning native terminal companion to become ready,
     /// keyed by lowercased companion name. Drained by the controller on CLI readiness.
     var pendingTerminalInjections: [String: [String]] = [:]
@@ -2358,7 +2368,8 @@ public final class AppState: ObservableObject {
     @discardableResult
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
                                  spaceId: String, title: String, companionName: String,
-                                 companionPrompt: String? = nil) -> String? {
+                                 companionPrompt: String? = nil,
+                                 recordKey: String? = nil, postCard: Bool = true) -> String? {
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
         // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
@@ -2399,24 +2410,48 @@ public final class AppState: ObservableObject {
                                         in: CGSize(width: 800, height: 600))
         NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
 
-        // Step 5b: leave an inline card in the space so the terminal has chat presence and can be
-        // reopened later. Local-only (the native window lives on this machine); play pops it out.
-        let card = Message(
-            id: UUID().uuidString, spaceId: spaceId, senderId: currentUser?.id ?? "",
-            senderName: companionName, senderType: "system",
-            content: "[terminal:\(portId):\(title)]",
-            timestamp: Date(), replyToId: nil, syncStatus: "local", createdAt: Date()
-        )
-        try? db.saveMessage(card)
+        // Step 5b: record params so the card's play can respawn after a close, and track the
+        // currently-live port id under the stable card key (`recordKey` on respawn, else portId).
+        let key = recordKey ?? portId
+        terminalSpawnRecords[key] = TerminalSpawnRecord(
+            command: command, args: args, cwd: cwd, spaceId: spaceId, title: title,
+            companionName: companionName, companionPrompt: companionPrompt)
+        terminalLiveIds[key] = portId
+
+        // Leave an inline card in the space so the terminal has chat presence and can be reopened.
+        // Local-only (the native window lives on this machine). The card references `key` (stable).
+        if postCard {
+            let card = Message(
+                id: UUID().uuidString, spaceId: spaceId, senderId: currentUser?.id ?? "",
+                senderName: companionName, senderType: "system",
+                content: "[terminal:\(key):\(title)]",
+                timestamp: Date(), replyToId: nil, syncStatus: "local", createdAt: Date()
+            )
+            try? db.saveMessage(card)
+        }
 
         return portId
     }
 
-    /// Bring a native terminal port's window to front (or restore it if backgrounded). Step 5b —
-    /// the inline terminal card's play action. No-op with a log if the port no longer exists.
+    /// The inline terminal card's play action (Step 5b): focus the live window, restore it if
+    /// backgrounded, or respawn it (same command/cwd/space) if it was closed.
     func openTerminalPort(id: String) {
+        let liveId = terminalLiveIds[id] ?? id
+        if let panel = portWindows.panels.first(where: { $0.id == liveId }) {
+            if panel.isBackground { portWindows.restore(liveId) } else { portWindows.bringToFront(liveId) }
+            return
+        }
+        // Window was closed → respawn from the recorded params, keeping the same card key.
+        if let rec = terminalSpawnRecords[id] {
+            _ = spawnNativeTerminalPort(
+                command: rec.command, args: rec.args, cwd: rec.cwd, spaceId: rec.spaceId,
+                title: rec.title, companionName: rec.companionName, companionPrompt: rec.companionPrompt,
+                recordKey: id, postCard: false)
+            return
+        }
+        // Fallback (e.g. after app restart): restore the persisted panel under its original id.
         guard let panel = portWindows.panels.first(where: { $0.id == id }) else {
-            NSLog("[Port42] openTerminalPort: terminal %@ no longer exists", id)
+            NSLog("[Port42] openTerminalPort: no live window or spawn record for %@", id)
             return
         }
         if panel.isBackground {

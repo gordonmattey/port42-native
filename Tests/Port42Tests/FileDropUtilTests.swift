@@ -7,12 +7,12 @@ import Foundation
 @Suite("FileDropUtil")
 struct FileDropUtilTests {
 
-    @Test("single simple path is single-quoted")
+    @Test("simple path is left bare (no quotes)")
     func singleSimple() {
-        #expect(escapeDroppedPaths(["/Users/gordon/file.txt"]) == "'/Users/gordon/file.txt'")
+        #expect(escapeDroppedPaths(["/Users/gordon/file.txt"]) == "/Users/gordon/file.txt")
     }
 
-    @Test("path with spaces stays one quoted token")
+    @Test("path with spaces is quoted")
     func spaces() {
         #expect(escapeDroppedPaths(["/Users/gordon/My File.txt"]) == "'/Users/gordon/My File.txt'")
     }
@@ -22,10 +22,10 @@ struct FileDropUtilTests {
         #expect(escapeDroppedPaths(["/tmp/it's mine"]) == "'/tmp/it'\\''s mine'")
     }
 
-    @Test("multiple paths are space-separated, each quoted")
+    @Test("multiple paths: bare unless they need quoting")
     func multiple() {
         let out = escapeDroppedPaths(["/a/one.txt", "/b/two file.txt"])
-        #expect(out == "'/a/one.txt' '/b/two file.txt'")
+        #expect(out == "/a/one.txt '/b/two file.txt'")
     }
 
     @Test("empty list yields empty string")
