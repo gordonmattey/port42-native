@@ -12,12 +12,20 @@ struct CompanionPostGateTests {
         #expect(gate.onTurnComplete("private terminal reply") == [])   // never armed
     }
 
-    @Test("arming lets exactly the next turnComplete post, then disarms")
-    func armConsumedByOneTurn() {
+    @Test("arming stays armed so a multi-turn reply posts every turn")
+    func armStaysAcrossTurns() {
         var gate = CompanionPostGate(hooksCapable: true)
         gate.arm()
-        #expect(gate.onTurnComplete("hello space") == ["hello space"])  // armed → posts
-        #expect(gate.onTurnComplete("a follow-up I typed myself") == []) // disarmed → silent
+        // One injected message can produce several turns (edit → build → respond → continue);
+        // each must post, not just the first.
+        #expect(gate.onTurnComplete("first turn") == ["first turn"])
+        #expect(gate.onTurnComplete("second turn of the same reply") == ["second turn of the same reply"])
+    }
+
+    @Test("turnComplete still never posts before any message is injected")
+    func unarmedNeverPosts() {
+        var gate = CompanionPostGate(hooksCapable: true)
+        #expect(gate.onTurnComplete("private, nothing injected yet") == [])
     }
 
     @Test("strips a leading [name]: prefix the companion echoes onto its own reply")

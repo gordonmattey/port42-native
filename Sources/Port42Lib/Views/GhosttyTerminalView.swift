@@ -237,7 +237,23 @@ final class GhosttyInputView: NSView {
     }
     override func scrollWheel(with e: NSEvent) {
         guard let s = surface else { return }
-        ghostty_surface_mouse_scroll(s, Double(e.scrollingDeltaX), Double(e.scrollingDeltaY), 0)
+        // Build the packed scroll-mods: bit 0 = precision, bits 1-3 = momentum (Ghostty's
+        // mouse.zig). Without the precision bit, trackpad PIXEL deltas (large) are interpreted
+        // as LINE counts → the terminal whizzes. Setting it makes Ghostty scale pixels by cell
+        // height, matching native Ghostty.app feel. Mouse-wheel (non-precise) is unaffected.
+        var mods: Int32 = e.hasPreciseScrollingDeltas ? 1 : 0
+        let momentum: ghostty_input_mouse_momentum_e
+        switch e.momentumPhase {
+        case .began:      momentum = GHOSTTY_MOUSE_MOMENTUM_BEGAN
+        case .stationary: momentum = GHOSTTY_MOUSE_MOMENTUM_STATIONARY
+        case .changed:    momentum = GHOSTTY_MOUSE_MOMENTUM_CHANGED
+        case .ended:      momentum = GHOSTTY_MOUSE_MOMENTUM_ENDED
+        case .cancelled:  momentum = GHOSTTY_MOUSE_MOMENTUM_CANCELLED
+        case .mayBegin:   momentum = GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN
+        default:          momentum = GHOSTTY_MOUSE_MOMENTUM_NONE
+        }
+        mods |= Int32(momentum.rawValue) << 1
+        ghostty_surface_mouse_scroll(s, Double(e.scrollingDeltaX), Double(e.scrollingDeltaY), mods)
     }
 
     deinit {
@@ -338,7 +354,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // coordinator's current surface each call, so it no-ops after teardown.
         context.coordinator.onInject({ [weak coord = context.coordinator] line in
             guard let s = coord?.surface else { return }
-            line.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+            // Send the body, then Enter SEPARATELY after a short delay. Claude Code's TUI
+            // heuristically treats a fast input burst as a paste, so a trailing "\r" in the same
+            // write is kept as a literal newline — the message drafts in the input box and never
+            // submits (worse for longer messages). Splitting Enter into its own keypress, after
+            // the body burst has settled, makes it submit reliably.
+            let body = line.hasSuffix("\r") ? String(line.dropLast()) : line
+            body.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak coord] in
+                guard let s = coord?.surface else { return }
+                "\r".withCString { ghostty_surface_text_input(s, $0, 1) }
+            }
         })
 
         GhosttyApp.shared.tick()  // initial pump so the shell starts producing IO

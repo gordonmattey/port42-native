@@ -15,10 +15,14 @@ struct CompanionPostGate {
 
     mutating func arm() { armed = true }
 
-    /// `turnComplete`: broadcast the reply ONLY if it answered an injected message, then disarm.
+    /// `turnComplete`: broadcast a reply once a message has been injected. Stays armed across
+    /// turns — a companion's reply to ONE injected message often spans MULTIPLE turns (iterative
+    /// tool work fires a Stop per turn). Disarming on the first turn dropped every later turn (the
+    /// "reply drafted but never sent" bug). Re-arming on each new inject is idempotent. (Trade-off:
+    /// once talked to via chat, the companion's later turns post too — including, in principle,
+    /// text typed directly into its terminal. Acceptable for a chat-driven dev companion.)
     mutating func onTurnComplete(_ text: String) -> [String] {
         guard armed else { return [] }
-        armed = false
         return emit(text)
     }
 
