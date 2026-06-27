@@ -1,5 +1,22 @@
 # First-class terminal ports — terminal.* API on native Ghostty
 
+## Status / resume (2026-06-27)
+
+**Nothing in this plan is implemented yet — Step 1 is the next action.** All decisions are
+locked (D1 native-only / D2 `terminal_exec` headless / D3 spaceId threading) and the code has
+been traced (see "Corrections found while tracing"). Begin at **Migration step 1** →
+**"Step 1 — detailed plan"** below: extract `spawnNativeTerminalPort` returning the port id and
+delete the dead `ghosttyTerminalSurfaces` dict (no behavior change).
+
+Already-committed groundwork this is built on (HEAD ≈ `b9136bf`, all pushed except the latest
+few local commits): native terminal companion messaging (typing/auto-reopen/routing/proactive
+posts), space-membership API, command-agent shell-exec + stdout, startup crash guard, Ghostty
+scroll/inject-submit/gate fixes, licensing + vendored GhosttyKit, dev-reboot settle fix.
+
+Forward-looking model that should *steer* (not block) this build: **`docs/summer2026.md`** —
+swim collapses into space (space-scoped relationship memory), and per-(companion,space) terminal
+session ids (`UUIDv5(companion.id+space.id)`, `--session-id`/`--resume`, drop `--continue`).
+
 ## Problem
 
 When a companion (or any caller) asks to "spawn a terminal," it gets a **web port running
@@ -99,17 +116,95 @@ native terminals on demand; nobody hand-rolls xterm.
   (a CLI companion has `PORT42_SPACE_ID`) so the new `terminal` port lands in the right space,
   not orphaned. Audit: chat tool-use, RPC `/call`, JS bridge, companion spawn.
 
+## Decisions (resolved 2026-06-26)
+
+- **D1 → native-only.** `terminal.*` always yields a `terminal` (Ghostty) port. Remove the
+  xterm/`web` terminal path entirely: delete `TerminalBridge`, drop `port42.terminal.*` from
+  the web-port JS bridge, strip the embedded-terminal section from `ports-context.txt`.
+  Rationale: a web port hosting an embedded terminal is a niche nobody uses, and the port CSP
+  blocks CDN xterm anyway — so keeping a fenced byte pipe buys nothing real.
+- **D2 → `terminal_exec` stays headless** (run + capture). Visible terminals come only from
+  the new native `terminal_spawn`.
+- **D3 → thread `spaceId` into the remote path.** `RemoteToolExecutor` builds
+  `ToolExecutor(spaceId: nil)` (`ToolExecutor.swift:1331`), so remote `/call` spawns orphan
+  into the UI's current space. Default it from `input["space_id"]`, and have the new
+  `terminal_spawn` tool doc tell companions to pass `space_id` (mirrors `messages.send`).
+
+### Corrections found while tracing the code (supersede the prose above)
+
+- **`ghosttyTerminalSurfaces` (`AppState.swift:732`) is dead** — declared, never read/written.
+  Step 1's "re-key surfaces by port id" does not apply; surface binding happens via
+  `controller.bindSurface($0)` (`PortWindowManager.swift:1094`). Action: delete the dead dict.
+- **`terminalControllers` is already keyed by `panel.id` (the UDID)**, and `popOut` already
+  returns that id (`PortWindowManager.swift:232`) — `spawnTerminalAgentPort` just discards it.
+  Step 1 only needs to *capture and return* it.
+- **Command-agent stdout regression (#5) is already fixed** — `CommandAgent.swift:207`
+  accumulates `rawStdout`, runs `extractP42Tags`, and posts. Migration step 4 is now
+  verify-only, not a fix.
+
 ## Migration steps (incremental, verifiable)
 
-1. Extract `spawnNativeTerminalPort` + port-id surface registry (no behaviour change yet;
-   companion path uses it).
-2. Re-point `terminal.spawn` → native; verify a companion "spawn a terminal" yields a
-   `terminal` port (not `web`/xterm).
-3. Re-point `terminal_send` / `terminal_bridge` to resolve Ghostty surfaces by id; verify
-   send + output-to-space on a native terminal.
-4. Fix the command-agent stdout regression (#5 above); verify a plain `bash` agent posts.
-5. Apply D1 (remove or fence off the xterm path) once nothing depends on it.
-6. spaceId audit (D3) across all spawn entry points.
+1. Extract `spawnNativeTerminalPort` returning the **port id**; delete the dead
+   `ghosttyTerminalSurfaces` dict (no behaviour change; companion path uses it). **Detailed below.**
+2. Add a `terminal_spawn` tool (does not exist today — that absence is why companions
+   hand-roll xterm) → calls `spawnNativeTerminalPort`, returns the id. Verify a companion
+   "spawn a terminal" yields a `terminal` port (not `web`/xterm).
+3. Re-point `terminal_send` / `terminal_bridge` to resolve native controllers by id
+   (`terminalControllers[id]` → `controller.inject`); today they only find legacy
+   `TerminalBridge`/inline/title sessions. Add a `[name: id]` alias for non-companion
+   friendly-name routing. Verify send + output-to-space on a native terminal.
+4. Verify the command-agent stdout path still posts a plain `bash` agent (already fixed).
+5. Apply D1 — delete `TerminalBridge`, the `terminal.*` cases in `PortBridge` (`:895–964`),
+   the JS `terminal` object, and the `ports-context.txt` terminal section.
+6. spaceId audit (D3): default `RemoteToolExecutor` spaceId from `input["space_id"]`.
+
+## Step 1 — detailed plan
+
+**Goal:** split `spawnTerminalAgentPort` (`AppState.swift:2427`) into a generic
+`spawnNativeTerminalPort(...) -> String` (any caller gets a native `terminal` port + its id)
+and a thin `spawnTerminalAgentPort` that keeps only the companion-specific bits. No behaviour
+change — the companion path produces the identical port.
+
+**The seam:**
+
+```
+func spawnNativeTerminalPort(
+    command: String,           // "claude", "bash", "htop"
+    args: [String] = [],
+    cwd: String,
+    spaceId: String,
+    title: String,
+    companionName: String,     // controller identity (defaults to title for non-companions)
+    companionPrompt: String? = nil
+) -> String                    // the port id (UDID)
+```
+
+Generic (moves into `spawnNativeTerminalPort`): hooks-name resolution (`isHooksCapable` →
+bare name vs full path) + arg quoting → `startupCommand`; build `TerminalPortConfig`;
+JSON-encode + `popOut(..., portType: "terminal")`; **capture and return** the id.
+
+Companion-specific (stays in `spawnTerminalAgentPort`): resolve `companion.args`/`workingDir`;
+build framing + user `systemPrompt` (`{{NAME}}`/`{{SPACE}}`) → `companionPrompt`; post the
+"X joined" announcement; then call `spawnNativeTerminalPort(...)`.
+
+**Edits:** (1) `AppState.swift` add `spawnNativeTerminalPort`, move lines ~2450–2488 into it,
+rewrite `spawnTerminalAgentPort` as the thin caller. (2) Delete `ghosttyTerminalSurfaces`
+(`:732`). (3) Caller at `:1420` unchanged.
+
+**Out of step 1:** no `terminal_spawn` tool (step 2); no `terminal_send` re-point (step 3);
+no name→id alias yet (step 3 — id-addressing already works via `terminalControllers[id]`).
+
+**Verification:**
+- The returned id **is** the registry key by construction: `popOut` returns `panel.id`; the
+  same `panel` flows into `createWindow` → `makeTerminalController(for: panel)`
+  (`PortWindowManager.swift:683`, synchronous within `popOut`) which keys
+  `terminalControllers[panel.id]`. Not coincidence — an invariant to read off the code.
+- Runtime: one temporary log at the spawn site —
+  `NSLog("[verify-step1] spawned id=%@ controllerPresent=%@", id, terminalControllers[id] != nil ? "Y":"N")`.
+  `./build.sh --run`, trigger a companion terminal → expect `controllerPresent=Y`, id matches.
+- Build succeeds with the dead dict removed (proves it was dead); companion terminal behaves
+  identically (hooks/`<p42>` still post). No isolated `@Test` — controller creation needs a
+  real window + Ghostty surface, so verification is the construction trace + one-shot log.
 
 ## Verification
 
