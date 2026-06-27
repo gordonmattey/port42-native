@@ -499,7 +499,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "terminal_send",
-            "description": "Send input to a terminal port. Commands are automatically executed (\\r appended if not present — no need to include it). Automatically bridges output back to this space — follow up with messages_recent to read what the terminal printed. Use the port's id (UDID from ports_list) for reliable routing. Do NOT use screen_capture to read terminal output — use terminal_send + messages_recent instead.",
+            "description": "Send input to a native terminal. Commands are automatically executed (\\r appended if not present — no need to include it). Output comes back on its own: a plain shell posts its <p42>…</p42> tags, and an agent terminal (claude/gemini) posts its reply when its turn completes — read either with messages_recent. Use the terminal's id (from terminal_spawn or terminal_list), or its name. Do NOT use screen_capture to read terminal output.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -513,28 +513,6 @@ enum ToolDefinitions {
             "name": "terminal_list",
             "description": "List all ports that have active terminal sessions, showing port name and session status",
             "input_schema": ["type": "object", "properties": [String: Any]()]
-        ],
-        [
-            "name": "terminal_bridge",
-            "description": "Start bridging a port terminal's output to the current space. Output is ANSI-stripped and posted as messages so companions can see what the terminal is doing.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "name": ["type": "string", "description": "The port title/name containing the terminal"]
-                ],
-                "required": ["name"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "terminal_unbridge",
-            "description": "Stop bridging a port terminal's output to the space.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "name": ["type": "string", "description": "The port title/name to stop bridging"]
-                ],
-                "required": ["name"]
-            ] as [String: Any]
         ],
         [
             "name": "file_read",
@@ -719,7 +697,7 @@ enum ToolDefinitions {
         switch toolName {
         case "clipboard_read", "clipboard_write": return .clipboard
         case "screen_capture", "screen_windows", "camera_capture": return .screen
-        case "terminal_spawn", "terminal_exec", "terminal_send", "terminal_list", "terminal_bridge", "terminal_unbridge": return .terminal
+        case "terminal_spawn", "terminal_exec", "terminal_send", "terminal_list": return .terminal
         case "file_read", "file_write": return .filesystem
         case "file_list", "file_mkdir": return nil  // relative paths only, Port42 data dir
         case "run_applescript", "run_jxa": return .automation

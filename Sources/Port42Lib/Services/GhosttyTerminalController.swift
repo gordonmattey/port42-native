@@ -174,6 +174,17 @@ final class GhosttyTerminalController {
         injectToSurface?(line)
     }
 
+    /// Write raw input to the surface WITHOUT arming the post gate. This is the path for the
+    /// `terminal_send` tool: a caller driving the terminal directly should not cause the next
+    /// `turnComplete` to broadcast (that's reserved for companion message injection via `inject`).
+    /// Returns `false` when no surface is bound, so callers can surface a real "no live surface"
+    /// error instead of dropping silently.
+    func sendRaw(_ data: String) -> Bool {
+        guard let inject = injectToSurface else { return false }
+        inject(data)
+        return true
+    }
+
     /// Bind (or clear) the surface writer. Called by the view when the surface is created/freed.
     func bindSurface(_ inject: ((String) -> Void)?) {
         log(inject == nil ? "surface unbound" : "surface bound")

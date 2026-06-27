@@ -32,9 +32,6 @@ public final class ToolExecutor {
     private lazy var audioBridge = AudioBridge()
     private lazy var cameraBridge = CameraBridge()
 
-    /// Output batchers for active terminal bridges (keyed by lowercased port name)
-    private static var outputBatchers: [String: OutputBatcher] = [:]
-
     init(appState: AppState, spaceId: String?, createdBy: String? = nil) {
         self.appState = appState
         self.spaceId = spaceId
@@ -123,42 +120,6 @@ public final class ToolExecutor {
             // Surface to AppState so the UI can show the prompt
             self.appState?.activeToolExecutor = self
         }
-    }
-
-    // MARK: - Terminal Bridge
-
-    /// Bridge all terminal ports already open in this space/swim at conversation start.
-    /// Called by SpaceAgentHandler.start() so output flows without needing terminal_send first.
-    func bridgeSpaceTerminals() {
-        guard let appState, let chId = spaceId else { return }
-        for panel in appState.portWindows.panels {
-            guard panel.spaceId == chId else { continue }
-            guard let tb = panel.bridge.terminalBridge,
-                  let sid = tb.firstActiveSessionId else { continue }
-            autoStartOutputBridge(portTitle: panel.title, termBridge: tb, sessionId: sid)
-        }
-    }
-
-    /// Start routing a terminal port's output into this conversation as messages.
-    /// No-op if already bridged. Called automatically on terminal_send success.
-    private func autoStartOutputBridge(portTitle: String, termBridge: TerminalBridge, sessionId: String) {
-        guard let appState else { return }
-        let key = portTitle.lowercased()
-        guard appState.bridgedTerminalNames[key] == nil else { return }
-        let chId = spaceId ?? appState.currentSpace?.id ?? ""
-        guard !chId.isEmpty else { return }
-        let panelId = appState.portWindows.panels.first(where: { $0.bridge.terminalBridge === termBridge })?.id ?? key
-        appState.bridgedTerminalNames[key] = panelId
-        let batcher = OutputBatcher(portName: portTitle, spaceId: chId, companionName: createdBy ?? "bridge", appState: appState)
-        Self.outputBatchers[key] = batcher
-        termBridge.session(for: sessionId)?.addOutputObserver { [weak batcher] rawOutput in
-            Task { @MainActor in
-                batcher?.receive(rawOutput)
-            }
-        }
-        // Start the game loop — scoped to the owning companion so only they react
-        appState.startTerminalLoop(spaceId: chId, portTitle: portTitle, createdBy: createdBy)
-        NSLog("[Port42] Auto-bridged terminal '%@' → space %@", portTitle, chId)
     }
 
     // MARK: - Tool Execution
@@ -804,88 +765,36 @@ public final class ToolExecutor {
             if !processed.hasSuffix("\r") && !processed.hasSuffix("\n") {
                 processed += "\r"
             }
-            // 1. UDID lookup (preferred — use id from ports_list)
-            if let panel = appState.portWindows.findPort(by: name),
-               let tb = panel.bridge.terminalBridge {
-                let ok = tb.sendToFirst(data: processed)
-                if ok, let sid = tb.firstActiveSessionId {
-                    autoStartOutputBridge(portTitle: panel.title, termBridge: tb, sessionId: sid)
-                }
-                return [textBlock(ok ? "Sent to \(panel.title)" : "Error: terminal send failed")]
+            // Resolve a native Ghostty terminal controller by port id or terminal name.
+            guard let controller = appState.resolveTerminalController(idOrName: name) else {
+                let avail = appState.terminalControllers
+                    .map { "'\($0.value.config.companionName)' (id: \($0.key))" }
+                    .joined(separator: ", ")
+                let hint = avail.isEmpty
+                    ? "No native terminals are open. Spawn one with terminal_spawn first."
+                    : "Available terminals: \(avail)"
+                return [textBlock("Error: no terminal found for '\(name)'. \(hint)")]
             }
-            // 2. Inline port lookup (port still in chat, not popped out)
-            if let bridge = appState.findInlineBridge(by: name),
-               let tb = bridge.terminalBridge {
-                let ok = tb.sendToFirst(data: processed)
-                if ok, let sid = tb.firstActiveSessionId {
-                    let inlineTitle = appState.inlinePorts()
-                        .first(where: { $0.id == name })?.title ?? name
-                    autoStartOutputBridge(portTitle: inlineTitle, termBridge: tb, sessionId: sid)
-                }
-                return [textBlock(ok ? "Sent to inline port" : "Error: terminal send failed")]
+            // Raw, non-arming send: drives the terminal directly without arming the post gate
+            // (gate-arming is reserved for companion message injection via controller.inject).
+            guard controller.sendRaw(processed) else {
+                return [textBlock("Error: terminal '\(name)' has no live surface")]
             }
-            // 3. Title fuzzy fallback (floating panels)
-            if let session = appState.portWindows.terminalSession(forPortNamed: name) {
-                let ok = session.bridge.send(sessionId: session.sessionId, data: processed)
-                if ok {
-                    autoStartOutputBridge(portTitle: name, termBridge: session.bridge, sessionId: session.sessionId)
-                }
-                return [textBlock(ok ? "Sent to \(name)" : "Error: failed to send to terminal")]
-            }
-            // 4. Useful error listing available terminal ports (floating + inline)
-            let floatingAvail = appState.portWindows.allPorts()
-                .filter { $0.capabilities.contains("terminal") }.map { "'\($0.title)' (id: \($0.udid))" }
-            let inlineAvail = appState.inlinePorts()
-                .filter { $0.capabilities.contains("terminal") }.map { "'\($0.title)' (id: \($0.id), status: inline)" }
-            let available = (floatingAvail + inlineAvail).joined(separator: ", ")
-            let hint = available.isEmpty
-                ? "No ports have active terminal sessions. Create a terminal port first."
-                : "Available terminal ports: \(available)"
-            return [textBlock("Error: no terminal port found for '\(name)'. \(hint)")]
+            return [textBlock("Sent to \(controller.config.companionName)")]
 
         case "terminal_list":
-            let terminals = appState.portWindows.portsWithTerminals()
-            if terminals.isEmpty {
-                return [textBlock("No ports have active terminal sessions.")]
-            }
-            let list = terminals.map { t -> [String: Any] in
-                let info: [String: Any] = [
-                    "id":           t.portId,
-                    "name":         t.name,
-                    "sessionId":    t.sessionId,
-                    "capabilities": ["terminal"],
-                    "createdBy":    t.createdBy ?? "unknown",
-                    "bridged":      appState.bridgedTerminalNames[t.name.lowercased()] != nil
+            let list = appState.terminalControllers.map { (id, controller) -> [String: Any] in
+                return [
+                    "id":           id,
+                    "name":         controller.config.companionName,
+                    "surfaceBound": controller.isSurfaceBound,
+                    "capabilities": ["terminal"]
                 ]
-                return info
+            }
+            if list.isEmpty {
+                return [textBlock("No native terminals are open.")]
             }
             return [textBlock(jsonString(list))]
-
-        case "terminal_bridge":
-            guard let name = input["name"] as? String else {
-                return [textBlock("Error: missing 'name' parameter")]
-            }
-            guard let termSession = appState.portWindows.terminalSession(forPortNamed: name) else {
-                return [textBlock("Error: no terminal found for port '\(name)'")]
-            }
-            if appState.bridgedTerminalNames[name.lowercased()] != nil {
-                return [textBlock("Already bridging '\(name)' to this conversation")]
-            }
-            autoStartOutputBridge(portTitle: name, termBridge: termSession.bridge, sessionId: termSession.sessionId)
-            return [textBlock("Bridging '\(name)' output to this conversation")]
-
-        case "terminal_unbridge":
-            guard let name = input["name"] as? String else {
-                return [textBlock("Error: missing 'name' parameter")]
-            }
-            let key = name.lowercased()
-            if appState.bridgedTerminalNames.removeValue(forKey: key) != nil {
-                Self.outputBatchers.removeValue(forKey: key)
-                if let chId = spaceId { appState.stopTerminalLoop(spaceId: chId) }
-                NSLog("[Port42] Terminal bridge stopped: %@", name)
-                return [textBlock("Stopped bridging '\(name)'")]
-            }
-            return [textBlock("'\(name)' was not being bridged")]
 
         // MARK: Filesystem
         case "file_read":
@@ -1288,42 +1197,6 @@ public final class ToolExecutor {
                 }
                 continuation.resume(returning: result.isEmpty ? "(no output)" : result)
             }
-        }
-    }
-}
-
-// MARK: - Output Batcher
-
-/// Batches terminal output, strips ANSI, and posts to a space or swim as messages.
-@MainActor
-final class OutputBatcher {
-    private let portName: String
-    private let spaceId: String
-    private let companionName: String
-    private weak var appState: AppState?
-    private let processor: TerminalOutputProcessor
-
-    init(portName: String, spaceId: String, companionName: String, appState: AppState?) {
-        self.portName = portName
-        self.spaceId = spaceId
-        self.companionName = companionName
-        self.appState = appState
-        // Capture as locals so the closure doesn't retain self
-        let chId = spaceId
-        let cName = companionName
-        let pName = portName
-        self.processor = TerminalOutputProcessor { [weak appState] content in
-            appState?.noteBridgeActivity(spaceId: chId, companionName: cName, portName: pName)
-            appState?.terminalLoop(for: chId)?.receiveOutput(content)
-        }
-    }
-
-    func receive(_ raw: String) {
-        // Dispatch to main: Timer in TerminalOutputProcessor requires main run loop
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.appState?.noteBridgeActivity(spaceId: self.spaceId, companionName: self.companionName, portName: self.portName)
-            self.processor.receive(raw)
         }
     }
 }

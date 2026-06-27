@@ -127,8 +127,6 @@ final class SpaceAgentHandler: LLMStreamDelegate {
 
 
     func start(spaceMessages: [Message], triggerContent: String) {
-        // Bridge any terminal ports already open in this space so output flows immediately
-        toolExecutor?.bridgeSpaceTerminals()
         // Build conversation context from recent space history (last 20 messages)
         // Only THIS agent's messages are "assistant". Other agents' messages are attributed
         // as user messages with their name prefix to avoid identity confusion.
@@ -2418,6 +2416,28 @@ public final class AppState: ObservableObject {
     /// Tear down and drop a native terminal controller (window closed/minimized).
     func teardownTerminalController(panelId: String) {
         terminalControllers.removeValue(forKey: panelId)?.teardown()
+    }
+
+    /// Pure resolver from an id-or-name to a terminal controller's port id. Split out so it can
+    /// be unit-tested without constructing a real controller (which needs a live Ghostty surface).
+    /// Resolution order: (1) exact id hit wins even when a name also matches; (2a) exact name
+    /// match; (2b) substring name match; (3) not found.
+    nonisolated static func resolveTerminalId(_ idOrName: String,
+                                              candidates: [(id: String, name: String)]) -> String? {
+        if candidates.contains(where: { $0.id == idOrName }) { return idOrName }          // 1. id-hit
+        let q = idOrName.lowercased()
+        if let m = candidates.first(where: { $0.name.lowercased() == q }) { return m.id }  // 2a. exact name
+        if let m = candidates.first(where: { $0.name.lowercased().contains(q) }) { return m.id } // 2b. contains
+        return nil                                                                          // 3. not-found
+    }
+
+    /// Resolve a native terminal controller by port id or terminal name (companion name / title).
+    /// One scan over `terminalControllers` covers both companion @mention routing and plain
+    /// titled terminals, because `spawnNativeTerminalPort` sets `companionName: title` for
+    /// non-companion spawns.
+    func resolveTerminalController(idOrName: String) -> GhosttyTerminalController? {
+        let cands = terminalControllers.map { (id: $0.key, name: $0.value.config.companionName) }
+        return AppState.resolveTerminalId(idOrName, candidates: cands).flatMap { terminalControllers[$0] }
     }
 
     /// Create a native Ghostty `terminal` port and return its **port id** (UDID).
