@@ -95,6 +95,26 @@ resolves the shim function.
 
 ---
 
+## TODO: `ports.list` API consistency (raw text + capabilities)
+
+Small API-consistency item found while verifying terminal-port spawns over the gateway:
+
+- **`ports.list` returns a human-readable text blob, not JSON** (`"37 ports:\n\ntitle: …\nid:
+  …"`), unlike the sibling `terminal.list` which returns JSON — so programmatic callers can't
+  parse it. Likely the `ports_list` tool handler stringifies for LLM readability while
+  `terminal_list` returns a JSON array; the two list endpoints were built with different output
+  contracts.
+- **Capabilities mismatch:** the *same* native terminal port reports `capabilities: []` in
+  `ports.list` but `capabilities: ["terminal"]` in `terminal.list`. `capabilities` is computed
+  in one path and not the other; a `terminal` port should report `["terminal"]` in both.
+
+Fix direction: align the two list endpoints on a JSON contract (or at least make `ports.list`
+JSON-parseable), and populate `capabilities` from the same source so terminal ports are
+consistent. Look at the `ports_list` vs `terminal_list` handlers (`ToolExecutor.swift` /
+`RemoteToolExecutor`) and the capabilities source on the panel model.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
