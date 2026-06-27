@@ -440,6 +440,108 @@ Run rows 1–7 in a throwaway space to avoid cluttering #port42-app.
 **Step 3 verification COMPLETE (2026-06-27):** gateway matrix rows 1–7 green; in-app checks #8
 (non-arming) and claude-`turnComplete` verified; no-live-surface skipped as impractical.
 
+## Step 5 — detailed plan (D1 deletion sweep + capabilities fix)
+
+**Re-traced against the live tree 2026-06-27** (line numbers post-render-storm-fix). The original
+Step-5 line-list in "Migration steps" undercounted the tendrils; this is the authoritative list.
+
+### Split Step 5 into 5a (deletion) and 5b (additive placeholder)
+
+The original Step 5 bundles two unlike things. Keep them separate:
+
+- **Step 5a — the TerminalBridge deletion sweep.** Pure removal + a few re-points. Mostly
+  mechanical, build-verified, low design risk. Do this first; ship it green.
+- **Step 5b — inline terminal placeholder (`PortCompactBlock` terminal variant).** This is an
+  *additive feature*, not a deletion: `PortCompactBlock` renders from a `.port(html)` segment
+  (`ConversationContent.swift:759, 965`), but a native terminal has **no HTML** — it's a Ghostty
+  surface. So 5b needs a new segment/marker + a terminal-flavoured compact block whose pop-out
+  *re-focuses/undocks the native window* (not `popOut(html:)`), and `spawnNativeTerminalPort` must
+  post that placeholder. Real design work; do it as its own step after 5a is green.
+
+### Step 5a — deletion targets (every tendril, current locations)
+
+**Pure deletes (no replacement):**
+1. `Sources/Port42Lib/Services/TerminalBridge.swift` — the whole class (305 lines).
+2. `Tests/Port42Tests/TerminalBridgeTests.swift` — dies with the class (261 lines).
+3. `PortBridge` JS-bridge terminal cases (`PortBridge.swift:895–975`): `terminal.spawn`,
+   `terminal.send`, `terminal.resize`, `terminal.kill`, `terminal.cwd`, `terminal.bridge`
+   (the `terminal.bridge` body calls `state?.bridgeTerminalPort` — goes too).
+4. `PortBridge` property `terminalBridge` (`:46`) + its lazy init (`:905–907`).
+5. The JS `terminal: { … }` object in the injected bridge (`PortBridge.swift:1795–1806`).
+6. `PortBridge.handleFileDrop` terminal branch (`:202–214`) — the "paste paths into terminal"
+   path; keep the regular-port `port42:filedrop` branch.
+7. AppState dead loop machinery — **no callers** (`startTerminalLoop`/`stopTerminalLoop` are never
+   invoked): `terminalLoops` (`:1312`), `terminalLoop(for:)` (`:1314`), `startTerminalLoop`
+   (`:1318`), `stopTerminalLoop` (`:1325`), and `final class TerminalAgentLoop` (`:2852`).
+8. AppState inline/bridge state: `bridgedTerminalNames` (`:718`), `inlineTerminalBridges` (`:720`),
+   `bridgeTerminalPort(…)` (`:1454`), and the cleanup lines that clear them (`:2600–2601`).
+9. AppState bridge-activity machinery — writer has **no callers** so it's always empty:
+   `activeBridgeNames` (`:733`), `bridgeActivityTimers` (`:735`), `noteBridgeActivity` (`:1474`).
+   Then drop the now-dead `bridgeNames` UI chain: `ConversationContent.swift` param (`:158, 191,
+   208, 274–275`), `TypingIndicator` param + render (`:1075, 1078, 1081, 1145–1147`), and the two
+   call sites `ChatView.swift:21` + `SwimView.swift:98`.
+10. `PortWindowManager.terminalSession(forPortNamed:)` (`:462`) and `portsWithTerminals()`
+    (`:475`) — both TerminalBridge-based; `terminalSession` only fed the routing branch being
+    removed, `portsWithTerminals` has **no callers**.
+11. Stale docs: strip `terminal_bridge`/`terminal_unbridge` from `Resources/llms.txt:87` and
+    `Resources/ports-context.txt:1122`; strip the embedded-`port42.terminal.*` section from
+    `ports-context.txt` (~`:663–667` + the `terminal`-capability prose at `:334, 343, 348–350`).
+
+**Re-points (delete-and-replace) — this is where the capabilities bug gets fixed:**
+12. `routeMentionsToTerminals` (`AppState.swift:1332–1392`): drop the first three branches
+    (`bridgedTerminalNames`, `inlineTerminalBridges`, `terminalSession(forPortNamed:)`) and the
+    guard terms for them; keep **only** the native companion branch (`terminalControllers` +
+    `controller.inject` / auto-reopen). Guard becomes
+    `guard !terminalControllers.isEmpty || hasTerminalCompanions else { return }`.
+13. **`hasTerminal` capability computation** in `AppState.swift:874–878` *and*
+    `PortWindowManager.allPorts()` (`:541–545`): today both derive `hasTerminal` from
+    `terminalBridge?.firstActiveSessionId` — which native terminal ports never have, hence the
+    logged **`ports.list` `capabilities: []` mismatch**. Re-point to the native marker
+    `panel.portType == "terminal"` (a.k.a. `panel.terminalConfig != nil`,
+    `PortWindowManager.swift:35`). After this a native terminal port reports
+    `capabilities: ["terminal"]` in `ports.list`, matching `terminal.list`. The `cwd` field that
+    rode on `firstActiveSessionCwd` has no native equivalent yet → set `nil` (note in
+    `summer2026-todo.md` if we want native cwd later). **Closes the capabilities half of the
+    ports.list todo.**
+
+**Build is the proof:** once `TerminalBridge` is deleted, the compiler enumerates every missed
+reference. Sequence: do the re-points (12, 13) first so nothing reads `terminalBridge`, then delete
+the class + tests; iterate on compile errors until green.
+
+### Step 5a — tests (good coverage for a deletion)
+
+- **Regression guard (new, pure):** a `TerminalToolSurfaceTests` suite asserting the native tools
+  **survive** the sweep — `terminal_spawn`, `terminal_send`, `terminal_list` present in
+  `ToolDefinitions.all` with `permission(for:) == .terminal` (send/list may be `.none` if already
+  so — assert actual) — and that `terminal_bridge`/`terminal_unbridge` are **absent**. Cheap, and
+  it's the tripwire if the sweep deletes the wrong symbol.
+- **Capabilities fix (new, pure):** factor the merge into a pure helper
+  `PortPanel.capabilities(stored:isTerminal:) -> [String]` (or free function) and unit-test:
+  `isTerminal:true` → contains `"terminal"` exactly once even if also stored; `isTerminal:false`
+  → unchanged. This makes the bug-fix testable without constructing a controller/window.
+- **Existing suites must stay green:** `TerminalResolverTests`, `TerminalSpawnToolTests`,
+  `TerminalPortConfigTests`, `TerminalControllerDrainTests`, `TerminalOutputProcessorTests`,
+  `CompanionPostGateTests`. (`TerminalBridgeTests` is intentionally removed.)
+- **Manual:** `@mention` a companion terminal still routes (native branch intact); `ports.list`
+  now shows `capabilities:["terminal"]` for a spawned terminal; file-drop onto a normal web port
+  still dispatches `port42:filedrop`; build launches without the removed JS breaking existing ports.
+
+### Step 5b — inline terminal placeholder (sketch; plan in full before coding)
+
+- Add a segment/marker for a native terminal (e.g. a `.terminalPort(id:title:)` `ChatEntry`
+  segment, or a sentinel fence the parser maps) so a chat message can represent a terminal.
+- Add a `PortCompactBlock` terminal variant (terminal SF Symbol, title, "Open terminal") whose
+  action **undock+focus**es the existing native window by id (reuse `port.manage`), instead of
+  `popOut(html:)`.
+- `spawnNativeTerminalPort` posts the placeholder message instead of only auto-popping the float.
+- No view-test infra in this repo → manual verify (spawn → see inline card → click → window
+  focuses). Decide: one placeholder per spawn vs per-companion dedupe.
+
+### Step 6 (unchanged, tiny)
+
+spaceId already resolved in-case in `terminal_spawn` (done Step 2); confirm no
+`RemoteToolExecutor(spaceId:)` init change is needed. Verify-only.
+
 ## Verification
 
 - Companion `@echo spawn a terminal` → a **`terminal`** port opens (native Ghostty), no xterm.
