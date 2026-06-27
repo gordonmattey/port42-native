@@ -156,8 +156,6 @@ struct PortMetadataTests {
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/Port42Lib/Resources/ports-context.txt")
         let content = try String(contentsOf: sourceURL, encoding: .utf8)
-        #expect(content.contains("port42.terminal.cwd"))
-        #expect(content.contains("terminal.on('cwd'"))
         #expect(content.contains("port42.port.setCapabilities"))
         #expect(content.contains("port42.port.rename"))
     }

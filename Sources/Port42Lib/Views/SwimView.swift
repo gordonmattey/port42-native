@@ -95,7 +95,6 @@ public struct SwimView: View {
                 error: appState.spaceErrors[spaceId],
                 typingNames: isStreaming ? [companion.displayName] : [],
                 toolingNames: isTooling ? [companion.displayName] : [],
-                bridgeNames: appState.activeBridgeNames[spaceId] ?? [:],
                 spaceId: spaceId,
                 onSend: { content in appState.sendMessage(content: content) },
                 onStop: { appState.cancelStreaming(spaceId: spaceId) },

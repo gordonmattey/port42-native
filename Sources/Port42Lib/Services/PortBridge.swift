@@ -42,9 +42,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Continuation for the pending permission prompt.
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
 
-    /// Terminal sessions owned by this port. Created lazily on first terminal.spawn call.
-    private(set) var terminalBridge: TerminalBridge?
-
     /// Clipboard bridge. Created lazily on first clipboard call.
     private var clipboardBridge: ClipboardBridge?
 
@@ -96,10 +93,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     }
 
     deinit {
-        let tb = terminalBridge
-        if let tb {
-            Task { @MainActor in tb.killAll() }
-        }
         let ab = audioBridge
         if let ab {
             Task { @MainActor in ab.cleanup() }
@@ -195,22 +188,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     // MARK: - File Drop
 
     /// Handle files dropped onto the port window.
-    /// Terminal ports: pastes escaped paths into the terminal (requires terminal permission).
-    /// Other ports: triggers filesystem permission, then dispatches `port42:filedrop` to JS.
+    /// Ports: triggers filesystem permission, then dispatches `port42:filedrop` to JS.
     @MainActor
     public func handleFileDrop(_ files: [[String: Any]]) async {
-        // Terminal ports: paste file paths directly into the terminal
-        if let tb = terminalBridge, tb.firstActiveSessionId != nil {
-            guard await checkPermission(for: "terminal.send") else { return }
-            let paths = files.compactMap { $0["path"] as? String }
-            let escaped = paths.map { path -> String in
-                // Shell-escape: wrap in single quotes, escape existing single quotes
-                "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            }
-            tb.sendToFirst(data: escaped.joined(separator: " "))
-            return
-        }
-
         // Regular ports: dispatch JS event
         guard await checkPermission(for: "fs.drop") else { return }
         guard let json = try? JSONSerialization.data(withJSONObject: files),
@@ -888,90 +868,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if let watching = opts?["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }
             pos.updatedAt = Date()
             try? state.db.savePosition(pos)
-            return ["ok": true]
-
-        // MARK: Terminal
-
-        case "terminal.spawn":
-            let opts = args.first as? [String: Any] ?? [:]
-            let shell = opts["shell"] as? String ?? "/bin/zsh"
-            let cwd = opts["cwd"] as? String
-            // Clamp to a valid range — a port restoring into a not-yet-laid-out window can
-            // compute a negative cols/rows, and UInt16(negative) traps ("Negative value is not
-            // representable") → startup crash. clamping + max(1,…) makes it crash-proof.
-            let cols = UInt16(clamping: max(1, opts["cols"] as? Int ?? 80))
-            let rows = UInt16(clamping: max(1, opts["rows"] as? Int ?? 24))
-            let env = opts["env"] as? [String: String]
-            if terminalBridge == nil {
-                terminalBridge = TerminalBridge(bridge: self)
-            }
-            if let sessionId = terminalBridge?.spawn(shell: shell, cwd: cwd, cols: cols, rows: rows, env: env) {
-                return ["sessionId": sessionId]
-            } else {
-                NSLog("[Port42] terminal.spawn failed")
-                return ["error": "failed to spawn terminal"]
-            }
-
-        case "terminal.send":
-            guard let sessionId = args.first as? String,
-                  let data = args.count > 1 ? args[1] as? String : nil else {
-                return ["error": "terminal.send requires sessionId and data"]
-            }
-            let ok = terminalBridge?.send(sessionId: sessionId, data: data) ?? false
-            if ok {
-                return ["ok": true]
-            } else {
-                return ["error": "session not found or not running"]
-            }
-
-        case "terminal.resize":
-            guard let sessionId = args.first as? String,
-                  let cols = args.count > 1 ? args[1] as? Int : nil,
-                  let rows = args.count > 2 ? args[2] as? Int : nil else {
-                return ["error": "terminal.resize requires sessionId, cols, rows"]
-            }
-            let ok = terminalBridge?.resize(sessionId: sessionId, cols: UInt16(clamping: max(1, cols)), rows: UInt16(clamping: max(1, rows))) ?? false
-            if ok {
-                return ["ok": true]
-            } else {
-                return ["error": "session not found or not running"]
-            }
-
-        case "terminal.kill":
-            guard let sessionId = args.first as? String else {
-                return ["error": "terminal.kill requires sessionId"]
-            }
-            let ok = terminalBridge?.kill(sessionId: sessionId) ?? false
-            if ok {
-                return ["ok": true]
-            } else {
-                return ["error": "session not found"]
-            }
-
-        case "terminal.cwd":
-            guard let sessionId = args.first as? String else {
-                return ["error": "terminal.cwd requires sessionId"]
-            }
-            if let cwd = terminalBridge?.cwd(sessionId: sessionId) {
-                return ["cwd": cwd]
-            }
-            return ["cwd": NSNull()]
-
-        case "terminal.bridge":
-            // terminal.bridge(sessionId, spaceId, name)
-            // Registers this terminal port so @mentions route into it.
-            guard let sessionId = args.first as? String else {
-                return ["error": "terminal.bridge requires sessionId"]
-            }
-            let bridgeSpaceId = args.count > 1 ? args[1] as? String : nil
-            let bridgeName = args.count > 2 ? args[2] as? String : nil
-            await MainActor.run {
-                self.state?.bridgeTerminalPort(
-                    sessionId: sessionId,
-                    spaceId: bridgeSpaceId ?? self.spaceId ?? "",
-                    name: bridgeName ?? ""
-                )
-            }
             return ["ok": true]
 
         // MARK: Clipboard
@@ -1791,18 +1687,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
             ports: {
                 list: (opts) => call('ports.list', opts ? [opts] : [])
-            },
-            terminal: {
-                spawn: (opts) => call('terminal.spawn', [opts || {}]),
-                send: (sessionId, data) => call('terminal.send', [sessionId, data]),
-                resize: (sessionId, cols, rows) => call('terminal.resize', [sessionId, cols, rows]),
-                kill: (sessionId) => call('terminal.kill', [sessionId]),
-                bridge: (sessionId, spaceId, name) => call('terminal.bridge', [sessionId, spaceId, name]),
-                on: function(event, callback) {
-                    const fullEvent = 'terminal.' + event;
-                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
-                    _listeners[fullEvent].push(callback);
-                }
             },
             clipboard: {
                 read: () => call('clipboard.read'),

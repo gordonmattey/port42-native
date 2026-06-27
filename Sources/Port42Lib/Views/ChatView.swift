@@ -18,7 +18,6 @@ public struct ChatView: View {
                         appState.sync.remoteTypingNames[appState.currentSpace?.id ?? ""] ?? []
                     )),
                     toolingNames: Array(appState.toolingAgentNames),
-                    bridgeNames: appState.activeBridgeNames[appState.currentSpace?.id ?? ""] ?? [:],
                     mentionCandidates: buildMentionCandidates(),
                     localOwner: appState.currentUser?.displayName,
                     spaceId: appState.currentSpace?.id,

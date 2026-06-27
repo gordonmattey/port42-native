@@ -155,7 +155,6 @@ public struct ConversationContent: View {
     let error: String?
     let typingNames: [String]
     let toolingNames: [String]
-    let bridgeNames: [String: String]
     let mentionCandidates: [MentionSuggestion]
     let localOwner: String?
     let spaceId: String?
@@ -188,7 +187,6 @@ public struct ConversationContent: View {
         error: String? = nil,
         typingNames: [String] = [],
         toolingNames: [String] = [],
-        bridgeNames: [String: String] = [:],
         mentionCandidates: [MentionSuggestion] = [],
         localOwner: String? = nil,
         spaceId: String? = nil,
@@ -205,7 +203,6 @@ public struct ConversationContent: View {
         self.error = error
         self.typingNames = typingNames
         self.toolingNames = toolingNames
-        self.bridgeNames = bridgeNames
         self.mentionCandidates = mentionCandidates
         self.localOwner = localOwner
         self.spaceId = spaceId
@@ -271,8 +268,8 @@ public struct ConversationContent: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
 
-                        if !typingNames.isEmpty || !toolingNames.isEmpty || !bridgeNames.isEmpty {
-                            TypingIndicator(names: typingNames, toolingNames: toolingNames, bridgeNames: bridgeNames)
+                        if !typingNames.isEmpty || !toolingNames.isEmpty {
+                            TypingIndicator(names: typingNames, toolingNames: toolingNames)
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 4)
                         }
@@ -1071,14 +1068,11 @@ struct CaptureMessageView: View {
 struct TypingIndicator: View {
     let names: [String]
     let toolingNames: [String]
-    /// companionName → portName
-    let bridgeNames: [String: String]
     @State private var dotPhase = 0
 
-    init(names: [String], toolingNames: [String] = [], bridgeNames: [String: String] = [:]) {
+    init(names: [String], toolingNames: [String] = []) {
         self.names = names
         self.toolingNames = toolingNames
-        self.bridgeNames = bridgeNames
     }
 
     private var allNames: [String] {
@@ -1139,28 +1133,6 @@ struct TypingIndicator: View {
             case 1: base = "\(all[0]) is porting"
             default: base = "\(all.count) companions active"
             }
-        }
-
-        // Append bridge activity — group companions by port name
-        if !bridgeNames.isEmpty {
-            var portToCompanions: [String: [String]] = [:]
-            for (companion, port) in bridgeNames {
-                portToCompanions[port, default: []].append(companion)
-            }
-            var bridgeParts: [String] = []
-            for port in portToCompanions.keys.sorted() {
-                let companions = portToCompanions[port]!.sorted()
-                let who: String
-                switch companions.count {
-                case 1: who = companions[0]
-                case 2: who = "\(companions[0]) and \(companions[1])"
-                default: who = "\(companions[0]) and \(companions.count - 1) others"
-                }
-                let verb = companions.count == 1 ? "is" : "are"
-                bridgeParts.append("\(who) \(verb) bridging: \(port)")
-            }
-            let bridgeStr = bridgeParts.joined(separator: " · ")
-            base = base.isEmpty ? bridgeStr : "\(base) · \(bridgeStr)"
         }
 
         return base

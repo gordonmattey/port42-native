@@ -51,12 +51,8 @@ struct BridgeJSTests {
         ("ai", "models"),
         ("ai", "complete"),
         ("ai", "cancel"),
-        // port42.terminal
-        ("terminal", "spawn"),
-        ("terminal", "send"),
-        ("terminal", "resize"),
-        ("terminal", "kill"),
-        ("terminal", "loadXterm"),
+        // port42.terminal — removed (D1): native terminals are `terminal` ports, not a
+        // web-port JS API. Drive them with the terminal_* tools instead.
         // port42.clipboard
         ("clipboard", "read"),
         ("clipboard", "write"),

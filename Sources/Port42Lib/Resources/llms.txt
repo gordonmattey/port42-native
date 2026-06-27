@@ -79,12 +79,13 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Terminal
 
-  terminal.exec(command)          → run a shell command, returns stdout
-  terminal.send(id, data)         → send keystrokes to a terminal port (append \r for Enter)
+  terminal.exec(command)          → run a shell command headless, returns stdout
+  terminal.spawn(opts)            → open a native terminal port, returns { id, title }
+  terminal.send(id, data)         → send keystrokes to a native terminal (append \r for Enter)
+  terminal.list                   → native terminals: { id, name, surfaceBound }
 
-  terminal_list                   → ports with active terminal sessions
-  terminal_bridge(name)           → start routing terminal output to space
-  terminal_unbridge(name)         → stop routing
+  Output from a spawned terminal returns via its own <p42> tags (bash) or
+  turnComplete (claude); read it with messages_recent.
 
 ### Screen & Display
 

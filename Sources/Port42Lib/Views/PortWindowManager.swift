@@ -48,6 +48,13 @@ public struct PortPanel: Identifiable {
         return "port"
     }
 
+    /// Merge stored capabilities with the auto-detected "terminal" capability (a native
+    /// `terminal` port). Pure + unit-testable: ensures "terminal" appears exactly once, at front.
+    static func mergeCapabilities(_ stored: [String], isTerminal: Bool) -> [String] {
+        guard isTerminal, !stored.contains("terminal") else { return stored }
+        return ["terminal"] + stored
+    }
+
     /// Extract version from HTML <meta name="version" content="..."> tag, returns nil if absent.
     static func extractVersion(from html: String) -> String? {
         guard let metaRange = html.range(of: #"<meta\s+name="version"\s+content=""#, options: .regularExpression) else { return nil }
@@ -455,35 +462,6 @@ public final class PortWindowManager: ObservableObject {
         windows[id]?.makeKeyAndOrderFront(nil)
     }
 
-    // MARK: - Terminal Lookup
-
-    /// Find a port's terminal session by port title (case-insensitive).
-    /// Returns the terminal bridge and first active session ID.
-    public func terminalSession(forPortNamed name: String) -> (bridge: TerminalBridge, sessionId: String)? {
-        let lowered = name.lowercased()
-        for panel in panels {
-            if panel.title.lowercased() == lowered || panel.title.lowercased().contains(lowered) {
-                if let tb = panel.bridge.terminalBridge, let sid = tb.firstActiveSessionId {
-                    return (bridge: tb, sessionId: sid)
-                }
-            }
-        }
-        return nil
-    }
-
-    /// List all ports that have active terminal sessions.
-    public func portsWithTerminals() -> [(name: String, portId: String, sessionId: String, createdBy: String?)] {
-        var result: [(name: String, portId: String, sessionId: String, createdBy: String?)] = []
-        for panel in panels {
-            if let tb = panel.bridge.terminalBridge {
-                for sid in tb.activeSessionIds {
-                    result.append((name: panel.title, portId: panel.udid, sessionId: sid, createdBy: panel.createdBy))
-                }
-            }
-        }
-        return result
-    }
-
     // MARK: - Port Update
 
     /// Find a port by UDID or title (case-insensitive).
@@ -538,13 +516,12 @@ public final class PortWindowManager: ObservableObject {
     /// List all ports (for ports_list tool).
     public func allPorts() -> [(udid: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, isBackground: Bool, x: CGFloat?, y: CGFloat?)] {
         panels.map { panel in
-            let tb = panel.bridge.terminalBridge
-            let hasTerminal = tb?.firstActiveSessionId != nil
-            var caps = panel.storedCapabilities
-            if hasTerminal, !caps.contains("terminal") { caps.insert("terminal", at: 0) }
-            let cwd = hasTerminal ? tb?.firstActiveSessionCwd : nil
+            // A native `terminal` port advertises the "terminal" capability. (cwd has no native
+            // equivalent yet — see summer2026-todo "native terminal output-streaming bridge".)
+            let caps = PortPanel.mergeCapabilities(panel.storedCapabilities,
+                                                   isTerminal: panel.portType == "terminal")
             let origin = windows[panel.id]?.frame.origin ?? panel.position
-            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: cwd, isBackground: panel.isBackground, x: origin?.x, y: origin?.y)
+            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: nil, isBackground: panel.isBackground, x: origin?.x, y: origin?.y)
         }
     }
 

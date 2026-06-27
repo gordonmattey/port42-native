@@ -317,7 +317,12 @@ curl -s http://127.0.0.1:4242/call \\
         let depth = (try? appState.db.fetchFold(companionId: companion.id, spaceId: swimId))?.depth
         let action: () -> Void = companion.openInTerminal
             ? {
-                if let panelId = appState.bridgedTerminalNames[companion.displayName.lowercased()] {
+                // Bring this companion's native terminal window to front (controllers are keyed
+                // by panel id; match on companionName).
+                let key = companion.displayName.lowercased()
+                if let panelId = appState.terminalControllers.first(where: {
+                    $0.value.config.companionName.lowercased() == key
+                })?.key {
                     appState.portWindows.bringToFront(panelId)
                 }
             }

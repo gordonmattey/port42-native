@@ -714,10 +714,6 @@ public final class AppState: ObservableObject {
     @Published public var authStatus: AuthStatus = .unknown
     /// When true, all LLM API calls are blocked
     @Published public var aiPaused: Bool = false
-    /// Terminal ports currently bridged to conversations: lowercased name → panelId
-    public var bridgedTerminalNames: [String: String] = [:]
-    /// Inline (non-panel) terminal bridges: lowercased name → bridge (weak)
-    private var inlineTerminalBridges: [String: WeakBridge] = [:]
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
@@ -729,10 +725,6 @@ public final class AppState: ObservableObject {
     /// Safety timers that auto-clear a native terminal companion's "typing…" indicator if no
     /// reply arrives (e.g. a (re)spawn that never reaches turnComplete). Keyed by "spaceId:name".
     private var terminalTypingTimers: [String: Timer] = [:]
-    /// Active terminal bridges per space: spaceId → [companionName: portName]
-    @Published public var activeBridgeNames: [String: [String: String]] = [:]
-    /// Timers that clear bridge activity after quiet period
-    private var bridgeActivityTimers: [String: Timer] = [:]
     /// Heartbeat timers per space
     private var heartbeatTimers: [String: Timer] = [:]
     /// The companion whose swim space is currently open. Nil when showing a regular space.
@@ -871,15 +863,12 @@ public final class AppState: ObservableObject {
             } else {
                 title = "port"
             }
-            let tb = bridge.terminalBridge
-            let hasTerminal = tb?.firstActiveSessionId != nil
-            var caps = bridge.storedCapabilities
-            if hasTerminal, !caps.contains("terminal") { caps.insert("terminal", at: 0) }
-            let cwd = hasTerminal ? tb?.firstActiveSessionCwd : nil
+            // Inline ports are never native terminals (native terminals always pop out as a
+            // `terminal` panel), so capabilities come straight from the bridge's stored set.
             return (id: mid, title: title, createdBy: bridge.createdBy,
                     spaceId: bridge.spaceId,
-                    capabilities: caps,
-                    cwd: cwd)
+                    capabilities: bridge.storedCapabilities,
+                    cwd: nil)
         }
     }
 
@@ -1307,26 +1296,6 @@ public final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Terminal Game Loop
-
-    private var terminalLoops: [String: TerminalAgentLoop] = [:]
-
-    func terminalLoop(for spaceId: String) -> TerminalAgentLoop? {
-        terminalLoops[spaceId]
-    }
-
-    func startTerminalLoop(spaceId: String, portTitle: String, createdBy: String? = nil) {
-        guard terminalLoops[spaceId] == nil else { return }
-        let loop = TerminalAgentLoop(spaceId: spaceId, portTitle: portTitle, createdBy: createdBy, appState: self)
-        terminalLoops[spaceId] = loop
-        loop.start()
-    }
-
-    func stopTerminalLoop(spaceId: String) {
-        terminalLoops[spaceId]?.stop()
-        terminalLoops.removeValue(forKey: spaceId)
-    }
-
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     private func routeMentionsToTerminals(content: String, senderName: String, spaceId: String, implicitCompanion: AgentConfig? = nil) {
@@ -1334,8 +1303,7 @@ public final class AppState: ObservableObject {
         // the last case lets a mention auto-reopen a companion whose port is currently closed
         // (no live controller), which the early-return would otherwise prevent.
         let hasTerminalCompanions = companions.contains(where: { $0.openInTerminal })
-        guard !bridgedTerminalNames.isEmpty || !inlineTerminalBridges.isEmpty
-                || !terminalControllers.isEmpty || hasTerminalCompanions else { return }
+        guard !terminalControllers.isEmpty || hasTerminalCompanions else { return }
 
         // Build the set of keys to route to: explicit @mentions + implicit companion (Swim)
         var keys: [String] = MentionParser.extractMentions(from: content)
@@ -1352,19 +1320,7 @@ public final class AppState: ObservableObject {
         // @mention form they use to reference others — consistent referencing the LLM learns from.
         let line = "[@\(senderName)]: \(content)\r"
         for key in keys {
-            if let panelId = bridgedTerminalNames[key],
-               let panel = portWindows.panels.first(where: { $0.id == panelId }),
-               let tb = panel.bridge.terminalBridge {
-                tb.sendToFirst(data: line)
-                NSLog("[Port42] Routed '%@' to terminal '%@'", key, panel.title)
-            } else if let tb = inlineTerminalBridges[key]?.bridge?.terminalBridge {
-                // Inline port (not yet popped out)
-                tb.sendToFirst(data: line)
-                NSLog("[Port42] Routed '%@' to inline terminal", key)
-            } else if let session = portWindows.terminalSession(forPortNamed: key) {
-                _ = session.bridge.send(sessionId: session.sessionId, data: line)
-                NSLog("[Port42] Routed '%@' to terminal (session)", key)
-            } else if let companion = companions.first(where: {
+            if let companion = companions.first(where: {
                 $0.displayName.lowercased() == key && $0.openInTerminal
             }) {
                 // Native Ghostty terminal companion. Set the "typing…" indicator HERE
@@ -1449,65 +1405,8 @@ public final class AppState: ObservableObject {
         terminalTypingTimers[key] = nil
     }
 
-    /// Register a terminal session (by sessionId) as bridged to a space under a given name.
-    /// Called from `port42.terminal.bridge(sessionId, spaceId, name)` in port JS.
-    public func bridgeTerminalPort(sessionId: String, spaceId: String, name: String) {
-        let key = name.lowercased()
-        // First check floating panels
-        if let panel = portWindows.panels.first(where: { $0.bridge.terminalBridge?.firstActiveSessionId == sessionId }) {
-            bridgedTerminalNames[key] = panel.id
-            inlineTerminalBridges.removeValue(forKey: key)
-            NSLog("[Port42] Bridged terminal session %@ as '%@' (panel) in space %@", sessionId, name, spaceId)
-            return
-        }
-        // Fallback: inline port (not yet popped out) — find via activeBridges
-        if let bridge = activeBridges.compactMap({ $0.bridge }).first(where: { $0.terminalBridge?.firstActiveSessionId == sessionId }) {
-            inlineTerminalBridges[key] = WeakBridge(bridge)
-            NSLog("[Port42] Bridged terminal session %@ as '%@' (inline) in space %@", sessionId, name, spaceId)
-            return
-        }
-        NSLog("[Port42] bridgeTerminalPort: no panel or inline bridge found for session %@", sessionId)
-    }
-
-    /// Mark a terminal bridge as active for a space — shows indicator in chat.
-    /// Auto-clears after 8s of no new activity.
-    public func noteBridgeActivity(spaceId: String, companionName: String, portName: String) {
-        activeBridgeNames[spaceId, default: [:]][companionName] = portName
-        let key = "\(spaceId):\(companionName)"
-        bridgeActivityTimers[key]?.invalidate()
-        bridgeActivityTimers[key] = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.activeBridgeNames[spaceId]?.removeValue(forKey: companionName)
-                if self?.activeBridgeNames[spaceId]?.isEmpty == true {
-                    self?.activeBridgeNames.removeValue(forKey: spaceId)
-                }
-                self?.bridgeActivityTimers.removeValue(forKey: key)
-            }
-        }
-    }
-
     /// Trigger space agents with terminal output — called by the game loop, not event-driven.
     /// Only routes to the companion that owns the bridge (createdBy), preventing other
-    /// companions from reacting to a terminal they didn't set up.
-    func routeTerminalOutput(spaceId: String, output: String, createdBy: String? = nil) {
-        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
-        guard !spaceAgents.isEmpty else { return }
-        let spaceAgentIds = Set(spaceAgents.map { $0.id })
-        let targets: [AgentConfig]
-        if let owner = createdBy {
-            targets = companions.filter { spaceAgentIds.contains($0.id) && $0.mode == .llm && $0.displayName == owner }
-        } else {
-            targets = companions.filter { spaceAgentIds.contains($0.id) && $0.mode == .llm }
-        }
-        guard !targets.isEmpty else { return }
-        let spaceMessages = (try? db.getMessages(spaceId: spaceId)) ?? []
-        launchAgents(
-            targets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-            spaceMessages: spaceMessages, triggerContent: output,
-            senderId: "terminal-bridge", senderName: "[terminal]"
-        )
-    }
-
     /// Insert a system message when a remote peer joins or leaves.
     /// Uses the sender name provided by the gateway presence protocol.
     /// Tracks last presence status per user per space to deduplicate rapid reconnects
@@ -2596,10 +2495,6 @@ public final class AppState: ObservableObject {
         for panel in panelsToClose {
             portWindows.close(panel.id)
         }
-        let companionKey = companion.displayName.lowercased()
-        bridgedTerminalNames.removeValue(forKey: companionKey)
-        inlineTerminalBridges.removeValue(forKey: companionKey)
-
         do {
             try db.removeAllSpacesForAgent(companion.id)
             try db.deleteCreasesForCompanion(companion.id)
@@ -2842,65 +2737,3 @@ public final class AppState: ObservableObject {
     }
 }
 
-// MARK: - Terminal Agent Loop
-
-/// Game loop that drives the agent↔terminal conversation.
-/// One loop per space/swim. Ticks every 300ms.
-/// On each tick: if there's pending terminal output AND no agent currently running,
-/// trigger the space agents with that output. Sequential — never overlaps.
-@MainActor
-final class TerminalAgentLoop {
-    let spaceId: String
-    let portTitle: String
-    let createdBy: String?
-    private weak var appState: AppState?
-    private var pendingOutput = ""
-    private var loopTask: Task<Void, Never>?
-    /// Timestamp of the last time we routed output to an agent.
-    /// After firing, suppress re-trigger for `cooldown` seconds so the terminal
-    /// echo of the sent command doesn't immediately re-fire the agent.
-    private var lastFiredAt: Date? = nil
-    private let cooldown: TimeInterval = 15.0
-
-    init(spaceId: String, portTitle: String, createdBy: String?, appState: AppState) {
-        self.spaceId = spaceId
-        self.portTitle = portTitle
-        self.createdBy = createdBy
-        self.appState = appState
-    }
-
-    func start() {
-        guard loopTask == nil else { return }
-        loopTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms tick
-                self?.tick()
-            }
-        }
-    }
-
-    func stop() {
-        loopTask?.cancel()
-        loopTask = nil
-    }
-
-    /// Called by OutputBatcher with cleaned (ANSI-stripped) output.
-    func receiveOutput(_ output: String) {
-        pendingOutput += output
-    }
-
-    private func tick() {
-        guard let appState, !pendingOutput.isEmpty else { return }
-        // Don't fire if an agent turn is already in progress for this space
-        let agentRunning = appState.activeAgentHandlers.values.contains { $0.spaceId == spaceId }
-        guard !agentRunning else { return }
-        // Don't re-fire within cooldown window — prevents terminal echo from the
-        // just-sent command immediately re-triggering the agent
-        if let last = lastFiredAt, Date().timeIntervalSince(last) < cooldown { return }
-        // Consume accumulated output and trigger the agent
-        let output = pendingOutput
-        pendingOutput = ""
-        lastFiredAt = Date()
-        appState.routeTerminalOutput(spaceId: spaceId, output: output, createdBy: createdBy)
-    }
-}

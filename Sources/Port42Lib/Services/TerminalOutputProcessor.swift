@@ -6,8 +6,9 @@ import Foundation
 /// output, debounces 10s, force-flushes at 8KB, strips ANSI, collapses noise,
 /// deduplicates, then calls `onFlush` with the cleaned result.
 ///
-/// Used by `OutputBatcher` (bridge/OpenClaw path) and directly by
-/// `AppState.bridgeTerminalPort` (CLI terminal companion path).
+/// Used by `GhosttyTerminalController` to extract `<p42>` tags from a native terminal's PTY tee.
+/// (Its `onFlush` cleaned-output stream is currently unused — reserved for a future native
+/// output-streaming bridge; see `summer2026-todo.md`.)
 @MainActor
 final class TerminalOutputProcessor {
     private var buffer = ""
