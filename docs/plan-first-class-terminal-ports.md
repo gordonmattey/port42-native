@@ -230,7 +230,10 @@ prose where they conflict.
    `terminalSession(forPortNamed:)`); `terminal_list` reads native controllers. **Remove
    `terminal_bridge`/`terminal_unbridge` + `autoStartOutputBridge` (D4).** Verify `terminal_send`
    drives a native terminal; `<p42>`/`turnComplete` posting still works.
-4. Verify the command-agent stdout path still posts a plain `bash` agent (already fixed).
+4. **DONE / VERIFIED (2026-06-27).** Command-agent stdout path posts a plain `bash` agent —
+   no code change (the regression was already fixed at `CommandAgent.swift:205–215`: falls back to
+   `rawStdout` → `extractP42Tags` → post). Runtime-verified manually by gordon: a `mode=command`
+   bash agent posts its stdout to the space. Independent of the native-terminal work.
 5. Apply D1 — delete `TerminalBridge`, the `terminal.*` cases in `PortBridge` (`:895–964`), the JS
    `terminal` object, the `ports-context.txt` terminal section, **and the now-dead
    `inlineTerminalBridges` machinery**. Add the `PortCompactBlock` terminal-placeholder variant so a
