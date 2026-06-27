@@ -1236,6 +1236,52 @@ public final class DatabaseService {
             }, onChange: onChange)
     }
 
+    /// Observe agent→space membership as a spaceId -> set of agentIds map.
+    /// Lets views read membership from an in-memory cache instead of querying per render.
+    public func observeAgentSpaces(
+        onChange: @escaping ([String: Set<String>]) -> Void
+    ) -> AnyDatabaseCancellable {
+        ValueObservation
+            .tracking { db in
+                let rows = try Row.fetchAll(db, sql: "SELECT spaceId, agentId FROM agentSpaces")
+                var map: [String: Set<String>] = [:]
+                for row in rows {
+                    let spaceId: String = row["spaceId"]
+                    let agentId: String = row["agentId"]
+                    map[spaceId, default: []].insert(agentId)
+                }
+                return map
+            }
+            .start(in: dbQueue, onError: { error in
+                print("[Port42] AgentSpaces observation error: \(error)")
+            }, onChange: onChange)
+    }
+
+    /// Observe the distinct non-system sender count per space (used for online-count badges).
+    public func observeSenderCounts(
+        onChange: @escaping ([String: Int]) -> Void
+    ) -> AnyDatabaseCancellable {
+        ValueObservation
+            .tracking { db in
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT spaceId, COUNT(DISTINCT senderName) AS c
+                    FROM messages
+                    WHERE senderType != 'system'
+                    GROUP BY spaceId
+                    """)
+                var counts: [String: Int] = [:]
+                for row in rows {
+                    let spaceId: String = row["spaceId"]
+                    let c: Int = row["c"]
+                    counts[spaceId] = c
+                }
+                return counts
+            }
+            .start(in: dbQueue, onError: { error in
+                print("[Port42] SenderCounts observation error: \(error)")
+            }, onChange: onChange)
+    }
+
     // MARK: - Port Storage
 
     /// scope is the spaceId for space-scoped storage, or "__global__" for global scope

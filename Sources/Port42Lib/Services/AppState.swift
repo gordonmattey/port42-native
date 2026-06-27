@@ -669,6 +669,10 @@ public final class AppState: ObservableObject {
     @Published public var drafts: [String: String] = [:]
     @Published public var unreadCounts: [String: Int] = [:]
     @Published public var lastReadDates: [String: Date] = [:]
+    /// spaceId -> set of agentIds assigned to it. Cached so views never query membership per render.
+    @Published public var spaceAgentIds: [String: Set<String>] = [:]
+    /// spaceId -> distinct non-system sender count (online-count badges).
+    @Published public var spaceSenderCounts: [String: Int] = [:]
     @Published public var companions: [AgentConfig] = []
     @Published public var spaceCompanions: [AgentConfig] = []
     @Published public var friends: [SpaceMember] = []
@@ -799,6 +803,8 @@ public final class AppState: ObservableObject {
     private var spaceObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
     private var unreadObservation: AnyDatabaseCancellable?
+    private var agentSpacesObservation: AnyDatabaseCancellable?
+    private var senderCountsObservation: AnyDatabaseCancellable?
     private var observationDebounceTask: Task<Void, Never>?
     private var syncConnectionCancellable: AnyCancellable?
     private var tunnelCancellable: AnyCancellable?
@@ -2718,12 +2724,16 @@ public final class AppState: ObservableObject {
         drafts = [:]
         unreadCounts = [:]
         lastReadDates = [:]
+        spaceAgentIds = [:]
+        spaceSenderCounts = [:]
         isSetupComplete = false
         showDreamscape = true
 
         spaceObservation?.cancel()
         messageObservation?.cancel()
         unreadObservation?.cancel()
+        agentSpacesObservation?.cancel()
+        senderCountsObservation?.cancel()
 
         // Clear stored auth so boot flow starts fresh
         Port42AuthStore.shared.clearAll()
@@ -2755,6 +2765,16 @@ public final class AppState: ObservableObject {
         spaceObservation = db.observeSpaces { [weak self] spaces in
             Task { @MainActor in
                 self?.spaces = spaces
+            }
+        }
+        agentSpacesObservation = db.observeAgentSpaces { [weak self] map in
+            Task { @MainActor in
+                self?.spaceAgentIds = map
+            }
+        }
+        senderCountsObservation = db.observeSenderCounts { [weak self] counts in
+            Task { @MainActor in
+                self?.spaceSenderCounts = counts
             }
         }
     }

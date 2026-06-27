@@ -191,8 +191,12 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func spaceRow(_ space: Space) -> some View {
-        let companionNames = ((try? appState.db.getAgentsForSpace(spaceId: space.id)) ?? []).map { $0.displayName }
-        let uniqueSenders = (try? appState.db.getUniqueSenders(spaceId: space.id)) ?? []
+        let assignedIds = appState.spaceAgentIds[space.id] ?? []
+        let companionNames = appState.companions
+            .filter { assignedIds.contains($0.id) }
+            .map { $0.displayName }
+            .sorted()
+        let senderCount = appState.spaceSenderCounts[space.id] ?? 0
         Button(action: { appState.selectSpace(space) }) {
             SpaceRow(
                 space: space,
@@ -200,13 +204,15 @@ public struct SidebarView: View {
                     && appState.currentSpace?.id == space.id,
                 unreadCount: appState.unreadCounts[space.id] ?? 0,
                 companionNames: companionNames,
-                onlineCount: max(1, uniqueSenders.count)
+                onlineCount: max(1, senderCount)
             )
         }
         .buttonStyle(.plain)
         .contextMenu {
-            let assigned = (try? appState.db.getAgentsForSpace(spaceId: space.id)) ?? []
-            let assignedIds = Set(assigned.map { $0.id })
+            let assignedIds = appState.spaceAgentIds[space.id] ?? []
+            let assigned = appState.companions
+                .filter { assignedIds.contains($0.id) }
+                .sorted { $0.displayName < $1.displayName }
             let unassigned = appState.companions.filter { !assignedIds.contains($0.id) }
 
             Menu("Add Companion") {
@@ -334,7 +340,7 @@ curl -s http://127.0.0.1:4242/call \\
                 appState.toastMessage = "Companion ID copied"
             }
             let assignedSpaces = appState.spaces.filter { ch in
-                ((try? appState.db.getAgentsForSpace(spaceId: ch.id)) ?? []).contains(where: { $0.id == companion.id })
+                appState.spaceAgentIds[ch.id]?.contains(companion.id) == true
             }
             if !assignedSpaces.isEmpty {
                 Menu("Remove from Space") {
