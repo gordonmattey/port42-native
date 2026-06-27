@@ -572,7 +572,7 @@ public final class PortWindowManager: ObservableObject {
         )
         config.userContentController.addUserScript(viewportScript)
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = FileDropWebView(frame: .zero, configuration: config)
         let navDelegate = PortNavigationBlocker()
         webView.navigationDelegate = navDelegate
         navDelegates[panel.id] = navDelegate
@@ -581,6 +581,7 @@ public final class PortWindowManager: ObservableObject {
 
         // Give bridge a reference to the webview for callbacks
         panel.bridge.setWebView(webView)
+        webView.dropBridge = panel.bridge  // Step 5c: handle file drops onto this floating port
 
         // Load content
         let document = PortWebViewFactory.wrapHTML(panel.html)
@@ -963,11 +964,8 @@ struct PortWebViewHost: NSViewRepresentable {
             webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
-        // Unregister WKWebView's AppKit-level drag types so file drops
-        // reach the container instead of being swallowed by WebKit.
-        // HTML5 drag-and-drop inside the webview (e.g. xterm.js) is unaffected.
-        webView.unregisterDraggedTypes()
-        container.registerForDraggedTypes([.fileURL])
+        // File drops are handled by FileDropWebView itself (Step 5c) — see PortView.swift.
+        // (The old unregisterDraggedTypes()/container approach made the webview refuse drops.)
         return container
     }
 

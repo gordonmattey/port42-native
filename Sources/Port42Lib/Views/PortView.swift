@@ -5,7 +5,49 @@ import WebKit
 
 /// WKWebView subclass that forwards scroll events to the parent view
 /// so inline ports don't eat scroll gestures from the chat ScrollView.
-private class PassthroughWebView: WKWebView {
+/// WKWebView that handles file drops itself (→ `dropBridge.handleFileDrop`) instead of letting
+/// WebKit swallow the drop to navigate to `file://`. Subclassing is the reliable fix: our
+/// NSDraggingDestination overrides intercept even after WebKit re-registers its own drag types
+/// (the prior `unregisterDraggedTypes()` approach just made the webview refuse drops outright).
+class FileDropWebView: WKWebView {
+    weak var dropBridge: PortBridge?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        registerForDraggedTypes([.fileURL])
+    }
+
+    private func hasFiles(_ s: NSDraggingInfo) -> Bool {
+        s.draggingPasteboard.canReadObject(forClasses: [NSURL.self],
+                                           options: [.urlReadingFileURLsOnly: true])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        hasFiles(sender) ? .copy : super.draggingEntered(sender)
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        hasFiles(sender) ? .copy : super.draggingUpdated(sender)
+    }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        hasFiles(sender) ? true : super.prepareForDragOperation(sender)
+    }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard hasFiles(sender), let bridge = dropBridge,
+              let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return super.performDragOperation(sender) }
+        let files: [[String: Any]] = urls.map { url in
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            return ["path": url.path, "name": url.lastPathComponent,
+                    "size": (attrs?[.size] as? Int) ?? 0,
+                    "isDirectory": (attrs?[.type] as? FileAttributeType) == .typeDirectory]
+        }
+        Task { @MainActor in await bridge.handleFileDrop(files) }
+        return true
+    }
+}
+
+private class PassthroughWebView: FileDropWebView {
     override func scrollWheel(with event: NSEvent) {
         // Forward scroll events to the next responder (parent ScrollView)
         nextResponder?.scrollWheel(with: event)
@@ -158,6 +200,7 @@ public struct PortView: NSViewRepresentable {
 
         // Give bridge a reference to the webview for callbacks
         bridge?.setWebView(webView)
+        webView.dropBridge = bridge  // Step 5c: handle file drops onto this port
 
         loadContent(webView)
         return webView

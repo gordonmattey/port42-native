@@ -980,34 +980,8 @@ struct InlinePortView: View {
                 appState.activePermissionBridge = bridge
             }
         }
-        // Step 5c: a drop ONTO an inline port goes to the port (port42:filedrop), not the chat
-        // draft — this inner onDrop takes precedence over ConversationContent's chat-level one.
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            let relevant = providers.filter { $0.canLoadObject(ofClass: URL.self) }
-            guard !relevant.isEmpty else { return false }
-            var files: [[String: Any]] = []
-            let group = DispatchGroup()
-            for p in relevant {
-                group.enter()
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    if let url, url.isFileURL {
-                        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-                        files.append([
-                            "path": url.path,
-                            "name": url.lastPathComponent,
-                            "size": (attrs?[.size] as? Int) ?? 0,
-                            "isDirectory": (attrs?[.type] as? FileAttributeType) == .typeDirectory
-                        ])
-                    }
-                    group.leave()
-                }
-            }
-            group.notify(queue: .main) {
-                guard !files.isEmpty else { return }
-                Task { @MainActor in await bridge.handleFileDrop(files) }
-            }
-            return true
-        }
+        // Step 5c: drops onto the inline port's webview are handled by FileDropWebView
+        // (PortView.swift) → bridge.handleFileDrop. No SwiftUI .onDrop needed here.
     }
 
     private func restart() {
