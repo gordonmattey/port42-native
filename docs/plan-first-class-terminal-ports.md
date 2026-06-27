@@ -416,13 +416,26 @@ Endpoint: `curl -s http://127.0.0.1:4242/call -d '{"method":"<m>","args":{...}}'
 | 7 | `terminal.bridge` / `terminal.unbridge` | method **gone** (D4) |
 
 Subtler, eyeball in-app (not gateway-scriptable):
-- **Non-arming (#8):** a bare `terminal_send` does **not** arm the next `turnComplete` to
-  broadcast — distinct from a companion @mention inject.
-- **No-live-surface:** `terminal_send` to a real id before its surface binds → `"…has no live
-  surface"`, not a silent drop and not the not-found error.
-- **claude `turnComplete`:** a `claude` terminal's reply still posts (the original motivation).
+- **Non-arming (#8): ✅ VERIFIED (2026-06-27).** Spawned a `claude` terminal (`claudecheck`) and
+  raw-`terminal.send` a prompt. Claude completed the turn **in its UI** (confirmed visually) but
+  **nothing posted to the space** — `sendRaw` did not arm the gate, so `turnComplete` didn't
+  broadcast.
+- **claude `turnComplete`: ✅ VERIFIED (2026-06-27).** Positive control / A-B partner: `@mention`
+  of the companion `port42-growth` (native claude terminal) → `inject` armed the gate → it
+  broadcast the exact token `ARMED_BCAST_5K` via `turnComplete`. Same shared broadcast wiring as
+  claudecheck; only the arming differs → confirms #8's silence was non-arming, not "ad-hoc
+  terminals never post". (Note: `@mention` only routes to a **registered companion** with
+  `openInTerminal` — `AppState.swift:1366` — so an ad-hoc `terminal_spawn` terminal like
+  claudecheck cannot receive mentions; that's by design, not a bug.)
+- **No-live-surface: SKIPPED (impractical).** Triggering a send inside the spawn→surface-bind
+  race window isn't reliably reproducible from the gateway; deemed not worth a bespoke harness.
+  The code path exists (`sendRaw` returns `false` → "has no live surface" error) but is unverified
+  at runtime.
 
 Run rows 1–7 in a throwaway space to avoid cluttering #port42-app.
+
+**Step 3 verification COMPLETE (2026-06-27):** gateway matrix rows 1–7 green; in-app checks #8
+(non-arming) and claude-`turnComplete` verified; no-live-surface skipped as impractical.
 
 ## Verification
 
