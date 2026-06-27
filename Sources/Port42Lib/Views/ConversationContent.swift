@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Unified chat renderer for both spaces and swims
 
@@ -68,6 +69,19 @@ public struct ChatEntry: Identifiable, Equatable {
         let parts = inner.split(separator: ":", maxSplits: 2)
         guard parts.count == 3 else { return nil }
         return String(parts[2])
+    }
+
+    /// If this is a native-terminal placeholder, returns its port (id, title).
+    /// Format: [terminal:<id>:<title>] (title may contain ':'). Step 5b.
+    public var terminalPortInfo: (id: String, title: String)? {
+        let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard c.hasPrefix("[terminal:"), c.hasSuffix("]") else { return nil }
+        let inner = String(c.dropFirst("[terminal:".count).dropLast())  // "<id>:<title>"
+        guard let colon = inner.firstIndex(of: ":") else { return nil }
+        let id = String(inner[inner.startIndex..<colon])
+        let title = String(inner[inner.index(after: colon)...])
+        guard !id.isEmpty else { return nil }
+        return (id, title)
     }
 
     // MARK: - Port Detection
@@ -592,6 +606,32 @@ public struct ConversationContent: View {
                 }
             }
         }
+        // Step 5c: drop a file into the conversation → insert its escaped path into the draft.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleChatFileDrop(providers)
+        }
+    }
+
+    /// Load dropped file URLs and append their shell-escaped paths to the input draft.
+    private func handleChatFileDrop(_ providers: [NSItemProvider]) -> Bool {
+        let relevant = providers.filter { $0.canLoadObject(ofClass: URL.self) }
+        guard !relevant.isEmpty else { return false }
+        var paths: [String] = []
+        let group = DispatchGroup()
+        for p in relevant {
+            group.enter()
+            _ = p.loadObject(ofClass: URL.self) { url, _ in
+                if let url, url.isFileURL { paths.append(url.path) }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) {
+            guard !paths.isEmpty else { return }
+            let escaped = escapeDroppedPaths(paths)
+            draft = draft.isEmpty ? escaped : draft + " " + escaped
+            isInputFocused = true
+        }
+        return true
     }
 
     private func send() {
@@ -705,7 +745,12 @@ struct MessageRow: View, Equatable {
 
     private var messageContent: some View {
         Group {
-            if entry.isSystem {
+            if let term = entry.terminalPortInfo {
+                // Step 5b: native terminal port → compact card; play always pops out the window.
+                TerminalCompactBlock(title: term.title, createdBy: entry.senderName) {
+                    appState.openTerminalPort(id: term.id)
+                }
+            } else if entry.isSystem {
                 if let capturePath = entry.capturePath {
                     CaptureMessageView(senderName: entry.senderName, path: capturePath)
                 } else {
@@ -1005,6 +1050,55 @@ struct PortCompactBlock: View {
                 .buttonStyle(.plain)
                 .help("Pop out")
             }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Port42Theme.bgSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Port42Theme.border, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Terminal Compact Block (Step 5b)
+
+/// Inline card for a native terminal port. Reuses the cached-port compact-block style; the single
+/// play button ALWAYS pops out the native window (a terminal can't render inline in the webview).
+struct TerminalCompactBlock: View {
+    let title: String
+    let createdBy: String?
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "terminal")
+                .font(.system(size: 24))
+                .foregroundStyle(Port42Theme.accent)
+                .frame(width: 32, height: 32)
+
+            Text(title)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .lineLimit(1)
+
+            if let creator = createdBy {
+                Text(creator)
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Button(action: onOpen) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Port42Theme.accent)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open terminal")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

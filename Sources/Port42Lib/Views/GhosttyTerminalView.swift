@@ -159,6 +159,22 @@ final class GhosttyInputView: NSView {
         // ghostty_surface_text = bracketed-paste delivery (vs. text_input keystrokes).
         str.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
     }
+
+    // MARK: file drop — paste dropped file paths into the terminal (Step 5c)
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self],
+                                                options: [.urlReadingFileURLsOnly: true]) ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let s = surface,
+              let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty else { return false }
+        let pasted = escapeDroppedPaths(urls.map { $0.path })
+        pasted.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
+        return true
+    }
     @discardableResult
     private func copySelectionToClipboard() -> Bool {
         guard let s = surface, ghostty_surface_has_selection(s) else { return false }
@@ -283,6 +299,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> GhosttyInputView {
         let view = GhosttyInputView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.wantsLayer = true
+        view.registerForDraggedTypes([.fileURL])  // Step 5c: drop a file → paste its path
 
         guard let app = GhosttyApp.shared.ensureApp() else {
             NSLog("[Ghostty] makeNSView: no app singleton")

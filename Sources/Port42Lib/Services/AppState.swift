@@ -2398,7 +2398,32 @@ public final class AppState: ObservableObject {
                                         messageId: portMessageId, title: title, portType: "terminal",
                                         in: CGSize(width: 800, height: 600))
         NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
+
+        // Step 5b: leave an inline card in the space so the terminal has chat presence and can be
+        // reopened later. Local-only (the native window lives on this machine); play pops it out.
+        let card = Message(
+            id: UUID().uuidString, spaceId: spaceId, senderId: currentUser?.id ?? "",
+            senderName: companionName, senderType: "system",
+            content: "[terminal:\(portId):\(title)]",
+            timestamp: Date(), replyToId: nil, syncStatus: "local", createdAt: Date()
+        )
+        try? db.saveMessage(card)
+
         return portId
+    }
+
+    /// Bring a native terminal port's window to front (or restore it if backgrounded). Step 5b —
+    /// the inline terminal card's play action. No-op with a log if the port no longer exists.
+    func openTerminalPort(id: String) {
+        guard let panel = portWindows.panels.first(where: { $0.id == id }) else {
+            NSLog("[Port42] openTerminalPort: terminal %@ no longer exists", id)
+            return
+        }
+        if panel.isBackground {
+            portWindows.restore(id)
+        } else {
+            portWindows.bringToFront(id)
+        }
     }
 
     /// Pop a terminal port running a CLI agent and bridge it to the given space.
