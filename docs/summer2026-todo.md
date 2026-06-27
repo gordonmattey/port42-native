@@ -136,6 +136,35 @@ so it only advertises what's wired. Corroborates the existing port-positioning-g
 
 ---
 
+## TODO: native terminal output-streaming bridge (revises D4)
+
+**Use case:** a caller wants to *stream a terminal's output into the space* — a build, `tail -f`,
+server logs, a training run, a long script. D4 (in `plan-first-class-terminal-ports.md`) dropped
+the old `terminal_bridge` entirely, but its reasoning only held for **claude/TUI** terminals
+(teeing a TUI = redraw garbage; claude posts via `turnComplete`). Line-oriented output is clean and
+genuinely useful to stream — so the capability should come back, natively.
+
+**The mechanism already exists, just unplugged.** `TerminalOutputProcessor` produces two streams;
+`GhosttyTerminalController.swift:114` wires `onP42Output` (posts `<p42>` tags) but **discards
+`onFlush`** (`TerminalOutputProcessor { _ in }`) — and `onFlush` is exactly the cleaned,
+ANSI-stripped, batched line output we'd want. So the feature ≈ "connect `onFlush` to a post path",
+not rebuilding the deleted `TerminalBridge` (which was raw forkpty bytes → xterm).
+
+**Design:**
+- Opt-in tool, e.g. `terminal_stream(id, on|off)` (or reinstate the `terminal_bridge` name) that
+  flips a per-controller flag.
+- When on: `onFlush` → batched post to the space (cleaned text, **not** raw bytes).
+- **Guard TUIs:** refuse/warn when `hooksCapable` (claude/gemini) — `turnComplete` is their path;
+  teeing them is garbage. Streaming is for plain `bash`/command terminals.
+- Throttle/batch to avoid flooding the space (the `onFlush` batching already helps).
+- **Actually test it** this time (the old `terminal_bridge` was removed before it was ever tested).
+
+**Note for the Step 5a deletion sweep:** deleting the legacy `TerminalBridge` must NOT touch
+`GhosttyTerminalController` / `TerminalOutputProcessor` (they're the native side) — so the `onFlush`
+seam survives the sweep and this feature can wire onto it later.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,

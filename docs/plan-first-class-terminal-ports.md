@@ -168,7 +168,12 @@ native terminals on demand; nobody hand-rolls xterm.
 Done after tracing the code that Steps 2–6 actually touch. Supersedes the original migration-step
 prose where they conflict.
 
-- **D4 — drop output-streaming-to-chat.** The original `terminal_bridge` streamed raw PTY bytes
+- **D4 — drop output-streaming-to-chat. (PARTIALLY REVISED 2026-06-27 — see
+  `summer2026-todo.md` "native terminal output-streaming bridge".)** Dropping it entirely was too
+  broad: streaming *line-oriented* output (builds, `tail -f`, logs) is a real use case. The legacy
+  `terminal_bridge` still gets deleted in 5a, but a *native* opt-in stream (wire the discarded
+  `onFlush` → space) is backlogged as its replacement. The original D4 text below stands re: the
+  legacy raw-bytes path and claude/TUI terminals.** The original `terminal_bridge` streamed raw PTY bytes
   into the space as messages (`autoStartOutputBridge` → `OutputBatcher`). The native equivalent is
   *technically* free to restore — the Ghostty PTY tee already feeds `TerminalOutputProcessor`,
   whose cleaned `onFlush` is currently discarded (`GhosttyTerminalController.swift:114`,
