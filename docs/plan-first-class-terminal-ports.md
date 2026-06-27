@@ -15,7 +15,8 @@ drop the dead `ghosttyTerminalSurfaces` dict) and `d05c89e` (Step 2: `terminal_s
 **Next action is Step 3** — re-point `terminal_send` to resolve native controllers by id
 (`terminalControllers[id] → controller.inject`); add a `[name: id]` alias for friendly-name
 routing. NOTE **D4** (below): output-streaming is descoped and **`terminal_bridge` raw-output is
-dropped**, so Step 3 is now just `terminal_send`, not `terminal_bridge`. Then Step 5 (D1 deletion
+dropped**, so Step 3 is now just `terminal_send`, not `terminal_bridge`. **Step 3 is fully specified in
+"## Step 3 — detailed plan" below — read that, not just this header.** Then Step 5 (D1 deletion
 of `TerminalBridge` + PortBridge `terminal.*` cases — both still present) and Step 6 (spaceId).
 
 **Motivation resolved — output-streaming is DESCOPED (see "Review + descope (2026-06-26)").**
@@ -284,6 +285,108 @@ no name→id alias yet (step 3 — id-addressing already works via `terminalCont
 - Build succeeds with the dead dict removed (proves it was dead); companion terminal behaves
   identically (hooks/`<p42>` still post). No isolated `@Test` — controller creation needs a
   real window + Ghostty surface, so verification is the construction trace + one-shot log.
+
+## Step 3 — detailed plan
+
+**Goal:** `terminal_send` / `terminal_list` operate on **native Ghostty controllers**
+(`terminalControllers[id]`), not legacy `TerminalBridge`/xterm. Add a **raw, non-arming** send
+with a real "no live surface" error. Delete the output-streaming-to-chat path entirely (D4):
+`terminal_bridge`, `terminal_unbridge`, `autoStartOutputBridge`, `bridgeSpaceTerminals`.
+
+**Why the current code misses native terminals:** every `terminal_send` branch resolves through
+`panel.bridge.terminalBridge` (`ToolExecutor.swift:809, 818, 828`) or
+`terminalSession(forPortNamed:)` (`PortWindowManager.swift:462`, also `terminalBridge`-based).
+A native `terminal` port has **no `terminalBridge`** — it's tracked in
+`appState.terminalControllers[panel.id]` (`AppState.swift:723, 2414`). So today every branch
+misses and `terminal_send` falls to the error. Step 3 re-points resolution onto the controllers.
+
+### The seam — a pure, testable resolver
+
+Controllers aren't constructible in a unit test (need a real window + Ghostty surface), so split
+resolution into a pure id/name matcher (tested) + a thin AppState wrapper (manual-verify):
+
+```swift
+// AppState.swift — pure, no controller construction, unit-testable
+static func resolveTerminalId(_ idOrName: String,
+                              candidates: [(id: String, name: String)]) -> String? {
+    if candidates.contains(where: { $0.id == idOrName }) { return idOrName }     // 1. id-hit
+    let q = idOrName.lowercased()
+    if let m = candidates.first(where: { $0.name.lowercased() == q }) { return m.id }   // 2a. exact name
+    if let m = candidates.first(where: { $0.name.lowercased().contains(q) }) { return m.id } // 2b. contains
+    return nil                                                                    // 3. not-found
+}
+
+func resolveTerminalController(idOrName: String) -> GhosttyTerminalController? {
+    let cands = terminalControllers.map { (id: $0.key, name: $0.value.config.companionName) }
+    return AppState.resolveTerminalId(idOrName, candidates: cands).flatMap { terminalControllers[$0] }
+}
+```
+
+`config.companionName` is the right name key: Step 1's seam sets `companionName: title` for
+non-companion spawns (`terminal_spawn`), so one scan covers both companion @mention routing and
+plain titled terminals. (Matches the existing value-scan at `AppState.swift:1371, 1399`.)
+
+### The raw, non-arming send
+
+`controller.inject(_:)` (`GhosttyTerminalController.swift:170`) **arms the post gate** and drops
+silently when no surface is bound (`:173`). `terminal_send` must NOT arm (that's for company
+message injection). Add a sibling:
+
+```swift
+// GhosttyTerminalController.swift — write to surface WITHOUT arming the gate
+func sendRaw(_ data: String) -> Bool {
+    guard let inject = injectToSurface else { return false }   // real "no live surface"
+    inject(data)
+    return true
+}
+```
+
+### Edits
+
+1. **`GhosttyTerminalController.swift`** — add `sendRaw(_:) -> Bool` (above).
+2. **`AppState.swift`** — add `static resolveTerminalId` + `resolveTerminalController` (above).
+3. **`ToolExecutor.swift` `terminal_send` (`:797–844`)** — replace all four legacy branches with:
+   resolve via `appState.resolveTerminalController(idOrName: name)`; on hit
+   `controller.sendRaw(processed)` → `"Sent to \(name)"`, or on `false`
+   `"Error: terminal '\(name)' has no live surface"`; on miss, error listing native terminals
+   from `terminalControllers` (`id` + `config.companionName`). Drop every `autoStartOutputBridge`
+   call. Keep the `processEscapes` + `\r`-append preamble (`:802–806`).
+4. **`ToolExecutor.swift` `terminal_list` (`:846–862`)** — read `appState.terminalControllers`:
+   per entry emit `{id, name: config.companionName, surfaceBound: isSurfaceBound,
+   capabilities:["terminal"]}`. Drop `sessionId`/`createdBy`/`bridged` (TerminalBridge-only).
+5. **Delete (D4):** `terminal_bridge` case (`:864–875`), `terminal_unbridge` case (`:877–888`),
+   `autoStartOutputBridge` (`:142–162`), `bridgeSpaceTerminals` (`:128–140`) **and its caller**
+   `AppState.swift:131`, and the `outputBatchers` static (`:36`). `OutputBatcher` class
+   (`:1299`) is then unreferenced → delete it too (build proves it).
+6. **`ToolDefinitions.swift`** — delete the `terminal_bridge` (`:518`) + `terminal_unbridge`
+   (`:529`) schemas; drop both names from the `permission(for:)` switch (`:722`); rewrite
+   `terminal_send`'s description (`:502`) — remove "Automatically bridges output back…"; say
+   output returns via the terminal's own `<p42>` tags (bash) or `turnComplete` (claude), read
+   with `messages_recent`.
+
+**Deferred to Step 5 (left as dead-but-compiling code, do NOT touch in Step 3):** the
+`inlineTerminalBridges` machinery (`AppState.swift:718, 1356, 1455, 1461, 2575`), the now-idle
+`TerminalAgentLoop` / `startTerminalLoop` / `terminalLoops` tick (`:1308–1356`), `bridgedTerminalNames`
+(`:716`) + the SidebarView bridge indicator (`SidebarView.swift:314`), and `TerminalBridge` itself.
+Removing autoStart/bridgeSpaceTerminals stops these being *driven*; their *deletion* rides with the
+Step-5 TerminalBridge sweep so Step 3 stays a focused, green diff.
+
+### Verification (Step 3)
+
+- **Unit (Swift Testing), the only cleanly-testable piece:** `AppState.resolveTerminalId` —
+  id-hit (exact id wins even if a name also matches), name-scan exact, name-scan contains,
+  not-found → `nil`. Add to a new `TerminalResolverTests` suite.
+- **Manual (`./build.sh --run`; no view tests in this codebase):**
+  - `terminal_spawn` a `bash` terminal → `terminal_send <id> "ls\n"` runs in the native window.
+  - Confirm **non-arming**: a bare `terminal_send` does **not** cause the next `turnComplete` to
+    broadcast (gate stays disarmed) — distinct from a companion @mention inject.
+  - `terminal_send` to a real id whose surface isn't bound (spawn, send before the window's
+    surface binds) → `"…has no live surface"`, not a silent drop and not the not-found error.
+  - `terminal_send bogus-id` → not-found error that lists the live native terminals.
+  - `bash` terminal emitting `<p42>hi</p42>` → "hi" still posts (tee path unaffected).
+  - claude terminal reply still posts via `turnComplete` (the original motivation, still wired).
+  - `terminal_list` shows the native terminal with `surfaceBound: true` once open.
+  - `terminal_bridge` / `terminal_unbridge` are gone from the tool list (D4).
 
 ## Verification
 
