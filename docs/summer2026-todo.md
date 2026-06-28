@@ -200,6 +200,30 @@ grouping (by space / type / recency), and how it interacts with dock/undock + th
 
 ---
 
+## TODO: richer space rows in the sidebar (ambient activity)
+
+The sidebar space switcher should tell you **what's happening in each space without opening it** —
+the core of cross-space awareness. Today a row shows name + unread count + online count. Add
+per-space status signals:
+
+- **Recent activity** — a one-line preview of the latest message / what just happened (and who).
+- **Waiting-for-input** — a companion finished its turn and is awaiting *your* reply (distinct
+  from unread): "your move" indicator.
+- **Turn-complete** — a companion just completed a turn (transient ping/flash on the row).
+- **Port generation in progress** — when a companion is generating a port, show a "building…"
+  indicator on the space row (and clear when it lands / errors).
+
+Design notes:
+- These are *ambient*, glanceable signals — not another inbox. Prioritise "needs you" (waiting-for-
+  input) visually over passive activity.
+- **Performance:** derive every signal from cached/observed state, NOT per-render DB queries — see
+  the SidebarView render-storm fix (commit 77b266a). Add reactive caches
+  (`@Published` on AppState, fed by observations) the rows read; the body stays DB-free.
+- Ties into: ambient awareness is the same goal as space-scoped ports + the dock view — together
+  they make a space (and the set of spaces) legible at a glance.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
