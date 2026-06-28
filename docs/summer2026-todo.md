@@ -6,6 +6,41 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## Priority — ranked for impact on "a great space experience" (2026-06-27)
+
+The whole push is **a great space experience**: enter a space and see its world; companions feel
+present and continuous there; know where you're needed across spaces at a glance; low noise.
+Ranked against *that*, not raw feature value. (Effort in parens.)
+
+**Tier 1 — make a space (and the set of spaces) legible at a glance.** The spine; these four
+share one theme and reinforce each other.
+1. **Richer sidebar space rows / ambient activity** (medium) — *top pick.* "Where am I needed?"
+   across all spaces; `waiting-for-input` is the highest-value signal. Best impact-per-effort —
+   builds on the render-storm caching pattern (commit 77b266a). → "richer space rows" below.
+2. **Ports scoped to space** (medium) — keystone: a space *has* its own ports; data model the dock
+   view needs. → "ports scoped to space".
+3. **A dock / gallery view of ports** (medium) — *see* that world; depends on #2. → "a different
+   dock view of ports".
+4. **Swim *is* a space** (high) — backbone: relationship memory space-scoped → companions belong
+   to the place. Architectural; sequence after #2's scoping pattern. → "a swim is a space".
+
+**Tier 2 — companions more present & capable.**
+5. **Per-(companion, space) terminal sessions** (medium) — fixes wrong-session resume; isolated
+   thread per space. Pairs with #4.
+6. **Native terminal output-streaming bridge** (low-med) — build/log/agent output streams into the
+   space → live workspace. Mechanism ~90% present (`onFlush`).
+
+**Tier 3 — additive / DX / polish.**
+7. **Browser port type** (high) — powerful but additive; largest build.
+8. **`ports.list` JSON consistency** (low) — companion DX; capabilities half-done in 5a.
+9. **Missing gateway APIs** (`port.position`, `screen.displays`) (low) — positioning/layout tooling.
+10. **shim `.zshenv` recursion spam** (low) — papercut; cheap morale win.
+11. **dev-reboot session-resume robustness** (—) — dev-only; doesn't touch the space experience.
+
+Recommended arc: **1 → 2 → 3 → 4**, slotting #10 and #6 in as cheap wins.
+
+---
+
 ## TODO: a swim *is* a space (collapse the swim special-case)
 
 **Decision:** there is no separate "swim" construct. A swim is just a **space** whose membership
