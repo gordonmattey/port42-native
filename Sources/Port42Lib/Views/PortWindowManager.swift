@@ -744,8 +744,23 @@ public final class PortWindowManager: ObservableObject {
         guard !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
         let newId = UUID().uuidString
         let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: nil, createdBy: nil)
-        let size = inheritFrame?.size ?? CGSize(width: 480, height: 680)
-        let position = inheritFrame.map { CGPoint(x: $0.origin.x, y: $0.origin.y) }
+        let size: CGSize
+        let position: CGPoint?
+        if let inheritFrame {
+            // Subsequent spaces reuse the previous chat port's frame.
+            size = inheritFrame.size
+            position = CGPoint(x: inheritFrame.origin.x, y: inheritFrame.origin.y)
+        } else {
+            // First chat port: dock to the right of the sidebar, occupying the top
+            // half of the screen and half of the width that remains beside the sidebar.
+            let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+            let sidebarWidth = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible })?.frame.width ?? 220
+            let w = max(360, (screen.width - sidebarWidth) / 2)
+            let h = screen.height / 2
+            size = CGSize(width: w, height: h)
+            // macOS origin is bottom-left, so top half means y starts at the vertical midpoint.
+            position = CGPoint(x: screen.minX + sidebarWidth, y: screen.minY + screen.height / 2)
+        }
         var panel = PortPanel(
             id: newId,
             udid: newId,

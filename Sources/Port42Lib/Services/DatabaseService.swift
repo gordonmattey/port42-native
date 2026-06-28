@@ -1330,7 +1330,10 @@ public final class DatabaseService {
     ) -> AnyDatabaseCancellable {
         ValueObservation
             .tracking { db in
-                try Space.filter(Column("isSwim") == false)
+                // Match getRegularSpaces(): direct (1:1 DM) spaces are surfaced as
+                // companion rows, not as space rows — exclude them here too, or they
+                // leak into appState.spaces as phantom rows until the next refresh.
+                try Space.filter(Column("type") != "direct")
                     .order(Column("createdAt").asc)
                     .fetchAll(db)
             }

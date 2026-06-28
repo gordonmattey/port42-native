@@ -45,7 +45,8 @@ public struct SidebarView: View {
         var items: [(SidebarItem, Date)] = []
 
         for space in appState.spaces {
-            if space.type == "dm" { continue }
+            // Direct (1:1 DM) spaces show as companion rows, never as space rows.
+            if space.type == "dm" || space.type == "direct" { continue }
             let t = appState.lastActivityTimes[space.id] ?? space.createdAt
             items.append((.space(space), t))
         }

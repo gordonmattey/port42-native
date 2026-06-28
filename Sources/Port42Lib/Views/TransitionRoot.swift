@@ -73,6 +73,10 @@ public struct TransitionRoot: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                         // Resize to sidebar width while fully covered by dive overlay
                         restoreWindowFrame()
+                        // Reveal port windows (panelsVisible) — same gate as the post-lock
+                        // and returning-user reveals. Without this, fresh onboarding never
+                        // sets panelsVisible, so chat-port windows never open.
+                        appState.unlock()
                         transitionPhase = .none
                         withAnimation(.easeOut(duration: 1.0)) {
                             diveProgress = 0.0
@@ -250,12 +254,10 @@ public struct TransitionRoot: View {
             }
         }
 
-        // No usable saved frame — set a narrow sidebar default
+        // No usable saved frame — full-height sidebar flush to the screen's left edge,
+        // so the first chat port can dock immediately to its right.
         let sidebarWidth: CGFloat = 220
-        let sidebarHeight: CGFloat = min(700, screenFrame.height - 40)
-        let x = screenFrame.minX + 40
-        let y = screenFrame.midY - sidebarHeight / 2
-        window.setFrame(CGRect(x: x, y: y, width: sidebarWidth, height: sidebarHeight), display: true, animate: false)
+        window.setFrame(CGRect(x: screenFrame.minX, y: screenFrame.minY, width: sidebarWidth, height: screenFrame.height), display: true, animate: false)
     }
 
     private func startEnterAquariumTransition() {
