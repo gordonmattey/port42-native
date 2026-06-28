@@ -1039,6 +1039,9 @@ struct PortPanelContentView: View {
     @State private var isKeyWindow = false
     @State private var showBar = false
     @State private var showVersions = false
+    @State private var chatMenuOpen = false
+    @State private var showInspector = false
+    @State private var inspectorCompanion: AgentConfig?
     @State private var hideTask: DispatchWorkItem? = nil
 
     private var isHovered: Bool { manager.hoveredPanels.contains(panel.id) }
@@ -1093,9 +1096,9 @@ struct PortPanelContentView: View {
             }
 
             // Title bar overlay — timed flash on hover/focus, always on for code view
-            if showBar || showCode || showVersions {
+            if showBar || showCode || showVersions || chatMenuOpen {
                 VStack(alignment: .leading, spacing: 0) {
-                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions, isChatPort: isChatPort, isTerminal: panel.portType == "terminal")
+                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions, isChatPort: isChatPort, isTerminal: panel.portType == "terminal", chatMenuOpen: $chatMenuOpen, showInspector: $showInspector, inspectorCompanion: $inspectorCompanion)
                     if showVersions {
                         HStack {
                             PortVersionDropdown(panel: panel, manager: manager, isPresented: $showVersions)
@@ -1138,13 +1141,18 @@ struct PortPanelContentView: View {
         .onChange(of: manager.hoveredPanels.contains(panel.id)) { _, hovered in
             if hovered {
                 flashBar()
-            } else if !showVersions {
+            } else if !showVersions && !chatMenuOpen {
                 hideTask?.cancel()
                 withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
             }
         }
         .onChange(of: showVersions) { _, showing in
             if !showing && !manager.hoveredPanels.contains(panel.id) {
+                withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
+            }
+        }
+        .onChange(of: chatMenuOpen) { _, open in
+            if !open && !manager.hoveredPanels.contains(panel.id) {
                 withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
             }
         }
@@ -1159,6 +1167,12 @@ struct PortPanelContentView: View {
         }
         .onReceive(panel.bridge.$pendingPermission) { perm in
             pendingPerm = perm
+        }
+        .sheet(isPresented: $showInspector) {
+            if let companion = inspectorCompanion, let spaceId = appState.currentSpace?.id {
+                CreaseInspectorSheet(companion: companion, spaceId: spaceId)
+                    .environmentObject(appState)
+            }
         }
     }
 }
@@ -1266,10 +1280,61 @@ struct PortPanelTitleBar: View {
     var isChatPort: Bool = false
     /// Native terminal ports have no source/stop/restart concept — hide those buttons.
     var isTerminal: Bool = false
+    /// Set true while a chat menu (members list / inspect picker) is open so the parent
+    /// keeps the auto-hiding title bar visible — otherwise moving onto the popover hides
+    /// the bar and dismisses the popover with it.
+    @Binding var chatMenuOpen: Bool
+    /// Hosted on the stable parent (PortPanelContentView) so the modal sheet isn't torn
+    /// down when the auto-hiding title bar disappears — that caused a re-present flash loop.
+    @Binding var showInspector: Bool
+    @Binding var inspectorCompanion: AgentConfig?
+    @EnvironmentObject var appState: AppState
+    @State private var showMembers = false
+    @State private var showCompanionPicker = false
 
     /// Always read the live panel from manager so rename/title updates reflect immediately.
     private var livePanel: PortPanel {
         manager.panels.first(where: { $0.id == panel.id }) ?? panel
+    }
+
+    /// Companions assigned to the current space — drive the crease-inspector eye.
+    private var spaceAgents: [AgentConfig] {
+        guard let id = appState.currentSpace?.id else { return [] }
+        return (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
+    }
+
+    /// Members of the current space (the chat port always shows the current space).
+    private var members: [SpaceMember] {
+        guard let id = appState.currentSpace?.id else { return [] }
+        var result = (try? appState.db.getSpaceMembers(spaceId: id)) ?? []
+        if let user = appState.currentUser,
+           !result.contains(where: { $0.senderId == user.id }) {
+            result.insert(SpaceMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
+        }
+        for agent in spaceAgents {
+            if !result.contains(where: { $0.senderId == agent.id }) {
+                result.append(SpaceMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
+            }
+        }
+        return result
+    }
+
+    private var onlineIds: Set<String> {
+        guard let id = appState.currentSpace?.id else { return [] }
+        var ids = appState.sync.onlineUsers[id] ?? []
+        if let userId = appState.currentUser?.id { ids.insert(userId) }
+        for companion in appState.companions { ids.insert(companion.id) }
+        return ids
+    }
+
+    private func openInspector() {
+        let agents = spaceAgents
+        if agents.count == 1 {
+            inspectorCompanion = agents[0]
+            showInspector = true
+        } else if agents.count > 1 {
+            showCompanionPicker = true
+        }
     }
 
     var body: some View {
@@ -1354,6 +1419,83 @@ struct PortPanelTitleBar: View {
                 }
             }
 
+            // Chat ports: member avatars (hover for full list) + crease-inspector eye.
+            if isChatPort {
+                if !members.isEmpty {
+                    HStack(spacing: -4) {
+                        ForEach(Array(members.prefix(6))) { member in
+                            MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
+                        }
+                        if members.count > 6 {
+                            ZStack {
+                                Circle()
+                                    .fill(Port42Theme.bgPrimary)
+                                    .frame(width: 16, height: 16)
+                                Text("+\(members.count - 6)")
+                                    .font(Port42Theme.mono(7))
+                                    .foregroundStyle(Port42Theme.textSecondary)
+                            }
+                        }
+                    }
+                    .onTapGesture { showMembers.toggle() }
+                    .popover(isPresented: $showMembers, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("members")
+                                .font(Port42Theme.monoBold(11))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                            ForEach(members) { member in
+                                HStack(spacing: 8) {
+                                    MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
+                                    Text(member.displayName(localOwner: appState.currentUser?.displayName))
+                                        .font(Port42Theme.mono(12))
+                                        .foregroundStyle(Port42Theme.textPrimary)
+                                }
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
+
+                if !spaceAgents.isEmpty {
+                    Button(action: openInspector) {
+                        Image(systemName: "eye")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(spaceAgents.count == 1
+                          ? "Inspect \(spaceAgents[0].displayName)'s inner state"
+                          : "Inspect a companion's inner state")
+                    .popover(isPresented: $showCompanionPicker, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("inspect")
+                                .font(Port42Theme.monoBold(11))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                            ForEach(spaceAgents) { agent in
+                                Button(action: {
+                                    showCompanionPicker = false
+                                    inspectorCompanion = agent
+                                    showInspector = true
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Circle()
+                                            .fill(Port42Theme.textAgent)
+                                            .frame(width: 8, height: 8)
+                                        Text(agent.displayName)
+                                            .font(Port42Theme.mono(12))
+                                            .foregroundStyle(Port42Theme.textPrimary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
+            }
+
             Button(action: { manager.toggleAlwaysOnTop(panel.id) }) {
                 Image(systemName: livePanel.isAlwaysOnTop ? "pin.fill" : "pin")
                     .font(.system(size: 10))
@@ -1387,6 +1529,8 @@ struct PortPanelTitleBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Port42Theme.bgSecondary)
+        .onChange(of: showMembers) { _, v in chatMenuOpen = v || showCompanionPicker }
+        .onChange(of: showCompanionPicker) { _, v in chatMenuOpen = v || showMembers }
     }
 }
 
