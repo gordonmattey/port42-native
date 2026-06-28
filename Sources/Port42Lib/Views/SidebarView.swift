@@ -51,8 +51,8 @@ public struct SidebarView: View {
         }
 
         for companion in appState.companions {
-            let swimId = "swim-\(companion.id)"
-            let t = appState.lastActivityTimes[swimId] ?? companion.createdAt
+            let dmId = (try? appState.db.directSpaceId(companionId: companion.id)) ?? nil
+            let t = dmId.flatMap { appState.lastActivityTimes[$0] } ?? companion.createdAt
             items.append((.companion(companion), t))
         }
 
@@ -313,8 +313,9 @@ curl -s http://127.0.0.1:4242/call \\
 
     @ViewBuilder
     private func companionRow(_ companion: AgentConfig) -> some View {
-        let swimId = "swim-\(companion.id)"
-        let depth = (try? appState.db.fetchFold(companionId: companion.id, spaceId: swimId))?.depth
+        // Sidebar shows the companion's "home" relationship depth — their direct-space (DM) fold.
+        let dmId = (try? appState.db.directSpaceId(companionId: companion.id)) ?? nil
+        let depth = dmId.flatMap { try? appState.db.fetchFold(companionId: companion.id, spaceId: $0) }?.depth
         let action: () -> Void = companion.openInTerminal
             ? {
                 // Bring this companion's native terminal window to front (controllers are keyed

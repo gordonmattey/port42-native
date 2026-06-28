@@ -440,17 +440,17 @@ final class SpaceAgentHandler: LLMStreamDelegate {
     }
 
     /// Build the relationship preamble block (fold + position + creases) for context injection.
-    /// All relationship state lives on the swim space — one companion, one inner state.
+    /// D4: relationship state is space-scoped — read it for the space this turn is happening in.
     /// Returns nil if nothing exists (clean/new relationship).
     private func buildRelationshipPreamble() -> String? {
         guard let db = appState?.db else { return nil }
         let companionId = agent.id
-        let swimSpaceId = "swim-\(companionId)"
+        let memSpaceId = spaceId
 
-        let fold = try? db.fetchFold(companionId: companionId, spaceId: swimSpaceId)
-        let position = try? db.fetchPosition(companionId: companionId, spaceId: swimSpaceId)
-        let creases = (try? db.fetchCreases(companionId: companionId, spaceId: swimSpaceId, limit: 8)) ?? []
-        let engravings = (try? db.fetchEngravings(companionId: companionId, spaceId: swimSpaceId, limit: 8)) ?? []
+        let fold = try? db.fetchFold(companionId: companionId, spaceId: memSpaceId)
+        let position = try? db.fetchPosition(companionId: companionId, spaceId: memSpaceId)
+        let creases = (try? db.fetchCreases(companionId: companionId, spaceId: memSpaceId, limit: 8)) ?? []
+        let engravings = (try? db.fetchEngravings(companionId: companionId, spaceId: memSpaceId, limit: 8)) ?? []
 
         guard fold != nil || position != nil || !creases.isEmpty || !engravings.isEmpty else { return nil }
 
@@ -1218,11 +1218,11 @@ public final class AppState: ObservableObject {
             return
         }
 
-        // Route @mentions to bridged terminals (e.g. Claude Code running in a terminal port)
-        let swimCompanion: AgentConfig? = spaceId.hasPrefix("swim-")
-            ? companions.first(where: { spaceId == "swim-\($0.id)" })
-            : nil
-        routeMentionsToTerminals(content: message.content, senderName: message.senderName, spaceId: spaceId, implicitCompanion: swimCompanion)
+        // Route @mentions to bridged terminals (e.g. Claude Code running in a terminal port).
+        // In a 1:1 DM the sole companion is implicit (no @mention needed) — resolve by membership.
+        let dmCompanionId = (try? db.companionId(ofDirectSpaceId: spaceId)) ?? nil
+        let implicitCompanion: AgentConfig? = dmCompanionId.flatMap { cid in companions.first(where: { $0.id == cid }) }
+        routeMentionsToTerminals(content: message.content, senderName: message.senderName, spaceId: spaceId, implicitCompanion: implicitCompanion)
 
         let targets = AgentRouter.findTargetAgents(
             content: message.content, agents: companions,
@@ -1475,10 +1475,9 @@ public final class AppState: ObservableObject {
         var initiativeAgents: [(agent: AgentConfig, triggerText: String, logLabel: String)] = []
 
         for agent in spaceAgents where !alreadyTargeted.contains(agent.id) && agent.mode == .llm {
-            let swimId = "swim-\(agent.id)"
-
+            // D4: initiative reads the companion's position for THIS space.
             // A — watching signals
-            if let pos = try? db.fetchPosition(companionId: agent.id, spaceId: swimId),
+            if let pos = try? db.fetchPosition(companionId: agent.id, spaceId: spaceId),
                let watching = pos.watching, !watching.isEmpty {
                 for signal in watching {
                     if lowered.contains(signal.lowercased()) {
@@ -1491,7 +1490,7 @@ public final class AppState: ObservableObject {
 
             // B — holding text: already triggered above? skip
             guard !initiativeAgents.contains(where: { $0.agent.id == agent.id }) else { continue }
-            if let fold = try? db.fetchFold(companionId: agent.id, spaceId: swimId),
+            if let fold = try? db.fetchFold(companionId: agent.id, spaceId: spaceId),
                let holding = fold.holding, !holding.isEmpty {
                 let keywords = holdingKeywords(from: holding)
                 for keyword in keywords {
@@ -1670,8 +1669,8 @@ public final class AppState: ObservableObject {
     }
 
     public func selectSpace(_ space: Space) {
-        // Clear swim companion when navigating to a non-swim space
-        if !space.isSwim { activeSwimCompanion = nil }
+        // Clear swim companion when navigating to a non-DM space (a DM is a `direct` space).
+        if space.type != "direct" { activeSwimCompanion = nil }
 
         // Persist immediately (cheap)
         UserDefaults.standard.set(space.id, forKey: "lastSelectedSpaceId")
@@ -2203,8 +2202,8 @@ public final class AppState: ObservableObject {
         let lowered = payload.lowercased()
 
         for agent in spaceAgents where agent.mode == .llm {
-            let swimId = "swim-\(agent.id)"
-            guard let pos = try? db.fetchPosition(companionId: agent.id, spaceId: swimId),
+            // D4: bus initiative reads the companion's position for THIS space.
+            guard let pos = try? db.fetchPosition(companionId: agent.id, spaceId: spaceId),
                   let watching = pos.watching else { continue }
 
             for signal in watching where signal.hasPrefix("bus:") {
@@ -2608,16 +2607,14 @@ public final class AppState: ObservableObject {
         UserDefaults.standard.set(companion.id, forKey: "lastActiveSwimCompanionId")
         UserDefaults.standard.removeObject(forKey: "lastSelectedSpaceId")
 
-        let swimSpace = Space.swim(companion: companion)
-        do {
-            try db.upsertSpace(swimSpace)
-            try db.assignAgentToSpace(agentId: companion.id, spaceId: swimSpace.id)
-            spaces = try db.getRegularSpaces()
-        } catch {
-            print("[Port42] Failed to create swim space: \(error)")
+        // Resolve/create the companion's direct space via membership (no more `swim-<id>` ids).
+        guard let directSpace = try? db.getOrCreateDirectSpace(companion: companion) else {
+            print("[Port42] Failed to open direct space for \(companion.displayName)")
+            return
         }
+        spaces = (try? db.getRegularSpaces()) ?? spaces
         activeSwimCompanion = companion
-        selectSpace(swimSpace)
+        selectSpace(directSpace)
 
         Analytics.shared.swimStarted()
         Analytics.shared.screen("Swim")
@@ -2775,9 +2772,9 @@ public final class AppState: ObservableObject {
                 }
             }
             for companion in allCompanions {
-                let swimId = "swim-\(companion.id)"
-                if let t = try? self.db.getLastMessageTime(spaceId: swimId) {
-                    times[swimId] = t
+                if let dmId = (try? self.db.directSpaceId(companionId: companion.id)) ?? nil,
+                   let t = try? self.db.getLastMessageTime(spaceId: dmId) {
+                    times[dmId] = t
                 }
             }
             self.lastActivityTimes = times

@@ -54,7 +54,7 @@ struct AppStateTests {
         #expect(state.currentUser?.displayName == "Gordon")
 
         let allSpaces = try state.db.getAllSpaces()
-        let generalSpace = allSpaces.first { !$0.isSwim }
+        let generalSpace = allSpaces.first { $0.type != "direct" }
         #expect(generalSpace?.name == "general")
 
         // Companion created during onboarding
@@ -63,9 +63,9 @@ struct AppStateTests {
         #expect(state.companions.first?.mode == .llm)
         #expect(state.companions.first?.model == "claude-opus-4-6")
 
-        // Swim opened with companion
+        // Swim opened with companion (a DM is a `direct` space)
         #expect(state.activeSwimCompanion != nil)
-        #expect(state.currentSpace?.isSwim == true)
+        #expect(state.currentSpace?.type == "direct")
     }
 
     // MARK: - Spaces

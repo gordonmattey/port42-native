@@ -173,17 +173,18 @@ struct SwimSpaceInfraTests {
         return (state, companion)
     }
 
-    @Test("startSwim creates a swim space in the database")
+    @Test("startSwim creates a direct space resolved by membership (no swim- id)")
     @MainActor
     func swimCreatesSpace() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
 
-        let allSpaces = try state.db.getAllSpaces()
-        let swimSpace = allSpaces.first { $0.id == "swim-\(companion.id)" }
-        #expect(swimSpace != nil)
-        #expect(swimSpace?.isSwim == true)
-        #expect(swimSpace?.syncEnabled == false)
+        // Resolved by membership, not a derived id.
+        let directSpace = try state.db.findDirectSpace(companionId: companion.id)
+        #expect(directSpace != nil)
+        #expect(directSpace?.type == "direct")
+        #expect(directSpace?.id.hasPrefix("swim-") == false)
+        #expect(directSpace?.syncEnabled == false)
     }
 
     @Test("startSwim sets activeSwimCompanion")
@@ -194,13 +195,14 @@ struct SwimSpaceInfraTests {
         #expect(state.activeSwimCompanion?.id == companion.id)
     }
 
-    @Test("startSwim sets currentSpace to swim space")
+    @Test("startSwim sets currentSpace to the companion's direct space")
     @MainActor
     func swimSetsCurrentSpace() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.currentSpace?.id == "swim-\(companion.id)")
-        #expect(state.currentSpace?.isSwim == true)
+        let directSpace = try state.db.findDirectSpace(companionId: companion.id)
+        #expect(state.currentSpace?.id == directSpace?.id)
+        #expect(state.currentSpace?.type == "direct")
     }
 
     @Test("exitSwim clears activeSwimCompanion and currentSpace")
@@ -215,15 +217,14 @@ struct SwimSpaceInfraTests {
         #expect(state.currentSpace == nil)
     }
 
-    @Test("swim space has syncEnabled=false so it will not be synced")
+    @Test("direct space has syncEnabled=false so it will not be synced")
     @MainActor
     func swimNotSynced() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
 
-        let allSpaces = try state.db.getAllSpaces()
-        let swimSpace = allSpaces.first { $0.id == "swim-\(companion.id)" }
-        #expect(swimSpace?.syncEnabled == false)
+        let directSpace = try state.db.findDirectSpace(companionId: companion.id)
+        #expect(directSpace?.syncEnabled == false)
     }
 
     @Test("selectSpace with regular space clears activeSwimCompanion")
@@ -233,7 +234,7 @@ struct SwimSpaceInfraTests {
         state.startSwim(with: companion)
         #expect(state.activeSwimCompanion != nil)
 
-        let regularSpace = state.spaces.first { !$0.isSwim }!
+        let regularSpace = state.spaces.first { $0.type != "direct" }!
         state.selectSpace(regularSpace)
         #expect(state.activeSwimCompanion == nil)
     }
@@ -250,32 +251,38 @@ struct SwimSpaceInfraTests {
         #expect(state.companions.isEmpty)
     }
 
-    @Test("startSwim is idempotent — calling twice does not duplicate spaces")
+    @Test("startSwim is idempotent — calling twice does not duplicate direct spaces")
     @MainActor
     func swimIdempotent() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
         state.startSwim(with: companion)
 
-        let swimSpaces = try state.db.getAllSpaces().filter { $0.isSwim }
-        #expect(swimSpaces.count == 1)
+        let directSpaces = try state.db.getAllSpaces().filter { $0.type == "direct" }
+        #expect(directSpaces.count == 1)
     }
 
-    @Test("companion is assigned to swim space after startSwim")
+    @Test("companion is assigned to its direct space after startSwim")
     @MainActor
     func swimAssignsCompanion() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
 
-        let assigned = try state.db.getAgentsForSpace(spaceId: "swim-\(companion.id)")
+        let directSpace = try state.db.findDirectSpace(companionId: companion.id)
+        #expect(directSpace != nil)
+        let assigned = try state.db.getAgentsForSpace(spaceId: directSpace?.id ?? "")
         #expect(assigned.first?.id == companion.id)
     }
 
-    @Test("swim space id follows swim-{companionId} convention")
+    @Test("startSwim resolves the same direct space on repeat (membership, not derived id)")
     @MainActor
     func swimSpaceIdConvention() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.currentSpace?.id == "swim-\(companion.id)")
+        let first = state.currentSpace?.id
+        state.exitSwim()
+        state.startSwim(with: companion)
+        #expect(state.currentSpace?.id == first)
+        #expect(state.currentSpace?.id.hasPrefix("swim-") == false)
     }
 }

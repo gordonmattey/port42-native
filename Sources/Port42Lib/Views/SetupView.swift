@@ -766,7 +766,7 @@ public struct SetupView: View {
             Color(red: 0.0, green: 0.15, blue: 0.3).opacity(0.3).ignoresSafeArea()
 
             if let companion = appState.activeSwimCompanion,
-               let space = appState.currentSpace, space.isSwim {
+               let space = appState.currentSpace, space.type == "direct" {
                 let spaceId = space.id
                 let userName = submittedName ?? displayName
                 let isStreaming = appState.typingAgentNames.contains(companion.displayName)

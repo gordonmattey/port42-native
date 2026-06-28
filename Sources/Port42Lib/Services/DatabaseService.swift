@@ -553,7 +553,106 @@ public final class DatabaseService {
             }
         }
 
+        // v35: collapse legacy swim spaces (`swim-<companionId>`, isSwim=1) into plain UUID
+        // `direct` spaces, repointing all child rows. See docs/plan-swim-is-space-phase2.md.
+        // Pre-pass driven by a real-DB audit: drop dead swims (no member + agent gone), backfill
+        // membership where the embedded agent still exists, then repoint. Post-pass logs DM dups.
+        migrator.registerMigration("v35-swim-to-direct") { db in
+            let swimIds = try String.fetchAll(db, sql: "SELECT id FROM spaces WHERE isSwim = 1")
+            for oldId in swimIds {
+                try Self.migrateLegacySwim(db, oldId: oldId)
+            }
+            // Post-pass: flag any companion now sole-ish member of >1 direct space (dup DM). Don't
+            // auto-merge — findDirectSpace's oldest-wins keeps resolution deterministic; log for
+            // manual cleanup.
+            let dupRows = try Row.fetchAll(db, sql: """
+                SELECT a.agentId AS agentId, COUNT(*) AS c
+                FROM agentSpaces a JOIN spaces s ON s.id = a.spaceId AND s.type = 'direct'
+                GROUP BY a.agentId HAVING COUNT(*) > 1
+                """)
+            for row in dupRows {
+                let aid: String = row["agentId"]
+                let c: Int = row["c"]
+                NSLog("[Port42][v35] WARNING companion %@ has %d direct spaces (dup DM) — oldest wins; manual cleanup advised", aid, c)
+            }
+        }
+
         try migrator.migrate(dbQueue)
+    }
+
+    /// Migrate one legacy swim space (`swim-<companionId>`, isSwim=1) per the v35 pre-pass:
+    /// - 0 members + embedded agent gone → drop it (dead/unreachable, cascades children).
+    /// - 0 members + embedded agent still exists → backfill the membership row, then repoint.
+    /// - otherwise → repoint to a fresh UUID `direct` space.
+    /// Factored out of the migration so the decision is unit-testable. Runs inside the write txn.
+    static func migrateLegacySwim(_ db: Database, oldId: String) throws {
+        let memberCount = try Int.fetchOne(
+            db, sql: "SELECT COUNT(*) FROM agentSpaces WHERE spaceId = ?",
+            arguments: [oldId]) ?? 0
+        let embeddedAgentId = oldId.hasPrefix("swim-")
+            ? String(oldId.dropFirst("swim-".count)) : nil
+
+        if memberCount == 0 {
+            let agentExists = embeddedAgentId.map { aid in
+                (try? Bool.fetchOne(
+                    db, sql: "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?)",
+                    arguments: [aid])) ?? false
+            } ?? false
+
+            if let aid = embeddedAgentId, agentExists {
+                // Companion still exists but the membership row was lost — backfill it.
+                try db.execute(
+                    sql: "INSERT OR IGNORE INTO agentSpaces (agentId, spaceId) VALUES (?, ?)",
+                    arguments: [aid, oldId])
+            } else {
+                // Dead swim: no member and the companion is gone. Unreachable — drop it and all
+                // its children. NB: GRDB disables FK enforcement during migrations, so ON DELETE
+                // CASCADE does NOT fire here — we must delete child rows explicitly or they orphan.
+                let msgs = try Int.fetchOne(
+                    db, sql: "SELECT COUNT(*) FROM messages WHERE spaceId = ?",
+                    arguments: [oldId]) ?? 0
+                NSLog("[Port42][v35] dropping dead swim %@ (%d messages, agent gone)", oldId, msgs)
+                try Self.deleteSpaceAndChildren(db, spaceId: oldId)
+                return
+            }
+        }
+
+        try Self.repointSpaceId(db, from: oldId, to: UUID().uuidString)
+    }
+
+    /// The 9 child tables that carry a `spaceId` FK→spaces(id). Hardcoded allowlist.
+    static let spaceChildTables = ["messages", "agentSpaces", "port_panels", "port_storage",
+        "input_history", "companion_positions", "companion_folds", "companion_creases",
+        "companion_engravings"]
+
+    /// Delete a space and all its child rows explicitly. Use during migrations, where GRDB has FK
+    /// enforcement OFF so ON DELETE CASCADE would NOT fire (children would orphan).
+    static func deleteSpaceAndChildren(_ db: Database, spaceId: String) throws {
+        for table in spaceChildTables {
+            try db.execute(sql: "DELETE FROM \(table) WHERE spaceId = ?", arguments: [spaceId])
+        }
+        try db.execute(sql: "DELETE FROM spaces WHERE id = ?", arguments: [spaceId])
+    }
+
+    /// Repoint a space and all its child rows from oldId to newId. FK-safe ordering:
+    /// new parent first, children next, old parent last (so no row is ever orphaned with
+    /// foreign_keys ON). Caller runs inside a write transaction (the migrator provides one).
+    /// Table names are a hardcoded allowlist, not user input.
+    static func repointSpaceId(_ db: Database, from oldId: String, to newId: String) throws {
+        // 1. New parent (copy the row, force isSwim=0).
+        try db.execute(sql: """
+            INSERT INTO spaces (id, name, type, createdAt, encryptionKey, syncEnabled, isSwim,
+                                heartbeatInterval, heartbeatPrompt)
+            SELECT ?, name, type, createdAt, encryptionKey, syncEnabled, 0, heartbeatInterval, heartbeatPrompt
+            FROM spaces WHERE id = ?
+            """, arguments: [newId, oldId])
+        // 2. Children.
+        for table in spaceChildTables {
+            try db.execute(sql: "UPDATE \(table) SET spaceId = ? WHERE spaceId = ?",
+                           arguments: [newId, oldId])
+        }
+        // 3. Old parent (now childless).
+        try db.execute(sql: "DELETE FROM spaces WHERE id = ?", arguments: [oldId])
     }
 
     // MARK: - Users
@@ -591,10 +690,13 @@ public final class DatabaseService {
         }
     }
 
-    /// Non-swim spaces only — use this for appState.spaces.
+    /// Spaces for the main list — excludes 1:1 companion DMs (presented as companion rows, not
+    /// channels). Keyed on `type == "direct"` (not `isSwim`) so migrated direct spaces stay out of
+    /// the list, exactly as legacy swims (also `type:"direct"`) did under the old `isSwim` filter.
+    /// Remote per-user DMs (`type:"dm"`) remain included, as before.
     public func getRegularSpaces() throws -> [Space] {
         try dbQueue.read { db in
-            try Space.filter(Column("isSwim") == false)
+            try Space.filter(Column("type") != "direct")
                 .order(Column("createdAt").asc)
                 .fetchAll(db)
         }
@@ -630,6 +732,30 @@ public final class DatabaseService {
         return space
     }
 
+    /// READ-path id resolver: the companion's direct-space id, or nil if no DM exists yet.
+    public func directSpaceId(companionId: String) throws -> String? {
+        try findDirectSpace(companionId: companionId)?.id
+    }
+
+    /// WRITE-path id resolver: ensure the companion's DM exists, return its id. nil if agent is gone.
+    public func getOrCreateDirectSpaceId(companionId: String) throws -> String? {
+        guard let agent = try getAgent(id: companionId) else { return nil }
+        return try getOrCreateDirectSpace(companion: agent).id
+    }
+
+    /// REVERSE resolver (spaceId → companionId): the sole agent member of a `direct` space, else nil.
+    /// Used to detect "this space is a 1:1 DM" and which companion is implicit in it.
+    public func companionId(ofDirectSpaceId spaceId: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT a.agentId FROM agentSpaces a
+                JOIN spaces s ON s.id = a.spaceId
+                WHERE a.spaceId = ? AND s.type = 'direct'
+                  AND (SELECT COUNT(*) FROM agentSpaces a2 WHERE a2.spaceId = a.spaceId) = 1
+                """, arguments: [spaceId])
+        }
+    }
+
     public func getSpaceKey(spaceId: String) throws -> String? {
         try dbQueue.read { db in
             try Space.fetchOne(db, id: spaceId)?.encryptionKey
@@ -653,6 +779,13 @@ public final class DatabaseService {
     public func getAllAgents() throws -> [AgentConfig] {
         try dbQueue.read { db in
             try AgentConfig.order(Column("createdAt").asc).fetchAll(db)
+        }
+    }
+
+    /// Single companion by id, or nil.
+    public func getAgent(id: String) throws -> AgentConfig? {
+        try dbQueue.read { db in
+            try AgentConfig.fetchOne(db, id: id)
         }
     }
 
@@ -1174,9 +1307,10 @@ public final class DatabaseService {
         }
     }
 
-    /// Returns the timestamp of the most recent swim message for a companion.
+    /// Returns the timestamp of the most recent message in a companion's direct space (DM).
     public func getLastSwimTime(companionId: String) throws -> Date? {
-        try getLastMessageTime(spaceId: "swim-\(companionId)")
+        guard let sid = try directSpaceId(companionId: companionId) else { return nil }
+        return try getLastMessageTime(spaceId: sid)
     }
 
     /// Find an existing DM space for a specific remote user, or nil if none exists.

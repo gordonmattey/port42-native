@@ -122,6 +122,23 @@ public final class ToolExecutor {
         }
     }
 
+    // MARK: - Relationship-memory space resolution (D4: memory is space-scoped)
+
+    /// The space relationship memory READS from for this call: the current space, or the
+    /// companion's DM when headless (no current space). nil if neither resolves.
+    private func memReadSpaceId(_ companionId: String) -> String? {
+        if let sid = spaceId { return sid }
+        guard let db = appState?.db else { return nil }
+        return (try? db.directSpaceId(companionId: companionId)) ?? nil
+    }
+
+    /// Write variant: ensure the companion's DM exists when there's no current space.
+    private func memWriteSpaceId(_ companionId: String) -> String? {
+        if let sid = spaceId { return sid }
+        guard let db = appState?.db else { return nil }
+        return (try? db.getOrCreateDirectSpaceId(companionId: companionId)) ?? nil
+    }
+
     // MARK: - Tool Execution
 
     private func executeImpl(name: String, input: [String: Any]) async throws -> [[String: Any]] {
@@ -138,11 +155,11 @@ public final class ToolExecutor {
                 return [textBlock("Error: no companion context")]
             }
             let limit = input["limit"] as? Int ?? 8
-            // Always read from swim space — companion has one inner state
-            let swimCreaseId = "swim-\(companionId)"
+            // D4: read from the current space (DM when headless) — memory is space-scoped.
+            let creaseReadSpaceId = memReadSpaceId(companionId)
             let creases = (try? appState.db.fetchCreases(
                 companionId: companionId,
-                spaceId: swimCreaseId,
+                spaceId: creaseReadSpaceId,
                 limit: limit
             )) ?? []
             if creases.isEmpty {
@@ -160,11 +177,10 @@ public final class ToolExecutor {
                   let content = input["content"] as? String, !content.isEmpty else {
                 return [textBlock("Error: crease_write requires 'content'")]
             }
-            // Always write to swim space — companion has one inner state
-            let swimWriteId = "swim-\(companionId)"
+            // D4: write to the current space (DM when headless) — memory is space-scoped.
             let crease = CompanionCrease(
                 companionId: companionId,
-                spaceId: swimWriteId,
+                spaceId: memWriteSpaceId(companionId),
                 content: content,
                 prediction: input["prediction"] as? String,
                 actual: input["actual"] as? String
@@ -191,10 +207,10 @@ public final class ToolExecutor {
                 return [textBlock("Error: no companion context")]
             }
             let limit = input["limit"] as? Int ?? 8
-            let swimEngId = "swim-\(companionId)"
+            let engReadSpaceId = memReadSpaceId(companionId)
             let engravings = (try? appState.db.fetchEngravings(
                 companionId: companionId,
-                spaceId: swimEngId,
+                spaceId: engReadSpaceId,
                 limit: limit
             )) ?? []
             if engravings.isEmpty {
@@ -212,10 +228,9 @@ public final class ToolExecutor {
                   let content = input["content"] as? String, !content.isEmpty else {
                 return [textBlock("Error: engrave_write requires 'content'")]
             }
-            let swimEngWriteId = "swim-\(companionId)"
             let engraving = CompanionEngraving(
                 companionId: companionId,
-                spaceId: swimEngWriteId,
+                spaceId: memWriteSpaceId(companionId),
                 content: content,
                 category: input["category"] as? String
             )
@@ -242,10 +257,10 @@ public final class ToolExecutor {
             guard let companionId = resolvedCompanionId else {
                 return [textBlock("Error: no companion/space context — pass companionId arg")]
             }
-            let swimId = "swim-\(companionId)"
-            let cid = spaceId ?? swimId
-            if let fold = try appState.db.fetchFold(companionId: companionId, spaceId: swimId)
-                ?? appState.db.fetchFold(companionId: companionId, spaceId: cid) {
+            // D4: read fold for the current space (DM when headless).
+            let emptyFold = [textBlock(jsonString(["established": [], "tensions": [], "holding": "", "depth": 0] as [String: Any]))]
+            guard let foldReadSpaceId = memReadSpaceId(companionId) else { return emptyFold }
+            if let fold = try appState.db.fetchFold(companionId: companionId, spaceId: foldReadSpaceId) {
                 return [textBlock(jsonString([
                     "established": fold.established ?? [],
                     "tensions": fold.tensions ?? [],
@@ -253,17 +268,19 @@ public final class ToolExecutor {
                     "depth": fold.depth
                 ] as [String: Any]))]
             } else {
-                return [textBlock(jsonString(["established": [], "tensions": [], "holding": "", "depth": 0] as [String: Any]))]
+                return emptyFold
             }
 
         case "fold_update":
             guard let companionId = createdBy else {
                 return [textBlock("Error: no companion context")]
             }
-            // Fold always writes to the swim space — canonical relationship state
-            let swimId = "swim-\(companionId)"
-            var fold = (try? appState.db.fetchFold(companionId: companionId, spaceId: swimId))
-                ?? CompanionFold(companionId: companionId, spaceId: swimId)
+            // D4: fold writes to the current space (DM when headless).
+            guard let foldSpaceId = memWriteSpaceId(companionId) else {
+                return [textBlock("Error: no space context for fold")]
+            }
+            var fold = (try? appState.db.fetchFold(companionId: companionId, spaceId: foldSpaceId))
+                ?? CompanionFold(companionId: companionId, spaceId: foldSpaceId)
             if let est = input["established"] as? [String] { fold.established = est }
             if let ten = input["tensions"] as? [String] { fold.tensions = ten }
             if let h = input["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
@@ -277,9 +294,11 @@ public final class ToolExecutor {
             guard let companionId = resolvedPositionCompanionId else {
                 return [textBlock("Error: no companion context — pass companionId arg")]
             }
-            // Position reads from swim (canonical)
-            let swimId = "swim-\(companionId)"
-            if let pos = try appState.db.fetchPosition(companionId: companionId, spaceId: swimId), !pos.isEmpty {
+            // D4: position reads from the current space (DM when headless).
+            guard let posReadSpaceId = memReadSpaceId(companionId) else {
+                return [textBlock("No position formed yet.")]
+            }
+            if let pos = try appState.db.fetchPosition(companionId: companionId, spaceId: posReadSpaceId), !pos.isEmpty {
                 return [textBlock(jsonString([
                     "read": pos.read ?? "",
                     "stance": pos.stance ?? "",
@@ -297,10 +316,12 @@ public final class ToolExecutor {
             guard let read = input["read"] as? String, !read.isEmpty else {
                 return [textBlock("Error: position_set requires 'read'")]
             }
-            // Position always writes to the swim space — canonical relationship state
-            let swimId = "swim-\(companionId)"
-            var pos = (try? appState.db.fetchPosition(companionId: companionId, spaceId: swimId))
-                ?? CompanionPosition(companionId: companionId, spaceId: swimId)
+            // D4: position writes to the current space (DM when headless).
+            guard let posSpaceId = memWriteSpaceId(companionId) else {
+                return [textBlock("Error: no space context for position")]
+            }
+            var pos = (try? appState.db.fetchPosition(companionId: companionId, spaceId: posSpaceId))
+                ?? CompanionPosition(companionId: companionId, spaceId: posSpaceId)
             pos.read = read
             if let stance = input["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
             if let watching = input["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }

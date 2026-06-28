@@ -28,6 +28,21 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Accessor for AppState (cast from AnyObject to avoid circular dependency)
     private var state: AppState? { appState as? AppState }
 
+    // MARK: - Relationship-memory space resolution (D4: memory is space-scoped)
+
+    /// The space relationship memory READS from for this call: the current space, or the
+    /// companion's DM when headless. nil if neither resolves.
+    private func memReadSpaceId(_ companionId: String) -> String? {
+        if let sid = spaceId { return sid }
+        return (try? state?.db.directSpaceId(companionId: companionId)) ?? nil
+    }
+
+    /// Write variant: ensure the companion's DM exists when there's no current space.
+    private func memWriteSpaceId(_ companionId: String) -> String? {
+        if let sid = spaceId { return sid }
+        return (try? state?.db.getOrCreateDirectSpaceId(companionId: companionId)) ?? nil
+    }
+
     // MARK: - Permission State
 
     /// Permissions granted during this port session. Resets when bridge is deallocated.
@@ -342,9 +357,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.space.current()
         case "space.current":
-            // Check if we're in a swim
+            // Check if we're in a swim (a DM is a `direct` space)
             if let companion = state.activeSwimCompanion,
-               let space = state.currentSpace, space.isSwim {
+               let space = state.currentSpace, space.type == "direct" {
                 let members: [[String: Any]] = [
                     ["name": state.currentUser?.displayName ?? "you", "type": "human"],
                     ["name": companion.displayName, "type": "agent"]
@@ -843,9 +858,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return ["error": "fold.update requires companion context"]
             }
             let opts = args.first as? [String: Any] ?? [:]
-            let swimId = "swim-\(companionId)"
-            var fold = (try? state.db.fetchFold(companionId: companionId, spaceId: swimId))
-                ?? CompanionFold(companionId: companionId, spaceId: swimId)
+            guard let foldSpaceId = memWriteSpaceId(companionId) else {
+                return ["error": "no space context for fold"]
+            }
+            var fold = (try? state.db.fetchFold(companionId: companionId, spaceId: foldSpaceId))
+                ?? CompanionFold(companionId: companionId, spaceId: foldSpaceId)
             if let est = opts["established"] as? [String] { fold.established = est }
             if let ten = opts["tensions"] as? [String] { fold.tensions = ten }
             if let h = opts["holding"] as? String { fold.holding = h.isEmpty ? nil : h }
@@ -863,9 +880,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return ["error": "position.set requires read"]
             }
             let opts = args.count > 1 ? args[1] as? [String: Any] : nil
-            let swimId = "swim-\(companionId)"
-            var pos = (try? state.db.fetchPosition(companionId: companionId, spaceId: swimId))
-                ?? CompanionPosition(companionId: companionId, spaceId: swimId)
+            guard let posSpaceId = memWriteSpaceId(companionId) else {
+                return ["error": "no space context for position"]
+            }
+            var pos = (try? state.db.fetchPosition(companionId: companionId, spaceId: posSpaceId))
+                ?? CompanionPosition(companionId: companionId, spaceId: posSpaceId)
             pos.read = read
             if let stance = opts?["stance"] as? String { pos.stance = stance.isEmpty ? nil : stance }
             if let watching = opts?["watching"] as? [String] { pos.watching = watching.isEmpty ? nil : watching }
@@ -1124,17 +1143,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return ["error": error.localizedDescription]
             }
 
-        // MARK: - Relationship state (swim-scoped read-only)
+        // MARK: - Relationship state (space-scoped, companion = createdBy — D4)
 
         // port42.creases.read(opts?)
         case "creases.read":
-            guard let cid = spaceId, cid.hasPrefix("swim-") else {
-                return ["error": "creases.read is only available in a swim"]
+            guard let companionId = createdBy else {
+                return ["error": "creases.read requires companion context"]
             }
-            let companionId = String(cid.dropFirst("swim-".count))
             let opts = args.first as? [String: Any]
             let limit = opts?["limit"] as? Int ?? 8
-            let creases = (try? state.db.fetchCreases(companionId: companionId, spaceId: cid, limit: limit)) ?? []
+            let creases = (try? state.db.fetchCreases(companionId: companionId, spaceId: memReadSpaceId(companionId), limit: limit)) ?? []
             return creases.map { c -> [String: Any] in
                 var entry: [String: Any] = [
                     "id": c.id,
@@ -1149,13 +1167,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.engravings.read(opts?)
         case "engravings.read":
-            guard let cid = spaceId, cid.hasPrefix("swim-") else {
-                return ["error": "engravings.read is only available in a swim"]
+            guard let companionId = createdBy else {
+                return ["error": "engravings.read requires companion context"]
             }
-            let companionId = String(cid.dropFirst("swim-".count))
             let opts = args.first as? [String: Any]
             let limit = opts?["limit"] as? Int ?? 8
-            let engravings = (try? state.db.fetchEngravings(companionId: companionId, spaceId: cid, limit: limit)) ?? []
+            let engravings = (try? state.db.fetchEngravings(companionId: companionId, spaceId: memReadSpaceId(companionId), limit: limit)) ?? []
             return engravings.map { e -> [String: Any] in
                 var entry: [String: Any] = [
                     "id": e.id,
@@ -1201,11 +1218,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.fold.read()
         case "fold.read":
-            guard let cid = spaceId, cid.hasPrefix("swim-") else {
-                return ["error": "fold.read is only available in a swim"]
+            guard let companionId = createdBy else {
+                return ["error": "fold.read requires companion context"]
             }
-            let companionId = String(cid.dropFirst("swim-".count))
-            guard let fold = try? state.db.fetchFold(companionId: companionId, spaceId: cid) else {
+            guard let foldSpaceId = memReadSpaceId(companionId),
+                  let fold = try? state.db.fetchFold(companionId: companionId, spaceId: foldSpaceId) else {
                 return ["depth": 0, "established": [], "tensions": [], "holding": NSNull()] as [String: Any]
             }
             return [
@@ -1217,11 +1234,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.position.read()
         case "position.read":
-            guard let cid = spaceId, cid.hasPrefix("swim-") else {
-                return ["error": "position.read is only available in a swim"]
+            guard let companionId = createdBy else {
+                return ["error": "position.read requires companion context"]
             }
-            let companionId = String(cid.dropFirst("swim-".count))
-            guard let pos = try? state.db.fetchPosition(companionId: companionId, spaceId: cid), !pos.isEmpty else {
+            guard let posSpaceId = memReadSpaceId(companionId),
+                  let pos = try? state.db.fetchPosition(companionId: companionId, spaceId: posSpaceId), !pos.isEmpty else {
                 return ["read": NSNull(), "stance": NSNull(), "watching": []] as [String: Any]
             }
             return [
@@ -1365,7 +1382,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let userName = state.currentUser?.displayName ?? "someone"
         let contextDescription: String
         if let companion = state.activeSwimCompanion,
-           let ch = state.currentSpace, ch.isSwim {
+           let ch = state.currentSpace, ch.type == "direct" {
             contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(companion.displayName)."
         } else if let cid = spaceId, let ch = state.spaces.first(where: { $0.id == cid }) {
             contextDescription = "You are in the #\(ch.name) space."
