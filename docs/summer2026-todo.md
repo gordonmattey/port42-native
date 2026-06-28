@@ -75,6 +75,26 @@ toward space generality (membership + space-scoped state) so the eventual collap
 
 ---
 
+## TODO: disallow whitespace in space + companion names
+
+**Symptom:** spaces (the character) in a **space name** or **companion name** appear to break
+things — gordon hit this in practice. Likely blast radius: anywhere a name is used as / embedded in
+an identifier or word-split token — mention parsing (`@name` in `AgentRouting`), invite-link
+encoding, terminal session/bridge names (`terminal_bridge(name)`), shell command construction,
+storage keys. Names should be display labels, but several paths treat them as tokens.
+
+- **Fix direction:** validate at the input boundary — reject or auto-slugify whitespace (and
+  probably other shell/url-unsafe chars) when creating/renaming a space or companion. Decide:
+  hard-reject with inline error vs. silently slug (`my space` → `my-space`). Lean hard-reject for
+  new input, slug existing on read.
+- **Investigate first:** confirm *what* actually breaks (reproduce with a spaced name) so we fix the
+  root token-vs-label confusion, not just paper over it with validation. The deeper fix may be
+  decoupling display name from any id/token use entirely.
+- Small, but a sharp UX paper-cut (silent breakage). Cheap to add validation; do the investigation
+  before deciding reject-vs-slug.
+
+---
+
 ## TODO: per-(companion, space) terminal session ids
 
 **Problem:** a terminal companion spawns `claude` and resumes with `--continue`, which grabs the

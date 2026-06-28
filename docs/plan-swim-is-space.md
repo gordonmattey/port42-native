@@ -108,6 +108,12 @@ Plus `spaces.id` itself. (Also `UserDefaults` `lastActiveSwimCompanionId` / `las
   row → opens the direct space. Restore via `lastSelectedSpaceId`.
 - Manual verify (no view tests): open a companion DM, send, relationship preamble still loads,
   reload restores it; team space unaffected.
+- **Iconography — a DM must still *read* as a swim.** Collapsing into the generic space path must
+  not flatten the visual identity: a `direct` space should show the companion's **profile icon /
+  accent color next to the name** (in the sidebar row and the chat header), so a DM still looks
+  like that companion's swim, not a generic channel. Derive the icon/color from the sole
+  agent-member of a `direct` space (membership query) rather than from any `swim-` id. Team spaces
+  keep their generic/space presentation. This is a presentation concern — no data change.
 
 **Phase 4 — delete `isSwim` + `Space.swim` + `getRegularSpaces` filter.**
 - Drop the `isSwim` column (append migration), delete `Space.swim`, make `getRegularSpaces ==

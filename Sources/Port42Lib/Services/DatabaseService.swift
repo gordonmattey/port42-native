@@ -600,6 +600,36 @@ public final class DatabaseService {
         }
     }
 
+    /// The direct (1:1) space for this companion: type "direct" with exactly one agent member = it.
+    /// (The human's membership is implicit — not stored in agentSpaces — so "one agent member"
+    /// means a 1:1 DM.) Deterministic on dups (oldest wins). nil if none.
+    public func findDirectSpace(companionId: String) throws -> Space? {
+        try dbQueue.read { db in
+            try Space.fetchOne(db, sql: """
+                SELECT s.* FROM spaces s
+                WHERE s.type = 'direct'
+                  AND EXISTS (SELECT 1 FROM agentSpaces a WHERE a.spaceId = s.id AND a.agentId = ?)
+                  AND (SELECT COUNT(*) FROM agentSpaces a2 WHERE a2.spaceId = s.id) = 1
+                ORDER BY s.createdAt ASC
+                LIMIT 1
+                """, arguments: [companionId])
+        }
+    }
+
+    /// Find the companion's direct space, or create a fresh UUID one (type "direct", unsynced) and
+    /// add the companion as its agent member. New DMs are never swims (`isSwim: false`).
+    public func getOrCreateDirectSpace(companion: AgentConfig) throws -> Space {
+        if let existing = try findDirectSpace(companionId: companion.id) { return existing }
+        let space = Space(id: UUID().uuidString, name: companion.displayName, type: "direct",
+                          createdAt: Date(), encryptionKey: nil, syncEnabled: false, isSwim: false)
+        try dbQueue.write { db in
+            try space.insert(db)
+            try db.execute(sql: "INSERT OR IGNORE INTO agentSpaces (agentId, spaceId) VALUES (?, ?)",
+                           arguments: [companion.id, space.id])
+        }
+        return space
+    }
+
     public func getSpaceKey(spaceId: String) throws -> String? {
         try dbQueue.read { db in
             try Space.fetchOne(db, id: spaceId)?.encryptionKey

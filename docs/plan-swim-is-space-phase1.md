@@ -142,15 +142,49 @@ static func repointSpaceId(_ db: Database, from oldId: String, to newId: String)
 already a member of `newId`; it isn't, `newId` is brand new. Table names are interpolated from a
 hardcoded allowlist, not user input — safe.)
 
+### Real-DB findings (sanity check on a copy of gordon's live DB, 2026-06-27)
+
+Ran a read-only audit on a copy of the live `port42.sqlite` (at `v34`, v35 not yet run). Of **29**
+`isSwim=1` spaces:
+
+- **15 healthy** — exactly one `agentSpaces` member, member id == the id embedded in `swim-<id>`,
+  the agent still exists. These migrate cleanly and `findDirectSpace` resolves them.
+- **13 with ZERO `agentSpaces` rows, and the embedded companion is GONE from `agents`** — dead
+  swims (mostly test cruft: `test`, `enginer`, `dsadsa`, stray `Claude Code`/`Gemini CLI`). Naive
+  repoint mints a UUID `direct` space with **no membership** → permanently invisible to
+  `findDirectSpace` (orphan). A few carry messages (`test`=16, `enginer`=6) but no live agent can
+  ever reopen them.
+- **1 mismatch (`testeng`)** — its sole `agentSpaces` member is **`forge`**, a *different* live
+  companion that ALSO owns its own `forge` swim. So `forge` is a member of **2** swim spaces →
+  post-migration `findDirectSpace(forge)` sees a **dup** (oldest-wins resolves it deterministically,
+  but the other becomes shadowed/unreachable).
+
+**Implication — the naive `SELECT id FROM spaces WHERE isSwim=1` repoint-all would create 13 orphan
+spaces and 1 dup.** v35 needs a pre-pass:
+
+1. **Skip/drop dead swims** — for an `isSwim=1` space with no `agentSpaces` row whose embedded
+   `substr(id,6)` is not in `agents`, **delete** it (cascades its messages) rather than migrate it
+   to an unreachable orphan. (These are unrecoverable test cruft; nothing can open a swim whose
+   companion is gone.) Log each deletion + its message count.
+2. **Dup guard** — after repointing, if any companion ends up the sole member of >1 `direct` space,
+   log it (the `testeng`/`forge` case). Decide per-case: drop the cruft swim (`testeng`) or merge.
+   Don't silently shadow.
+3. Optionally **backfill membership** for any `isSwim=1` space that has zero `agentSpaces` rows but
+   whose embedded companion *does* still exist (none in this DB, but defensive) — insert the
+   `agentSpaces` row from `substr(id,6)` before repointing so it stays resolvable.
+
 ### The migration
 
 ```swift
 migrator.registerMigration("v35-swim-to-direct") { db in
     let swimIds = try String.fetchAll(db, sql: "SELECT id FROM spaces WHERE isSwim = 1")
     for oldId in swimIds {
+        // PRE-PASS (see "Real-DB findings"): drop dead swims (no member + agent gone),
+        // backfill membership where the embedded agent still exists, before repointing.
         let newId = UUID().uuidString
         try Self.repointSpaceId(db, from: oldId, to: newId)
     }
+    // POST-PASS: assert/log any companion that is now sole member of >1 direct space (dup guard).
 }
 ```
 
