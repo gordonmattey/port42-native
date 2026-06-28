@@ -12,32 +12,37 @@ The whole push is **a great space experience**: enter a space and see its world;
 present and continuous there; know where you're needed across spaces at a glance; low noise.
 Ranked against *that*, not raw feature value. (Effort in parens.)
 
-**Tier 1 — make a space (and the set of spaces) legible at a glance.** The spine; these four
-share one theme and reinforce each other.
+**Tier 1 — make a space a real, legible place.** The spine; these share one theme and reinforce
+each other (a space *has* a directory, ports, companions, memory — and you can see it all at a
+glance, across spaces).
 1. **Richer sidebar space rows / ambient activity** (medium) — *top pick.* "Where am I needed?"
    across all spaces; `waiting-for-input` is the highest-value signal. Best impact-per-effort —
    builds on the render-storm caching pattern (commit 77b266a). → "richer space rows" below.
 2. **Ports scoped to space** (medium) — keystone: a space *has* its own ports; data model the dock
    view needs. → "ports scoped to space".
-3. **A dock / gallery view of ports** (medium) — *see* that world; depends on #2. → "a different
+3. **A space has a working directory** (medium) — anchor a space to a real folder on disk so it's a
+   *workspace*, not just chat; terminals/companions/file ops default to it. → "a space has a
+   working directory".
+4. **A dock / gallery view of ports** (medium) — *see* that world; depends on #2. → "a different
    dock view of ports".
-4. **Swim *is* a space** (high) — backbone: relationship memory space-scoped → companions belong
+5. **Swim *is* a space** (high) — backbone: relationship memory space-scoped → companions belong
    to the place. Architectural; sequence after #2's scoping pattern. → "a swim is a space".
 
 **Tier 2 — companions more present & capable.**
-5. **Per-(companion, space) terminal sessions** (medium) — fixes wrong-session resume; isolated
-   thread per space. Pairs with #4.
-6. **Native terminal output-streaming bridge** (low-med) — build/log/agent output streams into the
+6. **Per-(companion, space) terminal sessions** (medium) — fixes wrong-session resume; isolated
+   thread per space. Pairs with #5 (and #3: the per-space cwd is the natural launch dir).
+7. **Native terminal output-streaming bridge** (low-med) — build/log/agent output streams into the
    space → live workspace. Mechanism ~90% present (`onFlush`).
 
 **Tier 3 — additive / DX / polish.**
-7. **Browser port type** (high) — powerful but additive; largest build.
-8. **`ports.list` JSON consistency** (low) — companion DX; capabilities half-done in 5a.
-9. **Missing gateway APIs** (`port.position`, `screen.displays`) (low) — positioning/layout tooling.
-10. **shim `.zshenv` recursion spam** (low) — papercut; cheap morale win.
-11. **dev-reboot session-resume robustness** (—) — dev-only; doesn't touch the space experience.
+8. **Browser port type** (high) — powerful but additive; largest build.
+9. **`ports.list` JSON consistency** (low) — companion DX; capabilities half-done in 5a.
+10. **Missing gateway APIs** (`port.position`, `screen.displays`) (low) — positioning/layout tooling.
+11. **shim `.zshenv` recursion spam** (low) — papercut; cheap morale win.
+12. **dev-reboot session-resume robustness** (—) — dev-only; doesn't touch the space experience.
 
-Recommended arc: **1 → 2 → 3 → 4**, slotting #10 and #6 in as cheap wins.
+Recommended arc: **1 → 2 → 3 → 4 → 5**, slotting #11 and #7 in as cheap wins. (#2 + #3 together are
+what turn a space into a workspace — strong to pair.)
 
 ---
 
@@ -256,6 +261,28 @@ Design notes:
   (`@Published` on AppState, fed by observations) the rows read; the body stays DB-free.
 - Ties into: ambient awareness is the same goal as space-scoped ports + the dock view — together
   they make a space (and the set of spaces) legible at a glance.
+
+---
+
+## TODO: a space has a working directory
+
+On create, a space can have a **filesystem working directory** you pick (a folder picker in the
+new-space flow; editable later in space settings). That cwd anchors the space to a real
+project/location, so the space *is* a workspace, not just a chat.
+
+Consequences once a space has a cwd:
+- **Terminals/companions default to it** — `terminal_spawn` / companion `workingDir` fall back to
+  the space cwd instead of `~`. (Today `spawnNativeTerminalPort` defaults cwd to the home dir; it
+  would default to the space cwd.) `terminal_exec` and file ops resolve relative to it.
+- **Companion context** — companions can be told "this space works in <path>"; scoping file/tool
+  access to the space cwd is a natural permission boundary.
+- **Optional** — a space without a cwd still works (chat-only / DM); the cwd is an affordance for
+  project spaces.
+
+Design notes: persist `workingDir` on the Space model (new migration — append, never edit
+existing); folder picker in `NewChannelSheet`; surface + edit in space settings; decide whether a
+swim/DM inherits a cwd (probably not). Pairs with space-scoped ports and the dock view — together a
+space becomes a real place: its directory, its ports, its companions, its memory.
 
 ---
 
