@@ -201,8 +201,7 @@ public struct SidebarView: View {
         Button(action: { appState.selectSpace(space) }) {
             SpaceRow(
                 space: space,
-                isActive: appState.activeSwimCompanion == nil
-                    && appState.currentSpace?.id == space.id,
+                isActive: appState.currentSpace?.id == space.id,
                 unreadCount: appState.unreadCounts[space.id] ?? 0,
                 companionNames: companionNames,
                 onlineCount: max(1, senderCount)
@@ -332,7 +331,8 @@ curl -s http://127.0.0.1:4242/call \\
         Button(action: action) {
             CompanionRow(
                 companion: companion,
-                isActive: appState.activeSwimCompanion?.id == companion.id,
+                isActive: appState.currentSpace?.type == "direct"
+                    && appState.spaceCompanions.contains { $0.id == companion.id },
                 depth: depth
             )
         }
@@ -367,8 +367,7 @@ curl -s http://127.0.0.1:4242/call \\
     @ViewBuilder
     private func friendRow(_ friend: SpaceMember) -> some View {
         let dmId = "dm-\(friend.senderId)"
-        let isActive = appState.activeSwimCompanion == nil
-            && appState.currentSpace?.id == dmId
+        let isActive = appState.currentSpace?.id == dmId
         let displayName = friend.displayName(localOwner: appState.currentUser?.displayName)
         Button(action: { appState.startDM(with: friend) }) {
             CompanionRow(

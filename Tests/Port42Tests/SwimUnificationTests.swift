@@ -187,12 +187,12 @@ struct SwimSpaceInfraTests {
         #expect(directSpace?.syncEnabled == false)
     }
 
-    @Test("startSwim sets activeSwimCompanion")
+    @Test("startSwim populates spaceCompanions with the direct companion")
     @MainActor
     func swimSetsCompanion() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.activeSwimCompanion?.id == companion.id)
+        #expect(state.spaceCompanions.first?.id == companion.id)
     }
 
     @Test("startSwim sets currentSpace to the companion's direct space")
@@ -205,16 +205,26 @@ struct SwimSpaceInfraTests {
         #expect(state.currentSpace?.type == "direct")
     }
 
-    @Test("exitSwim clears activeSwimCompanion and currentSpace")
+    @Test("deleteCompanion of the open DM clears currentSpace + spaceCompanions")
     @MainActor
-    func exitSwimClears() throws {
+    func deleteOpenDMClears() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.activeSwimCompanion != nil)
+        #expect(state.currentSpace?.type == "direct")
 
-        state.exitSwim()
-        #expect(state.activeSwimCompanion == nil)
+        state.deleteCompanion(companion)
         #expect(state.currentSpace == nil)
+        #expect(state.spaceCompanions.isEmpty)
+    }
+
+    @Test("deleteCompanion not in the open space leaves currentSpace intact")
+    @MainActor
+    func deleteOtherLeavesSpace() throws {
+        let (state, companion) = try makeStateWithCompanion()
+        let regular = state.spaces.first { $0.type != "direct" }!
+        state.selectSpace(regular)
+        state.deleteCompanion(companion)   // companion's DM is not the open space
+        #expect(state.currentSpace?.id == regular.id)
     }
 
     @Test("direct space has syncEnabled=false so it will not be synced")
@@ -227,27 +237,27 @@ struct SwimSpaceInfraTests {
         #expect(directSpace?.syncEnabled == false)
     }
 
-    @Test("selectSpace with regular space clears activeSwimCompanion")
+    @Test("selectSpace with a regular space leaves the direct (DM) state")
     @MainActor
     func selectSpaceClearsSwim() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.activeSwimCompanion != nil)
+        #expect(state.currentSpace?.type == "direct")
 
         let regularSpace = state.spaces.first { $0.type != "direct" }!
         state.selectSpace(regularSpace)
-        #expect(state.activeSwimCompanion == nil)
+        #expect(state.currentSpace?.type != "direct")
     }
 
-    @Test("deleteCompanion while in swim exits swim")
+    @Test("deleteCompanion while in its DM clears the open space")
     @MainActor
     func deleteCompanionExitsSwim() throws {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
-        #expect(state.activeSwimCompanion != nil)
+        #expect(state.currentSpace?.type == "direct")
 
         state.deleteCompanion(companion)
-        #expect(state.activeSwimCompanion == nil)
+        #expect(state.currentSpace == nil)
         #expect(state.companions.isEmpty)
     }
 
@@ -280,7 +290,7 @@ struct SwimSpaceInfraTests {
         let (state, companion) = try makeStateWithCompanion()
         state.startSwim(with: companion)
         let first = state.currentSpace?.id
-        state.exitSwim()
+        state.currentSpace = nil
         state.startSwim(with: companion)
         #expect(state.currentSpace?.id == first)
         #expect(state.currentSpace?.id.hasPrefix("swim-") == false)

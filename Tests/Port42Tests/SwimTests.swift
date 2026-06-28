@@ -171,46 +171,34 @@ struct CompanionManagementTests {
         #expect(try state.db.getAllAgents().isEmpty)
     }
 
-    @Test("Delete companion clears active swim if matching")
+    @Test("Delete companion clears the open DM if matching")
     @MainActor
     func deleteCompanionClearsSwim() throws {
         let state = try makeState()
         state.completeSetup(displayName: "Test")
 
-        #expect(state.activeSwimCompanion != nil)
+        #expect(state.currentSpace?.type == "direct")
 
         let companion = state.companions.first!
         state.deleteCompanion(companion)
 
-        #expect(state.activeSwimCompanion == nil)
+        #expect(state.currentSpace == nil)
     }
 
-    @Test("Start swim creates session with companion")
+    @Test("Start swim opens the companion's direct space")
     @MainActor
     func startSwim() throws {
         let state = try makeState()
         state.completeSetup(displayName: "Test")
 
-        state.exitSwim()
-        #expect(state.activeSwimCompanion == nil)
+        state.currentSpace = nil
+        #expect(state.currentSpace == nil)
 
         let companion = state.companions.first!
         state.startSwim(with: companion)
 
-        #expect(state.activeSwimCompanion != nil)
-        #expect(state.activeSwimCompanion?.id == companion.id)
-    }
-
-    @Test("Exit swim clears session")
-    @MainActor
-    func exitSwim() throws {
-        let state = try makeState()
-        state.completeSetup(displayName: "Test")
-
-        #expect(state.activeSwimCompanion != nil)
-
-        state.exitSwim()
-        #expect(state.activeSwimCompanion == nil)
+        #expect(state.currentSpace?.type == "direct")
+        #expect(state.spaceCompanions.first?.id == companion.id)
     }
 
     @Test("Onboarding creates Claude companion with correct system prompt")

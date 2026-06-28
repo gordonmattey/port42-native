@@ -765,8 +765,8 @@ public struct SetupView: View {
             // Blue tint matching the dive transition, lets dreamscape video show through
             Color(red: 0.0, green: 0.15, blue: 0.3).opacity(0.3).ignoresSafeArea()
 
-            if let companion = appState.activeSwimCompanion,
-               let space = appState.currentSpace, space.type == "direct" {
+            if let space = appState.currentSpace, space.type == "direct",
+               let companion = appState.spaceCompanions.first {
                 let spaceId = space.id
                 let userName = submittedName ?? displayName
                 let isStreaming = appState.typingAgentNames.contains(companion.displayName)

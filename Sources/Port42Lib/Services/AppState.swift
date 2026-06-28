@@ -737,8 +737,6 @@ public final class AppState: ObservableObject {
     private var terminalTypingTimers: [String: Timer] = [:]
     /// Heartbeat timers per space
     private var heartbeatTimers: [String: Timer] = [:]
-    /// The companion whose swim space is currently open. Nil when showing a regular space.
-    @Published public var activeSwimCompanion: AgentConfig?
     var activeAgentHandlers: [String: SpaceAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
     /// Tracks last AI-triggered response time per agent per space to prevent loops
@@ -1669,9 +1667,6 @@ public final class AppState: ObservableObject {
     }
 
     public func selectSpace(_ space: Space) {
-        // Clear swim companion when navigating to a non-DM space (a DM is a `direct` space).
-        if space.type != "direct" { activeSwimCompanion = nil }
-
         // Persist immediately (cheap)
         UserDefaults.standard.set(space.id, forKey: "lastSelectedSpaceId")
         UserDefaults.standard.removeObject(forKey: "lastActiveSwimCompanionId")
@@ -1967,8 +1962,10 @@ public final class AppState: ObservableObject {
         var spaceAgentIds = Set(chCompanions.map { $0.id })
         let mentions = MentionParser.extractMentions(from: trimmed)
 
-        // Route @mentions to bridged terminals (pass swim companion for implicit routing)
-        routeMentionsToTerminals(content: trimmed, senderName: user.displayName, spaceId: space.id, implicitCompanion: activeSwimCompanion)
+        // Route @mentions to bridged terminals. In a direct (1:1 DM) space, an un-@'d
+        // message implicitly routes to that space's sole companion.
+        let implicitCompanion = space.type == "direct" ? chCompanions.first : nil
+        routeMentionsToTerminals(content: trimmed, senderName: user.displayName, spaceId: space.id, implicitCompanion: implicitCompanion)
 
         // @mentioning a companion auto-adds them to the space
         if !mentions.isEmpty {
@@ -2549,6 +2546,10 @@ public final class AppState: ObservableObject {
     }
 
     public func deleteCompanion(_ companion: AgentConfig) {
+        // Capture before the delete wipes membership: are we currently viewing this
+        // companion's DM (a direct space whose companion is the one being deleted)?
+        let wasViewingThisDM = currentSpace?.type == "direct"
+            && spaceCompanions.contains { $0.id == companion.id }
         // Close any port panels spawned by this companion so they don't persist and re-restore
         let panelsToClose = portWindows.panels.filter { $0.createdBy == companion.displayName }
         for panel in panelsToClose {
@@ -2562,8 +2563,9 @@ public final class AppState: ObservableObject {
             try db.deletePositionsForCompanion(companion.id)
             try db.deleteAgent(id: companion.id)
             companions = try db.getAllAgents()
-            if activeSwimCompanion?.id == companion.id {
-                exitSwim()
+            if wasViewingThisDM {
+                currentSpace = nil
+                spaceCompanions = []
             }
         } catch {
             print("[Port42] Failed to delete companion: \(error)")
@@ -2613,23 +2615,19 @@ public final class AppState: ObservableObject {
             return
         }
         spaces = (try? db.getRegularSpaces()) ?? spaces
-        activeSwimCompanion = companion
+        // Set synchronously so the sidebar DM row highlights immediately; selectSpace's
+        // observation refreshes spaceCompanions from the DB shortly after.
+        spaceCompanions = [companion]
         selectSpace(directSpace)
 
         Analytics.shared.swimStarted()
         Analytics.shared.screen("Swim")
     }
 
-    public func exitSwim() {
-        activeSwimCompanion = nil
-        currentSpace = nil
-    }
-
     // MARK: - Lock / Reset
 
     public func lockApp() {
         cancelStreaming(spaceId: currentSpace?.id ?? "")
-        activeSwimCompanion = nil
         portWindows.hideFloatingPanels()
         showDreamscape = true
     }
@@ -2637,7 +2635,6 @@ public final class AppState: ObservableObject {
     /// Power off: keep data but require bootloader (name entry) on next launch.
     public func powerOff() {
         cancelStreaming(spaceId: currentSpace?.id ?? "")
-        activeSwimCompanion = nil
         currentUser = nil
         isSetupComplete = false
         portWindows.hideFloatingPanels()
@@ -2664,7 +2661,6 @@ public final class AppState: ObservableObject {
     }
 
     public func resetApp() {
-        activeSwimCompanion = nil
         portWindows.hideFloatingPanels()
         currentSpace = nil
         currentUser = nil

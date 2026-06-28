@@ -64,8 +64,8 @@ struct AppStateTests {
         #expect(state.companions.first?.model == "claude-opus-4-6")
 
         // Swim opened with companion (a DM is a `direct` space)
-        #expect(state.activeSwimCompanion != nil)
         #expect(state.currentSpace?.type == "direct")
+        #expect(state.spaceCompanions.first?.displayName == "echo")
     }
 
     // MARK: - Spaces

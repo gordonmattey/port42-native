@@ -357,9 +357,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port42.space.current()
         case "space.current":
-            // Check if we're in a swim (a DM is a `direct` space)
-            if let companion = state.activeSwimCompanion,
-               let space = state.currentSpace, space.type == "direct" {
+            // Check if we're in a DM (a `direct` space with a sole companion)
+            if let space = state.currentSpace, space.type == "direct",
+               let companion = state.spaceCompanions.first {
                 let members: [[String: Any]] = [
                     ["name": state.currentUser?.displayName ?? "you", "type": "human"],
                     ["name": companion.displayName, "type": "agent"]
@@ -1381,8 +1381,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Build system prompt with identity and space context
         let userName = state.currentUser?.displayName ?? "someone"
         let contextDescription: String
-        if let companion = state.activeSwimCompanion,
-           let ch = state.currentSpace, ch.type == "direct" {
+        if let ch = state.currentSpace, ch.type == "direct",
+           let companion = state.spaceCompanions.first {
             contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(companion.displayName)."
         } else if let cid = spaceId, let ch = state.spaces.first(where: { $0.id == cid }) {
             contextDescription = "You are in the #\(ch.name) space."
