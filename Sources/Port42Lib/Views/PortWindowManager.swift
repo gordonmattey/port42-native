@@ -754,7 +754,7 @@ public final class PortWindowManager: ObservableObject {
             // First chat port: dock to the right of the sidebar, occupying the top
             // half of the screen and half of the width that remains beside the sidebar.
             let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-            let sidebarWidth = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible })?.frame.width ?? 220
+            let sidebarWidth = NSApp?.windows.first(where: { !($0 is NSPanel) && $0.isVisible })?.frame.width ?? 220
             let w = max(360, (screen.width - sidebarWidth) / 2)
             let h = screen.height / 2
             size = CGSize(width: w, height: h)
