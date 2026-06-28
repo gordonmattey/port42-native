@@ -181,6 +181,25 @@ card.
 
 ---
 
+## TODO: ports scoped to space
+
+Ports should belong to a **space**, not float globally. A port created in space X shows when you're
+in space X (and is listed with it), rather than the current global pool. Likely: persist a
+port's `spaceId` (already on the panel) as the scoping key for what's shown, switch the visible
+port set when the active space changes, and decide cross-space behaviour (does a port stay open
+when you leave its space — backgrounded? hidden? follow you?). Pairs with the inline cards
+(Step 5b) which are already posted into a specific space.
+
+## TODO: a different dock view of ports
+
+A dedicated **dock / gallery view** for browsing my ports — distinct from the current
+sidebar/background-ports list and the floating windows. Think a grid or shelf of all ports (per
+space, per the item above) with previews, so you can see and reopen everything at a glance instead
+of hunting floating windows or scrolling chat for cards. Open: thumbnail/live-preview rendering,
+grouping (by space / type / recency), and how it interacts with dock/undock + the inline cards.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
