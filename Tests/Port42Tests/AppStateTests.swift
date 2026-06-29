@@ -27,7 +27,7 @@ struct AppStateTests {
     func makeStateReady(displayName: String = "Test") throws -> AppState {
         let state = try makeStateWithUser(displayName: displayName)
         state.completeSetup(displayName: displayName)
-        let general = state.spaces.first { !$0.isSwim }!
+        let general = state.spaces.first { $0.type != "direct" }!
         state.selectSpace(general)
         return state
     }
@@ -124,7 +124,7 @@ struct AppStateTests {
         let state = try makeStateReady()
 
         // Delete general; swim space remains
-        let general = state.spaces.first { !$0.isSwim }!
+        let general = state.spaces.first { $0.type != "direct" }!
         state.deleteSpace(general)
         #expect(try state.db.getAllSpaces().count == 1)
     }

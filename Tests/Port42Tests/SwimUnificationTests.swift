@@ -4,74 +4,48 @@ import Foundation
 
 // MARK: - Step 2: Space Model + Sync Filter
 
-@Suite("Step 2 — Space swim factory and sync filtering")
-struct SpaceSwimModelTests {
+@Suite("Step 2 — Space model and sync filtering")
+struct SpaceModelTests {
 
-    @Test("Space.create() defaults: syncEnabled=true, isSwim=false")
+    @Test("Space.create() defaults: syncEnabled=true, type=team")
     func createSpaceDefaults() throws {
         let space = Space.create(name: "general")
         #expect(space.syncEnabled == true)
-        #expect(space.isSwim == false)
         #expect(space.type == "team")
     }
 
-    @Test("Space.swim() produces correct id, type, flags")
-    func swimFactory() throws {
-        let companion = AgentConfig.createLLM(
-            ownerId: "u1", displayName: "Echo",
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
-        let swimSpace = Space.swim(companion: companion)
-        #expect(swimSpace.id == "swim-\(companion.id)")
-        #expect(swimSpace.name == "Echo")
-        #expect(swimSpace.type == "direct")
-        #expect(swimSpace.syncEnabled == false)
-        #expect(swimSpace.isSwim == true)
-        #expect(swimSpace.encryptionKey == nil)
-    }
-
-    @Test("Swim space round-trips through DatabaseService")
-    func swimSpacePersists() throws {
+    @Test("Direct space round-trips through DatabaseService (unsynced)")
+    func directSpacePersists() throws {
         let db = try DatabaseService(inMemory: true)
-        let companion = AgentConfig.createLLM(
-            ownerId: "u1", displayName: "Echo",
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
-        let swimSpace = Space.swim(companion: companion)
-        try db.upsertSpace(swimSpace)
+        let direct = Space(id: UUID().uuidString, name: "Echo", type: "direct",
+                           createdAt: Date(), encryptionKey: nil, syncEnabled: false)
+        try db.upsertSpace(direct)
 
-        let all = try db.getAllSpaces()
-        let loaded = all.first { $0.id == swimSpace.id }
+        let loaded = try db.getAllSpaces().first { $0.id == direct.id }
         #expect(loaded != nil)
         #expect(loaded?.syncEnabled == false)
-        #expect(loaded?.isSwim == true)
+        #expect(loaded?.type == "direct")
         #expect(loaded?.name == "Echo")
     }
 
     @Test("upsertSpace is idempotent")
     func upsertIdempotent() throws {
         let db = try DatabaseService(inMemory: true)
-        let companion = AgentConfig.createLLM(
-            ownerId: "u1", displayName: "Echo",
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
-        let swimSpace = Space.swim(companion: companion)
-        try db.upsertSpace(swimSpace)
-        try db.upsertSpace(swimSpace) // second upsert should not throw
+        let direct = Space(id: UUID().uuidString, name: "Echo", type: "direct",
+                           createdAt: Date(), encryptionKey: nil, syncEnabled: false)
+        try db.upsertSpace(direct)
+        try db.upsertSpace(direct) // second upsert should not throw
         #expect(try db.getAllSpaces().count == 1)
     }
 
-    @Test("Regular space does not appear as swim")
-    func regularSpaceNotSwim() throws {
+    @Test("Regular space defaults to synced")
+    func regularSpaceSynced() throws {
         let db = try DatabaseService(inMemory: true)
         let space = Space.create(name: "dev")
         try db.saveSpace(space)
 
         let loaded = try db.getAllSpaces().first!
-        #expect(loaded.isSwim == false)
+        #expect(loaded.type == "team")
         #expect(loaded.syncEnabled == true)
     }
 }

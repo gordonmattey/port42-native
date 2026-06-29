@@ -25,7 +25,7 @@ struct DirectSpaceLookupTests {
     func dmHit() throws {
         let (db, companion) = try makeDBWithCompanion()
         let space = Space(id: UUID().uuidString, name: "Echo", type: "direct",
-                          createdAt: Date(), syncEnabled: false, isSwim: false)
+                          createdAt: Date(), syncEnabled: false)
         try db.saveSpace(space)
         try db.assignAgentToSpace(agentId: companion.id, spaceId: space.id)
 
@@ -53,7 +53,7 @@ struct DirectSpaceLookupTests {
         )
         try db.saveAgent(other)
         let space = Space(id: UUID().uuidString, name: "pair", type: "direct",
-                          createdAt: Date(), syncEnabled: false, isSwim: false)
+                          createdAt: Date(), syncEnabled: false)
         try db.saveSpace(space)
         try db.assignAgentToSpace(agentId: companion.id, spaceId: space.id)
         try db.assignAgentToSpace(agentId: other.id, spaceId: space.id)
@@ -71,9 +71,9 @@ struct DirectSpaceLookupTests {
     func dupReturnsOldest() throws {
         let (db, companion) = try makeDBWithCompanion()
         let older = Space(id: "older", name: "Echo", type: "direct",
-                          createdAt: Date(timeIntervalSince1970: 1000), syncEnabled: false, isSwim: false)
+                          createdAt: Date(timeIntervalSince1970: 1000), syncEnabled: false)
         let newer = Space(id: "newer", name: "Echo", type: "direct",
-                          createdAt: Date(timeIntervalSince1970: 2000), syncEnabled: false, isSwim: false)
+                          createdAt: Date(timeIntervalSince1970: 2000), syncEnabled: false)
         try db.saveSpace(newer)  // insert out of order to prove ordering isn't insertion order
         try db.saveSpace(older)
         try db.assignAgentToSpace(agentId: companion.id, spaceId: older.id)
@@ -90,7 +90,6 @@ struct DirectSpaceLookupTests {
 
         #expect(first.id == second.id)
         #expect(first.type == "direct")
-        #expect(first.isSwim == false)
         #expect(first.syncEnabled == false)
 
         let directs = try db.getAllSpaces().filter { $0.type == "direct" }
@@ -144,7 +143,7 @@ struct DirectSpaceReverseTests {
         )
         try db.saveAgent(other)
         let space = Space(id: UUID().uuidString, name: "pair", type: "direct",
-                          createdAt: Date(), syncEnabled: false, isSwim: false)
+                          createdAt: Date(), syncEnabled: false)
         try db.saveSpace(space)
         try db.assignAgentToSpace(agentId: companion.id, spaceId: space.id)
         try db.assignAgentToSpace(agentId: other.id, spaceId: space.id)

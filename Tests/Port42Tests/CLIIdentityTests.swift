@@ -13,7 +13,7 @@ struct CLIIdentityTests {
         try db.saveUser(user)
         state.currentUser = user
         state.completeSetup(displayName: "Gordon")
-        let space = state.spaces.first { !$0.isSwim }!
+        let space = state.spaces.first { $0.type != "direct" }!
         state.selectSpace(space)
         return (state, space)
     }

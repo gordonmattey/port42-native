@@ -577,6 +577,12 @@ public final class DatabaseService {
             }
         }
 
+        // v36: drop the now-dead `isSwim` column. After v35 every row is isSwim=0 and no live code
+        // reads it — DMs are identified by `type == "direct"`. (Requires SQLite ≥ 3.35; macOS 14+ ships 3.43.)
+        migrator.registerMigration("v36-drop-isSwim") { db in
+            try db.execute(sql: "ALTER TABLE spaces DROP COLUMN isSwim")
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -719,11 +725,11 @@ public final class DatabaseService {
     }
 
     /// Find the companion's direct space, or create a fresh UUID one (type "direct", unsynced) and
-    /// add the companion as its agent member. New DMs are never swims (`isSwim: false`).
+    /// add the companion as its agent member.
     public func getOrCreateDirectSpace(companion: AgentConfig) throws -> Space {
         if let existing = try findDirectSpace(companionId: companion.id) { return existing }
         let space = Space(id: UUID().uuidString, name: companion.displayName, type: "direct",
-                          createdAt: Date(), encryptionKey: nil, syncEnabled: false, isSwim: false)
+                          createdAt: Date(), encryptionKey: nil, syncEnabled: false)
         try dbQueue.write { db in
             try space.insert(db)
             try db.execute(sql: "INSERT OR IGNORE INTO agentSpaces (agentId, spaceId) VALUES (?, ?)",
