@@ -49,6 +49,8 @@ public enum PortPermission: String, Hashable {
             return .automation
         case "rest.call":
             return .rest
+        case "terminal.exec":
+            return .terminal // headless run-and-capture; the only permission-gated terminal method
         default:
             return nil
         }

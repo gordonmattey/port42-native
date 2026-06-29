@@ -454,6 +454,19 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             return ["ok": true]
 
+        // port42.terminal.exec(command, {cwd?, timeout?}) — headless run-and-capture.
+        // The ONLY terminal bridge method: spawn/send/list moved to port.create / port.push /
+        // ports.list. Gated by .terminal (PortPermission). Shares ShellExec with terminal_exec.
+        case "terminal.exec":
+            guard let command = args.first as? String, !command.isEmpty else {
+                return ["error": "terminal.exec requires a command string"]
+            }
+            let execOpts = args.count > 1 ? args[1] as? [String: Any] : nil
+            let execCwd = execOpts?["cwd"] as? String
+            let execTimeout = min((execOpts?["timeout"] as? Int) ?? 30, 120)
+            let execOutput = await ShellExec.run(command, cwd: execCwd, timeout: execTimeout)
+            return ["output": execOutput]
+
         // port42.port.info()
         case "port.info":
             var info: [String: Any] = [:]
@@ -1707,6 +1720,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             },
             ports: {
                 list: (opts) => call('ports.list', opts ? [opts] : [])
+            },
+            terminal: {
+                exec: (command, opts) => call('terminal.exec', [command, opts || {}]).then(r => r ? r.output : null)
             },
             clipboard: {
                 read: () => call('clipboard.read'),

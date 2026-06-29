@@ -773,7 +773,7 @@ public final class ToolExecutor {
             }
             let cwd = input["cwd"] as? String
             let timeout = min(input["timeout"] as? Int ?? 30, 120)
-            let result = await executeCommand(command, cwd: cwd, timeout: timeout)
+            let result = await ShellExec.run(command, cwd: cwd, timeout: timeout)
             return [textBlock(result)]
 
         case "terminal_send":
@@ -1166,60 +1166,6 @@ public final class ToolExecutor {
         return String(describing: value)
     }
 
-    /// Execute a shell command synchronously with timeout.
-    private func executeCommand(_ command: String, cwd: String?, timeout: Int) async -> String {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                process.arguments = ["-c", command]
-                if let cwd = cwd {
-                    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-                }
-
-                let stdout = Pipe()
-                let stderr = Pipe()
-                process.standardOutput = stdout
-                process.standardError = stderr
-
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(returning: "Error launching command: \(error.localizedDescription)")
-                    return
-                }
-
-                // Timeout
-                let deadline = DispatchTime.now() + .seconds(timeout)
-                DispatchQueue.global().asyncAfter(deadline: deadline) {
-                    if process.isRunning {
-                        process.terminate()
-                    }
-                }
-
-                process.waitUntilExit()
-
-                let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-                let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-                let outStr = String(data: outData, encoding: .utf8) ?? ""
-                let errStr = String(data: errData, encoding: .utf8) ?? ""
-
-                let exitCode = process.terminationStatus
-                var result = outStr
-                if !errStr.isEmpty {
-                    result += "\n[stderr]: \(errStr)"
-                }
-                if exitCode != 0 {
-                    result += "\n[exit code: \(exitCode)]"
-                }
-                // Limit output size
-                if result.count > 50_000 {
-                    result = String(result.prefix(50_000)) + "\n... (truncated)"
-                }
-                continuation.resume(returning: result.isEmpty ? "(no output)" : result)
-            }
-        }
-    }
 }
 
 // MARK: - Remote Tool Executor
