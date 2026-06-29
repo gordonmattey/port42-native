@@ -191,6 +191,7 @@ public enum TerminalSessionBootstrap {
                             spaceId: String,
                             spaceName: String,
                             companionPrompt: String? = nil,
+                            customEnv: [String: String] = [:],
                             shimPath: String? = bundledShimPath(),
                             claudePath: String? = nil,
                             oauthToken: String? = nil) -> TerminalHookSession {
@@ -199,11 +200,14 @@ public enum TerminalSessionBootstrap {
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
         let socketPath = "\(tempDir)/h.sock"
 
-        var env: [String: String] = [
-            "PORT42_HOOKS_SOCKET": socketPath,
-            "PORT42_SPACE_ID": spaceId,
-            "PORT42_SPACE_NAME": spaceName,
-        ]
+        // Caller-supplied custom env (port.create({type:"terminal", env:{…}})) is the BASE; the
+        // Port42 hooks/identity vars below overlay it, so a caller can extend the environment but
+        // can NEVER clobber the socket, space identity, shim PATH, or ZDOTDIR the hooks integration
+        // depends on. (PATH is recomputed unconditionally further down, so it always wins too.)
+        var env: [String: String] = customEnv
+        env["PORT42_HOOKS_SOCKET"] = socketPath
+        env["PORT42_SPACE_ID"] = spaceId
+        env["PORT42_SPACE_NAME"] = spaceName
 
         // Companion identity injected into the CLI via the shim's --append-system-prompt.
         // Replaces the old CLAUDE.md mutation (which clobbered project files / polluted home).

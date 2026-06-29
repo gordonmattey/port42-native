@@ -17,9 +17,11 @@ struct CameraBridgeTests {
         #expect(PortPermission.permissionForMethod("camera.stream") == .camera)
     }
 
-    @Test("camera.stopStream requires .camera permission")
+    // Stopping an already-permitted stream needs no fresh permission (same as screen.stopStream).
+    // capture/stream are the gated entry points; stop is always allowed.
+    @Test("camera.stopStream needs no permission")
     func stopStreamPermission() {
-        #expect(PortPermission.permissionForMethod("camera.stopStream") == .camera)
+        #expect(PortPermission.permissionForMethod("camera.stopStream") == nil)
     }
 
     // MARK: - Permission Description

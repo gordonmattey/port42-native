@@ -103,7 +103,8 @@ final class GhosttyTerminalController {
             sessionId: panelId,
             spaceId: config.spaceId,
             spaceName: config.spaceName,
-            companionPrompt: config.companionPrompt.isEmpty ? nil : config.companionPrompt
+            companionPrompt: config.companionPrompt.isEmpty ? nil : config.companionPrompt,
+            customEnv: config.env
         )
         self.hooks = TerminalHooksService(socketPath: session.socketPath)
         NSLog("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",

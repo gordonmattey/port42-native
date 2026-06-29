@@ -26,8 +26,10 @@ struct TerminalPortConfig: Codable {
     /// don't append anything.
     var companionPrompt: String = ""
     /// Custom environment variables for the surface's shell (full Command-Companion parity —
-    /// `port.create({type:"terminal", env:{…}})`). Carried in the persisted config; merged into
-    /// the live session env in a later step (round-tripped here, consumed there). Empty = none.
+    /// `port.create({type:"terminal", env:{…}})`). Carried in the persisted config and merged into
+    /// the live session env by `TerminalSessionBootstrap.make` (as the base layer — the Port42
+    /// hooks/identity vars overlay it, so custom env can't clobber the socket/PATH/ZDOTDIR).
+    /// Empty = none.
     var env: [String: String] = [:]
 
     init(command: String, args: [String], startupCommand: String = "", cwd: String,

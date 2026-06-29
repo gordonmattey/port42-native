@@ -84,6 +84,23 @@ struct TerminalHooksServiceTests {
         #expect(session.socketPath.count < 104)   // sockaddr_un.sun_path limit
     }
 
+    @Test("customEnv merges into the session but cannot clobber hooks vars")
+    func customEnvMerge() {
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "CUSTENV0-1111-2222-3333-444444444444",
+            spaceId: "space-1", spaceName: "demo",
+            customEnv: [
+                "FOO": "bar",                          // benign custom var → passes through
+                "PORT42_HOOKS_SOCKET": "/evil/sock",   // attempt to hijack the socket
+                "PATH": "/evil/bin",                   // attempt to hijack PATH
+            ],
+            shimPath: nil, claudePath: "/usr/bin/true", oauthToken: "")
+        #expect(session.env["FOO"] == "bar")                                  // custom var survives
+        #expect(session.env["PORT42_HOOKS_SOCKET"] == session.socketPath)     // hooks socket wins
+        #expect(session.env["PATH"] != "/evil/bin")                          // real PATH wins
+        #expect(session.env["PATH"]?.isEmpty == false)
+    }
+
     @Test("zsh integration injects a winning claude() function when a shim is present")
     func zshIntegration() throws {
         let session = TerminalSessionBootstrap.make(
