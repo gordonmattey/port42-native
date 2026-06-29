@@ -5,7 +5,7 @@ import Foundation
 /// Permissions that ports can request. Each permission gates a category of bridge methods.
 public enum PortPermission: String, Hashable {
     case ai          // ai.complete, ai.cancel, companions.invoke
-    case terminal    // terminal.spawn, terminal.send, terminal.resize, terminal.kill
+    case terminal    // terminal_spawn / terminal_exec / terminal_send / terminal_list (tool calls)
     case microphone  // audio.capture, audio.stopCapture
     case camera      // camera.capture, camera.stream, camera.stopStream
     case screen      // screen.capture
@@ -21,10 +21,6 @@ public enum PortPermission: String, Hashable {
         switch method {
         case "ai.complete", "ai.cancel", "companions.invoke":
             return .ai
-        case "terminal.spawn":
-            return .terminal
-        case "terminal.send", "terminal.resize", "terminal.kill":
-            return nil // operations on already-permitted sessions
         case "audio.capture", "audio.stopCapture":
             return .microphone
         case "audio.speak", "audio.play", "audio.stop":

@@ -300,8 +300,8 @@ BRIDGE API REFERENCE:
 
   port42.space.current()
     Returns: {id, name, type, members: [{name, type}]} or null
-    Get the current space or swim session context. type is 'space' or 'swim'.
-    members includes both humans and companions with their type ('human' or 'agent').
+    Get the current space context. type is the space type — e.g. 'direct' for a 1:1 DM, 'team'.
+    Pass space_id to inspect any space. members includes humans and companions ('human'/'agent').
 
   port42.space.list()
     Returns: [{id, name, type, isCurrent}]
@@ -433,7 +433,7 @@ BRIDGE API REFERENCE:
     Requires REST permission.
 
   port42.creases.read(opts?)
-    Read relationship creases (only available in a swim).
+    Read relationship creases (space-scoped — keyed by the current space; richest in a 1:1 DM).
     Returns: [{id, content, weight, prediction?, actual?, createdAt}]
 
   port42.creases.write(content, opts?)
@@ -447,23 +447,23 @@ BRIDGE API REFERENCE:
     Remove a crease.
 
   port42.fold.read()
-    Read the fold — orientation in this relationship (only in a swim).
+    Read the fold — orientation in this relationship (space-scoped — keyed by the current space).
     Returns: {established, tensions, holding, depth}
 
   port42.fold.update(opts)
     Update fold state. opts: { established, tensions, holding, depthDelta }
-    Always writes to the swim space (canonical relationship state).
+    Writes to the current space's relationship state.
 
   port42.position.read()
-    Read current position (only in a swim).
+    Read current position (space-scoped — keyed by the current space).
     Returns: {read, stance, watching}
 
   port42.position.set(read, opts?)
     Set position. opts: { stance, watching }
-    Always writes to the swim space.
+    Writes to the current space's relationship state.
 
   port42.engravings.read(opts?)
-    Read factual knowledge about the user's world (only available in a swim).
+    Read factual knowledge about the user's world (space-scoped — keyed by the current space; richest in a 1:1 DM).
     Returns: [{ id, content, category?, weight, createdAt }]
 
   port42.engravings.write(content, opts?)

@@ -367,7 +367,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return [
                     "id": space.id,
                     "name": companion.displayName,
-                    "type": "swim",
+                    "type": space.type,   // "direct" — the "swim" type no longer exists (swim→space)
                     "memberCount": members.count,
                     "members": members
                 ] as [String: Any]
@@ -1383,7 +1383,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let contextDescription: String
         if let ch = state.currentSpace, ch.type == "direct",
            let companion = state.spaceCompanions.first {
-            contextDescription = "You are in a private swim (1:1 session) with \(userName) and \(companion.displayName)."
+            contextDescription = "You are in a private 1:1 space (DM) with \(userName) and \(companion.displayName)."
         } else if let cid = spaceId, let ch = state.spaces.first(where: { $0.id == cid }) {
             contextDescription = "You are in the #\(ch.name) space."
         } else if let ch = state.currentSpace {

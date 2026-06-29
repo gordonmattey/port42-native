@@ -137,7 +137,7 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   notify.send(title, body?, opts?) → { ok: true, id }
   opts: { sound: true, subtitle: 'text' }
 
-### Relationship State (Swim Context)
+### Relationship State (space-scoped — creases/fold/position/engravings keyed by the current space)
 
   creases.read(limit?)            → [{ id, content, weight, prediction?, actual? }]
   creases.write(content, opts?)   → { id, ok }
