@@ -725,7 +725,8 @@ public final class AppState: ObservableObject {
     /// restart the persisted panel restores under its original id, so the card still resolves).
     struct TerminalSpawnRecord {
         let command: String; let args: [String]; let cwd: String; let spaceId: String
-        let title: String; let companionName: String; let companionPrompt: String?
+        let title: String; let companionName: String; let systemPrompt: String?
+        let env: [String: String]
     }
     private var terminalSpawnRecords: [String: TerminalSpawnRecord] = [:]
     private var terminalLiveIds: [String: String] = [:]
@@ -2361,10 +2362,34 @@ public final class AppState: ObservableObject {
     /// Returns the port id on success (== `terminalControllers` key, since `popOut` →
     /// `createWindow` → `makeTerminalController` keys on the same `panel.id`), or `nil` if the
     /// config failed to encode.
+    /// Bake the companion prompt a native terminal CLI is launched with: the Port42 operational
+    /// framing (ALWAYS, under the hood) wrapped around an optional RAW user systemPrompt
+    /// (personality/role) APPENDED on top — not either/or. The framing gives the companion what it
+    /// needs to function in the space loop; the user prompt customizes it. {{NAME}}/{{SPACE}} in the
+    /// user prompt are substituted here; empty user prompt = framing only.
+    ///
+    /// Injected into the CLI via the shim's --append-system-prompt (env PORT42_COMPANION_PROMPT),
+    /// NOT a CLAUDE.md file (which clobbered project files and, with the workingDir bug, polluted
+    /// the global ~/CLAUDE.md). No <p42> instruction: a hooks companion replies conversationally and
+    /// turnComplete delivers it. NOTE: companions also see the global Port42 RPC API reference
+    /// (~/.claude/CLAUDE.md), so they may try to `curl` send_message to post — that double-delivers
+    /// (API + turnComplete), so the framing explicitly steers replies through the automatic path.
+    ///
+    /// Centralized so the saved-companion path (spawnTerminalAgentPort) and the ad-hoc
+    /// port.create({type:"terminal"}) path bake an identical prompt from a raw input.
+    func bakeCompanionPrompt(name: String, spaceId: String, systemPrompt: String?) -> String {
+        let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
+        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy it into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:4242/call -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. Keep responses concise."
+        let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            .replacingOccurrences(of: "{{NAME}}", with: name)
+            .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
+        return userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
+    }
+
     @discardableResult
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
                                  spaceId: String, title: String, companionName: String,
-                                 companionPrompt: String? = nil,
+                                 systemPrompt: String? = nil, env: [String: String] = [:],
                                  recordKey: String? = nil, postCard: Bool = true) -> String? {
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
@@ -2381,6 +2406,11 @@ public final class AppState: ObservableObject {
         let startupCommand = quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)"
 
         let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
+        // Bake the Port42 framing around the RAW systemPrompt here (centralized in
+        // bakeCompanionPrompt) so the saved-companion path and the ad-hoc port.create path
+        // produce an identical companion prompt. The spawn record stores the raw systemPrompt,
+        // not this baked result, so a respawn re-bakes once rather than double-wrapping.
+        let companionPrompt = bakeCompanionPrompt(name: companionName, spaceId: spaceId, systemPrompt: systemPrompt)
         let config = TerminalPortConfig(
             command: "/bin/zsh",
             args: [],
@@ -2390,7 +2420,8 @@ public final class AppState: ObservableObject {
             spaceName: spaceName,
             companionName: companionName,
             createdBy: currentUser?.id ?? "",
-            companionPrompt: companionPrompt ?? ""
+            companionPrompt: companionPrompt,
+            env: env
         )
         guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
             NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
@@ -2411,7 +2442,7 @@ public final class AppState: ObservableObject {
         let key = recordKey ?? portId
         terminalSpawnRecords[key] = TerminalSpawnRecord(
             command: command, args: args, cwd: cwd, spaceId: spaceId, title: title,
-            companionName: companionName, companionPrompt: companionPrompt)
+            companionName: companionName, systemPrompt: systemPrompt, env: env)
         terminalLiveIds[key] = portId
 
         // Leave an inline card in the space so the terminal has chat presence and can be reopened.
@@ -2441,8 +2472,8 @@ public final class AppState: ObservableObject {
         if let rec = terminalSpawnRecords[id] {
             _ = spawnNativeTerminalPort(
                 command: rec.command, args: rec.args, cwd: rec.cwd, spaceId: rec.spaceId,
-                title: rec.title, companionName: rec.companionName, companionPrompt: rec.companionPrompt,
-                recordKey: id, postCard: false)
+                title: rec.title, companionName: rec.companionName, systemPrompt: rec.systemPrompt,
+                env: rec.env, recordKey: id, postCard: false)
             return
         }
         // Fallback (e.g. after app restart): restore the persisted panel under its original id.
@@ -2463,27 +2494,11 @@ public final class AppState: ObservableObject {
         let args = companion.args ?? []
         let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
 
-        let spaceNameForPrompt = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
-        // Companion identity — injected into the CLI via the shim's --append-system-prompt
-        // (env PORT42_COMPANION_PROMPT), NOT a CLAUDE.md file (which clobbered project files and,
-        // with the workingDir bug, polluted the global ~/CLAUDE.md). No <p42> instruction: a
-        // hooks companion replies conversationally and turnComplete delivers it.
-        // {{NAME}}/{{SPACE}} substituted when a custom systemPrompt is set.
-        // Two layers: Port42 operational framing (ALWAYS, under the hood) + the user's optional
-        // system prompt (personality/role) APPENDED on top — not either/or. The framing gives the
-        // companion what it needs to function in the space loop; the user prompt customizes it.
-        // NOTE: companions also see the global Port42 RPC API reference (~/.claude/CLAUDE.md),
-        // so they may try to `curl` send_message to post. That double-delivers (API + turnComplete).
-        // Explicitly steer replies through the automatic path only.
-        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceNameForPrompt). Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy it into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:4242/call -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. Keep responses concise."
-        let userPrompt = (companion.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
-            .replacingOccurrences(of: "{{NAME}}", with: name)
-            .replacingOccurrences(of: "{{SPACE}}", with: spaceNameForPrompt)
-        let companionPrompt = userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
-
+        // Companion identity is baked by spawnNativeTerminalPort (bakeCompanionPrompt): the
+        // Port42 operational framing wrapped around this companion's RAW systemPrompt template.
         guard spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
                                       spaceId: spaceId, title: name,
-                                      companionName: name, companionPrompt: companionPrompt) != nil else {
+                                      companionName: name, systemPrompt: companion.systemPrompt) != nil else {
             return
         }
 

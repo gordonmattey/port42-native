@@ -25,18 +25,22 @@ struct TerminalPortConfig: Codable {
     /// `--append-system-prompt` (env `PORT42_COMPANION_PROMPT`). No file mutation; empty =
     /// don't append anything.
     var companionPrompt: String = ""
+    /// Custom environment variables for the surface's shell (full Command-Companion parity —
+    /// `port.create({type:"terminal", env:{…}})`). Carried in the persisted config; merged into
+    /// the live session env in a later step (round-tripped here, consumed there). Empty = none.
+    var env: [String: String] = [:]
 
     init(command: String, args: [String], startupCommand: String = "", cwd: String,
          spaceId: String, spaceName: String, companionName: String, createdBy: String,
-         companionPrompt: String = "") {
+         companionPrompt: String = "", env: [String: String] = [:]) {
         self.command = command; self.args = args; self.startupCommand = startupCommand
         self.cwd = cwd; self.spaceId = spaceId; self.spaceName = spaceName
         self.companionName = companionName; self.createdBy = createdBy
-        self.companionPrompt = companionPrompt
+        self.companionPrompt = companionPrompt; self.env = env
     }
 
     // Tolerant decoder: Swift's synthesized Decodable throws on a missing key even when a
-    // property has a default, so older stored panel JSON (no startupCommand/companionPrompt)
+    // property has a default, so older stored panel JSON (no startupCommand/companionPrompt/env)
     // would fail to decode → blank terminal. decodeIfPresent restores the defaults.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -49,6 +53,7 @@ struct TerminalPortConfig: Codable {
         companionName = try c.decode(String.self, forKey: .companionName)
         createdBy = try c.decode(String.self, forKey: .createdBy)
         companionPrompt = try c.decodeIfPresent(String.self, forKey: .companionPrompt) ?? ""
+        env = try c.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
     }
 }
 
