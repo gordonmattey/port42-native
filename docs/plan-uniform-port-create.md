@@ -257,6 +257,107 @@ Subtler, eyeball in-app (not gateway-scriptable):
   (non-arming send preserved from `plan-first-class-terminal-ports` Step 3).
 - Clicking the inline card pops out / focuses the right window for each type.
 
+## Step 8 — One port all the way down: unify inline + floating; the fence funnels into `port.create`
+
+**Status:** planned (2026-06-29, w/ gordon). This is a follow-on phase that **reopens a decision from
+the original plan**: Steps 1–7 said "the ```` ```port ```` fence stays — it's its own thing,
+message-derived." Step 8 overrides that. The fence stays as *syntax* but stops being a *separate
+rendering path*.
+
+### Problem (the seam Steps 1–7 left)
+
+A web port has **two unrelated host paths** today — it is **not the same port all the way down**:
+
+| | Inline port | Floating port |
+|---|---|---|
+| Source of HTML | the **message text** (a ```` ```port ```` fence, parsed by `ConversationContent.messageSegments`) | the DB (`PortPanel.html`) |
+| Identity | the message id | the panel UDID |
+| Host | `InlinePortView` — its **own** `PortBridge` + WKWebView (`ConversationContent.swift:856`) | `PortWindowManager.popOut` → `PortPanel` + NSPanel + **another** WKWebView |
+| Lifecycle | ephemeral, message-derived (no panel row until popped out) | registered + persisted |
+
+Consequences:
+- The inline port **is** a rendering of message text — the HTML lives in the message, not in a
+  registered port.
+- Pop-out (`InlinePortView.popOut`, `:991`) hands the same `html` string to `popOut`, which builds a
+  **brand-new** `PortPanel` + WKWebView → the surface is **re-instantiated and DOM/JS state is lost**.
+- `port.create`'s inline path (Step 3, `postInlineWebPort`) **posts a ```` ```port ```` fence
+  message** — so the uniform primitive routes inline creation back through the message-text fence,
+  entrenching the split.
+
+### Target model — one registered port, two presentation modes, one WKWebView
+
+- **One registered port.** `port.create` (and a fence parsed from an LLM reply) always produce a
+  registered port: HTML in the DB, one `PortBridge`, one id, one WKWebView owned by the registry
+  (`PortWindowManager.webViews[id]`). Same entity whether shown inline or floating.
+- **Presentation is a mode, not a different object.** A port is presented **inline** (hosted in the
+  chat at an anchor) or **floating** (hosted in an NSPanel). Switching modes **re-parents the same
+  WKWebView NSView** (`removeFromSuperview` / `addSubview`) — never reloads. DOM/JS state is
+  preserved (D8-2).
+- **All inline ports are reference cards.** Inline presence is a `[port:<id>:<title>]` card in the
+  message stream — exactly symmetric with native terminals' `[terminal:<id>:<title>]` card. The card
+  is the chat anchor; it hosts the registry's WKWebView inline by id. The HTML no longer lives in the
+  message.
+- **The fence stays as extraction syntax.** An LLM can still write a ```` ```port … ``` ```` block in
+  its reply — that's how we pull code out of a prose response (D8-1, gordon). But a parsed fence now
+  **calls the `port.create` engine** (registers a port) and is replaced by a `[port:id]` card. The
+  fence is an *input* to the one engine, not a parallel render path.
+
+### Decisions (resolved 2026-06-29 w/ gordon)
+
+- **D8-1 — keep the fence as extraction syntax.** "It helps us pull code from the LLM response." The
+  fence is NOT dropped; it stops being a separate rendering path and instead funnels into
+  `port.create`.
+- **D8-2 — never lose DOM state on inline↔floating.** "No reason we should lose it." One WKWebView per
+  port, owned by the registry, re-parented between the inline host and the NSPanel. Reload only on
+  explicit `port.update`/`port.restore`, never on a presentation change.
+- **D8-3 — inline ports are `[port:id]` reference cards**, symmetric with `[terminal:id]`. Unifies the
+  two inline-card mechanisms into one.
+- **D8-4 — inline ports become registered + persisted** (a panel row with `presentation:"inline"` and
+  an `anchorMessageId`), not ephemeral message-derived views. On reload they re-render from the
+  registry, not by re-parsing message text.
+- **D8-5 — `port.create`'s inline path stops posting a raw fence.** It registers a port and posts a
+  `[port:id]` card (revises Step 3 `postInlineWebPort`).
+
+### Migration steps (incremental; each builds + commits green)
+
+1. **Single-webview ownership.** Make the registry the sole owner of one WKWebView per port. Add an
+   inline-presentation host (`NSViewRepresentable`) that **adopts** `webViews[id]` instead of
+   `InlinePortView` creating its own bridge+webview. (Floating already uses `webViews[id]`.)
+2. **`[port:id:title]` card.** A new inline reference segment + `PortCard` view (sibling to the
+   `[terminal:…]` card path), parsed in `ConversationContent`. The card hosts the registry webview
+   inline by id; when floating, it shows a "popped out — focus" state (like terminal cards).
+3. **Re-parenting transition (the hard part).** Pop-out moves the webview NSView from the inline host
+   into the NSPanel; dock-back reverses. Presentation flag flips; **no reload**. Risk: SwiftUI view
+   identity churn must not recreate the representable each render (stable id / no state thrash).
+   Test: a JS counter incremented inline survives a pop-out and a dock-back.
+4. **Register inline ports.** `port.create({inline})` registers a panel (`presentation:"inline"`,
+   `anchorMessageId`) + posts a `[port:id]` card; delete the html-in-message `InlinePortView` path.
+5. **Fence funnel.** The LLM-reply fence parser, instead of a `.port(html)` segment rendered as a
+   one-off webview, calls `port.create` (registered) and replaces the fence with a `[port:id]` card.
+   Keep the fence *syntax* for extraction.
+6. **Back-compat for old messages.** Existing messages with raw ```` ```port ```` fences must still
+   render — register-on-first-render (adopt the fenced HTML into the registry the first time the
+   message is shown) rather than a destructive migration.
+7. **Docs.** Revert the Step 7 "fence is the inline shorthand for *creation*" framing → "the fence is
+   how you can include a port in a reply; it becomes a registered port. `port.create` is the canonical
+   primitive; every port is the same registered port whether shown inline or floating."
+
+### Tests
+
+- Pure: presentation-mode model + the `[port:id:title]` card parser (round-trip, like the terminal
+  card parser).
+- Invariant: one WKWebView per port id in the registry (no second webview created on pop-out).
+- Integration / eyeball (not gateway-scriptable): DOM state survives inline→float→inline (JS counter);
+  old fenced messages still render; `port.create({inline})` posts a `[port:id]` card, not a fence.
+
+### Risk
+
+The re-parenting of a live `WKWebView` across a SwiftUI inline host and an AppKit `NSPanel` without a
+reload is the crux — `WKWebView` is an `NSView`, so the move is mechanically a `removeFromSuperview` +
+`addSubview`, but SwiftUI's `NSViewRepresentable` lifecycle must be prevented from tearing down /
+recreating the view on re-render. If this proves too fragile, the fallback is a snapshot+restore of
+serializable port state — but that's explicitly the second choice; D8-2 wants the live view moved.
+
 ## Backlog (out of scope, noted so it's not lost)
 
 - **Permission hardening** for `port.create({type:terminal, command})` from an untrusted web port
