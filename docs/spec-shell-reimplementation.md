@@ -203,22 +203,22 @@ accent/dock config and space-companion membership are persisted; chat is the per
 Each ships runnable behind `PORT42_SHELL=1` (default off, reversible). **The spine comes first** — the
 ambient surface (Layer 0) and the zoom ladder are foundational (they frame every other surface and the
 "zoom out to swim in open water" first-run rides on them), so they're built before the desktop fills
-with tiles. (Mirrors `plan-port42-shell.md` §8 S1–S6.)
+with tiles. (Mirrors `plan-port42-shell.md` §8 S1–S5.)
 
 - **S1 — Takeover + ambient surface.** App window → fullscreen, hide Dock/menu bar, escape hatches
   (Esc / ⌘Q / exit, restore on terminate), guarded `NSScreen.main`. `ShellView` root =
   `DreamscapeVideoLayer` (Layer 0) as the living desktop background. Real chat/ports, no new UI yet.
-- **S2 — Zoom / spatial spine.** The zoom ladder on `ShellState` (galaxy ↔ space ↔ focus; ⌘↑/↓ + pinch
-  one-rung + hover-dive), reusing the dive transition (`TransitionRoot`/`diveProgress`) as the zoom
-  animation. Galaxy renders `appState.spaces` as worlds; `switchToSpace` + ⌘1…N. Lands `ShellState` DI
-  (§3.2). The spine the rest hangs on.
-- **S3 — Desktop + Chrome.** Render current-space tiled `PortPanel`s via `PortWebViewHost`; build the
-  Chrome (§7a). Dock/⌘K spawn real tiled ports + auto-arrange. Lands real content (§3.3).
-- **S4 — Movable tiles + park + tile↔floating.** Drag/resize/hover/focus; the parking dock; pop-out =
+- **S2 — Spatial shell: spine + port desktop + Chrome.** Build the **spine first**: the zoom ladder on
+  `ShellState` (galaxy ↔ space ↔ focus; ⌘↑/↓ + pinch one-rung + hover-dive), reusing the dive
+  transition (`TransitionRoot`/`diveProgress`) as the zoom animation; galaxy renders `appState.spaces`
+  as worlds; `switchToSpace` + ⌘1…N. (Demoable immediately on the existing per-space chat port.) Then
+  fill the space rung: render tiled `PortPanel`s via `PortWebViewHost`; build the Chrome (§7a); dock/⌘K
+  spawn real tiled ports + auto-arrange. Lands `ShellState` DI (§3.2) + real content (§3.3).
+- **S3 — Movable tiles + park + tile↔floating.** Drag/resize/hover/focus; the parking dock; pop-out =
   `promoteInlineToFloating` (tile↔floating). A counter/terminal tile keeps state across tile↔float↔park.
-- **S5 — Companions + chat.** The per-space `isChatPort` tile + member header (you + `getAgentsForSpace`)
+- **S4 — Companions + chat.** The per-space `isChatPort` tile + member header (you + `getAgentsForSpace`)
   with live status; the real send → companion → `port.create` → arrange loop. Members wrap.
-- **S6 — Idle-out + boot fusion.** Idle timer dismiss → Layer 0, wake via breakout; fuse the onboarding
+- **S5 — Idle-out + boot fusion.** Idle timer dismiss → Layer 0, wake via breakout; fuse the onboarding
   BIOS boot with the shell boot.
 
 ---
