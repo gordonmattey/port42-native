@@ -30,14 +30,14 @@ enum P42 {
 
 // MARK: - Port content (self-contained animated HTML)
 
-struct AppDef { let icon, label, title, html: String; let size: CGSize }
+struct AppDef { let icon, label, title, html: String; let size: CGSize; var terminal: Bool = false }
 
 enum Apps {
     static let all: [AppDef] = [
         AppDef(icon: "clock",             label: "Clock",  title: "clock.port",  html: clock,  size: CGSize(width: 300, height: 168)),
         AppDef(icon: "waveform.path.ecg", label: "Pulse",  title: "pulse.port",  html: pulse,  size: CGSize(width: 260, height: 260)),
         AppDef(icon: "cpu",               label: "System", title: "sys.port",    html: sys,    size: CGSize(width: 300, height: 228)),
-        AppDef(icon: "terminal",          label: "Shell",  title: "term.port",   html: term,   size: CGSize(width: 440, height: 280)),
+        AppDef(icon: "terminal",          label: "Shell",  title: "term.port",   html: term,   size: CGSize(width: 440, height: 280), terminal: true),
         AppDef(icon: "circle.grid.cross", label: "Matrix", title: "matrix.port", html: matrix, size: CGSize(width: 280, height: 300)),
         AppDef(icon: "sun.max",           label: "Synth",  title: "synth.port",  html: synth,  size: CGSize(width: 340, height: 206)),
     ]
@@ -134,9 +134,10 @@ final class Port: Identifiable, ObservableObject {
     @Published var presentation: Presentation = .tiled
     @Published var mode: Int
     @Published var space: Int
+    let isTerminal: Bool
     init(_ app: AppDef, pos: CGPoint, z: Int, mode: Int, space: Int) {
         icon = app.icon; title = app.title; html = app.html; self.pos = pos; self.z = z; self.mode = mode; self.space = space
-        size = app.size
+        size = app.size; isTerminal = app.terminal
     }
 }
 
@@ -258,6 +259,9 @@ final class Shell: ObservableObject {
     func mouseDown(at pt: CGPoint) {
         guard interactive, let h = portHit(at: pt) else { dragId = nil; return }
         focus(h.port)
+        // Terminal exception: its body is for text selection, not moving. Move via titlebar, resize via edges.
+        let inTitlebar = pt.y < tileRect(h.port).minY + 32
+        if h.port.isTerminal && !h.edge && !inTitlebar { dragId = nil; return }
         dragId = h.port.id; dragStart = pt; dragPos = h.port.pos; dragSize = h.port.size
         dragL = h.left; dragR = h.right; dragT = h.top; dragB = h.bottom; dragResize = h.edge; dragArmed = false
     }
