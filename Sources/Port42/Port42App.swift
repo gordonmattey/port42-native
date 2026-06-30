@@ -9,6 +9,11 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
     /// Sparkle updater controller for automatic + manual update checks
     private(set) var updaterController: SPUStandardUpdaterController!
 
+    /// SHELL — S1: local key monitor for the Esc escape hatch (installed only in shell mode).
+    private var shellEscapeMonitor: Any?
+    /// SHELL — S1: true once the shell takeover has hidden the Dock/menu bar, so terminate restores them.
+    private var shellTookOver = false
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSAppleEventManager.shared().setEventHandler(
             self,
@@ -39,7 +44,12 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             if frame.width > 100 && frame.height > 100 {
                 UserDefaults.standard.set(NSStringFromRect(frame), forKey: "p42MainWindowFrame")
             }
-            if let screen = window.screen ?? NSScreen.main {
+            // SHELL — S1: behind PORT42_SHELL, take over the full screen over the ambient surface
+            // (cheapest cut — fullscreen the existing window, hide Dock + menu bar). Default off
+            // ⇒ the login-screen maximize below runs exactly as before.
+            if ShellMode.isEnabled() {
+                self.applyShellTakeover(window: window)
+            } else if let screen = window.screen ?? NSScreen.main {
                 window.setFrame(screen.visibleFrame, display: true, animate: false)
             }
         }
@@ -72,6 +82,44 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: .checkForUpdatesRequested, object: nil, queue: .main) { [weak self] _ in
             NSLog("[Port42] Check for updates requested via notification")
             self?.updaterController.checkForUpdates(nil)
+        }
+    }
+
+    // MARK: - Shell takeover (S1)
+
+    /// SHELL — S1 takeover (cheapest cut): fullscreen the existing window over the ambient surface
+    /// and hide the Dock + menu bar. Reversible — `applicationWillTerminate` restores them.
+    private func applyShellTakeover(window: NSWindow) {
+        let screen = window.screen ?? NSScreen.main
+        window.setFrame(ShellMode.windowFrame(for: screen), display: true, animate: false)
+        NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+        NSApp.activate(ignoringOtherApps: true)
+        shellTookOver = true
+        installShellEscapeHatch()
+        NSLog("[Port42] SHELL takeover active (PORT42_SHELL). Esc / ⌘Q to exit.")
+    }
+
+    /// Esc exits the shell (⌘Q already terminates). Yield to a focused text field/editor first so
+    /// Esc inside an input doesn't quit the app (spec §3.1 — "yield keys to the focused field").
+    private func installShellEscapeHatch() {
+        shellEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event }   // 53 = Esc
+            if let responder = event.window?.firstResponder, responder is NSText || responder is NSTextView {
+                return event
+            }
+            NSApp.terminate(nil)
+            return nil
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // SHELL — S1: restore the Dock + menu bar we hid during takeover.
+        if shellTookOver {
+            NSApp.presentationOptions = []
+        }
+        if let monitor = shellEscapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            shellEscapeMonitor = nil
         }
     }
 
