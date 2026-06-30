@@ -122,7 +122,8 @@ final class SpaceAgentHandler: LLMStreamDelegate {
         self.appState = appState
         self.engine = makeLLMBackend(for: agent)
         self.engine.trackingSource = agent.displayName
-        self.toolExecutor = ToolExecutor(appState: appState, spaceId: spaceId, createdBy: agent.id)
+        self.toolExecutor = ToolExecutor(appState: appState, spaceId: spaceId, createdBy: agent.id,
+                                         createdByName: agent.displayName, inChat: true)
     }
 
 
@@ -2458,6 +2459,72 @@ public final class AppState: ObservableObject {
         }
 
         return portId
+    }
+
+    /// The uniform port-creation primitive behind both `port.create` (JS bridge) and `port_create`
+    /// (tool). Validates the request, then dispatches by type. Returns `["id":…, "title":…]` on
+    /// success or `["error":…]` on failure (no half-success).
+    ///
+    /// `inline` carries the caller-context routing for WEB ports (decided w/ gordon 2026-06-29):
+    /// an in-chat companion composing a reply passes `true` → the port renders inline in the space;
+    /// an external caller (a web port's own JS, a gateway/CLI call) passes `false` → it opens as a
+    /// floating window. Terminals ignore `inline` — they're always a native window + card.
+    @discardableResult
+    func createPort(type: String?, title: String?, html: String?,
+                    command: String?, args: [String] = [], cwd: String?,
+                    systemPrompt: String?, env: [String: String] = [:],
+                    spaceId: String, createdBy: String?, createdByName: String?,
+                    inline: Bool) -> [String: Any] {
+        switch PortCreateValidation.validate(type: type, html: html, command: command) {
+        case .error(let message):
+            return ["error": message]
+
+        case .ok(.terminal(let command)):
+            let resolvedTitle = (title?.isEmpty == false ? title! : (command as NSString).lastPathComponent)
+            let resolvedCwd = cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+            guard let portId = spawnNativeTerminalPort(
+                command: command, args: args, cwd: resolvedCwd, spaceId: spaceId,
+                title: resolvedTitle, companionName: resolvedTitle,
+                systemPrompt: systemPrompt, env: env) else {
+                return ["error": "failed to spawn terminal port"]
+            }
+            return ["id": portId, "title": resolvedTitle]
+
+        case .ok(.web(let html)):
+            let resolvedTitle = (title?.isEmpty == false ? title! : PortPanel.extractTitle(from: html))
+            if inline {
+                let id = postInlineWebPort(html: html, title: resolvedTitle, spaceId: spaceId,
+                                           createdBy: createdBy, createdByName: createdByName)
+                return ["id": id, "title": resolvedTitle]
+            }
+            // External caller → floating window. Each port gets its own bridge (like the terminal path).
+            let messageId = UUID().uuidString
+            let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: messageId, createdBy: createdBy)
+            let portId = portWindows.popOut(html: html, bridge: bridge, spaceId: spaceId, createdBy: createdBy,
+                                            messageId: messageId, title: resolvedTitle, portType: "web",
+                                            in: CGSize(width: 800, height: 600))
+            return ["id": portId, "title": resolvedTitle]
+        }
+    }
+
+    /// Post an inline web port into the space: a `` ```port `` fenced message the chat renders as a
+    /// live inline port (its bridge registers when the view appears, keyed by this message id — the
+    /// same id `inlinePorts()` reports). Synced like a normal companion message so peers see it.
+    /// Returns the message id, which is the inline port's id.
+    func postInlineWebPort(html: String, title: String, spaceId: String,
+                           createdBy: String?, createdByName: String?) -> String {
+        let id = UUID().uuidString
+        let name = createdByName ?? createdBy ?? currentUser?.displayName ?? "port42"
+        let msg = Message(
+            id: id, spaceId: spaceId,
+            senderId: createdBy ?? currentUser?.id ?? "",
+            senderName: name, senderType: "agent",
+            content: "```port\n\(html)\n```",
+            timestamp: Date(), replyToId: nil, syncStatus: "sent", createdAt: Date()
+        )
+        try? db.saveMessage(msg)
+        sync.sendMessage(msg)
+        return id
     }
 
     /// The inline terminal card's play action (Step 5b): focus the live window, restore it if

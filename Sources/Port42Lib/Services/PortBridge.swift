@@ -728,6 +728,24 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             )
             return ["ok": true]
 
+        // port42.port.create({type, title?, html?, command?, args?, cwd?, systemPrompt?, env?, space_id?})
+        // Uniform creation primitive. A web port's own JS is an EXTERNAL caller, so web ports open as a
+        // floating window (inline:false). Ungated (no permission). Returns {id, title} or {error}.
+        case "port.create":
+            let opts = args.first as? [String: Any] ?? [:]
+            let sid = (opts["space_id"] as? String) ?? spaceId ?? state.currentSpace?.id ?? ""
+            return state.createPort(
+                type: opts["type"] as? String,
+                title: opts["title"] as? String,
+                html: opts["html"] as? String,
+                command: opts["command"] as? String,
+                args: opts["args"] as? [String] ?? [],
+                cwd: opts["cwd"] as? String,
+                systemPrompt: opts["systemPrompt"] as? String,
+                env: opts["env"] as? [String: String] ?? [:],
+                spaceId: sid, createdBy: createdBy, createdByName: createdBy,
+                inline: false)
+
         // port42.port.exec(id, js) — execute JS on a live port
         case "port.exec":
             guard let id = args.first as? String,

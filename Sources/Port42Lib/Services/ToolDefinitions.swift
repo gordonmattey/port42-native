@@ -472,6 +472,25 @@ enum ToolDefinitions {
             "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
+            "name": "port_create",
+            "description": "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), and env. Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "type": ["type": "string", "enum": ["web", "terminal"], "description": "The port type to create."],
+                    "title": ["type": "string", "description": "Port title (default: derived from html <title>, or the command)."],
+                    "html": ["type": "string", "description": "type:\"web\" — full port HTML body (include a <title> and <meta name=\"version\">)."],
+                    "command": ["type": "string", "description": "type:\"terminal\" — executable/CLI to run (e.g. \"bash\", \"htop\", \"claude\")."],
+                    "args": ["type": "array", "items": ["type": "string"], "description": "type:\"terminal\" — arguments for the command."],
+                    "cwd": ["type": "string", "description": "type:\"terminal\" — working directory (default: home)."],
+                    "systemPrompt": ["type": "string", "description": "type:\"terminal\" — companion personality/role appended to the CLI's system prompt."],
+                    "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
+                    "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."]
+                ],
+                "required": ["type"]
+            ] as [String: Any]
+        ],
+        [
             "name": "terminal_spawn",
             "description": "Open a native terminal as a `terminal` port and return its id. Use this to create a terminal — NEVER hand-roll a terminal inside an HTML/web port. Runs in /bin/zsh; pass an optional command to run on launch (e.g. \"htop\", \"npm test\", or \"claude\"). Drive it afterwards with terminal_send using the returned id. Pass space_id to open it in a specific space (defaults to the current one).",
             "input_schema": [

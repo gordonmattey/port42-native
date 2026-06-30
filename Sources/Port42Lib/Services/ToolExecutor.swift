@@ -9,6 +9,12 @@ public final class ToolExecutor {
     private weak var appState: AppState?
     private let spaceId: String?
     let createdBy: String?
+    /// Display name of the caller (for message attribution); nil for anonymous/remote callers.
+    let createdByName: String?
+    /// True when this executor runs an in-app companion composing a chat reply. Routes
+    /// `port_create({type:"web"})` to an inline port; external/remote executors (inChat=false) open a
+    /// floating window instead. See AppState.createPort.
+    let inChat: Bool
 
     /// Granted permissions for this conversation (per-companion, per-space).
     private var grantedPermissions: Set<PortPermission> = []
@@ -32,10 +38,13 @@ public final class ToolExecutor {
     private lazy var audioBridge = AudioBridge()
     private lazy var cameraBridge = CameraBridge()
 
-    init(appState: AppState, spaceId: String?, createdBy: String? = nil) {
+    init(appState: AppState, spaceId: String?, createdBy: String? = nil,
+         createdByName: String? = nil, inChat: Bool = false) {
         self.appState = appState
         self.spaceId = spaceId
         self.createdBy = createdBy
+        self.createdByName = createdByName
+        self.inChat = inChat
         // Restore previously granted permissions so the user isn't re-prompted
         if let by = createdBy, let cid = spaceId {
             self.grantedPermissions = appState.companionPermissions(createdBy: by, spaceId: cid)
@@ -766,6 +775,25 @@ public final class ToolExecutor {
                 return [textBlock("Error: failed to spawn terminal")]
             }
             return [textBlock(jsonString(["id": portId, "title": title]))]
+
+        // MARK: Ports
+        case "port_create":
+            // Uniform creation primitive (web | terminal). inChat (an in-app companion composing a
+            // reply) → web ports render inline; external/remote callers (inChat=false) → web ports
+            // open a floating window. Terminals are always a native window + card. Ungated.
+            let sid = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
+            let result = appState.createPort(
+                type: input["type"] as? String,
+                title: input["title"] as? String,
+                html: input["html"] as? String,
+                command: input["command"] as? String,
+                args: input["args"] as? [String] ?? [],
+                cwd: input["cwd"] as? String,
+                systemPrompt: input["systemPrompt"] as? String,
+                env: input["env"] as? [String: String] ?? [:],
+                spaceId: sid, createdBy: createdBy, createdByName: createdByName,
+                inline: inChat)
+            return [textBlock(jsonString(result))]
 
         case "terminal_exec":
             guard let command = input["command"] as? String else {
