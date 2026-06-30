@@ -344,12 +344,12 @@ enum ToolDefinitions {
         ],
         [
             "name": "port_push",
-            "description": "Push data to a live port via a CustomEvent. The port receives it as a 'port42:data' event with the payload in event.detail. Use this to feed data into ports without knowing their internals — the port decides how to handle it. Prefer this over port_exec for data transfer between companions and ports.",
+            "description": "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. \"ls\\n\", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
-                    "data": ["description": "The data payload. Can be any JSON value — object, array, string, number. The port receives it as event.detail."]
+                    "id": ["type": "string", "description": "The port's UDID (from ports_list), or a terminal's name."],
+                    "data": ["description": "For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."]
                 ],
                 "required": ["id", "data"]
             ] as [String: Any]

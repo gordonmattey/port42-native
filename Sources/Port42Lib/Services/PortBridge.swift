@@ -709,24 +709,38 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let applied = state.portWindows.updatePort(idOrTitle: id, html: patched)
             return ["ok": applied]
 
-        // port42.port.push(id, data) — push data to a port via CustomEvent
+        // port42.port.push(id, data) — one type-dispatched verb: a terminal id gets a RAW,
+        // non-arming inject (the caller supplies its own newline); a web id gets a port42:data
+        // CustomEvent. Ungated.
         case "port.push":
             guard let id = args.first as? String,
                   args.count > 1 else {
                 return ["error": "port.push requires id and data"]
             }
             let data = args[1]
-            guard let webView = state.portWindows.webViews[id] else {
+            let controller = state.resolveTerminalController(idOrName: id)
+            let webView = state.portWindows.webViews[id]
+            switch PortPushRoute.classify(isTerminal: controller != nil, isWeb: webView != nil) {
+            case .terminal:
+                // Raw, non-arming: drives the terminal directly without arming the post gate.
+                let str = (data as? String) ?? (try? JSONSerialization.data(withJSONObject: data))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                guard controller!.sendRaw(str) else {
+                    return ["error": "terminal '\(id)' has no live surface"]
+                }
+                return ["ok": true]
+            case .web:
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                      let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                    return ["error": "could not serialize data"]
+                }
+                _ = try? await webView!.evaluateJavaScript(
+                    "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
+                )
+                return ["ok": true]
+            case .notFound:
                 return ["error": "port '\(id)' not found or not active"]
             }
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
-                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
-                return ["error": "could not serialize data"]
-            }
-            _ = try? await webView.evaluateJavaScript(
-                "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
-            )
-            return ["ok": true]
 
         // port42.port.create({type, title?, html?, command?, args?, cwd?, systemPrompt?, env?, space_id?})
         // Uniform creation primitive. A web port's own JS is an EXTERNAL caller, so web ports open as a

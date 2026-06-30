@@ -580,21 +580,33 @@ public final class ToolExecutor {
             return [textBlock("Error: port '\(id)' not found or not active")]
 
         case "port_push":
+            // One type-dispatched verb: a terminal id gets a RAW, non-arming inject (caller supplies
+            // its own newline); a web id gets a port42:data CustomEvent.
             guard let id = input["id"] as? String else {
                 return [textBlock("Error: port_push requires 'id' parameter")]
             }
             let data = input["data"] ?? NSNull()
-            guard let webView = resolvePortWebView(id: id) else {
+            let controller = appState.resolveTerminalController(idOrName: id)
+            let webView = resolvePortWebView(id: id)
+            switch PortPushRoute.classify(isTerminal: controller != nil, isWeb: webView != nil) {
+            case .terminal:
+                let str = (data as? String) ?? jsonString(data)
+                guard controller!.sendRaw(str) else {
+                    return [textBlock("Error: terminal '\(id)' has no live surface")]
+                }
+                return [textBlock("Sent to \(controller!.config.companionName)")]
+            case .web:
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                      let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                    return [textBlock("Error: could not serialize data to JSON")]
+                }
+                _ = try? await webView!.evaluateJavaScript(
+                    "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
+                )
+                return [textBlock("Data pushed to port '\(id)'")]
+            case .notFound:
                 return [textBlock("Error: port '\(id)' not found or not active")]
             }
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
-                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
-                return [textBlock("Error: could not serialize data to JSON")]
-            }
-            _ = try? await webView.evaluateJavaScript(
-                "window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))"
-            )
-            return [textBlock("Data pushed to port '\(id)'")]
 
         case "port_exec":
             guard let id = input["id"] as? String,
