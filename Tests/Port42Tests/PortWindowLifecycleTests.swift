@@ -164,4 +164,40 @@ struct PortWindowLifecycleTests {
         #expect(chatPort.isBackground == true)
         #expect(manager.windows[portId] == nil)
     }
+
+    // MARK: - SHELL S2.2: tiled ports (the shell desktop)
+
+    @Test("createPort(presentation: tiled) registers a tiled panel on the given space")
+    @MainActor
+    func createTiledPortRegistersTiledPanel() throws {
+        let (manager, state) = try makeManager()
+        let result = state.createPort(type: "web", title: "Clock", html: "<title>Clock</title><div/>",
+                                      command: nil, cwd: nil, systemPrompt: nil,
+                                      spaceId: "space-1", createdBy: nil, createdByName: nil,
+                                      presentation: "tiled", position: CGPoint(x: 120, y: 80))
+        let id = try #require(result["id"] as? String)
+        #expect(result["error"] == nil)
+        let panel = try #require(manager.panels.first(where: { $0.id == id }))
+        #expect(panel.presentation == "tiled")
+        #expect(panel.spaceId == "space-1")
+        #expect(panel.position == CGPoint(x: 120, y: 80))
+        #expect(manager.webViews[id] != nil)   // registry-owned webview, not a chat message
+    }
+
+    @Test("tiled panels are scoped per space — the desktop renders only the current space's tiles")
+    @MainActor
+    func tiledPanelsScopedPerSpace() throws {
+        let (manager, state) = try makeManager()
+        _ = state.createPort(type: "web", title: "A", html: "<div>a</div>", command: nil, cwd: nil,
+                             systemPrompt: nil, spaceId: "space-1", createdBy: nil, createdByName: nil,
+                             presentation: "tiled", position: CGPoint(x: 10, y: 10))
+        _ = state.createPort(type: "web", title: "B", html: "<div>b</div>", command: nil, cwd: nil,
+                             systemPrompt: nil, spaceId: "space-2", createdBy: nil, createdByName: nil,
+                             presentation: "tiled", position: CGPoint(x: 20, y: 20))
+        let s1 = manager.panels.filter { $0.spaceId == "space-1" && $0.presentation == "tiled" }
+        let s2 = manager.panels.filter { $0.spaceId == "space-2" && $0.presentation == "tiled" }
+        #expect(s1.count == 1)
+        #expect(s2.count == 1)
+        #expect(s1.first?.title == "A")
+    }
 }

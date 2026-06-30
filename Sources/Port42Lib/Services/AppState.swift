@@ -2474,11 +2474,16 @@ public final class AppState: ObservableObject {
     /// an external caller (a web port's own JS, a gateway/CLI call) passes `false` → it opens as a
     /// floating window. Terminals ignore `inline` — they're always a native window + card.
     @discardableResult
+    /// SHELL — S2.2: `presentation` replaces the old (dead) `inline: Bool` routing flag
+    /// (`spec-shell-reimplementation.md` open-decision #2). "inline" (default) keeps today's
+    /// behavior — a web port renders inline in chat; "tiled" registers it as a desktop tile on the
+    /// shell desktop at `position` (arrange picks the spot when nil). Terminals are unaffected
+    /// (always a native window). Returns {id, title} or {error}.
     func createPort(type: String?, title: String?, html: String?,
                     command: String?, args: [String] = [], cwd: String?,
                     systemPrompt: String?, env: [String: String] = [:],
                     spaceId: String, createdBy: String?, createdByName: String?,
-                    inline: Bool) -> [String: Any] {
+                    presentation: String = "inline", position: CGPoint? = nil) -> [String: Any] {
         switch PortCreateValidation.validate(type: type, html: html, command: command) {
         case .error(let message):
             return ["error": message]
@@ -2496,10 +2501,18 @@ public final class AppState: ObservableObject {
 
         case .ok(.web(let html)):
             let resolvedTitle = (title?.isEmpty == false ? title! : PortPanel.extractTitle(from: html))
-            // A web port CAN render inline (unlike a native terminal), so it renders INLINE and
-            // AUTO-PLAYS on creation. The inline view's titlebar carries play / stop / source / pop-out;
-            // pop-out re-parents to a floating window (Step 8) with no reload. The `inline` routing flag
-            // is moot for web now — web is always inline; terminals are always a native window.
+            // SHELL — S2.2: a tiled web port is a desktop tile (registry-owned webview composited on
+            // the shell desktop), not a chat message. arrange() picks the spot when position is nil.
+            if presentation == "tiled" {
+                let id = UUID().uuidString
+                _ = portWindows.registerTiledPort(id: id, html: html, spaceId: spaceId,
+                                                  createdBy: createdBy, title: resolvedTitle,
+                                                  position: position)
+                return ["id": id, "title": resolvedTitle]
+            }
+            // Otherwise a web port renders INLINE in chat and AUTO-PLAYS on creation. The inline
+            // view's titlebar carries play / stop / source / pop-out; pop-out re-parents to a
+            // floating window (Step 8) with no reload.
             let id = postInlineWebPort(html: html, title: resolvedTitle, spaceId: spaceId,
                                        createdBy: createdBy, createdByName: createdByName)
             pendingPortActivationId = id   // activate immediately → it plays inline, not a collapsed card

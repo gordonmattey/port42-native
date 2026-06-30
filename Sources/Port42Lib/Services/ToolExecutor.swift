@@ -784,9 +784,9 @@ public final class ToolExecutor {
         // MARK: Terminal
         // MARK: Ports
         case "port_create":
-            // Uniform creation primitive (web | terminal). inChat (an in-app companion composing a
-            // reply) → web ports render inline; external/remote callers (inChat=false) → web ports
-            // open a floating window. Terminals are always a native window + card. Ungated.
+            // Uniform creation primitive (web | terminal). `presentation` routes the web port:
+            // "inline" (default) → an inline chat port; "tiled" → a shell desktop tile. Terminals
+            // are always a native window + card. Ungated.
             let sid = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
             let result = appState.createPort(
                 type: input["type"] as? String,
@@ -798,7 +798,7 @@ public final class ToolExecutor {
                 systemPrompt: input["systemPrompt"] as? String,
                 env: input["env"] as? [String: String] ?? [:],
                 spaceId: sid, createdBy: createdBy, createdByName: createdByName,
-                inline: inChat)
+                presentation: (input["presentation"] as? String) ?? "inline")
             return [textBlock(jsonString(result))]
 
         case "terminal_exec":

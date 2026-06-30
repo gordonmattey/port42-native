@@ -363,6 +363,33 @@ public final class PortWindowManager: ObservableObject {
         return bridge
     }
 
+    /// SHELL — S2.2: register a desktop TILE. A tiled port is a registry-owned webview composited on
+    /// the shell desktop (`ShellView`), positioned by `position` (arrange picks the spot when nil) —
+    /// NOT a chat message (unlike an inline port). It is the same registered entity as any port and
+    /// re-parents with no reload between tiled / floating / parked. (Persistence of tiled panels
+    /// lands with the S3 `z` migration.)
+    @discardableResult
+    public func registerTiledPort(id: String, html: String, spaceId: String?, createdBy: String?,
+                                  title: String?, position: CGPoint?, size: CGSize? = nil) -> PortBridge? {
+        if let existing = panels.first(where: { $0.id == id }) {
+            return existing.bridge
+        }
+        guard let appState = appState else { return nil }
+        let resolvedTitle = (title?.isEmpty == false) ? title : PortPanel.extractTitle(from: html)
+        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: id,
+                                createdBy: createdBy, title: resolvedTitle)
+        var panel = PortPanel(
+            id: id, udid: id, html: html, bridge: bridge,
+            spaceId: spaceId, createdBy: createdBy, messageId: id,
+            userTitle: title, size: size ?? CGSize(width: 360, height: 260))
+        panel.portType = "web"
+        panel.presentation = "tiled"
+        panel.position = position
+        panels.append(panel)
+        createPortWebView(for: panel)
+        return bridge
+    }
+
     /// Step 8: pop an inline port out into a floating window by RE-PARENTING its existing
     /// WKWebView — no reload, so DOM/JS state survives (the spike-proven move). The port keeps
     /// its id; its inline host switches to a "popped out" state because `presentation` flips to

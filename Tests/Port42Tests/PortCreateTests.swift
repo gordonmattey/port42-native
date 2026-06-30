@@ -89,11 +89,11 @@ struct PortCreateTests {
         try db.saveSpace(space)
         let spaceId = space.id
 
-        // Even an "external" caller (inline:false) → a web port renders inline and auto-plays.
+        // Default presentation ("inline") → a web port renders inline in chat and auto-plays.
         let result = state.createPort(type: "web", title: "Hi", html: "<title>Hi</title><div/>",
                                       command: nil, args: [], cwd: nil, systemPrompt: nil, env: [:],
                                       spaceId: spaceId, createdBy: nil, createdByName: "echo",
-                                      inline: false)
+                                      presentation: "inline")
         let id = try #require(result["id"] as? String)
         #expect(result["error"] == nil)
 
