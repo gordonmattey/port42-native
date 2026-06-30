@@ -30,15 +30,16 @@ enum P42 {
 
 // MARK: - Port content (self-contained animated HTML)
 
+struct AppDef { let icon, label, title, html: String; let size: CGSize }
+
 enum Apps {
-    // icon, label, title, html
-    static let all: [(String, String, String, String)] = [
-        ("clock",              "Clock",   "clock.port",  clock),
-        ("waveform.path.ecg",  "Pulse",   "pulse.port",  pulse),
-        ("cpu",                "System",  "sys.port",    sys),
-        ("terminal",           "Shell",   "term.port",   term),
-        ("circle.grid.cross",  "Matrix",  "matrix.port", matrix),
-        ("sun.max",            "Synth",   "synth.port",  synth),
+    static let all: [AppDef] = [
+        AppDef(icon: "clock",             label: "Clock",  title: "clock.port",  html: clock,  size: CGSize(width: 300, height: 168)),
+        AppDef(icon: "waveform.path.ecg", label: "Pulse",  title: "pulse.port",  html: pulse,  size: CGSize(width: 260, height: 260)),
+        AppDef(icon: "cpu",               label: "System", title: "sys.port",    html: sys,    size: CGSize(width: 300, height: 228)),
+        AppDef(icon: "terminal",          label: "Shell",  title: "term.port",   html: term,   size: CGSize(width: 440, height: 280)),
+        AppDef(icon: "circle.grid.cross", label: "Matrix", title: "matrix.port", html: matrix, size: CGSize(width: 280, height: 300)),
+        AppDef(icon: "sun.max",           label: "Synth",  title: "synth.port",  html: synth,  size: CGSize(width: 340, height: 206)),
     ]
 
     static let clock = #"""
@@ -124,35 +125,81 @@ final class Port: Identifiable, ObservableObject {
     @Published var size: CGSize
     @Published var z: Int
     @Published var presentation: Presentation = .tiled
-    let space: Int
-    init(_ app: (String,String,String,String), pos: CGPoint, z: Int, space: Int) {
-        icon = app.0; title = app.2; html = app.3; self.pos = pos; self.z = z; self.space = space
-        size = CGSize(width: 380, height: 270)
+    @Published var mode: Int
+    @Published var space: Int
+    init(_ app: AppDef, pos: CGPoint, z: Int, mode: Int, space: Int) {
+        icon = app.icon; title = app.title; html = app.html; self.pos = pos; self.z = z; self.mode = mode; self.space = space
+        size = app.size
     }
+}
+
+// A MODE is a meta-space: a whole-shell state with its own accent, its own dock apps, and its own
+// set of Port42 SPACES. Switching mode reconfigures the workspace; switching space swaps the ports.
+struct ModeDef {
+    let name: String
+    let accent: Color
+    let dock: [Int]        // indices into Apps.all — this mode's dock
+    let spaces: [String]   // the Port42 spaces that live in this mode
+    let seed: [(Int, Int)] // (spaceIndex, appIndex) seeded on first entry — the mode's default layout
 }
 
 final class Shell: ObservableObject {
     static let shared = Shell()
     @Published var ports: [Port] = []
+    @Published var mode = 0
     @Published var space = 0
     @Published var showPalette = false
     @Published var expose = false
+    @Published var showSpaces = false           // spaces-in-mode overview
     @Published var booting = true
     @Published var bootLines: [String] = []
     @Published var idle = false
     @Published var mouse = CGPoint(x: 0.5, y: 0.5)   // normalized, for parallax
+    @Published var toast: String?
+    var toastTick = 0
     var lastInput = Date()
     var zCounter = 10
-    let spaces = ["home", "build", "deep"]
+    var screenW: CGFloat = 1440; var screenH: CGFloat = 900
+    var notch: CGFloat = 0
+    var seeded = Set<Int>()
     var panels: [UUID: PopoutPanel] = [:]
 
-    var current: [Port] { ports.filter { $0.space == space } }
+    let modes: [ModeDef] = [
+        ModeDef(name: "home",  accent: P42.accent,  dock: [0,1,5], spaces: ["main","music"],     seed: [(0,0),(0,1)]),
+        ModeDef(name: "build", accent: P42.gold,    dock: [3,2,4], spaces: ["api","ui","infra"], seed: [(0,3),(0,2),(1,5)]),
+        ModeDef(name: "deep",  accent: P42.accent2, dock: [4,1],   spaces: ["read","write"],     seed: [(0,4)]),
+    ]
+    var modeDef: ModeDef { modes[mode] }
+    var accent: Color { modeDef.accent }
+    var dockApps: [AppDef] { modeDef.dock.map { Apps.all[$0] } }
+    var spaceNames: [String] { modeDef.spaces }
 
-    func spawn(_ app: (String,String,String,String), at: CGPoint? = nil) {
+    var current: [Port] { ports.filter { $0.mode == mode && $0.space == space } }
+    func portsIn(_ m: Int, _ s: Int) -> [Port] { ports.filter { $0.mode == m && $0.space == s } }
+
+    func switchMode(_ m: Int) {
+        guard m != mode else { return }
+        seed(m)
+        withAnimation(.spring(response: 0.35)) { mode = m; space = 0; expose = false; showSpaces = false }
+        say("mode · \(modes[m].name)")
+    }
+    func switchSpace(_ s: Int) {
+        withAnimation(.spring(response: 0.3)) { space = s; expose = false; showSpaces = false }
+        say("space · \(spaceNames[s])")
+    }
+    func seed(_ m: Int) {
+        guard !seeded.contains(m) else { return }
+        seeded.insert(m)
+        for (s, app) in modes[m].seed { spawn(Apps.all[app], mode: m, space: s, quiet: true) }
+    }
+
+    func spawn(_ app: AppDef, at: CGPoint? = nil, mode m: Int? = nil, space s: Int? = nil, quiet: Bool = false) {
+        let mm = m ?? mode, ss = s ?? space
         zCounter += 1
-        let n = ports.count
-        let p = at ?? CGPoint(x: 360 + Double(n % 4) * 70, y: 220 + Double(n % 3) * 70)
-        ports.append(Port(app, pos: p, z: zCounter, space: space))
+        let n = portsIn(mm, ss).count
+        let p = at ?? CGPoint(x: 330 + Double(n % 4) * 90, y: 200 + Double(n % 3) * 80)
+        ports.append(Port(app, pos: p, z: zCounter, mode: mm, space: ss))
+        if !quiet { say("opened \(app.title)") }
     }
     func focus(_ p: Port) { zCounter += 1; p.z = zCounter }
     func close(_ p: Port) {
@@ -160,7 +207,35 @@ final class Shell: ObservableObject {
         Registry.shared.drop(p.id)
         ports.removeAll { $0.id == p.id }
     }
+    func move(_ p: Port, toSpace s: Int) { withAnimation { p.space = s }; say("moved \(p.title) → \(spaceNames[s])") }
     func bump() { lastInput = Date(); if idle { withAnimation(.easeOut(duration: 0.5)) { idle = false } } }
+
+    func say(_ m: String) {
+        toastTick += 1; let mine = toastTick
+        withAnimation(.spring(response: 0.3)) { toast = m }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if self.toastTick == mine { withAnimation(.easeOut(duration: 0.4)) { self.toast = nil } }
+        }
+    }
+
+    // Tidy the current space into a fitted grid centered in the work area.
+    func arrange() {
+        let items = current.filter { $0.presentation == .tiled }.sorted { $0.z < $1.z }
+        guard !items.isEmpty else { return }
+        let cols = Int(ceil(sqrt(Double(items.count))))
+        let rows = Int(ceil(Double(items.count) / Double(cols)))
+        let cellW = (items.map { $0.size.width }.max() ?? 320) + 40
+        let cellH = (items.map { $0.size.height }.max() ?? 240) + 50
+        let totalW = Double(cols) * cellW, totalH = Double(rows) * cellH
+        let startX = (screenW - totalW) / 2 + cellW / 2
+        let startY = max(70, (screenH - totalH) / 2) + cellH / 2 - 20
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+            for (i, p) in items.enumerated() {
+                p.pos = CGPoint(x: startX + Double(i % cols) * cellW, y: startY + Double(i / cols) * cellH)
+            }
+        }
+        say("arranged \(items.count)")
+    }
 }
 
 // MARK: - Adopting host (tiled webview)
@@ -195,7 +270,8 @@ final class PopoutPanel: NSPanel {
 struct Dreamscape: View {
     @ObservedObject var shell = Shell.shared
     var body: some View {
-        TimelineView(.animation) { tl in
+        let accent = shell.accent
+        return TimelineView(.animation) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
             let px = (shell.mouse.x - 0.5) * 30, py = (shell.mouse.y - 0.5) * 20
             Canvas { ctx, size in
@@ -209,7 +285,7 @@ struct Dreamscape: View {
                     with: .radialGradient(Gradient(colors: [P42.accent2.opacity(0.22 + 0.12*b), .clear]),
                         center: CGPoint(x: size.width*0.2 + px, y: size.height*0.15 + py), startRadius: 0, endRadius: 260))
                 ctx.fill(Path(ellipseIn: CGRect(x: size.width*0.8 - 220 - px, y: size.height*0.7 - 220 - py, width: 440, height: 440)),
-                    with: .radialGradient(Gradient(colors: [P42.accent.opacity(0.16 + 0.10*(1-b)), .clear]),
+                    with: .radialGradient(Gradient(colors: [accent.opacity(0.18 + 0.12*(1-b)), .clear]),
                         center: CGPoint(x: size.width*0.8 - px, y: size.height*0.7 - py), startRadius: 0, endRadius: 260))
                 // starfield (deterministic pseudo-random, drifting)
                 for i in 0..<160 {
@@ -227,12 +303,12 @@ struct Dreamscape: View {
                     let f = (Double(i) + scroll) / 24.0
                     let y = horizon + (size.height - horizon) * f * f
                     var p = Path(); p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y))
-                    ctx.stroke(p, with: .color(P42.accent.opacity(0.05 + 0.18*f)), lineWidth: 1)
+                    ctx.stroke(p, with: .color(accent.opacity(0.05 + 0.18*f)), lineWidth: 1)
                 }
                 let cx = size.width/2 + px
                 for i in -11...11 {
                     var p = Path(); p.move(to: CGPoint(x: cx + Double(i)*22, y: horizon)); p.addLine(to: CGPoint(x: cx + Double(i)*size.width/9, y: size.height))
-                    ctx.stroke(p, with: .color(P42.accent.opacity(0.06)), lineWidth: 1)
+                    ctx.stroke(p, with: .color(accent.opacity(0.06)), lineWidth: 1)
                 }
             }
         }.ignoresSafeArea()
@@ -266,21 +342,37 @@ struct Chrome: View {
             Mark()
             // global create actions (from SidebarView header)
             chromeIcon("number", "New Space"); chromeIcon("person.crop.circle.badge.plus", "New Companion")
-            Spacer()
-            // virtual spaces switcher
+            Spacer().frame(width: 18)
+            // MODES (meta-spaces) — left of the notch/camera, each reconfigures the whole shell
             HStack(spacing: 8) {
-                ForEach(Array(shell.spaces.enumerated()), id: \.0) { i, name in
-                    Button(action: { withAnimation(.spring(response:0.3)) { shell.space = i } }) {
-                        Text(name).font(P42.mono(11, shell.space == i ? .bold : .regular))
-                            .foregroundStyle(shell.space == i ? P42.accent : P42.dim)
-                            .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(shell.space == i ? P42.accent.opacity(0.12) : .clear, in: Capsule())
-                            .overlay(Capsule().stroke(shell.space == i ? P42.accent.opacity(0.5) : .clear, lineWidth: 1))
+                Text("MODE").font(P42.mono(9)).foregroundStyle(P42.dim.opacity(0.7)).tracking(2)
+                ForEach(Array(shell.modes.enumerated()), id: \.0) { i, m in
+                    let on = shell.mode == i
+                    Button(action: { shell.switchMode(i) }) {
+                        HStack(spacing: 5) {
+                            Circle().fill(m.accent).frame(width: 5, height: 5).opacity(on ? 1 : 0.4)
+                            Text(m.name.uppercased()).font(P42.mono(10, on ? .bold : .regular)).tracking(1)
+                                .foregroundStyle(on ? m.accent : P42.dim)
+                        }
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(on ? m.accent.opacity(0.14) : .clear, in: Capsule())
+                        .overlay(Capsule().stroke(on ? m.accent.opacity(0.55) : .clear, lineWidth: 1))
                     }.buttonStyle(.plain)
                 }
+                // breadcrumb into the active space + spaces overview
+                Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(P42.dim)
+                Button(action: { withAnimation { shell.showSpaces.toggle() } }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "square.stack.3d.up").font(.system(size: 10))
+                        Text(shell.spaceNames[shell.space]).font(P42.mono(10)).tracking(1)
+                    }.foregroundStyle(shell.showSpaces ? shell.accent : P42.text)
+                }.buttonStyle(.plain).help("Spaces in this mode (⌘E)")
             }
             Spacer()
             // status cluster moved up from ContentView.swift:185
+            Button(action: { shell.arrange() }) {
+                Image(systemName: "rectangle.3.group").font(.system(size: 12)).foregroundStyle(P42.dim)
+            }.buttonStyle(.plain).help("Arrange (⌘L)")
             Button(action: { withAnimation { shell.expose.toggle() } }) {
                 Image(systemName: "square.grid.2x2").font(.system(size: 12)).foregroundStyle(shell.expose ? P42.accent : P42.dim)
             }.buttonStyle(.plain).help("Exposé (Tab)")
@@ -338,6 +430,16 @@ struct Tile: View {
             .contentShape(Rectangle())
             .gesture(DragGesture().onChanged { drag = $0.translation }
                 .onEnded { v in port.pos.x += v.translation.width; port.pos.y += v.translation.height; drag = .zero })
+            .contextMenu {
+                Menu("Move to space") {
+                    ForEach(Array(shell.spaceNames.enumerated()), id: \.0) { i, name in
+                        Button(name) { shell.move(port, toSpace: i) }.disabled(i == port.space)
+                    }
+                }
+                Button(floating ? "Dock back" : "Pop out") { popToggle() }
+                Divider()
+                Button("Close", role: .destructive) { shell.close(port) }
+            }
 
             ZStack {
                 if floating {
@@ -358,6 +460,7 @@ struct Tile: View {
                 }
             }.frame(width: w, height: h)
         }
+        .frame(width: w)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isTop ? P42.accent.opacity(0.7) : P42.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: P42.accent.opacity(isTop ? 0.3 : 0.12), radius: isTop ? 22 : 12)
@@ -380,7 +483,7 @@ struct Tile: View {
         DispatchQueue.main.async {
             let w = Registry.shared.web(port.id, html: port.html)
             let screen = NSScreen.main!.frame
-            let sz = NSSize(width: 420, height: 320)
+            let sz = NSSize(width: port.size.width + 16, height: port.size.height + 36)
             let panel = PopoutPanel(contentRect: NSRect(x: screen.midX - 100, y: screen.midY - 80, width: sz.width, height: sz.height),
                 styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.title = port.title
@@ -410,17 +513,17 @@ struct Palette: View {
     @ObservedObject var shell = Shell.shared
     @State private var q = ""
     @FocusState private var focused: Bool
-    var matches: [(String,String,String,String)] { q.isEmpty ? Apps.all : Apps.all.filter { $0.1.lowercased().contains(q.lowercased()) } }
+    var matches: [AppDef] { q.isEmpty ? Apps.all : Apps.all.filter { $0.label.lowercased().contains(q.lowercased()) } }
     var body: some View {
         VStack(spacing: 0) {
             HStack { Image(systemName: "magnifyingglass").foregroundStyle(P42.dim)
                 TextField("run a port…", text: $q).textFieldStyle(.plain).font(P42.mono(15)).foregroundStyle(P42.text).focused($focused)
                 .onSubmit { if let m = matches.first { shell.spawn(m); shell.showPalette = false } } }.padding(16)
             Divider().overlay(P42.accent.opacity(0.2))
-            ForEach(matches, id: \.1) { m in
-                HStack(spacing: 12) { Image(systemName: m.0).foregroundStyle(P42.accent).frame(width: 22)
-                    Text(m.1).font(P42.mono(14)).foregroundStyle(P42.text); Spacer()
-                    Text(m.2).font(P42.mono(11)).foregroundStyle(P42.dim) }
+            ForEach(Array(matches.enumerated()), id: \.0) { _, m in
+                HStack(spacing: 12) { Image(systemName: m.icon).foregroundStyle(P42.accent).frame(width: 22)
+                    Text(m.label).font(P42.mono(14)).foregroundStyle(P42.text); Spacer()
+                    Text(m.title).font(P42.mono(11)).foregroundStyle(P42.dim) }
                 .padding(.horizontal, 16).padding(.vertical, 11).contentShape(Rectangle())
                 .onTapGesture { shell.spawn(m); shell.showPalette = false }
             }
@@ -435,22 +538,37 @@ struct Palette: View {
 
 struct Dock: View {
     @ObservedObject var shell = Shell.shared
-    @State private var hover: String?
+    var cursorX: CGFloat { shell.mouse.x * shell.screenW }
     var body: some View {
-        HStack(spacing: 14) {
-            ForEach(Apps.all, id: \.1) { app in
-                Button(action: { shell.spawn(app) }) {
-                    Image(systemName: app.0).font(.system(size: 21, weight: .medium)).foregroundStyle(P42.accent)
-                        .frame(width: 50, height: 50).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 13))
-                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(P42.accent.opacity(0.3), lineWidth: 1))
-                        .scaleEffect(hover == app.1 ? 1.2 : 1).shadow(color: hover == app.1 ? P42.accent.opacity(0.6) : .clear, radius: 12)
-                }.buttonStyle(.plain).onHover { hover = $0 ? app.1 : (hover == app.1 ? nil : hover) }
-                .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover).help(app.1)
+        HStack(spacing: 12) {
+            ForEach(Array(shell.dockApps.enumerated()), id: \.0) { _, app in
+                DockIcon(app: app, cursorX: cursorX)
             }
-        }.padding(.horizontal, 18).padding(.vertical, 11)
+        }.padding(.horizontal, 18).padding(.vertical, 10).frame(height: 74, alignment: .bottom)
+        .animation(.spring(response: 0.3), value: shell.mode)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(P42.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 24, y: 8)
+    }
+}
+
+struct DockIcon: View {
+    @ObservedObject var shell = Shell.shared
+    let app: AppDef; let cursorX: CGFloat
+    var body: some View {
+        GeometryReader { g in
+            let mid = g.frame(in: .global).midX
+            let d = abs(cursorX - mid)
+            let s = 1 + 0.7 * exp(-(d * d) / (2 * 70 * 70))   // gaussian magnification
+            Button(action: { shell.spawn(app) }) {
+                Image(systemName: app.icon).font(.system(size: 21, weight: .medium)).foregroundStyle(P42.accent)
+                    .frame(width: 46, height: 46).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(P42.accent.opacity(0.3), lineWidth: 1))
+                    .shadow(color: P42.accent.opacity(min(0.7, (s - 1) * 1.2)), radius: 14 * (s - 1) + 1)
+                    .scaleEffect(s, anchor: .bottom)
+            }.buttonStyle(.plain).help(app.label)
+            .frame(width: g.size.width, height: g.size.height, alignment: .bottom)
+        }.frame(width: 46, height: 46)
     }
 }
 
@@ -468,6 +586,104 @@ struct Boot: View {
     }
 }
 
+// MARK: - Space rail (the spaces inside the current mode)
+
+struct SpaceRail: View {
+    @ObservedObject var shell = Shell.shared
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(Array(shell.spaceNames.enumerated()), id: \.0) { i, name in
+                let on = shell.space == i
+                let count = shell.portsIn(shell.mode, i).count
+                Button(action: { shell.switchSpace(i) }) {
+                    ZStack(alignment: .topTrailing) {
+                        RoundedRectangle(cornerRadius: 11)
+                            .fill(on ? shell.accent.opacity(0.18) : Color.white.opacity(0.04))
+                            .overlay(RoundedRectangle(cornerRadius: 11).stroke(on ? shell.accent : P42.dim.opacity(0.4), lineWidth: on ? 1.5 : 1))
+                            .frame(width: 44, height: 44)
+                            .overlay(Text(name.prefix(1).uppercased()).font(P42.mono(16, .bold)).foregroundStyle(on ? shell.accent : P42.dim))
+                            .shadow(color: on ? shell.accent.opacity(0.5) : .clear, radius: 10)
+                        if count > 0 {
+                            Text("\(count)").font(P42.mono(8, .bold)).foregroundStyle(.black)
+                                .padding(3).background(on ? shell.accent : P42.dim, in: Circle()).offset(x: 6, y: -6)
+                        }
+                    }
+                }.buttonStyle(.plain).help("\(name) — \(count) ports")
+            }
+            Button(action: { withAnimation { shell.showSpaces = true } }) {
+                Image(systemName: "plus").font(.system(size: 13)).foregroundStyle(P42.dim)
+                    .frame(width: 44, height: 30).background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
+            }.buttonStyle(.plain).help("Spaces overview (⌘E)")
+        }
+        .padding(8)
+        .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.25), lineWidth: 1))
+    }
+}
+
+// MARK: - Spaces overview (zoom out to all spaces in the mode, each showing its ports)
+
+struct SpacesOverview: View {
+    @ObservedObject var shell = Shell.shared
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { withAnimation { shell.showSpaces = false } }
+            VStack(spacing: 20) {
+                HStack(spacing: 8) {
+                    Circle().fill(shell.accent).frame(width: 7, height: 7)
+                    Text("\(shell.modeDef.name.uppercased()) · SPACES").font(P42.mono(13, .bold)).foregroundStyle(shell.accent).tracking(3)
+                }
+                HStack(alignment: .top, spacing: 18) {
+                    ForEach(Array(shell.spaceNames.enumerated()), id: \.0) { i, name in
+                        SpaceCard(index: i, name: name)
+                    }
+                    Button(action: { shell.say("spaces are fixed in this prototype") }) {
+                        VStack(spacing: 8) { Image(systemName: "plus").font(.system(size: 20)); Text("new space").font(P42.mono(11)) }
+                            .foregroundStyle(P42.dim).frame(width: 150, height: 170)
+                            .background(RoundedRectangle(cornerRadius: 14).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundStyle(P42.dim.opacity(0.4)))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }.transition(.opacity)
+    }
+}
+
+struct SpaceCard: View {
+    @ObservedObject var shell = Shell.shared
+    let index: Int; let name: String
+    var ports: [Port] { shell.portsIn(shell.mode, index) }
+    var on: Bool { shell.space == index }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
+                Circle().fill(on ? shell.accent : P42.dim).frame(width: 6, height: 6)
+                Text(name).font(P42.mono(13, .bold)).foregroundStyle(P42.text)
+                Spacer()
+                Text("\(ports.count)").font(P42.mono(11)).foregroundStyle(P42.dim)
+            }
+            Divider().overlay(P42.dim.opacity(0.3))
+            if ports.isEmpty {
+                Spacer(); Text("empty").font(P42.mono(11)).foregroundStyle(P42.dim.opacity(0.6)).frame(maxWidth: .infinity); Spacer()
+            } else {
+                ForEach(ports.prefix(4)) { p in
+                    HStack(spacing: 7) {
+                        Image(systemName: p.icon).font(.system(size: 10)).foregroundStyle(shell.accent).frame(width: 14)
+                        Text(p.title).font(P42.mono(10)).foregroundStyle(P42.text).lineLimit(1)
+                    }
+                }
+                if ports.count > 4 { Text("+\(ports.count - 4) more").font(P42.mono(9)).foregroundStyle(P42.dim) }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(12).frame(width: 200, height: 170, alignment: .top)
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(on ? shell.accent.opacity(0.7) : P42.accent.opacity(0.18), lineWidth: on ? 1.5 : 1))
+        .shadow(color: on ? shell.accent.opacity(0.35) : .black.opacity(0.4), radius: on ? 20 : 10)
+        .scaleEffect(on ? 1.04 : 1)
+        .onTapGesture { shell.switchSpace(index) }
+    }
+}
+
 // MARK: - Root
 
 struct ShellView: View {
@@ -482,14 +698,26 @@ struct ShellView: View {
                     ForEach(shell.current) { port in
                         Tile(port: port, exposeFrame: shell.expose ? exposeRect(port, in: geo.size) : nil)
                     }
+                    // Space rail — the spaces inside this mode (left edge, vertically centered)
+                    HStack { SpaceRail().padding(.leading, 14); Spacer() }
                     VStack { Spacer(); Dock().padding(.bottom, 24) }
                 }
                 .opacity(shell.idle ? 0 : 1)
                 .allowsHitTesting(!shell.idle)
+                if shell.showSpaces { SpacesOverview() }
                 // idle hint
                 if shell.idle {
                     VStack { Spacer(); Text("PORT42 // move to wake").font(P42.mono(12)).foregroundStyle(P42.dim).padding(.bottom, 40) }
                         .transition(.opacity)
+                }
+                if let t = shell.toast {
+                    VStack { Spacer()
+                        Text(t).font(P42.mono(11)).foregroundStyle(P42.text)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .overlay(Capsule().stroke(P42.accent.opacity(0.4), lineWidth: 1))
+                            .padding(.bottom, 96)
+                    }.transition(.move(edge: .bottom).combined(with: .opacity)).allowsHitTesting(false)
                 }
                 if shell.showPalette {
                     ZStack { Color.black.opacity(0.4).ignoresSafeArea().onTapGesture { shell.showPalette = false }; Palette() }.transition(.opacity)
@@ -499,6 +727,8 @@ struct ShellView: View {
             .animation(.easeInOut(duration: 0.25), value: shell.showPalette)
             .animation(.easeInOut(duration: 0.5), value: shell.booting)
             .animation(.easeInOut(duration: 0.5), value: shell.space)
+            .animation(.easeInOut(duration: 0.5), value: shell.mode)
+            .animation(.easeInOut(duration: 0.25), value: shell.showSpaces)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).background(.black)
     }
@@ -507,9 +737,10 @@ struct ShellView: View {
         let idx = items.firstIndex(where: { $0.id == port.id }) ?? 0
         let cols = Int(ceil(sqrt(Double(max(1, items.count)))))
         let rows = Int(ceil(Double(items.count) / Double(cols)))
-        let cw = size.width / Double(cols), ch = (size.height - 120) / Double(rows)
+        let top = 90.0
+        let cw = size.width / Double(cols), ch = (size.height - top - 30) / Double(rows)
         let r = idx / cols, c = idx % cols
-        return CGRect(x: cw * (Double(c) + 0.5), y: 90 + ch * (Double(r) + 0.5), width: cw * 0.82, height: ch * 0.82)
+        return CGRect(x: cw * (Double(c) + 0.5), y: top + ch * (Double(r) + 0.5), width: cw * 0.82, height: ch * 0.82)
     }
 }
 
@@ -522,6 +753,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var window: KioskWindow!
     func applicationDidFinishLaunching(_ n: Notification) {
         let screen = NSScreen.main!
+        Shell.shared.screenW = screen.frame.width; Shell.shared.screenH = screen.frame.height
+        // Clear the camera/notch. safeAreaInsets.top can read 0 once the menu bar is hidden, so
+        // detect the notch via auxiliaryTopLeftArea (the menu-bar strip beside it) and floor at 38.
+        let notched = screen.safeAreaInsets.top > 0 || screen.auxiliaryTopLeftArea != nil
+        Shell.shared.notch = notched ? max(screen.safeAreaInsets.top, 38) : 0
         window = KioskWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -556,13 +792,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
             Shell.shared.bump()
             let cmd = e.modifierFlags.contains(.command)
             if e.keyCode == 53 { if Shell.shared.showPalette { Shell.shared.showPalette = false; return nil }
+                                 if Shell.shared.showSpaces { withAnimation { Shell.shared.showSpaces = false }; return nil }
                                  if Shell.shared.expose { withAnimation { Shell.shared.expose = false }; return nil }
                                  NSApp.terminate(nil); return nil }
             if e.keyCode == 48 { withAnimation { Shell.shared.expose.toggle() }; return nil }   // Tab
             if cmd, e.charactersIgnoringModifiers == "q" { NSApp.terminate(nil); return nil }
             if cmd, e.charactersIgnoringModifiers == "k" { Shell.shared.showPalette.toggle(); return nil }
+            if cmd, e.charactersIgnoringModifiers == "l" { Shell.shared.arrange(); return nil }
+            if cmd, e.charactersIgnoringModifiers == "e" { withAnimation { Shell.shared.showSpaces.toggle() }; return nil }
             if cmd, let d = e.charactersIgnoringModifiers, let i = Int(d), (1...3).contains(i) {
-                withAnimation { Shell.shared.space = i - 1 }; return nil
+                Shell.shared.switchMode(i - 1); return nil
             }
             return e
         }
@@ -576,8 +815,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if i < lines.count { Shell.shared.bootLines.append(lines[i]); i += 1 }
             else { t.invalidate(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 withAnimation { Shell.shared.booting = false }
-                Shell.shared.spawn(Apps.all[0]); Shell.shared.spawn(Apps.all[1])
-                Shell.shared.space = 1; Shell.shared.spawn(Apps.all[4]); Shell.shared.spawn(Apps.all[2]); Shell.shared.space = 0
+                Shell.shared.seed(0)   // home mode's default layout
             } }
         }
     }

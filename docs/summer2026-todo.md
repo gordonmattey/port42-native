@@ -306,6 +306,64 @@ space becomes a real place: its directory, its ports, its companions, its memory
 
 ---
 
+# New frontiers (2026-06-29) — bigger north stars
+
+Two larger directions added after the shell-prototype session. Both have written plans + working
+throwaway proofs; they sit above the space-experience polish as *platform* moves.
+
+## TODO: GUI shell — replace the desktop, not the OS (→ `docs/plan-port42-shell.md`)
+
+Port42 boots into a **fullscreen surface with no macOS Dock and no menu bar**, and the desktop is
+made of **live ports** over a living ambient background. macOS stays the substrate; Port42 owns 100%
+of what the human sees. **Prototype built + run** (`prototypes/p42shell/`); the WKWebView re-parent
+crux is spike-proven (`prototypes/wkspike/`).
+
+Key findings (de-risks it hard):
+- **~70% of the bones already exist.** `PortWindowManager` already does per-space, persisted,
+  dockable, positioned ports, and **chat is already a port** (`ensureChatPort`/`isChatPort`).
+  `TransitionRoot`/`DreamscapeVideoLayer`/`AquariumBreakout` are the **ambient surface** already.
+- **The ambient surface unifies screensaver = lock = desktop background.** One persistent surface,
+  three layers (ambient / transition / summoned chrome+ports); idle dissolves the chrome back to the
+  dreamscape. This *is* the screensaver.
+- **Takeover is ~15 lines** (`presentationOptions = [.hideDock,.hideMenuBar]` + borderless fullscreen)
+  extending the AppDelegate window-grab that already runs at launch.
+- **Modes (meta-spaces).** A mode is a whole-shell state — its own accent, its own dock apps, its own
+  set of Port42 **spaces**, its own default layout — not just a desktop. Switching a mode reconfigures
+  the workspace. Within a mode, spaces are visualized by a **space rail** + a **spaces overview**
+  (zoom out to cards showing each space's ports). This directly subsumes "ports scoped to space" +
+  "a different dock view of ports" above (the shell is that dock view, fullscreen).
+- **Boot-into-Port42** tiers: launch-at-login (Tier 1, easy/reversible) → MDM Autonomous Single App
+  Mode (Tier 2, kiosk-grade, a settings toggle for app-level lockdown; true lockdown needs the MDM
+  profile). Tier 3 (replace `loginwindow`) is not possible on macOS — known ceiling.
+- **Chrome migration:** the global status/action cluster (gateway/tunnel/key/pause/usage/settings,
+  `ContentView.swift:185`) moves into a top Chrome; the **PORT42 mark returns top-left** in the freed
+  traffic-light gap. Modes sit **left of the notch/camera** (don't center under it; don't inset away
+  real estate).
+
+Build arc: flag-gated `ShellWindow` → desktop of ports over the ambient surface + Chrome → tile↔float
+re-parent (no reload) → companion-driven desktop → boot surface + idle-out. Reuses registry + bridge
++ `port.create`, doesn't rebuild.
+
+## TODO: computer use — the operator loop (→ `docs/plan-computer-use.md`)
+
+A single bridge primitive **`computer.act({action}) → { screenshot, … }`** that **fuses see + act**:
+every action returns the fresh post-action frame, so the companion loops perceive→act→perceive
+(Anthropic-style computer use, native to Port42). Drives *any* app on screen, not just ports.
+
+- **Small because the pieces exist:** `screen_capture` (see), `automation.runJXA/AppleScript` System
+  Events (keystroke/click/scroll/drag), `screen.windows`, `clipboard.*`, `browser.*`. Unified API
+  means a bridge method is a companion tool for free — the feature is *composing* these into one
+  act-then-observe call. (Proven by hand this session: capture→keystroke→capture drove the shell.)
+- **Coordinate hygiene** is the #1 footgun (pixels vs points, Retina/scaled capture) — bake the
+  mapping into the primitive; the model clicks "where it sees."
+- **Permissions/safety drive the whole machine:** a new **"Operate"** bucket (clicks need
+  Accessibility, keys need Automation — both surfaced), an **always-visible indicator + stop**, and
+  **guardrails on destructive actions**. Non-negotiable, not polish.
+- Build: keyboard-only operator (`screenshot`+`key`+`type`) → pointer actions → safety layer →
+  optional `computer.operate({goal})` server-side loop.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
