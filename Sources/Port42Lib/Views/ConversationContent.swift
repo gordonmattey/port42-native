@@ -769,6 +769,11 @@ struct MessageRow: View, Equatable {
                 TerminalCompactBlock(title: term.title, createdBy: entry.senderName) {
                     appState.openTerminalPort(id: term.id)
                 }
+            } else if let web = entry.webPortInfo {
+                // Step 8: floating web port reference card → focus/reopen its window.
+                WebPortCard(title: web.title, createdBy: entry.senderName) {
+                    appState.openWebPort(id: web.id)
+                }
             } else if entry.isSystem {
                 if let capturePath = entry.capturePath {
                     CaptureMessageView(senderName: entry.senderName, path: capturePath)
@@ -1278,6 +1283,56 @@ struct TerminalCompactBlock: View {
             }
             .buttonStyle(.plain)
             .help("Open terminal")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Port42Theme.bgSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Port42Theme.border, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Web Port Card (Step 8)
+
+/// Inline reference card for a floating web port (`[port:id:title]`), symmetric with
+/// `TerminalCompactBlock`. The single play button focuses / reopens the port's window — the live
+/// surface is the floating WKWebView, not rendered inline here.
+struct WebPortCard: View {
+    let title: String
+    let createdBy: String?
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image("port42-logo", bundle: Bundle.port42)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 32, height: 32)
+
+            Text(title)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .lineLimit(1)
+
+            if let creator = createdBy {
+                Text(creator)
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Button(action: onOpen) {
+                Image(systemName: "macwindow")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Port42Theme.accent)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open port window")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

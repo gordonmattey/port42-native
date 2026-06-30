@@ -2507,7 +2507,42 @@ public final class AppState: ObservableObject {
             let portId = portWindows.popOut(html: html, bridge: bridge, spaceId: spaceId, createdBy: createdBy,
                                             messageId: messageId, title: resolvedTitle, portType: "web",
                                             in: CGSize(width: 800, height: 600))
+            // Step 8 (D2 parity): leave a `[port:id]` reference card in the space so the floating
+            // web port has chat presence, symmetric with the native terminal's `[terminal:id]`
+            // card. Local-only — the card binds by id to the (persisted) floating panel, so it
+            // survives restart; clicking play focuses / reopens the window.
+            postWebPortCard(portId: portId, title: resolvedTitle, spaceId: spaceId,
+                            createdBy: createdBy, createdByName: createdByName)
             return ["id": portId, "title": resolvedTitle]
+        }
+    }
+
+    /// Post a local-only `[port:id]` reference card for a floating web port (Step 8, D2 parity).
+    /// Mirrors the `[terminal:id]` card. Not synced — the floating port lives on this machine.
+    func postWebPortCard(portId: String, title: String, spaceId: String,
+                         createdBy: String?, createdByName: String?) {
+        let name = createdByName ?? createdBy ?? currentUser?.displayName ?? "port42"
+        let card = Message(
+            id: UUID().uuidString, spaceId: spaceId,
+            senderId: currentUser?.id ?? "", senderName: name, senderType: "system",
+            content: ChatEntry.portCard(id: portId, title: title),
+            timestamp: Date(), replyToId: nil, syncStatus: "local", createdAt: Date()
+        )
+        try? db.saveMessage(card)
+    }
+
+    /// The inline `[port:id]` card's play action (Step 8): focus the live floating window, restore
+    /// it if backgrounded. Mirror of `openTerminalPort` for web ports. (A web port's HTML lives in
+    /// the persisted panel, so after restart the restored panel is brought to front.)
+    func openWebPort(id: String) {
+        guard let panel = portWindows.panels.first(where: { $0.id == id || $0.udid == id }) else {
+            NSLog("[Port42] openWebPort: no panel for %@", id)
+            return
+        }
+        if panel.isBackground {
+            portWindows.restore(panel.id)
+        } else {
+            portWindows.bringToFront(panel.id)
         }
     }
 
