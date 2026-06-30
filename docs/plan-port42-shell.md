@@ -1,9 +1,12 @@
 # PORT42 // SHELL — the GUI shell that replaces the desktop, not the OS
 
-**Status:** idea + proven spikes + grounded in the existing codebase (2026-06-29, w/ gordon). Throwaway
-kiosk shell built and run fullscreen; screen-takeover and a live-port desktop both work. The
-re-parent crux is spike-proven. Crucially, **most of the machinery already exists in the app** — this
-doc is corrected to credit it.
+**Status:** spikes proven + prototype explored (rev3→rev8) + build spec written + adoption decided
+(2026-06-30, w/ gordon). The throwaway kiosk shell (`prototypes/p42shell`) is built out end-to-end
+(companions, chat, flat spaces, galaxy nav, parking dock); the re-parent crux is spike-proven; the
+production design is captured in **`spec-shell-reimplementation.md`**. **Adoption is decided: the shell
+replaces the app surface for everyone (Plan D, §8a)** — build behind `PORT42_SHELL`, then flip and
+delete `ContentView`. Most of the machinery already exists in the app — this doc credits it. Next:
+**D0/S1** (takeover behind the flag).
 
 **One line:** Port42 boots into a fullscreen surface with **no macOS Dock and no menu bar**, and the
 desktop is made of **live ports** floating over a living ambient background. macOS stays underneath as
@@ -290,6 +293,67 @@ list — but it becomes one summonable port/panel in the shell (or a left rail),
 - Chat (`ChatView`) is one port on the wall (`isChatPort` path already supports hosting it in a
   panel), so the conversation is just another surface in the shell.
 - **Ship:** a Mac that boots straight into the Port42 ambient surface and settles back to it when idle.
+
+---
+
+## 8a. Adoption & first-run — the shell becomes THE app (Plan D, decided w/ gordon)
+
+**Decision: the shell replaces the app surface for *everyone* — new and existing users. No
+coexistence, no on-ramp for existing users, no backward-compat surface to maintain.** The shell is a
+different top-level View over the *same* `AppState` / `PortWindowManager` / spaces / companions, so
+"integration" is a surface swap, not a migration. End state: `ContentView` (the `NavigationSplitView`)
+is **deleted**.
+
+### Why first-run is already solved (we don't seed anything)
+
+The existing onboarding already creates the new user's world AND is already shell-shaped. `SetupView`
+runs phases `.boot` (a faked **BIOS POST terminal** — enter username + auth Claude) → `.transition` →
+`.swim` (a chat with the **first companion**, Echo), then exits into the **general** space it created.
+So a new user finishes onboarding already holding: the general space, a first companion, and a chat
+with it. The shell's thesis ("a room with people + companions") is therefore true at t=0 with **zero
+seeding** — the companion is in the chat's member row and the conversation is the anchor tile.
+
+### First-run interaction — NO control tour; one poetic instruction (reuse existing language)
+
+There is **no tutorial, no coach-marks, no companion-led tour.** The shell's one essential gesture
+(zoom out) is taught by reframing language the product *already speaks*:
+
+- `SetupView.swift:811` has a literal **"swim in open water"** button — today's graduation from the
+  intimate first-companion *swim* (just you + Echo) out into the broader app. `echo-prompt.txt` already
+  says: *"when they're ready, they can swim in open water … where channels, other companions, and
+  humans are all swimming together."* The dive/water metaphor is fully wired (`diveProgress`
+  0=surface→1=submerged, the dive transition in `TransitionRoot`, `diveIn`/`diveRequested`).
+- **In the shell, the "swim in open water" BUTTON becomes the zoom-out GESTURE.** Dropped into your
+  space focused on the chat = swimming close with your companion. The single first-run line, where the
+  button used to be: **"zoom out to swim in open water."** Zoom out (pinch / ⌘↑) → the chat recedes,
+  the space opens, and the **galaxy = open water** "where channels, other companions, and humans are
+  all swimming together" (Echo's exact words). Shown once, on first landing; gone after.
+- This maps the zoom ladder onto the dive metaphor exactly: **focus (close) ↔ space ↔ open water
+  (galaxy).** The existing dive transition (`TransitionRoot`) can *be* the zoom-out animation.
+
+### Visually fused boot — one continuous sequence, not two boots
+
+Onboarding's `.boot` BIOS terminal and the shell's boot are the **same surface**. A new user's POST
+terminal → auth → first-companion chat flows directly into the shell coming alive (Layer-1 breakout);
+an existing user just gets the shell boot. No double-boot. The shell's Layer-1 breakout *is* the
+onboarding boot surface.
+
+### Phasing (D0 → D2)
+
+> The build (S1–S5 above) is unchanged — it's the *engineering* of the shell behind `PORT42_SHELL`.
+> D0–D2 are the *adoption*: how it becomes the only surface. Per the build spec
+> (`spec-shell-reimplementation.md`), each ships runnable behind the flag, default off until D2.
+
+- **D0 — Build behind the flag.** `ShellView` over the real `AppState`, phases S1–S5. Flag off = today's
+  app, untouched. Dogfood via a runtime toggle. No first-run impact yet.
+- **D1 — First-run handoff.** Swap the post-setup surface from `ContentView` → `ShellView`: onboarding
+  lands you in the shell's general space (companion in the member row, chat as the anchor tile);
+  fuse the onboarding boot with the shell boot; replace the "swim in open water" button with the
+  zoom-out gesture + the one-time "zoom out to swim in open water" line (gated on a one-time flag, for
+  new AND existing users on their first shell launch). Still behind the flag.
+- **D2 — Flip the default + delete the old surface.** `ShellView` becomes the root for everyone (swap
+  at the `@main`/window level). Keep a hidden reverse fallback to `ContentView` for a release or two,
+  then **delete `ContentView`** and the flag.
 
 ---
 
