@@ -132,8 +132,14 @@ with no active display or in some locked states).
 **Ports & the four presentations.** `PortWindowManager.webViews[id]` + `PortWebViewHost`; presentation
 is `inline | floating | tiled | parked`. All re-parent the same webview (`removeFromSuperview` /
 `addSubview`; the host must not recreate it — `dismantleNSView` no-op, stable `.id`). A port is in
-exactly one host at a time. Tiled ports carry a desktop z-order (in `PortPanel`/`ShellState`) for the
-canvas ZStack.
+exactly one host at a time.
+
+**Z-order** (prototype `Port.z` + `Shell.zCounter`/`focus()`): every tiled port carries an integer `z`;
+a monotonic `zCounter` on `ShellState` is incremented and assigned to a port whenever it's focused
+(`focus(p): zCounter += 1; p.z = zCounter; selectedId = p.id`), so the focused port is always frontmost.
+The canvas ZStack renders tiles ordered by `z`; `arrange` walks them in `z` order; `selectedPort` (the
+highlighted tile that ⌘↓ zooms into) is `selectedId` else the frontmost. Add `z` to `PortPanel`
+(persisted) — it's the only new tile-geometry field beyond `position`/`size`.
 
 **Companions & chat (the heart).** The chat surface is the per-space `isChatPort` panel hosting
 `ChatView`. The **member header** renders *you* + `getAgentsForSpace(spaceId)` as chips with live status.
@@ -141,15 +147,26 @@ A companion shared across spaces has one status (one agent, one state). The memb
 many lines as needed (a `Layout` flow), never a horizontal scroll. The send → reply → `port.create` →
 arrange loop is §3.3.
 
+The three status states (prototype `CStatus { idle, thinking, porting }`) map to signals that **already
+exist** — no new instrumentation: **thinking** = the agent's name is in `appState.typingAgentNamesBySpace[spaceId]`
+(the live typing indicator); **porting** = the agent is in a tool-use turn calling `port.create` (the
+streaming loop already tracks tool use); **idle** = neither. One agent has one state across every space
+it's in.
+
 **Spaces.** `appState.spaces` (DB) + per-space accent/dock/seed config; `switchToSpace(spaceId, name)`
 swaps per-space ports; the desktop is `panels.filter { spaceId == current && presentation == "tiled" }`.
 The chat is the per-space `isChatPort` panel — a prominent, larger tile, seeded first.
 
-**Zoom ladder.** Rungs galaxy ↔ space ↔ focus, on `ShellState`. Galaxy renders all spaces as worlds
-(name, accent, port count, companion members) in a responsive grid (max 3 across); hovering a world
-arms it so zoom-in dives into that space; clicking enters; `selectedPort` (hover/click) is what focus
-zooms into. Focus and a tile both want one webview — moving to focus re-parents it out of the tile and
-back on exit (no reload).
+**Zoom ladder.** Rungs galaxy ↔ space ↔ focus, on `ShellState` (prototype `Shell` is canonical for the
+interaction — preserve it). Galaxy renders all spaces as **worlds** in a responsive `LazyVGrid` (max 3
+across). A world is a **stylized accent-card, not a live preview**: a `Canvas` radial orb in the space's
+accent + a pulsing core + orbiting "moons" (one per port, capped ~8) = its port count, plus name and
+crew chips — so galaxy stays cheap no matter how many ports a space holds. Hovering a world arms
+`galaxyHover` so zoom-in (⌘↓ / pinch-in) dives into it; clicking enters; `selectedPort` (hover/click) is
+what focus zooms into. **Focus** = one port immersive (`focusId`): focus and a tile both want the one
+webview, so entering focus re-parents it out of the tile and back on exit (no reload). **Exposé** (`Tab`)
+is an orthogonal grid of the current space's tiles. Gesture handling (the pinch latch — one rung per
+gesture, `webView.allowsMagnification = false`) is §3.1.
 
 **Parking dock.** A right-edge rail (`parkWidth = max(64, screenW*0.05)`) holds parked ports as chips.
 Dragging a tiled port into the right strip parks it on mouse-up + auto-arranges; clicking a chip restores
@@ -161,10 +178,25 @@ covers the header. **Exclude `.parked` ports from the desktop render AND from `a
 **Two docks.** Bottom launcher = create (gaussian-magnified, → `createPort`); right rail = park. Every
 user-initiated open auto-arranges the desktop into a grid; seeding on space-entry does not.
 
-**Chrome (§7a).** Re-parent the live status/action cluster from `ContentView.swift`
-(gateway/tunnel/key/pause/usage/settings + New Space/Companion), bound to `appState`. PORT42 mark in the
-freed traffic-light gap. The ✨ + space-name unit toggles the galaxy; arrange/exposé sit beside it with
-adequate hit targets.
+**Arrange & spawn placement** (prototype `arrange()` + `spawn()` — *preserve this exactly*, it does the
+job well). **Arrange** tidies the current space's tiled ports into a centered, fitted grid:
+`items = tiled ports sorted by z`; `cols = ceil(sqrt(count))`, `rows = ceil(count/cols)`; uniform cell
+`= (max tile width + 40) × (max tile height + 50)`; grid centered in the work area with a top inset
+(`startY = max(70, (screenH − totalH)/2) …`, clearing the Chrome); placed with a
+`spring(response: 0.45, damping: 0.8)`. **Spawn placement** = *arrange picks the final position.* A new
+port is created at a cheap cascade seed (`x: 330 + (n%4)·90, y: 200 + (n%3)·80`) with `z = ++zCounter`
+(so it lands frontmost), then any **user-initiated** open (dock / palette / chat) calls `arrange(quiet:
+true)`; **seeding** on space-entry stays quiet (no re-arrange). So callers don't compute positions —
+they append the tile and let `arrange` lay the grid. Park/unpark also re-arrange.
+
+**Chrome (§7a).** The prototype's `Chrome` + `Mark` views are the canonical layout — preserve it.
+Left→right: **PORT42 // SHELL mark** in the freed traffic-light gap; **New Space** / **New Companion**;
+the **✨ + active-space-name** capsule (one unit, toggles the galaxy); **arrange** + **exposé** (26×26
+hit targets); spacer; then the live status/action cluster re-parented from `ContentView.swift` —
+user name, **gateway**, **tunnel**, **API key**, **pause AI**, **token usage**, **settings**
+(→ today's `SignOutSheet`); and a **⏻ power/exit** button far-right. All bound to `appState`; the bar
+is a thin black strip with an accent underline. Settings/sign-out, today buried in the sidebar, graduate
+to this top bar (the ⏻ icon is the exit affordance).
 
 **Tile interaction.** Hit-testing, threshold-armed drag, edge-resize cursors, hover-focus
 (focus-follows-mouse); terminal/chat bodies are interactive (move via titlebar only). Operate on
@@ -172,29 +204,47 @@ adequate hit targets.
 
 **Ambient surface & idle.** Layer 0 `DreamscapeVideoLayer`/`TransitionRoot`; Layer 1
 `AquariumBreakoutView` for wake. An idle timer dismisses Layer 2 → Layer 0 via the existing lock path;
-it resets on shell-window input only.
+it resets on shell-window input only. Prototype params to preserve: a `0.5s`-interval poll; idle fires
+when `now − lastInput > 9s`; Layer 2 cross-fades out over `~1.2s` (Layer 0 keeps running underneath, so
+ports are **not** torn down — they fade and come back); a faint *"PORT42 // move to wake"* hint while
+idle; any shell-window input calls `bump()` (`lastInput = now`; fade Layer 2 back in over `~0.5s`). Wire
+the dismiss/restore through `appState.lockApp()` / `unlock()` so it's the same path as the lock screen.
 
 ---
 
 ## 5. Persistence
 
 Tiled and parked ports persist (the desktop/dock layout): `persistPanel`/`restoreFromDB` with
-`presentation` + `position`. Inline ports are not persisted (Step 8). On restart, tiled ports restore
-into the canvas and parked ports into the rail, per space, composited into `ShellView`. Per-space
-accent/dock config and space-companion membership are persisted; chat is the per-space `isChatPort` panel.
+`presentation` + `position` + `z`. Inline ports are not persisted (Step 8). On restart, tiled ports
+restore into the canvas (in `z` order) and parked ports into the rail, per space, composited into
+`ShellView`. Per-space accent/dock/seed config and space-companion membership are persisted; chat is the
+per-space `isChatPort` panel.
+
+**Migration (append-only — project `CLAUDE.md` rule: never edit an existing migration, always append a
+new `registerMigration`).** Two appended steps cover every new field:
+- **portPanels** — add `z INTEGER NOT NULL DEFAULT 0`. `presentation` already exists (it stored
+  `floating`/`inline`); `tiled`/`parked` are just new string values — no schema change. `position`
+  (x/y) and `size` already persist.
+- **spaces** — add `accent TEXT` (hex; nullable → falls back to the app accent), `dock TEXT` (JSON
+  array of port-template ids for the bottom launcher), `seed TEXT` (JSON array of templates auto-opened
+  on first entry). Space-companion membership already lives in `agentSpaces`.
 
 ---
 
 ## 6. Open decisions
 
-1. **Per-space accent + dock + seed** — new `Space` fields, a side table, or `ShellState` config? Each
-   space needs an accent, a dock preset, and a default layout.
-2. **`createPort` presentation** — generalize the `inline` routing flag into `inline | floating | tiled`
-   (+ `position`), and make `parked` a settable presentation. One clean change.
-3. **Multi-display** — one desktop on the main display with secondaries blank, or a tile desktop per
-   `NSScreen`? (`presentationOptions` hides the Dock globally.)
-4. **Window strategy** — start by taking the existing app window fullscreen (fastest proof), then
-   graduate to a dedicated borderless `ShellWindow`.
+1. **~~Per-space accent + dock + seed~~ → decided: new `spaces` columns.** `accent` (hex), `dock` (JSON
+   array), `seed` (JSON array), per the §5 migration — mirroring the prototype's
+   `SpaceDef { accent, dock: [Int], seed: [Int] }`. `accent` is read everywhere the prototype reads
+   `shell.accent`; `dockApps` = the space's `dock`; `seed` ports open quiet on first entry.
+2. **~~`createPort` presentation~~ → decided: replace `inline: Bool` with `presentation: String`.**
+   `createPort(…, presentation: "inline" | "floating" | "tiled", position: CGPoint? = nil)`.
+   `position == nil` (the default for tiles) means *arrange picks it* (§4). `parked` is not a
+   create-time value — it's set later via the park setter. This is the one core-API change S2 depends on.
+3. **Multi-display** *(open)* — one desktop on the main display with secondaries blank, or a tile
+   desktop per `NSScreen`? (`presentationOptions` hides the Dock globally.) Single-display first.
+4. **Window strategy** *(sequencing, not a fork)* — take the existing app window fullscreen first
+   (fastest proof), then graduate to a dedicated borderless `ShellWindow`. Do both, in order.
 
 ---
 
@@ -204,6 +254,13 @@ Each ships runnable behind `PORT42_SHELL=1` (default off, reversible). **The spi
 ambient surface (Layer 0) and the zoom ladder are foundational (they frame every other surface and the
 "zoom out to swim in open water" first-run rides on them), so they're built before the desktop fills
 with tiles. (Mirrors `plan-port42-shell.md` §8 S1–S5.)
+
+**Each phase has a headless test gate** (enumerated in `plan-port42-shell.md` §8) plus a manual demo for
+the visual/kiosk parts. The load-bearing invariant — re-parent with **no reload** — is guarded by
+`ReParentStabilityTests` (the same `webViews[id]` instance survives every presentation flip) — the
+no-reload behavior the `prototypes/p42shell` prototype demonstrates live. `ShellStateTests` covers the
+zoom ladder. Both files are stubbed now (Swift Testing, `DatabaseService(inMemory: true)` per
+`RegisteredInlinePortTests`).
 
 - **S1 — Takeover + ambient surface.** App window → fullscreen, hide Dock/menu bar, escape hatches
   (Esc / ⌘Q / exit, restore on terminate), guarded `NSScreen.main`. `ShellView` root =
@@ -225,7 +282,7 @@ with tiles. (Mirrors `plan-port42-shell.md` §8 S1–S5.)
 
 ## 8. Out of scope
 
-- Kiosk boot tiers (LaunchAgent / MDM ASAM / lockdown) — `plan-port42-shell.md` §6/§8.
+- Kiosk boot tiers (MDM ASAM / lockdown toggle; launch-at-login dropped) — `plan-port42-shell.md` §6/§8.
 - Cross-restart *live-webview* persistence — tiled/parked ports restore from the panel record by
   re-rendering, not a serialized live view (same scope cut as Step 8).
 - Drag-*out* from the parking rail (click-restore is the first cut).

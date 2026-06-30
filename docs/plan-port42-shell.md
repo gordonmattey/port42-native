@@ -1,12 +1,12 @@
 # PORT42 // SHELL — the GUI shell that replaces the desktop, not the OS
 
-**Status:** spikes proven + prototype explored (rev3→rev8) + build spec written + adoption decided
-(2026-06-30, w/ gordon). The throwaway kiosk shell (`prototypes/p42shell`) is built out end-to-end
-(companions, chat, flat spaces, galaxy nav, parking dock); the re-parent crux is spike-proven; the
-production design is captured in **`spec-shell-reimplementation.md`**. **Adoption is decided: the shell
-replaces the app surface for everyone (Plan D, §8a)** — build behind `PORT42_SHELL`, then flip and
-delete `ContentView`. Most of the machinery already exists in the app — this doc credits it. Next:
-**D0/S1** (takeover behind the flag).
+**Status:** prototype runs end-to-end (rev3→rev8) + build spec written + adoption decided
+(2026-06-30, w/ gordon). The kiosk shell (`prototypes/p42shell`) runs the whole design — companions,
+chat, flat spaces, galaxy nav, parking dock; ports re-parent between hosts with no reload (the app does
+this today in `PortWebViewHost`); the production design is captured in
+**`spec-shell-reimplementation.md`**. **Adoption is decided: the shell replaces the app surface for
+everyone (Plan D, §8a)** — build behind `PORT42_SHELL`, then flip and delete `ContentView`. Most of the
+machinery already exists in the app — this doc credits it. Next: **D0/S1** (takeover behind the flag).
 
 **One line:** Port42 boots into a fullscreen surface with **no macOS Dock and no menu bar**, and the
 desktop is made of **live ports** floating over a living ambient background. macOS stays underneath as
@@ -127,24 +127,19 @@ window manager, hosted over an ambient surface the app already renders** — not
 
 ---
 
-## 5. What the spikes proved (already built + run)
+## 5. The prototype — the design, running
 
-Two throwaway SwiftPM apps, no bundle, no signing (`setActivationPolicy(.regular)` +
-`NSApplication.run()` + an `NSWindow` is all it takes to be a GUI app):
+`prototypes/p42shell/` — the fullscreen GUI shell, no bundle, no signing
+(`setActivationPolicy(.regular)` + `NSApplication.run()` + an `NSWindow` is all it takes to be a GUI
+app). Dock + menu bar hidden; a desktop of live WKWebView ports (clock, animated canvas, fake system
+monitor, typeable terminal), each draggable and closable; a Port42 dock; a ⌘K command palette; a boot
+sequence; a synthwave `Canvas` background (a stand-in for `DreamscapeVideoLayer`). Escape hatches:
+**Esc / ⌘Q / ⏻**, and `applicationWillTerminate` restores the Dock + menu bar. ~1320 lines, single
+`main.swift`.
 
-**`scratchpad/wkspike/`** — the re-parent crux (Step 8's blocker). A live WKWebView with a JS counter
-(`window.__c`, +1 every 50ms) was moved (A) across a raw AppKit `removeFromSuperview`/`addSubview`
-into an `NSPanel`, and (B) through **3 full SwiftUI `dismantleNSView`→`makeNSView` cycles** (inline↔
-floating + list-recycle churn). Counter: `16 → 27 → 47 → 70 → 82 → 95 → 107`, strictly monotonic. A
-reload resets `__c` toward 0; it never dropped. **Verdict: a live webview survives re-parenting with
-NO reload** → architecture gate picks **re-parent** (not overlay, not snapshot/restore). This is the
-same pattern `PortWebViewHost` already ships.
-
-**`scratchpad/p42shell/`** — the fullscreen kiosk shell. Dock + menu bar hidden; a desktop of live
-WKWebView ports (clock, animated canvas, fake system monitor, typeable terminal), each draggable and
-closable; a Port42 dock; a ⌘K command palette; a boot sequence; a synthwave `Canvas` background (a
-stand-in for `DreamscapeVideoLayer`). Escape hatches: **Esc / ⌘Q / ⏻**, and `applicationWillTerminate`
-restores the Dock + menu bar. ~450 lines, single `main.swift`.
+The one architectural bet it rests on — **a live WKWebView survives re-parenting between hosts with no
+reload** — is settled: it ships in `PortWebViewHost` and is guarded by `ReParentStabilityTests`. So
+`re-parent` (not overlay, not snapshot/restore) is the model the shell builds on.
 
 ---
 
@@ -156,9 +151,7 @@ Finder desktop.** A spectrum:
 
 - **Tier 0 — launch like an app (today).** Double-click; macOS desktop is home. With the shell flag,
   a fullscreen takeover you start manually.
-- **Tier 1 — launch at login (easy, supported, reversible).** A LaunchAgent / Login Item starts
-  Port42 in shell mode right after login. Finder loads behind it but is never seen. Esc still drops to
-  macOS. This is what 95% of "boot into my app" products actually are.
+- **Tier 1 — launch at login.** *Out of scope — not pursued.*
 - **Tier 2 — single-app lockdown (kiosk-grade).** Enforced by an **MDM profile** with **Autonomous
   Single App Mode**: the Mac runs *only* Port42, no Cmd-Tab, no force-quit, no exit without the
   profile. Apple's *supported* appliance path. Requires MDM enrollment — **an app cannot self-enroll
@@ -174,9 +167,6 @@ version (survives relaunch, literally cannot exit) is the **MDM profile** — a 
 app code. So: ship the toggle in-app (covers ~90% of "make this Mac an appliance"); the MDM profile
 closes the last 10% for dedicated/deployed machines.
 
-Tiny seam to handle: the ~1–2s flash of empty Finder desktop between login and Port42 launching —
-hidden with a solid desktop picture matching Layer 0. Standard kiosk trick.
-
 ---
 
 ## 7. Architecture — reuse map (almost nothing new below the surface)
@@ -187,7 +177,7 @@ The shell is a **new top-level presentation** over the **existing** ambient surf
 |---|---|
 | Ambient background (screensaver/lock) | `DreamscapeVideoLayer`, `TransitionRoot`, `showDreamscape` — **Layer 0, done** |
 | Wake / sleep transition | `AquariumBreakoutView`, `TransitionPhase`, `diveProgress` — **Layer 1, done** |
-| Port tile / floating panel | `PortWindowManager.webViews[id]` + `PortWebViewHost` (`:966`) — adopting reparenting host, proven |
+| Port tile / floating panel | `PortWindowManager.webViews[id]` + `PortWebViewHost` (`:1110`) — adopting reparenting host (no reload on re-parent) |
 | Per-space desktop / swap on space change | `PortPanel { spaceId, position }` + `switchToSpace(_:)` (`:713`) |
 | Layout persistence + restore | `persistPanel` / `unpersistPanel`, launch restore (`:123`) |
 | Chat as a surface in the shell | `ensureChatPort` / `isChatPort` — chat is already a panel |
@@ -196,7 +186,7 @@ The shell is a **new top-level presentation** over the **existing** ambient surf
 | Terminal tiles | `port.create({type:"terminal"})` → `GhosttyTerminalView`, driven by `port.push` |
 | Launcher | Quick Switcher (⌘K) already exists |
 | Window surgery at launch | `AppDelegate.applicationDidFinishLaunching` already grabs + resizes the main window |
-| Inline↔floating move, no reload | the **re-parent** transition from `plan-uniform-port-create.md` Step 8 (spike-proven) |
+| Inline↔floating move, no reload | the **re-parent** transition from `plan-uniform-port-create.md` Step 8 (ships in `PortWebViewHost`) |
 
 **New, and small:**
 - A **`ShellWindow`** (borderless, `canBecomeKey = true`, fullscreen, kiosk `presentationOptions`)
@@ -262,6 +252,10 @@ list — but it becomes one summonable port/panel in the shell (or a left rail),
   dreamscape. Proves takeover **and** the ambient background on the real app in ~an hour.
 - **Ship:** `PORT42_SHELL=1 ./build.sh --run` boots fullscreen into the living ambient surface; without
   the flag, nothing changes.
+- **Test gate:** *manual* — flag on boots fullscreen over the dreamscape; Esc / ⌘Q restore Dock + menu
+  bar; relaunch without the flag is byte-identical to today. *Automated* — shell-mode flag selection
+  picks `ShellWindow` vs `WindowGroup`; the `guard let screen = NSScreen.main` fallback frame holds when
+  `main` is nil (headless, no display).
 
 ### Phase S2 — The spatial shell: spine + port desktop + Chrome
 *Build the spine FIRST within this phase (it frames the rest), then fill the space rung with the
@@ -282,26 +276,40 @@ desktop. Merged because the "space" and "focus" rungs are only demoable with con
   by `port.push`/`ports.list`); auto-arrange. Lands `ShellState` DI + real content.
 - **Ship:** pinch / ⌘ to move galaxy ↔ space ↔ focus over the ambient surface; spawn clock/terminal/web
   ports from the dock; drive a terminal tile with `port.push`; the desktop swaps per space.
+- **Test gate:** `ShellStateTests` — the zoom ladder transitions galaxy ↔ space ↔ focus as pure state
+  (one rung per step; ⌘1…N jumps space; bounds clamp at the ends). Extend `PortWindowLifecycleTests` —
+  `createPort(presentation:"tiled", position:)` yields a tiled panel on the active space, and
+  `switchToSpace` shows only the current space's tiled panels (hides the rest).
 
 ### Phase S3 — Movable tiles + park + tile ↔ floating (no reload)
 - Drag/resize tiles (persist on drag-end). The **right-edge parking dock** (drag-to-park +
   click-restore). "Pop out" re-parents the **same** webview into a floating `NSPanel` (Step 8);
-  dock-back reverses; presentation flag flips; **no reload** (proven). z-order on focus.
-- **Ship:** a counter/terminal tile keeps state across tile → float → park → tile — the spike, real.
+  dock-back reverses; presentation flag flips; **no reload**. z-order on focus.
+- **Ship:** a counter/terminal tile keeps state across tile → float → park → tile — live state, no reload.
+- **Test gate:** `ReParentStabilityTests` — every presentation flip (`inline ↔ floating ↔ tiled ↔
+  parked`) keeps the **same** `webViews[id]` instance (object identity preserved = no recreate = no
+  reload — the registry-level proxy for the no-reload invariant, which a live surface confirms in-app).
+  Persistence — `persistPanel` saves `tiled`/`parked`, still skips `inline`; `parked` ports are excluded
+  from the desktop render and from `arrange`/`exposé`.
 
 ### Phase S4 — Companions + chat (the room)
 - The per-space `isChatPort` tile with the **member header** (you + `getAgentsForSpace`) + live
   companion status. The **companion → `port.create` → arrange** loop: a chat message arranges the
   desktop.
 - **Ship:** talk to your companion; tiles appear and the desktop arranges.
+- **Test gate:** the member row composes you + `getAgentsForSpace(spaceId)` (and wraps, never
+  h-scrolls); the send → companion → `port.create` → arrange loop lands a tiled panel on the active
+  space. (The LLM step is stubbed/mocked; the arrange + member-row logic is asserted.)
 
 ### Phase S5 — Idle-out + boot fusion (the ambient loop closes)
 - **Idle timer** dismisses Layer 2 → Layer 0 (dreamscape) via the existing lock path; activity summons
   it back through the breakout transition. **Fuse the onboarding BIOS boot with the shell boot** (§8a /
   D1) so it's one continuous sequence.
-- **Tier 1** launch-at-login (LaunchAgent) into shell mode, with the solid-desktop seam hider.
-- **Tier 2** optional MDM Autonomous Single App Mode for deployed kiosks; in-app lockdown toggle.
+- **Tier 2 (optional)** MDM Autonomous Single App Mode for deployed kiosks; in-app lockdown toggle.
 - **Ship:** a Mac that boots into the ambient surface and settles back to it when idle.
+- **Test gate:** *automated* — an idle-timer fire drives the existing lock path (`showDreamscape ==
+  true`) and shell-window input resets the timer + summons Layer 2 back. *Manual* — the idle-out / wake
+  animation and the fused onboarding-BIOS → shell boot are a visual review.
 
 ---
 
@@ -347,6 +355,26 @@ terminal → auth → first-companion chat flows directly into the shell coming 
 an existing user just gets the shell boot. No double-boot. The shell's Layer-1 breakout *is* the
 onboarding boot surface.
 
+**The concrete handoff (the mechanics #9):**
+
+1. **Where it hands off.** Today `SetupView`'s `.swim` "swim in open water" button posts
+   `.enterAquariumRequested` → the dive transition → `ContentView`. In shell mode the *same* signal
+   (and `isSetupComplete`) lands in **`ShellView`**, in the **general** space, **zoomed to focus on the
+   chat tile** (the first-companion chat is the anchor). The dive transition (`TransitionRoot` /
+   `diveProgress`) *is* the zoom-in animation — no new code, a re-target of the destination.
+2. **One `TransitionRoot`, no second boot.** `.boot` and `.transition` already render on
+   `TransitionRoot` / `AquariumBreakoutView`; the shell's S1 boot is the *same* `TransitionRoot`. New
+   user: `.boot → .transition(breakout) → .swim → ShellView` is one continuous run. Existing user
+   (already `isSetupComplete`): launching shell mode plays that Layer-1 breakout straight into
+   `ShellView`.
+3. **The one-time hint.** A persisted flag (`UserDefaults`/DB `hasSeenShellSwimHint`). On the **first**
+   landing in the shell focused on chat — where the button used to be — show the single caption
+   **"zoom out to swim in open water."** Clear the flag on the first zoom-out (⌘↑ / pinch-out), or once
+   shown. Applies to new **and** existing users' first shell launch.
+4. **Button → gesture.** The `.swim` button is gone; **zoom-out is the graduation**: chat recedes →
+   space → galaxy (open water). The dive metaphor maps onto the zoom ladder exactly — focus (close) ↔
+   space ↔ galaxy (open water).
+
 ### Phasing (D0 → D2)
 
 > The build (S1–S5 above) is unchanged — it's the *engineering* of the shell behind `PORT42_SHELL`.
@@ -378,11 +406,11 @@ onboarding boot surface.
 ## 10. Risks / open questions
 
 - **Multi-display** — `presentationOptions` hides the Dock globally; a tile desktop per `NSScreen` vs.
-  one primary + secondaries is unspecified. (Spikes were single-display.)
+  one primary + secondaries is unspecified — single-display is the only case the prototype covers.
 - **Tile substrate change** — moving ports from per-port `NSPanel`s to composited tiles over Layer 0
   is the main real work; needs care that drag/dock/persist (already wired for panels) carries over.
 - **Focus / key handling** — borderless windows need `canBecomeKey`; global monitors (⌘K, Esc) coexist
-  with port webviews wanting keystrokes. Worked in the spike; needs care at scale.
+  with port webviews wanting keystrokes. Tractable (the kiosk prototype handles it); needs care at scale.
 - **System UI occlusion** — at high window levels, alerts / notification banners / volume HUD may be
   hidden; decide what surfaces through.
 - **Recovery / trap-safety** — never ship lockdown without a documented exit + MDM escape; dev builds
@@ -392,13 +420,13 @@ onboarding boot surface.
 
 ---
 
-## 11. Throwaway spike locations (not committed)
+## 11. The prototype (committed under `prototypes/`)
 
-- `scratchpad/wkspike/` — re-parent proof (Spike A + B). Run: `swift run wkspike` (prints PASS/FAIL).
-- `scratchpad/p42shell/` — the fullscreen kiosk shell. Run: `.build/debug/p42shell`
-  (Esc / ⌘Q / ⏻ to exit). ~450 lines, single `main.swift`.
+**`prototypes/p42shell/`** — the fullscreen GUI shell (rev 8), the live reference behind
+`spec-shell-reimplementation.md`: the ambient surface with summoned chrome+ports, the zoom ladder, two
+docks, and registry-owned webviews re-parented with **no reload** (tiled ↔ floating ↔ parked). Run:
+`cd prototypes/p42shell && swift run p42shell` (Esc / ⌘Q / ⏻ to exit). ~1320 lines, single `main.swift`.
 
-Both are disposable — they prove the mechanics in isolation. The real work is Phases S1–S5 inside
-`Sources/Port42Lib`, reusing the ambient surface (`TransitionRoot`/`DreamscapeVideoLayer`), the port
-window manager (`PortWindowManager`), the bridge (`PortBridge`), and `port.create` — not the spikes'
-standalone code.
+The prototype is disposable — the real work is Phases S1–S5 inside `Sources/Port42Lib`, reusing the
+ambient surface (`TransitionRoot`/`DreamscapeVideoLayer`), the port window manager
+(`PortWindowManager`), the bridge (`PortBridge`), and `port.create`.
