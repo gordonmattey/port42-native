@@ -55,6 +55,19 @@ for arg in "$@"; do
     esac
 done
 
+# --- Dev/release identity split ---------------------------------------------------------------
+# A debug build is an ISOLATED instance ("Port42 Dev") so it never collides with the installed
+# daily-driver Port42: its own bundle id, data dir and gateway port. Release is unchanged — the
+# DMG you install stays com.port42.app / Port42 / 4242. This is what lets you keep using Port42
+# while we rebuild the dev instance beside it.
+if [ "$CONFIG" = "release" ]; then
+    APP_DIR_NAME="Port42"; EXEC="Port42"; BUNDLE_ID="com.port42.app"
+    DISPLAY_NAME="Port42"; GW_PORT="4242"; DATA_DIR="Port42"; INVITE_NAME="com.port42.agent-invite"; DEV_ISO=false
+else
+    APP_DIR_NAME="Port42Dev"; EXEC="Port42Dev"; BUNDLE_ID="com.port42.dev"
+    DISPLAY_NAME="Port42 Dev"; GW_PORT="4243"; DATA_DIR="Port42Dev"; INVITE_NAME="com.port42.dev.invite"; DEV_ISO=true
+fi
+
 # Auto-bump patch version for release builds if not manually bumped
 if [ "$CONFIG" = "release" ]; then
     LAST_RELEASE_FILE="$DIR/.last-release-version"
@@ -161,16 +174,18 @@ go build -o "$SHIM_BIN" .
 # We also kill the bundled gateway so the relaunched app gets a fresh one on
 # port 4242 instead of talking to a stale process. This is the single place that
 # owns "clean up before rebuild" — rebuild.sh just delegates here.
-echo "[build] Killing any running Port42 + gateway before rebuild..."
-pkill -x Port42 2>/dev/null || true
-pkill -x port42-gateway 2>/dev/null || true
-for i in {1..10}; do pgrep -x Port42 >/dev/null 2>&1 || break; sleep 0.3; done
-pkill -9 -x Port42 2>/dev/null || true
-pkill -9 -x port42-gateway 2>/dev/null || true
+# Surgical: kill ONLY this build's instance ($EXEC) and the gateway on ITS port ($GW_PORT),
+# identified by listening socket — never the installed daily-driver Port42 / its 4242 gateway.
+echo "[build] Killing any running $DISPLAY_NAME + its gateway (port $GW_PORT) before rebuild..."
+pkill -x "$EXEC" 2>/dev/null || true
+lsof -ti "tcp:$GW_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
+for i in {1..10}; do pgrep -x "$EXEC" >/dev/null 2>&1 || break; sleep 0.3; done
+pkill -9 -x "$EXEC" 2>/dev/null || true
+lsof -ti "tcp:$GW_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 0.3
 
 # --- Package the main app ---
-APP="$DIR/.build/Port42.app"
+APP="$DIR/.build/$APP_DIR_NAME.app"
 MACOS="$APP/Contents/MacOS"
 RESOURCES="$APP/Contents/Resources"
 # Repackage into a FRESH bundle each build. SwiftPM resource files (e.g.
@@ -181,12 +196,12 @@ RESOURCES="$APP/Contents/Resources"
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 
-cp "$DIR/.build/$CONFIG/Port42" "$MACOS/Port42"
+cp "$DIR/.build/$CONFIG/Port42" "$MACOS/$EXEC"
 cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
 cp "$SHIM_BIN" "$MACOS/port42-claude-shim"
 
 # Add rpath so the binary can find frameworks in Contents/Frameworks/
-install_name_tool -add_rpath "@loader_path/../Frameworks" "$MACOS/Port42" 2>/dev/null || true
+install_name_tool -add_rpath "@loader_path/../Frameworks" "$MACOS/$EXEC" 2>/dev/null || true
 
 # Bundle Sparkle.framework
 FRAMEWORKS="$APP/Contents/Frameworks"
@@ -199,6 +214,23 @@ else
 fi
 
 envsubst < "$DIR/Info.plist" > "$APP/Contents/Info.plist"
+if $DEV_ISO; then
+    # Launcher (the bundle's main executable) sets the isolated data dir + gateway port, then
+    # execs the real binary. This is the same technique --peer uses.
+    cat > "$MACOS/$EXEC-Launcher" << EOF
+#!/bin/bash
+D="\$(cd "\$(dirname "\$0")" && pwd)"
+export PORT42_DATA_DIR="$DATA_DIR"
+export PORT42_GATEWAY_PORT="$GW_PORT"
+exec "\$D/$EXEC"
+EOF
+    chmod +x "$MACOS/$EXEC-Launcher"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $EXEC-Launcher" "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName '$DISPLAY_NAME'" "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLName $INVITE_NAME" "$APP/Contents/Info.plist" 2>/dev/null || true
+    echo "[build] Dev isolation: $BUNDLE_ID · data $DATA_DIR · gateway $GW_PORT"
+fi
 cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
     [ -d "$bundle" ] && cp -R "$bundle" "$RESOURCES/"
@@ -235,26 +267,13 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
         codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$FRAMEWORKS/Sparkle.framework"
     fi
     codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" --options runtime --timestamp "$APP"
-elif [ -n "$DEV_IDENTITY" ] && [ -f "$DEV_PROFILE" ]; then
-    # Debug with Apple Development cert + dev profile: Sign in with Apple enabled
-    cp "$DEV_PROFILE" "$APP/Contents/embedded.provisionprofile"
-    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
-        codesign --force --sign "$DEV_IDENTITY" "$FRAMEWORKS/Sparkle.framework"
-    fi
-    codesign --force --sign "$DEV_IDENTITY" --entitlements "$DIR/Port42.dev.entitlements" "$APP"
-    echo "[build] Signed with Apple Development (Sign in with Apple enabled)"
-elif [ "$SIGN_IDENTITY" != "-" ]; then
-    # Debug with Developer ID: no applesignin (requires notarization)
-    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
-        codesign --force --sign "$SIGN_IDENTITY" --options runtime "$FRAMEWORKS/Sparkle.framework"
-    fi
-    codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.entitlements" --options runtime "$APP"
 else
-    # Debug ad-hoc fallback
-    if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
-        codesign --force --sign - "$FRAMEWORKS/Sparkle.framework"
-    fi
-    codesign --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
+    # Isolated dev (debug) build → ad-hoc sign (the proven --peer approach). The launcher script
+    # is the bundle's main executable, so --deep also signs the real binary + gateway + shim.
+    # Bundle id com.port42.dev doesn't match the com.port42.app provisioning profile, so there's
+    # no Apple Development / Sign in with Apple here — fine for a local dev instance.
+    codesign --deep --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
+    echo "[build] Signed ad-hoc (isolated dev: $BUNDLE_ID · data $DATA_DIR · gateway $GW_PORT)"
 fi
 echo "[build] Ready: $APP"
 
@@ -360,7 +379,7 @@ if $PEER; then
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
 export PORT42_DATA_DIR="Port42-Peer"
-export PORT42_GATEWAY_PORT="4243"
+export PORT42_GATEWAY_PORT="4244"
 exec "$DIR/Port42-Peer"
 EOF
     chmod +x "$PEER_MACOS/Port42-Peer-Launcher"
@@ -411,6 +430,6 @@ PLIST_EOF
     codesign --deep --force --sign - --entitlements "$DIR/Port42.entitlements" "$PEER_APP"
 
     echo "[build] Ready: $PEER_APP"
-    echo "[build] Launching peer (data: Port42-Peer, gateway: 4243)..."
+    echo "[build] Launching peer (data: Port42-Peer, gateway: 4244)..."
     open "$PEER_APP"
 fi
