@@ -114,6 +114,29 @@ This is the most powerful, most dual-use capability in Port42 — it can operate
 
 ---
 
+## 5a. Real-time voice steering — the operator listens while it works (gordon, 2026-06-30)
+
+A computer-use loop should **not** be fire-and-forget. While it operates, the user can **speak**
+and the loop incorporates it **in real time** — barge-in, like correcting a person mid-task:
+"no, the other button", "stop", "scroll down first", "yes that one". This turns the operator from a
+batch job into a **collaborator you talk over its shoulder.**
+
+- **Out-of-band feedback channel.** The loop reads a live instruction stream *between steps* (and an
+  interrupt can preempt the current step). Each iteration's prompt includes "latest user
+  steering since last step," so a spoken correction redirects the very next action.
+- **"Stop" is instant.** A spoken stop/abort is the always-available kill (ties to §5's indicator +
+  stop) — highest-priority, bypasses the step boundary.
+- **New capability needed — listening.** Port42 today has `audio.speak`/`audio.play` (output) but **no
+  mic capture / speech-to-text** in the bridge. This wants an `audio.listen` / live-transcription
+  primitive (streaming partial transcripts) feeding the steering channel. That's a prerequisite, noted
+  here so it's not lost. (Pairs naturally with the companion *speaking back* what it's about to do —
+  full duplex: it narrates intent via `audio.speak`, you correct via voice, it adjusts.)
+- **Loop shape becomes:** `observe → (merge latest voice steering) → decide → act → speak intent →
+  observe`, with a preemptible "stop/redirect" check that doesn't wait for the step to finish.
+
+This is the difference between "run this macro" and "drive my computer *with* me." It's the headline
+UX for the whole feature.
+
 ## 6. Relationship to other plans
 
 - **Unified API** (CLAUDE.md) — `computer.*` is just more bridge methods; the tool schemas come for

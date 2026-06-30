@@ -112,6 +112,13 @@ final class Registry {
         return w
     }
     func drop(_ id: UUID) { views[id]?.removeFromSuperview(); views[id] = nil }
+    func peek(_ id: UUID) -> WKWebView? { views[id] }
+    // Focus-follows-mouse: make the port's webview first responder and focus its first input (saves a click).
+    func activate(_ id: UUID) {
+        guard let w = views[id] else { return }
+        w.window?.makeFirstResponder(w)
+        w.evaluateJavaScript("var e=document.querySelector('input,textarea,[contenteditable]');if(e){e.focus();}", completionHandler: nil)
+    }
 }
 
 // MARK: - Model
@@ -151,6 +158,8 @@ final class Shell: ObservableObject {
     @Published var showPalette = false
     @Published var expose = false
     @Published var showSpaces = false           // spaces-in-mode overview
+    @Published var galaxy = false                // all-modes constellation (zoom UP)
+    @Published var focusId: UUID? = nil          // immersive single port (zoom DOWN)
     @Published var booting = true
     @Published var bootLines: [String] = []
     @Published var idle = false
@@ -176,6 +185,19 @@ final class Shell: ObservableObject {
 
     var current: [Port] { ports.filter { $0.mode == mode && $0.space == space } }
     func portsIn(_ m: Int, _ s: Int) -> [Port] { ports.filter { $0.mode == m && $0.space == s } }
+    var frontmost: Port? { current.max(by: { $0.z < $1.z }) }
+
+    // Zoom ladder:  GALAXY ↑  Mode  ·  Spaces  ·  Ports(expose)  ·  ↓ FOCUS
+    func zoomUp() { withAnimation(.spring(response: 0.45)) { focusId = nil; expose = false; showSpaces = false; galaxy = true } }
+    func zoomDown() { if let p = frontmost { withAnimation(.spring(response: 0.45)) { galaxy = false; showSpaces = false; expose = false; focusId = p.id } } }
+    @discardableResult func unwind() -> Bool {     // Esc peels one zoom level; false = nothing left → quit
+        if focusId != nil { withAnimation(.spring(response: 0.4)) { focusId = nil }; return true }
+        if galaxy { withAnimation { galaxy = false }; return true }
+        if showSpaces { withAnimation { showSpaces = false }; return true }
+        if expose { withAnimation { expose = false }; return true }
+        if showPalette { showPalette = false; return true }
+        return false
+    }
 
     func switchMode(_ m: Int) {
         guard m != mode else { return }
@@ -202,6 +224,61 @@ final class Shell: ObservableObject {
         if !quiet { say("opened \(app.title)") }
     }
     func focus(_ p: Port) { zCounter += 1; p.z = zCounter }
+
+    var interactive: Bool { !expose && !galaxy && !showSpaces && !showPalette && !booting && focusId == nil && !idle }
+    // Full tile rect in top-left window coords (titlebar ≈ 32pt above the content).
+    func tileRect(_ p: Port) -> CGRect {
+        CGRect(x: p.pos.x - p.size.width/2, y: p.pos.y - (p.size.height + 32)/2, width: p.size.width, height: p.size.height + 32)
+    }
+    struct PortHit { let port: Port; let left, right, top, bottom: Bool; var edge: Bool { left || right || top || bottom } }
+    func portHit(at pt: CGPoint, margin: CGFloat = 9) -> PortHit? {
+        for p in current.sorted(by: { $0.z > $1.z }) where p.presentation == .tiled {
+            let r = tileRect(p)
+            if r.insetBy(dx: -2, dy: -2).contains(pt) {
+                return PortHit(port: p, left: pt.x - r.minX < margin, right: r.maxX - pt.x < margin,
+                               top: pt.y - r.minY < margin, bottom: r.maxY - pt.y < margin)
+            }
+        }
+        return nil
+    }
+
+    var lastHovered: UUID?
+    // Focus-follows-mouse: hover a port → front + focus its entry box. Also sets the resize cursor on edges.
+    func hoverFocus(at pt: CGPoint) {
+        guard interactive else { return }
+        guard let h = portHit(at: pt) else { lastHovered = nil; return }
+        if h.port.id != lastHovered { lastHovered = h.port.id; focus(h.port); Registry.shared.activate(h.port.id) }
+        let lr = h.left || h.right, tb = h.top || h.bottom
+        ((lr && tb) ? NSCursor.crosshair : lr ? .resizeLeftRight : tb ? .resizeUpDown : .arrow).set()
+    }
+
+    // AppKit-level drag: edges resize, body/titlebar move; plain clicks pass through (threshold-armed).
+    var dragId: UUID?; var dragStart = CGPoint.zero; var dragPos = CGPoint.zero; var dragSize = CGSize.zero
+    var dragL = false, dragR = false, dragT = false, dragB = false, dragResize = false, dragArmed = false
+    func mouseDown(at pt: CGPoint) {
+        guard interactive, let h = portHit(at: pt) else { dragId = nil; return }
+        focus(h.port)
+        dragId = h.port.id; dragStart = pt; dragPos = h.port.pos; dragSize = h.port.size
+        dragL = h.left; dragR = h.right; dragT = h.top; dragB = h.bottom; dragResize = h.edge; dragArmed = false
+    }
+    func mouseDragged(at pt: CGPoint) -> Bool {
+        guard let id = dragId, let p = ports.first(where: { $0.id == id }) else { return false }
+        let dx = pt.x - dragStart.x, dy = pt.y - dragStart.y
+        if !dragArmed && abs(dx) + abs(dy) > 5 { dragArmed = true }
+        guard dragArmed else { return false }
+        if dragResize {
+            var w = dragSize.width, h = dragSize.height, cx = dragPos.x, cy = dragPos.y
+            if dragR { w += dx; cx += dx/2 }
+            if dragL { w -= dx; cx += dx/2 }
+            if dragB { h += dy; cy += dy/2 }
+            if dragT { h -= dy; cy += dy/2 }
+            p.size = CGSize(width: max(240, w), height: max(150, h)); p.pos = CGPoint(x: cx, y: cy)
+        } else {
+            p.pos = CGPoint(x: dragPos.x + dx, y: dragPos.y + dy)
+        }
+        return true   // consume → don't leak the drag into the webview
+    }
+    func mouseUp() -> Bool { let armed = dragArmed; dragId = nil; dragArmed = false; return armed }
     func close(_ p: Port) {
         panels[p.id]?.close()
         Registry.shared.drop(p.id)
@@ -370,6 +447,9 @@ struct Chrome: View {
             }
             Spacer()
             // status cluster moved up from ContentView.swift:185
+            Button(action: { if shell.galaxy { shell.unwind() } else { shell.zoomUp() } }) {
+                Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(shell.galaxy ? shell.accent : P42.dim)
+            }.buttonStyle(.plain).help("Galaxy — all modes (⌘↑)")
             Button(action: { shell.arrange() }) {
                 Image(systemName: "rectangle.3.group").font(.system(size: 12)).foregroundStyle(P42.dim)
             }.buttonStyle(.plain).help("Arrange (⌘L)")
@@ -406,17 +486,19 @@ struct Tile: View {
     @ObservedObject var port: Port
     @ObservedObject var shell = Shell.shared
     let exposeFrame: CGRect?    // when expose mode, override position+scale
-    @State private var drag = CGSize.zero
-    @State private var resz = CGSize.zero
 
     var body: some View {
         let floating = port.presentation == .floating
-        let w = max(240, port.size.width + resz.width), h = max(150, port.size.height + resz.height)
+        let inOverlay = floating || shell.focusId == port.id   // webview lives elsewhere (panel / focus overlay)
+        let w = port.size.width, h = port.size.height   // move/resize are handled in AppKit (Shell.mouse*)
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Circle().fill(floating ? P42.dim : P42.accent).frame(width: 7, height: 7)
+                Circle().fill(inOverlay ? P42.dim : P42.accent).frame(width: 7, height: 7)
                 Text(port.title).font(P42.mono(11)).foregroundStyle(P42.text)
                 Spacer()
+                Button(action: { withAnimation(.spring(response: 0.45)) { shell.focusId = port.id } }) {
+                    Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(P42.dim)
+                }.buttonStyle(.plain).help("Focus — immersive (⌘↓)")
                 Button(action: popToggle) {
                     Image(systemName: floating ? "arrow.down.right.and.arrow.up.left" : "macwindow")
                         .font(.system(size: 9)).foregroundStyle(P42.dim)
@@ -428,8 +510,6 @@ struct Tile: View {
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(Color(red:0.06,green:0.07,blue:0.09))
             .contentShape(Rectangle())
-            .gesture(DragGesture().onChanged { drag = $0.translation }
-                .onEnded { v in port.pos.x += v.translation.width; port.pos.y += v.translation.height; drag = .zero })
             .contextMenu {
                 Menu("Move to space") {
                     ForEach(Array(shell.spaceNames.enumerated()), id: \.0) { i, name in
@@ -442,21 +522,14 @@ struct Tile: View {
             }
 
             ZStack {
-                if floating {
+                if inOverlay {
                     VStack(spacing: 6) {
-                        Image(systemName: "macwindow.on.rectangle").font(.system(size: 24)).foregroundStyle(P42.dim)
-                        Text("floating — click to focus").font(P42.mono(10)).foregroundStyle(P42.dim)
+                        Image(systemName: floating ? "macwindow.on.rectangle" : "viewfinder").font(.system(size: 24)).foregroundStyle(P42.dim)
+                        Text(floating ? "floating — click to focus" : "focused — Esc to return").font(P42.mono(10)).foregroundStyle(P42.dim)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.5))
-                    .onTapGesture { shell.panels[port.id]?.makeKeyAndOrderFront(nil) }
+                    .onTapGesture { if floating { shell.panels[port.id]?.makeKeyAndOrderFront(nil) } else { withAnimation { shell.focusId = port.id } } }
                 } else {
                     AdoptingHost(id: port.id, html: port.html)
-                }
-                // resize handle
-                if !floating && exposeFrame == nil {
-                    VStack { Spacer(); HStack { Spacer()
-                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 9)).foregroundStyle(P42.dim.opacity(0.6)).padding(4)
-                        .gesture(DragGesture().onChanged { resz = $0.translation }
-                            .onEnded { _ in port.size.width = w; port.size.height = h; resz = .zero }) } }
                 }
             }.frame(width: w, height: h)
         }
@@ -465,7 +538,7 @@ struct Tile: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isTop ? P42.accent.opacity(0.7) : P42.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: P42.accent.opacity(isTop ? 0.3 : 0.12), radius: isTop ? 22 : 12)
         .scaleEffect(exposeFrame != nil ? min(exposeFrame!.width / w, exposeFrame!.height / h) : 1, anchor: .center)
-        .position(exposeFrame?.origin ?? CGPoint(x: port.pos.x + drag.width, y: port.pos.y + drag.height))
+        .position(exposeFrame?.origin ?? CGPoint(x: port.pos.x, y: port.pos.y))
         .zIndex(Double(port.z))
         .onTapGesture {
             if shell.expose { withAnimation { shell.expose = false }; shell.focus(port) }
@@ -684,6 +757,92 @@ struct SpaceCard: View {
     }
 }
 
+// MARK: - Galaxy (zoom UP — all modes as worlds)
+
+struct GalaxyView: View {
+    @ObservedObject var shell = Shell.shared
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.72).ignoresSafeArea().onTapGesture { withAnimation { shell.galaxy = false } }
+            VStack(spacing: 26) {
+                Text("PORT42 · GALAXY").font(P42.mono(13, .bold)).foregroundStyle(P42.text).tracking(5)
+                HStack(spacing: 44) {
+                    ForEach(Array(shell.modes.enumerated()), id: \.0) { i, m in ModeWorld(index: i, mode: m) }
+                }
+                Text("a mode is a world · click to enter · ⌘↑ galaxy · ⌘↓ focus").font(P42.mono(10)).foregroundStyle(P42.dim)
+            }
+        }.transition(.scale(scale: 1.15).combined(with: .opacity))
+    }
+}
+
+struct ModeWorld: View {
+    @ObservedObject var shell = Shell.shared
+    let index: Int; let mode: ModeDef
+    var portCount: Int { shell.ports.filter { $0.mode == index }.count }
+    var on: Bool { shell.mode == index }
+    var body: some View {
+        Button(action: { withAnimation(.spring(response: 0.5)) { shell.switchMode(index); shell.galaxy = false } }) {
+            VStack(spacing: 14) {
+                TimelineView(.animation) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    Canvas { ctx, size in
+                        let c = CGPoint(x: size.width/2, y: size.height/2)
+                        ctx.fill(Path(ellipseIn: CGRect(origin: .zero, size: size)),
+                            with: .radialGradient(Gradient(colors: [mode.accent.opacity(0.55), mode.accent.opacity(0.04), .clear]),
+                                center: c, startRadius: 0, endRadius: size.width/2))
+                        let r = size.width * 0.26 + sin(t * 1.4 + Double(index)) * 4
+                        ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)), with: .color(mode.accent.opacity(0.92)))
+                        ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)), with: .color(.white.opacity(0.25)), lineWidth: 1)
+                        // orbiting spaces (moons)
+                        let n = mode.spaces.count
+                        for s in 0..<n {
+                            let a = t * 0.6 + Double(s) / Double(max(1, n)) * 6.283
+                            let rr = size.width * 0.42
+                            let mx = c.x + cos(a) * rr, my = c.y + sin(a) * rr * 0.46
+                            let dot = shell.portsIn(index, s).count > 0 ? 8.0 : 5.0
+                            ctx.fill(Path(ellipseIn: CGRect(x: mx - dot/2, y: my - dot/2, width: dot, height: dot)), with: .color(.white.opacity(0.9)))
+                        }
+                    }
+                }.frame(width: 158, height: 158)
+                Text(mode.name.uppercased()).font(P42.mono(13, .bold)).foregroundStyle(on ? mode.accent : P42.text).tracking(2)
+                Text("\(mode.spaces.count) spaces · \(portCount) ports").font(P42.mono(10)).foregroundStyle(P42.dim)
+            }
+            .padding(18)
+            .background(on ? mode.accent.opacity(0.08) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(on ? mode.accent.opacity(0.6) : P42.dim.opacity(0.25), lineWidth: on ? 1.5 : 1))
+            .scaleEffect(on ? 1.05 : 1)
+        }.buttonStyle(.plain)
+    }
+}
+
+// MARK: - Focus (zoom DOWN — one port, immersive; same registry webview, no reload)
+
+struct FocusOverlay: View {
+    @ObservedObject var shell = Shell.shared
+    let port: Port
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.9).ignoresSafeArea().onTapGesture { withAnimation(.spring(response: 0.4)) { shell.focusId = nil } }
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Circle().fill(shell.accent).frame(width: 8, height: 8)
+                    Text(port.title).font(P42.mono(12)).foregroundStyle(P42.text)
+                    Text("· focus").font(P42.mono(10)).foregroundStyle(P42.dim)
+                    Spacer()
+                    Button(action: { withAnimation(.spring(response: 0.4)) { shell.focusId = nil } }) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(P42.dim)
+                    }.buttonStyle(.plain).help("Exit focus (Esc)")
+                }.padding(.horizontal, 16).padding(.vertical, 11).background(Color(red: 0.06, green: 0.07, blue: 0.09))
+                AdoptingHost(id: port.id, html: port.html)
+            }
+            .frame(width: shell.screenW * 0.78, height: shell.screenH * 0.8)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.5), lineWidth: 1))
+            .shadow(color: shell.accent.opacity(0.4), radius: 50)
+        }.transition(.scale(scale: 0.82).combined(with: .opacity))
+    }
+}
+
 // MARK: - Root
 
 struct ShellView: View {
@@ -695,8 +854,12 @@ struct ShellView: View {
                 // Layer 2 — chrome + ports, dissolve on idle
                 Group {
                     VStack(spacing: 0) { Chrome(); Spacer() }
-                    ForEach(shell.current) { port in
-                        Tile(port: port, exposeFrame: shell.expose ? exposeRect(port, in: geo.size) : nil)
+                    // Tiles in their OWN ZStack so their .zIndex(port.z) doesn't leak out of the
+                    // flattening Group and paint over the overlays below.
+                    ZStack {
+                        ForEach(shell.current) { port in
+                            Tile(port: port, exposeFrame: shell.expose ? exposeRect(port, in: geo.size) : nil)
+                        }
                     }
                     // Space rail — the spaces inside this mode (left edge, vertically centered)
                     HStack { SpaceRail().padding(.leading, 14); Spacer() }
@@ -704,7 +867,9 @@ struct ShellView: View {
                 }
                 .opacity(shell.idle ? 0 : 1)
                 .allowsHitTesting(!shell.idle)
-                if shell.showSpaces { SpacesOverview() }
+                if shell.showSpaces { SpacesOverview().zIndex(100) }
+                if shell.galaxy { GalaxyView().zIndex(110) }
+                if let fid = shell.focusId, let p = shell.ports.first(where: { $0.id == fid }) { FocusOverlay(port: p).zIndex(120) }
                 // idle hint
                 if shell.idle {
                     VStack { Spacer(); Text("PORT42 // move to wake").font(P42.mono(12)).foregroundStyle(P42.dim).padding(.bottom, 40) }
@@ -729,6 +894,8 @@ struct ShellView: View {
             .animation(.easeInOut(duration: 0.5), value: shell.space)
             .animation(.easeInOut(duration: 0.5), value: shell.mode)
             .animation(.easeInOut(duration: 0.25), value: shell.showSpaces)
+            .animation(.spring(response: 0.4), value: shell.galaxy)
+            .animation(.spring(response: 0.4), value: shell.focusId)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).background(.black)
     }
@@ -780,21 +947,28 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
     func installInput() {
-        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .scrollWheel]) { e in
+        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel]) { e in
             Shell.shared.bump()
-            if e.type == .mouseMoved, let cv = self.window.contentView {
-                let p = e.locationInWindow
-                Shell.shared.mouse = CGPoint(x: p.x / cv.bounds.width, y: 1 - p.y / cv.bounds.height)
+            guard let cv = self.window.contentView else { return e }
+            let lp = e.locationInWindow
+            let pt = CGPoint(x: lp.x, y: cv.bounds.height - lp.y)   // top-left coords
+            switch e.type {
+            case .mouseMoved:
+                Shell.shared.mouse = CGPoint(x: lp.x / cv.bounds.width, y: 1 - lp.y / cv.bounds.height)
+                Shell.shared.hoverFocus(at: pt)
+            case .leftMouseDown:  Shell.shared.mouseDown(at: pt)
+            case .leftMouseDragged: if Shell.shared.mouseDragged(at: pt) { return nil }   // consume → move/resize
+            case .leftMouseUp:    if Shell.shared.mouseUp() { return nil }                 // swallow the up that ended a drag
+            default: break
             }
             return e
         }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             Shell.shared.bump()
             let cmd = e.modifierFlags.contains(.command)
-            if e.keyCode == 53 { if Shell.shared.showPalette { Shell.shared.showPalette = false; return nil }
-                                 if Shell.shared.showSpaces { withAnimation { Shell.shared.showSpaces = false }; return nil }
-                                 if Shell.shared.expose { withAnimation { Shell.shared.expose = false }; return nil }
-                                 NSApp.terminate(nil); return nil }
+            if e.keyCode == 53 { if !Shell.shared.unwind() { NSApp.terminate(nil) }; return nil }   // Esc peels a level / quits
+            if cmd, e.keyCode == 126 { Shell.shared.zoomUp(); return nil }     // ⌘↑ → galaxy (UP)
+            if cmd, e.keyCode == 125 { Shell.shared.zoomDown(); return nil }   // ⌘↓ → focus frontmost (DOWN)
             if e.keyCode == 48 { withAnimation { Shell.shared.expose.toggle() }; return nil }   // Tab
             if cmd, e.charactersIgnoringModifiers == "q" { NSApp.terminate(nil); return nil }
             if cmd, e.charactersIgnoringModifiers == "k" { Shell.shared.showPalette.toggle(); return nil }
