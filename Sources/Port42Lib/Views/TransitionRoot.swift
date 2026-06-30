@@ -50,7 +50,13 @@ public struct TransitionRoot: View {
             if appState.showDreamscape {
                 LockScreenView()
             } else if transitionPhase != .none || (appState.isSetupComplete && transitionPhase == .none) {
-                ContentView()
+                // SHELL — S2.1: behind PORT42_SHELL, the shell root replaces the split-view app
+                // surface (ambient surface + zoom spine + galaxy). Default off ⇒ ContentView.
+                if ShellMode.isEnabled() {
+                    ShellView(appState: appState)
+                } else {
+                    ContentView()
+                }
             } else if !appState.showDreamscape && bootCinematicDone {
                 SetupView()
             }
@@ -240,6 +246,16 @@ public struct TransitionRoot: View {
     private func restoreWindowFrame() {
         guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
         let screen = window.screen ?? NSScreen.main
+
+        // SHELL — the shell owns the full screen: never shrink to the sidebar frame, and re-assert
+        // the Dock/menu-bar hide (the unlock/dive transitions otherwise reset both). This is the
+        // authoritative shell-frame setter — it runs on launch (onAppear) and after every transition.
+        if ShellMode.isEnabled() {
+            window.setFrame(ShellMode.windowFrame(for: screen), display: true, animate: false)
+            NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+            return
+        }
+
         let screenFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
 
         // If we have a saved frame that isn't full-screen, restore it
