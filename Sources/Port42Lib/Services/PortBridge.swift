@@ -193,8 +193,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         return await withCheckedContinuation { continuation in
             permissionContinuation = continuation
             pendingPermission = perm
+            // Floating panels render their own permission overlay; everything else (legacy inline
+            // ports AND Step 8 registry-owned inline ports, which now live in `panels` with
+            // presentation:"inline") routes to the ChatView dialog via activePermissionBridge.
             if let state = self.state,
-               !state.portWindows.panels.contains(where: { $0.bridge === self }) {
+               !state.portWindows.panels.contains(where: { $0.bridge === self && $0.presentation == "floating" }) {
                 state.activePermissionBridge = self
             }
         }
@@ -655,7 +658,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?, surfaceBound: Bool?)
             // surfaceBound (what terminal_list used to report) comes from the live controller; only
             // terminal ports have one, so non-terminals carry nil and omit the field.
-            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y, surfaceBound: state.terminalControllers[$0.udid]?.isSurfaceBound) }
+            // `presentation:"inline"` ports (Step 8 registry-owned) report status "inline"; a
+            // backgrounded floating port reports "docked"; otherwise "floating".
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.presentation == "inline" ? "inline" : ($0.isBackground ? "docked" : "floating"), x: $0.x, y: $0.y, surfaceBound: state.terminalControllers[$0.udid]?.isSurfaceBound) }
                 + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none, surfaceBound: Bool?.none) }
             let filtered = filterCaps.isEmpty ? all : all.filter { p in
                 filterCaps.allSatisfy { cap in p.capabilities.contains(cap) }
@@ -815,6 +820,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 state.portWindows.minimize(panel.id)
                 return ["ok": true]
             case "restore", "undock":
+                // Step 8: undock on an inline port pops it out (re-parents its live webview, no reload).
+                if panel.presentation == "inline" {
+                    state.portWindows.promoteInlineToFloating(id: panel.id, in: CGSize(width: 800, height: 600))
+                    return ["ok": true]
+                }
                 return ["ok": state.portWindows.restore(panel.id)]
             default:
                 return ["error": "unknown action '\(action)'. Use: focus, close, dock, undock"]

@@ -659,6 +659,10 @@ public final class AppState: ObservableObject {
     @Published public var messages: [Message] = []
     /// Message ID of a port that should auto-activate when it appears in the chat.
     @Published public var pendingPortActivationId: String? = nil
+    /// Step 8 feature flag: render active inline web ports through the registry (one WKWebView,
+    /// re-parented on pop-out — `RegisteredInlinePortView`) instead of the legacy self-owned
+    /// `InlinePortView`. Reversible by flipping to false until the legacy path is deleted.
+    @Published public var useRegistryInlinePorts: Bool = true
     @Published public var currentUser: AppUser?
     @Published public var isSetupComplete = false {
         didSet {

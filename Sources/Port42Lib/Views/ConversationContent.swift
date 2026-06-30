@@ -815,7 +815,13 @@ struct MessageRow: View, Equatable {
                                 let pIdx = entry.portIndex(atSegment: segIdx)
                                 let msgId = pIdx == 0 ? entry.id : entry.id + "-p\(pIdx)"
                                 if portIsActive || activatedPortIndices.contains(segIdx) {
-                                    InlinePortView(html: html, appState: appState, messageId: msgId, createdBy: entry.senderName)
+                                    if appState.useRegistryInlinePorts {
+                                        // Step 8: one registry-owned WKWebView, re-parented on pop-out.
+                                        RegisteredInlinePortView(id: msgId, html: html, appState: appState,
+                                                                 createdBy: entry.senderName, anchorMessageId: entry.id)
+                                    } else {
+                                        InlinePortView(html: html, appState: appState, messageId: msgId, createdBy: entry.senderName)
+                                    }
                                 } else {
                                     PortCompactBlock(
                                         html: html,
@@ -1018,6 +1024,158 @@ struct InlinePortView: View {
             messageId: messageId,
             in: bounds
         )
+    }
+}
+
+// MARK: - Registered Inline Port View (Step 8)
+
+/// Renders an *active* inline web port hosted by a single registry-owned WKWebView (adopted via
+/// `PortWebViewHost`), instead of the legacy `InlinePortView` which owned its own webview+bridge.
+/// Because the registry owns the view, pop-out RE-PARENTS the same webview into a floating window
+/// with no reload — DOM/JS state survives. When the port is popped out (presentation == "floating")
+/// the inline host shows a "popped out" state and the webview lives in the panel instead.
+struct RegisteredInlinePortView: View {
+    let id: String
+    let html: String
+    let appState: AppState
+    let createdBy: String?
+    let anchorMessageId: String?
+    @ObservedObject private var manager: PortWindowManager
+    @State private var bridge: PortBridge?
+    @State private var showCode = false
+
+    init(id: String, html: String, appState: AppState, createdBy: String?, anchorMessageId: String?) {
+        self.id = id
+        self.html = html
+        self.appState = appState
+        self.createdBy = createdBy
+        self.anchorMessageId = anchorMessageId
+        self._manager = ObservedObject(wrappedValue: appState.portWindows)
+    }
+
+    /// The live registered panel (nil before registration / after close).
+    private var panel: PortPanel? { manager.panels.first(where: { $0.id == id }) }
+    private var isFloating: Bool { panel?.presentation == "floating" }
+    private var title: String { bridge?.title ?? panel?.title ?? PortPanel.extractTitle(from: html) }
+    private var height: CGFloat { max(manager.inlineHeights[id] ?? 100, 100) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            titleBar
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Port42Theme.bgSecondary)
+                .zIndex(1)
+
+            if isFloating {
+                // The webview now lives in the floating panel — show a compact "popped out" state.
+                Button(action: focus) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "macwindow")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Port42Theme.accent)
+                        Text("popped out — click to focus")
+                            .font(Port42Theme.mono(11))
+                            .foregroundStyle(Port42Theme.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else if showCode {
+                ScrollView(.vertical) {
+                    Text(html)
+                        .font(Port42Theme.mono(12))
+                        .foregroundColor(Port42Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: height)
+            } else if let webView = manager.webViews[id], let b = bridge ?? panel?.bridge {
+                PortWebViewHost(webView: webView, bridge: b)
+                    .frame(height: height)
+            } else {
+                // Pre-registration placeholder (registration happens in onAppear).
+                Color.clear.frame(height: 100)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Port42Theme.border, lineWidth: 1)
+        )
+        .onAppear { register() }
+        // Permission prompts route to the ChatView dialog automatically: the bridge sets
+        // appState.activePermissionBridge for any non-floating port (see PortBridge.requestPermission).
+    }
+
+    @ViewBuilder
+    private var titleBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "circle")
+                .font(.system(size: 8))
+                .foregroundStyle(Port42Theme.accent)
+            Text(title)
+                .font(Port42Theme.mono(11))
+                .foregroundStyle(Port42Theme.textPrimary)
+                .lineLimit(1)
+            if let creator = createdBy {
+                Text("·")
+                    .font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                Text(creator)
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+
+            if !isFloating {
+                if showCode {
+                    iconButton("play.fill", help: "Run port", accent: true) { showCode = false }
+                } else {
+                    iconButton("chevron.left.forwardslash.chevron.right", help: "View source") { showCode = true }
+                }
+            }
+
+            iconButton("macwindow", help: isFloating ? "Focus window" : "Pop out") {
+                isFloating ? focus() : popOut()
+            }
+        }
+    }
+
+    private func iconButton(_ systemName: String, help: String, accent: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10))
+                .foregroundStyle(accent ? Port42Theme.accent : Port42Theme.textSecondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func register() {
+        let b = manager.registerInlinePort(id: id, html: html, spaceId: appState.currentSpace?.id,
+                                            createdBy: createdBy, title: PortPanel.extractTitle(from: html),
+                                            anchorMessageId: anchorMessageId)
+        bridge = b ?? panel?.bridge
+        if let b = bridge { appState.registerPortBridge(b) }
+    }
+
+    private func popOut() {
+        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+        let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+        manager.promoteInlineToFloating(id: id, in: bounds)
+    }
+
+    private func focus() {
+        manager.bringToFront(id)
     }
 }
 

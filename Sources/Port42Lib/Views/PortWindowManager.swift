@@ -109,8 +109,16 @@ public final class PortWindowManager: ObservableObject {
     /// Persistent WKWebViews, keyed by panel ID. Created once, reparented on dock/undock.
     public var webViews: [String: WKWebView] = [:]
 
+    /// Step 8: reported content height for inline-presented ports, keyed by panel ID. Drives the
+    /// SwiftUI inline host's frame so a registry-owned port auto-sizes like the legacy inline view.
+    /// Floating ports ignore this (the window drives their size).
+    @Published public var inlineHeights: [String: CGFloat] = [:]
+
     /// Console handler kept alive for WKWebView message routing.
     private var consoleHandlers: [String: PortConsoleHandler] = [:]
+
+    /// Inline height handlers kept alive for WKWebView message routing (Step 8).
+    private var heightHandlers: [String: PortHeightHandler] = [:]
 
     /// Navigation delegates kept alive for WKWebView.
     private var navDelegates: [String: PortNavigationBlocker] = [:]
@@ -223,6 +231,10 @@ public final class PortWindowManager: ObservableObject {
     /// Persist a panel to the database and snapshot a version.
     private func persistPanel(_ id: String) {
         guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }
+        // Step 8: inline-presented ports are session-only — they re-register from their anchor
+        // message each session, so they must never land a DB row (else they'd restore as orphan
+        // floating windows). Promotion to "floating" persists normally.
+        guard panel.presentation != "inline" else { return }
         do {
             let record = PersistedPortPanel(from: panel)
             try db.savePortPanel(record)
@@ -315,6 +327,61 @@ public final class PortWindowManager: ObservableObject {
         createWindow(for: panel, in: bounds)
         Analytics.shared.portPoppedOut()
         return newUdid
+    }
+
+    // MARK: - Inline Ports (Step 8)
+
+    /// Register (or reuse) a session-only inline-presented port. Creates ONE registry-owned
+    /// WKWebView and an inline `PortPanel` — but never a window and never a DB row. Idempotent
+    /// by id: a re-render (or scroll-back) returns the existing port untouched, preserving its
+    /// DOM/JS state. The same registered port is later re-parented into a floating window by
+    /// `promoteInlineToFloating` with no reload. Returns the port's bridge (for permission/event
+    /// observation by the inline host), or nil if AppState is gone.
+    @discardableResult
+    public func registerInlinePort(id: String, html: String, spaceId: String?, createdBy: String?,
+                                   title: String?, anchorMessageId: String?) -> PortBridge? {
+        if let existing = panels.first(where: { $0.id == id }) {
+            return existing.bridge
+        }
+        guard let appState = appState else { return nil }
+        let resolvedTitle = (title?.isEmpty == false) ? title : PortPanel.extractTitle(from: html)
+        // bridge.messageId == the port's own derived id, matching the legacy inline path's
+        // permission-cache key (registerPortBridge caches by messageId). `anchorMessageId` (the
+        // host chat message) is tracked separately on the panel for re-render / dock-back.
+        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: id,
+                                createdBy: createdBy, title: resolvedTitle)
+        var panel = PortPanel(
+            id: id, udid: id, html: html, bridge: bridge,
+            spaceId: spaceId, createdBy: createdBy, messageId: id,
+            userTitle: title, size: CGSize(width: 100, height: 100))
+        panel.portType = "web"
+        panel.presentation = "inline"
+        panel.anchorMessageId = anchorMessageId
+        panels.append(panel)
+        createPortWebView(for: panel)
+        // Deliberately NOT persisted: inline ports re-register from their anchor each session.
+        return bridge
+    }
+
+    /// Step 8: pop an inline port out into a floating window by RE-PARENTING its existing
+    /// WKWebView — no reload, so DOM/JS state survives (the spike-proven move). The port keeps
+    /// its id; its inline host switches to a "popped out" state because `presentation` flips to
+    /// "floating", and the window's `PortWebViewHost` adopts the same webview.
+    public func promoteInlineToFloating(id: String, in bounds: CGSize) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }),
+              panels[idx].presentation == "inline" else {
+            bringToFront(id)
+            return
+        }
+        panels[idx].presentation = "floating"
+        // Give it a real floating size now that it owns a window (it was created at 100×100).
+        let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        if panels[idx].size.width < 200 || panels[idx].size.height < 150 {
+            panels[idx].size = CGSize(width: screen.width * 0.4, height: screen.height * 0.4)
+        }
+        persistPanel(id)                       // now a real floating panel → persisted
+        createWindow(for: panels[idx], in: bounds)  // adopts webViews[id] via PortWebViewHost → re-parents
+        Analytics.shared.portPoppedOut()
     }
 
     /// Close a panel with confirmation dialog. Used by the UI close button.
@@ -522,14 +589,14 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// List all ports (for ports_list tool).
-    public func allPorts() -> [(udid: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, isBackground: Bool, x: CGFloat?, y: CGFloat?)] {
+    public func allPorts() -> [(udid: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, isBackground: Bool, presentation: String, x: CGFloat?, y: CGFloat?)] {
         panels.map { panel in
             // A native `terminal` port advertises the "terminal" capability. (cwd has no native
             // equivalent yet — see summer2026-todo "native terminal output-streaming bridge".)
             let caps = PortPanel.mergeCapabilities(panel.storedCapabilities,
                                                    isTerminal: panel.portType == "terminal")
             let origin = windows[panel.id]?.frame.origin ?? panel.position
-            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: nil, isBackground: panel.isBackground, x: origin?.x, y: origin?.y)
+            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: nil, isBackground: panel.isBackground, presentation: panel.presentation, x: origin?.x, y: origin?.y)
         }
     }
 
@@ -580,6 +647,18 @@ public final class PortWindowManager: ObservableObject {
         )
         config.userContentController.addUserScript(viewportScript)
 
+        // Step 8: inline height reporting — lets a registry-owned port auto-size when presented
+        // inline. Harmless for floating ports (the window drives their size).
+        let heightScript = WKUserScript(
+            source: PortWebViewFactory.heightJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(heightScript)
+        let heightHandler = PortHeightHandler(manager: self, portId: panel.id)
+        config.userContentController.add(heightHandler, name: "portHeight")
+        heightHandlers[panel.id] = heightHandler
+
         let webView = FileDropWebView(frame: .zero, configuration: config)
         let navDelegate = PortNavigationBlocker()
         webView.navigationDelegate = navDelegate
@@ -604,6 +683,8 @@ public final class PortWindowManager: ObservableObject {
         webViews.removeValue(forKey: id)
         consoleHandlers.removeValue(forKey: id)
         navDelegates.removeValue(forKey: id)
+        heightHandlers.removeValue(forKey: id)
+        inlineHeights.removeValue(forKey: id)
     }
 
     // MARK: - Native Window Management
@@ -942,6 +1023,24 @@ enum PortWebViewFactory {
         setTimeout(updateViewport, 100);
     })();
     """
+
+    /// Inline height reporting JS (Step 8). Posts document.body.scrollHeight to the native
+    /// `portHeight` handler on load/resize/observe so an inline-presented port auto-sizes.
+    static let heightJS = """
+    (function() {
+        function reportHeight() {
+            try {
+                window.webkit.messageHandlers.portHeight.postMessage(document.body.scrollHeight);
+            } catch(e) {}
+        }
+        window.addEventListener('load', function() {
+            reportHeight();
+            new ResizeObserver(reportHeight).observe(document.body);
+        });
+        setTimeout(reportHeight, 100);
+        setTimeout(reportHeight, 500);
+    })();
+    """
 }
 
 // MARK: - Console Handler
@@ -954,6 +1053,33 @@ class PortConsoleHandler: NSObject, WKScriptMessageHandler {
            let level = body["level"] as? String,
            let msg = body["message"] as? String {
             NSLog("[Port42:port:%@] %@", level, msg)
+        }
+    }
+}
+
+// MARK: - Inline Height Handler (Step 8)
+
+/// Receives `document.body.scrollHeight` from a registry-owned port webview and republishes it on
+/// the manager (`inlineHeights[portId]`) so the SwiftUI inline host can size itself. Floating ports
+/// ignore the value. Clamped to [40, 600] to match the legacy inline-port sizing.
+final class PortHeightHandler: NSObject, WKScriptMessageHandler {
+    weak var manager: PortWindowManager?
+    let portId: String
+
+    init(manager: PortWindowManager, portId: String) {
+        self.manager = manager
+        self.portId = portId
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "portHeight", let h = message.body as? CGFloat else { return }
+        let clamped = min(max(h, 40), 600)
+        let id = portId
+        Task { @MainActor [weak manager] in
+            guard let manager else { return }
+            if abs((manager.inlineHeights[id] ?? -1) - clamped) > 1 {
+                manager.inlineHeights[id] = clamped
+            }
         }
     }
 }
