@@ -23,6 +23,14 @@ public struct PortPanel: Identifiable {
     public var isBackground: Bool = false
     public var portType: String = "web"
     public var isChatPort: Bool = false
+    /// Step 8: presentation mode — "floating" (own NSPanel) or "inline" (hosted in a chat
+    /// `[port:id]` card). A port is the same registered entity in either mode; pop-out flips
+    /// this to "floating" and re-parents the same WKWebView. Inline ports are session-only
+    /// (re-registered from their anchor message on render), so they are never persisted.
+    public var presentation: String = "floating"
+    /// For an inline port, the id of the chat message whose `[port:id]` card (or `` ```port ``
+    /// fence) anchors it. Lets dock-back return the webview to its inline host.
+    public var anchorMessageId: String? = nil
 
     /// Resolved display title: userTitle > HTML <title> > "port"
     public var title: String {

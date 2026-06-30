@@ -74,14 +74,33 @@ public struct ChatEntry: Identifiable, Equatable {
     /// If this is a native-terminal placeholder, returns its port (id, title).
     /// Format: [terminal:<id>:<title>] (title may contain ':'). Step 5b.
     public var terminalPortInfo: (id: String, title: String)? {
+        ChatEntry.parseCard(prefix: "[terminal:", from: content)
+    }
+
+    /// If this is a web-port reference card, returns its port (id, title).
+    /// Format: [port:<id>:<title>] (title may contain ':'). Step 8 — symmetric with the
+    /// terminal card; the inline presence of a registered web port.
+    public var webPortInfo: (id: String, title: String)? {
+        ChatEntry.parseCard(prefix: "[port:", from: content)
+    }
+
+    /// Shared `[prefix<id>:<title>]` parser (title may contain ':'). Returns nil unless the
+    /// trimmed content is exactly one such card with a non-empty id.
+    static func parseCard(prefix: String, from content: String) -> (id: String, title: String)? {
         let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard c.hasPrefix("[terminal:"), c.hasSuffix("]") else { return nil }
-        let inner = String(c.dropFirst("[terminal:".count).dropLast())  // "<id>:<title>"
+        guard c.hasPrefix(prefix), c.hasSuffix("]") else { return nil }
+        let inner = String(c.dropFirst(prefix.count).dropLast())  // "<id>:<title>"
         guard let colon = inner.firstIndex(of: ":") else { return nil }
         let id = String(inner[inner.startIndex..<colon])
         let title = String(inner[inner.index(after: colon)...])
         guard !id.isEmpty else { return nil }
         return (id, title)
+    }
+
+    /// Build a web-port reference card string: `[port:<id>:<title>]`. Symmetric with the
+    /// terminal card. The chat anchor for a registered web port shown inline.
+    public static func portCard(id: String, title: String) -> String {
+        "[port:\(id):\(title)]"
     }
 
     // MARK: - Port Detection
