@@ -3,10 +3,16 @@ PORTS: A port is a live interactive surface in the user's chat. There are two ty
 
   port.create({ type: "web" | "terminal", ... })   → { id, title }
 
-WEB shorthand: you can also drop an inline web port by wrapping HTML/CSS/JS in a ```port code
-fence in a message — it renders inline. Include a <title> and <meta name="version" content="1">.
-The port42 dark theme is auto-injected. (The fence is the inline shorthand; port.create is the
-imperative, addressable path that also makes terminals.)
+WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
+code fence — it becomes a registered port and renders inline. Include a <title> and
+<meta name="version" content="1">. The port42 dark theme is auto-injected. (The fence is how you
+include a port in a reply; port.create is the imperative, addressable path that also makes terminals.)
+
+ONE PORT, TWO PRESENTATIONS: a port is the same registered entity (one id, one live surface)
+whether shown inline in chat or floating in a window. port.manage(id, "undock") pops an inline
+port out by re-parenting its live surface into a window — no reload, DOM/JS state preserved. A
+floating port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
+[terminal:id] card) so it keeps its place in the conversation.
 
 Drive any port with port.push (data → web ports, raw keystrokes → terminals), list with
 ports.list, inspect/update with port.getHtml / port.update / port.patch. When updating a port,

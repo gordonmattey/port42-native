@@ -1,7 +1,10 @@
 # Uniform `port.create({type})` — one creation primitive for all port types
 
 **Status:** Steps 1–7 shipped (`a1ebaf9`→`72fb8e0`). Step 8 spikes complete — verdict
-**re-parent viable** (`wkspike` PASS, `cb0b115`); the Step 8 migration sub-steps are not yet built.
+**re-parent viable** (`wkspike` PASS, `cb0b115`). Step 8 core migration shipped + verified in-app
+(`c3f27af`, `28580fa`, `7cd2dea`): registry-owned inline ports with no-reload pop-out re-parent,
+`[port:id]` chat cards for floating web ports. Remaining: optional legacy-path removal (flag
+`useRegistryInlinePorts` retained for reversibility) + cross-restart inline persistence (scope-cut).
 Sequel to `plan-first-class-terminal-ports.md` (done). Steered by `summer2026-todo.md`
 ("a terminal is just another port type", like "a swim is just a space").
 
@@ -366,40 +369,63 @@ re-parent"** (the target model above). Migration sub-steps below are not yet bui
 - **Scope cut.** No cross-restart *live-webview* persistence in this phase — inline ports re-render
   from the registry within a session; on restart reuse the existing panel-restore path.
 
-### Migration steps (incremental; each builds + commits green)
+### Migration steps — AS BUILT (shipped 2026-06-30, verified in-app on gateway 4243)
 
-> Resequenced per the derisk note: do the spikes (above) first; then the registration/card
-> unification (sub-steps 4–5 below); then the spike-chosen no-reload transition (sub-step 3).
+Shipped in three green increments. The build honored the derisk note's value-first resequencing and
+the scope cut; it deviated from D8-4/D8-5 where those conflicted with multiplayer sync + the scope
+cut (see "As-built deviation" below).
 
-1. **Single-webview ownership.** Make the registry the sole owner of one WKWebView per port. Add an
-   inline-presentation host (`NSViewRepresentable`) that **adopts** `webViews[id]` instead of
-   `InlinePortView` creating its own bridge+webview. (Floating already uses `webViews[id]`.)
-2. **`[port:id:title]` card.** A new inline reference segment + `PortCard` view (sibling to the
-   `[terminal:…]` card path), parsed in `ConversationContent`. The card hosts the registry webview
-   inline by id; when floating, it shows a "popped out — focus" state (like terminal cards).
-3. **Re-parenting transition (the hard part).** Pop-out moves the webview NSView from the inline host
-   into the NSPanel; dock-back reverses. Presentation flag flips; **no reload**. Risk: SwiftUI view
-   identity churn must not recreate the representable each render (stable id / no state thrash).
-   Test: a JS counter incremented inline survives a pop-out and a dock-back.
-4. **Register inline ports.** `port.create({inline})` registers a panel (`presentation:"inline"`,
-   `anchorMessageId`) + posts a `[port:id]` card; delete the html-in-message `InlinePortView` path.
-5. **Fence funnel.** The LLM-reply fence parser, instead of a `.port(html)` segment rendered as a
-   one-off webview, calls `port.create` (registered) and replaces the fence with a `[port:id]` card.
-   Keep the fence *syntax* for extraction.
-6. **Back-compat for old messages.** Existing messages with raw ```` ```port ```` fences must still
-   render — register-on-first-render (adopt the fenced HTML into the registry the first time the
-   message is shown) rather than a destructive migration.
-7. **Docs.** Revert the Step 7 "fence is the inline shorthand for *creation*" framing → "the fence is
-   how you can include a port in a reply; it becomes a registered port. `port.create` is the canonical
-   primitive; every port is the same registered port whether shown inline or floating."
+1. **Foundation — ✅ DONE (`c3f27af`).** `PortPanel.presentation` ("floating"|"inline") +
+   `anchorMessageId`. `ChatEntry.webPortInfo` parses `[port:id:title]` cards (shared `parseCard` with
+   `[terminal:…]`); `ChatEntry.portCard` formats them. Pure, fully tested (`WebPortCardTests` 8/8).
+2. **Single-webview ownership + no-reload re-parent — ✅ DONE (`28580fa`).**
+   `PortWindowManager.registerInlinePort(id,…)` (idempotent, session-only, never persisted) makes ONE
+   registry webview + an inline `PortPanel`; `promoteInlineToFloating(id,…)` flips presentation and
+   re-parents the SAME webview into an NSPanel (`PortWebViewHost`) — **no reload**. New
+   `RegisteredInlinePortView` adopts `webViews[id]` instead of the legacy `InlinePortView`, gated by
+   `AppState.useRegistryInlinePorts` (default on; legacy path retained → reversible). `port.manage`
+   "undock" pops inline ports out; `ports.list` reports status "inline". Permission prompts route for
+   any non-FLOATING port. **Crux verified in-app:** a live JS counter read 75 inline, popped out via
+   `port.manage undock`, read 76 in the floating window — DOM/JS survived the re-parent; survives an
+   app restart (re-registers from the persisted fence, same id). `RegisteredInlinePortTests` 6/6.
+3. **`[port:id]` cards for floating web ports — ✅ DONE (`7cd2dea`).** An external
+   `port.create({type:web})` opens a floating window AND posts a local-only `[port:id]` card
+   (`postWebPortCard`), symmetric with the terminal card; the card binds by id to the persisted panel
+   (survives restart) and its play focuses/reopens the window (`openWebPort`). `WebPortCard` view
+   renders it. Verified in-app: `port.create` → card bound to the exact id, focus works.
+4. **Docs — ✅ DONE.** `llms.txt` + `ports-context.txt` reframed: the fence is how you *include a
+   port in a reply* (it becomes a registered port); "one port, two presentations"; `port.manage
+   undock` re-parents with no reload; `[port:id]` cards. (Global `~/.claude/CLAUDE.md` is the user's
+   private file — left for the user to sync from these.)
+
+**As-built deviation from D8-4/D8-5 (decided during build, honoring the scope cut):** the original
+plan said `port.create({inline})` should stop posting a raw fence and post a `[port:id]` card backed
+by a *persisted* inline panel. In practice the **fence stays the carrier for INLINE web ports**,
+because (a) the fence message **syncs to peers** (they render the same inline port) whereas a
+`[port:id]` card points at a machine-local registered port and would not; and (b) inline ports are
+**session-only** per the scope cut, so a card in a persisted message would be a dead reference after
+restart, while the fence re-registers on render (verified). So: **inline web port → fence carrier**
+(registered-on-render via `RegisteredInlinePortView.register` → `registerInlinePort`); **floating web
+port → `[port:id]` card** (binds to the persisted panel). The `[port:id]` card parser/formatter from
+increment 1 is used by the floating path and remains foundation for future persisted-inline work.
+
+### Not done (deferred, intentionally)
+
+- **Legacy `InlinePortView` removal.** Kept behind `useRegistryInlinePorts` (default on) for
+  reversibility, per the feature-flag derisk. Delete once the registry path has soaked.
+- **Cross-restart live-webview / persisted inline ports (D8-4 full).** Scope-cut. Inline ports
+  re-register from their fence each session; only floating ports persist.
+- **Dock-back (floating→inline).** Pop-out is one-way (parity with terminal cards). The chat keeps a
+  card/popped-out state; re-embedding the live webview inline is a future nicety.
 
 ### Tests
 
-- Pure: presentation-mode model + the `[port:id:title]` card parser (round-trip, like the terminal
-  card parser).
-- Invariant: one WKWebView per port id in the registry (no second webview created on pop-out).
-- Integration / eyeball (not gateway-scriptable): DOM state survives inline→float→inline (JS counter);
-  old fenced messages still render; `port.create({inline})` posts a `[port:id]` card, not a fence.
+- Pure: `WebPortCardTests` (8) — `[port:id:title]` round-trip, no cross-talk with `[terminal:…]`.
+- Registry: `RegisteredInlinePortTests` (6) — registration idempotency, no-persist invariant,
+  presentation flip + resize on promotion, persist-on-promotion.
+- Integration: `PortCreateTests` (+2) — external web posts a bound `[port:id]` card; inline web stays
+  a fence. In-app (not gateway-scriptable as a unit): DOM survives inline→float (JS counter, verified
+  live); old fenced messages still render (verified after restart).
 
 ### Risk
 
