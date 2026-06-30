@@ -244,55 +244,65 @@ list — but it becomes one summonable port/panel in the shell (or a left rail),
 
 ## 8. Implementation path (incremental; each ships runnable)
 
-> Order: take the real app fullscreen behind a flag → render ports as a desktop over Layer 0 → make
-> tiles movable (tile↔floating, the proven re-parent) → companion-driven desktop → boot surface +
-> idle-out. Lean on what already exists at every step.
+> Order (re-sequenced w/ gordon — the SPINE comes first): takeover **+ the ambient surface** → **the
+> zoom/spatial spine (galaxy ↔ space ↔ focus)** → desktop of ports + chrome → movable/park/float →
+> companions + chat → idle-out + boot fusion. The ambient surface (Layer 0 = the living desktop) and
+> the zoom spine are **foundational** — they frame every other surface and the whole first-run
+> ("zoom out to swim in open water") rides on them, so they're built first, not retrofitted last.
+> Lean on what already exists at every step.
 
-### Phase S1 — Shell window behind a flag (reuse the AppDelegate window-grab)
+### Phase S1 — Takeover + the ambient surface (Layer 0)
 - `ShellWindow` (borderless, kiosk `presentationOptions`, key-capable) + escape hatches (Esc / ⌘Q /
   exit; restore Dock + menu bar on terminate). Extends the existing `applicationDidFinishLaunching`
   window code; default off.
-- **Cheapest first cut:** a debug-menu "Enter Shell Mode" that takes **today's real app window**
-  fullscreen + hides Dock/menu bar — real chat, real ports, no new UI. Proves the takeover on the real
-  app in ~an hour.
-- **Ship:** `PORT42_SHELL=1 ./build.sh --run` boots fullscreen; without the flag, nothing changes.
+- `ShellView` root = **`DreamscapeVideoLayer` (Layer 0) as the living desktop background** — the
+  ambient surface is the spine from step one, not bolted on at the end (screensaver = lock = desktop,
+  already unified in the app).
+- **Cheapest first cut:** the flag takes today's window fullscreen + hides Dock/menu bar over the
+  dreamscape. Proves takeover **and** the ambient background on the real app in ~an hour.
+- **Ship:** `PORT42_SHELL=1 ./build.sh --run` boots fullscreen into the living ambient surface; without
+  the flag, nothing changes.
 
-### Phase S2 — Desktop of ports over the ambient surface + the Chrome (§7a)
-- `ShellView` = `DreamscapeVideoLayer` (Layer 0) + Layer 2 chrome. Render open `PortPanel`s for the
-  current space as **tiles** via `PortWebViewHost(webView: registry[id])` (adopt, don't recreate),
-  positioned by `PortPanel.position`.
-- **Build the Chrome (§7a):** put the **PORT42 mark top-left** (in the freed traffic-light gap), and
-  re-parent the global status + action cluster out of `ContentView.swift:185` / the New-Space /
-  New-Companion actions out of `SidebarView.swift:73` into the Chrome's right side. View move, not new
-  behavior — they stay bound to `appState`.
-- Dock buttons + ⌘K call `appState.createPort(...)` so spawned tiles are **registered ports** (real
-  bridge/id, addressable by `port.push`/`ports.list`). Reuse `switchToSpace` so the desktop swaps per
-  space.
-- **Ship:** PORT42 mark top-left, status/actions in the Chrome; spawn clock/terminal/web ports from
-  the dock; drive a terminal tile with `port.push`; the desktop changes when you switch spaces.
+### Phase S2 — The zoom / spatial spine (galaxy ↔ space ↔ focus)  ← foundational, comes early
+- The **zoom ladder** on `ShellState`: galaxy (all spaces) ↔ space ↔ focus (one surface), driven by
+  ⌘↑/↓ + **pinch** (one rung per gesture) + hover-dive in galaxy. **Reuse the dive transition**
+  (`TransitionRoot` / `diveProgress`) AS the zoom animation — the dive/water metaphor *is* the spatial
+  model (focus = close · space = your room · galaxy = open water).
+- **Spaces:** galaxy renders `appState.spaces` as worlds; `switchToSpace` swaps the space; ⌘1…N jump.
+- This frames everything after it, and is exactly what the first-run line **"zoom out to swim in open
+  water"** (§8a) rides on.
+- **Ship:** pinch / ⌘ to move galaxy ↔ space ↔ focus over the ambient surface; spaces are real.
 
-### Phase S3 — Movable ports: tile ↔ floating, no reload
-- Drag tiles (persisted via existing move/resize observation). "Pop out" re-parents the **same**
-  webview into a floating `NSPanel` (Step 8 transition); dock-back reverses; presentation flag flips;
-  **no reload** (proven). z-order on focus.
-- **Ship:** a counter/terminal port keeps state across tile→float→tile — the spike, in the real app.
+### Phase S3 — Desktop of ports + the Chrome (§7a)
+- Render the current space's **tiled `PortPanel`s** via `PortWebViewHost(webView: registry[id])` (adopt,
+  don't recreate), positioned by `PortPanel.position`, inside the space rung of the spine.
+- **Build the Chrome (§7a):** **PORT42 mark top-left** (in the freed traffic-light gap); re-parent the
+  global status + action cluster + New-Space / New-Companion actions out of `ContentView.swift` /
+  `SidebarView.swift` into the Chrome — view move, still bound to `appState`.
+- Dock + ⌘K call `appState.createPort(...)` → **registered tiled ports** (real bridge/id, addressable
+  by `port.push`/`ports.list`); auto-arrange.
+- **Ship:** spawn clock/terminal/web ports from the dock; drive a terminal tile with `port.push`; the
+  desktop swaps per space.
 
-### Phase S4 — Companion-driven desktop
-- The in-app companion / a gateway `/call` can `port.create` ports **into the shell desktop** (D5
-  space fallback + a desktop position). e.g. "open me a clock and a system monitor" → two tiles
-  appear and the companion can drive them.
-- **Ship:** a chat message arranges visible desktop tiles.
+### Phase S4 — Movable tiles + park + tile ↔ floating (no reload)
+- Drag/resize tiles (persist on drag-end). The **right-edge parking dock** (drag-to-park +
+  click-restore). "Pop out" re-parents the **same** webview into a floating `NSPanel` (Step 8);
+  dock-back reverses; presentation flag flips; **no reload** (proven). z-order on focus.
+- **Ship:** a counter/terminal tile keeps state across tile → float → park → tile — the spike, real.
 
-### Phase S5 — Boot surface + idle-out (the ambient loop closes)
-- **Idle timer** dismisses Layer 2 → Layer 0 (Dreamscape screensaver) via the existing lock path;
-  activity summons it back through the breakout transition. Screensaver = lock = desktop background,
-  unified.
+### Phase S5 — Companions + chat (the room)
+- The per-space `isChatPort` tile with the **member header** (you + `getAgentsForSpace`) + live
+  companion status. The **companion → `port.create` → arrange** loop: a chat message arranges the
+  desktop.
+- **Ship:** talk to your companion; tiles appear and the desktop arranges.
+
+### Phase S6 — Idle-out + boot fusion (the ambient loop closes)
+- **Idle timer** dismisses Layer 2 → Layer 0 (dreamscape) via the existing lock path; activity summons
+  it back through the breakout transition. **Fuse the onboarding BIOS boot with the shell boot** (§8a /
+  D1) so it's one continuous sequence.
 - **Tier 1** launch-at-login (LaunchAgent) into shell mode, with the solid-desktop seam hider.
-- **Tier 2** optional MDM Autonomous Single App Mode for deployed kiosks; in-app lockdown toggle for
-  the 90% case.
-- Chat (`ChatView`) is one port on the wall (`isChatPort` path already supports hosting it in a
-  panel), so the conversation is just another surface in the shell.
-- **Ship:** a Mac that boots straight into the Port42 ambient surface and settles back to it when idle.
+- **Tier 2** optional MDM Autonomous Single App Mode for deployed kiosks; in-app lockdown toggle.
+- **Ship:** a Mac that boots into the ambient surface and settles back to it when idle.
 
 ---
 
@@ -340,11 +350,11 @@ onboarding boot surface.
 
 ### Phasing (D0 → D2)
 
-> The build (S1–S5 above) is unchanged — it's the *engineering* of the shell behind `PORT42_SHELL`.
+> The build (S1–S6 above) is unchanged — it's the *engineering* of the shell behind `PORT42_SHELL`.
 > D0–D2 are the *adoption*: how it becomes the only surface. Per the build spec
 > (`spec-shell-reimplementation.md`), each ships runnable behind the flag, default off until D2.
 
-- **D0 — Build behind the flag.** `ShellView` over the real `AppState`, phases S1–S5. Flag off = today's
+- **D0 — Build behind the flag.** `ShellView` over the real `AppState`, phases S1–S6. Flag off = today's
   app, untouched. Dogfood via a runtime toggle. No first-run impact yet.
 - **D1 — First-run handoff.** Swap the post-setup surface from `ContentView` → `ShellView`: onboarding
   lands you in the shell's general space (companion in the member row, chat as the anchor tile);
@@ -389,7 +399,7 @@ onboarding boot surface.
 - `scratchpad/p42shell/` — the fullscreen kiosk shell. Run: `.build/debug/p42shell`
   (Esc / ⌘Q / ⏻ to exit). ~450 lines, single `main.swift`.
 
-Both are disposable — they prove the mechanics in isolation. The real work is Phases S1–S5 inside
+Both are disposable — they prove the mechanics in isolation. The real work is Phases S1–S6 inside
 `Sources/Port42Lib`, reusing the ambient surface (`TransitionRoot`/`DreamscapeVideoLayer`), the port
 window manager (`PortWindowManager`), the bridge (`PortBridge`), and `port.create` — not the spikes'
 standalone code.
