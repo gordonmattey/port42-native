@@ -4,43 +4,106 @@ import Foundation
 
 /// SHELL — S2 test gate: the zoom ladder (galaxy ↔ space ↔ focus).
 ///
-/// `ShellState` (the shell-only UI `ObservableObject` — zoom level, idle, parallax, pinch latch) does
-/// not exist yet; it lands in S2 (`spec-shell-reimplementation.md` §3.2). These tests are stubbed
-/// `.disabled` so the suite compiles and the gate is visible in the test list — fill in each body and
-/// drop the trait as `ShellState` comes online. The zoom ladder is *pure state* (no window, no webview),
-/// so it is fully unit-testable headlessly, same harness as `RegisteredInlinePortTests`
-/// (`DatabaseService(inMemory: true)` → `AppState`).
+/// `ShellState` is the shell-only UI `ObservableObject` (zoom level, selection, galaxy hover, pinch
+/// latch). The zoom ladder is *pure state* (no window, no webview), so it's fully unit-testable
+/// headlessly — same harness as `RegisteredInlinePortTests` (`DatabaseService(inMemory: true)` →
+/// `AppState`). Ports are registered as inline panels (which work headlessly) just to give focus a
+/// target.
 @Suite("Shell zoom ladder")
 struct ShellStateTests {
 
-    @Test("⌘↑/pinch-out steps focus → space → galaxy, one rung per gesture",
-          .disabled("S2 — ShellState not implemented yet"))
+    @MainActor
+    private func makeState() throws -> (ShellState, AppState) {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        return (ShellState(appState: state), state)
+    }
+
+    /// Register a non-background port on `space` so `selectedPort`/focus has something to target.
+    @MainActor
+    private func addPort(_ id: String, to space: Space, in state: AppState) {
+        state.portWindows.registerInlinePort(id: id, html: "<title>\(id)</title><div/>",
+                                              spaceId: space.id, createdBy: nil, title: nil,
+                                              anchorMessageId: "m-\(id)")
+    }
+
+    @Test("⌘↑/pinch-out steps focus → space → galaxy, one rung per gesture")
     @MainActor
     func zoomsOutOneRungPerStep() throws {
-        // TODO(S2): from .focus(id), one zoom-out → .space; again → .galaxy; the pinch latch fires
-        // exactly once per gesture (no multi-rung jumps).
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        addPort("p1", to: space, in: state)
+
+        shell.zoom = .focus("p1")
+        shell.zoomOut(); #expect(shell.zoom == .space)
+        shell.zoomOut(); #expect(shell.zoom == .galaxy)
+
+        // Pinch latch: ONE rung per gesture, no multi-rung jumps in a single continuous squeeze.
+        shell.zoom = .focus("p1")
+        shell.pinch(delta: -0.2, began: true)    // below threshold → no move yet
+        #expect(shell.zoom == .focus("p1"))
+        shell.pinch(delta: -0.2, began: false)   // accum -0.4 < -0.32 → fires once → space
+        #expect(shell.zoom == .space)
+        shell.pinch(delta: -0.9, began: false)   // already fired this gesture → latched, no move
+        #expect(shell.zoom == .space)
+        shell.pinch(delta: -0.9, began: true)    // new gesture → fires → galaxy
+        #expect(shell.zoom == .galaxy)
     }
 
-    @Test("⌘↓/pinch-in steps galaxy → space → focus(selected)",
-          .disabled("S2 — ShellState not implemented yet"))
+    @Test("⌘↓/pinch-in steps galaxy → space → focus(selected); hover-dive enters the hovered space")
     @MainActor
     func zoomsInOneRungPerStep() throws {
-        // TODO(S2): from .galaxy, zoom-in → .space; again → .focus(selectedPort). Hover-dive in galaxy
-        // enters the hovered space.
+        let (shell, state) = try makeState()
+        let main = Space.create(name: "main")
+        let api = Space.create(name: "api")
+        state.spaces = [main, api]; state.currentSpace = main
+        addPort("p1", to: main, in: state)
+
+        shell.zoom = .galaxy
+        shell.zoomIn(); #expect(shell.zoom == .space)          // no hover → just descend a rung
+        shell.selectedPortId = "p1"
+        shell.zoomIn(); #expect(shell.zoom == .focus("p1"))    // → focus the highlighted port
+
+        // Hover-dive: from galaxy, hovering another space-world enters THAT space (lands on .space).
+        shell.zoom = .galaxy; shell.galaxyHover = 1
+        shell.zoomIn()
+        #expect(state.currentSpace?.id == api.id)
+        #expect(shell.zoom == .space)
     }
 
-    @Test("zoom clamps at the ends (galaxy is the ceiling, focus is the floor)",
-          .disabled("S2 — ShellState not implemented yet"))
+    @Test("zoom clamps at the ends (galaxy is the ceiling, focus is the floor)")
     @MainActor
     func clampsAtBounds() throws {
-        // TODO(S2): zoom-out at .galaxy stays .galaxy; zoom-in at .focus stays .focus. No wraparound.
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        addPort("p1", to: space, in: state)
+
+        shell.zoom = .galaxy
+        shell.zoomOut(); #expect(shell.zoom == .galaxy)        // ceiling — stays galaxy
+
+        shell.zoom = .focus("p1")
+        shell.zoomIn(); #expect(shell.zoom == .focus("p1"))    // floor — stays focus
     }
 
-    @Test("⌘1…N jumps directly to the Nth space and lands on its desktop rung",
-          .disabled("S2 — ShellState not implemented yet"))
+    @Test("⌘1…N jumps directly to the Nth space and lands on its desktop rung")
     @MainActor
     func numberKeyJumpsSpace() throws {
-        // TODO(S2): ⌘k selects appState.spaces[k-1] (switchToSpace) and sets zoom == .space, regardless
-        // of the current rung.
+        let (shell, state) = try makeState()
+        let s0 = Space.create(name: "main")
+        let s1 = Space.create(name: "api")
+        let s2 = Space.create(name: "ui")
+        state.spaces = [s0, s1, s2]; state.currentSpace = s0
+
+        shell.zoom = .galaxy
+        shell.jumpToSpace(index: 2)
+        #expect(state.currentSpace?.id == s2.id)
+        #expect(shell.zoom == .space)
+
+        // Out-of-range is a no-op (no crash, no change).
+        shell.jumpToSpace(index: 9)
+        #expect(state.currentSpace?.id == s2.id)
+        #expect(shell.zoom == .space)
     }
 }
