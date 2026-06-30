@@ -318,7 +318,50 @@ Consequences:
 - **D8-5 — `port.create`'s inline path stops posting a raw fence.** It registers a port and posts a
   `[port:id]` card (revises Step 3 `postInlineWebPort`).
 
+### Derisk first — spike the crux, then build (added 2026-06-29)
+
+The whole phase rests on ONE unknown: can a **live** WKWebView move inline↔floating without a reload
+and without SwiftUI tearing it down? Don't build seven sub-steps on an unproven assumption — prove or
+kill it first with throwaway spikes, then let the result pick the architecture.
+
+**Spikes (throwaway code, run BEFORE any migration step):**
+- **Spike A — the AppKit move.** A live WKWebView running a JS counter: `removeFromSuperview` →
+  `addSubview` into an NSPanel. The counter must keep its value. Proves the raw view move is
+  non-destructive. (~30 min, no plan commitment.)
+- **Spike B — SwiftUI adoption.** An `NSViewRepresentable` that hosts an **externally-owned** (registry)
+  WKWebView must not recreate/reload it across re-renders (`makeNSView` returns the shared view,
+  `dismantleNSView` must NOT tear it down). Proves SwiftUI won't kill the shared surface.
+- **Spike C — the overlay alternative.** Only if A/B are fragile: a chromeless child `NSPanel` pinned
+  to a chat row's screen rect, tracking on scroll. Proves the "never cross the SwiftUI boundary"
+  fallback is viable.
+
+**Architecture decision gate (chosen from spike results, not up front):**
+- **A + B pass → re-parent** the registry webview between a SwiftUI inline host and the NSPanel (the
+  target model above).
+- **A passes, B fragile → overlay child-window** (Spike C): the webview *always* lives in an AppKit
+  panel; "inline" = a chromeless panel pinned to the anchor rect, "floating" = a chrome panel.
+  Switching modes never re-parents across SwiftUI — this removes the riskiest unknown entirely; the
+  cost moves to "keep the inline panel glued to the scroll position" (bounded, degrades gracefully).
+- **Both fragile → snapshot/restore** (tier 3): a `port42.serialize()/deserialize()` author hook;
+  reload on transition but restore declared state. Weakest (loses undeclared DOM); last resort only.
+
+**Other derisks:**
+- **Value-first resequencing.** Land the *registration + `[port:id]` card* unification (the "same
+  registered port" win and the Step-3 fence-wart fix) **with a temporary reload-on-pop-out**, BEFORE
+  the no-reload work. The architectural win banks early and low-risk; the AppKit no-reload risk is
+  isolated behind the spike gate. DOM-loss exists only in an unshipped intermediate — the shipped
+  end-state still honors D8-2.
+- **Reuse, don't rebuild.** The `[port:id]` card generalizes the EXISTING terminal-card machinery
+  (`[terminal:…]` parser + `PortCompactBlock` + `openTerminalPort` / `terminalLiveIds`), not new code.
+- **Feature-flag** the new registered-inline path against the old fence-`InlinePortView` path, so the
+  rollout is reversible if it regresses chat rendering.
+- **Scope cut.** No cross-restart *live-webview* persistence in this phase — inline ports re-render
+  from the registry within a session; on restart reuse the existing panel-restore path.
+
 ### Migration steps (incremental; each builds + commits green)
+
+> Resequenced per the derisk note: do the spikes (above) first; then the registration/card
+> unification (sub-steps 4–5 below); then the spike-chosen no-reload transition (sub-step 3).
 
 1. **Single-webview ownership.** Make the registry the sole owner of one WKWebView per port. Add an
    inline-presentation host (`NSViewRepresentable`) that **adopts** `webViews[id]` instead of
