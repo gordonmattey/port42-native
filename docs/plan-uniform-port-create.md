@@ -1,7 +1,8 @@
 # Uniform `port.create({type})` — one creation primitive for all port types
 
-**Status:** review-complete, ready to build (decisions resolved 2026-06-29). Sequel to
-`plan-first-class-terminal-ports.md` (done). Steered by `summer2026-todo.md`
+**Status:** Steps 1–7 shipped (`a1ebaf9`→`72fb8e0`). Step 8 spikes complete — verdict
+**re-parent viable** (`wkspike` PASS, `cb0b115`); the Step 8 migration sub-steps are not yet built.
+Sequel to `plan-first-class-terminal-ports.md` (done). Steered by `summer2026-todo.md`
 ("a terminal is just another port type", like "a swim is just a space").
 
 **North star:** a terminal is *just a port type*. After this work, every port — web or terminal —
@@ -156,7 +157,7 @@ case + `port42.terminal.exec(command, opts)` JS wrapper restored; `PortPermissio
   - `ShellExec.run("echo hi")` returns `"hi"` (real `Process`, deterministic, fast).
   - bridge `terminal.exec` with no `command` arg → `{error}` shape.
 
-### Step 2 — Widen `spawnNativeTerminalPort` to full Command-Companion parity
+### Step 2 — Widen `spawnNativeTerminalPort` to full Command-Companion parity — ✅ DONE (`ba846c6`, follow-up `1944456`)
 
 - Add `env: [String:String] = [:]`; thread it into `TerminalPortConfig`. Confirm
   `command/args/cwd/title` already flow, and accept a **raw** `systemPrompt` (the method currently
@@ -164,7 +165,7 @@ case + `port42.terminal.exec(command, opts)` JS wrapper restored; `PortPermissio
 - **Tests — extend `TerminalPortConfigTests`:** a config built with `env`+`args`+`cwd`+`systemPrompt`
   JSON round-trips (encode → decode) with every field intact. (Pure; no window needed.)
 
-### Step 3 — Add `port.create` (the uniform primitive)
+### Step 3 — Add `port.create` (the uniform primitive) — ✅ DONE (`8d07fec`)
 
 - `PortBridge` `case "port.create"` + a `port_create` tool (`ToolExecutor` + `ToolDefinitions`).
 - **Validation (factor a pure function):** `validatePortCreate(type:html:command:) -> Result`
@@ -191,7 +192,7 @@ case + `port42.terminal.exec(command, opts)` JS wrapper restored; `PortPermissio
   - `port_create` present in `ToolDefinitions.all`; `permission(for:"port_create") == .none`.
   - error path: a stub spawn returning `nil` → `port.create` yields `{error}` (not a half-success).
 
-### Step 4 — Overload `port.push` to one type-dispatched verb
+### Step 4 — Overload `port.push` to one type-dispatched verb — ✅ DONE (`70a2399`)
 
 - In `port.push` (`PortBridge.swift:700`): **first** check if `id` is a terminal
   (`appState.resolveTerminalController(idOrName:id)` hit) → `controller.sendRaw(stringData)` (raw,
@@ -202,7 +203,7 @@ case + `port42.terminal.exec(command, opts)` JS wrapper restored; `PortPermissio
   routes terminal, a web id routes web, an unknown id → notFound. (`sendRaw`/CustomEvent themselves
   need a live surface → manual verify.)
 
-### Step 5 — Delete `terminal_spawn` / `terminal_send` / `terminal_list`; add `surfaceBound` to `ports.list`
+### Step 5 — Delete `terminal_spawn` / `terminal_send` / `terminal_list`; add `surfaceBound` to `ports.list` — ✅ DONE (`3d9c9a2`)
 
 - Delete the three tool cases in `ToolExecutor`, their `ToolDefinitions` schemas, and remove them
   from the `.terminal` permission switch (`ToolDefinitions.swift:700`) so **only `terminal_exec`**
@@ -218,14 +219,14 @@ case + `port42.terminal.exec(command, opts)` JS wrapper restored; `PortPermissio
   - a pure `ports.list` row-builder helper: a terminal entry carries `surfaceBound` +
     `capabilities:["terminal"]`; a web entry carries neither terminal-only field.
 
-### Step 6 — Reconcile `fs.*` / `files.*` (D4)
+### Step 6 — Reconcile `fs.*` / `files.*` (D4) — ✅ DONE (`f3f25a0`)
 
 - `fs.read/write/pick` canonical; add thin `files.read/write/list` aliases routing to the same
   handlers.
 - **Tests — `BridgeAliasTests` (pure):** `permissionForMethod("files.read") ==
   permissionForMethod("fs.read")`; both names are recognized/dispatch to the same handler.
 
-### Step 7 — Docs sweep (no code)
+### Step 7 — Docs sweep (no code) — ✅ DONE (`72fb8e0`)
 
 - `llms.txt`, `ports-context.txt`, global CLAUDE.md, and the `help` reference describe **one**
   creation API: `port.create({type})`, `port.push` drives terminals + web, `ports.list` lists them,
@@ -323,6 +324,13 @@ Consequences:
 The whole phase rests on ONE unknown: can a **live** WKWebView move inline↔floating without a reload
 and without SwiftUI tearing it down? Don't build seven sub-steps on an unproven assumption — prove or
 kill it first with throwaway spikes, then let the result pick the architecture.
+
+**Spike verdict — ✅ DONE (`cb0b115`): re-parent viable.** `prototypes/wkspike` proved a live
+WKWebView survives re-parenting with **no reload** — a JS counter stayed monotonic (`16 → 107`) across
+both (A) a raw AppKit `removeFromSuperview`/`addSubview` into an `NSPanel` and (B) 3 full SwiftUI
+`dismantleNSView`→`makeNSView` cycles. Spike C (overlay) not needed. `prototypes/p42shell` rev2
+demonstrates the full pop-out/dock-back re-parent end-to-end. **Gate resolves to "A + B pass →
+re-parent"** (the target model above). Migration sub-steps below are not yet built.
 
 **Spikes (throwaway code, run BEFORE any migration step):**
 - **Spike A — the AppKit move.** A live WKWebView running a JS counter: `removeFromSuperview` →
