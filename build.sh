@@ -268,12 +268,19 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     fi
     codesign --force --sign "$SIGN_IDENTITY" --entitlements "$DIR/Port42.release.entitlements" --options runtime --timestamp "$APP"
 else
-    # Isolated dev (debug) build → ad-hoc sign (the proven --peer approach). The launcher script
-    # is the bundle's main executable, so --deep also signs the real binary + gateway + shim.
-    # Bundle id com.port42.dev doesn't match the com.port42.app provisioning profile, so there's
-    # no Apple Development / Sign in with Apple here — fine for a local dev instance.
-    codesign --deep --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
-    echo "[build] Signed ad-hoc (isolated dev: $BUNDLE_ID · data $DATA_DIR · gateway $GW_PORT)"
+    # Isolated dev (debug) build. Prefer the stable Apple Development identity over ad-hoc so the
+    # code-signing identity is CONSISTENT across rebuilds → macOS TCC permission grants (screen,
+    # camera, automation, etc.) PERSIST. Ad-hoc (`--sign -`) gets a fresh identity every build, so
+    # TCC treats each rebuild as a new app and forgets/re-prompts. Apple Development can sign any
+    # bundle id locally (no provisioning profile needed for these entitlements). Fall back to ad-hoc
+    # if no Apple Development cert is present. The launcher script is the bundle's main executable,
+    # so --deep also signs the real binary + gateway + shim.
+    if [ -n "$DEV_IDENTITY" ] && codesign --deep --force --sign "$DEV_IDENTITY" --entitlements "$DIR/Port42.entitlements" "$APP" 2>/dev/null; then
+        echo "[build] Signed with Apple Development (stable identity → TCC permissions persist): $BUNDLE_ID · data $DATA_DIR · gateway $GW_PORT"
+    else
+        codesign --deep --force --sign - --entitlements "$DIR/Port42.entitlements" "$APP"
+        echo "[build] Signed ad-hoc — TCC grants won't persist across rebuilds (no Apple Development cert): $BUNDLE_ID · data $DATA_DIR · gateway $GW_PORT"
+    fi
 fi
 echo "[build] Ready: $APP"
 
