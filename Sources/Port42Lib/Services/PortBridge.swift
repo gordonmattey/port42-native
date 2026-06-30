@@ -652,9 +652,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let filterCaps = opts?["capabilities"] as? [String] ?? []
             let floating = state.portWindows.allPorts()
             let inline = state.inlinePorts().filter { $0.spaceId == spaceId || spaceId == nil }.suffix(5)
-            typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?)
-            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y) }
-                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none) }
+            typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?, surfaceBound: Bool?)
+            // surfaceBound (what terminal_list used to report) comes from the live controller; only
+            // terminal ports have one, so non-terminals carry nil and omit the field.
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y, surfaceBound: state.terminalControllers[$0.udid]?.isSurfaceBound) }
+                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none, surfaceBound: Bool?.none) }
             let filtered = filterCaps.isEmpty ? all : all.filter { p in
                 filterCaps.allSatisfy { cap in p.capabilities.contains(cap) }
             }
@@ -662,6 +664,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 var entry: [String: Any] = ["id": p.id, "title": p.title, "capabilities": p.capabilities, "status": p.status]
                 if let cb = p.createdBy { entry["createdBy"] = cb }
                 if let cwd = p.cwd { entry["cwd"] = cwd }
+                if let surfaceBound = p.surfaceBound { entry["surfaceBound"] = surfaceBound }
                 if let x = p.x { entry["x"] = x }
                 if let y = p.y { entry["y"] = y }
                 return entry

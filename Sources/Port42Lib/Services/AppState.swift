@@ -2355,8 +2355,8 @@ public final class AppState: ObservableObject {
 
     /// Create a native Ghostty `terminal` port and return its **port id** (UDID).
     ///
-    /// This is the generic spawn used by every native-terminal caller (companion spawns, the
-    /// `terminal_spawn` tool, RPC). It owns the shared work: resolving the startup shell line,
+    /// This is the generic spawn used by every native-terminal caller (companion spawns,
+    /// `port.create({type:"terminal"})`, RPC). It owns the shared work: resolving the startup shell line,
     /// building the `TerminalPortConfig`, and popping out a floating native window. Caller-specific
     /// concerns (companion identity prompt, join announcements) stay with the caller.
     ///

@@ -5,7 +5,7 @@ import Foundation
 /// Permissions that ports can request. Each permission gates a category of bridge methods.
 public enum PortPermission: String, Hashable {
     case ai          // ai.complete, ai.cancel, companions.invoke
-    case terminal    // terminal_spawn / terminal_exec / terminal_send / terminal_list (tool calls)
+    case terminal    // terminal_exec (tool) / terminal.exec (bridge) — the only gated terminal method
     case microphone  // audio.capture, audio.stopCapture
     case camera      // camera.capture, camera.stream, camera.stopStream
     case screen      // screen.capture

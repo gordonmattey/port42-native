@@ -224,7 +224,7 @@ enum ToolDefinitions {
     static let actionTools: [[String: Any]] = [
         [
             "name": "ports_list",
-            "description": "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with terminal_send for reliable routing. Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+            "description": "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -491,19 +491,6 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
-            "name": "terminal_spawn",
-            "description": "Open a native terminal as a `terminal` port and return its id. Use this to create a terminal — NEVER hand-roll a terminal inside an HTML/web port. Runs in /bin/zsh; pass an optional command to run on launch (e.g. \"htop\", \"npm test\", or \"claude\"). Drive it afterwards with terminal_send using the returned id. Pass space_id to open it in a specific space (defaults to the current one).",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "command": ["type": "string", "description": "Optional command to run on launch (typed into the shell). Omit for a plain shell."],
-                    "cwd": ["type": "string", "description": "Working directory (default: home)"],
-                    "title": ["type": "string", "description": "Window/port title (default: the command, or \"terminal\")"],
-                    "space_id": ["type": "string", "description": "Space to open the terminal in (default: current space)"]
-                ]
-            ] as [String: Any]
-        ],
-        [
             "name": "terminal_exec",
             "description": "Execute a shell command and return the output. Runs in /bin/zsh.",
             "input_schema": [
@@ -515,23 +502,6 @@ enum ToolDefinitions {
                 ],
                 "required": ["command"]
             ] as [String: Any]
-        ],
-        [
-            "name": "terminal_send",
-            "description": "Send input to a native terminal. Commands are automatically executed (\\r appended if not present — no need to include it). Output comes back on its own: a plain shell posts its <p42>…</p42> tags, and an agent terminal (claude/gemini) posts its reply when its turn completes — read either with messages_recent. Use the terminal's id (from terminal_spawn or terminal_list), or its name. Do NOT use screen_capture to read terminal output.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "name": ["type": "string", "description": "Port UDID (id field from ports_list) or port title. Use the UDID for reliability."],
-                    "data": ["type": "string", "description": "Text to send as stdin. Include \\n for enter (e.g. \"npm test\\n\")."]
-                ],
-                "required": ["name", "data"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "terminal_list",
-            "description": "List all ports that have active terminal sessions, showing port name and session status",
-            "input_schema": ["type": "object", "properties": [String: Any]()]
         ],
         [
             "name": "file_read",
@@ -716,7 +686,7 @@ enum ToolDefinitions {
         switch toolName {
         case "clipboard_read", "clipboard_write": return .clipboard
         case "screen_capture", "screen_windows", "camera_capture": return .screen
-        case "terminal_spawn", "terminal_exec", "terminal_send", "terminal_list": return .terminal
+        case "terminal_exec": return .terminal // headless run-and-capture; the only gated terminal tool
         case "file_read", "file_write": return .filesystem
         case "file_list", "file_mkdir": return nil  // relative paths only, Port42 data dir
         case "run_applescript", "run_jxa": return .automation

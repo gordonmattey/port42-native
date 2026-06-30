@@ -387,9 +387,11 @@ public final class ToolExecutor {
             let filterCaps = (input["capabilities"] as? [String]) ?? []
             let floating = appState.portWindows.allPorts()
             let inline = appState.inlinePorts().filter { $0.spaceId == spaceId || spaceId == nil }.suffix(5)
-            typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?)
-            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y) }
-                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none) }
+            typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?, surfaceBound: Bool?)
+            // surfaceBound (what terminal_list used to report) comes from the live controller; only
+            // terminal ports have one, so non-terminals carry nil and omit the field.
+            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : "floating", x: $0.x, y: $0.y, surfaceBound: appState.terminalControllers[$0.udid]?.isSurfaceBound) }
+                + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none, surfaceBound: Bool?.none) }
             let filtered = filterCaps.isEmpty ? all : all.filter { p in
                 filterCaps.allSatisfy { p.capabilities.contains($0) }
             }
@@ -402,6 +404,7 @@ public final class ToolExecutor {
                 let creator = p.createdBy ?? "unknown"
                 var line = "title: \(p.title)\nid: \(p.id)\ncapabilities: \(capsStr)\nstatus: \(p.status)\ncreatedBy: \(creator)"
                 if let cwd = p.cwd { line += "\ncwd: \(cwd)" }
+                if let surfaceBound = p.surfaceBound { line += "\nsurfaceBound: \(surfaceBound)" }
                 if let x = p.x, let y = p.y { line += "\nposition: (\(Int(x)), \(Int(y)))" }
                 return line
             }
@@ -771,23 +774,6 @@ public final class ToolExecutor {
             return [textBlock(jsonString(result))]
 
         // MARK: Terminal
-        case "terminal_spawn":
-            // Open a VISIBLE native Ghostty terminal port and return its id. This is the only
-            // visible-terminal path (terminal_exec stays headless). Companions drive it with
-            // terminal_send using the returned id — they must never hand-roll xterm in a web port.
-            let command = input["command"] as? String ?? ""
-            let cwd = input["cwd"] as? String ?? FileManager.default.homeDirectoryForCurrentUser.path
-            let title = (input["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                ?? (command.isEmpty ? "terminal" : (command as NSString).lastPathComponent)
-            // Land in the caller's space: explicit space_id wins, else this executor's space, else UI's.
-            let sid = input["space_id"] as? String ?? spaceId ?? appState.currentSpace?.id ?? ""
-            guard let portId = appState.spawnNativeTerminalPort(command: command, cwd: cwd,
-                                                                spaceId: sid, title: title,
-                                                                companionName: title) else {
-                return [textBlock("Error: failed to spawn terminal")]
-            }
-            return [textBlock(jsonString(["id": portId, "title": title]))]
-
         // MARK: Ports
         case "port_create":
             // Uniform creation primitive (web | terminal). inChat (an in-app companion composing a
@@ -815,47 +801,6 @@ public final class ToolExecutor {
             let timeout = min(input["timeout"] as? Int ?? 30, 120)
             let result = await ShellExec.run(command, cwd: cwd, timeout: timeout)
             return [textBlock(result)]
-
-        case "terminal_send":
-            guard let name = input["name"] as? String,
-                  let data = input["data"] as? String else {
-                return [textBlock("Error: missing 'name' or 'data' parameter")]
-            }
-            var processed = ToolExecutor.processEscapes(data)
-            // Ensure commands are executed — append \r if not already present
-            if !processed.hasSuffix("\r") && !processed.hasSuffix("\n") {
-                processed += "\r"
-            }
-            // Resolve a native Ghostty terminal controller by port id or terminal name.
-            guard let controller = appState.resolveTerminalController(idOrName: name) else {
-                let avail = appState.terminalControllers
-                    .map { "'\($0.value.config.companionName)' (id: \($0.key))" }
-                    .joined(separator: ", ")
-                let hint = avail.isEmpty
-                    ? "No native terminals are open. Spawn one with terminal_spawn first."
-                    : "Available terminals: \(avail)"
-                return [textBlock("Error: no terminal found for '\(name)'. \(hint)")]
-            }
-            // Raw, non-arming send: drives the terminal directly without arming the post gate
-            // (gate-arming is reserved for companion message injection via controller.inject).
-            guard controller.sendRaw(processed) else {
-                return [textBlock("Error: terminal '\(name)' has no live surface")]
-            }
-            return [textBlock("Sent to \(controller.config.companionName)")]
-
-        case "terminal_list":
-            let list = appState.terminalControllers.map { (id, controller) -> [String: Any] in
-                return [
-                    "id":           id,
-                    "name":         controller.config.companionName,
-                    "surfaceBound": controller.isSurfaceBound,
-                    "capabilities": ["terminal"]
-                ]
-            }
-            if list.isEmpty {
-                return [textBlock("No native terminals are open.")]
-            }
-            return [textBlock(jsonString(list))]
 
         // MARK: Filesystem
         case "file_read":

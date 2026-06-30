@@ -64,9 +64,11 @@ struct PortPermissionTests {
 
     // MARK: - Device Permission Mapping
 
-    @Test("terminal.spawn requires .terminal permission")
-    func terminalSpawnPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.spawn") == .terminal)
+    @Test("terminal.exec is the only gated terminal method; spawn is ungated")
+    func terminalExecPermission() {
+        #expect(PortPermission.permissionForMethod("terminal.exec") == .terminal)
+        // spawn/send/list were removed from the bridge during the uniform-port.create sweep.
+        #expect(PortPermission.permissionForMethod("terminal.spawn") == nil)
     }
 
     @Test("terminal.send requires no permission (session already permitted via spawn)")

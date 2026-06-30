@@ -2,9 +2,11 @@ import Testing
 import Foundation
 @testable import Port42Lib
 
-/// Step 5a guard: after the `TerminalBridge` deletion sweep, the NATIVE terminal tool surface must
-/// stay intact and the removed legacy bridge tools must stay gone. This is the tripwire that
-/// catches the sweep (or a future edit) accidentally deleting the wrong symbol.
+/// Step 5 guard: the parallel terminal tool family (`terminal_spawn`/`terminal_send`/`terminal_list`)
+/// is deleted — a terminal is just a port type, driven through `port.create` / `port_push` /
+/// `ports_list`. `terminal_exec` (headless run-and-capture) is the only remaining — and the only
+/// gated — terminal tool. This is the tripwire against accidentally resurrecting the old family or
+/// dropping the wrong symbol.
 @Suite("TerminalToolSurface")
 struct TerminalToolSurfaceTests {
 
@@ -12,27 +14,34 @@ struct TerminalToolSurfaceTests {
         Set(ToolDefinitions.all.compactMap { $0["name"] as? String })
     }
 
-    @Test("native terminal tools survive the sweep")
-    func nativeToolsPresent() {
+    @Test("the parallel terminal tool family is deleted")
+    func legacyTerminalToolsRemoved() {
         let names = toolNames
-        #expect(names.contains("terminal_spawn"))
-        #expect(names.contains("terminal_send"))
-        #expect(names.contains("terminal_list"))
-        #expect(names.contains("terminal_exec"))
-    }
-
-    @Test("native terminal tools are gated behind the terminal permission")
-    func nativeToolsGated() {
-        #expect(ToolDefinitions.permission(for: "terminal_spawn") == .terminal)
-        #expect(ToolDefinitions.permission(for: "terminal_send") == .terminal)
-        #expect(ToolDefinitions.permission(for: "terminal_list") == .terminal)
-        #expect(ToolDefinitions.permission(for: "terminal_exec") == .terminal)
-    }
-
-    @Test("legacy bridge tools are gone (D4)")
-    func bridgeToolsRemoved() {
-        let names = toolNames
+        #expect(!names.contains("terminal_spawn"))
+        #expect(!names.contains("terminal_send"))
+        #expect(!names.contains("terminal_list"))
+        // and the older bridge tools stay gone
         #expect(!names.contains("terminal_bridge"))
         #expect(!names.contains("terminal_unbridge"))
+    }
+
+    @Test("terminal_exec survives and stays the only gated terminal tool")
+    func terminalExecRemainsGated() {
+        #expect(toolNames.contains("terminal_exec"))
+        #expect(ToolDefinitions.permission(for: "terminal_exec") == .terminal)
+        // the deleted tools resolve to no permission (not found in the switch)
+        #expect(ToolDefinitions.permission(for: "terminal_spawn") == nil)
+        #expect(ToolDefinitions.permission(for: "terminal_send") == nil)
+        #expect(ToolDefinitions.permission(for: "terminal_list") == nil)
+    }
+
+    @Test("the port verbs that replace them are present and ungated")
+    func replacementVerbsUngated() {
+        let names = toolNames
+        #expect(names.contains("port_create"))
+        #expect(names.contains("port_push"))
+        #expect(names.contains("ports_list"))
+        #expect(ToolDefinitions.permission(for: "port_create") == nil)
+        #expect(ToolDefinitions.permission(for: "port_push") == nil)
     }
 }

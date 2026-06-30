@@ -30,29 +30,31 @@ struct PortCapabilityTests {
         #expect(desc.contains("capabilities"))
     }
 
-    @Test("terminal_send description mentions UDID or id")
-    func terminalSendMentionsUDID() {
+    // terminal_send is gone (uniform port.create sweep); port_push is the verb that now drives
+    // terminals, so it carries the routing-by-id guidance instead.
+    @Test("port_push description mentions UDID or id")
+    func portPushMentionsUDID() {
         let defs = ToolDefinitions.all
-        guard let tool = defs.first(where: { $0["name"] as? String == "terminal_send" }),
+        guard let tool = defs.first(where: { $0["name"] as? String == "port_push" }),
               let desc = tool["description"] as? String else {
-            Issue.record("terminal_send tool not found")
+            Issue.record("port_push tool not found")
             return
         }
         #expect(desc.contains("UDID") || desc.contains("id"))
     }
 
-    @Test("terminal_send name parameter description mentions UDID")
-    func terminalSendNameParamMentionsUDID() {
+    @Test("port_push id parameter description mentions UDID")
+    func portPushIdParamMentionsUDID() {
         let defs = ToolDefinitions.all
-        guard let tool = defs.first(where: { $0["name"] as? String == "terminal_send" }),
+        guard let tool = defs.first(where: { $0["name"] as? String == "port_push" }),
               let schema = tool["input_schema"] as? [String: Any],
               let props = schema["properties"] as? [String: Any],
-              let nameParam = props["name"] as? [String: Any],
-              let nameDesc = nameParam["description"] as? String else {
-            Issue.record("terminal_send tool or name param not found")
+              let idParam = props["id"] as? [String: Any],
+              let idDesc = idParam["description"] as? String else {
+            Issue.record("port_push tool or id param not found")
             return
         }
-        #expect(nameDesc.contains("UDID") || nameDesc.contains("id"))
+        #expect(idDesc.contains("UDID") || idDesc.contains("id"))
     }
 
     // MARK: - ports-context.txt content
