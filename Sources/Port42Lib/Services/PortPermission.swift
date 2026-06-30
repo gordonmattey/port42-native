@@ -11,7 +11,7 @@ public enum PortPermission: String, Hashable {
     case screen      // screen.capture
     case browser     // browser.open, browser.navigate, browser.capture, browser.text, browser.html, browser.execute, browser.close
     case clipboard     // clipboard.read, clipboard.write
-    case filesystem    // fs.pick, fs.read, fs.write
+    case filesystem    // fs.pick/read/write (canonical) + files.pick/read/write (aliases)
     case notification  // notify.send
     case automation    // automation.runAppleScript, automation.runJXA
     case rest          // rest.call — HTTP requests to external APIs
@@ -37,7 +37,8 @@ public enum PortPermission: String, Hashable {
             return .browser
         case "clipboard.read", "clipboard.write":
             return .clipboard
-        case "fs.pick", "fs.read", "fs.write":
+        case "fs.pick", "fs.read", "fs.write",
+             "files.pick", "files.read", "files.write": // files.* are thin aliases of fs.* (D4)
             return .filesystem
         case "fs.drop":
             return nil // explicit user gesture (drag) scoped to the dropped file; reading its

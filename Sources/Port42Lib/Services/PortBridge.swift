@@ -952,13 +952,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // MARK: File System
 
-        case "fs.pick":
+        // fs.* is the canonical file surface; files.* are thin aliases (D4) so ports written against
+        // the documented files.* names work too. Same handlers, same .filesystem permission.
+        case "fs.pick", "files.pick":
             if fileBridge == nil { fileBridge = FileBridge() }
             let opts = args.first as? [String: Any] ?? [:]
             let pickResult = await fileBridge!.pick(opts: opts)
             return pickResult
 
-        case "fs.read":
+        case "fs.read", "files.read":
             guard let path = args.first as? String else {
                 return ["error": "fs.read requires a path"]
             }
@@ -966,7 +968,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.count > 1 ? args[1] as? [String: Any] : nil
             return fileBridge!.read(path: path, opts: opts)
 
-        case "fs.write":
+        case "fs.write", "files.write":
             guard let path = args.first as? String,
                   let data = args.count > 1 ? args[1] as? String : nil else {
                 return ["error": "fs.write requires path and data"]
@@ -1770,6 +1772,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 onFileDrop: function(callback) {
                     window.addEventListener('port42:filedrop', (e) => callback(e.detail));
                 }
+            },
+            // files.* — thin aliases of fs.* (D4), for ports written against the documented names.
+            files: {
+                pick: (opts) => call('fs.pick', [opts || {}]),
+                read: (path, opts) => call('fs.read', [path, opts || {}]),
+                write: (path, data, opts) => call('fs.write', [path, data, opts || {}])
             },
             notify: {
                 send: (title, body, opts) => call('notify.send', [title, body || '', opts || {}])
