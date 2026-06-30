@@ -1,16 +1,25 @@
-// PORT42 // SHELL — rev 2. Throwaway fullscreen GUI-shell prototype.
+// PORT42 // SHELL — rev 8. Throwaway fullscreen GUI-shell prototype.
+// Design captured for production in docs/spec-shell-reimplementation.md.
 //
-// The thesis, made live:
-//   • ONE ambient surface: dreamscape background = screensaver = desktop. Idle dissolves the
-//     chrome+ports into it; any input wakes them back.  (Layer 0 / Layer 2 of plan-port42-shell.md)
-//   • Ports are registry-owned WKWebViews. POP-OUT moves the *live* view into a floating NSPanel
-//     with NO reload (the proven re-parent), DOCK-BACK reverses it — DOM/JS state preserved.
-//   • Virtual SPACES: each space has its own set of port tiles; switching swaps the desktop.
-//   • EXPOSÉ: zoom all tiles to a grid. Focus/z-order. Drag + resize.
-//   • Chrome (§7a): PORT42 mark top-left (in the freed traffic-light gap) + the global status/action
-//     cluster moved up from the sidebar (gateway/tunnel/key/pause/usage/settings).
+// A SPACE IS A ROOM — people + companions + the desktop their conversation produces:
+//   • ONE ambient surface: dreamscape = screensaver = desktop. Idle dissolves chrome+ports into it.
+//   • Ports are registry-owned WKWebViews, re-parented with NO reload between hosts:
+//     TILED (desktop) ↔ FLOATING (pop-out NSPanel) ↔ PARKED (right-edge minimize dock).
+//   • CHAT IS A PORT: each space has a native chat tile (mirrors the real isChatPort) with a MEMBER
+//     header — you + the space's companions — and live companion status.
+//   • COMPANIONS are a primitive of the SPACE (not chrome): in the chat member row + each galaxy
+//     world; one companion can belong to several spaces.
+//   • THE LOOP: type → a companion thinks → PORTS → tiles appear, it replies, desktop auto-arranges.
+//   • ONE FLAT LEVEL — spaces (no modes). Each has its own accent, dock, companions, chat.
 //
-// EXITS (never trapped):  Esc  ·  ⌘Q  ·  ⏻ top-right.   Keys:  ⌘K palette · Tab exposé · ⌘1/2/3 spaces
+// NAV/LAYOUT:
+//   • ZOOM LADDER: galaxy (all spaces) → space → focus (one port). ⌘↑/↓ or PINCH (one rung/squeeze);
+//     in galaxy, HOVER a world + pinch-in / ⌘↓ dives in. Galaxy grid responsive (max 3 across).
+//   • TWO DOCKS: bottom launcher CREATES ports; right-edge rail PARKS (drag a tile in / click to restore).
+//   • EXPOSÉ (Tab), drag+resize, z-order, arrange (⌘L, auto on every open).
+//
+// EXITS (never trapped):  Esc  ·  ⌘Q  ·  ⏻ top-right.
+// Keys:  ⌘K palette · ⌘J chat · Tab exposé · ⌘1…7 spaces · ⌘↑/↓ or pinch zoom · ⌘L arrange
 
 import AppKit
 import WebKit
@@ -107,6 +116,7 @@ final class Registry {
         cfg.defaultWebpagePreferences = p
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.setValue(false, forKey: "drawsBackground")
+        w.allowsMagnification = false   // pinch drives the shell zoom ladder, not webview zoom
         w.loadHTMLString(html, baseURL: nil)
         views[id] = w
         return w
@@ -121,9 +131,30 @@ final class Registry {
     }
 }
 
+// MARK: - Companions & chat (rev3)
+
+enum CStatus { case idle, thinking, porting }
+
+/// A companion is a SPACE member — it inhabits one or more spaces (keyed "mode-space") and populates
+/// their desktops. Reference type so its live status can be observed by the Chrome dot + the chat
+/// typing row independently (and so the SAME companion shared across spaces shares one status).
+final class Companion: Identifiable, ObservableObject {
+    let id = UUID()
+    let name: String; let color: Color; let glyph: String
+    let spaces: Set<String>                 // the space NAMES this companion belongs to — can be several
+    @Published var status: CStatus = .idle
+    init(_ name: String, _ color: Color, _ glyph: String, _ spaces: [String]) {
+        self.name = name; self.color = color; self.glyph = glyph; self.spaces = Set(spaces)
+    }
+}
+
+struct ChatMsg: Identifiable { let id = UUID(); let who: String; let color: Color; let text: String; let isUser: Bool }
+
+enum PortKind { case web, chat }
+
 // MARK: - Model
 
-enum Presentation { case tiled, floating }
+enum Presentation { case tiled, floating, parked }   // parked = minimized to the right-edge dock
 
 final class Port: Identifiable, ObservableObject {
     let id = UUID()
@@ -132,35 +163,43 @@ final class Port: Identifiable, ObservableObject {
     @Published var size: CGSize
     @Published var z: Int
     @Published var presentation: Presentation = .tiled
-    @Published var mode: Int
     @Published var space: Int
     let isTerminal: Bool
-    init(_ app: AppDef, pos: CGPoint, z: Int, mode: Int, space: Int) {
-        icon = app.icon; title = app.title; html = app.html; self.pos = pos; self.z = z; self.mode = mode; self.space = space
-        size = app.size; isTerminal = app.terminal
+    let kind: PortKind
+    let tint: Color
+    init(_ app: AppDef, pos: CGPoint, z: Int, space: Int) {
+        icon = app.icon; title = app.title; html = app.html; self.pos = pos; self.z = z; self.space = space
+        size = app.size; isTerminal = app.terminal; kind = .web; tint = P42.accent
     }
+    // rev3: a chat port — a native conversation surface, not a webview. "chat is just a port."
+    init(chatPos pos: CGPoint, z: Int, space: Int, tint: Color) {
+        icon = "bubble.left.and.bubble.right"; title = "chat"; html = ""; self.pos = pos; self.z = z
+        self.space = space; size = CGSize(width: 400, height: 384)
+        isTerminal = false; kind = .chat; self.tint = tint
+    }
+    // Terminal + chat bodies are interactive (select / scroll / type) — move via titlebar only.
+    var interactiveBody: Bool { isTerminal || kind == .chat }
 }
 
-// A MODE is a meta-space: a whole-shell state with its own accent, its own dock apps, and its own
-// set of Port42 SPACES. Switching mode reconfigures the workspace; switching space swaps the ports.
-struct ModeDef {
+// rev6: ONE flat level. A SPACE is a room — its own accent, dock, companions, ports and chat.
+// (Modes are gone: a "mode" was just a meta-space, a second hierarchy that cost more than it gave.)
+struct SpaceDef {
     let name: String
     let accent: Color
-    let dock: [Int]        // indices into Apps.all — this mode's dock
-    let spaces: [String]   // the Port42 spaces that live in this mode
-    let seed: [(Int, Int)] // (spaceIndex, appIndex) seeded on first entry — the mode's default layout
+    let dock: [Int]    // indices into Apps.all — this space's dock
+    let seed: [Int]    // app indices seeded on first entry — the space's default layout
 }
 
 final class Shell: ObservableObject {
     static let shared = Shell()
     @Published var ports: [Port] = []
-    @Published var mode = 0
     @Published var space = 0
     @Published var showPalette = false
     @Published var expose = false
-    @Published var showSpaces = false           // spaces-in-mode overview
-    @Published var galaxy = false                // all-modes constellation (zoom UP)
+    @Published var galaxy = false                // all-spaces constellation (zoom UP)
     @Published var focusId: UUID? = nil          // immersive single port (zoom DOWN)
+    @Published var selectedId: UUID? = nil       // the highlighted port (hover/click) — zoom DOWN targets it
+    @Published var galaxyHover: Int? = nil       // which space-world the mouse is over in galaxy (zoom-in enters it)
     @Published var booting = true
     @Published var bootLines: [String] = []
     @Published var idle = false
@@ -174,59 +213,205 @@ final class Shell: ObservableObject {
     var seeded = Set<Int>()
     var panels: [UUID: PopoutPanel] = [:]
 
-    let modes: [ModeDef] = [
-        ModeDef(name: "home",  accent: P42.accent,  dock: [0,1,5], spaces: ["main","music"],     seed: [(0,0),(0,1)]),
-        ModeDef(name: "build", accent: P42.gold,    dock: [3,2,4], spaces: ["api","ui","infra"], seed: [(0,3),(0,2),(1,5)]),
-        ModeDef(name: "deep",  accent: P42.accent2, dock: [4,1],   spaces: ["read","write"],     seed: [(0,4)]),
+    // rev6: ONE flat level — spaces. Each carries its own accent + dock + companions + chat.
+    let spaces: [SpaceDef] = [
+        SpaceDef(name: "main",  accent: P42.accent,                                dock: [0,1,5], seed: [0,1]),
+        SpaceDef(name: "music", accent: Color(red: 1.0,  green: 0.42, blue: 0.70), dock: [5,1],   seed: [5]),
+        SpaceDef(name: "api",   accent: P42.gold,                                  dock: [3,2,4], seed: [3,2]),
+        SpaceDef(name: "ui",    accent: Color(red: 0.40, green: 0.78, blue: 1.0),  dock: [4,1,3], seed: [4]),
+        SpaceDef(name: "infra", accent: Color(red: 0.45, green: 0.90, blue: 0.55), dock: [2,3],   seed: [2]),
+        SpaceDef(name: "read",  accent: P42.accent2,                               dock: [4,1],   seed: [4]),
+        SpaceDef(name: "write", accent: Color(red: 0.30, green: 0.85, blue: 0.80), dock: [1,0],   seed: [1]),
     ]
-    var modeDef: ModeDef { modes[mode] }
-    var accent: Color { modeDef.accent }
-    var dockApps: [AppDef] { modeDef.dock.map { Apps.all[$0] } }
-    var spaceNames: [String] { modeDef.spaces }
+    // Companions are SPACE members (by name). Some belong to several spaces — Echo→main+music,
+    // Nova→music+ui, Forge→api+infra, Bit→api+ui, Sage→read+write.
+    let roster: [Companion] = [
+        Companion("Echo",  P42.accent,                                "waveform",     ["main", "music"]),
+        Companion("Iris",  Color(red: 1.0,  green: 0.42, blue: 0.70), "eye",          ["main"]),
+        Companion("Nova",  P42.gold,                                  "sparkles",     ["music", "ui"]),
+        Companion("Forge", P42.gold,                                  "hammer.fill",  ["api", "infra"]),
+        Companion("Bit",   Color(red: 0.40, green: 0.78, blue: 1.0),  "cpu",          ["api", "ui"]),
+        Companion("Patch", Color(red: 0.45, green: 0.90, blue: 0.55), "bandage.fill", ["infra"]),
+        Companion("Sage",  P42.accent2,                               "book.closed",  ["read", "write"]),
+        Companion("Vale",  Color(red: 0.30, green: 0.85, blue: 0.80), "leaf",         ["write"]),
+    ]
+    @Published var chat: [String: [ChatMsg]] = [:]
+    var spaceDef: SpaceDef { spaces[space] }
+    var accent: Color { spaceDef.accent }
+    var dockApps: [AppDef] { spaceDef.dock.map { Apps.all[$0] } }
+    var spaceNames: [String] { spaces.map { $0.name } }
+    var crew: [Companion] { crewIn(space) }
+    func crewIn(_ s: Int) -> [Companion] { roster.filter { $0.spaces.contains(spaces[s].name) } }
+    var chatKey: String { chatKey(space) }
+    func chatKey(_ s: Int) -> String { "\(s)" }
 
-    var current: [Port] { ports.filter { $0.mode == mode && $0.space == space } }
-    func portsIn(_ m: Int, _ s: Int) -> [Port] { ports.filter { $0.mode == m && $0.space == s } }
+    var current: [Port] { ports.filter { $0.space == space } }
+    func portsIn(_ s: Int) -> [Port] { ports.filter { $0.space == s } }
     var frontmost: Port? { current.max(by: { $0.z < $1.z }) }
 
-    // Zoom ladder:  GALAXY ↑  Mode  ·  Spaces  ·  Ports(expose)  ·  ↓ FOCUS
-    func zoomUp() { withAnimation(.spring(response: 0.45)) { focusId = nil; expose = false; showSpaces = false; galaxy = true } }
-    func zoomDown() { if let p = frontmost { withAnimation(.spring(response: 0.45)) { galaxy = false; showSpaces = false; expose = false; focusId = p.id } } }
+    // rev8: parking dock on the right edge. A parked port is minimized off the desktop into a
+    // right-edge rail (presentation:.parked); its registry webview stays alive (no reload on restore).
+    var parkWidth: CGFloat { max(64, screenW * 0.05) }
+    @Published var draggingOverPark = false
+    var desktopTiles: [Port] { current.filter { $0.presentation != .parked } }   // what the desktop renders + arranges
+    var parkedPorts: [Port] { current.filter { $0.presentation == .parked } }
+    func park(_ p: Port) {
+        withAnimation(.spring(response: 0.35)) { p.presentation = .parked }
+        arrange(quiet: true)
+        say("parked \(p.title)")
+    }
+    func unpark(_ p: Port) {
+        withAnimation(.spring(response: 0.35)) { p.presentation = .tiled }
+        focus(p)
+        arrange(quiet: true)
+        say("restored \(p.title)")
+    }
+    /// The highlighted port zoom-down targets: the selection if it's in the current space, else frontmost.
+    var selectedPort: Port? { current.first(where: { $0.id == selectedId }) ?? frontmost }
+
+    // Zoom ladder:  GALAXY (all spaces) · EXPOSÉ · DESKTOP · FOCUS.
+    // ⌘↑ / pinch-out step UP toward galaxy; ⌘↓ / pinch-in step DOWN toward a single focused port.
+    func zoomUp() {
+        withAnimation(.spring(response: 0.45)) {
+            if focusId != nil { focusId = nil }           // focus → desktop
+            else if expose { expose = false }             // exposé → desktop
+            else if !galaxy { galaxy = true; galaxyHover = nil }   // desktop → galaxy
+        }
+    }
+    func zoomDown() {
+        // In galaxy, zoom-IN enters the space the mouse is over (mouseover + ⌘↓ / pinch-in).
+        if galaxy {
+            if let h = galaxyHover, h != space { switchSpace(h) }   // enter the HOVERED space
+            else { withAnimation(.spring(response: 0.45)) { galaxy = false } }   // none hovered → current space
+            return
+        }
+        withAnimation(.spring(response: 0.45)) {
+            if expose { expose = false }                  // exposé → desktop
+            else if focusId == nil, let p = selectedPort { focusId = p.id }  // desktop → focus the HIGHLIGHTED port
+        }
+    }
+
+    // Trackpad pinch drives the same ladder: spread (zoom IN) steps down, pinch (zoom OUT) steps up.
+    // ONE rung per gesture — a single squeeze moves exactly one level (was firing several rungs in
+    // one continuous pinch, rocketing galaxy→space→focus). Release and pinch again to go further.
+    var pinchAccum: CGFloat = 0
+    var pinchFired = false
+    func pinch(_ delta: CGFloat, phase: NSEvent.Phase) {
+        if phase == .began { pinchAccum = 0; pinchFired = false }
+        guard !pinchFired else { return }
+        pinchAccum += delta
+        let threshold: CGFloat = 0.32
+        if pinchAccum > threshold { pinchFired = true; zoomDown() }        // spread → in → down one rung
+        else if pinchAccum < -threshold { pinchFired = true; zoomUp() }    // pinch → out → up one rung
+    }
     @discardableResult func unwind() -> Bool {     // Esc peels one zoom level; false = nothing left → quit
         if focusId != nil { withAnimation(.spring(response: 0.4)) { focusId = nil }; return true }
         if galaxy { withAnimation { galaxy = false }; return true }
-        if showSpaces { withAnimation { showSpaces = false }; return true }
         if expose { withAnimation { expose = false }; return true }
         if showPalette { showPalette = false; return true }
         return false
     }
 
-    func switchMode(_ m: Int) {
-        guard m != mode else { return }
-        seed(m)
-        withAnimation(.spring(response: 0.35)) { mode = m; space = 0; expose = false; showSpaces = false }
-        say("mode · \(modes[m].name)")
-    }
     func switchSpace(_ s: Int) {
-        withAnimation(.spring(response: 0.3)) { space = s; expose = false; showSpaces = false }
+        guard s != space, spaces.indices.contains(s) else { return }
+        seed(s)
+        withAnimation(.spring(response: 0.35)) { space = s; expose = false; galaxy = false; selectedId = nil }
         say("space · \(spaceNames[s])")
     }
-    func seed(_ m: Int) {
-        guard !seeded.contains(m) else { return }
-        seeded.insert(m)
-        for (s, app) in modes[m].seed { spawn(Apps.all[app], mode: m, space: s, quiet: true) }
-    }
-
-    func spawn(_ app: AppDef, at: CGPoint? = nil, mode m: Int? = nil, space s: Int? = nil, quiet: Bool = false) {
-        let mm = m ?? mode, ss = s ?? space
+    func seed(_ s: Int) {
+        guard !seeded.contains(s) else { return }
+        seeded.insert(s)
+        for app in spaces[s].seed { spawn(Apps.all[app], space: s, quiet: true) }
+        // every space gets a chat tile (chat is just a port) + a greeting from its own crew.
+        let spaceCrew = crewIn(s)
+        let tint = spaceCrew.first?.color ?? P42.accent
         zCounter += 1
-        let n = portsIn(mm, ss).count
-        let p = at ?? CGPoint(x: 330 + Double(n % 4) * 90, y: 200 + Double(n % 3) * 80)
-        ports.append(Port(app, pos: p, z: zCounter, mode: mm, space: ss))
-        if !quiet { say("opened \(app.title)") }
+        ports.append(Port(chatPos: CGPoint(x: 240, y: 250), z: zCounter, space: s, tint: tint))
+        if let c = spaceCrew.first {
+            let others = spaceCrew.dropFirst().map { $0.name }.joined(separator: ", ")
+            let hello = others.isEmpty
+                ? "‘\(spaces[s].name)’ ready. ask me to open something — e.g. “open a clock and a system monitor”."
+                : "‘\(spaces[s].name)’ ready — \(c.name) here with \(others). ask any of us to open something."
+            chat[chatKey(s)] = [ChatMsg(who: c.name, color: c.color, text: hello, isUser: false)]
+        }
     }
-    func focus(_ p: Port) { zCounter += 1; p.z = zCounter }
 
-    var interactive: Bool { !expose && !galaxy && !showSpaces && !showPalette && !booting && focusId == nil && !idle }
+    // MARK: Chat + companion loop (rev3)
+
+    func focusChat() {
+        if let chatPort = current.first(where: { $0.kind == .chat }) {
+            withAnimation(.spring(response: 0.4)) { galaxy = false; expose = false; focusId = chatPort.id }
+        }
+    }
+
+    func send(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let key = chatKey
+        chat[key, default: []].append(ChatMsg(who: "you", color: P42.text, text: text, isUser: true))
+        respond(to: text.lowercased(), in: key)
+    }
+
+    // Scripted companion behaviour: think → maybe open tiles → reply. A prototype stand-in for the
+    // real loop (companion calls port.create); here it shows the magic: a message arranges the desktop.
+    private func respond(to lower: String, in key: String) {
+        let comp = crew.first(where: { lower.contains("@" + $0.name.lowercased()) }) ?? crew.first
+        guard let comp else { return }
+        withAnimation { comp.status = .thinking }
+        let opens = parseOpen(lower)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            if opens.isEmpty {
+                comp.status = .idle
+                self.chat[key, default: []].append(ChatMsg(who: comp.name, color: comp.color, text: self.smalltalk(lower, comp), isUser: false))
+            } else {
+                withAnimation { comp.status = .porting }
+                for (i, app) in opens.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4 * Double(i)) { self.spawn(app) }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4 * Double(opens.count) + 0.3) {
+                    comp.status = .idle
+                    let names = opens.map { $0.title }.joined(separator: " · ")
+                    self.chat[key, default: []].append(ChatMsg(who: comp.name, color: comp.color, text: "opened \(names) on the desktop.", isUser: false))
+                    self.arrange()
+                }
+            }
+        }
+    }
+
+    private func parseOpen(_ s: String) -> [AppDef] {
+        if s.contains("everything") || s.contains("dashboard") { return [Apps.all[0], Apps.all[2], Apps.all[1]] }
+        var out: [AppDef] = []
+        if s.contains("clock") || s.contains("time")   { out.append(Apps.all[0]) }
+        if s.contains("pulse")                          { out.append(Apps.all[1]) }
+        if s.contains("system") || s.contains("monitor") || s.contains("cpu") { out.append(Apps.all[2]) }
+        if s.contains("shell") || s.contains("terminal") { out.append(Apps.all[3]) }
+        if s.contains("matrix")                         { out.append(Apps.all[4]) }
+        if s.contains("synth") || s.contains("music")   { out.append(Apps.all[5]) }
+        return out
+    }
+
+    private func smalltalk(_ s: String, _ c: Companion) -> String {
+        if s.contains("hello") || s.contains("hey") || s.hasPrefix("hi") { return "hey — I'm \(c.name). ask me to open a clock, a system monitor, a terminal…" }
+        if s.contains("arrange") || s.contains("tidy") { arrange(); return "tidied the desktop." }
+        if s.contains("who")   { return "I'm \(c.name), companion for ‘\(spaceNames[space])’." }
+        if s.contains("thank") { return "anytime." }
+        return "try: “open a clock and a system monitor”, or “@\(c.name) show me the matrix”."
+    }
+
+    func spawn(_ app: AppDef, at: CGPoint? = nil, space s: Int? = nil, quiet: Bool = false) {
+        let ss = s ?? space
+        zCounter += 1
+        let n = portsIn(ss).count
+        let p = at ?? CGPoint(x: 330 + Double(n % 4) * 90, y: 200 + Double(n % 3) * 80)
+        ports.append(Port(app, pos: p, z: zCounter, space: ss))
+        if !quiet {
+            say("opened \(app.title)")
+            arrange(quiet: true)   // user-initiated opens (dock / palette / chat) tidy the desktop; seeding stays quiet
+        }
+    }
+    func focus(_ p: Port) { zCounter += 1; p.z = zCounter; selectedId = p.id }
+
+    var interactive: Bool { !expose && !galaxy && !showPalette && !booting && focusId == nil && !idle }
     // Full tile rect in top-left window coords (titlebar ≈ 32pt above the content).
     func tileRect(_ p: Port) -> CGRect {
         CGRect(x: p.pos.x - p.size.width/2, y: p.pos.y - (p.size.height + 32)/2, width: p.size.width, height: p.size.height + 32)
@@ -259,9 +444,10 @@ final class Shell: ObservableObject {
     func mouseDown(at pt: CGPoint) {
         guard interactive, let h = portHit(at: pt) else { dragId = nil; return }
         focus(h.port)
-        // Terminal exception: its body is for text selection, not moving. Move via titlebar, resize via edges.
+        // Terminal/chat exception: the body is for text selection / typing, not moving. Move via
+        // titlebar, resize via edges.
         let inTitlebar = pt.y < tileRect(h.port).minY + 32
-        if h.port.isTerminal && !h.edge && !inTitlebar { dragId = nil; return }
+        if h.port.interactiveBody && !h.edge && !inTitlebar { dragId = nil; return }
         dragId = h.port.id; dragStart = pt; dragPos = h.port.pos; dragSize = h.port.size
         dragL = h.left; dragR = h.right; dragT = h.top; dragB = h.bottom; dragResize = h.edge; dragArmed = false
     }
@@ -279,10 +465,21 @@ final class Shell: ObservableObject {
             p.size = CGSize(width: max(240, w), height: max(150, h)); p.pos = CGPoint(x: cx, y: cy)
         } else {
             p.pos = CGPoint(x: dragPos.x + dx, y: dragPos.y + dy)
+            // rev8: dragging a tile into the right-edge strip arms the parking dock (drop = minimize).
+            draggingOverPark = (pt.x > screenW - parkWidth)
         }
         return true   // consume → don't leak the drag into the webview
     }
-    func mouseUp() -> Bool { let armed = dragArmed; dragId = nil; dragArmed = false; return armed }
+    func mouseUp() -> Bool {
+        let armed = dragArmed
+        // rev8: released over the parking strip → minimize the dragged tile into the right dock.
+        if draggingOverPark, let id = dragId, let p = ports.first(where: { $0.id == id }), p.presentation == .tiled {
+            park(p)
+        }
+        draggingOverPark = false
+        dragId = nil; dragArmed = false
+        return armed
+    }
     func close(_ p: Port) {
         panels[p.id]?.close()
         Registry.shared.drop(p.id)
@@ -300,7 +497,7 @@ final class Shell: ObservableObject {
     }
 
     // Tidy the current space into a fitted grid centered in the work area.
-    func arrange() {
+    func arrange(quiet: Bool = false) {
         let items = current.filter { $0.presentation == .tiled }.sorted { $0.z < $1.z }
         guard !items.isEmpty else { return }
         let cols = Int(ceil(sqrt(Double(items.count))))
@@ -315,7 +512,7 @@ final class Shell: ObservableObject {
                 p.pos = CGPoint(x: startX + Double(i % cols) * cellW, y: startY + Double(i / cols) * cellH)
             }
         }
-        say("arranged \(items.count)")
+        if !quiet { say("arranged \(items.count)") }
     }
 }
 
@@ -424,42 +621,31 @@ struct Chrome: View {
             // global create actions (from SidebarView header)
             chromeIcon("number", "New Space"); chromeIcon("person.crop.circle.badge.plus", "New Companion")
             Spacer().frame(width: 18)
-            // MODES (meta-spaces) — left of the notch/camera, each reconfigures the whole shell
-            HStack(spacing: 8) {
-                Text("MODE").font(P42.mono(9)).foregroundStyle(P42.dim.opacity(0.7)).tracking(2)
-                ForEach(Array(shell.modes.enumerated()), id: \.0) { i, m in
-                    let on = shell.mode == i
-                    Button(action: { shell.switchMode(i) }) {
-                        HStack(spacing: 5) {
-                            Circle().fill(m.accent).frame(width: 5, height: 5).opacity(on ? 1 : 0.4)
-                            Text(m.name.uppercased()).font(P42.mono(10, on ? .bold : .regular)).tracking(1)
-                                .foregroundStyle(on ? m.accent : P42.dim)
-                        }
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(on ? m.accent.opacity(0.14) : .clear, in: Capsule())
-                        .overlay(Capsule().stroke(on ? m.accent.opacity(0.55) : .clear, lineWidth: 1))
-                    }.buttonStyle(.plain)
+            // rev7: ONE unit — the magic (galaxy) icon + active space name locked together. Toggles
+            // the all-spaces galaxy. (The separate galaxy button is gone; this is the only way up.)
+            Button(action: { withAnimation { if shell.galaxy { shell.unwind() } else { shell.zoomUp() } } }) {
+                HStack(spacing: 7) {
+                    Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(shell.galaxy ? shell.accent : shell.accent.opacity(0.9))
+                    Text(shell.spaceNames[shell.space]).font(P42.mono(12, .bold)).foregroundStyle(P42.text)
                 }
-                // breadcrumb into the active space + spaces overview
-                Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(P42.dim)
-                Button(action: { withAnimation { shell.showSpaces.toggle() } }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "square.stack.3d.up").font(.system(size: 10))
-                        Text(shell.spaceNames[shell.space]).font(P42.mono(10)).tracking(1)
-                    }.foregroundStyle(shell.showSpaces ? shell.accent : P42.text)
-                }.buttonStyle(.plain).help("Spaces in this mode (⌘E)")
-            }
-            Spacer()
-            // status cluster moved up from ContentView.swift:185
-            Button(action: { if shell.galaxy { shell.unwind() } else { shell.zoomUp() } }) {
-                Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(shell.galaxy ? shell.accent : P42.dim)
-            }.buttonStyle(.plain).help("Galaxy — all modes (⌘↑)")
+                .padding(.horizontal, 11).padding(.vertical, 4)
+                .background(shell.accent.opacity(shell.galaxy ? 0.2 : 0.12), in: Capsule())
+                .overlay(Capsule().stroke(shell.accent.opacity(shell.galaxy ? 0.7 : 0.4), lineWidth: 1))
+            }.buttonStyle(.plain).help("\(shell.spaceNames[shell.space]) — all spaces (⌘↑ / pinch out)")
+            // rev7.2: desktop-layout controls sit WITH the space — arrange (tidy into a grid) + exposé.
+            // rev7.3: give them a real 26×26 hit target (bare glyphs were finicky to click).
             Button(action: { shell.arrange() }) {
                 Image(systemName: "rectangle.3.group").font(.system(size: 12)).foregroundStyle(P42.dim)
+                    .frame(width: 26, height: 26).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Arrange (⌘L)")
             Button(action: { withAnimation { shell.expose.toggle() } }) {
                 Image(systemName: "square.grid.2x2").font(.system(size: 12)).foregroundStyle(shell.expose ? P42.accent : P42.dim)
+                    .frame(width: 26, height: 26).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Exposé (Tab)")
+            Spacer()
+            // rev5: companions are NOT here anymore — they live IN the space (the chat tile's member
+            // header). The chrome holds only global app status, not who's in a space.
+            // status cluster moved up from ContentView.swift:185
             Text("gordon").font(P42.mono(12)).foregroundStyle(P42.text)
             status("bolt.fill", .green, "Gateway connected")
             status("globe", P42.accent, "Tunnel active")
@@ -481,6 +667,46 @@ struct Chrome: View {
     }
     func chromeIcon(_ s: String, _ h: String) -> some View {
         Image(systemName: s).font(.system(size: 12)).foregroundStyle(P42.dim).help(h)
+    }
+}
+
+// rev5: member chips for the chat header — companions live IN the space, alongside you. People +
+// agents in one room: "it's all about chat with companions."
+
+/// You, as a member of the space.
+struct MeChip: View {
+    var body: some View {
+        HStack(spacing: 5) {
+            ZStack {
+                Circle().fill(P42.text.opacity(0.14)).frame(width: 18, height: 18)
+                    .overlay(Circle().stroke(P42.text.opacity(0.4), lineWidth: 1))
+                Image(systemName: "person.fill").font(.system(size: 8)).foregroundStyle(P42.text)
+            }
+            Text("you").font(P42.mono(10)).foregroundStyle(P42.text)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.white.opacity(0.05), in: Capsule())
+    }
+}
+
+/// A companion member — glyph + name + live status (pulses when thinking/porting), observed live.
+struct CompanionChip: View {
+    @ObservedObject var c: Companion
+    var body: some View {
+        let active = c.status != .idle
+        HStack(spacing: 5) {
+            ZStack {
+                Circle().fill(c.color.opacity(0.20)).frame(width: 18, height: 18)
+                    .overlay(Circle().stroke(c.color.opacity(active ? 1 : 0.5), lineWidth: active ? 1.5 : 1))
+                Image(systemName: c.glyph).font(.system(size: 8)).foregroundStyle(c.color)
+            }
+            Text(c.name).font(P42.mono(10)).foregroundStyle(active ? c.color : P42.text)
+            if active { Text(c.status == .porting ? "ports" : "…").font(P42.mono(8)).foregroundStyle(P42.dim) }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(active ? c.color.opacity(0.14) : Color.white.opacity(0.05), in: Capsule())
+        .overlay(Capsule().stroke(active ? c.color.opacity(0.5) : .clear, lineWidth: 1))
+        .shadow(color: active ? c.color.opacity(0.4) : .clear, radius: active ? 5 : 0)
     }
 }
 
@@ -532,6 +758,8 @@ struct Tile: View {
                         Text(floating ? "floating — click to focus" : "focused — Esc to return").font(P42.mono(10)).foregroundStyle(P42.dim)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.5))
                     .onTapGesture { if floating { shell.panels[port.id]?.makeKeyAndOrderFront(nil) } else { withAnimation { shell.focusId = port.id } } }
+                } else if port.kind == .chat {
+                    ChatTile(port: port)
                 } else {
                     AdoptingHost(id: port.id, html: port.html)
                 }
@@ -550,7 +778,8 @@ struct Tile: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: exposeFrame?.origin)
     }
-    var isTop: Bool { shell.current.max(by: { $0.z < $1.z })?.id == port.id }
+    // The highlighted/selected port (what ⌘↓ zooms into) gets the bright border + glow.
+    var isTop: Bool { shell.selectedPort?.id == port.id }
 
     func popToggle() {
         if port.presentation == .tiled { popOut() } else { dockBack() }
@@ -584,6 +813,112 @@ struct Tile: View {
     }
 }
 
+// rev6: a wrapping flow layout — members (and galaxy worlds) flow to as many rows as needed instead
+// of overflowing a single horizontal line. (macOS 13+ Layout protocol.)
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxW = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, maxRowW: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > maxW { maxRowW = max(maxRowW, x - spacing); x = 0; y += rowH + spacing; rowH = 0 }
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
+        maxRowW = max(maxRowW, x - spacing)
+        return CGSize(width: maxW == .infinity ? max(0, maxRowW) : maxW, height: y + rowH)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxW = bounds.width
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > maxW { x = 0; y += rowH + spacing; rowH = 0 }
+            v.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y), proposal: ProposedViewSize(s))
+            x += s.width + spacing; rowH = max(rowH, s.height)
+        }
+    }
+}
+
+// MARK: - Chat tile (rev3 — chat is just a port)
+
+struct ChatTile: View {
+    @ObservedObject var shell = Shell.shared
+    let port: Port
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    var key: String { shell.chatKey(port.space) }
+    var msgs: [ChatMsg] { shell.chat[key] ?? [] }
+    var crew: [Companion] { shell.crewIn(port.space) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // MEMBERS — people + agents in this space. Companions live HERE, in the conversation,
+            // as a primitive of the space — not as global chrome status. Members WRAP to as many
+            // rows as needed (rev6 — was a horizontal scroll that broke past a few companions).
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill").font(.system(size: 10)).foregroundStyle(port.tint)
+                    Text(shell.spaces[port.space].name).font(P42.mono(11, .bold)).foregroundStyle(P42.text)
+                    Spacer()
+                    Text("\(crew.count + 1) in this space").font(P42.mono(9)).foregroundStyle(P42.dim)
+                }
+                FlowLayout(spacing: 6) {
+                    MeChip()
+                    ForEach(crew) { CompanionChip(c: $0) }
+                }
+            }
+            .padding(.horizontal, 11).padding(.top, 10).padding(.bottom, 8)
+            .background(.black.opacity(0.30))
+            .overlay(Rectangle().fill(port.tint.opacity(0.25)).frame(height: 1), alignment: .bottom)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(msgs) { m in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(m.isUser ? "you" : m.who).font(P42.mono(9, .bold)).foregroundStyle(m.color)
+                                Text(m.text).font(P42.mono(12)).foregroundStyle(P42.text)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }.frame(maxWidth: .infinity, alignment: .leading).id(m.id)
+                        }
+                        // live typing/porting rows — each observes its own companion
+                        ForEach(shell.crewIn(port.space)) { c in CompanionStatusRow(c: c) }
+                    }
+                    .padding(11).frame(maxWidth: .infinity, alignment: .leading)
+                    .id("chatbottom")
+                }
+                .onChange(of: msgs.count) { _, _ in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("chatbottom", anchor: .bottom) } }
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(port.tint)
+                TextField("message \(shell.crewIn(port.space).first?.name ?? "companions")…", text: $draft)
+                    .textFieldStyle(.plain).font(P42.mono(12)).foregroundStyle(P42.text).focused($focused)
+                    .onSubmit { shell.send(draft); draft = "" }
+            }
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .background(.black.opacity(0.35))
+            .overlay(Rectangle().fill(port.tint.opacity(0.25)).frame(height: 1), alignment: .top)
+        }
+        .background(Color(red: 0.04, green: 0.05, blue: 0.07))
+    }
+}
+
+/// One companion's live status line in the chat (reactive — observes the companion, hides when idle).
+struct CompanionStatusRow: View {
+    @ObservedObject var c: Companion
+    var body: some View {
+        if c.status != .idle {
+            HStack(spacing: 6) {
+                Circle().fill(c.color).frame(width: 5, height: 5)
+                    .opacity(0.6).overlay(Circle().stroke(c.color, lineWidth: 1))
+                Text(c.status == .porting ? "\(c.name) is porting…" : "\(c.name) is thinking…")
+                    .font(P42.mono(10)).foregroundStyle(P42.dim)
+            }
+        }
+    }
+}
+
 // MARK: - Command palette
 
 struct Palette: View {
@@ -611,6 +946,53 @@ struct Palette: View {
     }
 }
 
+// MARK: - Parking dock (right edge — rev8)
+
+/// The right-edge minimize rail. Drag a tile into the right ~5% strip to PARK it here (it becomes a
+/// chip, registry webview kept alive); click a chip to RESTORE it to the desktop. Faint when idle,
+/// glows as a drop target while a tile is dragged over it. Distinct from the bottom launcher, which
+/// CREATES ports.
+struct ParkRail: View {
+    @ObservedObject var shell = Shell.shared
+    @State private var hovering = false
+    var parked: [Port] { shell.parkedPorts }
+    var active: Bool { shell.draggingOverPark }        // a tile is being dragged over (drop target)
+    var lit: Bool { active || hovering }               // drag-over OR plain mouseover → highlight
+    var body: some View {
+        let w = shell.parkWidth
+        let bg: Color = active ? shell.accent.opacity(0.16)
+            : (hovering ? Color.white.opacity(0.07) : Color.white.opacity(parked.isEmpty ? 0.015 : 0.035))
+        let border: Color = active ? shell.accent.opacity(0.85)
+            : (hovering ? shell.accent.opacity(0.45) : P42.dim.opacity(parked.isEmpty ? 0.12 : 0.25))
+        return VStack(spacing: 9) {
+            Image(systemName: active ? "tray.and.arrow.down.fill" : "tray")
+                .font(.system(size: 13))
+                .foregroundStyle(active ? shell.accent : (hovering ? P42.text : P42.dim.opacity(parked.isEmpty ? 0.5 : 0.9)))
+            ForEach(parked) { p in
+                Button(action: { shell.unpark(p) }) {
+                    VStack(spacing: 3) {
+                        Image(systemName: p.icon).font(.system(size: 15)).foregroundStyle(p.tint)
+                            .frame(width: 42, height: 42)
+                            .background(p.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(p.tint.opacity(0.45), lineWidth: 1))
+                        Text(p.title).font(P42.mono(7)).foregroundStyle(P42.dim).lineLimit(1)
+                    }
+                    .frame(width: w - 12).contentShape(Rectangle())
+                }.buttonStyle(.plain).help("Restore \(p.title)")
+            }
+            Spacer()
+        }
+        .frame(width: w)
+        .padding(.top, 14).padding(.bottom, 12)
+        .background(bg)
+        .overlay(Rectangle().fill(border).frame(width: lit ? 1.5 : 1), alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .animation(.easeInOut(duration: 0.2), value: lit)
+        .animation(.spring(response: 0.3), value: parked.count)
+    }
+}
+
 // MARK: - Dock
 
 struct Dock: View {
@@ -622,7 +1004,7 @@ struct Dock: View {
                 DockIcon(app: app, cursorX: cursorX)
             }
         }.padding(.horizontal, 18).padding(.vertical, 10).frame(height: 74, alignment: .bottom)
-        .animation(.spring(response: 0.3), value: shell.mode)
+        .animation(.spring(response: 0.3), value: shell.space)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(P42.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 24, y: 8)
@@ -663,159 +1045,89 @@ struct Boot: View {
     }
 }
 
-// MARK: - Space rail (the spaces inside the current mode)
-
-struct SpaceRail: View {
-    @ObservedObject var shell = Shell.shared
-    var body: some View {
-        VStack(spacing: 10) {
-            ForEach(Array(shell.spaceNames.enumerated()), id: \.0) { i, name in
-                let on = shell.space == i
-                let count = shell.portsIn(shell.mode, i).count
-                Button(action: { shell.switchSpace(i) }) {
-                    ZStack(alignment: .topTrailing) {
-                        RoundedRectangle(cornerRadius: 11)
-                            .fill(on ? shell.accent.opacity(0.18) : Color.white.opacity(0.04))
-                            .overlay(RoundedRectangle(cornerRadius: 11).stroke(on ? shell.accent : P42.dim.opacity(0.4), lineWidth: on ? 1.5 : 1))
-                            .frame(width: 44, height: 44)
-                            .overlay(Text(name.prefix(1).uppercased()).font(P42.mono(16, .bold)).foregroundStyle(on ? shell.accent : P42.dim))
-                            .shadow(color: on ? shell.accent.opacity(0.5) : .clear, radius: 10)
-                        if count > 0 {
-                            Text("\(count)").font(P42.mono(8, .bold)).foregroundStyle(.black)
-                                .padding(3).background(on ? shell.accent : P42.dim, in: Circle()).offset(x: 6, y: -6)
-                        }
-                    }
-                }.buttonStyle(.plain).help("\(name) — \(count) ports")
-            }
-            Button(action: { withAnimation { shell.showSpaces = true } }) {
-                Image(systemName: "plus").font(.system(size: 13)).foregroundStyle(P42.dim)
-                    .frame(width: 44, height: 30).background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
-            }.buttonStyle(.plain).help("Spaces overview (⌘E)")
-        }
-        .padding(8)
-        .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.25), lineWidth: 1))
-    }
-}
-
-// MARK: - Spaces overview (zoom out to all spaces in the mode, each showing its ports)
-
-struct SpacesOverview: View {
-    @ObservedObject var shell = Shell.shared
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { withAnimation { shell.showSpaces = false } }
-            VStack(spacing: 20) {
-                HStack(spacing: 8) {
-                    Circle().fill(shell.accent).frame(width: 7, height: 7)
-                    Text("\(shell.modeDef.name.uppercased()) · SPACES").font(P42.mono(13, .bold)).foregroundStyle(shell.accent).tracking(3)
-                }
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach(Array(shell.spaceNames.enumerated()), id: \.0) { i, name in
-                        SpaceCard(index: i, name: name)
-                    }
-                    Button(action: { shell.say("spaces are fixed in this prototype") }) {
-                        VStack(spacing: 8) { Image(systemName: "plus").font(.system(size: 20)); Text("new space").font(P42.mono(11)) }
-                            .foregroundStyle(P42.dim).frame(width: 150, height: 170)
-                            .background(RoundedRectangle(cornerRadius: 14).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5])).foregroundStyle(P42.dim.opacity(0.4)))
-                    }.buttonStyle(.plain)
-                }
-            }
-        }.transition(.opacity)
-    }
-}
-
-struct SpaceCard: View {
-    @ObservedObject var shell = Shell.shared
-    let index: Int; let name: String
-    var ports: [Port] { shell.portsIn(shell.mode, index) }
-    var on: Bool { shell.space == index }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
-                Circle().fill(on ? shell.accent : P42.dim).frame(width: 6, height: 6)
-                Text(name).font(P42.mono(13, .bold)).foregroundStyle(P42.text)
-                Spacer()
-                Text("\(ports.count)").font(P42.mono(11)).foregroundStyle(P42.dim)
-            }
-            Divider().overlay(P42.dim.opacity(0.3))
-            if ports.isEmpty {
-                Spacer(); Text("empty").font(P42.mono(11)).foregroundStyle(P42.dim.opacity(0.6)).frame(maxWidth: .infinity); Spacer()
-            } else {
-                ForEach(ports.prefix(4)) { p in
-                    HStack(spacing: 7) {
-                        Image(systemName: p.icon).font(.system(size: 10)).foregroundStyle(shell.accent).frame(width: 14)
-                        Text(p.title).font(P42.mono(10)).foregroundStyle(P42.text).lineLimit(1)
-                    }
-                }
-                if ports.count > 4 { Text("+\(ports.count - 4) more").font(P42.mono(9)).foregroundStyle(P42.dim) }
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(12).frame(width: 200, height: 170, alignment: .top)
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(on ? shell.accent.opacity(0.7) : P42.accent.opacity(0.18), lineWidth: on ? 1.5 : 1))
-        .shadow(color: on ? shell.accent.opacity(0.35) : .black.opacity(0.4), radius: on ? 20 : 10)
-        .scaleEffect(on ? 1.04 : 1)
-        .onTapGesture { shell.switchSpace(index) }
-    }
-}
-
-// MARK: - Galaxy (zoom UP — all modes as worlds)
+// MARK: - Galaxy (zoom UP — all SPACES as worlds; rev6: spaces ARE the worlds now, no modes)
 
 struct GalaxyView: View {
     @ObservedObject var shell = Shell.shared
     var body: some View {
         ZStack {
             Color.black.opacity(0.72).ignoresSafeArea().onTapGesture { withAnimation { shell.galaxy = false } }
-            VStack(spacing: 26) {
-                Text("PORT42 · GALAXY").font(P42.mono(13, .bold)).foregroundStyle(P42.text).tracking(5)
-                HStack(spacing: 44) {
-                    ForEach(Array(shell.modes.enumerated()), id: \.0) { i, m in ModeWorld(index: i, mode: m) }
+            GeometryReader { geo in
+                // rev7: bigger tiles, MAX 3 across, responsive — fewer columns on a narrower screen.
+                let avail = geo.size.width * 0.82
+                let cols = max(1, min(3, Int(avail / 320)))
+                let columns = Array(repeating: GridItem(.flexible(minimum: 200, maximum: 290), spacing: 22), count: cols)
+                VStack(spacing: 20) {
+                    Text("PORT42 · SPACES").font(P42.mono(13, .bold)).foregroundStyle(P42.text).tracking(5)
+                    ScrollView(showsIndicators: false) {
+                        LazyVGrid(columns: columns, spacing: 24) {
+                            ForEach(shell.spaces.indices, id: \.self) { i in SpaceWorld(index: i) }
+                        }
+                        .frame(maxWidth: avail)
+                        .padding(.vertical, 6)
+                    }
+                    Text("a space is a room — people + companions · hover + ⌘↓ / pinch-in to dive in · ⌘1…7 jump")
+                        .font(P42.mono(10)).foregroundStyle(P42.dim)
                 }
-                Text("a mode is a world · click to enter · ⌘↑ galaxy · ⌘↓ focus").font(P42.mono(10)).foregroundStyle(P42.dim)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .padding(.vertical, 30)
             }
-        }.transition(.scale(scale: 1.15).combined(with: .opacity))
+        }.transition(.scale(scale: 1.12).combined(with: .opacity))
     }
 }
 
-struct ModeWorld: View {
+struct SpaceWorld: View {
     @ObservedObject var shell = Shell.shared
-    let index: Int; let mode: ModeDef
-    var portCount: Int { shell.ports.filter { $0.mode == index }.count }
-    var on: Bool { shell.mode == index }
+    let index: Int
+    var def: SpaceDef { shell.spaces[index] }
+    var portCount: Int { shell.portsIn(index).filter { $0.kind != .chat }.count }
+    var crew: [Companion] { shell.crewIn(index) }
+    var on: Bool { shell.space == index }
+    var hovered: Bool { shell.galaxyHover == index }
+    var hot: Bool { on || hovered }
     var body: some View {
-        Button(action: { withAnimation(.spring(response: 0.5)) { shell.switchMode(index); shell.galaxy = false } }) {
-            VStack(spacing: 14) {
+        Button(action: {
+            if index == shell.space { withAnimation { shell.galaxy = false } } else { shell.switchSpace(index) }
+        }) {
+            VStack(spacing: 13) {
                 TimelineView(.animation) { tl in
                     let t = tl.date.timeIntervalSinceReferenceDate
                     Canvas { ctx, size in
                         let c = CGPoint(x: size.width/2, y: size.height/2)
                         ctx.fill(Path(ellipseIn: CGRect(origin: .zero, size: size)),
-                            with: .radialGradient(Gradient(colors: [mode.accent.opacity(0.55), mode.accent.opacity(0.04), .clear]),
+                            with: .radialGradient(Gradient(colors: [def.accent.opacity(0.55), def.accent.opacity(0.04), .clear]),
                                 center: c, startRadius: 0, endRadius: size.width/2))
                         let r = size.width * 0.26 + sin(t * 1.4 + Double(index)) * 4
-                        ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)), with: .color(mode.accent.opacity(0.92)))
+                        ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)), with: .color(def.accent.opacity(0.92)))
                         ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r*2, height: r*2)), with: .color(.white.opacity(0.25)), lineWidth: 1)
-                        // orbiting spaces (moons)
-                        let n = mode.spaces.count
-                        for s in 0..<n {
-                            let a = t * 0.6 + Double(s) / Double(max(1, n)) * 6.283
+                        // orbiting ports (moons)
+                        let n = max(portCount, 1)
+                        for s in 0..<min(n, 8) {
+                            let a = t * 0.6 + Double(s) / Double(n) * 6.283
                             let rr = size.width * 0.42
                             let mx = c.x + cos(a) * rr, my = c.y + sin(a) * rr * 0.46
-                            let dot = shell.portsIn(index, s).count > 0 ? 8.0 : 5.0
-                            ctx.fill(Path(ellipseIn: CGRect(x: mx - dot/2, y: my - dot/2, width: dot, height: dot)), with: .color(.white.opacity(0.9)))
+                            ctx.fill(Path(ellipseIn: CGRect(x: mx - 3, y: my - 3, width: 6, height: 6)), with: .color(.white.opacity(0.9)))
                         }
                     }
-                }.frame(width: 158, height: 158)
-                Text(mode.name.uppercased()).font(P42.mono(13, .bold)).foregroundStyle(on ? mode.accent : P42.text).tracking(2)
-                Text("\(mode.spaces.count) spaces · \(portCount) ports").font(P42.mono(10)).foregroundStyle(P42.dim)
+                }.frame(width: 132, height: 132)
+                Text(def.name.uppercased()).font(P42.mono(14, .bold)).foregroundStyle(hot ? def.accent : P42.text).tracking(2)
+                // members — companions are a primitive of the space (visible even zoomed out)
+                HStack(spacing: 4) {
+                    Image(systemName: "person.fill").font(.system(size: 9)).foregroundStyle(P42.text.opacity(0.85))
+                    ForEach(crew) { c in Image(systemName: c.glyph).font(.system(size: 9)).foregroundStyle(c.color) }
+                }
+                Text("\(portCount) ports · \(crew.count) companions").font(P42.mono(10)).foregroundStyle(P42.dim)
             }
-            .padding(18)
-            .background(on ? mode.accent.opacity(0.08) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(on ? mode.accent.opacity(0.6) : P42.dim.opacity(0.25), lineWidth: on ? 1.5 : 1))
-            .scaleEffect(on ? 1.05 : 1)
-        }.buttonStyle(.plain)
+            .padding(18).frame(maxWidth: .infinity)
+            .background(hot ? def.accent.opacity(0.10) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(hot ? def.accent.opacity(0.7) : P42.dim.opacity(0.25), lineWidth: hot ? 1.5 : 1))
+            .shadow(color: hovered ? def.accent.opacity(0.4) : .clear, radius: 16)
+            .scaleEffect(hovered ? 1.04 : (on ? 1.02 : 1))
+        }
+        .buttonStyle(.plain)
+        // rev7: hovering a world arms it — ⌘↓ / pinch-in then dives into THIS space.
+        .onHover { h in shell.galaxyHover = h ? index : (shell.galaxyHover == index ? nil : shell.galaxyHover) }
+        .animation(.spring(response: 0.3), value: hovered)
     }
 }
 
@@ -837,7 +1149,7 @@ struct FocusOverlay: View {
                         Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(P42.dim)
                     }.buttonStyle(.plain).help("Exit focus (Esc)")
                 }.padding(.horizontal, 16).padding(.vertical, 11).background(Color(red: 0.06, green: 0.07, blue: 0.09))
-                AdoptingHost(id: port.id, html: port.html)
+                if port.kind == .chat { ChatTile(port: port) } else { AdoptingHost(id: port.id, html: port.html) }
             }
             .frame(width: shell.screenW * 0.78, height: shell.screenH * 0.8)
             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -861,17 +1173,19 @@ struct ShellView: View {
                     // Tiles in their OWN ZStack so their .zIndex(port.z) doesn't leak out of the
                     // flattening Group and paint over the overlays below.
                     ZStack {
-                        ForEach(shell.current) { port in
+                        ForEach(shell.desktopTiles) { port in
                             Tile(port: port, exposeFrame: shell.expose ? exposeRect(port, in: geo.size) : nil)
                         }
                     }
-                    // Space rail — the spaces inside this mode (left edge, vertically centered)
-                    HStack { SpaceRail().padding(.leading, 14); Spacer() }
+                    // rev8: parking dock on the right edge (drag a tile here to minimize; click to restore).
+                    // Inset below the Chrome bar so the strip never covers the header.
+                    HStack(alignment: .top) { Spacer(); ParkRail() }.padding(.top, 48)
+                    // rev7: spaces sidebar removed — galaxy (hover + dive / click) and ⌘1…7 switch spaces.
+                    // bottom launcher = CREATE new ports (not switch); right dock = PARK existing ports.
                     VStack { Spacer(); Dock().padding(.bottom, 24) }
                 }
                 .opacity(shell.idle ? 0 : 1)
                 .allowsHitTesting(!shell.idle)
-                if shell.showSpaces { SpacesOverview().zIndex(100) }
                 if shell.galaxy { GalaxyView().zIndex(110) }
                 if let fid = shell.focusId, let p = shell.ports.first(where: { $0.id == fid }) { FocusOverlay(port: p).zIndex(120) }
                 // idle hint
@@ -896,15 +1210,13 @@ struct ShellView: View {
             .animation(.easeInOut(duration: 0.25), value: shell.showPalette)
             .animation(.easeInOut(duration: 0.5), value: shell.booting)
             .animation(.easeInOut(duration: 0.5), value: shell.space)
-            .animation(.easeInOut(duration: 0.5), value: shell.mode)
-            .animation(.easeInOut(duration: 0.25), value: shell.showSpaces)
             .animation(.spring(response: 0.4), value: shell.galaxy)
             .animation(.spring(response: 0.4), value: shell.focusId)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).background(.black)
     }
     func exposeRect(_ port: Port, in size: CGSize) -> CGRect {
-        let items = shell.current
+        let items = shell.desktopTiles
         let idx = items.firstIndex(where: { $0.id == port.id }) ?? 0
         let cols = Int(ceil(sqrt(Double(max(1, items.count)))))
         let rows = Int(ceil(Double(items.count) / Double(cols)))
@@ -951,8 +1263,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
     func installInput() {
-        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel]) { e in
+        NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel, .magnify]) { e in
             Shell.shared.bump()
+            // Pinch-zoom drives the ladder; consume it so webviews don't also zoom. No coords needed.
+            if e.type == .magnify { Shell.shared.pinch(e.magnification, phase: e.phase); return nil }
             guard let cv = self.window.contentView else { return e }
             let lp = e.locationInWindow
             let pt = CGPoint(x: lp.x, y: cv.bounds.height - lp.y)   // top-left coords
@@ -976,10 +1290,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if e.keyCode == 48 { withAnimation { Shell.shared.expose.toggle() }; return nil }   // Tab
             if cmd, e.charactersIgnoringModifiers == "q" { NSApp.terminate(nil); return nil }
             if cmd, e.charactersIgnoringModifiers == "k" { Shell.shared.showPalette.toggle(); return nil }
+            if cmd, e.charactersIgnoringModifiers == "j" { Shell.shared.focusChat(); return nil }   // ⌘J → chat
             if cmd, e.charactersIgnoringModifiers == "l" { Shell.shared.arrange(); return nil }
-            if cmd, e.charactersIgnoringModifiers == "e" { withAnimation { Shell.shared.showSpaces.toggle() }; return nil }
-            if cmd, let d = e.charactersIgnoringModifiers, let i = Int(d), (1...3).contains(i) {
-                Shell.shared.switchMode(i - 1); return nil
+            // ⌘1…⌘7 jump straight to a space (rev6: spaces are the only level now)
+            if cmd, let d = e.charactersIgnoringModifiers, let i = Int(d), Shell.shared.spaces.indices.contains(i - 1) {
+                Shell.shared.switchSpace(i - 1); return nil
             }
             return e
         }
