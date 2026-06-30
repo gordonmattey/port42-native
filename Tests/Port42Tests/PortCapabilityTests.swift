@@ -70,6 +70,10 @@ struct PortCapabilityTests {
         let content = try String(contentsOf: sourceURL, encoding: .utf8)
         #expect(content.contains("Interacting With Ports From Conversation"))
         #expect(content.contains("ports_list(capabilities"))
-        #expect(content.contains("terminal_send"))
+        // terminals are driven through the port verbs now, not a parallel terminal toolset
+        #expect(content.contains("port_push"))
+        #expect(content.contains("port_create"))
+        #expect(!content.contains("terminal_send"))
+        #expect(!content.contains("terminal_spawn"))
     }
 }

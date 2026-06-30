@@ -52,7 +52,7 @@ struct BridgeJSTests {
         ("ai", "complete"),
         ("ai", "cancel"),
         // port42.terminal — removed (D1): native terminals are `terminal` ports, not a
-        // web-port JS API. Drive them with the terminal_* tools instead.
+        // web-port JS API. Create with port.create({type:"terminal"}) and drive with port.push.
         // port42.clipboard
         ("clipboard", "read"),
         ("clipboard", "write"),

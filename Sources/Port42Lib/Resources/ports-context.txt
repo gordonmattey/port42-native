@@ -1,4 +1,4 @@
-PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Ports render as live interactive surfaces in the user's chat.
+PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence (the inline shorthand for a web port), or imperatively with port_create({type:"web", html}) / port_create({type:"terminal", command}) — the uniform primitive that also makes native terminals. Ports render as live interactive surfaces in the user's chat.
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
@@ -924,7 +924,7 @@ FINDING PORTS:
 
   ports_list(capabilities: ["terminal"])
     Filter to only ports that have an active terminal session.
-    Use this before terminal_send to find the right port id.
+    Terminal entries also report surfaceBound. Use this before port_push to find the right port id.
 
   FINDING YOUR OWN PORT:
     If you just created a terminal port, find it by matching createdBy to your own name.
@@ -934,35 +934,35 @@ FINDING PORTS:
     Example: you are "Engineer". After creating a terminal port:
       ports_list(capabilities: ["terminal"])
       → pick the entry where createdBy == "Engineer"
-      → use that entry's id for all terminal_send calls
+      → use that entry's id for all port_push calls
 
   IMPORTANT: When presenting port results to the user, always include the id and
   capabilities fields. Do not reformat as a table that drops these columns — the id
-  is required for terminal_send, port_manage, and any follow-up tool calls.
+  is required for port_push, port_manage, and any follow-up tool calls.
 
 SENDING INPUT TO A TERMINAL PORT:
 
-  terminal_send(name, data)
-    Send keystrokes/commands to a terminal port's stdin.
-    name: use the port's id (UDID) from ports_list for reliability.
-          Can also be the port title — fuzzy matched, but less reliable.
-    data: text to send. Include \n to press enter (e.g. "npm test\n").
-    NOTE: terminal_send automatically starts bridging output to this space.
-          Output is routed silently to the game loop — it does NOT appear as chat messages.
-          The space will show a "bridge active" indicator while output is flowing.
-          After sending, wait briefly then call messages_recent — the agent loop will
-          have posted a response if there was meaningful output to act on.
+  port_push(id, data)
+    Send raw keystrokes/commands to a terminal port's stdin.
+    id:   the port's id (UDID) from ports_list for reliability. Can also be the
+          terminal's name — fuzzy matched, but less reliable.
+    data: text to send. RAW — include your own \n to press enter (e.g. "npm test\n").
+          It is NOT added for you. (For web ports, port_push instead delivers the
+          data as a 'port42:data' CustomEvent — same verb, dispatched by port type.)
+    Output is NOT a tool result: it comes back on its own — a plain shell posts its
+    <p42> tags, an agent terminal (claude/gemini) posts its reply when its turn
+    completes. After sending, wait briefly then call messages_recent.
 
   Standard workflow for sending a command and reading output:
     1. ports_list(capabilities: ["terminal"])
        → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
-    2. terminal_send(name: "abc-123", data: "npm test\n")
-    3. messages_recent(count: 10)   ← terminal output has been bridged back as messages
+    2. port_push(id: "abc-123", data: "npm test\n")
+    3. messages_recent(count: 10)   ← terminal output arrives as messages
 
   Always use the id field from ports_list, not the title.
 
   IMPORTANT: Do NOT use screen_capture to read terminal output.
-  Use terminal_send + messages_recent instead. It is faster, more reliable, and
+  Use port_push + messages_recent instead. It is faster, more reliable, and
   does not require screen permission.
 
 READING AND VERSIONING PORTS:
@@ -1007,24 +1007,26 @@ READING AND VERSIONING PORTS:
 
 DRIVING A NATIVE TERMINAL:
 
-  terminal_spawn(opts?)
+  A terminal is just a port type — create, drive, and list it through the port verbs:
+
+  port_create({ type: "terminal", command?, args?, cwd?, title?, systemPrompt?, env?, space_id? })
     Open a native terminal port (Ghostty surface). Returns { id, title }.
-    opts: { command?, cwd?, title?, space_id? }. Defaults to a shell.
+    command defaults to a plain shell; claude/gemini get the Port42 hooks.
 
-  terminal_send(name, data)
-    Send keystrokes to a native terminal (append \n / \r to submit).
-    name: terminal id or title. (Raw send — does not arm space-posting.)
+  port_push(id, data)
+    Send raw keystrokes to a native terminal (include your own \n / \r to submit).
+    id: terminal id or name. (Raw send — does not arm space-posting.)
 
-  terminal_list()
-    List native terminals: { id, name, surfaceBound }.
+  ports_list({ capabilities: ["terminal"] })
+    List native terminals — each entry reports surfaceBound.
 
   Output comes back via the terminal's own <p42> tags (bash) or turnComplete
   (claude) — read it with messages_recent. There is no manual bridge step.
 
 EXAMPLE — prompt Claude Code running in a terminal port:
-  Step 1: ports_list(capabilities: ["terminal"])
-          → [{id: "f3a9...", title: "Claude Code", capabilities: ["terminal"]}]
-  Step 2: terminal_send(name: "f3a9...", data: "implement the login page\n")
+  Step 1: port_create({ type: "terminal", command: "claude" })
+          → { id: "f3a9...", title: "claude" }
+  Step 2: port_push(id: "f3a9...", data: "implement the login page\n")
   Step 3: messages_recent(count: 20)   ← read Claude Code's output
   Step 4: repeat as needed
 

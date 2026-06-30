@@ -1,9 +1,17 @@
-PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence.
-Ports render as live interactive surfaces in the user's chat. Include a <title> and
-<meta name="version" content="1"> in every port. The port42 dark theme is auto-injected.
+PORTS: A port is a live interactive surface in the user's chat. There are two types — WEB
+(HTML/CSS/JS) and TERMINAL (a native shell/CLI) — and ONE way to create either:
 
-When updating a port, always call port_get_html first, make the minimum change, and bump
-the version. Never rewrite a whole port to fix one bug. Use port_patch for targeted fixes.
+  port.create({ type: "web" | "terminal", ... })   → { id, title }
+
+WEB shorthand: you can also drop an inline web port by wrapping HTML/CSS/JS in a ```port code
+fence in a message — it renders inline. Include a <title> and <meta name="version" content="1">.
+The port42 dark theme is auto-injected. (The fence is the inline shorthand; port.create is the
+imperative, addressable path that also makes terminals.)
+
+Drive any port with port.push (data → web ports, raw keystrokes → terminals), list with
+ports.list, inspect/update with port.getHtml / port.update / port.patch. When updating a port,
+read it first with port.getHtml, make the minimum change, and bump the <meta> version — never
+rewrite a whole port to fix one bug; use port.patch for targeted fixes.
 
 ## Calling Port42 APIs
 
@@ -63,8 +71,17 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Ports
 
-  ports.list(capabilities?)       → [{ id, title, capabilities, status, createdBy, cwd?, x?, y? }]
-                                    status: 'floating' | 'docked' | 'inline'
+  port.create(opts)               → create a port, returns { id, title }. The uniform primitive.
+                                    opts.type: "web" | "terminal". opts.title?, opts.space_id?
+                                    type "web":      opts.html (a full port HTML body)
+                                    type "terminal": opts.command (e.g. "bash"|"htop"|"claude"),
+                                                     opts.args?, opts.cwd?, opts.systemPrompt?, opts.env?
+  ports.list(capabilities?)       → [{ id, title, capabilities, status, createdBy, cwd?, surfaceBound?, x?, y? }]
+                                    status: 'floating' | 'docked' | 'inline'. Terminal ports report
+                                    surfaceBound. Filter terminals with capabilities: ["terminal"].
+  port.push(id, data)            → send input to a port (type-dispatched): a WEB port receives a
+                                    'port42:data' CustomEvent (event.detail); a TERMINAL port receives
+                                    raw keystrokes (include your own newline, e.g. "ls\n", to run).
   port.update(id, html)           → replace a port's full HTML (read first with port.getHtml)
   port.getHtml(id, version?)      → read a port's current or versioned HTML
   port.patch(id, search, replace) → targeted string replacement (errors if not found)
@@ -73,19 +90,21 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   port.restore(id, version)       → roll back to a previous version
   port.move(id, x, y)            → move a floating port (macOS coords: Y=0 is bottom)
   port.position(id)              → { x, y, width, height } of a floating port
-  port.push(id, data)            → push data to a live port via CustomEvent ('port42:data')
   port.exec(id, js)              → execute JS on a port's webview, returns result
   port.rename(id, title)         → rename a port by ID
 
 ### Terminal
 
-  terminal.exec(command)          → run a shell command headless, returns stdout
-  terminal.spawn(opts)            → open a native terminal port, returns { id, title }
-  terminal.send(id, data)         → send keystrokes to a native terminal (append \r for Enter)
-  terminal.list                   → native terminals: { id, name, surfaceBound }
+  A terminal is just a port type — there is no separate terminal toolset:
+    open   → port.create({ type: "terminal", command: "bash" })   (see Ports)
+    drive  → port.push(id, "ls\n")                                 (raw keystrokes)
+    list   → ports.list({ capabilities: ["terminal"] })           (reports surfaceBound)
 
-  Output from a spawned terminal returns via its own <p42> tags (bash) or
-  turnComplete (claude); read it with messages_recent.
+  terminal.exec(command)          → run a shell command HEADLESS (no window), returns stdout.
+                                    The only permission-gated terminal method.
+
+  Output from a port.create terminal returns via its own <p42> tags (bash) or
+  turnComplete (claude); read it with messages.recent.
 
 ### Screen & Display
 
@@ -102,9 +121,10 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Files
 
-  files.list(path)                → list directory contents
-  files.read(path, encoding?)     → read file contents (utf8 or base64)
-  files.write(path, data, encoding?) → write file
+  fs.read(path, encoding?)        → read file contents (utf8 or base64)
+  fs.write(path, data, encoding?) → write file
+  fs.pick(opts?)                  → open a native file picker; returns the chosen path
+                                    files.read / files.write / files.pick are thin aliases of fs.*
 
 ### Audio
 
@@ -176,10 +196,10 @@ process. Pre-approve categories in Settings → Remote Access to skip future pro
 
 | Permission | Methods |
 |-----------|---------|
-| Terminal | terminal.exec, terminal.send |
+| Terminal | terminal.exec (the only gated terminal method; port.create/port.push are ungated) |
 | Screen | screen_capture, screen.windows |
 | Clipboard | clipboard.read, clipboard.write |
-| Filesystem | files.list, files.read, files.write |
+| Filesystem | fs.read, fs.write, fs.pick (and their files.* aliases) |
 | Browser | browser.* |
 | Camera | camera.capture |
 | Automation | automation.runAppleScript, automation.runJXA |
