@@ -765,13 +765,13 @@ struct MessageRow: View, Equatable {
     private var messageContent: some View {
         Group {
             if let term = entry.terminalPortInfo {
-                // Step 5b: native terminal port → compact card; play always pops out the window.
-                TerminalCompactBlock(title: term.title, createdBy: entry.senderName) {
+                // Native terminal port reference → the unified port card; opens the native window.
+                PortCard(kind: .terminal, title: term.title, createdBy: entry.senderName) {
                     appState.openTerminalPort(id: term.id)
                 }
             } else if let web = entry.webPortInfo {
-                // Step 8: floating web port reference card → focus/reopen its window.
-                WebPortCard(title: web.title, createdBy: entry.senderName) {
+                // Floating web port reference → the unified port card; focuses/reopens its window.
+                PortCard(kind: .web, title: web.title, createdBy: entry.senderName) {
                     appState.openWebPort(id: web.id)
                 }
             } else if entry.isSystem {
@@ -1142,6 +1142,7 @@ struct RegisteredInlinePortView: View {
                 if showCode {
                     iconButton("play.fill", help: "Run port", accent: true) { showCode = false }
                 } else {
+                    iconButton("arrow.clockwise", help: "Restart") { restart() }
                     iconButton("chevron.left.forwardslash.chevron.right", help: "View source") { showCode = true }
                 }
             }
@@ -1181,6 +1182,11 @@ struct RegisteredInlinePortView: View {
 
     private func focus() {
         manager.bringToFront(id)
+    }
+
+    /// Restart — reload the port's original HTML in place (resets DOM/JS), keeping the same webview.
+    private func restart() {
+        manager.reloadPort(id)
     }
 }
 
@@ -1246,71 +1252,25 @@ struct PortCompactBlock: View {
     }
 }
 
-// MARK: - Terminal Compact Block (Step 5b)
+// MARK: - Port Card (the unified inline reference card for any port)
 
-/// Inline card for a native terminal port. Reuses the cached-port compact-block style; the single
-/// play button ALWAYS pops out the native window (a terminal can't render inline in the webview).
-struct TerminalCompactBlock: View {
+/// What a port card represents — drives only the icon. All ports share one card; the type varies the
+/// glyph (and nothing else for now).
+enum PortCardKind { case web, terminal }
+
+/// The single inline card shown for a port reference (`[port:id]` web, `[terminal:id]` native). The
+/// card is the consistent in-chat anchor for EVERY port, whether or not the port's content can render
+/// inline (a native terminal can't, but its card still appears here). The one button opens / focuses
+/// the port's window. Replaces the old per-type `TerminalCompactBlock` / `WebPortCard`.
+struct PortCard: View {
+    let kind: PortCardKind
     let title: String
     let createdBy: String?
     let onOpen: () -> Void
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "terminal")
-                .font(.system(size: 24))
-                .foregroundStyle(Port42Theme.accent)
-                .frame(width: 32, height: 32)
-
-            Text(title)
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(Port42Theme.textPrimary)
-                .lineLimit(1)
-
-            if let creator = createdBy {
-                Text(creator)
-                    .font(Port42Theme.mono(9))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .lineLimit(1)
-            }
-
-            Button(action: onOpen) {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Port42Theme.accent)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Open terminal")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Port42Theme.bgSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Port42Theme.border, lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Web Port Card (Step 8)
-
-/// Inline reference card for a floating web port (`[port:id:title]`), symmetric with
-/// `TerminalCompactBlock`. The single play button focuses / reopens the port's window — the live
-/// surface is the floating WKWebView, not rendered inline here.
-struct WebPortCard: View {
-    let title: String
-    let createdBy: String?
-    let onOpen: () -> Void
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Image("port42-logo", bundle: Bundle.port42)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 32, height: 32)
+            icon.frame(width: 32, height: 32)
 
             Text(title)
                 .font(Port42Theme.mono(11))
@@ -1332,7 +1292,7 @@ struct WebPortCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Open port window")
+            .help(kind == .terminal ? "Open terminal window" : "Open port window")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -1342,6 +1302,20 @@ struct WebPortCard: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Port42Theme.border, lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        switch kind {
+        case .terminal:
+            Image(systemName: "terminal")
+                .font(.system(size: 24))
+                .foregroundStyle(Port42Theme.accent)
+        case .web:
+            Image("port42-logo", bundle: Bundle.port42)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        }
     }
 }
 

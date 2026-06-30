@@ -516,6 +516,16 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port restarted: %@", panels[idx].title)
     }
 
+    /// Reload a registered port's original HTML into the SAME webview (restart-in-place — resets
+    /// DOM/JS, re-runs scripts). Unlike `restart`, it does NOT destroy/recreate the webview, so an
+    /// inline host showing `webViews[id]` keeps its adopted view (no re-parent needed).
+    public func reloadPort(_ id: String) {
+        guard let panel = panels.first(where: { $0.id == id }), let wv = webViews[id] else { return }
+        let document = PortWebViewFactory.wrapHTML(panel.html)
+        wv.loadHTMLString(document, baseURL: URL(string: "http://port42.local/"))
+        NSLog("[Port42] Port reloaded in place: %@", panel.title)
+    }
+
     /// Lightweight version history for UI display (no HTML blobs).
     public func fetchVersionSummaries(_ id: String) -> [PortVersionSummary] {
         guard let panel = panels.first(where: { $0.id == id }),

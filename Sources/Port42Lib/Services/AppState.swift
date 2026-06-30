@@ -2496,39 +2496,15 @@ public final class AppState: ObservableObject {
 
         case .ok(.web(let html)):
             let resolvedTitle = (title?.isEmpty == false ? title! : PortPanel.extractTitle(from: html))
-            if inline {
-                let id = postInlineWebPort(html: html, title: resolvedTitle, spaceId: spaceId,
-                                           createdBy: createdBy, createdByName: createdByName)
-                return ["id": id, "title": resolvedTitle]
-            }
-            // External caller → floating window. Each port gets its own bridge (like the terminal path).
-            let messageId = UUID().uuidString
-            let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: messageId, createdBy: createdBy)
-            let portId = portWindows.popOut(html: html, bridge: bridge, spaceId: spaceId, createdBy: createdBy,
-                                            messageId: messageId, title: resolvedTitle, portType: "web",
-                                            in: CGSize(width: 800, height: 600))
-            // Step 8 (D2 parity): leave a `[port:id]` reference card in the space so the floating
-            // web port has chat presence, symmetric with the native terminal's `[terminal:id]`
-            // card. Local-only — the card binds by id to the (persisted) floating panel, so it
-            // survives restart; clicking play focuses / reopens the window.
-            postWebPortCard(portId: portId, title: resolvedTitle, spaceId: spaceId,
-                            createdBy: createdBy, createdByName: createdByName)
-            return ["id": portId, "title": resolvedTitle]
+            // A web port CAN render inline (unlike a native terminal), so it renders INLINE and
+            // AUTO-PLAYS on creation. The inline view's titlebar carries play / stop / source / pop-out;
+            // pop-out re-parents to a floating window (Step 8) with no reload. The `inline` routing flag
+            // is moot for web now — web is always inline; terminals are always a native window.
+            let id = postInlineWebPort(html: html, title: resolvedTitle, spaceId: spaceId,
+                                       createdBy: createdBy, createdByName: createdByName)
+            pendingPortActivationId = id   // activate immediately → it plays inline, not a collapsed card
+            return ["id": id, "title": resolvedTitle]
         }
-    }
-
-    /// Post a local-only `[port:id]` reference card for a floating web port (Step 8, D2 parity).
-    /// Mirrors the `[terminal:id]` card. Not synced — the floating port lives on this machine.
-    func postWebPortCard(portId: String, title: String, spaceId: String,
-                         createdBy: String?, createdByName: String?) {
-        let name = createdByName ?? createdBy ?? currentUser?.displayName ?? "port42"
-        let card = Message(
-            id: UUID().uuidString, spaceId: spaceId,
-            senderId: currentUser?.id ?? "", senderName: name, senderType: "system",
-            content: ChatEntry.portCard(id: portId, title: title),
-            timestamp: Date(), replyToId: nil, syncStatus: "local", createdAt: Date()
-        )
-        try? db.saveMessage(card)
     }
 
     /// The inline `[port:id]` card's play action (Step 8): focus the live floating window, restore

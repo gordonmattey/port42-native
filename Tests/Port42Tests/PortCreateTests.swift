@@ -78,51 +78,30 @@ struct PortCreateTests {
         #expect(PortPermission.permissionForMethod("port.create") == nil)
     }
 
-    // MARK: - Step 8: external floating web port leaves a [port:id] chat card
+    // MARK: - Web ports render inline + auto-play (any caller)
 
-    @Test("external web port.create posts a [port:id] card bound to the returned id")
+    @Test("web port.create renders inline (a fence) and auto-activates — regardless of the inline flag")
     @MainActor
-    func externalWebPostsCard() throws {
+    func webRendersInlineAndAutoPlays() throws {
         let db = try DatabaseService(inMemory: true)
         let state = AppState(db: db)
         let space = Space.create(name: "general")
         try db.saveSpace(space)
         let spaceId = space.id
 
+        // Even an "external" caller (inline:false) → a web port renders inline and auto-plays.
         let result = state.createPort(type: "web", title: "Hi", html: "<title>Hi</title><div/>",
                                       command: nil, args: [], cwd: nil, systemPrompt: nil, env: [:],
                                       spaceId: spaceId, createdBy: nil, createdByName: "echo",
                                       inline: false)
-        let portId = try #require(result["id"] as? String)
+        let id = try #require(result["id"] as? String)
         #expect(result["error"] == nil)
 
-        // A local-only [port:id] card referencing the floating port's id was saved.
-        let msgs = try db.getMessages(spaceId: spaceId)
-        let card = try #require(msgs.first(where: { ChatEntry(id: $0.id, senderName: $0.senderName, content: $0.content).webPortInfo != nil }))
-        let info = ChatEntry(id: card.id, senderName: card.senderName, content: card.content).webPortInfo
-        #expect(info?.id == portId)
-        #expect(info?.title == "Hi")
-        #expect(card.syncStatus == "local")   // not synced — floating port is local to this machine
-    }
-
-    @Test("inline web port.create posts a fence, not a [port:id] card")
-    @MainActor
-    func inlineWebPostsFence() throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let space = Space.create(name: "general")
-        try db.saveSpace(space)
-        let spaceId = space.id
-
-        let result = state.createPort(type: "web", title: "Hi", html: "<div>x</div>",
-                                      command: nil, args: [], cwd: nil, systemPrompt: nil, env: [:],
-                                      spaceId: spaceId, createdBy: nil, createdByName: "echo",
-                                      inline: true)
-        let id = try #require(result["id"] as? String)
-        let msgs = try db.getMessages(spaceId: spaceId)
-        let msg = try #require(msgs.first(where: { $0.id == id }))
-        // Inline web ports stay fence-carried (syncable, restart-safe), not a card.
+        let msg = try #require(try db.getMessages(spaceId: spaceId).first(where: { $0.id == id }))
+        // A fence (renders inline + syncs), NOT a window-only [port:id] card.
         #expect(msg.content.contains("```port"))
         #expect(ChatEntry(id: msg.id, senderName: msg.senderName, content: msg.content).webPortInfo == nil)
+        // Marked to auto-activate so it plays immediately instead of as a collapsed card.
+        #expect(state.pendingPortActivationId == id)
     }
 }
