@@ -21,21 +21,25 @@ struct ShellLayoutTests {
 
     // MARK: - arrange (the layout authority)
 
-    @Test("arrange grids by ceil(√n), centered, clears the Chrome, no overlaps, deterministic")
+    @Test("arrange grids by ceil(√n), clears the Chrome, FITS the area (no overflow), deterministic")
     func arrangeGrid() throws {
         let tiles = (0..<5).map {
             ShellState.ArrangeTile(id: "p\($0)", size: CGSize(width: 360, height: 260), z: $0)
         }
         let area = CGSize(width: 1440, height: 900)
-        let pos = ShellState.arrange(tiles, in: area)
+        let f = ShellState.arrange(tiles, in: area)
 
-        #expect(pos.count == 5)
-        // Every tile clears the top Chrome (startY ≥ 70).
-        for p in pos.values { #expect(p.y >= 70) }
+        #expect(f.count == 5)
+        for r in f.values {
+            #expect(r.minY >= 70)              // clears the top Chrome
+            #expect(r.minX >= 0)               // stays on-screen …
+            #expect(r.maxX <= area.width)      // … within the right edge (the bug: used to overflow)
+            #expect(r.maxY <= area.height)     // … within the bottom edge
+        }
         // Deterministic: same set → identical grid.
-        #expect(ShellState.arrange(tiles, in: area) == pos)
-        // No two tiles share an origin (grid cells are distinct).
-        let origins = Array(pos.values)
+        #expect(ShellState.arrange(tiles, in: area) == f)
+        // No two tiles share an origin (distinct cells).
+        let origins = Array(f.values).map { $0.origin }
         for i in 0..<origins.count {
             for j in (i + 1)..<origins.count {
                 #expect(!(origins[i].x == origins[j].x && origins[i].y == origins[j].y))
@@ -43,13 +47,26 @@ struct ShellLayoutTests {
         }
     }
 
+    @Test("arrange fits even a crowded desktop — 16 tiles stay in bounds (shrunk to fit)")
+    func arrangeCrowdedFits() throws {
+        let tiles = (0..<16).map {
+            ShellState.ArrangeTile(id: "p\($0)", size: CGSize(width: 360, height: 260), z: $0)
+        }
+        let area = CGSize(width: 1440, height: 900)
+        let f = ShellState.arrange(tiles, in: area)
+        #expect(f.count == 16)
+        for r in f.values {
+            #expect(r.minX >= 0 && r.minY >= 70 && r.maxX <= area.width && r.maxY <= area.height)
+        }
+    }
+
     @Test("arrange walks tiles in z order (lowest z lands first, top-left)")
     func arrangeZOrder() throws {
         let a = ShellState.ArrangeTile(id: "a", size: CGSize(width: 300, height: 200), z: 5)
         let b = ShellState.ArrangeTile(id: "b", size: CGSize(width: 300, height: 200), z: 1)
-        let pos = ShellState.arrange([a, b], in: CGSize(width: 1000, height: 800))
+        let f = ShellState.arrange([a, b], in: CGSize(width: 1000, height: 800))
         // n=2 → cols=2 → the lower-z tile (b) takes the first (left) cell.
-        #expect(pos["b"]!.x <= pos["a"]!.x)
+        #expect(f["b"]!.minX <= f["a"]!.minX)
     }
 
     @Test("arrange of an empty desktop is empty (no crash)")

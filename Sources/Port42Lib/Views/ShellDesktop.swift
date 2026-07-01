@@ -115,10 +115,9 @@ struct ShellDesktopView: View {
 
     /// A port tile's frame — its persisted position/size, or a cheap cascade seed until arrange runs.
     private func resolvedPortFrame(_ p: PortPanel, area: CGSize) -> CGRect {
-        let size = shell.clampTileSize(p.size)
-        if let pos = p.position { return CGRect(origin: pos, size: size) }
+        if let pos = p.position { return CGRect(origin: pos, size: p.size) }
         let i = tiledPanels.firstIndex { $0.id == p.id } ?? 0
-        return CGRect(x: 330 + Double(i % 4) * 90, y: 200 + Double(i % 3) * 80, width: size.width, height: size.height)
+        return CGRect(x: 330 + Double(i % 4) * 90, y: 200 + Double(i % 3) * 80, width: p.size.width, height: p.size.height)
     }
 
     /// Seed the grid on first entry into a space (nothing positioned yet). Hand-tuned layouts that

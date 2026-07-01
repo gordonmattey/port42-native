@@ -202,15 +202,19 @@ public struct TransitionRoot: View {
                 preWarmBreakoutVideo = true
             }
         }
-        .overlay(
-            Rectangle()
-                .stroke(Port42Theme.accent.opacity(isKeyWindow ? 0.6 : 0), lineWidth: 1)
-                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.5 : 0), radius: 12)
-                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.3 : 0), radius: 24)
-                .animation(.easeInOut(duration: 0.25), value: isKeyWindow)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-        )
+        // Accent frame glow — for the windowed (non-shell) app only. The edge-to-edge shell fills the
+        // whole screen, so a border around the frame is just a green line; drop it there.
+        .overlay {
+            if !ShellMode.isEnabled() {
+                Rectangle()
+                    .stroke(Port42Theme.accent.opacity(isKeyWindow ? 0.6 : 0), lineWidth: 1)
+                    .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.5 : 0), radius: 12)
+                    .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.3 : 0), radius: 24)
+                    .animation(.easeInOut(duration: 0.25), value: isKeyWindow)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+        }
         .background(WindowRefAccessor { w in nsWindow = w })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = true }

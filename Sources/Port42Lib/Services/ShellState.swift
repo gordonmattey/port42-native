@@ -219,18 +219,11 @@ public final class ShellState: ObservableObject {
     public func applyArrange(area: CGSize) {
         guard let sid = appState.currentSpace?.id else { return }
         let panels = appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
-        let tiles = panels.map { ArrangeTile(id: $0.id, size: clampTileSize($0.size), z: max($0.z, 1)) }
-        let origins = Self.arrange(tiles, in: area)
-        for p in panels where origins[p.id] != nil {
-            appState.portWindows.updateTileFrame(id: p.id, position: origins[p.id]!, size: nil)
+        let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, z: max($0.z, 1)) }
+        let frames = Self.arrange(tiles, in: area)
+        for p in panels {
+            if let f = frames[p.id] { appState.portWindows.updateTileFrame(id: p.id, position: f.origin, size: f.size) }
         }
-    }
-
-    /// A panel's size clamped to the tile floor (a freshly registered tiled port may carry a tiny
-    /// inline size; the desktop shows it at a sane minimum).
-    public func clampTileSize(_ s: CGSize) -> CGSize {
-        CGSize(width: max(s.width, Self.defaultTileSize.width * 0.6),
-               height: max(s.height, Self.defaultTileSize.height * 0.6))
     }
 
     // MARK: Arrange (pure — prototype `arrange()`; the layout authority, §4)
@@ -243,27 +236,33 @@ public final class ShellState: ObservableObject {
         public init(id: String, size: CGSize, z: Int) { self.id = id; self.size = size; self.z = z }
     }
 
-    /// Tidy tiles into a centered, fitted grid — the prototype's `arrange`, preserved exactly.
-    /// `cols = ceil(√n)`, uniform cell = (max width + 40) × (max height + 50), centered in the work
-    /// area with a top inset that clears the Chrome (`startY ≥ 70`). Walks tiles in `z` order so the
-    /// grid is stable. Returns each tile's top-left origin; callers set `panel.position`. Pure +
-    /// deterministic (same set → same grid) → headless-testable.
-    nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGPoint] {
+    /// Tidy tiles into a centered grid that always FITS the work area (so a spawn never pushes tiles
+    /// off-screen). `cols = ceil(√n)`; the grid fills the space left by the Chrome (top), the dock
+    /// (bottom) and the park rail (right); each tile is capped at its natural size but SHRUNK to fit
+    /// its cell when the desktop gets crowded. Walks tiles in `z` order (stable). Returns each tile's
+    /// full frame (origin + size); callers set `panel.position`/`.size`. Pure + deterministic → headless.
+    nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGRect] {
         let items = tiles.sorted { $0.z < $1.z }
         guard !items.isEmpty else { return [:] }
         let n = items.count
         let cols = max(1, Int(ceil(sqrt(Double(n)))))
-        let rows = Int(ceil(Double(n) / Double(cols)))
-        let cellW = (items.map { $0.size.width }.max() ?? 300) + 40
-        let cellH = (items.map { $0.size.height }.max() ?? 200) + 50
-        let totalW = Double(cols) * cellW
-        let totalH = Double(rows) * cellH
-        let startX = max(40, (area.width - totalW) / 2)
-        let startY = max(70, (area.height - totalH) / 2)
-        var out: [String: CGPoint] = [:]
+        let rows = max(1, Int(ceil(Double(n) / Double(cols))))
+        // Work area: clear the Chrome (top), the dock (bottom), the park rail + margins (sides).
+        let top: CGFloat = 70, bottom: CGFloat = 100, side: CGFloat = 40, gap: CGFloat = 24
+        let workX = side, workY = top
+        let workW = max(240, area.width - side - parkWidth(area.width) - 20)
+        let workH = max(200, area.height - top - bottom)
+        let cellW = workW / Double(cols), cellH = workH / Double(rows)
+        // Uniform tile size: capped at the largest natural size, shrunk to fit the cell when crowded.
+        let maxW = items.map { $0.size.width }.max() ?? 300
+        let maxH = items.map { $0.size.height }.max() ?? 200
+        let tileW = max(80, min(maxW, cellW - gap))
+        let tileH = max(60, min(maxH, cellH - gap))
+        var out: [String: CGRect] = [:]
         for (i, item) in items.enumerated() {
-            out[item.id] = CGPoint(x: startX + Double(i % cols) * cellW,
-                                   y: startY + Double(i / cols) * cellH)
+            let cx = workX + (Double(i % cols) + 0.5) * cellW      // cell center
+            let cy = workY + (Double(i / cols) + 0.5) * cellH
+            out[item.id] = CGRect(x: cx - tileW / 2, y: cy - tileH / 2, width: tileW, height: tileH)
         }
         return out
     }
