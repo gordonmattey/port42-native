@@ -713,6 +713,10 @@ public final class AppState: ObservableObject {
     }
     /// Error messages keyed by spaceId, shown as error bars in chat views.
     @Published public var spaceErrors: [String: String] = [:]
+    /// In-progress chat input drafts keyed by spaceId. Hoisted out of the chat view's local @State
+    /// so a draft survives the view being torn down/recreated (e.g. the shell's tile↔focus swap,
+    /// or switching spaces and back).
+    @Published public var chatDrafts: [String: String] = [:]
     /// Cached last-activity dates keyed by spaceId (regular and swim). Avoids DB reads during render.
     @Published public var lastActivityTimes: [String: Date] = [:]
     /// Auth status for UI display (proactively checked at boot)

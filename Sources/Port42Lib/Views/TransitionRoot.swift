@@ -247,12 +247,11 @@ public struct TransitionRoot: View {
         guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
         let screen = window.screen ?? NSScreen.main
 
-        // SHELL — the shell owns the full screen: never shrink to the sidebar frame, and re-assert
-        // the Dock/menu-bar hide (the unlock/dive transitions otherwise reset both). This is the
-        // authoritative shell-frame setter — it runs on launch (onAppear) and after every transition.
+        // SHELL — the shell owns the full screen: re-apply the borderless-fullscreen takeover after
+        // every unlock/dive transition (which otherwise reset the frame + presentationOptions). One
+        // authoritative helper (ShellMode.applyTakeover) so the launch path and this can't drift.
         if ShellMode.isEnabled() {
-            window.setFrame(ShellMode.windowFrame(for: screen), display: true, animate: false)
-            NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+            ShellMode.applyTakeover(to: window)
             return
         }
 

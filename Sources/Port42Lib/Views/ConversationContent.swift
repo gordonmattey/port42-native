@@ -613,6 +613,8 @@ public struct ConversationContent: View {
             .padding(.vertical, 4)
             .animation(.easeInOut(duration: 0.3), value: isInputFocused)
             .onChange(of: draft) { old, new in
+                // Persist the draft per space so it survives view teardown (shell tile↔focus swap).
+                if let cid = spaceId { appState.chatDrafts[cid] = new.isEmpty ? nil : new }
                 let wasTyping = !old.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let isTyping = !new.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if wasTyping != isTyping {
@@ -620,8 +622,19 @@ public struct ConversationContent: View {
                 }
             }
             .onAppear {
+                // Restore any in-progress draft for this space (e.g. after a tile↔focus swap).
+                if draft.isEmpty, let cid = spaceId, let saved = appState.chatDrafts[cid], !saved.isEmpty {
+                    draft = saved
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     isInputFocused = true
+                    // Programmatic focus selects all — for a restored draft that means the next
+                    // keystroke wipes it. Put the caret at the end instead.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        if let tv = NSApp.keyWindow?.firstResponder as? NSTextView, !tv.string.isEmpty {
+                            tv.selectedRange = NSRange(location: (tv.string as NSString).length, length: 0)
+                        }
+                    }
                 }
             }
         }

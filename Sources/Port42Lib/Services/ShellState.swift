@@ -19,6 +19,10 @@ public final class ShellState: ObservableObject {
     @Published public var zoom: Zoom = .space
     /// The highlighted tile zoom-in targets (hover/click); nil ⇒ fall back to the first port.
     @Published public var selectedPortId: String?
+    /// The highlighted desktop tile (chat or a tiled port) — hover/click; what ⌘↓ focuses.
+    @Published public var selectedTileId: String?
+    /// Bumped to re-trigger the desktop grid layout (the Chrome "arrange" + every spawn).
+    @Published public var arrangeBump: Int = 0
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
 
@@ -64,7 +68,8 @@ public final class ShellState: ObservableObject {
                 zoom = .space
             }
         case .space:
-            if let pid = selectedPort { zoom = .focus(pid) }   // nothing to focus ⇒ stay
+            // Focus the highlighted desktop tile (chat or a tiled port); else the first port.
+            if let tid = selectedTileId ?? selectedPort { zoom = .focus(tid) }   // nothing ⇒ stay
         case .focus:
             break                                 // floor — no wraparound
         }

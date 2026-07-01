@@ -728,6 +728,12 @@ public final class PortWindowManager: ObservableObject {
 
     private func createWindow(for panel: PortPanel, in bounds: CGSize) {
         guard NSApp != nil else { return }
+        // SHELL — the shell owns port presentation: ports are tiles on the shell desktop, never
+        // separate OS windows. Suppress every floating NSPanel in shell mode so legacy ports (e.g.
+        // a space's onboarding/web ports) don't float over the shell across spaces. This is the
+        // single chokepoint for window creation (restore / space-switch / bring-to-front all route
+        // here). (When shell pop-out lands in S3 it will create its panel via a shell-owned path.)
+        guard !ShellMode.isEnabled() else { return }
         var windowFrame: CGRect
         if let pos = panel.position {
             // Restore saved position

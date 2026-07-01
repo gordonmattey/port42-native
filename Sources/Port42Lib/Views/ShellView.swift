@@ -23,51 +23,65 @@ public struct ShellView: View {
     private var galaxyShown: Bool { shell.zoom == .galaxy }
     private var focusShown: Bool { if case .focus = shell.zoom { return true } else { return false } }
 
+    /// Chrome sits flush at the very top edge (topInset 0). A center notch, if any, overlaps only
+    /// the Chrome's empty middle (mark is left, actions are right), so nothing important is clipped.
+    private var topInset: CGFloat { 0 }
+
     public var body: some View {
         ZStack {
             // Layer 0 — the living ambient surface, always alive underneath everything.
             DreamscapeVideoLayer()
                 .ignoresSafeArea()
-            Color.black.opacity(galaxyShown ? 0.35 : 0.15)
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.3), value: galaxyShown)
 
-            // Layer 2 — the real space desktop. Recedes (scale + dim) when we zoom out to galaxy,
-            // leans in slightly when we zoom into focus — so every rung has visible feedback.
-            ContentView()
-                .environmentObject(appState)
-                .scaleEffect(galaxyShown ? 0.92 : (focusShown ? 1.03 : 1.0), anchor: .center)
-                .opacity(galaxyShown ? 0.35 : 1.0)
-                .allowsHitTesting(!galaxyShown)
-                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: shell.zoom)
+            // Layer 2 — the desktop GROUP (Chrome + tiles + dock). Stays mounted across rungs; it
+            // recedes (scale + dim) behind the galaxy rather than being torn down. Structure mirrors
+            // the prototype: tiles live in their own ZStack (in ShellDesktopView) and the overlays
+            // below are translucent .zIndex siblings — SwiftUI composites them above the tiles.
+            ZStack {
+                VStack(spacing: 0) {
+                    ShellChrome(shell: shell, appState: appState)
+                    ShellDesktopView(shell: shell, appState: appState)
+                }
+                VStack { Spacer(); ShellDock(shell: shell, appState: appState).padding(.bottom, 24) }
+            }
+            .padding(.top, topInset)                                   // clear the notch / top edge
+            .scaleEffect(galaxyShown ? 0.94 : 1.0, anchor: .center)
+            .opacity(galaxyShown ? 0.5 : 1.0)
+            .allowsHitTesting(shell.zoom == .space)
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: shell.zoom)
 
-            // Galaxy — all spaces as worlds (zoom UP).
+            // Galaxy — all spaces as worlds (zoom UP). Translucent, so the desktop dims behind it.
             if galaxyShown {
                 ShellGalaxyView(shell: shell, appState: appState)
                     .transition(.opacity)
-                    .zIndex(100)
+                    .zIndex(110)
             }
 
-            // Focus hint (S2.1 placeholder — per-port immersion arrives with the tiled desktop).
-            if focusShown {
-                VStack {
-                    Spacer()
-                    Text("focus · Esc to return")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.accent.opacity(0.8))
-                        .padding(.horizontal, 14).padding(.vertical, 7)
-                        .background(.black.opacity(0.6), in: Capsule())
-                        .overlay(Capsule().stroke(Port42Theme.accent.opacity(0.4), lineWidth: 1))
-                        .padding(.bottom, 40)
-                }
-                .transition(.opacity)
-                .allowsHitTesting(false)
-                .zIndex(90)
+            // Focus — one port immersive; its tile shows a placeholder while the webview is
+            // re-parented up here (no reload). Translucent overlay above the desktop.
+            if case .focus(let id) = shell.zoom {
+                ShellFocusContent(shell: shell, appState: appState, id: id)
+                    .transition(.opacity)
+                    .zIndex(120)
             }
         }
+        .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .animation(.spring(response: 0.4), value: shell.zoom)
-        .onAppear { installInputMonitors() }
+        .onAppear { installInputMonitors(); applyTakeoverToWindow() }
         .onDisappear { removeInputMonitors() }
+    }
+
+    /// Apply the borderless-fullscreen takeover when the shell UI actually appears — the reliable
+    /// site (the window exists by now, unlike `applicationDidFinishLaunching`, and this doesn't
+    /// depend on which unlock/dive path ran). A few retries cover any first-frame timing.
+    private func applyTakeoverToWindow() {
+        guard ShellMode.isEnabled() else { return }
+        for attempt in 0..<5 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt) * 0.2) {
+                guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
+                ShellMode.applyTakeover(to: window)
+            }
+        }
     }
 
     // MARK: - Input (kiosk monitors → the zoom ladder)
@@ -191,7 +205,9 @@ struct ShellGalaxyView: View {
             .scaleEffect(hovered ? 1.04 : (on ? 1.02 : 1))
         }
         .buttonStyle(.plain)
-        .onHover { h in shell.galaxyHover = h ? index : (shell.galaxyHover == index ? nil : shell.galaxyHover) }
+        // Only SET on enter (don't clear on exit) so the last-hovered world stays the dive target
+        // for a pinch-in / ⌘↓ that follows the hover.
+        .onHover { hovering in if hovering { shell.galaxyHover = index } }
         .animation(.spring(response: 0.3), value: hovered)
     }
 }

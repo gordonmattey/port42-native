@@ -34,4 +34,30 @@ public enum ShellMode {
     public static func windowFrame(for screen: NSScreen?) -> CGRect {
         screen?.frame ?? fallbackFrame
     }
+
+    /// Graduate the reused app window to the prototype's borderless-fullscreen LOOK without swapping
+    /// the `WindowGroup` window (which would break SwiftUI/key handling): hide the traffic lights,
+    /// let content fill to the top edge, pin it to the full `screen.frame` (physical top-left), and
+    /// hide the Dock + menu bar. This is the single authoritative takeover — both the launch path
+    /// and every post-transition `restoreWindowFrame` route here, so the result can't drift.
+    /// (Pure AppKit; callers invoke it on the main thread.)
+    public static func applyTakeover(to window: NSWindow) {
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        // A .titled window is frame-constrained to leave the menu-bar strip (the black bar up top),
+        // even with the bar hidden + level raised. Borderless removes the constraint so the window
+        // covers the FULL screen.frame — the prototype's move.
+        window.styleMask = [.borderless, .fullSizeContentView, .resizable]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovable = false
+        // Kiosk level (prototype's move): a NORMAL-level window's frame is clamped to visibleFrame,
+        // so it can't cover the menu-bar region — that's the black strip up top. Raise it above the
+        // menu bar so the full screen.frame actually takes.
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+        window.setFrame(windowFrame(for: window.screen ?? NSScreen.main), display: true, animate: false)
+    }
 }

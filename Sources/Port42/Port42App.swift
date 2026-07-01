@@ -90,9 +90,7 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
     /// SHELL — S1 takeover (cheapest cut): fullscreen the existing window over the ambient surface
     /// and hide the Dock + menu bar. Reversible — `applicationWillTerminate` restores them.
     private func applyShellTakeover(window: NSWindow) {
-        let screen = window.screen ?? NSScreen.main
-        window.setFrame(ShellMode.windowFrame(for: screen), display: true, animate: false)
-        NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+        ShellMode.applyTakeover(to: window)
         NSApp.activate(ignoringOtherApps: true)
         shellTookOver = true
         installShellEscapeHatch()
