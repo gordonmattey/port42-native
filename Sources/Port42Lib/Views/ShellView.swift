@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 /// SHELL — S2.1. The shell root: the living ambient surface (Layer 0) with the real space desktop
 /// composited over it, and the zoom spine made visible (galaxy ↔ space ↔ focus). Selected instead
@@ -105,11 +106,14 @@ public struct ShellView: View {
             return e
         }
 
-        // Keys — ⌘↑/↓ ladder, ⌘1…N space jump, Esc peels one rung.
+        // Keys — ⌘↑/↓ ladder, ⌘1…N space jump, Esc peels one rung. Yields to a focused text
+        // field / web port / terminal first (§3.1) so typing and TUI Esc reach the surface.
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            let cmd = e.modifierFlags.contains(.command)
-            // Yield to a focused text editor unless it's a ⌘-shortcut (typing must not move the ladder).
-            let editing = (e.window?.firstResponder is NSText) || (e.window?.firstResponder is NSTextView)
+            let isEditor = Self.responderIsEditor(e.window?.firstResponder)
+            if ShellState.shouldYieldKey(isEditor: isEditor, keyCode: e.keyCode,
+                                         focusedPortIsTerminal: shell.focusedPortIsTerminal) {
+                return e                                          // hand the key to the field/port
+            }
 
             if e.keyCode == 53 {   // Esc — peel back to the desktop from either end; pass through at .space
                 guard shell.zoom != .space else { return e }
@@ -117,7 +121,7 @@ public struct ShellView: View {
                 withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
                 return nil
             }
-            guard cmd, !editing else { return e }
+            guard e.modifierFlags.contains(.command) else { return e }
             if e.keyCode == 126 { shell.zoomOut(); return nil }   // ⌘↑ → up toward galaxy
             if e.keyCode == 125 { shell.zoomIn();  return nil }   // ⌘↓ → down toward focus
             if let s = e.charactersIgnoringModifiers, let n = Int(s), n >= 1, n <= 9 {
@@ -133,6 +137,25 @@ public struct ShellView: View {
     private func removeInputMonitors() {
         for m in monitors { NSEvent.removeMonitor(m) }
         monitors = []
+    }
+
+    /// Classify the focused responder as a text field / web view / terminal that should own the
+    /// keyboard, so the shell yields keys to it instead of driving the ladder (§3.1). Covers plain
+    /// text editors, `WKWebView` (a web port's contenteditable/input) — including a nested content
+    /// view — and the native terminal surface (Ghostty).
+    static func responderIsEditor(_ responder: NSResponder?) -> Bool {
+        guard let r = responder else { return false }
+        if r is NSText || r is NSTextView || r is WKWebView { return true }
+        let name = String(describing: type(of: r))
+        if name.contains("WKWeb") || name.contains("WKContent")
+            || name.contains("Ghostty") || name.contains("Terminal") || name.contains("Surface") {
+            return true
+        }
+        if let v = r as? NSView {          // a view nested inside a WKWebView
+            var s = v.superview
+            while let cur = s { if cur is WKWebView { return true }; s = cur.superview }
+        }
+        return false
     }
 }
 

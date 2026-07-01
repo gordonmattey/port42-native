@@ -53,22 +53,39 @@ struct ReParentStabilityTests {
         #expect(manager.webViews["p1"] === before)
     }
 
-    // MARK: - S3 stubs (enable when tiled/parked presentations land)
+    // MARK: - S3 (tiled / floating / parked re-parents)
 
-    @Test("floating → tiled keeps the same webview instance",
-          .disabled("S3 — `tiled` presentation / promoteToTiled not implemented yet"))
+    @Test("tiled → floating → tiled keeps the SAME webview instance (no recreate)")
     @MainActor
-    func floatingToTiledPreservesInstance() throws {
-        // TODO(S3): register a floating port, capture webViews[id], move it to a desktop tile
-        // (presentation == "tiled"), then assert webViews[id] === the captured instance.
+    func tiledFloatingRoundTripPreservesInstance() throws {
+        let (manager, _) = try makeManager()
+        manager.registerTiledPort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
+                                  createdBy: nil, title: nil, position: CGPoint(x: 100, y: 100))
+        let before = try #require(manager.webViews["p1"])
+
+        manager.popOutTiled(id: "p1", in: CGSize(width: 800, height: 600))   // → floating
+        #expect(manager.webViews["p1"] === before)
+        #expect(manager.panels.first { $0.id == "p1" }?.presentation == "floating")
+
+        manager.dockToTile(id: "p1")                                          // → back to tiled
+        #expect(manager.webViews["p1"] === before)
+        #expect(manager.panels.first { $0.id == "p1" }?.presentation == "tiled")
     }
 
-    @Test("tiled → parked → tiled round-trip keeps the same webview instance",
-          .disabled("S3 — `parked` presentation / park+restore not implemented yet"))
+    @Test("tiled → parked → tiled round-trip keeps the SAME webview instance")
     @MainActor
     func parkRoundTripPreservesInstance() throws {
-        // TODO(S3): tile a port, capture webViews[id], park it (presentation == "parked"), restore it
-        // (presentation == "tiled"), and assert the instance is identical at every step — the
-        // counter/terminal-keeps-state demo from §8 S3, at the registry level.
+        let (manager, _) = try makeManager()
+        manager.registerTiledPort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
+                                  createdBy: nil, title: nil, position: CGPoint(x: 40, y: 40))
+        let before = try #require(manager.webViews["p1"])
+
+        manager.park(id: "p1")
+        #expect(manager.webViews["p1"] === before)
+        #expect(manager.panels.first { $0.id == "p1" }?.presentation == "parked")
+
+        manager.unpark(id: "p1")
+        #expect(manager.webViews["p1"] === before)   // the counter/terminal-keeps-state demo, at the registry level
+        #expect(manager.panels.first { $0.id == "p1" }?.presentation == "tiled")
     }
 }

@@ -422,6 +422,66 @@ public final class PortWindowManager: ObservableObject {
         Analytics.shared.portPoppedOut()
     }
 
+    // MARK: - SHELL S3 re-parent (tiled ↔ floating ↔ parked; the SAME webview, no reload)
+
+    /// SHELL pop-out: re-parent a tiled (or parked) port into a floating NSPanel over the shell — no
+    /// reload (the webview stays in `webViews[id]`; the panel adopts it). This is the S3 shell-owned
+    /// path: it accepts a `tiled` source (not just `inline`) and forces window creation past the
+    /// shell's createWindow suppression, unlike `promoteInlineToFloating`.
+    public func popOutTiled(id: String, in bounds: CGSize) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }),
+              panels[idx].presentation == "tiled" || panels[idx].presentation == "parked" else { return }
+        panels[idx].presentation = "floating"
+        let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        if panels[idx].size.width < 200 || panels[idx].size.height < 150 {
+            panels[idx].size = CGSize(width: screen.width * 0.4, height: screen.height * 0.4)
+        }
+        persistPanel(id)
+        createWindow(for: panels[idx], in: bounds, force: true)
+        Analytics.shared.portPoppedOut()
+    }
+
+    /// Dock a floating port back onto the shell desktop as a tile (no reload). Closes its NSPanel
+    /// but KEEPS the webview in the registry for the tile host (`PortWebViewHost`) to re-adopt.
+    public func dockToTile(id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        if let window = windows[id] as? PortNSPanel { window.onClose = nil; window.close() }
+        windows.removeValue(forKey: id)
+        panels[idx].presentation = "tiled"
+        persistPanel(id)
+    }
+
+    /// Park a tiled port into the right-edge rail (minimize to a chip). Same webview, no reload —
+    /// the parked port is excluded from the desktop render and from `arrange`/`exposé`.
+    public func park(id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].presentation = "parked"
+        persistPanel(id)
+    }
+
+    /// Restore a parked port back onto the desktop as a tile (no reload).
+    public func unpark(id: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].presentation = "tiled"
+        persistPanel(id)
+    }
+
+    /// Persist a tile's new geometry after a drag/resize ends (the shell desktop is the layout
+    /// authority; hand positions survive restart). No-op for a port that isn't tiled/floating.
+    public func updateTileFrame(id: String, position: CGPoint, size: CGSize? = nil) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].position = position
+        if let size { panels[idx].size = size }
+        persistPanel(id)
+    }
+
+    /// Stamp a tiled port frontmost (monotonic z from `ShellState.nextZ()`), then persist.
+    public func setZ(id: String, z: Int) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].z = z
+        persistPanel(id)
+    }
+
     /// Close a panel with confirmation dialog. Used by the UI close button.
     public func closeWithConfirmation(_ id: String) {
         guard let window = windows[id] else { close(id); return }
@@ -737,14 +797,15 @@ public final class PortWindowManager: ObservableObject {
 
     // MARK: - Native Window Management
 
-    private func createWindow(for panel: PortPanel, in bounds: CGSize) {
+    private func createWindow(for panel: PortPanel, in bounds: CGSize, force: Bool = false) {
         guard NSApp != nil else { return }
         // SHELL — the shell owns port presentation: ports are tiles on the shell desktop, never
         // separate OS windows. Suppress every floating NSPanel in shell mode so legacy ports (e.g.
         // a space's onboarding/web ports) don't float over the shell across spaces. This is the
         // single chokepoint for window creation (restore / space-switch / bring-to-front all route
-        // here). (When shell pop-out lands in S3 it will create its panel via a shell-owned path.)
-        guard !ShellMode.isEnabled() else { return }
+        // here). `force` is the S3 shell-owned pop-out path — an explicit user pop-out DOES get a
+        // floating panel, raised above the shell window (see the level bump below).
+        guard force || !ShellMode.isEnabled() else { return }
         var windowFrame: CGRect
         if let pos = panel.position {
             // Restore saved position
@@ -773,6 +834,11 @@ public final class PortWindowManager: ObservableObject {
         window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isMovableByWindowBackground = false
         window.level = panel.isAlwaysOnTop ? .floating : .normal
+        // In shell mode a forced pop-out must float ABOVE the borderless shell window (which sits at
+        // mainMenuWindow+1), else it renders behind the fullscreen surface and is invisible.
+        if force && ShellMode.isEnabled() {
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 2)
+        }
         window.isReleasedWhenClosed = false
         window.animationBehavior = .utilityWindow
         window.minSize = NSSize(width: 100, height: 50)

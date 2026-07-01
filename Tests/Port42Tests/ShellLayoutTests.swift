@@ -115,6 +115,38 @@ struct ShellLayoutTests {
         #expect(Color(shellHex: created.accent!) != nil)   // a real hex
     }
 
+    // MARK: - key yield (§3.1)
+
+    @Test("shouldYieldKey: editor/terminal own the keyboard; Esc reaches a focused terminal")
+    func keyYieldMatrix() throws {
+        let esc: UInt16 = 53, up: UInt16 = 126, one: UInt16 = 18
+        // A focused text field / web view / terminal → yield every key (typing incl. ⌘-combos).
+        #expect(ShellState.shouldYieldKey(isEditor: true, keyCode: up, focusedPortIsTerminal: false))
+        #expect(ShellState.shouldYieldKey(isEditor: true, keyCode: one, focusedPortIsTerminal: false))
+        // Nothing focused for editing → shell drives the ladder (don't yield ⌘↑ / ⌘1).
+        #expect(!ShellState.shouldYieldKey(isEditor: false, keyCode: up, focusedPortIsTerminal: false))
+        #expect(!ShellState.shouldYieldKey(isEditor: false, keyCode: one, focusedPortIsTerminal: false))
+        // Esc: yields to a focused terminal (vim/TUI), otherwise peels the zoom rung.
+        #expect(ShellState.shouldYieldKey(isEditor: false, keyCode: esc, focusedPortIsTerminal: true))
+        #expect(!ShellState.shouldYieldKey(isEditor: false, keyCode: esc, focusedPortIsTerminal: false))
+        // Esc also yields to a plain editing field.
+        #expect(ShellState.shouldYieldKey(isEditor: true, keyCode: esc, focusedPortIsTerminal: false))
+    }
+
+    @Test("focusedPortIsTerminal reads the focused panel's portType")
+    @MainActor
+    func focusedPortIsTerminalReflectsPanel() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let shell = ShellState(appState: state)
+        state.portWindows.registerTiledPort(id: "web1", html: "<div/>", spaceId: "s1",
+                                            createdBy: nil, title: nil, position: nil)
+        shell.zoom = .focus("web1")
+        #expect(shell.focusedPortIsTerminal == false)      // a web tile
+        shell.zoom = .space
+        #expect(shell.focusedPortIsTerminal == false)      // nothing focused
+    }
+
     // MARK: - desktop-layout persistence (the restart bug)
 
     @Test("a tiled port persists its presentation + position and restores after a restart")
@@ -155,5 +187,120 @@ struct ShellLayoutTests {
         #expect(fetched.presentation == "parked")
         #expect(fetched.z == 7)
         #expect(fetched.posX == 10 && fetched.posY == 20)
+    }
+
+    // MARK: - movable tiles (S3 Chunk 2 — bringToFront, applyArrange, drag/resize commit)
+
+    @Test("bringToFront stamps ascending z (frontmost) + selects; chat stays the z=0 anchor")
+    @MainActor
+    func bringToFrontZOrder() throws {
+        let (shell, state) = try makeState()
+        let mgr = state.portWindows
+        mgr.registerTiledPort(id: "a", html: "<div/>", spaceId: "s1", createdBy: nil, title: "a", position: nil)
+        mgr.registerTiledPort(id: "b", html: "<div/>", spaceId: "s1", createdBy: nil, title: "b", position: nil)
+
+        shell.bringToFront("a")
+        let za = try #require(mgr.panels.first { $0.id == "a" }?.z)
+        #expect(shell.selectedTileId == "a")
+
+        shell.bringToFront("b")
+        let zb = try #require(mgr.panels.first { $0.id == "b" }?.z)
+        #expect(zb > za)                          // b is now frontmost
+        #expect(shell.selectedTileId == "b")
+
+        // Chat is the back anchor: selecting it highlights but stamps no panel z.
+        shell.bringToFront(ShellState.chatTileId)
+        #expect(shell.selectedTileId == ShellState.chatTileId)
+        #expect(mgr.panels.first { $0.id == "b" }?.z == zb)   // unchanged
+    }
+
+    @Test("applyArrange positions every tile (chat + ports), clears the Chrome, and a spawn re-grids")
+    @MainActor
+    func applyArrangePositionsAndRegrid() throws {
+        let (shell, state) = try makeState()
+        state.currentSpace = Space(id: "s1", name: "s", type: "team", createdAt: Date())
+        let mgr = state.portWindows
+        mgr.registerTiledPort(id: "a", html: "<div/>", spaceId: "s1", createdBy: nil, title: "a", position: nil)
+        mgr.registerTiledPort(id: "b", html: "<div/>", spaceId: "s1", createdBy: nil, title: "b", position: nil)
+
+        let area = CGSize(width: 1440, height: 900)
+        shell.applyArrange(area: area)
+
+        #expect(shell.chatFrame(space: "s1") != nil)                       // chat got a slot
+        let pa = try #require(mgr.panels.first { $0.id == "a" }?.position)  // ports got positions
+        let pb = try #require(mgr.panels.first { $0.id == "b" }?.position)
+        #expect(pa.y >= 70 && pb.y >= 70)                                  // clears the Chrome
+        #expect(pa != pb)
+
+        // Hand-move a tile, then a spawn re-grids over it (arrange is the authority, §4).
+        mgr.updateTileFrame(id: "a", position: CGPoint(x: 5, y: 5), size: nil)
+        #expect(mgr.panels.first { $0.id == "a" }?.position == CGPoint(x: 5, y: 5))
+        mgr.registerTiledPort(id: "c", html: "<div/>", spaceId: "s1", createdBy: nil, title: "c", position: nil)
+        shell.applyArrange(area: area)
+        let pa2 = try #require(mgr.panels.first { $0.id == "a" }?.position)
+        #expect(pa2 != CGPoint(x: 5, y: 5))                               // re-gridded over the hand position
+    }
+
+    @Test("ensureChatPlaced gives the chat a slot without disturbing persisted port positions")
+    @MainActor
+    func ensureChatPlacedLeavesPortsAlone() throws {
+        let (shell, state) = try makeState()
+        state.currentSpace = Space(id: "s1", name: "s", type: "team", createdAt: Date())
+        let mgr = state.portWindows
+        mgr.registerTiledPort(id: "a", html: "<div/>", spaceId: "s1", createdBy: nil, title: "a",
+                              position: CGPoint(x: 777, y: 555))
+        #expect(shell.chatFrame(space: "s1") == nil)
+
+        let area = CGSize(width: 1440, height: 900)
+        shell.ensureChatPlaced(area: area)
+        #expect(shell.chatFrame(space: "s1") != nil)                                    // chat got a slot
+        #expect(mgr.panels.first { $0.id == "a" }?.position == CGPoint(x: 777, y: 555)) // port untouched (restart-safe)
+
+        // Idempotent: a second entry doesn't shove the chat around.
+        let placed = shell.chatFrame(space: "s1")
+        shell.ensureChatPlaced(area: area)
+        #expect(shell.chatFrame(space: "s1") == placed)
+    }
+
+    @Test("ShellTile.resized pins the opposite corner for every corner and clamps to the min size")
+    func cornerResizeMath() throws {
+        let f = CGRect(x: 100, y: 100, width: 400, height: 300)
+        // SE grows down-right; top-left (100,100) pinned.
+        let se = ShellTile.resized(f, corner: .se, by: CGSize(width: 50, height: 40))
+        #expect(se.minX == 100 && se.minY == 100 && se.width == 450 && se.height == 340)
+        // NW moves the origin; bottom-right (500,400) pinned.
+        let nw = ShellTile.resized(f, corner: .nw, by: CGSize(width: 30, height: 20))
+        #expect(nw.maxX == 500 && nw.maxY == 400 && nw.minX == 130 && nw.minY == 120)
+        // NE: bottom-left (100,400) pinned (top edge moves up).
+        let ne = ShellTile.resized(f, corner: .ne, by: CGSize(width: 20, height: -50))
+        #expect(ne.minX == 100 && ne.maxY == 400 && ne.width == 420 && ne.minY == 50)
+        // SW: top-right (500,100) pinned (left edge moves left).
+        let sw = ShellTile.resized(f, corner: .sw, by: CGSize(width: -60, height: 30))
+        #expect(sw.maxX == 500 && sw.minY == 100 && sw.minX == 40 && sw.height == 330)
+        // Dragging a corner far past the opposite one clamps to min — it does NOT flip.
+        let tiny = ShellTile.resized(f, corner: .se, by: CGSize(width: -1000, height: -1000))
+        #expect(tiny.minX == 100 && tiny.minY == 100)
+        #expect(tiny.width == ShellState.minTileSize.width && tiny.height == ShellState.minTileSize.height)
+    }
+
+    @Test("drag + edge-resize commit (updateTileFrame) persists position & size across a restart")
+    @MainActor
+    func tileGeometryCommitSurvivesRestart() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let mgr = state.portWindows
+        mgr.registerTiledPort(id: "t", html: "<div/>", spaceId: "s1", createdBy: nil, title: "t",
+                              position: CGPoint(x: 10, y: 10))
+        // Simulate a drag-move + edge-resize ending on the desktop.
+        mgr.updateTileFrame(id: "t", position: CGPoint(x: 420, y: 260),
+                            size: CGSize(width: 500, height: 360))
+
+        mgr.panels.removeAll(); mgr.webViews.removeAll()
+        mgr.restoreFromDB(appState: state)
+
+        let p = try #require(mgr.panels.first { $0.id == "t" })
+        #expect(p.position == CGPoint(x: 420, y: 260))
+        #expect(p.size == CGSize(width: 500, height: 360))
+        #expect(p.presentation == "tiled")
     }
 }

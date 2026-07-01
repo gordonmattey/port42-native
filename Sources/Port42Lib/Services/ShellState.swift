@@ -143,6 +143,25 @@ public final class ShellState: ObservableObject {
         else if pinchAccum < -threshold { pinchFired = true; zoomOut() }
     }
 
+    // MARK: Key yield (§3.1) — pure decision, headless-tested
+
+    /// Whether the shell should YIELD a key to a focused field/port instead of driving the zoom
+    /// ladder. `isEditor` = a text editor / web view / terminal owns the keyboard (so any key it
+    /// wants, including ⌘-combos while typing, passes through). **Esc** additionally yields whenever
+    /// the focused port is a **terminal** — vim/less/any TUI needs its Esc (a non-terminal focused
+    /// port still lets Esc peel back out of focus). Everything else drives the ladder.
+    nonisolated public static func shouldYieldKey(isEditor: Bool, keyCode: UInt16,
+                                                  focusedPortIsTerminal: Bool) -> Bool {
+        if keyCode == 53 { return isEditor || focusedPortIsTerminal }   // 53 = Esc
+        return isEditor
+    }
+
+    /// The port currently in focus is a terminal (its Esc must reach it, not the ladder).
+    public var focusedPortIsTerminal: Bool {
+        guard case .focus(let id) = zoom else { return false }
+        return appState.portWindows.panels.first { $0.id == id }?.portType == "terminal"
+    }
+
     // MARK: Z-order (prototype `Shell.zCounter` / `focus()`)
 
     /// Monotonic z-order source. Every focus bumps it and stamps the port, so the just-touched
@@ -156,6 +175,72 @@ public final class ShellState: ObservableObject {
     /// Keep the counter ahead of any restored `z` so freshly focused ports still land on top.
     public func seedZCounter(from panels: [PortPanel]) {
         zCounter = max(zCounter, panels.map(\.z).max() ?? 0)
+    }
+
+    // MARK: Tile geometry (S3 — movable tiles; positions live in state, not a render grid)
+
+    /// The synthetic chat tile's id (it's not a `PortPanel` — it hosts `ChatView`). Public so the
+    /// desktop view and the layout authority agree on it.
+    public static let chatTileId = "__chat__"
+
+    /// A tile's default full size (titlebar + body) when a panel carries none yet.
+    public static let defaultTileSize = CGSize(width: 460, height: 400)
+
+    /// Minimum tile size (drag-resize floor).
+    public static let minTileSize = CGSize(width: 220, height: 160)
+
+    /// The chat tile's frame per space (the chat has no `PortPanel`, so its geometry lives here).
+    /// Seeded by `applyArrange`, moved/resized by drag; not persisted (re-seeds on load, and the
+    /// chat becomes a real `isChatPort` panel in S4).
+    @Published public var chatFrames: [String: CGRect] = [:]
+
+    public func chatFrame(space sid: String) -> CGRect? { chatFrames[sid] }
+    public func setChatFrame(_ rect: CGRect, space sid: String) { chatFrames[sid] = rect }
+
+    /// Bring a tile to the front (focus/hover/drag-start): stamp it frontmost via `nextZ()` and
+    /// select it. The chat tile is the back anchor (`z = 0`) — it highlights but doesn't re-stack.
+    public func bringToFront(_ tileId: String) {
+        selectedTileId = tileId
+        guard tileId != Self.chatTileId else { return }
+        appState.portWindows.setZ(id: tileId, z: nextZ())
+    }
+
+    /// Re-grid the current space's tiles (chat + tiled ports) via the pure `arrange` and WRITE the
+    /// resulting positions back — the layout authority (§4). Called on ⌘L and every user-initiated
+    /// spawn/park; hand-drag positions survive a restart but a spawn re-grids over them.
+    public func applyArrange(area: CGSize) {
+        guard let sid = appState.currentSpace?.id else { return }
+        let panels = appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
+        let chatSize = chatFrames[sid]?.size ?? Self.defaultTileSize
+        var tiles: [ArrangeTile] = [ArrangeTile(id: Self.chatTileId, size: chatSize, z: 0)]
+        for p in panels {
+            tiles.append(ArrangeTile(id: p.id, size: clampTileSize(p.size), z: max(p.z, 1)))
+        }
+        let origins = Self.arrange(tiles, in: area)
+        if let o = origins[Self.chatTileId] { chatFrames[sid] = CGRect(origin: o, size: chatSize) }
+        for p in panels where origins[p.id] != nil {
+            appState.portWindows.updateTileFrame(id: p.id, position: origins[p.id]!, size: nil)
+        }
+    }
+
+    /// Give the current space's chat tile a slot if it has none yet — WITHOUT re-gridding the ports
+    /// (their hand/persisted positions must survive, §4). `chatFrames` is in-memory, so this runs on
+    /// every space entry; it places the chat in the arrange grid's first (z=0) cell, which arrange
+    /// reserves for it, so it lands clear of the ports. Called on desktop appear + space change.
+    public func ensureChatPlaced(area: CGSize) {
+        guard let sid = appState.currentSpace?.id, chatFrames[sid] == nil else { return }
+        let panels = appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
+        var tiles: [ArrangeTile] = [ArrangeTile(id: Self.chatTileId, size: Self.defaultTileSize, z: 0)]
+        for p in panels { tiles.append(ArrangeTile(id: p.id, size: clampTileSize(p.size), z: max(p.z, 1))) }
+        let slot = Self.arrange(tiles, in: area)[Self.chatTileId] ?? CGPoint(x: 40, y: 70)
+        chatFrames[sid] = CGRect(origin: slot, size: Self.defaultTileSize)
+    }
+
+    /// A panel's size clamped to the tile floor (a freshly registered tiled port may carry a tiny
+    /// inline size; the desktop shows it at a sane minimum).
+    public func clampTileSize(_ s: CGSize) -> CGSize {
+        CGSize(width: max(s.width, Self.defaultTileSize.width * 0.6),
+               height: max(s.height, Self.defaultTileSize.height * 0.6))
     }
 
     // MARK: Arrange (pure — prototype `arrange()`; the layout authority, §4)

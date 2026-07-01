@@ -71,82 +71,130 @@ struct ShellChrome: View {
     }
 }
 
-// MARK: - Desktop (tiled ports over the dreamscape)
+// MARK: - Desktop (tiled ports over the dreamscape; movable + resizable, z-ordered)
 
 struct ShellDesktopView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
 
-    /// The current space's tiled web ports (chat is rendered separately as the first tile).
+    private var sid: String? { appState.currentSpace?.id }
+
+    /// The current space's tiled web ports (chat renders separately as the back-anchor tile).
     private var tiledPanels: [PortPanel] {
-        guard let sid = appState.currentSpace?.id else { return [] }
+        guard let sid else { return [] }
         return appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
     }
 
     var body: some View {
         GeometryReader { geo in
-            // tile 0 = chat; the rest = tiled ports. Auto-grid, centered in the work area.
-            let count = tiledPanels.count + 1
-            let cols = max(1, Int(ceil(sqrt(Double(count)))))
-            let rows = Int(ceil(Double(count) / Double(cols)))
-            let cellW = min(440, (geo.size.width - 60) / Double(cols))
-            let cellH = min(420, (geo.size.height - 60) / Double(rows))
-            let totalW = Double(cols) * cellW, totalH = Double(rows) * cellH
-            let startX = (geo.size.width - totalW) / 2 + cellW / 2
-            let startY = (geo.size.height - totalH) / 2 + cellH / 2
-
+            // Each tile places itself with `.position` (which sets a real layout frame, so its
+            // hover/hit region lands where the tile is drawn — `.offset` leaves the layout frame at
+            // the origin, piling every tile's tracking area on the top-left). The trick that stops a
+            // greedy positioned frame from swallowing clicks: NO interactive modifier (onHover /
+            // gesture) is attached AFTER `.position` — they all sit on the bounded tile content.
             ZStack {
-                ForEach(Array(allTiles().enumerated()), id: \.element.id) { i, tile in
-                    let cx = startX + Double(i % cols) * cellW
-                    let cy = startY + Double(i / cols) * cellH
-                    ShellTile(shell: shell, appState: appState, tile: tile,
-                              size: CGSize(width: cellW - 24, height: cellH - 24))
-                        .position(x: cx, y: cy)
+                // Chat = the back anchor (z 0), its frame held in ShellState.
+                ShellTile(shell: shell, appState: appState,
+                          tile: ShellTileModel(id: ShellState.chatTileId, title: "chat", panel: nil),
+                          frame: resolvedChatFrame(area: geo.size))
+                    .zIndex(0)
+                // Tiled ports painted back-to-front by z (positions from the panel record).
+                ForEach(tiledPanels.sorted { $0.z < $1.z }, id: \.id) { p in
+                    ShellTile(shell: shell, appState: appState,
+                              tile: ShellTileModel(id: p.id, title: p.title, panel: p),
+                              frame: resolvedPortFrame(p, area: geo.size))
+                        .zIndex(Double(max(p.z, 1)))
                 }
             }
-            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: count)
             .animation(.spring(response: 0.45, dampingFraction: 0.8), value: shell.arrangeBump)
+            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: tiledPanels.count)
+            .onAppear { seedIfNeeded(area: geo.size) }
+            .onChange(of: appState.currentSpace?.id) { _, _ in shell.ensureChatPlaced(area: geo.size) }  // new space → place its chat
+            .onChange(of: tiledPanels.count) { _, _ in shell.applyArrange(area: geo.size) }   // spawn/park/close re-grids
+            .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
         }
     }
 
-    private func allTiles() -> [ShellTileModel] {
-        var out: [ShellTileModel] = [ShellTileModel(id: kChatTileId, title: "chat", panel: nil)]
-        for p in tiledPanels { out.append(ShellTileModel(id: p.id, title: p.title, panel: p)) }
-        return out
+    /// The chat tile's frame — its ShellState slot, or a seeded top-left cell until arrange runs.
+    private func resolvedChatFrame(area: CGSize) -> CGRect {
+        if let sid, let f = shell.chatFrame(space: sid) { return f }
+        return CGRect(x: 40, y: 70, width: ShellState.defaultTileSize.width, height: ShellState.defaultTileSize.height)
+    }
+
+    /// A port tile's frame — its persisted position/size, or a cheap cascade seed until arrange runs.
+    private func resolvedPortFrame(_ p: PortPanel, area: CGSize) -> CGRect {
+        let size = shell.clampTileSize(p.size)
+        if let pos = p.position { return CGRect(origin: pos, size: size) }
+        let i = tiledPanels.firstIndex { $0.id == p.id } ?? 0
+        return CGRect(x: 330 + Double(i % 4) * 90, y: 200 + Double(i % 3) * 80, width: size.width, height: size.height)
+    }
+
+    /// Seed the grid on first entry into a space (nothing positioned yet). Hand-tuned layouts that
+    /// come back from the DB with positions are left exactly as-is (arrange only re-grids on spawn/⌘L).
+    private func seedIfNeeded(area: CGSize) {
+        shell.ensureChatPlaced(area: area)                                     // chat only (restart-safe)
+        if tiledPanels.contains(where: { $0.position == nil }) {               // a never-positioned port →
+            shell.applyArrange(area: area)                                     // grid everything once
+        }
     }
 }
 
 struct ShellTileModel: Identifiable { let id: String; let title: String; let panel: PortPanel? }
 
-// MARK: - A single tile
+// MARK: - A single tile (draggable titlebar, bottom-right resize grip, z-order on grab/focus)
 
 struct ShellTile: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     let tile: ShellTileModel
-    let size: CGSize
+    let frame: CGRect
+
+    /// A tile corner (any corner resizes; the opposite corner stays pinned).
+    enum Corner { case nw, ne, sw, se }
+
+    @State private var moveDelta: CGSize = .zero
+    @State private var resizeCorner: Corner? = nil
+    @State private var resizeDelta: CGSize = .zero
+
+    private let titleBarH: CGFloat = 34
 
     private var isFocused: Bool { shell.zoom == .focus(tile.id) }
     private var isSelected: Bool { shell.selectedTileId == tile.id }
+    private var sid: String? { appState.currentSpace?.id }
+
+    /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize. The
+    /// tile is placed top-left via `.offset`, so both move and resize just recompute this rect.
+    private var liveFrame: CGRect {
+        if let c = resizeCorner { return Self.resized(frame, corner: c, by: resizeDelta) }
+        return CGRect(x: frame.minX + moveDelta.width, y: frame.minY + moveDelta.height,
+                      width: frame.width, height: frame.height)
+    }
+    private var liveSize: CGSize { liveFrame.size }
+    /// Center for `.position`. The tile's own frame stays bounded (liveSize), so its hover/hit region
+    /// tracks where it's drawn — unlike `.offset`, which leaves the layout frame at the origin.
+    private var liveCenter: CGPoint { CGPoint(x: liveFrame.midX, y: liveFrame.midY) }
+
+    /// Apply a corner drag to a frame: the dragged corner follows the delta, the OPPOSITE corner
+    /// stays pinned, and the result clamps to the min tile size (so a corner can't cross past it).
+    /// Pure + static → headless-testable (`ShellLayoutTests`).
+    static func resized(_ f: CGRect, corner c: Corner, by d: CGSize) -> CGRect {
+        let minW = ShellState.minTileSize.width, minH = ShellState.minTileSize.height
+        let east = (c == .ne || c == .se), south = (c == .sw || c == .se)
+        let fixedX = east ? f.minX : f.maxX               // pinned (opposite) edge
+        let fixedY = south ? f.minY : f.maxY
+        let dragX = (east ? f.maxX : f.minX) + d.width    // dragged edge, moved by the delta
+        let dragY = (south ? f.maxY : f.minY) + d.height
+        // The dragged edge's side is fixed by the corner (east→right edge, west→left edge); clamp to
+        // the min without flipping past the pinned edge — so dragging a corner across just stops.
+        let x: CGFloat, w: CGFloat, y: CGFloat, h: CGFloat
+        if east { x = fixedX; w = max(minW, dragX - fixedX) } else { w = max(minW, fixedX - dragX); x = fixedX - w }
+        if south { y = fixedY; h = max(minH, dragY - fixedY) } else { h = max(minH, fixedY - dragY); y = fixedY - h }
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
-                Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                Spacer()
-                Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
-                    Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Focus (⌘↓)")
-                if let panel = tile.panel {
-                    Button { appState.portWindows.close(panel.id) } label: {
-                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                    }.buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(Color(red: 0.06, green: 0.07, blue: 0.09))
-
+            titleBar
             ZStack {
                 if isFocused {
                     VStack(spacing: 6) {
@@ -157,14 +205,92 @@ struct ShellTile: View {
                     ShellTileBody(appState: appState, tile: tile)
                 }
             }
-            .frame(width: size.width, height: size.height)
+            .frame(width: liveSize.width, height: max(0, liveSize.height - titleBarH))
         }
-        .frame(width: size.width)
+        .frame(width: liveSize.width, height: liveSize.height)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? shell.accent.opacity(0.7) : shell.accent.opacity(0.25), lineWidth: 1))
+        // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
+        // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
+        .overlay(cornerHandle(.nw), alignment: .topLeading)
+        .overlay(cornerHandle(.ne), alignment: .topTrailing)
+        .overlay(cornerHandle(.sw), alignment: .bottomLeading)
+        .overlay(cornerHandle(.se), alignment: .bottomTrailing)
         .shadow(color: shell.accent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
-        .onTapGesture { shell.selectedTileId = tile.id }
-        .onHover { if $0 { shell.selectedTileId = tile.id } }
+        .onHover { if $0 { shell.selectedTileId = tile.id } }   // BEFORE .position → tracking area on the bounded tile
+        .position(x: liveCenter.x, y: liveCenter.y)            // place last; nothing interactive after it
+    }
+
+    private var titleBar: some View {
+        HStack(spacing: 8) {
+            // Drag handle = dot + title + trailing gap; scoped so the focus/close buttons still tap.
+            HStack(spacing: 8) {
+                Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
+                Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                Spacer(minLength: 8)
+            }
+            .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
+            .contentShape(Rectangle())
+            .gesture(moveGesture)
+            Button { shell.bringToFront(tile.id); withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
+                Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+            }.buttonStyle(.plain).help("Focus (⌘↓)")
+            if let panel = tile.panel {
+                Button { appState.portWindows.close(panel.id) } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(.leading, 10).padding(.trailing, 18)   // trailing inset clears the top-right resize zone
+        .frame(maxWidth: .infinity)          // span the tile so the drag handle is easy to grab
+        .frame(height: titleBarH)
+        .background(Color(red: 0.06, green: 0.07, blue: 0.09))
+    }
+
+    /// An invisible 16×16 corner drag zone that resizes from that corner.
+    private func cornerHandle(_ corner: Corner) -> some View {
+        Color.clear
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .gesture(resizeGesture(corner))
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture()
+            .onChanged { v in
+                if moveDelta == .zero { shell.bringToFront(tile.id) }   // grabbing a tile raises it
+                moveDelta = v.translation
+            }
+            .onEnded { v in
+                commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
+                       size: CGSize(width: frame.width, height: frame.height))
+                moveDelta = .zero
+            }
+    }
+
+    private func resizeGesture(_ corner: Corner) -> some Gesture {
+        DragGesture()
+            .onChanged { v in
+                if resizeCorner == nil { shell.bringToFront(tile.id) }
+                resizeCorner = corner
+                resizeDelta = v.translation
+            }
+            .onEnded { v in
+                let f = Self.resized(frame, corner: corner, by: v.translation)
+                commit(origin: f.origin, size: f.size)
+                resizeCorner = nil
+                resizeDelta = .zero
+            }
+    }
+
+    /// Persist the tile's new geometry (drag/resize end). Chat → the ShellState slot; a port → the
+    /// panel record (survives restart, §4). `updateTileFrame` handles the persist.
+    private func commit(origin: CGPoint, size: CGSize) {
+        if tile.id == ShellState.chatTileId {
+            if let sid { shell.setChatFrame(CGRect(origin: origin, size: size), space: sid) }
+        } else {
+            appState.portWindows.updateTileFrame(id: tile.id, position: origin, size: size)
+        }
     }
 }
 
