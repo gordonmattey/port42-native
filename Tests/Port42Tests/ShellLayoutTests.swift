@@ -241,6 +241,17 @@ struct ShellLayoutTests {
         #expect(pa2 != CGPoint(x: 5, y: 5))                               // re-gridded over the hand position
     }
 
+    @Test("parkZone: right strip is park, its bottom portion is close, the rest is nil")
+    func parkZoneDetection() throws {
+        let area = CGSize(width: 1440, height: 900)
+        let w = ShellState.parkWidth(area.width)
+        #expect(w == max(64, 1440 * 0.05))
+        #expect(ShellState.parkZone(at: CGPoint(x: 700, y: 400), in: area) == nil)                    // middle
+        #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: 200), in: area) == .park)        // strip, high
+        #expect(ShellState.parkZone(at: CGPoint(x: area.width - 5, y: area.height - 10), in: area) == .close)  // strip, low
+        #expect(ShellState.parkZone(at: CGPoint(x: area.width - w - 5, y: area.height - 10), in: area) == nil) // just left of strip
+    }
+
     @Test("ensureChatPlaced gives the chat a slot without disturbing persisted port positions")
     @MainActor
     func ensureChatPlacedLeavesPortsAlone() throws {

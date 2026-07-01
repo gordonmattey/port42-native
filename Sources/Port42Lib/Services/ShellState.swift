@@ -189,6 +189,27 @@ public final class ShellState: ObservableObject {
     /// Minimum tile size (drag-resize floor).
     public static let minTileSize = CGSize(width: 220, height: 160)
 
+    /// The right-edge rail's two drop zones: park (minimize to a chip) and close (delete the port).
+    public enum ParkZone: Equatable { case park, close }
+
+    /// Which rail zone the in-progress tile drag is currently over (drives the rail highlight); nil
+    /// when the drag isn't over the rail.
+    @Published public var draggingOverPark: ParkZone?
+
+    /// The right rail's width (spec §4: `max(64, screenW·0.05)`).
+    nonisolated public static func parkWidth(_ screenW: CGFloat) -> CGFloat { max(64, screenW * 0.05) }
+
+    /// The close sub-zone's height — the bottom portion of the rail.
+    nonisolated public static func closeZoneHeight(_ screenH: CGFloat) -> CGFloat { max(120, screenH * 0.2) }
+
+    /// Classify a point (in desktop coordinates) against the right rail: the bottom portion of the
+    /// strip is the **close** zone, the rest of the strip is **park**, everything left of the strip
+    /// is nil. Pure → headless-testable.
+    nonisolated public static func parkZone(at p: CGPoint, in area: CGSize) -> ParkZone? {
+        guard p.x >= area.width - parkWidth(area.width) else { return nil }
+        return p.y >= area.height - closeZoneHeight(area.height) ? .close : .park
+    }
+
     /// The chat tile's frame per space (the chat has no `PortPanel`, so its geometry lives here).
     /// Seeded by `applyArrange`, moved/resized by drag; not persisted (re-seeds on load, and the
     /// chat becomes a real `isChatPort` panel in S4).

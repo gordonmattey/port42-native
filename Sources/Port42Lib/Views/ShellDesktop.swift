@@ -96,16 +96,20 @@ struct ShellDesktopView: View {
                 // Chat = the back anchor (z 0), its frame held in ShellState.
                 ShellTile(shell: shell, appState: appState,
                           tile: ShellTileModel(id: ShellState.chatTileId, title: "chat", panel: nil),
-                          frame: resolvedChatFrame(area: geo.size))
+                          frame: resolvedChatFrame(area: geo.size), area: geo.size)
                     .zIndex(0)
                 // Tiled ports painted back-to-front by z (positions from the panel record).
                 ForEach(tiledPanels.sorted { $0.z < $1.z }, id: \.id) { p in
                     ShellTile(shell: shell, appState: appState,
                               tile: ShellTileModel(id: p.id, title: p.title, panel: p),
-                              frame: resolvedPortFrame(p, area: geo.size))
+                              frame: resolvedPortFrame(p, area: geo.size), area: geo.size)
                         .zIndex(Double(max(p.z, 1)))
                 }
+                // Right-edge rail: park (main strip) + close (bottom zone). On top of the tiles.
+                ShellParkRail(shell: shell, appState: appState, area: geo.size)
+                    .zIndex(10_000)
             }
+            .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
             .animation(.spring(response: 0.45, dampingFraction: 0.8), value: shell.arrangeBump)
             .animation(.spring(response: 0.45, dampingFraction: 0.8), value: tiledPanels.count)
             .onAppear { seedIfNeeded(area: geo.size) }
@@ -148,6 +152,7 @@ struct ShellTile: View {
     @ObservedObject var appState: AppState
     let tile: ShellTileModel
     let frame: CGRect
+    let area: CGSize
 
     /// A tile corner (any corner resizes; the opposite corner stays pinned).
     enum Corner { case nw, ne, sw, se }
@@ -256,16 +261,31 @@ struct ShellTile: View {
     }
 
     private var moveGesture: some Gesture {
-        DragGesture()
+        // Read the pointer in the desktop space so a drop onto the right rail parks/closes the port.
+        DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
                 if moveDelta == .zero { shell.bringToFront(tile.id) }   // grabbing a tile raises it
                 moveDelta = v.translation
+                shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
             }
             .onEnded { v in
-                commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
-                       size: CGSize(width: frame.width, height: frame.height))
+                let zone = railZone(at: v.location)
+                shell.draggingOverPark = nil
                 moveDelta = .zero
+                switch zone {
+                case .close: if let panel = tile.panel { appState.portWindows.close(panel.id) }      // count↓ → re-grid
+                case .park:  if let panel = tile.panel { appState.portWindows.park(id: panel.id) }   // count↓ → re-grid
+                case nil:
+                    commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
+                           size: CGSize(width: frame.width, height: frame.height))
+                }
             }
+    }
+
+    /// The rail zone under a desktop-space point — nil for the chat anchor (it can't park/close).
+    private func railZone(at p: CGPoint) -> ShellState.ParkZone? {
+        guard tile.panel != nil else { return nil }
+        return ShellState.parkZone(at: p, in: area)
     }
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
@@ -291,6 +311,73 @@ struct ShellTile: View {
         } else {
             appState.portWindows.updateTileFrame(id: tile.id, position: origin, size: size)
         }
+    }
+}
+
+// MARK: - Right-edge parking + close rail
+
+/// The right-edge rail: parked ports as clickable chips (click → unpark) with a **close** drop zone
+/// at the bottom. It's a drop TARGET only — the drag is owned by the tile's move gesture, which sets
+/// `shell.draggingOverPark` for the highlight and calls `park`/`close` on drop. Faint at rest; lights
+/// up accent (park) or red (close) while a tile is dragged over the matching zone.
+struct ShellParkRail: View {
+    @ObservedObject var shell: ShellState
+    @ObservedObject var appState: AppState
+    let area: CGSize
+
+    private var parkedPanels: [PortPanel] {
+        guard let sid = appState.currentSpace?.id else { return [] }
+        return appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "parked" }
+    }
+
+    var body: some View {
+        let w = ShellState.parkWidth(area.width)
+        let overPark = shell.draggingOverPark == .park
+        let overClose = shell.draggingOverPark == .close
+
+        VStack(spacing: 10) {
+            Image(systemName: "tray.and.arrow.down")
+                .font(.system(size: 12))
+                .foregroundStyle(Port42Theme.textSecondary.opacity(overPark ? 1 : 0.5))
+                .padding(.top, 12)
+            ForEach(parkedPanels, id: \.id) { chip($0) }
+            Spacer(minLength: 12)
+            closeZone(height: ShellState.closeZoneHeight(area.height), active: overClose)
+        }
+        .frame(width: w)
+        .padding(.top, 46)                       // clear the Chrome
+        .background(Rectangle().fill(shell.accent.opacity(overPark ? 0.16 : 0.05)))
+        .overlay(Rectangle().fill(shell.accent.opacity(overPark ? 0.6 : 0.15)).frame(width: 1), alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .animation(.easeOut(duration: 0.15), value: shell.draggingOverPark)
+    }
+
+    private func chip(_ p: PortPanel) -> some View {
+        Button {
+            appState.portWindows.unpark(id: p.id)
+            shell.arrangeBump += 1
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
+                Text(p.title.prefix(6)).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(shell.accent.opacity(0.3), lineWidth: 1))
+        }
+        .buttonStyle(.plain).help("Restore \(p.title)")
+        .padding(.horizontal, 6)
+    }
+
+    private func closeZone(height: CGFloat, active: Bool) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: "trash").font(.system(size: 15, weight: active ? .bold : .regular))
+                .foregroundStyle(active ? Color.red : Port42Theme.textSecondary.opacity(0.5))
+            Text("close").font(Port42Theme.mono(8)).foregroundStyle(active ? Color.red : Port42Theme.textSecondary.opacity(0.5))
+        }
+        .frame(maxWidth: .infinity).frame(height: height)
+        .background(Rectangle().fill(Color.red.opacity(active ? 0.22 : 0)))
+        .overlay(Rectangle().fill(Color.red.opacity(active ? 0.7 : 0.12)).frame(height: 1), alignment: .top)
     }
 }
 
