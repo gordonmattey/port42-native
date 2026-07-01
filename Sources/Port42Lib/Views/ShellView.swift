@@ -173,8 +173,14 @@ struct ShellGalaxyView: View {
         }
     }
 
+    /// Count exactly what the desktop renders as tiles: the space's tiled ports + its chat tile
+    /// (every space has one). This is why a chat-only space reads "1 port", not 0 — the old filter
+    /// excluded the chat port and so undercounted what you actually see on the desktop.
     private func portCount(_ space: Space) -> Int {
-        appState.portWindows.panels.filter { $0.spaceId == space.id && !$0.isBackground && !$0.isChatPort }.count
+        let tiled = appState.portWindows.panels.filter {
+            $0.spaceId == space.id && !$0.isBackground && $0.presentation == "tiled"
+        }.count
+        return tiled + 1   // + the chat tile
     }
 
     @ViewBuilder
