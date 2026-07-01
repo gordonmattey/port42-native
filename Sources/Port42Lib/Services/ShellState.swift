@@ -34,26 +34,32 @@ public final class ShellState: ObservableObject {
 
     // MARK: Per-space accent theme (prototype's SpaceDef.accent)
 
-    /// The per-space accent palette (mirrors the prototype's space colors). A persisted, editable
-    /// `spaces.accent` column is the later step (spec decision #1); for now each space gets a stable
-    /// color derived from its id.
-    static let palette: [Color] = [
-        Color(red: 0.0,  green: 0.831, blue: 0.667),     // teal #00d4aa (prototype's base — softer glow)
-        Color(red: 1.0,  green: 0.42,  blue: 0.70),      // pink
-        Color(red: 1.0,  green: 0.74,  blue: 0.20),      // gold
-        Color(red: 0.40, green: 0.78,  blue: 1.0),       // blue
-        Color(red: 0.45, green: 0.90,  blue: 0.55),      // light green
-        Color(red: 0.62, green: 0.28,  blue: 0.98),      // purple
-        Color(red: 0.30, green: 0.85,  blue: 0.80),      // teal 2
+    /// The per-space accent palette (mirrors the prototype's space colors), as hex. **Keep in sync
+    /// with the v37 migration backfill in `DatabaseService`.** A space's color is assigned at
+    /// creation (`createSpace`) and stored on `Space.accent` for life (spec decision #1) — the
+    /// palette is only the source for *new* assignments and the legacy fallback.
+    public static let paletteHex: [String] = [
+        "#00D4AA",  // teal #00d4aa (prototype's base)
+        "#FF6BB2",  // pink
+        "#FFBD33",  // gold
+        "#66C7FF",  // blue
+        "#73E68C",  // light green
+        "#9E47FA",  // purple
+        "#4DD9CC",  // teal 2
     ]
+    static let palette: [Color] = paletteHex.map { Color(shellHex: $0) ?? .teal }
 
-    /// A per-space accent. Assigned by the space's POSITION (like the prototype's SpaceDef order) so
-    /// the first N spaces are all visibly different; falls back to an id-hash for spaces not in the
-    /// list. (A persisted, editable `spaces.accent` is the later step — spec decision #1.)
+    /// The color a *newly created* space at position `count` should get (before it's added). Stored
+    /// permanently on the space, so it never shifts when other spaces come and go.
+    public static func accentHex(forNewSpaceAt count: Int) -> String {
+        paletteHex[count % paletteHex.count]
+    }
+
+    /// A per-space accent. Reads the space's **stored** hex (assigned for life at creation); for a
+    /// space with no stored accent (predates v37 / remote) falls back to a **stable id-hash** — never
+    /// list position, so colors never reshuffle when spaces are added or deleted.
     public func accent(for space: Space) -> Color {
-        if let idx = appState.spaces.firstIndex(where: { $0.id == space.id }) {
-            return Self.palette[idx % Self.palette.count]
-        }
+        if let hex = space.accent, let c = Color(shellHex: hex) { return c }
         let h = space.id.utf8.reduce(0) { $0 &+ Int($1) }
         return Self.palette[h % Self.palette.count]
     }
@@ -135,5 +141,71 @@ public final class ShellState: ObservableObject {
         let threshold: CGFloat = 0.32
         if pinchAccum > threshold { pinchFired = true; zoomIn() }
         else if pinchAccum < -threshold { pinchFired = true; zoomOut() }
+    }
+
+    // MARK: Z-order (prototype `Shell.zCounter` / `focus()`)
+
+    /// Monotonic z-order source. Every focus bumps it and stamps the port, so the just-touched
+    /// port is always frontmost. Persisted per-port via `PortPanel.z`.
+    public private(set) var zCounter: Int = 0
+
+    /// Next z value (frontmost). Call when a tile is focused/spawned, then stamp it on the panel.
+    @discardableResult
+    public func nextZ() -> Int { zCounter += 1; return zCounter }
+
+    /// Keep the counter ahead of any restored `z` so freshly focused ports still land on top.
+    public func seedZCounter(from panels: [PortPanel]) {
+        zCounter = max(zCounter, panels.map(\.z).max() ?? 0)
+    }
+
+    // MARK: Arrange (pure — prototype `arrange()`; the layout authority, §4)
+
+    /// One tile's geometry input to `arrange` (id + current size + z). Pure so the grid is headless.
+    public struct ArrangeTile: Equatable {
+        public let id: String
+        public let size: CGSize
+        public let z: Int
+        public init(id: String, size: CGSize, z: Int) { self.id = id; self.size = size; self.z = z }
+    }
+
+    /// Tidy tiles into a centered, fitted grid — the prototype's `arrange`, preserved exactly.
+    /// `cols = ceil(√n)`, uniform cell = (max width + 40) × (max height + 50), centered in the work
+    /// area with a top inset that clears the Chrome (`startY ≥ 70`). Walks tiles in `z` order so the
+    /// grid is stable. Returns each tile's top-left origin; callers set `panel.position`. Pure +
+    /// deterministic (same set → same grid) → headless-testable.
+    nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGPoint] {
+        let items = tiles.sorted { $0.z < $1.z }
+        guard !items.isEmpty else { return [:] }
+        let n = items.count
+        let cols = max(1, Int(ceil(sqrt(Double(n)))))
+        let rows = Int(ceil(Double(n) / Double(cols)))
+        let cellW = (items.map { $0.size.width }.max() ?? 300) + 40
+        let cellH = (items.map { $0.size.height }.max() ?? 200) + 50
+        let totalW = Double(cols) * cellW
+        let totalH = Double(rows) * cellH
+        let startX = max(40, (area.width - totalW) / 2)
+        let startY = max(70, (area.height - totalH) / 2)
+        var out: [String: CGPoint] = [:]
+        for (i, item) in items.enumerated() {
+            out[item.id] = CGPoint(x: startX + Double(i % cols) * cellW,
+                                   y: startY + Double(i / cols) * cellH)
+        }
+        return out
+    }
+}
+
+// MARK: - Hex color (shell accents)
+
+extension Color {
+    /// Parse "#RRGGBB" (or "RRGGBB") into a Color; nil on malformed input. Used for per-space accents.
+    init?(shellHex: String) {
+        var s = shellHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.init(
+            red:   Double((v >> 16) & 0xFF) / 255.0,
+            green: Double((v >> 8) & 0xFF) / 255.0,
+            blue:  Double(v & 0xFF) / 255.0
+        )
     }
 }

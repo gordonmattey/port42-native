@@ -302,40 +302,88 @@ desktop. Merged because the "space" and "focus" rungs are only demoable with con
   `createPort(presentation:"tiled", position:)` yields a tiled panel on the active space, and
   `switchToSpace` shows only the current space's tiled panels (hides the rest).
 
-### Phase S3 — Movable tiles + park + tile ↔ floating (no reload) — ⬅ NEXT (current)
+### Phase S3 — Movable tiles + park + tile ↔ floating (no reload) — ⬅ IN PROGRESS
 > **Carried over from S2:** tiles are currently locked to a render-time auto-grid, so the Chrome
 > **arrange (⌘L) is ~a no-op and exposé (Tab) isn't built** — both need movable tiles first, so they
 > belong here. Also lands the `z` field + persistence migration and the `ReParentStabilityTests`
 > tiled/parked no-reload gate.
+>
+> **Built in two chunks. Chunk 1 (data/layout foundation) — ✅ SHIPPED (2026-06-30):**
+> migration `v37-shell-tiles` (`port_panels.presentation` + `.z`; `spaces.accent` with a
+> creation-order backfill). **Root-cause found & fixed:** `presentation` was *never* persisted (no
+> column, absent from `PersistedPortPanel`, `restoreFromDB` defaulted it to `"floating"`), so a tiled
+> port silently returned as floating and fell off the desktop — the spec's "presentation already
+> exists" was wrong. Now `PortPanel.z` + `PersistedPortPanel.{presentation,z}` persist; `restoreFromDB`
+> restores both; `registerTiledPort` persists; `showRestoredFloatingPanels` only floats
+> `presentation == "floating"`. Accent bound-for-life: `Space.accent` hex, `createSpace` assigns by
+> creation position, `ShellState.accent(for:)` reads the stored hex with a **stable id-hash fallback**
+> (never list position). Pure `ShellState.arrange` (layout authority) + `nextZ`/`seedZCounter` +
+> `Color(shellHex:)`. Gate: `ShellLayoutTests` (9 tests — arrange grid/z/empty, z-counter, accent
+> stability across delete + fallback + createSpace, tiled-restart round-trip, `PersistedPortPanel`
+> round-trip); 30/30 green across the shell suites.
+> **Chunk 2 (interaction) — NEXT:** movable tiles + real arrange/exposé + park + pop-out shell path +
+> input-yield fix, per the steps below.
 
-- Drag/resize tiles (persist on drag-end). The **right-edge parking dock** (drag-to-park +
-  click-restore). "Pop out" re-parents the **same** webview into a floating `NSPanel` (Step 8);
-  dock-back reverses; presentation flag flips; **no reload**. z-order on focus.
+- Drag/resize tiles (persist on drag-end). **Arrange is the layout authority (decided w/ gordon):**
+  hand-moved positions persist and **survive restart** (restore reads exact positions, no arrange on
+  load — as the app already does for panels today), but a hand-drag does **not** survive a subsequent
+  **spawn** — any user-initiated open re-grids the space via `arrange`. The **right-edge parking dock**
+  (drag-to-park + click-restore). "Pop out" re-parents the **same** webview into a floating `NSPanel`
+  (Step 8); dock-back reverses; presentation flag flips; **no reload**. z-order on focus.
+  - **Pop-out seam (from S2's no-op):** in shell mode `createWindow` early-returns
+    (`PortWindowManager.swift:736`) so legacy ports never float, and `promoteInlineToFloating` only
+    accepts an `inline` source. S3 adds a **shell-owned floating path** that bypasses that guard **and**
+    accepts a `tiled` source. (Pop-out works today in the prototype and in non-shell app; it's the
+    shell-mode wiring that's the S3 work — the `:735` code comment already flags this.)
+  - **Input-yield fix (from S2 as-built):** extend the key-yield guard (`ShellView.swift:112`, today only
+    `NSText`/`NSTextView`) to also yield to a focused **WKWebView / terminal tile**, and make **Esc yield
+    when a port is focused** (a focused terminal needs Esc; today Esc always peels a zoom rung in focus).
+  - **Accent bind-for-life (decided w/ gordon):** S2's position-based accent reshuffles when spaces are
+    added/deleted; S3 lands the persisted `spaces.accent` column — assign a palette color at space
+    creation and store it, so a space keeps its color for life.
 - **Ship:** a counter/terminal tile keeps state across tile → float → park → tile — live state, no reload.
-- **Test gate:** `ReParentStabilityTests` — every presentation flip (`inline ↔ floating ↔ tiled ↔
-  parked`) keeps the **same** `webViews[id]` instance (object identity preserved = no recreate = no
-  reload — the registry-level proxy for the no-reload invariant, which a live surface confirms in-app).
-  Persistence — `persistPanel` saves `tiled`/`parked`, still skips `inline`; `parked` ports are excluded
-  from the desktop render and from `arrange`/`exposé`.
+- **Test plan (per step; extract each decision into a pure function so it's headless — Swift Testing +
+  `DatabaseService(inMemory: true)`):**
+
+  | Step | Automated gate | Manual residue |
+  |---|---|---|
+  | Drag/resize + z-order | `focus(id)` → `z` ascends, `selectedPort` = frontmost, `desktopTiles` sorted by z; simulate drag-end → `panel.position` mutated → `persistPanel` → DB re-read matches | cursor shapes, threshold-armed drag, hover-follows-mouse |
+  | Arrange | pure fn: N panels → `cols=ceil(√n)`, centered, `startY≥70`, **no overlaps**, **deterministic** (same set → same grid); seeding stays quiet, user-spawn re-grids | spring animation |
+  | Persistence migration | inMemory DB: `z` column (default 0) + `spaces.accent` added; round-trip tiled panel → restore = **exact positions, z-order, no arrange on load**; parked → rail. **#5 regression: store accents for 3 spaces, delete the middle, assert the other two are unchanged** | — |
+  | Park/unpark | set `parked` → excluded from `desktopTiles` **and** `arrange`/`exposé`; unpark → `tiled` + arrange; same `webViews[id]`; park-detection right-strip hit-test is pure | rail hover/drag-over visuals |
+  | Pop-out / dock-back | **`ReParentStabilityTests`** — every flip `inline↔floating↔tiled↔parked` keeps the **same `webViews[id]`** instance (registry-level no-reload proxy; a live surface confirms in-app); guard test: the shell path **accepts a `tiled` source** (no early-return) | the real `NSPanel` on screen (needs `NSApp`) |
+  | Exposé (Tab) | layout fn: orthogonal grid over **non-parked** tiles only, non-overlapping | — |
+  | Input-yield fix | extract `shouldYield(responder:keyCode:portFocused:)` and table-test: `NSText`/`WKWebView`/terminal → yield; `Esc`+portFocused → yield; `Esc`+no-focus → peel; `⌘↑`+no-focus → zoom | live `NSEvent` monitor wiring |
+
+  The two load-bearing tests to stub **before** their code: `ReParentStabilityTests` (no-reload) and the
+  accent-stability regression (guards decision #5).
 
 ### Phase S4 — Companions + chat (the room)
 - The per-space `isChatPort` tile with the **member header** (you + `getAgentsForSpace`) + live
   companion status. The **companion → `port.create` → arrange** loop: a chat message arranges the
   desktop.
 - **Ship:** talk to your companion; tiles appear and the desktop arranges.
-- **Test gate:** the member row composes you + `getAgentsForSpace(spaceId)` (and wraps, never
-  h-scrolls); the send → companion → `port.create` → arrange loop lands a tiled panel on the active
-  space. (The LLM step is stubbed/mocked; the arrange + member-row logic is asserted.)
+- **Test plan (per step):**
+
+  | Step | Automated gate | Manual residue |
+  |---|---|---|
+  | Member row | members = `you + getAgentsForSpace(spaceId)`, deduped; one status per shared agent | the flow-`Layout` wrap (never h-scrolls) |
+  | Status mapping | pure `status(for:in:)`: **thinking** = name in `typingAgentNamesBySpace[space]`; **porting** = tool-use flag set; **idle** = neither — table-test all three | — |
+  | The loop | **mock the LLM:** send `Message` → stubbed companion calls `port.create(presentation:"tiled")` → assert a tiled panel lands on the **active** space + arrange ran | real companion latency/choreography |
 
 ### Phase S5 — Idle-out + boot fusion (the ambient loop closes)
 - **Idle timer** dismisses Layer 2 → Layer 0 (dreamscape) via the existing lock path; activity summons
-  it back through the breakout transition. **Fuse the onboarding BIOS boot with the shell boot** (§8a /
-  D1) so it's one continuous sequence.
+  it back through the breakout transition. **Default idle `120s` (2 min), configurable** (the prototype's
+  `9s` is a demo value). **Fuse the onboarding BIOS boot with the shell boot** (§8a / D1) so it's one
+  continuous sequence.
 - **Tier 2 (optional)** MDM Autonomous Single App Mode for deployed kiosks; in-app lockdown toggle.
 - **Ship:** a Mac that boots into the ambient surface and settles back to it when idle.
-- **Test gate:** *automated* — an idle-timer fire drives the existing lock path (`showDreamscape ==
-  true`) and shell-window input resets the timer + summons Layer 2 back. *Manual* — the idle-out / wake
-  animation and the fused onboarding-BIOS → shell boot are a visual review.
+- **Test plan (per step):**
+
+  | Step | Automated gate | Manual residue |
+  |---|---|---|
+  | Idle timer | pure: `now − lastInput > timeout` fires; **default 120s**; input resets `lastInput`; fire → drives `showDreamscape == true` via the lock path; input → summons Layer 2 | the ~1.2s cross-fade + "move to wake" hint |
+  | Boot fusion | — (nothing clean) | onboarding BIOS → shell breakout as one continuous sequence — review only |
 
 ---
 

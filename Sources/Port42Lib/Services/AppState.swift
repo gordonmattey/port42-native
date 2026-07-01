@@ -1724,6 +1724,9 @@ public final class AppState: ObservableObject {
         var space = Space.create(name: cleaned)
         space.heartbeatInterval = heartbeatInterval
         space.heartbeatPrompt = heartbeatInterval > 0 ? heartbeatPrompt : ""
+        // SHELL S3 — assign an accent for life by creation position (spec decision #1); the space
+        // keeps this color even as others are added/deleted. Stored on the row via saveSpace.
+        space.accent = ShellState.accentHex(forNewSpaceAt: spaces.count)
         do {
             try db.saveSpace(space)
             spaces = try db.getRegularSpaces()

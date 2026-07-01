@@ -583,6 +583,29 @@ public final class DatabaseService {
             try db.execute(sql: "ALTER TABLE spaces DROP COLUMN isSwim")
         }
 
+        // v37 — SHELL S3. Tiled/parked ports must survive restart, and a space keeps its accent
+        // for life (decided w/ gordon). Two things `presentation` was NEVER persisted before this
+        // (no column, not in PersistedPortPanel, restore defaulted it to "floating") so a tiled
+        // port came back floating and vanished from the shell desktop. Add it + the `z` order.
+        // For spaces, add a nullable `accent` hex and backfill existing rows deterministically in
+        // creation order so the first N spaces are distinct and never reshuffle on add/delete.
+        migrator.registerMigration("v37-shell-tiles") { db in
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "presentation", .text).notNull().defaults(to: "floating")
+                t.add(column: "z", .integer).notNull().defaults(to: 0)
+            }
+            try db.alter(table: "spaces") { t in
+                t.add(column: "accent", .text)   // hex; nil → id-hash fallback in ShellState
+            }
+            // Backfill accents in creation order (mirrors ShellState.paletteHex — keep in sync).
+            let paletteHex = ["#00D4AA", "#FF6BB2", "#FFBD33", "#66C7FF", "#73E68C", "#9E47FA", "#4DD9CC"]
+            let ids = try String.fetchAll(db, sql: "SELECT id FROM spaces ORDER BY createdAt ASC")
+            for (i, sid) in ids.enumerated() {
+                try db.execute(sql: "UPDATE spaces SET accent = ? WHERE id = ?",
+                               arguments: [paletteHex[i % paletteHex.count], sid])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1681,6 +1704,11 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var dockOrder: Int?
     public var isChatPort: Bool
     public var createdAt: Date
+    /// SHELL S3 — the port's presentation ("floating" | "tiled" | "parked"; "inline" is never
+    /// persisted). Was previously lost on restore (defaulted to "floating").
+    public var presentation: String
+    /// SHELL S3 — z-order among tiled ports (monotonic; higher = frontmost).
+    public var z: Int
 
     public init(from panel: PortPanel) {
         self.id = panel.id
@@ -1709,5 +1737,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.dockOrder = nil
         self.isChatPort = panel.isChatPort
         self.createdAt = Date()
+        self.presentation = panel.presentation
+        self.z = panel.z
     }
 }

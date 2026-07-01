@@ -81,7 +81,12 @@ kiosk. Two guards make it robust against the few real auxiliary surfaces (pop-ou
 sheet, text fields, webview `contenteditable`):
 
 1. **Yield keys to the focused field.** Before swallowing a shortcut key, check `window.firstResponder`;
-   if an `NSTextView`/`WKWebView` is editing, pass the key through.
+   if a text editor (`NSText`/`NSTextView`), a **`WKWebView`** (a web port's `contenteditable`/input),
+   or a **terminal tile** (Ghostty) is focused, pass the key through. **Esc must also yield when a port
+   is focused** — a terminal in focus mode needs Esc (vim/less/any TUI), so Esc only peels a zoom rung
+   when no port owns the keyboard. *(As-built gap, S3: `ShellView.swift:112` currently checks only
+   `NSText`/`NSTextView` and the Esc branch peels a rung before the yield check — so `⌘↑/↓`, `⌘1–9`, and
+   Esc are captured from a focused terminal/web port in focus mode. Fix in S3.)*
 2. **Window-scope the mouse monitor.** Ignore events whose `e.window` isn't the shell window before
    running hover/drag/pinch (the monitor computes coords against the shell window's `contentView`).
 
@@ -189,6 +194,14 @@ port is created at a cheap cascade seed (`x: 330 + (n%4)·90, y: 200 + (n%3)·80
 true)`; **seeding** on space-entry stays quiet (no re-arrange). So callers don't compute positions —
 they append the tile and let `arrange` lay the grid. Park/unpark also re-arrange.
 
+**Arrange is the layout authority (decided w/ gordon).** A user may hand-drag/resize a tile and that
+position **persists on drag-end** and **survives restart** (restore reads exact persisted positions —
+*no* arrange on load, so a hand-tuned layout comes back exactly). But a hand-drag does **not** survive a
+subsequent **spawn**: any user-initiated open re-grids the whole space via `arrange`, overwriting hand
+positions with the fresh grid (then persists those). So the model is: *hand layout survives a restart,
+arrange wins on the next spawn.* This is the prototype's behavior; it makes persistence trivial (persist
+whatever the current positions are; restore them verbatim; never arrange at load).
+
 **Chrome (§7a).** The prototype's `Chrome` + `Mark` views are the canonical layout — preserve it.
 Left→right: **PORT42 // SHELL mark** in the freed traffic-light gap; **New Space** / **New Companion**;
 the **✨ + active-space-name** capsule (one unit, toggles the galaxy); **arrange** + **exposé** (26×26
@@ -205,7 +218,8 @@ to this top bar (the ⏻ icon is the exit affordance).
 **Ambient surface & idle.** Layer 0 `DreamscapeVideoLayer`/`TransitionRoot`; Layer 1
 `AquariumBreakoutView` for wake. An idle timer dismisses Layer 2 → Layer 0 via the existing lock path;
 it resets on shell-window input only. Prototype params to preserve: a `0.5s`-interval poll; idle fires
-when `now − lastInput > 9s`; Layer 2 cross-fades out over `~1.2s` (Layer 0 keeps running underneath, so
+when `now − lastInput > idleTimeout` — **default `120s` (2 min), configurable** (the prototype's `9s` is
+a demo value, not a shipping default); Layer 2 cross-fades out over `~1.2s` (Layer 0 keeps running underneath, so
 ports are **not** torn down — they fade and come back); a faint *"PORT42 // move to wake"* hint while
 idle; any shell-window input calls `bump()` (`lastInput = now`; fade Layer 2 back in over `~0.5s`). Wire
 the dismiss/restore through `appState.lockApp()` / `unlock()` so it's the same path as the lock screen.
@@ -216,8 +230,9 @@ the dismiss/restore through `appState.lockApp()` / `unlock()` so it's the same p
 
 Tiled and parked ports persist (the desktop/dock layout): `persistPanel`/`restoreFromDB` with
 `presentation` + `position` + `z`. Inline ports are not persisted (Step 8). On restart, tiled ports
-restore into the canvas (in `z` order) and parked ports into the rail, per space, composited into
-`ShellView`. Per-space accent/dock/seed config and space-companion membership are persisted; chat is the
+restore into the canvas **at their exact persisted positions in `z` order — no arrange on load** (so a
+hand-tuned layout returns verbatim; arrange only re-grids on the next user-initiated spawn, §4), and
+parked ports into the rail, per space, composited into `ShellView`. Per-space accent/dock/seed config and space-companion membership are persisted; chat is the
 per-space `isChatPort` panel.
 
 **Migration (append-only — project `CLAUDE.md` rule: never edit an existing migration, always append a
@@ -233,11 +248,14 @@ new `registerMigration`).** Two appended steps cover every new field:
 
 ## 6. Open decisions
 
-1. **~~Per-space accent + dock + seed~~ → partially shipped (S2), rest deferred.** `accent` is **live**
-   as a 7-color palette assigned by space *position* (`ShellState.accent(for:)`), read everywhere the
-   prototype reads `shell.accent`. The **persisted/editable `spaces.accent` column** + per-space `dock`
-   + `seed` (the §5 migration, prototype's `SpaceDef`) are **still deferred** — a later step once tiles
-   and layout persistence land in S3.
+1. **~~Per-space accent + dock + seed~~ → accent decided (bind-for-life), dock/seed deferred.** `accent`
+   is **live** as a 7-color palette, but S2 assigns it by space *position* (`ShellState.accent(for:)`) —
+   which **reshuffles when a space is added/deleted** (a later space's color shifts). **Decided w/ gordon:
+   a space must keep its color for life.** So promote the persisted `spaces.accent` column (the §5
+   migration) from "deferred" to **required in S3**: *assign the next unused palette color at space
+   creation and store it*; `accent(for:)` reads the stored hex and only falls back to the id-hash for
+   legacy rows. Per-space `dock` + `seed` (prototype's `SpaceDef`) stay **deferred** — a later step once
+   tiles and layout persistence land.
 2. **~~`createPort` presentation~~ → ✅ SHIPPED (S2.2a).** `createPort(…, presentation: "inline" |
    "floating" | "tiled", position: CGPoint? = nil)` replaced the (dead) `inline: Bool`; tiled ports
    register via `PortWindowManager.registerTiledPort`. `position == nil` currently lands in the
@@ -279,8 +297,14 @@ zoom ladder. Both files are stubbed now (Swift Testing, `DatabaseService(inMemor
   (open-decision #2). Gates: `ShellStateTests` + `PortWindowLifecycleTests` (tiled). *Deferred to S3:*
   real arrange (⌘L) + exposé (Tab) — tiles are a render-time auto-grid until they're movable.
 - **S3 — Movable tiles + park + tile↔floating. ⬅ NEXT.** Drag/resize/hover/focus; **real arrange +
-  exposé** (carried from S2); the parking dock; pop-out = `promoteInlineToFloating` (tile↔floating);
-  `z` field + persistence migration. A counter/terminal tile keeps state across tile↔float↔park.
+  exposé** (carried from S2; **arrange is the layout authority** — §4/§5: hand positions persist +
+  survive restart, but a spawn re-grids); the parking dock; pop-out = `promoteInlineToFloating`
+  (tile↔floating) — **note:** in shell mode `createWindow` early-returns (`PortWindowManager.swift:736`)
+  and the method's guard only accepts an `inline` source, so S3 must add a **shell-owned floating path
+  that bypasses that guard AND accepts a `tiled` source** (the current code is a no-op in shell mode by
+  design). `z` field + persistence migration (portPanels `z`; **spaces `accent`**, open-decision #1).
+  Also fix the input-yield gap (§3.1: terminal/WKWebView + Esc-in-focus). A counter/terminal tile keeps
+  state across tile↔float↔park.
 - **S4 — Companions + chat.** The per-space `isChatPort` tile + member header (you + `getAgentsForSpace`)
   with live status; the real send → companion → `port.create` → arrange loop. Members wrap.
 - **S5 — Idle-out + boot fusion.** Idle timer dismiss → Layer 0, wake via breakout; fuse the onboarding

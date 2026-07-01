@@ -17,8 +17,12 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var heartbeatInterval: Int
     /// The prompt sent to companions on each heartbeat tick.
     public var heartbeatPrompt: String
+    /// SHELL S3 — per-space accent as a hex string, assigned at creation and kept for life so a
+    /// space never loses its color when others are added/deleted. Nil for spaces predating this /
+    /// remote spaces → `ShellState.accent(for:)` falls back to a stable id-hash.
+    public var accent: String?
 
-    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "") {
+    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -27,6 +31,7 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.syncEnabled = syncEnabled
         self.heartbeatInterval = heartbeatInterval
         self.heartbeatPrompt = heartbeatPrompt
+        self.accent = accent
     }
 
     public static func create(name: String, type: String = "team") -> Space {

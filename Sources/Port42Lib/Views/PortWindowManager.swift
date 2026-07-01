@@ -19,6 +19,9 @@ public struct PortPanel: Identifiable {
     public var storedCapabilities: [String] = []
     public var size: CGSize
     public var position: CGPoint?
+    /// SHELL S3 — z-order among tiled ports on the shell desktop (monotonic; higher = frontmost).
+    /// Assigned by `ShellState.focus(_:)`; persisted so a hand-tuned layout restores in order.
+    public var z: Int = 0
     public var isAlwaysOnTop: Bool = false
     public var isBackground: Bool = false
     public var portType: String = "web"
@@ -158,7 +161,7 @@ public final class PortWindowManager: ObservableObject {
                 } else {
                     restoredCaps = []
                 }
-                let panel = PortPanel(
+                var panel = PortPanel(
                     id: row.id,
                     udid: row.udid ?? row.id,
                     html: row.html,
@@ -175,6 +178,11 @@ public final class PortWindowManager: ObservableObject {
                     portType: row.portType,
                     isChatPort: row.isChatPort
                 )
+                // SHELL S3 — restore the shell desktop layout: presentation ("tiled"/"parked"/
+                // "floating") and z-order. Without this a tiled port restored as "floating" and
+                // fell out of the desktop render (which filters presentation == "tiled").
+                panel.presentation = row.presentation
+                panel.z = row.z
                 panels.append(panel)
                 // Chat ports render ChatView; terminal ports host a Ghostty surface —
                 // only web ports get a WKWebView.
@@ -197,7 +205,9 @@ public final class PortWindowManager: ObservableObject {
     /// subsequent switchToSpace calls can create chat port windows on demand.
     public func showRestoredFloatingPanels() {
         panelsVisible = true
-        for panel in panels where !panel.isBackground && !panel.isChatPort && windows[panel.id] == nil {
+        // Only genuine floating ports get an NSPanel; tiled/parked ports live on the shell desktop.
+        for panel in panels where !panel.isBackground && !panel.isChatPort
+            && panel.presentation == "floating" && windows[panel.id] == nil {
             NSLog("[Port42] Creating restored window for: %@", panel.title)
             let bounds = NSApp?.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
             createWindow(for: panel, in: bounds)
@@ -387,6 +397,7 @@ public final class PortWindowManager: ObservableObject {
         panel.position = position
         panels.append(panel)
         createPortWebView(for: panel)
+        persistPanel(id)                       // SHELL S3 — tiled ports persist (survive restart)
         return bridge
     }
 
