@@ -1,12 +1,14 @@
 # PORT42 // SHELL — the GUI shell that replaces the desktop, not the OS
 
-**Status:** prototype runs end-to-end (rev3→rev8) + build spec written + adoption decided
-(2026-06-30, w/ gordon). The kiosk shell (`prototypes/p42shell`) runs the whole design — companions,
-chat, flat spaces, galaxy nav, parking dock; ports re-parent between hosts with no reload (the app does
-this today in `PortWebViewHost`); the production design is captured in
+**Status:** **S1 + S2 shipped in-app** (2026-06-30, w/ gordon) on branch `shell-s1`, behind
+`PORT42_SHELL`. The takeover (borderless kiosk fullscreen), the zoom spine (galaxy ↔ space ↔ focus),
+the real shell desktop (Chrome + tiled ports + chat-as-tile + focus-dive), the prototype ambient
+background + per-space accent themes all run on the real `AppState`/`PortWindowManager`. The kiosk
+shell (`prototypes/p42shell`) remains the interaction reference; the production design is captured in
 **`spec-shell-reimplementation.md`**. **Adoption is decided: the shell replaces the app surface for
-everyone (Plan D, §8a)** — build behind `PORT42_SHELL`, then flip and delete `ContentView`. Most of the
-machinery already exists in the app — this doc credits it. Next: **D0/S1** (takeover behind the flag).
+everyone (Plan D, §8a)** — build behind `PORT42_SHELL`, then flip and delete `ContentView`. **Next:
+S3** (movable tiles + park + tile↔floating + real arrange/exposé). See §8 for the shipped-vs-planned
+deltas.
 
 **One line:** Port42 boots into a fullscreen surface with **no macOS Dock and no menu bar**, and the
 desktop is made of **live ports** floating over a living ambient background. macOS stays underneath as
@@ -241,7 +243,14 @@ list — but it becomes one summonable port/panel in the shell (or a left rail),
 > water") rides on them, so the spine is built *first within* the spatial-shell phase, not retrofitted
 > last. Lean on what already exists at every step.
 
-### Phase S1 — Takeover + the ambient surface (Layer 0)
+### Phase S1 — Takeover + the ambient surface (Layer 0) — ✅ SHIPPED
+> **As built (delta):** takeover is `ShellMode.applyTakeover(to:)` applied from `ShellView.onAppear`
+> (the reliable site). The cheapest-cut resize wasn't enough — a `.titled` window's frame is clamped
+> to leave the menu-bar strip (a black bar up top), so the window goes **borderless** + raised level
+> (`mainMenuWindow+1`) to cover the full `screen.frame`. Flag: env `PORT42_SHELL` **or** the persisted
+> `UserDefaults` key. Escape hatches: Esc (yields to focused text) / ⌘Q; `applicationWillTerminate`
+> restores Dock + menu bar. Gate: `ShellModeTests` (flag parsing + headless fallback frame).
+
 - `ShellWindow` (borderless, kiosk `presentationOptions`, key-capable) + escape hatches (Esc / ⌘Q /
   exit; restore Dock + menu bar on terminate). Extends the existing `applicationDidFinishLaunching`
   window code; default off.
@@ -257,7 +266,19 @@ list — but it becomes one summonable port/panel in the shell (or a left rail),
   picks `ShellWindow` vs `WindowGroup`; the `guard let screen = NSScreen.main` fallback frame holds when
   `main` is nil (headless, no display).
 
-### Phase S2 — The spatial shell: spine + port desktop + Chrome
+### Phase S2 — The spatial shell: spine + port desktop + Chrome — ✅ SHIPPED
+> **As built (delta):** `ShellState` (zoom ladder, selection, pinch latch, per-space `accent`, mouse
+> parallax) drives `ShellView`; galaxy/focus are **translucent `.zIndex` siblings over a still-mounted
+> desktop** (mirrors the prototype — no unmount hack), so the desktop dims *behind* them. `createPort`
+> gained `presentation: "inline"|"floating"|"tiled"` + `position` (replacing the dead `inline: Bool`);
+> tiled ports register via `registerTiledPort`. **Chat is a desktop tile** (replaces the sidebar);
+> `ContentView` is no longer used in shell mode. `PortWindowManager.createWindow` **no-ops in shell
+> mode** so legacy ports never float as OS windows over the shell. Ambient background = the prototype's
+> **Canvas dreamscape signed-in**; the **video** dreamscape is the screensaver (signed-out/locked only).
+> Per-space **accent** = a 7-color palette by space position (the persisted `spaces.accent` column is
+> deferred). Chat draft hoisted to `AppState.chatDrafts` (survives tile↔focus). Gates: `ShellStateTests`
+> (zoom ladder) + `PortWindowLifecycleTests` (tiled createPort, per-space scoping).
+
 *Build the spine FIRST within this phase (it frames the rest), then fill the space rung with the
 desktop. Merged because the "space" and "focus" rungs are only demoable with content in them.*
 - **Spine (build first):** the **zoom ladder** on `ShellState` — galaxy (all spaces) ↔ space ↔ focus,
@@ -281,7 +302,12 @@ desktop. Merged because the "space" and "focus" rungs are only demoable with con
   `createPort(presentation:"tiled", position:)` yields a tiled panel on the active space, and
   `switchToSpace` shows only the current space's tiled panels (hides the rest).
 
-### Phase S3 — Movable tiles + park + tile ↔ floating (no reload)
+### Phase S3 — Movable tiles + park + tile ↔ floating (no reload) — ⬅ NEXT (current)
+> **Carried over from S2:** tiles are currently locked to a render-time auto-grid, so the Chrome
+> **arrange (⌘L) is ~a no-op and exposé (Tab) isn't built** — both need movable tiles first, so they
+> belong here. Also lands the `z` field + persistence migration and the `ReParentStabilityTests`
+> tiled/parked no-reload gate.
+
 - Drag/resize tiles (persist on drag-end). The **right-edge parking dock** (drag-to-park +
   click-restore). "Pop out" re-parents the **same** webview into a floating `NSPanel` (Step 8);
   dock-back reverses; presentation flag flips; **no reload**. z-order on focus.

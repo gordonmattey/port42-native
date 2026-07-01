@@ -233,14 +233,16 @@ new `registerMigration`).** Two appended steps cover every new field:
 
 ## 6. Open decisions
 
-1. **~~Per-space accent + dock + seed~~ → decided: new `spaces` columns.** `accent` (hex), `dock` (JSON
-   array), `seed` (JSON array), per the §5 migration — mirroring the prototype's
-   `SpaceDef { accent, dock: [Int], seed: [Int] }`. `accent` is read everywhere the prototype reads
-   `shell.accent`; `dockApps` = the space's `dock`; `seed` ports open quiet on first entry.
-2. **~~`createPort` presentation~~ → decided: replace `inline: Bool` with `presentation: String`.**
-   `createPort(…, presentation: "inline" | "floating" | "tiled", position: CGPoint? = nil)`.
-   `position == nil` (the default for tiles) means *arrange picks it* (§4). `parked` is not a
-   create-time value — it's set later via the park setter. This is the one core-API change S2 depends on.
+1. **~~Per-space accent + dock + seed~~ → partially shipped (S2), rest deferred.** `accent` is **live**
+   as a 7-color palette assigned by space *position* (`ShellState.accent(for:)`), read everywhere the
+   prototype reads `shell.accent`. The **persisted/editable `spaces.accent` column** + per-space `dock`
+   + `seed` (the §5 migration, prototype's `SpaceDef`) are **still deferred** — a later step once tiles
+   and layout persistence land in S3.
+2. **~~`createPort` presentation~~ → ✅ SHIPPED (S2.2a).** `createPort(…, presentation: "inline" |
+   "floating" | "tiled", position: CGPoint? = nil)` replaced the (dead) `inline: Bool`; tiled ports
+   register via `PortWindowManager.registerTiledPort`. `position == nil` currently lands in the
+   render-time auto-grid; *arrange picks it* (§4) arrives with movable tiles in S3. `parked` is set
+   later via the park setter, not at create time.
 3. **Multi-display** *(open)* — one desktop on the main display with secondaries blank, or a tile
    desktop per `NSScreen`? (`presentationOptions` hides the Dock globally.) Single-display first.
 4. **Window strategy** *(sequencing, not a fork)* — take the existing app window fullscreen first
@@ -262,17 +264,23 @@ no-reload behavior the `prototypes/p42shell` prototype demonstrates live. `Shell
 zoom ladder. Both files are stubbed now (Swift Testing, `DatabaseService(inMemory: true)` per
 `RegisteredInlinePortTests`).
 
-- **S1 — Takeover + ambient surface.** App window → fullscreen, hide Dock/menu bar, escape hatches
-  (Esc / ⌘Q / exit, restore on terminate), guarded `NSScreen.main`. `ShellView` root =
-  `DreamscapeVideoLayer` (Layer 0) as the living desktop background. Real chat/ports, no new UI yet.
-- **S2 — Spatial shell: spine + port desktop + Chrome.** Build the **spine first**: the zoom ladder on
-  `ShellState` (galaxy ↔ space ↔ focus; ⌘↑/↓ + pinch one-rung + hover-dive), reusing the dive
-  transition (`TransitionRoot`/`diveProgress`) as the zoom animation; galaxy renders `appState.spaces`
-  as worlds; `switchToSpace` + ⌘1…N. (Demoable immediately on the existing per-space chat port.) Then
-  fill the space rung: render tiled `PortPanel`s via `PortWebViewHost`; build the Chrome (§7a); dock/⌘K
-  spawn real tiled ports + auto-arrange. Lands `ShellState` DI (§3.2) + real content (§3.3).
-- **S3 — Movable tiles + park + tile↔floating.** Drag/resize/hover/focus; the parking dock; pop-out =
-  `promoteInlineToFloating` (tile↔floating). A counter/terminal tile keeps state across tile↔float↔park.
+- **S1 — Takeover + ambient surface. ✅ SHIPPED.** Behind `PORT42_SHELL` (env or persisted default),
+  `ShellMode.applyTakeover(to:)` (from `ShellView.onAppear`) makes the window **borderless** + raises
+  its level to cover the full `screen.frame` — a `.titled` window is frame-clamped and leaves a
+  menu-bar strip, so borderless is required, not optional. Hides Dock + menu bar + traffic lights;
+  Esc/⌘Q restore on terminate; guarded `NSScreen.main`. Gate: `ShellModeTests`.
+- **S2 — Spatial shell: spine + port desktop + Chrome. ✅ SHIPPED.** `ShellState` zoom ladder
+  (galaxy ↔ space ↔ focus; ⌘↑/↓ + one-rung pinch + hover-dive; ⌘1…N). Galaxy renders `appState.spaces`
+  as accent-orb worlds. `ShellView` composites the desktop over the **signed-in Canvas dreamscape**
+  (the video dreamscape is the signed-out screensaver); galaxy/focus are **translucent `.zIndex`
+  siblings** over the still-mounted desktop (no unmount). **Chat is a tile** (replaces the sidebar; no
+  `ContentView` in shell mode); tiled `PortPanel`s render via `PortWebViewHost`; Chrome per §7a; dock
+  spawns tiled ports; `createWindow` no-ops in shell mode. `createPort` gained `presentation`+`position`
+  (open-decision #2). Gates: `ShellStateTests` + `PortWindowLifecycleTests` (tiled). *Deferred to S3:*
+  real arrange (⌘L) + exposé (Tab) — tiles are a render-time auto-grid until they're movable.
+- **S3 — Movable tiles + park + tile↔floating. ⬅ NEXT.** Drag/resize/hover/focus; **real arrange +
+  exposé** (carried from S2); the parking dock; pop-out = `promoteInlineToFloating` (tile↔floating);
+  `z` field + persistence migration. A counter/terminal tile keeps state across tile↔float↔park.
 - **S4 — Companions + chat.** The per-space `isChatPort` tile + member header (you + `getAgentsForSpace`)
   with live status; the real send → companion → `port.create` → arrange loop. Members wrap.
 - **S5 — Idle-out + boot fusion.** Idle timer dismiss → Layer 0, wake via breakout; fuse the onboarding
