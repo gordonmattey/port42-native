@@ -80,13 +80,29 @@ public struct PortView: NSViewRepresentable {
         let heightScript = WKUserScript(
             source: """
             (function() {
-                function reportHeight() {
-                    const h = document.body.scrollHeight;
+                // ROOT-CAUSE HANG FIX (see PortWebViewFactory.heightJS for the full rationale): a naive
+                // ResizeObserver posting scrollHeight synchronously on every layout ping-pongs with the
+                // SwiftUI .frame(height:) it drives, hanging the main thread inside a chat LazyVStack.
+                // Guards: (1) coalesce observer bursts into one measure per animation frame; (2) only
+                // post on a real height change; (3) lock A-B-A oscillation to the taller state; and
+                // only write the --port-* viewport vars when they actually change.
+                var lastH = -1, prevH = -2, hScheduled = false, locked = false;
+                function measureHeight() {
+                    hScheduled = false;
+                    var h = Math.ceil(document.body.scrollHeight);
+                    if (locked) { if (h <= lastH + 1) return; locked = false; }
+                    if (Math.abs(h - lastH) <= 1) return;
+                    if (Math.abs(h - prevH) <= 1) { h = Math.max(h, lastH); locked = true; }
+                    prevH = lastH; lastH = h;
                     window.webkit.messageHandlers.portHeight.postMessage(h);
                 }
+                function reportHeight() { if (!hScheduled) { hScheduled = true; requestAnimationFrame(measureHeight); } }
+                var lw = -1, lh = -1;
                 function updateViewport() {
                     const w = document.documentElement.clientWidth;
                     const h = document.documentElement.clientHeight;
+                    if (w === lw && h === lh) return;
+                    lw = w; lh = h;
                     document.documentElement.style.setProperty('--port-width', w + 'px');
                     document.documentElement.style.setProperty('--port-height', h + 'px');
                     if (window.port42 && window.port42.viewport) {

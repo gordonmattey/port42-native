@@ -1058,9 +1058,13 @@ enum PortWebViewFactory {
     /// Updates CSS custom properties and fires viewport.resize events on window resize.
     static let viewportJS = """
     (function() {
+        var lw = -1, lh = -1, scheduled = false;
         function updateViewport() {
+            scheduled = false;
             const w = document.documentElement.clientWidth;
             const h = document.documentElement.clientHeight;
+            if (w === lw && h === lh) return;   // no change → don't re-write CSS vars / re-fire listeners
+            lw = w; lh = h;
             document.documentElement.style.setProperty('--port-width', w + 'px');
             document.documentElement.style.setProperty('--port-height', h + 'px');
             if (window.port42 && window.port42.viewport) {
@@ -1071,28 +1075,55 @@ enum PortWebViewFactory {
                 window.__port42_listeners['viewport.resize']({ width: w, height: h });
             }
         }
-        window.addEventListener('load', updateViewport);
-        window.addEventListener('resize', updateViewport);
-        new ResizeObserver(updateViewport).observe(document.body);
-        setTimeout(updateViewport, 100);
+        function schedule() {   // coalesce observer bursts into one update per frame (see heightJS)
+            if (scheduled) return;
+            scheduled = true;
+            requestAnimationFrame(updateViewport);
+        }
+        window.addEventListener('load', schedule);
+        window.addEventListener('resize', schedule);
+        new ResizeObserver(schedule).observe(document.body);
+        setTimeout(schedule, 100);
     })();
     """
 
     /// Inline height reporting JS (Step 8). Posts document.body.scrollHeight to the native
-    /// `portHeight` handler on load/resize/observe so an inline-presented port auto-sizes.
+    /// `portHeight` handler so an inline-presented port auto-sizes.
+    ///
+    /// ROOT-CAUSE HARDENING (hang fix): a naive `ResizeObserver(reportHeight)` posts synchronously on
+    /// every layout, and each post changes the SwiftUI `.frame(height:)` → re-lays-out the webview →
+    /// fires the observer again, unthrottled. In a chat `LazyVStack` that re-measures every row, a port
+    /// whose height has no stable ≤1px fixed point (scrollbar hysteresis, %/vh content, sub-pixel
+    /// reflow) drives an unbounded synchronous layout loop → main-thread hang. Three guards break it:
+    ///   1. coalesce a burst of observer callbacks into ONE measure per animation frame (rAF);
+    ///   2. only post when the rounded height actually changed (a settled port goes silent);
+    ///   3. lock out A-B-A oscillation to the taller state, so scrollbar hysteresis can't flip forever.
     static let heightJS = """
     (function() {
-        function reportHeight() {
-            try {
-                window.webkit.messageHandlers.portHeight.postMessage(document.body.scrollHeight);
-            } catch(e) {}
+        var lastH = -1, prevH = -2, scheduled = false, locked = false;
+        function measure() {
+            scheduled = false;
+            var h = Math.ceil(document.body.scrollHeight);
+            if (locked) {
+                if (h <= lastH + 1) return;   // ignore hysteresis shrink; only grow past the lock
+                locked = false;               // genuinely taller now → resume normal reporting
+            }
+            if (Math.abs(h - lastH) <= 1) return;             // settled → silent
+            if (Math.abs(h - prevH) <= 1) { h = Math.max(h, lastH); locked = true; }  // A-B-A → lock taller
+            prevH = lastH; lastH = h;
+            try { window.webkit.messageHandlers.portHeight.postMessage(h); } catch(e) {}
+        }
+        function schedule() {
+            if (scheduled) return;
+            scheduled = true;
+            requestAnimationFrame(measure);
         }
         window.addEventListener('load', function() {
-            reportHeight();
-            new ResizeObserver(reportHeight).observe(document.body);
+            schedule();
+            new ResizeObserver(schedule).observe(document.body);
         });
-        setTimeout(reportHeight, 100);
-        setTimeout(reportHeight, 500);
+        setTimeout(schedule, 100);
+        setTimeout(schedule, 500);
     })();
     """
 }
