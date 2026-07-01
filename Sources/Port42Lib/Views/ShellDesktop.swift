@@ -26,12 +26,12 @@ struct ShellChrome: View {
                 }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(Port42Theme.accent)
+                    Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(shell.accent)
                     Text(appState.currentSpace?.name ?? "—").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textPrimary)
                 }
                 .padding(.horizontal, 11).padding(.vertical, 4)
-                .background(Port42Theme.accent.opacity(shell.zoom == .galaxy ? 0.2 : 0.12), in: Capsule())
-                .overlay(Capsule().stroke(Port42Theme.accent.opacity(shell.zoom == .galaxy ? 0.7 : 0.4), lineWidth: 1))
+                .background(shell.accent.opacity(shell.zoom == .galaxy ? 0.2 : 0.12), in: Capsule())
+                .overlay(Capsule().stroke(shell.accent.opacity(shell.zoom == .galaxy ? 0.7 : 0.4), lineWidth: 1))
             }
             .buttonStyle(.plain).help("All spaces (⌘↑ / pinch out)")
 
@@ -47,7 +47,7 @@ struct ShellChrome: View {
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .background(.black.opacity(0.45))
-        .overlay(Rectangle().fill(Port42Theme.accent.opacity(0.25)).frame(height: 1), alignment: .bottom)
+        .overlay(Rectangle().fill(shell.accent.opacity(0.25)).frame(height: 1), alignment: .bottom)
     }
 
     private var mark: some View {
@@ -56,8 +56,8 @@ struct ShellChrome: View {
                 var d = Path()
                 d.move(to: CGPoint(x: size.width / 2, y: 2)); d.addLine(to: CGPoint(x: size.width - 2, y: size.height / 2))
                 d.addLine(to: CGPoint(x: size.width / 2, y: size.height - 2)); d.addLine(to: CGPoint(x: 2, y: size.height / 2)); d.closeSubpath()
-                ctx.fill(d, with: .color(Port42Theme.accent))
-            }.frame(width: 16, height: 16).shadow(color: Port42Theme.accent, radius: 6)
+                ctx.fill(d, with: .color(shell.accent))
+            }.frame(width: 16, height: 16).shadow(color: shell.accent, radius: 6)
             Text("PORT42").font(Port42Theme.monoBold(14)).foregroundStyle(Port42Theme.textPrimary)
             Text("// SHELL").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
         }
@@ -132,7 +132,7 @@ struct ShellTile: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Circle().fill(isFocused ? Port42Theme.textSecondary : Port42Theme.accent).frame(width: 7, height: 7)
+                Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
                 Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                 Spacer()
                 Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
@@ -161,8 +161,8 @@ struct ShellTile: View {
         }
         .frame(width: size.width)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? Port42Theme.accent.opacity(0.7) : Port42Theme.accent.opacity(0.22), lineWidth: 1))
-        .shadow(color: Port42Theme.accent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 20 : 10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? shell.accent.opacity(0.7) : shell.accent.opacity(0.25), lineWidth: 1))
+        .shadow(color: shell.accent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
         .onTapGesture { shell.selectedTileId = tile.id }
         .onHover { if $0 { shell.selectedTileId = tile.id } }
     }
@@ -197,7 +197,7 @@ struct ShellFocusContent: View {
                 .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Circle().fill(Port42Theme.accent).frame(width: 8, height: 8)
+                    Circle().fill(shell.accent).frame(width: 8, height: 8)
                     Text(title).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
                     Text("· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                     Spacer()
@@ -210,8 +210,8 @@ struct ShellFocusContent: View {
             .frame(width: NSScreen.main.map { $0.frame.width * 0.78 } ?? 1100,
                    height: NSScreen.main.map { $0.frame.height * 0.8 } ?? 700)
             .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Port42Theme.accent.opacity(0.5), lineWidth: 1))
-            .shadow(color: Port42Theme.accent.opacity(0.4), radius: 50)
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.5), lineWidth: 1))
+            .shadow(color: shell.accent.opacity(0.4), radius: 50)
         }
     }
 
@@ -240,15 +240,15 @@ struct ShellDock: View {
         HStack(spacing: 12) {
             ForEach(ShellDemoPort.all) { app in
                 Button { spawn(app) } label: {
-                    Image(systemName: app.icon).font(.system(size: 20, weight: .medium)).foregroundStyle(Port42Theme.accent)
+                    Image(systemName: app.icon).font(.system(size: 20, weight: .medium)).foregroundStyle(shell.accent)
                         .frame(width: 46, height: 46).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Port42Theme.accent.opacity(0.3), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.3), lineWidth: 1))
                 }.buttonStyle(.plain).help(app.label)
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 10)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Port42Theme.accent.opacity(0.25), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(shell.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 24, y: 8)
     }
 

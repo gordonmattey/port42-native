@@ -29,8 +29,9 @@ public struct ShellView: View {
 
     public var body: some View {
         ZStack {
-            // Layer 0 — the living ambient surface, always alive underneath everything.
-            DreamscapeVideoLayer()
+            // Layer 0 — the signed-in ambient background (prototype's Canvas dreamscape). The video
+            // dreamscape is the SCREENSAVER, shown only signed-out/locked (TransitionRoot).
+            ShellBackground(shell: shell)
                 .ignoresSafeArea()
 
             // Layer 2 — the desktop GROUP (Chrome + tiles + dock). Stays mounted across rungs; it
@@ -95,6 +96,15 @@ public struct ShellView: View {
             return nil   // consume so webviews don't also zoom
         }
 
+        // Cursor position → the ambient background parallax (don't consume; hover etc. still work).
+        let move = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { e in
+            if let cv = e.window?.contentView, cv.bounds.width > 0, cv.bounds.height > 0 {
+                let lp = e.locationInWindow
+                shell.mouse = CGPoint(x: lp.x / cv.bounds.width, y: 1 - lp.y / cv.bounds.height)
+            }
+            return e
+        }
+
         // Keys — ⌘↑/↓ ladder, ⌘1…N space jump, Esc peels one rung.
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             let cmd = e.modifierFlags.contains(.command)
@@ -117,7 +127,7 @@ public struct ShellView: View {
             return e
         }
 
-        monitors = [magnify, keys].compactMap { $0 }
+        monitors = [magnify, move, keys].compactMap { $0 }
     }
 
     private func removeInputMonitors() {
@@ -172,6 +182,7 @@ struct ShellGalaxyView: View {
         let on = space.id == appState.currentSpace?.id
         let hovered = shell.galaxyHover == index
         let hot = on || hovered
+        let acc = shell.accent(for: space)          // this world's own theme
         Button {
             shell.jumpToSpace(index: index)
         } label: {
@@ -181,11 +192,11 @@ struct ShellGalaxyView: View {
                     Canvas { ctx, size in
                         let c = CGPoint(x: size.width / 2, y: size.height / 2)
                         ctx.fill(Path(ellipseIn: CGRect(origin: .zero, size: size)),
-                                 with: .radialGradient(Gradient(colors: [Port42Theme.accent.opacity(0.5), Port42Theme.accent.opacity(0.03), .clear]),
+                                 with: .radialGradient(Gradient(colors: [acc.opacity(0.5), acc.opacity(0.03), .clear]),
                                                        center: c, startRadius: 0, endRadius: size.width / 2))
                         let r = size.width * 0.26 + sin(t * 1.4 + Double(index)) * 4
                         ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
-                                 with: .color(Port42Theme.accent.opacity(0.9)))
+                                 with: .color(acc.opacity(0.9)))
                         let n = max(portCount(space), 1)
                         for s in 0..<min(n, 8) {
                             let a = t * 0.6 + Double(s) / Double(n) * 6.283
@@ -195,13 +206,13 @@ struct ShellGalaxyView: View {
                         }
                     }
                 }.frame(width: 120, height: 120)
-                Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hot ? Port42Theme.accent : Port42Theme.textPrimary).tracking(2)
+                Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hot ? acc : Port42Theme.textPrimary).tracking(2)
                 Text("\(portCount(space)) ports").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
             }
             .padding(18).frame(maxWidth: .infinity)
-            .background(hot ? Port42Theme.accent.opacity(0.10) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(hot ? Port42Theme.accent.opacity(0.7) : Color.white.opacity(0.15), lineWidth: hot ? 1.5 : 1))
-            .shadow(color: hovered ? Port42Theme.accent.opacity(0.4) : .clear, radius: 16)
+            .background(hot ? acc.opacity(0.10) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(hot ? acc.opacity(0.7) : Color.white.opacity(0.15), lineWidth: hot ? 1.5 : 1))
+            .shadow(color: hovered ? acc.opacity(0.4) : .clear, radius: 16)
             .scaleEffect(hovered ? 1.04 : (on ? 1.02 : 1))
         }
         .buttonStyle(.plain)
