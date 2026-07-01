@@ -69,7 +69,14 @@ public struct ShellView: View {
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .animation(.spring(response: 0.4), value: shell.zoom)
-        .onAppear { installInputMonitors(); applyTakeoverToWindow() }
+        .onAppear {
+            installInputMonitors()
+            applyTakeoverToWindow()
+            // ShellView mounts fresh when you surface from the lock screen (TransitionRoot swaps
+            // LockScreenView → ShellView on unlock), so land in the galaxy — "open water" — and swim
+            // DOWN into a space from there, rather than snapping to the last space.
+            shell.zoom = .galaxy
+        }
         .onDisappear { removeInputMonitors() }
     }
 
@@ -185,6 +192,8 @@ struct ShellGalaxyView: View {
                             }
                         }
                         .frame(maxWidth: avail)
+                        // Center the worlds in the viewport (scrolls only when they overflow it).
+                        .frame(maxWidth: .infinity, minHeight: max(0, geo.size.height - 150), alignment: .center)
                         .padding(.vertical, 6)
                     }
                     Text("hover + ⌘↓ / pinch-in to dive in · ⌘1…9 jump · ⌘↑ / pinch-out to zoom")
