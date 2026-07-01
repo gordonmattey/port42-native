@@ -451,6 +451,19 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
+    /// SHELL: make a space's real `isChatPort` panel a desktop tile so it renders alongside the
+    /// synthetic prototype chat (for the side-by-side comparison before the stub is retired). Only
+    /// touches a default-`floating` chat with no window (never an intentional pop-out/park), and
+    /// reseeds its position — `ensureChatPort`'s frame is computed for the non-shell docked layout
+    /// (right of the sidebar) and lands off-screen in the fullscreen shell.
+    public func ensureChatTiled(spaceId: String) {
+        guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }),
+              panels[idx].presentation == "floating", windows[panels[idx].id] == nil else { return }
+        panels[idx].presentation = "tiled"
+        panels[idx].position = CGPoint(x: 540, y: 300)   // a visible slot, offset from the synthetic chat
+        persistPanel(panels[idx].id)
+    }
+
     /// Park a tiled port into the right-edge rail (minimize to a chip). Same webview, no reload —
     /// the parked port is excluded from the desktop render and from `arrange`/`exposé`.
     public func park(id: String) {

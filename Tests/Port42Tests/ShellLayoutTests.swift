@@ -207,14 +207,9 @@ struct ShellLayoutTests {
         let zb = try #require(mgr.panels.first { $0.id == "b" }?.z)
         #expect(zb > za)                          // b is now frontmost
         #expect(shell.selectedTileId == "b")
-
-        // Chat is the back anchor: selecting it highlights but stamps no panel z.
-        shell.bringToFront(ShellState.chatTileId)
-        #expect(shell.selectedTileId == ShellState.chatTileId)
-        #expect(mgr.panels.first { $0.id == "b" }?.z == zb)   // unchanged
     }
 
-    @Test("applyArrange positions every tile (chat + ports), clears the Chrome, and a spawn re-grids")
+    @Test("applyArrange positions every tiled port, clears the Chrome, and a spawn re-grids")
     @MainActor
     func applyArrangePositionsAndRegrid() throws {
         let (shell, state) = try makeState()
@@ -226,7 +221,6 @@ struct ShellLayoutTests {
         let area = CGSize(width: 1440, height: 900)
         shell.applyArrange(area: area)
 
-        #expect(shell.chatFrame(space: "s1") != nil)                       // chat got a slot
         let pa = try #require(mgr.panels.first { $0.id == "a" }?.position)  // ports got positions
         let pb = try #require(mgr.panels.first { $0.id == "b" }?.position)
         #expect(pa.y >= 70 && pb.y >= 70)                                  // clears the Chrome
@@ -252,26 +246,6 @@ struct ShellLayoutTests {
         #expect(ShellState.parkZone(at: CGPoint(x: area.width - w - 5, y: area.height - 10), in: area) == nil) // just left of strip
     }
 
-    @Test("ensureChatPlaced gives the chat a slot without disturbing persisted port positions")
-    @MainActor
-    func ensureChatPlacedLeavesPortsAlone() throws {
-        let (shell, state) = try makeState()
-        state.currentSpace = Space(id: "s1", name: "s", type: "team", createdAt: Date())
-        let mgr = state.portWindows
-        mgr.registerTiledPort(id: "a", html: "<div/>", spaceId: "s1", createdBy: nil, title: "a",
-                              position: CGPoint(x: 777, y: 555))
-        #expect(shell.chatFrame(space: "s1") == nil)
-
-        let area = CGSize(width: 1440, height: 900)
-        shell.ensureChatPlaced(area: area)
-        #expect(shell.chatFrame(space: "s1") != nil)                                    // chat got a slot
-        #expect(mgr.panels.first { $0.id == "a" }?.position == CGPoint(x: 777, y: 555)) // port untouched (restart-safe)
-
-        // Idempotent: a second entry doesn't shove the chat around.
-        let placed = shell.chatFrame(space: "s1")
-        shell.ensureChatPlaced(area: area)
-        #expect(shell.chatFrame(space: "s1") == placed)
-    }
 
     @Test("ShellTile.resized pins the opposite corner for every corner and clamps to the min size")
     func cornerResizeMath() throws {

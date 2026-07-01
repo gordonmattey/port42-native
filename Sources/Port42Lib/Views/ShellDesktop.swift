@@ -5,10 +5,7 @@ import WebKit
 /// SHELL — S2.2b. The real shell desktop that replaces `ContentView` at the space rung: a Chrome
 /// top bar (§7a) + a grid of tiled ports (the chat is a tile) composited over the dreamscape, plus
 /// a bottom launcher dock. Tiles re-parent their registry webview into the focus overlay with no
-/// reload. Drag/resize/park land in S3; positions are an auto-grid for now.
-
-// The chat tile's stable synthetic id (it's not a tiled PortPanel — it hosts ChatView).
-private let kChatTileId = "__chat__"
+/// reload. Chat is a real `isChatPort` PortPanel rendered as an ordinary tile (no special-casing).
 
 // MARK: - Chrome (Layer 2 top bar, §7a)
 
@@ -93,12 +90,7 @@ struct ShellDesktopView: View {
             // greedy positioned frame from swallowing clicks: NO interactive modifier (onHover /
             // gesture) is attached AFTER `.position` — they all sit on the bounded tile content.
             ZStack {
-                // Chat = the back anchor (z 0), its frame held in ShellState.
-                ShellTile(shell: shell, appState: appState,
-                          tile: ShellTileModel(id: ShellState.chatTileId, title: "chat", panel: nil),
-                          frame: resolvedChatFrame(area: geo.size), area: geo.size)
-                    .zIndex(0)
-                // Tiled ports painted back-to-front by z (positions from the panel record).
+                // All tiled ports (the chat is one of them), painted back-to-front by z.
                 ForEach(tiledPanels.sorted { $0.z < $1.z }, id: \.id) { p in
                     ShellTile(shell: shell, appState: appState,
                               tile: ShellTileModel(id: p.id, title: p.title, panel: p),
@@ -113,16 +105,12 @@ struct ShellDesktopView: View {
             .animation(.spring(response: 0.45, dampingFraction: 0.8), value: shell.arrangeBump)
             .animation(.spring(response: 0.45, dampingFraction: 0.8), value: tiledPanels.count)
             .onAppear { seedIfNeeded(area: geo.size) }
-            .onChange(of: appState.currentSpace?.id) { _, _ in shell.ensureChatPlaced(area: geo.size) }  // new space → place its chat
+            .onChange(of: appState.currentSpace?.id) { _, _ in
+                if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile
+            }
             .onChange(of: tiledPanels.count) { _, _ in shell.applyArrange(area: geo.size) }   // spawn/park/close re-grids
             .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
         }
-    }
-
-    /// The chat tile's frame — its ShellState slot, or a seeded top-left cell until arrange runs.
-    private func resolvedChatFrame(area: CGSize) -> CGRect {
-        if let sid, let f = shell.chatFrame(space: sid) { return f }
-        return CGRect(x: 40, y: 70, width: ShellState.defaultTileSize.width, height: ShellState.defaultTileSize.height)
     }
 
     /// A port tile's frame — its persisted position/size, or a cheap cascade seed until arrange runs.
@@ -136,7 +124,7 @@ struct ShellDesktopView: View {
     /// Seed the grid on first entry into a space (nothing positioned yet). Hand-tuned layouts that
     /// come back from the DB with positions are left exactly as-is (arrange only re-grids on spawn/⌘L).
     private func seedIfNeeded(area: CGSize) {
-        shell.ensureChatPlaced(area: area)                                     // chat only (restart-safe)
+        if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }      // chat → visible tile
         if tiledPanels.contains(where: { $0.position == nil }) {               // a never-positioned port →
             shell.applyArrange(area: area)                                     // grid everything once
         }
@@ -241,6 +229,9 @@ struct ShellTile: View {
                 Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
             }.buttonStyle(.plain).help("Focus (⌘↓)")
             if let panel = tile.panel {
+                Button { appState.portWindows.popOutTiled(id: panel.id, in: area) } label: {   // → floating NSPanel, no reload
+                    Image(systemName: "macwindow").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain).help("Pop out (dock back from the rail)")
                 Button { appState.portWindows.close(panel.id) } label: {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
                 }.buttonStyle(.plain)
@@ -272,9 +263,9 @@ struct ShellTile: View {
                 let zone = railZone(at: v.location)
                 shell.draggingOverPark = nil
                 moveDelta = .zero
-                switch zone {
-                case .close: if let panel = tile.panel { appState.portWindows.close(panel.id) }      // count↓ → re-grid
-                case .park:  if let panel = tile.panel { appState.portWindows.park(id: panel.id) }   // count↓ → re-grid
+                switch zone {                                                    // any tile (chat included) — count↓ re-grids
+                case .close: if let panel = tile.panel { appState.portWindows.close(panel.id) }
+                case .park:  if let panel = tile.panel { appState.portWindows.park(id: panel.id) }
                 case nil:
                     commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
                            size: CGSize(width: frame.width, height: frame.height))
@@ -282,10 +273,9 @@ struct ShellTile: View {
             }
     }
 
-    /// The rail zone under a desktop-space point — nil for the chat anchor (it can't park/close).
+    /// The rail zone under a desktop-space point. The chat is NOT exempt — it parks/closes too.
     private func railZone(at p: CGPoint) -> ShellState.ParkZone? {
-        guard tile.panel != nil else { return nil }
-        return ShellState.parkZone(at: p, in: area)
+        ShellState.parkZone(at: p, in: area)
     }
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
@@ -303,14 +293,9 @@ struct ShellTile: View {
             }
     }
 
-    /// Persist the tile's new geometry (drag/resize end). Chat → the ShellState slot; a port → the
-    /// panel record (survives restart, §4). `updateTileFrame` handles the persist.
+    /// Persist the tile's new geometry (drag/resize end) → the panel record (survives restart, §4).
     private func commit(origin: CGPoint, size: CGSize) {
-        if tile.id == ShellState.chatTileId {
-            if let sid { shell.setChatFrame(CGRect(origin: origin, size: size), space: sid) }
-        } else {
-            appState.portWindows.updateTileFrame(id: tile.id, position: origin, size: size)
-        }
+        appState.portWindows.updateTileFrame(id: tile.id, position: origin, size: size)
     }
 }
 
@@ -325,9 +310,13 @@ struct ShellParkRail: View {
     @ObservedObject var appState: AppState
     let area: CGSize
 
-    private var parkedPanels: [PortPanel] {
+    /// Detached ports that live in the rail: parked (minimized) and floating (popped out) — both
+    /// dock back to a tile with one click.
+    private var railPanels: [PortPanel] {
         guard let sid = appState.currentSpace?.id else { return [] }
-        return appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "parked" }
+        return appState.portWindows.panels.filter {
+            $0.spaceId == sid && ($0.presentation == "parked" || $0.presentation == "floating")
+        }
     }
 
     var body: some View {
@@ -340,7 +329,7 @@ struct ShellParkRail: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Port42Theme.textSecondary.opacity(overPark ? 1 : 0.5))
                 .padding(.top, 12)
-            ForEach(parkedPanels, id: \.id) { chip($0) }
+            ForEach(railPanels, id: \.id) { chip($0) }   // parked/floating ports incl. the chat panel
             Spacer(minLength: 12)
             closeZone(height: ShellState.closeZoneHeight(area.height), active: overClose)
         }
@@ -353,19 +342,20 @@ struct ShellParkRail: View {
     }
 
     private func chip(_ p: PortPanel) -> some View {
-        Button {
-            appState.portWindows.unpark(id: p.id)
+        let floating = p.presentation == "floating"
+        return Button {
+            if floating { appState.portWindows.dockToTile(id: p.id) } else { appState.portWindows.unpark(id: p.id) }
             shell.arrangeBump += 1
         } label: {
             VStack(spacing: 4) {
-                Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
+                Image(systemName: floating ? "macwindow" : "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
                 Text(p.title.prefix(6)).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 8)
             .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(shell.accent.opacity(0.3), lineWidth: 1))
         }
-        .buttonStyle(.plain).help("Restore \(p.title)")
+        .buttonStyle(.plain).help(floating ? "Dock \(p.title) back to a tile" : "Restore \(p.title)")
         .padding(.horizontal, 6)
     }
 
@@ -387,7 +377,7 @@ struct ShellTileBody: View {
     let tile: ShellTileModel
 
     var body: some View {
-        if tile.id == kChatTileId {
+        if tile.panel?.isChatPort == true {                             // the chat panel renders ChatView
             ChatView().environmentObject(appState)
         } else if let panel = tile.panel, let wv = appState.portWindows.webViews[panel.id] {
             PortWebViewHost(webView: wv, bridge: panel.bridge)
@@ -429,11 +419,11 @@ struct ShellFocusContent: View {
     }
 
     private var panel: PortPanel? { appState.portWindows.panels.first { $0.id == id } }
-    private var title: String { id == kChatTileId ? "chat" : (panel?.title ?? "port") }
+    private var title: String { panel?.title ?? "port" }
 
     @ViewBuilder
     private func body(for id: String) -> some View {
-        if id == kChatTileId || panel?.isChatPort == true {
+        if panel?.isChatPort == true {
             ChatView().environmentObject(appState)
         } else if let p = panel, let wv = appState.portWindows.webViews[p.id] {
             PortWebViewHost(webView: wv, bridge: p.bridge)
