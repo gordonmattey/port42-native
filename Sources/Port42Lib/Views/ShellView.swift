@@ -69,6 +69,7 @@ public struct ShellView: View {
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .animation(.spring(response: 0.4), value: shell.zoom)
+        .onChange(of: shell.zoom) { _, z in if z != .space { shell.exposeActive = false } }   // exposé lives at .space
         .onAppear {
             installInputMonitors()
             applyTakeoverToWindow()
@@ -122,7 +123,13 @@ public struct ShellView: View {
                 return e                                          // hand the key to the field/port
             }
 
-            if e.keyCode == 53 {   // Esc — peel back to the desktop from either end; pass through at .space
+            if e.keyCode == 48 {   // Tab — toggle exposé (a temporary arrange) at the space rung
+                guard shell.zoom == .space else { return e }
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.exposeActive.toggle() }
+                return nil
+            }
+            if e.keyCode == 53 {   // Esc — exit exposé first, else peel back to the desktop
+                if shell.exposeActive { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false }; return nil }
                 guard shell.zoom != .space else { return e }
                 shell.galaxyHover = nil
                 withAnimation(.spring(response: 0.4)) { shell.zoom = .space }

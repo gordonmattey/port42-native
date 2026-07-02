@@ -24,6 +24,9 @@ public final class ShellState: ObservableObject {
     @Published public var selectedTileId: String?
     /// Bumped to re-trigger the desktop grid layout (the Chrome "arrange" + every spawn).
     @Published public var arrangeBump: Int = 0
+    /// Exposé (Tab): a TEMPORARY arrange — every tile spreads to the fit grid for selection, without
+    /// overwriting its real position. Picking a tile (or Tab/Esc) exits and tiles snap back.
+    @Published public var exposeActive: Bool = false
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).
@@ -220,9 +223,13 @@ public final class ShellState: ObservableObject {
         guard let sid = appState.currentSpace?.id else { return }
         let panels = appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
         let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, z: max($0.z, 1)) }
-        let frames = Self.arrange(tiles, in: area)
-        for p in panels {
-            if let f = frames[p.id] { appState.portWindows.updateTileFrame(id: p.id, position: f.origin, size: f.size) }
+        let origins = Self.arrange(tiles, in: area)
+        // Animate the moves here (not via a distant `.animation(value:)`) so the tiles visibly spring
+        // to their spots — a bouncy, slightly slow settle, like the prototype.
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.68)) {
+            for p in panels where origins[p.id] != nil {
+                appState.portWindows.updateTileFrame(id: p.id, position: origins[p.id]!, size: nil)   // reposition only — keep varied sizes
+            }
         }
     }
 
@@ -236,33 +243,33 @@ public final class ShellState: ObservableObject {
         public init(id: String, size: CGSize, z: Int) { self.id = id; self.size = size; self.z = z }
     }
 
-    /// Tidy tiles into a centered grid that always FITS the work area (so a spawn never pushes tiles
-    /// off-screen). `cols = ceil(√n)`; the grid fills the space left by the Chrome (top), the dock
-    /// (bottom) and the park rail (right); each tile is capped at its natural size but SHRUNK to fit
-    /// its cell when the desktop gets crowded. Walks tiles in `z` order (stable). Returns each tile's
-    /// full frame (origin + size); callers set `panel.position`/`.size`. Pure + deterministic → headless.
-    nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGRect] {
+    /// Tidy tiles into a centered grid — the prototype's `arrange`, preserved. It ONLY repositions:
+    /// each tile keeps its own (varied) size and is centered in a uniform cell sized to the LARGEST
+    /// tile, so the desktop stays lively rather than homogenized into equal boxes (a strict grid is
+    /// exposé's job). `cols = ceil(√n)`; the block is centered horizontally (may spill symmetrically
+    /// when crowded) and pinned below the Chrome (`startY ≥ 70`). Walks tiles in `z` order (stable).
+    /// Returns each tile's top-left origin; callers set `panel.position` (never `.size`). Pure → headless.
+    nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGPoint] {
         let items = tiles.sorted { $0.z < $1.z }
         guard !items.isEmpty else { return [:] }
         let n = items.count
         let cols = max(1, Int(ceil(sqrt(Double(n)))))
         let rows = max(1, Int(ceil(Double(n) / Double(cols))))
-        // Work area: clear the Chrome (top), the dock (bottom), the park rail + margins (sides).
-        let top: CGFloat = 70, bottom: CGFloat = 100, side: CGFloat = 40, gap: CGFloat = 24
-        let workX = side, workY = top
-        let workW = max(240, area.width - side - parkWidth(area.width) - 20)
-        let workH = max(200, area.height - top - bottom)
-        let cellW = workW / Double(cols), cellH = workH / Double(rows)
-        // Uniform tile size: capped at the largest natural size, shrunk to fit the cell when crowded.
-        let maxW = items.map { $0.size.width }.max() ?? 300
-        let maxH = items.map { $0.size.height }.max() ?? 200
-        let tileW = max(80, min(maxW, cellW - gap))
-        let tileH = max(60, min(maxH, cellH - gap))
-        var out: [String: CGRect] = [:]
+        // Cells fill the WORK AREA (inside Chrome/dock/rail), so the grid always fits. Each tile keeps
+        // its OWN size, centered in its cell (variety preserved — not homogenized). When crowded, cells
+        // get smaller than the tiles so they overlap a little (lively) rather than run off-screen; the
+        // origin is clamped to the work area so nothing is ever pushed out of view.
+        let top: CGFloat = 70, bottom: CGFloat = 100, side: CGFloat = 40
+        let workX = side, workW = max(240, area.width - side * 2 - parkWidth(area.width))
+        let workY = top, workH = max(200, area.height - top - bottom)
+        let colW = workW / Double(cols), rowH = workH / Double(rows)
+        var out: [String: CGPoint] = [:]
         for (i, item) in items.enumerated() {
-            let cx = workX + (Double(i % cols) + 0.5) * cellW      // cell center
-            let cy = workY + (Double(i / cols) + 0.5) * cellH
-            out[item.id] = CGRect(x: cx - tileW / 2, y: cy - tileH / 2, width: tileW, height: tileH)
+            let cx = workX + (Double(i % cols) + 0.5) * colW         // cell center
+            let cy = workY + (Double(i / cols) + 0.5) * rowH
+            let ox = min(max(cx - item.size.width / 2, workX), workX + workW - item.size.width)
+            let oy = min(max(cy - item.size.height / 2, workY), workY + workH - item.size.height)
+            out[item.id] = CGPoint(x: ox, y: oy)                     // centered, clamped in-bounds
         }
         return out
     }

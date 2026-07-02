@@ -2490,7 +2490,8 @@ public final class AppState: ObservableObject {
                     command: String?, args: [String] = [], cwd: String?,
                     systemPrompt: String?, env: [String: String] = [:],
                     spaceId: String, createdBy: String?, createdByName: String?,
-                    presentation: String = "inline", position: CGPoint? = nil) -> [String: Any] {
+                    presentation: String = "inline", position: CGPoint? = nil,
+                    size: CGSize? = nil) -> [String: Any] {
         switch PortCreateValidation.validate(type: type, html: html, command: command) {
         case .error(let message):
             return ["error": message]
@@ -2514,7 +2515,7 @@ public final class AppState: ObservableObject {
                 let id = UUID().uuidString
                 _ = portWindows.registerTiledPort(id: id, html: html, spaceId: spaceId,
                                                   createdBy: createdBy, title: resolvedTitle,
-                                                  position: position)
+                                                  position: position, size: size)
                 return ["id": id, "title": resolvedTitle]
             }
             // Otherwise a web port renders INLINE in chat and AUTO-PLAYS on creation. The inline

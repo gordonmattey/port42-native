@@ -90,20 +90,37 @@ struct ShellDesktopView: View {
             // greedy positioned frame from swallowing clicks: NO interactive modifier (onHover /
             // gesture) is attached AFTER `.position` — they all sit on the bounded tile content.
             ZStack {
-                // All tiled ports (the chat is one of them), painted back-to-front by z.
+                // Exposé backdrop: dim behind the spread tiles; tapping empty space exits (no pick).
+                if shell.exposeActive {
+                    Color.black.opacity(0.5).ignoresSafeArea()
+                        .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false } }
+                        .zIndex(1)
+                }
+                // All tiled ports (the chat is one of them), painted back-to-front by z. In exposé
+                // they spread to the fit grid (a TEMPORARY arrange — real positions are untouched).
                 ForEach(tiledPanels.sorted { $0.z < $1.z }, id: \.id) { p in
                     ShellTile(shell: shell, appState: appState,
                               tile: ShellTileModel(id: p.id, title: p.title, panel: p),
-                              frame: resolvedPortFrame(p, area: geo.size), area: geo.size)
-                        .zIndex(Double(max(p.z, 1)))
+                              frame: resolvedPortFrame(p, area: geo.size), area: geo.size,
+                              exposeFrame: shell.exposeActive ? exposeRect(p, geo.size) : nil)
+                        .zIndex(shell.exposeActive ? 5 : Double(max(p.z, 1)))
+                }
+                if shell.exposeActive {
+                    VStack { Spacer()
+                        Text("EXPOSÉ · click a tile · Tab / Esc to exit")
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                            .padding(.bottom, 96)
+                    }.zIndex(9_000).allowsHitTesting(false)
                 }
                 // Right-edge rail: park (main strip) + close (bottom zone). On top of the tiles.
                 ShellParkRail(shell: shell, appState: appState, area: geo.size)
                     .zIndex(10_000)
             }
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
-            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: shell.arrangeBump)
-            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: tiledPanels.count)
+            // arrange animates via its own withAnimation (ShellState.applyArrange); here we only
+            // spring tile insertion/removal and the exposé transition.
+            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
             .onAppear { seedIfNeeded(area: geo.size) }
             .onChange(of: appState.currentSpace?.id) { _, _ in
                 if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile
@@ -111,6 +128,25 @@ struct ShellDesktopView: View {
             .onChange(of: tiledPanels.count) { _, _ in shell.applyArrange(area: geo.size) }   // spawn/park/close re-grids
             .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
         }
+    }
+
+    /// Exposé target cell for a tile — a uniform grid over the work area. The tile keeps its real
+    /// size and is SCALED (aspect-preserved) to fit this cell, so varied tiles land roughly — not
+    /// perfectly — equal (that imperfection is the charm; a strict grid would feel mechanical).
+    /// Transient: nothing is written back, so exiting exposé snaps tiles to their real frames.
+    private func exposeRect(_ p: PortPanel, _ area: CGSize) -> CGRect {
+        let items = tiledPanels.sorted { $0.z < $1.z }
+        guard let idx = items.firstIndex(where: { $0.id == p.id }) else { return .zero }
+        let n = items.count
+        let cols = max(1, Int(ceil(sqrt(Double(n)))))
+        let rows = max(1, Int(ceil(Double(n) / Double(cols))))
+        let top: CGFloat = 70, bottom: CGFloat = 100, side: CGFloat = 40, gap: CGFloat = 30
+        let workW = max(240, area.width - side - ShellState.parkWidth(area.width) - 20)
+        let workH = max(200, area.height - top - bottom)
+        let colW = workW / Double(cols), rowH = workH / Double(rows)
+        return CGRect(x: side + Double(idx % cols) * colW + gap / 2,
+                      y: top + Double(idx / cols) * rowH + gap / 2,
+                      width: colW - gap, height: rowH - gap)
     }
 
     /// A port tile's frame — its persisted position/size, or a cheap cascade seed until arrange runs.
@@ -140,6 +176,7 @@ struct ShellTile: View {
     let tile: ShellTileModel
     let frame: CGRect
     let area: CGSize
+    var exposeFrame: CGRect? = nil        // set in exposé → scale-to-fit this cell (transient)
 
     /// A tile corner (any corner resizes; the opposite corner stays pinned).
     enum Corner { case nw, ne, sw, se }
@@ -165,6 +202,14 @@ struct ShellTile: View {
     /// Center for `.position`. The tile's own frame stays bounded (liveSize), so its hover/hit region
     /// tracks where it's drawn — unlike `.offset`, which leaves the layout frame at the origin.
     private var liveCenter: CGPoint { CGPoint(x: liveFrame.midX, y: liveFrame.midY) }
+
+    /// Exposé: scale the tile (aspect-preserved) to fit its cell, centered there — real frame untouched,
+    /// so varied tiles land ROUGHLY (not perfectly) equal. `nil` ⇒ 1×, at the tile's real place.
+    private var exposeScale: CGFloat {
+        guard let f = exposeFrame else { return 1 }
+        return min(f.width / max(1, liveSize.width), f.height / max(1, liveSize.height))
+    }
+    private var placedCenter: CGPoint { exposeFrame.map { CGPoint(x: $0.midX, y: $0.midY) } ?? liveCenter }
 
     /// Apply a corner drag to a frame: the dragged corner follows the delta, the OPPOSITE corner
     /// stays pinned, and the result clamps to the min tile size (so a corner can't cross past it).
@@ -208,9 +253,21 @@ struct ShellTile: View {
         .overlay(cornerHandle(.ne), alignment: .topTrailing)
         .overlay(cornerHandle(.sw), alignment: .bottomLeading)
         .overlay(cornerHandle(.se), alignment: .bottomTrailing)
+        // In exposé, the whole tile is a pick target (over the body/handles): click → select + exit.
+        .overlay {
+            if shell.exposeActive {
+                Button {
+                    withAnimation(.spring(response: 0.4)) { shell.exposeActive = false }
+                    shell.bringToFront(tile.id)
+                } label: { Color.white.opacity(0.001) }
+                .buttonStyle(.plain)
+            }
+        }
         .shadow(color: shell.accent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
+        .scaleEffect(exposeScale, anchor: .center)            // exposé shrinks/grows the tile to ~fit its cell
         .onHover { if $0 { shell.selectedTileId = tile.id } }   // BEFORE .position → tracking area on the bounded tile
-        .position(x: liveCenter.x, y: liveCenter.y)            // place last; nothing interactive after it
+        .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: exposeFrame)
     }
 
     private var titleBar: some View {
@@ -278,7 +335,9 @@ struct ShellTile: View {
     }
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
-        DragGesture()
+        // Measure in the FIXED desktop space, not the handle's local space — the handle rides the
+        // corner that the resize is moving, so a local-space translation lags behind the cursor.
+        DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
                 if resizeCorner == nil { shell.bringToFront(tile.id) }
                 resizeCorner = corner
@@ -459,28 +518,29 @@ struct ShellDock: View {
         _ = appState.createPort(type: "web", title: app.label, html: app.html,
                                 command: nil, cwd: nil, systemPrompt: nil,
                                 spaceId: sid, createdBy: nil, createdByName: nil,
-                                presentation: "tiled", position: nil)
+                                presentation: "tiled", position: nil, size: app.size)
         shell.arrangeBump += 1
     }
 }
 
 /// Self-contained demo web ports for the launcher (stand-ins until saved/favorite ports land).
+/// Sizes VARY per port (like the prototype) — arrange keeps that variety; it doesn't homogenize.
 struct ShellDemoPort: Identifiable {
-    let id = UUID(); let icon: String; let label: String; let html: String
+    let id = UUID(); let icon: String; let label: String; let size: CGSize; let html: String
     static let all: [ShellDemoPort] = [
-        ShellDemoPort(icon: "clock", label: "Clock", html: """
+        ShellDemoPort(icon: "clock", label: "Clock", size: CGSize(width: 300, height: 180), html: """
         <html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,#06121a,#000);font-family:ui-monospace,monospace">
         <div id=t style="font-size:46px;font-weight:800;color:#00FF41;text-shadow:0 0 24px #00FF4199">--:--:--</div>
         <script>function p(n){return(n<10?'0':'')+n}setInterval(function(){var x=new Date();t.innerText=p(x.getHours())+':'+p(x.getMinutes())+':'+p(x.getSeconds())},250)</script></body></html>
         """),
-        ShellDemoPort(icon: "waveform.path.ecg", label: "Pulse", html: """
+        ShellDemoPort(icon: "waveform.path.ecg", label: "Pulse", size: CGSize(width: 260, height: 260), html: """
         <html><body style="margin:0;background:#000;overflow:hidden"><canvas id=c></canvas><script>
         var x=c.getContext('2d'),t=0;function rs(){c.width=innerWidth;c.height=innerHeight}addEventListener('resize',rs);rs();
         function f(){t+=0.02;x.fillStyle='rgba(0,0,0,0.12)';x.fillRect(0,0,c.width,c.height);var cx=c.width/2,cy=c.height/2;
         for(var i=0;i<5;i++){var r=30+i*22+Math.sin(t+i)*14;x.beginPath();x.arc(cx,cy,r,0,7);x.strokeStyle='hsla('+(120+i*18+t*30)+',90%,55%,.8)';x.lineWidth=2;x.stroke()}
         requestAnimationFrame(f)}f()</script></body></html>
         """),
-        ShellDemoPort(icon: "circle.grid.cross", label: "Matrix", html: """
+        ShellDemoPort(icon: "circle.grid.cross", label: "Matrix", size: CGSize(width: 280, height: 320), html: """
         <html><body style="margin:0;background:#000;overflow:hidden"><canvas id=c></canvas><script>
         var x=c.getContext('2d');function rs(){c.width=innerWidth;c.height=innerHeight}addEventListener('resize',rs);rs();
         var cols=Math.floor(c.width/12),y=[];for(var i=0;i<cols;i++)y[i]=Math.random()*c.height;
