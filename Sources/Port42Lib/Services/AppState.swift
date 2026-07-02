@@ -2658,6 +2658,8 @@ public final class AppState: ObservableObject {
         do {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()
+            // Refresh the current space's crew too, so a rename/edit reflects on its dock chip.
+            if let sid = currentSpace?.id { spaceCompanions = try db.getAgentsForSpace(spaceId: sid) }
         } catch {
             print("[Port42] Failed to update companion: \(error)")
         }

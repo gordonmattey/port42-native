@@ -30,7 +30,7 @@ public final class ShellState: ObservableObject {
 
     /// The item whose settings box is open (long-press a galaxy world / companion). nil = closed.
     /// A shared overlay hosts rename / accent / delete; `.companion` lands with S4.
-    public enum SettingsTarget: Equatable { case space(String) }
+    public enum SettingsTarget: Equatable { case space(String), companion(String) }
     @Published public var settingsTarget: SettingsTarget?
 
     /// Show the New Companion form as a shell overlay (not a macOS sheet). Set from the dock's ＋ menu.

@@ -363,21 +363,79 @@ struct ShellSettingsView: View {
         if case .space(let id) = shell.settingsTarget { return appState.spaces.first { $0.id == id } }
         return nil
     }
+    private var companion: AgentConfig? {
+        if case .companion(let id) = shell.settingsTarget { return appState.companions.first { $0.id == id } }
+        return nil
+    }
 
     var body: some View {
         ZStack {
             Color.black.opacity(scrimOpacity).ignoresSafeArea().contentShape(Rectangle())
                 .onTapGesture { dismiss(save: true) }   // click away = accept edits
-            if let space { card(space) }
+            if let space { spaceCard(space) }
+            else if let companion { companionCard(companion) }
         }
         .onAppear {
-            name = space?.name ?? ""
+            name = space?.name ?? companion?.displayName ?? ""
             withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { cardScale = 1; cardOpacity = 1 }
             withAnimation(.easeOut(duration: 0.2)) { scrimOpacity = 0.6 }
         }
     }
 
-    private func card(_ space: Space) -> some View {
+    // MARK: companion
+
+    private func companionCard(_ c: AgentConfig) -> some View {
+        let col = ShellDock.avatarColor(c.id)
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("COMPANION SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
+                Spacer()
+                Button { dismiss(save: false) } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain).help("Close without saving")
+            }
+            HStack(spacing: 12) {
+                Circle().fill(col.gradient).frame(width: 46, height: 46)
+                    .overlay(Text(String(c.displayName.prefix(2)).uppercased()).font(Port42Theme.monoBold(16)).foregroundStyle(.white))
+                    .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+                TextField("name", text: $name)
+                    .textFieldStyle(.plain).font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.textPrimary)
+                    .onSubmit { dismiss(save: true) }.onExitCommand { dismiss(save: false) }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("BRAIN").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+                Text("\(c.mode.rawValue) · \(c.model ?? "—")").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                Text("edit model / prompt / secrets in Advanced (soon)").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+            }
+            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            Button { dismiss(save: false) { if let s = appState.currentSpace { appState.removeCompanionFromSpace(c, space: s) } } } label: {
+                HStack(spacing: 6) { Image(systemName: "rectangle.portrait.and.arrow.right"); Text("Remove from this space") }
+                    .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            }.buttonStyle(.plain)
+            if confirmingDelete {
+                HStack(spacing: 10) {
+                    Text("Delete this companion?").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                    Spacer()
+                    Button("Cancel") { confirmingDelete = false }.buttonStyle(.plain).foregroundStyle(Port42Theme.textSecondary)
+                    Button("Delete") { dismiss(save: false) { appState.deleteCompanion(c) } }.buttonStyle(.plain).foregroundStyle(.red)
+                }.font(Port42Theme.mono(12))
+            } else {
+                Button { confirmingDelete = true } label: {
+                    HStack(spacing: 6) { Image(systemName: "trash"); Text("Delete companion") }
+                        .font(Port42Theme.mono(12)).foregroundStyle(Color.red.opacity(0.9))
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(22).frame(width: 340)
+        .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(col.opacity(0.4), lineWidth: 1))
+        .shadow(color: .black.opacity(0.6), radius: 40)
+        .scaleEffect(cardScale).opacity(cardOpacity)
+    }
+
+    // MARK: space
+
+    private func spaceCard(_ space: Space) -> some View {
         let acc = shell.accent(for: space)
         return VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -414,7 +472,7 @@ struct ShellSettingsView: View {
                     Text("Delete this space?").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
                     Spacer()
                     Button("Cancel") { confirmingDelete = false }.buttonStyle(.plain).foregroundStyle(Port42Theme.textSecondary)
-                    Button("Delete") { dismiss(save: false, delete: space) }.buttonStyle(.plain).foregroundStyle(.red)
+                    Button("Delete") { dismiss(save: false) { appState.deleteSpace(space) } }.buttonStyle(.plain).foregroundStyle(.red)
                 }.font(Port42Theme.mono(12))
             } else {
                 Button { confirmingDelete = true } label: {
@@ -431,26 +489,32 @@ struct ShellSettingsView: View {
     }
 
     /// Close the box. `save` commits a pending rename and the card POPS up + fades (a confirming
-    /// beat); discard SHRINKS + fades (a dismissive beat). Both clear after the animation; `delete`
-    /// removes the space in the same discard motion.
-    private func dismiss(save: Bool, delete: Space? = nil) {
-        if save, let s = space { commitName(s) }
+    /// beat); discard SHRINKS + fades (a dismissive beat). `then` runs a delete/remove in the same
+    /// discard motion, just before the target clears.
+    private func dismiss(save: Bool, then action: (() -> Void)? = nil) {
+        if save { commitName() }
         withAnimation(save ? .spring(response: 0.3, dampingFraction: 0.6) : .easeIn(duration: 0.18)) {
             cardScale = save ? 1.12 : 0.86
             cardOpacity = 0
             scrimOpacity = 0
         }
-        let delay = save ? 0.28 : 0.2
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            if let delete { appState.deleteSpace(delete) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (save ? 0.28 : 0.2)) {
+            action?()
             shell.settingsTarget = nil
         }
     }
 
-    private func commitName(_ space: Space) {
-        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased().replacingOccurrences(of: " ", with: "-")
-        if !cleaned.isEmpty, cleaned != space.name { var s = space; s.name = cleaned; appState.updateSpace(s) }
+    /// Commit a pending rename for whichever target is open. Spaces normalize (lowercase-dashes);
+    /// companions keep free-form display names.
+    private func commitName() {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !n.isEmpty else { return }
+        if let s = space {
+            let cleaned = n.lowercased().replacingOccurrences(of: " ", with: "-")
+            if cleaned != s.name { var x = s; x.name = cleaned; appState.updateSpace(x) }
+        } else if var c = companion {
+            if n != c.displayName { c.displayName = n; appState.updateCompanion(c) }
+        }
     }
 }
 

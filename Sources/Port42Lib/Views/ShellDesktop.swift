@@ -526,6 +526,7 @@ struct ShellDock: View {
             Text(c.displayName).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1).frame(maxWidth: 54)
         }
         .help(c.displayName)
+        .onLongPressGesture(minimumDuration: 0.45) { shell.settingsTarget = .companion(c.id) }   // → companion settings
     }
 
     /// One click → the new-companion card shows immediately (no menu). Add-existing lives in the card.
