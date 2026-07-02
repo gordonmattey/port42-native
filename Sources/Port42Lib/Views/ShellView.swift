@@ -52,6 +52,16 @@ public struct ShellView: View {
             .allowsHitTesting(shell.zoom == .space)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: shell.zoom)
 
+            // Click-shield: a hit-capturing sibling ABOVE the desktop (outside its allowsHitTesting
+            // group) whenever we're not in the space. SwiftUI's allowsHitTesting doesn't stop the
+            // embedded chat WKWebView from getting AppKit clicks; this real layer does.
+            if shell.zoom != .space {
+                Color.black.opacity(0.001).ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { }
+                    .zIndex(50)
+            }
+
             // Galaxy — all spaces as worlds (zoom UP). Translucent, so the desktop dims behind it.
             if galaxyShown {
                 ShellGalaxyView(shell: shell, appState: appState)
@@ -65,6 +75,12 @@ public struct ShellView: View {
                 ShellFocusContent(shell: shell, appState: appState, id: id)
                     .transition(.opacity)
                     .zIndex(120)
+            }
+
+            // Settings box (long-press a world / companion) — rename, accent, delete. Top layer.
+            // It self-animates in/out (save pops, discard shrinks), so no view-level transition.
+            if shell.settingsTarget != nil {
+                ShellSettingsView(shell: shell, appState: appState).zIndex(200)
             }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
@@ -182,10 +198,16 @@ struct ShellGalaxyView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
 
+    @State private var newSpaceHovered = false
+
     var body: some View {
         ZStack {
+            // Modal scrim: captures clicks so the galaxy is its own interactive layer (a click between
+            // cards can't fall through to the desktop/chat). Empty clicks do nothing — you leave the
+            // galaxy by picking a world, ⌘↓/pinch-in, or the ✨ toggle.
             Color.black.opacity(0.55).ignoresSafeArea()
-                .onTapGesture { shell.zoomIn() }   // tap empty space → drop back into the current space
+                .contentShape(Rectangle())
+                .onTapGesture { }
             GeometryReader { geo in
                 let avail = geo.size.width * 0.82
                 let cols = max(1, min(3, Int(avail / 320)))
@@ -197,6 +219,7 @@ struct ShellGalaxyView: View {
                             ForEach(Array(appState.spaces.enumerated()), id: \.element.id) { index, space in
                                 world(space, index: index)
                             }
+                            newSpaceCard   // spaces are created here in the galaxy, not the Chrome
                         }
                         .frame(maxWidth: avail)
                         // Center the worlds in the viewport (scrolls only when they overflow it).
@@ -210,6 +233,44 @@ struct ShellGalaxyView: View {
                 .padding(.vertical, 30)
             }
         }
+        .onAppear { shell.galaxyHover = nil }   // no phantom world lit on entry (hover starts fresh)
+    }
+
+    /// The galaxy's "new space" affordance — a ghost world-card. Creating a space is a galaxy action
+    /// (not a Chrome button): make it + swim straight down into it.
+    private var newSpaceCard: some View {
+        Button {
+            appState.createSpace(name: "space \(appState.spaces.count + 1)")   // createSpace selects the new space
+            withAnimation(.spring(response: 0.45)) { shell.zoom = .space }      // dive into it
+        } label: {
+            let hi = newSpaceHovered
+            let acc = shell.accent
+            VStack(spacing: 13) {
+                // A nascent world: a faint accent orb that lights up on hover, like the real worlds.
+                ZStack {
+                    Circle().fill(RadialGradient(
+                        gradient: Gradient(colors: [acc.opacity(hi ? 0.45 : 0.16), acc.opacity(0.02), .clear]),
+                        center: .center, startRadius: 0, endRadius: 62))
+                    Circle().strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 7]))
+                        .foregroundStyle(acc.opacity(hi ? 0.85 : 0.35))
+                    Image(systemName: "plus").font(.system(size: 34, weight: .ultraLight))
+                        .foregroundStyle(acc.opacity(hi ? 1 : 0.75))
+                }
+                .frame(width: 120, height: 120)
+                Text("NEW SPACE").font(Port42Theme.monoBold(14)).foregroundStyle(hi ? acc : Port42Theme.textPrimary).tracking(2)
+                Text("dive into open water").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+            }
+            .padding(18).frame(maxWidth: .infinity)
+            .background((hi ? acc.opacity(0.10) : Color.white.opacity(0.02)), in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(acc.opacity(hi ? 0.7 : 0.15), lineWidth: hi ? 1.5 : 1))
+            .shadow(color: hi ? acc.opacity(0.45) : .clear, radius: 20)
+            .scaleEffect(hi ? 1.04 : 1)
+        }
+        .buttonStyle(.plain)
+        // Clear the world hover-highlight when moving onto this card, so the last world doesn't
+        // stay lit while you're hovering "new space".
+        .onHover { hovering in newSpaceHovered = hovering; if hovering { shell.galaxyHover = nil } }
+        .animation(.spring(response: 0.3), value: newSpaceHovered)
     }
 
     /// Count exactly what the desktop renders as tiles: the space's tiled ports + its chat tile
@@ -224,13 +285,12 @@ struct ShellGalaxyView: View {
 
     @ViewBuilder
     private func world(_ space: Space, index: Int) -> some View {
-        let on = space.id == appState.currentSpace?.id
-        let hovered = shell.galaxyHover == index
-        let hot = on || hovered
+        let on = space.id == appState.currentSpace?.id   // the current space — a quiet, persistent marker
+        let hovered = shell.galaxyHover == index          // the mouse — a loud, transient highlight
         let acc = shell.accent(for: space)          // this world's own theme
-        Button {
-            shell.jumpToSpace(index: index)
-        } label: {
+        // Not a Button: a hold opens settings and must NOT also fire the tap (which zoomed into the
+        // space behind). A quick tap enters; a long-press opens settings — arbitrated below.
+        Group {
             VStack(spacing: 13) {
                 TimelineView(.animation) { tl in
                     let t = tl.date.timeIntervalSinceReferenceDate
@@ -251,19 +311,140 @@ struct ShellGalaxyView: View {
                         }
                     }
                 }.frame(width: 120, height: 120)
-                Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hot ? acc : Port42Theme.textPrimary).tracking(2)
+                Text(space.name.uppercased()).font(Port42Theme.monoBold(14)).foregroundStyle(hovered || on ? acc : Port42Theme.textPrimary).tracking(2)
                 Text("\(portCount(space)) ports").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
             }
             .padding(18).frame(maxWidth: .infinity)
-            .background(hot ? acc.opacity(0.10) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(hot ? acc.opacity(0.7) : Color.white.opacity(0.15), lineWidth: hot ? 1.5 : 1))
+            // Hover = loud (fill + bright ring + glow + lift). Current space = quiet (a solid accent
+            // ring only), so it's marked without looking permanently moused-over.
+            .background(hovered ? acc.opacity(0.10) : Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(
+                hovered ? acc.opacity(0.75) : (on ? acc.opacity(0.45) : Color.white.opacity(0.12)),
+                lineWidth: hovered ? 1.5 : 1))
             .shadow(color: hovered ? acc.opacity(0.4) : .clear, radius: 16)
-            .scaleEffect(hovered ? 1.04 : (on ? 1.02 : 1))
+            .scaleEffect(hovered ? 1.04 : 1)
         }
-        .buttonStyle(.plain)
-        // Only SET on enter (don't clear on exit) so the last-hovered world stays the dive target
-        // for a pinch-in / ⌘↓ that follows the hover.
-        .onHover { hovering in if hovering { shell.galaxyHover = index } }
+        .contentShape(RoundedRectangle(cornerRadius: 20))
+        // Track the mouse both ways so a world doesn't stay lit after the cursor leaves. (⌘↓/pinch-in
+        // with no world hovered falls back to the current space — see ShellState.zoomIn.)
+        .onHover { hovering in
+            if hovering { shell.galaxyHover = index }
+            else if shell.galaxyHover == index { shell.galaxyHover = nil }
+        }
         .animation(.spring(response: 0.3), value: hovered)
+        // Hold ≥0.45s → settings; a quick tap → enter the space. High-priority long-press wins the
+        // arbitration, so the release no longer also fires the tap (which zoomed in behind the box).
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.45)
+            .onEnded { _ in shell.settingsTarget = .space(space.id) })
+        .onTapGesture { shell.jumpToSpace(index: index) }
+    }
+}
+
+// MARK: - Settings box (long-press a world / companion)
+
+/// A shell-styled settings overlay — rename, pick accent, delete — for the item in
+/// `shell.settingsTarget`. Currently spaces; companions reuse the same box in S4. The scrim dismisses.
+struct ShellSettingsView: View {
+    @ObservedObject var shell: ShellState
+    @ObservedObject var appState: AppState
+    @State private var name = ""
+    @State private var confirmingDelete = false
+    // Self-animated in/out so save and discard can exit DIFFERENTLY (save pops up, discard shrinks).
+    @State private var cardScale: CGFloat = 0.92
+    @State private var cardOpacity: Double = 0
+    @State private var scrimOpacity: Double = 0
+
+    private var space: Space? {
+        if case .space(let id) = shell.settingsTarget { return appState.spaces.first { $0.id == id } }
+        return nil
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(scrimOpacity).ignoresSafeArea().contentShape(Rectangle())
+                .onTapGesture { dismiss(save: true) }   // click away = accept edits
+            if let space { card(space) }
+        }
+        .onAppear {
+            name = space?.name ?? ""
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { cardScale = 1; cardOpacity = 1 }
+            withAnimation(.easeOut(duration: 0.2)) { scrimOpacity = 0.6 }
+        }
+    }
+
+    private func card(_ space: Space) -> some View {
+        let acc = shell.accent(for: space)
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("SPACE SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
+                Spacer()
+                Button { dismiss(save: false) } label: {   // ✕ = discard the rename
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain).help("Close without saving")
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("NAME").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+                TextField("name", text: $name)
+                    .textFieldStyle(.plain).font(Port42Theme.monoBold(15)).foregroundStyle(Port42Theme.textPrimary)
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(acc.opacity(0.35), lineWidth: 1))
+                    .onSubmit { dismiss(save: true) }        // Return = save + close
+                    .onExitCommand { dismiss(save: false) }  // Esc = discard + close
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACCENT").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+                HStack(spacing: 9) {
+                    ForEach(ShellState.paletteHex, id: \.self) { hex in
+                        Button { var s = space; s.accent = hex; appState.updateSpace(s) } label: {
+                            Circle().fill(Color(shellHex: hex) ?? .teal).frame(width: 22, height: 22)
+                                .overlay(Circle().stroke(Color.white.opacity(space.accent == hex ? 0.9 : 0), lineWidth: 2))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            if confirmingDelete {
+                HStack(spacing: 10) {
+                    Text("Delete this space?").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                    Spacer()
+                    Button("Cancel") { confirmingDelete = false }.buttonStyle(.plain).foregroundStyle(Port42Theme.textSecondary)
+                    Button("Delete") { dismiss(save: false, delete: space) }.buttonStyle(.plain).foregroundStyle(.red)
+                }.font(Port42Theme.mono(12))
+            } else {
+                Button { confirmingDelete = true } label: {
+                    HStack(spacing: 6) { Image(systemName: "trash"); Text("Delete space") }
+                        .font(Port42Theme.mono(12)).foregroundStyle(Color.red.opacity(0.9))
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(22).frame(width: 340)
+        .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
+        .shadow(color: .black.opacity(0.6), radius: 40)
+        .scaleEffect(cardScale).opacity(cardOpacity)
+    }
+
+    /// Close the box. `save` commits a pending rename and the card POPS up + fades (a confirming
+    /// beat); discard SHRINKS + fades (a dismissive beat). Both clear after the animation; `delete`
+    /// removes the space in the same discard motion.
+    private func dismiss(save: Bool, delete: Space? = nil) {
+        if save, let s = space { commitName(s) }
+        withAnimation(save ? .spring(response: 0.3, dampingFraction: 0.6) : .easeIn(duration: 0.18)) {
+            cardScale = save ? 1.12 : 0.86
+            cardOpacity = 0
+            scrimOpacity = 0
+        }
+        let delay = save ? 0.28 : 0.2
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            if let delete { appState.deleteSpace(delete) }
+            shell.settingsTarget = nil
+        }
+    }
+
+    private func commitName(_ space: Space) {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased().replacingOccurrences(of: " ", with: "-")
+        if !cleaned.isEmpty, cleaned != space.name { var s = space; s.name = cleaned; appState.updateSpace(s) }
     }
 }

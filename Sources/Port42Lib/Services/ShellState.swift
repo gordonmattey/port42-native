@@ -27,6 +27,11 @@ public final class ShellState: ObservableObject {
     /// Exposé (Tab): a TEMPORARY arrange — every tile spreads to the fit grid for selection, without
     /// overwriting its real position. Picking a tile (or Tab/Esc) exits and tiles snap back.
     @Published public var exposeActive: Bool = false
+
+    /// The item whose settings box is open (long-press a galaxy world / companion). nil = closed.
+    /// A shared overlay hosts rename / accent / delete; `.companion` lands with S4.
+    public enum SettingsTarget: Equatable { case space(String) }
+    @Published public var settingsTarget: SettingsTarget?
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).

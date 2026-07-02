@@ -33,9 +33,7 @@ struct ShellChrome: View {
             .buttonStyle(.plain).help("All spaces (⌘↑ / pinch out)")
 
             chromeButton("rectangle.3.group", "Arrange (⌘L)") { shell.arrangeBump += 1 }
-            chromeButton("plus.square", "New Space (⌘N)") {
-                appState.createSpace(name: "space \(appState.spaces.count + 1)")
-            }
+            // New Space lives in the galaxy now (spaces are the galaxy's business), not the Chrome.
 
             Spacer()
 
