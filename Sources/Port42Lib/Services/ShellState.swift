@@ -32,6 +32,9 @@ public final class ShellState: ObservableObject {
     /// A shared overlay hosts rename / accent / delete; `.companion` lands with S4.
     public enum SettingsTarget: Equatable { case space(String) }
     @Published public var settingsTarget: SettingsTarget?
+
+    /// Show the New Companion form as a shell overlay (not a macOS sheet). Set from the dock's ＋ menu.
+    @Published public var showNewCompanion: Bool = false
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).

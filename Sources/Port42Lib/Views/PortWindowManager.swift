@@ -472,6 +472,17 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
+    /// SHELL: bring a space's chat back onto the desktop as a tile from any state (parked, popped-out
+    /// floating, or already tiled) — closing any floating window and marking it tiled. The dock's
+    /// "chat" button uses this; it's also how a closed/parked chat is reopened.
+    public func revealChat(spaceId: String) {
+        guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
+        if let window = windows[panels[idx].id] as? PortNSPanel { window.onClose = nil; window.close() }
+        windows.removeValue(forKey: panels[idx].id)
+        panels[idx].presentation = "tiled"
+        persistPanel(panels[idx].id)
+    }
+
     /// Restore a parked port back onto the desktop as a tile (no reload).
     public func unpark(id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }

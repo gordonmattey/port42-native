@@ -82,6 +82,11 @@ public struct ShellView: View {
             if shell.settingsTarget != nil {
                 ShellSettingsView(shell: shell, appState: appState).zIndex(200)
             }
+
+            // New Companion — a shell-native card (creates a real companion in THIS space).
+            if shell.showNewCompanion {
+                ShellNewCompanionView(shell: shell, appState: appState).zIndex(210)
+            }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .animation(.spring(response: 0.4), value: shell.zoom)
@@ -446,5 +451,191 @@ struct ShellSettingsView: View {
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased().replacingOccurrences(of: " ", with: "-")
         if !cleaned.isEmpty, cleaned != space.name { var s = space; s.name = cleaned; appState.updateSpace(s) }
+    }
+}
+
+// MARK: - New companion (shell-native card)
+
+/// A shell-native create-companion card (replaces the macOS sheet): name → a real LLM companion,
+/// created AND joined to the current space. Existing roster companions not here can be added with a
+/// tap. Self-animated in/out like the settings box; advanced config lives in companion settings later.
+struct ShellNewCompanionView: View {
+    @ObservedObject var shell: ShellState
+    @ObservedObject var appState: AppState
+    @State private var name = ""
+    @State private var selectedType: CompanionTypePreset?      // one tap → identity + constitution
+    @State private var showAdvanced = false                    // → the full form (all modes/options)
+    @State private var cardScale: CGFloat = 0.92
+    @State private var cardOpacity: Double = 0
+    @State private var scrimOpacity: Double = 0
+    @FocusState private var nameFocused: Bool
+
+    private var acc: Color { shell.accent }
+    /// Creatable once there's an identity — either a typed name or a picked type (which names it).
+    private var canCreate: Bool {
+        (!name.trimmingCharacters(in: .whitespaces).isEmpty || selectedType != nil) && appState.currentUser != nil
+    }
+    /// Icon per type (mirrors the mockup): ✦ echo · ▲ architect · ⚙ compiler · ◈ operator.
+    private func typeIcon(_ t: CompanionTypePreset) -> String {
+        switch t { case .echo: return "sparkles"; case .architect: return "triangle"
+                   case .compiler: return "gearshape"; case .operatorType: return "diamond" }
+    }
+    private var rosterNotHere: [AgentConfig] {
+        let here = Set(appState.spaceCompanions.map(\.id))
+        return appState.companions.filter { !here.contains($0.id) }
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(scrimOpacity).ignoresSafeArea().contentShape(Rectangle())
+                .onTapGesture { dismiss() }
+            if showAdvanced {
+                // The full form (every mode + option), re-hosted in a shell card. Opt-in only.
+                NewCompanionSheet(isPresented: $shell.showNewCompanion)
+                    .environmentObject(appState)
+                    .frame(width: 500, height: 600)
+                    .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.6), radius: 40)
+                    .scaleEffect(cardScale).opacity(cardOpacity)
+            } else {
+                card
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { cardScale = 1; cardOpacity = 1 }
+            withAnimation(.easeOut(duration: 0.2)) { scrimOpacity = 0.6 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { nameFocused = true }
+        }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("NEW COMPANION").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain)
+            }
+            // Preview PFP + name
+            HStack(spacing: 12) {
+                Circle().fill(acc.gradient).frame(width: 46, height: 46)
+                    .overlay(Text(initials).font(Port42Theme.monoBold(16)).foregroundStyle(.white))
+                    .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+                TextField("name your companion", text: $name)
+                    .textFieldStyle(.plain).font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.textPrimary)
+                    .focused($nameFocused)
+                    .onSubmit { create() }
+                    .onExitCommand { dismiss() }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(acc.opacity(0.35), lineWidth: 1))
+
+            // TYPE — one tap sets the constitution (system prompt) + KB scope + a default name.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TYPE — one tap sets identity + prompt").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
+                    ForEach(CompanionTypePreset.allCases, id: \.rawValue) { t in
+                        let on = selectedType == t
+                        Button { selectedType = on ? nil : t } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: typeIcon(t)).font(.system(size: 10))
+                                Text(t.displayName).font(Port42Theme.mono(11))
+                            }
+                            .foregroundStyle(on ? acc : Port42Theme.textPrimary)
+                            .padding(.horizontal, 11).padding(.vertical, 7)
+                            .background((on ? acc.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
+                            .overlay(Capsule().stroke(on ? acc.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
+                        }.buttonStyle(.plain).help(t.label)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button { create() } label: {
+                    Text("Create companion").font(Port42Theme.monoBold(13)).foregroundStyle(canCreate ? .black : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background(canCreate ? acc : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                }.buttonStyle(.plain).disabled(!canCreate)
+                // Everything else — modes (API/Command), provider/model, secrets, pods, CLI presets…
+                Button { withAnimation(.spring(response: 0.3)) { showAdvanced = true } } label: {
+                    Text("Advanced…").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.14), lineWidth: 1))
+                }.buttonStyle(.plain).help("All options — modes, provider/model, secrets, pods")
+            }
+
+            if !rosterNotHere.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("OR ADD EXISTING").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
+                        ForEach(rosterNotHere) { c in
+                            Button { addExisting(c) } label: {
+                                HStack(spacing: 6) {
+                                    Circle().fill(ShellDock.avatarColor(c.id).gradient).frame(width: 18, height: 18)
+                                    Text(c.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                                }
+                                .padding(.horizontal, 9).padding(.vertical, 6)
+                                .background(Color.white.opacity(0.05), in: Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(22).frame(width: 380)
+        .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
+        .shadow(color: .black.opacity(0.6), radius: 40)
+        .scaleEffect(cardScale).opacity(cardOpacity)
+    }
+
+    /// The effective name: what's typed, else the picked type's name.
+    private var effectiveName: String {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? (selectedType?.displayName ?? "") : n
+    }
+    private var initials: String {
+        let n = effectiveName
+        return n.isEmpty ? "?" : String(n.prefix(2)).uppercased()
+    }
+
+    private func create() {
+        guard canCreate, let user = appState.currentUser else { return }
+        let nm = effectiveName
+        // A picked type brings a real constitution (system prompt) + KB scope; otherwise a plain prompt.
+        let prompt = selectedType.map(loadConstitution) ?? """
+            You are \(nm), a companion in Port42 — a personal system where humans and AI companions \
+            coexist in spaces. You are \(nm). Not an assistant, a companion. Keep replies concise and \
+            conversational; lowercase unless emphasis matters.
+            """
+        var c = AgentConfig.createLLM(ownerId: user.id, displayName: nm, systemPrompt: prompt,
+                                      provider: .anthropic, model: "claude-opus-4-6", trigger: .mentionOnly)
+        c.scopePath = selectedType?.defaultKBPath
+        appState.addCompanion(c)                                              // roster
+        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }   // join THIS space
+        dismiss()
+    }
+
+    /// Load a type's constitution (system prompt) from the bundle — same source as the old sheet.
+    private func loadConstitution(_ t: CompanionTypePreset) -> String {
+        guard let url = Bundle.module.url(forResource: t.constitutionFile, withExtension: "md", subdirectory: "constitutions"),
+              let text = try? String(contentsOf: url) else {
+            return "You are \(t.displayName), a companion in Port42. \(t.label)."
+        }
+        return text
+    }
+
+    private func addExisting(_ c: AgentConfig) {
+        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
+        dismiss()
+    }
+
+    private func dismiss() {
+        withAnimation(.easeIn(duration: 0.18)) { cardScale = 0.9; cardOpacity = 0; scrimOpacity = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { shell.showNewCompanion = false }
     }
 }

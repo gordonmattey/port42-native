@@ -489,61 +489,91 @@ struct ShellFocusContent: View {
     }
 }
 
-// MARK: - Launcher dock (creates tiled ports)
+// MARK: - Dock (companions | ports)
 
+/// The bottom dock, two separated areas: the current space's COMPANIONS (crew + add) and PORTS to
+/// spawn (chat / terminal / browser). Companions are a space primitive — adding one here puts it in
+/// THIS space. Generative/arbitrary ports come from asking a companion in chat, not the dock.
 struct ShellDock: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
 
     var body: some View {
-        HStack(spacing: 12) {
-            ForEach(ShellDemoPort.all) { app in
-                Button { spawn(app) } label: {
-                    Image(systemName: app.icon).font(.system(size: 20, weight: .medium)).foregroundStyle(shell.accent)
-                        .frame(width: 46, height: 46).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.3), lineWidth: 1))
-                }.buttonStyle(.plain).help(app.label)
+        HStack(spacing: 14) {
+            HStack(spacing: 10) {                                   // — COMPANIONS —
+                ForEach(appState.spaceCompanions) { companionChip($0) }
+                addCompanionButton
+            }
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40)
+            HStack(spacing: 10) {                                   // — PORTS —
+                portButton("bubble.left.and.bubble.right", "Chat") { openChat() }
+                portButton("terminal", "Terminal") { spawnStub("terminal", "terminal") }
+                portButton("globe", "Browser") { spawnStub("browser", "browser") }
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(shell.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 24, y: 8)
     }
 
-    private func spawn(_ app: ShellDemoPort) {
+    /// Companion PFP — a themed monogram (no real avatars yet): an accent-tinted disc + initials.
+    private func companionChip(_ c: AgentConfig) -> some View {
+        VStack(spacing: 3) {
+            Circle().fill(Self.avatarColor(c.id).gradient).frame(width: 40, height: 40)
+                .overlay(Text(initials(c.displayName)).font(Port42Theme.monoBold(14)).foregroundStyle(.white))
+                .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+            Text(c.displayName).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1).frame(maxWidth: 54)
+        }
+        .help(c.displayName)
+    }
+
+    /// One click → the new-companion card shows immediately (no menu). Add-existing lives in the card.
+    private var addCompanionButton: some View {
+        Button { shell.showNewCompanion = true } label: {
+            Circle().strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 4])).foregroundStyle(shell.accent.opacity(0.6))
+                .frame(width: 40, height: 40)
+                .overlay(Image(systemName: "plus").font(.system(size: 15, weight: .light)).foregroundStyle(shell.accent))
+        }.buttonStyle(.plain).help("New companion in this space")
+    }
+
+    private func portButton(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(shell.accent)
+                .frame(width: 46, height: 46).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.3), lineWidth: 1))
+        }.buttonStyle(.plain).help(label)
+    }
+
+    private func initials(_ name: String) -> String {
+        let parts = name.split(separator: " ")
+        if parts.count >= 2 { return String(parts[0].prefix(1) + parts[1].prefix(1)).uppercased() }
+        return String(name.prefix(2)).uppercased()
+    }
+    static func avatarColor(_ id: String) -> Color {
+        let h = id.utf8.reduce(0) { $0 &+ Int($1) }
+        return ShellState.palette[h % ShellState.palette.count]
+    }
+
+    /// Chat: bring this space's chat tile back to the desktop (from parked / popped-out / closed).
+    private func openChat() {
         guard let sid = appState.currentSpace?.id else { return }
-        _ = appState.createPort(type: "web", title: app.label, html: app.html,
-                                command: nil, cwd: nil, systemPrompt: nil,
-                                spaceId: sid, createdBy: nil, createdByName: nil,
-                                presentation: "tiled", position: nil, size: app.size)
+        appState.portWindows.revealChat(spaceId: sid)
         shell.arrangeBump += 1
     }
-}
 
-/// Self-contained demo web ports for the launcher (stand-ins until saved/favorite ports land).
-/// Sizes VARY per port (like the prototype) — arrange keeps that variety; it doesn't homogenize.
-struct ShellDemoPort: Identifiable {
-    let id = UUID(); let icon: String; let label: String; let size: CGSize; let html: String
-    static let all: [ShellDemoPort] = [
-        ShellDemoPort(icon: "clock", label: "Clock", size: CGSize(width: 300, height: 180), html: """
-        <html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,#06121a,#000);font-family:ui-monospace,monospace">
-        <div id=t style="font-size:46px;font-weight:800;color:#00FF41;text-shadow:0 0 24px #00FF4199">--:--:--</div>
-        <script>function p(n){return(n<10?'0':'')+n}setInterval(function(){var x=new Date();t.innerText=p(x.getHours())+':'+p(x.getMinutes())+':'+p(x.getSeconds())},250)</script></body></html>
-        """),
-        ShellDemoPort(icon: "waveform.path.ecg", label: "Pulse", size: CGSize(width: 260, height: 260), html: """
-        <html><body style="margin:0;background:#000;overflow:hidden"><canvas id=c></canvas><script>
-        var x=c.getContext('2d'),t=0;function rs(){c.width=innerWidth;c.height=innerHeight}addEventListener('resize',rs);rs();
-        function f(){t+=0.02;x.fillStyle='rgba(0,0,0,0.12)';x.fillRect(0,0,c.width,c.height);var cx=c.width/2,cy=c.height/2;
-        for(var i=0;i<5;i++){var r=30+i*22+Math.sin(t+i)*14;x.beginPath();x.arc(cx,cy,r,0,7);x.strokeStyle='hsla('+(120+i*18+t*30)+',90%,55%,.8)';x.lineWidth=2;x.stroke()}
-        requestAnimationFrame(f)}f()</script></body></html>
-        """),
-        ShellDemoPort(icon: "circle.grid.cross", label: "Matrix", size: CGSize(width: 280, height: 320), html: """
-        <html><body style="margin:0;background:#000;overflow:hidden"><canvas id=c></canvas><script>
-        var x=c.getContext('2d');function rs(){c.width=innerWidth;c.height=innerHeight}addEventListener('resize',rs);rs();
-        var cols=Math.floor(c.width/12),y=[];for(var i=0;i<cols;i++)y[i]=Math.random()*c.height;
-        function f(){x.fillStyle='rgba(0,0,0,0.08)';x.fillRect(0,0,c.width,c.height);x.fillStyle='#00FF41';x.font='13px monospace';
-        for(var i=0;i<cols;i++){var ch=String.fromCharCode(0x30A0+Math.random()*96);x.fillText(ch,i*12,y[i]);if(y[i]>c.height&&Math.random()>0.975)y[i]=0;y[i]+=13}requestAnimationFrame(f)}f()</script></body></html>
-        """),
-    ]
+    /// Placeholder tiles for terminal / browser until their real tiled-port hosts land (terminal ports
+    /// spawn as native floating windows today; a tiled terminal/browser is follow-up plumbing).
+    private func spawnStub(_ kind: String, _ title: String) {
+        guard let sid = appState.currentSpace?.id else { return }
+        let html = """
+        <html><body style="margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:#0a0e12;color:#00d4aa;font-family:ui-monospace,monospace">
+        <div style="font-size:30px">\(kind == "terminal" ? "&gt;_" : "🌐")</div>
+        <div style="font-size:12px;color:#8aa">\(kind) port — coming soon</div></body></html>
+        """
+        _ = appState.createPort(type: "web", title: title, html: html, command: nil, cwd: nil,
+                                systemPrompt: nil, spaceId: sid, createdBy: nil, createdByName: nil,
+                                presentation: "tiled", position: nil, size: CGSize(width: 380, height: 240))
+        shell.arrangeBump += 1
+    }
 }
