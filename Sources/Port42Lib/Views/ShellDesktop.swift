@@ -161,7 +161,7 @@ struct ShellDesktopView: View {
         guard let sid else { return [] }
         let allowed = Set([sid] + shell.openDMSpaceIds)
         return appState.portWindows.panels.filter { p in
-            p.presentation == "tiled" && allowed.contains(p.spaceId ?? "")
+            p.presentation == "tiled" && (allowed.contains(p.spaceId ?? "") || shell.surfacedPortIds.contains(p.id))
         }
     }
 
@@ -493,14 +493,17 @@ struct ShellNotificationRail: View {
         let col = ShellDock.avatarColor(n.companionName ?? n.spaceId)
         return HStack(spacing: 8) {
             Circle().fill(col.gradient).frame(width: 26, height: 26)
-                .overlay(Text(String((n.companionName ?? n.spaceName).prefix(1)).uppercased())
-                    .font(Port42Theme.monoBold(11)).foregroundStyle(.white))
+                .overlay(Group {
+                    if n.portId != nil { Image(systemName: "square.stack.3d.up").font(.system(size: 11)).foregroundStyle(.white) }
+                    else { Text(String((n.companionName ?? n.spaceName).prefix(1)).uppercased()).font(Port42Theme.monoBold(11)).foregroundStyle(.white) }
+                })
             VStack(alignment: .leading, spacing: 1) {
-                Text(n.companionName ?? n.spaceName).font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
-                Text("\(n.count) new · \(n.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
+                Text(n.portTitle ?? n.companionName ?? n.spaceName).font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                Text(n.portId != nil ? "port · \(n.spaceName)" : "\(n.count) new · \(n.spaceName)")
+                    .font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            Button { shell.acknowledgeNotification(spaceId: n.spaceId) } label: {
+            Button { shell.acknowledgeNotification(n) } label: {
                 Image(systemName: "xmark").font(.system(size: 8)).foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
             }.buttonStyle(.plain)
         }

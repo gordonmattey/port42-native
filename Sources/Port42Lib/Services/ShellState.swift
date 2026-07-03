@@ -47,26 +47,35 @@ public final class ShellState: ObservableObject {
 
     private let appState: AppState
     private var notifSink: AnyCancellable?
+    private var portSink: AnyCancellable?
     public init(appState: AppState) {
         self.appState = appState
         // Notifications (§8b): a non-current space gaining unread activity (a companion reply / chat)
-        // raises a peeking notification. Later triggers (a port created elsewhere, a port raising its
-        // own) will call `raiseNotification` directly.
+        // raises a peeking chat notification…
         notifSink = appState.$unreadCounts
             .receive(on: RunLoop.main)
             .sink { [weak self] counts in self?.refreshNotifications(from: counts) }
+        // …and a TILED port BORN in another space raises a peeking port notification — the live port
+        // from elsewhere, clickable to surface here (the heart of §8b).
+        portSink = appState.portWindows.portCreated
+            .receive(on: RunLoop.main)
+            .sink { [weak self] p in self?.raisePortNotification(id: p.id, spaceId: p.spaceId, title: p.title) }
     }
 
     // MARK: - Notifications (§8b) — a live port/chat from ANOTHER space, peeking on this desktop
 
     public struct ShellNotification: Identifiable, Equatable {
-        public var id: String { spaceId }      // coalesced: one per source space
+        public let id: String                  // spaceId for a chat, portId for a port
         public let spaceId: String
         public let spaceName: String
         public let companionName: String?      // who, when the space is a companion DM
         public var count: Int
+        public var portId: String? = nil       // nil = the space's chat; set = a specific port
+        public var portTitle: String? = nil
     }
     @Published public var notifications: [ShellNotification] = []
+    /// Specific foreign ports surfaced onto THIS desktop from a port notification (by port id, any space).
+    @Published public var surfacedPortIds: Set<String> = []
 
     /// Rebuild notifications from unread counts: a space with unread > 0 that is NOT the current space
     /// and NOT already surfaced as a tile earns a peeking notification. Coalesced one-per-space; it
@@ -76,38 +85,52 @@ public final class ShellState: ObservableObject {
         let surfaced = Set(openDMSpaceIds)
         for (spaceId, count) in counts {
             guard count > 0, spaceId != currentId, !surfaced.contains(spaceId) else {
-                notifications.removeAll { $0.spaceId == spaceId }
+                notifications.removeAll { $0.portId == nil && $0.spaceId == spaceId }
                 continue
             }
             let companion = appState.companions(forSpace: spaceId).first
             let name = appState.spaces.first(where: { $0.id == spaceId })?.name
                 ?? companion?.displayName ?? "space"
-            if let idx = notifications.firstIndex(where: { $0.spaceId == spaceId }) {
+            if let idx = notifications.firstIndex(where: { $0.portId == nil && $0.spaceId == spaceId }) {
                 notifications[idx].count = count
             } else {
-                notifications.append(ShellNotification(spaceId: spaceId, spaceName: name,
+                notifications.append(ShellNotification(id: spaceId, spaceId: spaceId, spaceName: name,
                                                        companionName: companion?.displayName, count: count))
             }
         }
-        // Drop any notification whose space fell out of the unread set entirely.
-        notifications.removeAll { counts[$0.spaceId] == nil }
+        // Drop any CHAT notification whose space fell out of the unread set (leaves port ones alone).
+        notifications.removeAll { $0.portId == nil && counts[$0.spaceId] == nil }
+    }
+
+    /// A tiled port born in another space → a port notification (deduped by port id).
+    private func raisePortNotification(id: String, spaceId: String?, title: String) {
+        guard let sid = spaceId, sid != appState.currentSpace?.id else { return }
+        guard !notifications.contains(where: { $0.portId == id }) else { return }
+        let name = appState.spaces.first(where: { $0.id == sid })?.name ?? "space"
+        notifications.append(ShellNotification(id: id, spaceId: sid, spaceName: name,
+                                               companionName: nil, count: 1, portId: id, portTitle: title))
     }
 
     /// Dismiss a notification without opening it.
-    public func acknowledgeNotification(spaceId: String) {
-        notifications.removeAll { $0.spaceId == spaceId }
-    }
+    public func acknowledgeNotification(_ n: ShellNotification) { notifications.removeAll { $0.id == n.id } }
+    public func acknowledgeNotification(spaceId: String) { notifications.removeAll { $0.portId == nil && $0.spaceId == spaceId } }
 
-    /// Click a notification → surface that space's chat as a live tile on THIS desktop (no space
-    /// switch) and zoom into it, then acknowledge. Reuses the multi-space re-parent (DM coexistence).
+    /// Click a notification → surface it as a live tile on THIS desktop (no space switch) and zoom in.
+    /// A port notification surfaces that specific port; a chat notification surfaces the space's chat.
     public func openNotification(_ n: ShellNotification) {
-        surfaceSpaceChat(spaceId: n.spaceId, spaceName: n.spaceName)
-        acknowledgeNotification(spaceId: n.spaceId)
-        appState.lastReadDates[n.spaceId] = Date()      // viewing it clears the unread badge
-
-        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == n.spaceId }) {
-            withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
+        if let pid = n.portId {
+            surfacedPortIds.insert(pid)                 // include it in the desktop's tiles
+            bringToFront(pid)
+            arrangeBump += 1
+            withAnimation(.spring(response: 0.4)) { zoom = .focus(pid) }
+        } else {
+            surfaceSpaceChat(spaceId: n.spaceId, spaceName: n.spaceName)
+            appState.lastReadDates[n.spaceId] = Date()  // viewing it clears the unread badge
+            if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == n.spaceId }) {
+                withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
+            }
         }
+        notifications.removeAll { $0.id == n.id }
     }
 
     /// Surface ANY space's chat as a tile on the current desktop (generalizes `openDM`).
@@ -332,6 +355,7 @@ public final class ShellState: ObservableObject {
     public func clearOpenDMs() {
         for sid in openDMSpaceIds { appState.deactivateSpaceMessages(spaceId: sid) }
         openDMSpaceIds.removeAll()
+        surfacedPortIds.removeAll()          // foreign ports surfaced from notifications are per-desktop too
     }
 
     /// Dismiss any tile via its close affordance. A surfaced DM is torn down (removed from the desktop

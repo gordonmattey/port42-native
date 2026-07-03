@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import WebKit
+import Combine
 
 // MARK: - Port Panel
 
@@ -111,6 +112,10 @@ public final class PortWindowManager: ObservableObject {
 
     /// Persistent WKWebViews, keyed by panel ID. Created once, reparented on dock/undock.
     public var webViews: [String: WKWebView] = [:]
+
+    /// Fires when a TILED port is created (web/terminal/browser), so the shell can raise a §8b
+    /// notification for one born in another space (a port from elsewhere peeking in).
+    public let portCreated = PassthroughSubject<(id: String, spaceId: String?, title: String), Never>()
 
     /// Persistent Ghostty terminal views (shell tile path), keyed by panel ID. Same idea as
     /// `webViews`: created once, re-parented between tile/focus/park with no reload. The paired
@@ -437,6 +442,7 @@ public final class PortWindowManager: ObservableObject {
         panels.append(panel)
         createPortWebView(for: panel)
         persistPanel(id)                       // SHELL S3 — tiled ports persist (survive restart)
+        portCreated.send((id: id, spaceId: spaceId, title: resolvedTitle ?? "port"))
         return bridge
     }
 
@@ -457,6 +463,7 @@ public final class PortWindowManager: ObservableObject {
         panel.position = nil                    // let arrange place it
         panels.append(panel)
         persistPanel(id)
+        portCreated.send((id: id, spaceId: spaceId, title: title))
         return id
     }
 
@@ -478,6 +485,7 @@ public final class PortWindowManager: ObservableObject {
         panels.append(panel)
         createPortWebView(for: panel)
         persistPanel(id)
+        portCreated.send((id: id, spaceId: spaceId, title: title))
         return id
     }
 
