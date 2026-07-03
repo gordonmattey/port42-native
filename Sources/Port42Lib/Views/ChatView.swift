@@ -2,9 +2,16 @@ import SwiftUI
 import AppKit
 
 public struct ChatView: View {
-    public init() {}
+    /// SHELL (B): when non-nil, this chat renders a specific space's conversation regardless of the
+    /// selected space — that's how DM tiles and the space chat coexist as separate live windows.
+    /// nil falls back to the current space (the classic single-chat behavior).
+    private let explicitSpaceId: String?
+    public init(spaceId: String? = nil) { self.explicitSpaceId = spaceId }
     @EnvironmentObject var appState: AppState
     @State private var activePerm: PortPermission?
+
+    /// The space this view reads/writes. Explicit id wins; otherwise the current space.
+    private var spaceId: String? { explicitSpaceId ?? appState.currentSpace?.id }
 
     public var body: some View {
         ZStack {
@@ -13,28 +20,28 @@ public struct ChatView: View {
                 ConversationContent(
                     entries: spaceEntries,
                     placeholder: "chat with your reality... (press ? for help)",
-                    error: appState.spaceErrors[appState.currentSpace?.id ?? ""],
-                    typingNames: Array(appState.typingAgentNames.union(
-                        appState.sync.remoteTypingNames[appState.currentSpace?.id ?? ""] ?? []
+                    error: appState.spaceErrors[spaceId ?? ""],
+                    typingNames: Array((appState.typingAgentNamesBySpace[spaceId ?? ""] ?? []).union(
+                        appState.sync.remoteTypingNames[spaceId ?? ""] ?? []
                     )),
                     toolingNames: Array(appState.toolingAgentNames),
                     mentionCandidates: buildMentionCandidates(),
                     localOwner: appState.currentUser?.displayName,
-                    spaceId: appState.currentSpace?.id,
-                    onSend: { content in appState.sendMessage(content: content) },
+                    spaceId: spaceId,
+                    onSend: { content in appState.sendMessage(content: content, toSpaceId: spaceId) },
                     onStop: {
-                        if let spaceId = appState.currentSpace?.id {
+                        if let spaceId = spaceId {
                             appState.cancelStreaming(spaceId: spaceId)
                         }
                     },
                     onRetry: {
-                        if let spaceId = appState.currentSpace?.id {
+                        if let spaceId = spaceId {
                             AgentAuthResolver.shared.clearCache()
                             appState.retryLastMessage(spaceId: spaceId)
                         }
                     },
                     onDismissError: {
-                        if let spaceId = appState.currentSpace?.id {
+                        if let spaceId = spaceId {
                             appState.spaceErrors[spaceId] = nil
                         }
                     },
@@ -42,7 +49,7 @@ public struct ChatView: View {
                         NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
                     },
                     onTypingChanged: { isTyping in
-                        if let spaceId = appState.currentSpace?.id,
+                        if let spaceId = spaceId,
                            let userName = appState.currentUser?.displayName {
                             appState.sync.sendTyping(spaceId: spaceId, senderName: userName, isTyping: isTyping)
                         }
@@ -84,7 +91,7 @@ public struct ChatView: View {
     }
 
     private func copyConversation() {
-        guard let spaceId = appState.currentSpace?.id else { return }
+        guard let spaceId = spaceId else { return }
         let msgs = (try? appState.db.getMessages(spaceId: spaceId)) ?? []
         let text = msgs.map { "\($0.senderName): \($0.content)" }.joined(separator: "\n")
         NSPasteboard.general.clearContents()
@@ -94,7 +101,7 @@ public struct ChatView: View {
 
     private var spaceEntries: [ChatEntry] {
         let currentUserId = appState.currentUser?.id
-        return appState.messages.compactMap { message in
+        return appState.messages(for: spaceId).compactMap { message in
             // Hide empty placeholders (agent is still typing)
             if message.isAgent && message.content.isEmpty { return nil }
             return ChatEntry(
@@ -131,7 +138,7 @@ public struct ChatView: View {
         }
 
         // Remote members from space message history
-        guard let spaceId = appState.currentSpace?.id else { return candidates }
+        guard let spaceId = spaceId else { return candidates }
         let members = (try? appState.db.getSpaceMembers(spaceId: spaceId)) ?? []
 
         for member in members {

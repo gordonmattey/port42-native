@@ -74,10 +74,14 @@ struct ShellDesktopView: View {
 
     private var sid: String? { appState.currentSpace?.id }
 
-    /// The current space's tiled web ports (chat renders separately as the back-anchor tile).
+    /// The tiled ports on this desktop: the current space's, plus any open DM chats surfaced as
+    /// tiles alongside it (B — the space chat and each DM coexist as separate live windows).
     private var tiledPanels: [PortPanel] {
         guard let sid else { return [] }
-        return appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
+        let allowed = Set([sid] + shell.openDMSpaceIds)
+        return appState.portWindows.panels.filter { p in
+            p.presentation == "tiled" && allowed.contains(p.spaceId ?? "")
+        }
     }
 
     var body: some View {
@@ -121,6 +125,7 @@ struct ShellDesktopView: View {
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
             .onAppear { seedIfNeeded(area: geo.size) }
             .onChange(of: appState.currentSpace?.id) { _, _ in
+                shell.clearOpenDMs()                                                       // DMs are per-desktop
                 if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile
             }
             .onChange(of: tiledPanels.count) { _, _ in shell.applyArrange(area: geo.size) }   // spawn/park/close re-grids
@@ -189,6 +194,13 @@ struct ShellTile: View {
     private var isSelected: Bool { shell.selectedTileId == tile.id }
     private var sid: String? { appState.currentSpace?.id }
 
+    /// The DM partner when this tile is a surfaced direct-message chat (else nil → ordinary title).
+    private var dmTileCompanion: AgentConfig? {
+        guard tile.panel?.isChatPort == true, let s = tile.panel?.spaceId,
+              shell.openDMSpaceIds.contains(s) else { return nil }
+        return appState.companions(forSpace: s).first
+    }
+
     /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize. The
     /// tile is placed top-left via `.offset`, so both move and resize just recompute this rect.
     private var liveFrame: CGRect {
@@ -237,7 +249,7 @@ struct ShellTile: View {
                         Text("focused — Esc to return").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.5))
                 } else {
-                    ShellTileBody(appState: appState, tile: tile)
+                    ShellTileBody(shell: shell, appState: appState, tile: tile)
                 }
             }
             .frame(width: liveSize.width, height: max(0, liveSize.height - titleBarH))
@@ -263,7 +275,7 @@ struct ShellTile: View {
         }
         .shadow(color: shell.accent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
         .scaleEffect(exposeScale, anchor: .center)            // exposé shrinks/grows the tile to ~fit its cell
-        .onHover { if $0 { shell.selectedTileId = tile.id } }   // BEFORE .position → tracking area on the bounded tile
+        .onHover { if $0 { shell.bringToFront(tile.id) } }   // hover raises the tile to the front + selects (BEFORE .position → tracking on the bounded tile)
         .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: exposeFrame)
     }
@@ -272,8 +284,14 @@ struct ShellTile: View {
         HStack(spacing: 8) {
             // Drag handle = dot + title + trailing gap; scoped so the focus/close buttons still tap.
             HStack(spacing: 8) {
-                Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
-                Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                if let dm = dmTileCompanion {                                    // DM tile → partner's swatch + name
+                    Circle().fill(ShellDock.avatarColor(dm.id).gradient).frame(width: 7, height: 7)
+                    Text(dm.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                    Text("· DM").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                } else {
+                    Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
+                    Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                }
                 Spacer(minLength: 8)
             }
             .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
@@ -283,10 +301,9 @@ struct ShellTile: View {
                 Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
             }.buttonStyle(.plain).help("Focus (⌘↓)")
             if let panel = tile.panel {
-                Button { appState.portWindows.popOutTiled(id: panel.id, in: area) } label: {   // → floating NSPanel, no reload
-                    Image(systemName: "macwindow").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Pop out (dock back from the rail)")
-                Button { appState.portWindows.close(panel.id) } label: {
+                // No "pop out to floating window": a tile IS the floating window. States are tile ⇄
+                // parked (rail) ⇄ focus — one frame, not two.
+                Button { shell.dismissTile(panel) } label: {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
                 }.buttonStyle(.plain)
             }
@@ -318,7 +335,7 @@ struct ShellTile: View {
                 shell.draggingOverPark = nil
                 moveDelta = .zero
                 switch zone {                                                    // any tile (chat included) — count↓ re-grids
-                case .close: if let panel = tile.panel { appState.portWindows.close(panel.id) }
+                case .close: if let panel = tile.panel { shell.dismissTile(panel) }
                 case .park:  if let panel = tile.panel { appState.portWindows.park(id: panel.id) }
                 case nil:
                     commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
@@ -366,12 +383,13 @@ struct ShellParkRail: View {
     @ObservedObject var appState: AppState
     let area: CGSize
 
-    /// Detached ports that live in the rail: parked (minimized) and floating (popped out) — both
-    /// dock back to a tile with one click.
+    /// Ports put away in the rail. Only `parked` now — there's no in-shell floating; a tile that isn't
+    /// parked is on the desktop. One click docks a parked port back to a tile.
     private var railPanels: [PortPanel] {
         guard let sid = appState.currentSpace?.id else { return [] }
+        let allowed = Set([sid] + shell.openDMSpaceIds)              // parked DM tiles dock here too
         return appState.portWindows.panels.filter {
-            $0.spaceId == sid && ($0.presentation == "parked" || $0.presentation == "floating")
+            allowed.contains($0.spaceId ?? "") && $0.presentation == "parked"
         }
     }
 
@@ -427,19 +445,51 @@ struct ShellParkRail: View {
     }
 }
 
-/// A tile's live body: the chat surface, or a tiled port's re-parented webview.
+/// A tile's live body: the chat surface (with a member header), or a tiled port's re-parented webview.
 struct ShellTileBody: View {
+    @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     let tile: ShellTileModel
 
     var body: some View {
-        if tile.panel?.isChatPort == true {                             // the chat panel renders ChatView
-            ChatView().environmentObject(appState)
-        } else if let panel = tile.panel, let wv = appState.portWindows.webViews[panel.id] {
-            PortWebViewHost(webView: wv, bridge: panel.bridge)
+        if tile.panel?.isChatPort == true {                             // the chat panel: ChatView + a hover member strip
+            ZStack(alignment: .top) {
+                ChatView(spaceId: tile.panel?.spaceId).environmentObject(appState).padding(.top, 26)   // its OWN space
+                ShellMemberRow(shell: shell, appState: appState, accent: shell.accent, spaceId: tile.panel?.spaceId)
+            }
+        } else if let panel = tile.panel, let v = appState.portWindows.hostView(for: panel.id) {
+            ShellPortHost(view: v, bridge: panel.bridge)      // web OR terminal — one host
         } else {
             Color.black
         }
+    }
+}
+
+/// One host to re-parent ANY port's persistent view into a shell tile/focus — a web port's WKWebView
+/// or a terminal port's Ghostty surface. Mirrors `PortWebViewHost`'s reparent trick; `updateNSView`
+/// deliberately does nothing so moving the view between containers (tile ↔ focus ↔ rail) never
+/// reclaims or reloads it. This is what makes "a tile hosts any port" literally true.
+struct ShellPortHost: NSViewRepresentable {
+    let view: NSView
+    var bridge: PortBridge? = nil
+
+    func makeNSView(context: Context) -> NSView {
+        let container = PortWebViewContainer()
+        container.bridge = bridge
+        view.removeFromSuperview()
+        container.addSubview(view)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+        return container
+    }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        // Don't reclaim the view if it moved to another container (tile/focus/rail reparenting).
     }
 }
 
@@ -456,9 +506,14 @@ struct ShellFocusContent: View {
                 .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Circle().fill(shell.accent).frame(width: 8, height: 8)
+                    if let dm = dmCompanion {                         // DM → show the partner, not a generic dot
+                        Circle().fill(ShellDock.avatarColor(dm.id).gradient).frame(width: 18, height: 18)
+                            .overlay(Text(String(dm.displayName.prefix(1)).uppercased()).font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
+                    } else {
+                        Circle().fill(shell.accent).frame(width: 8, height: 8)
+                    }
                     Text(title).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
-                    Text("· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                    Text(dmCompanion != nil ? "· DM" : "· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                     Spacer()
                     Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } } label: {
                         Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
@@ -475,14 +530,26 @@ struct ShellFocusContent: View {
     }
 
     private var panel: PortPanel? { appState.portWindows.panels.first { $0.id == id } }
-    private var title: String { panel?.title ?? "port" }
+    /// The DM partner when focusing a chat that belongs to a 2-member `direct` space (else nil).
+    /// Derived from the TILE's own space, so it works for a DM surfaced over a non-direct desktop.
+    private var dmCompanion: AgentConfig? {
+        guard panel?.isChatPort == true, let sid = panel?.spaceId else { return nil }
+        let isDirect = shell.openDMSpaceIds.contains(sid)
+            || (sid == appState.currentSpace?.id && appState.currentSpace?.type == "direct")
+        guard isDirect else { return nil }
+        return appState.companions(forSpace: sid).first
+    }
+    private var title: String { dmCompanion?.displayName ?? panel?.title ?? "port" }
 
     @ViewBuilder
     private func body(for id: String) -> some View {
         if panel?.isChatPort == true {
-            ChatView().environmentObject(appState)
-        } else if let p = panel, let wv = appState.portWindows.webViews[p.id] {
-            PortWebViewHost(webView: wv, bridge: p.bridge)
+            ZStack(alignment: .top) {                                    // same member strip as the tile
+                ChatView(spaceId: panel?.spaceId).environmentObject(appState).padding(.top, 26)
+                ShellMemberRow(shell: shell, appState: appState, accent: shell.accent, spaceId: panel?.spaceId)
+            }
+        } else if let p = panel, let v = appState.portWindows.hostView(for: p.id) {
+            ShellPortHost(view: v, bridge: p.bridge)
         } else {
             Color.black
         }
@@ -507,7 +574,7 @@ struct ShellDock: View {
             Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40)
             HStack(spacing: 10) {                                   // — PORTS —
                 portButton("bubble.left.and.bubble.right", "Chat") { openChat() }
-                portButton("terminal", "Terminal") { spawnStub("terminal", "terminal") }
+                portButton("terminal", "Terminal") { spawnTerminal() }
                 portButton("globe", "Browser") { spawnStub("browser", "browser") }
             }
         }
@@ -525,8 +592,11 @@ struct ShellDock: View {
                 .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
             Text(c.displayName).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1).frame(maxWidth: 54)
         }
-        .help(c.displayName)
-        .onLongPressGesture(minimumDuration: 0.45) { shell.settingsTarget = .companion(c.id) }   // → companion settings
+        .contentShape(Rectangle())
+        .help("\(c.displayName) — click to DM, hold for settings")
+        // Hold → settings (high-priority so it wins); a quick tap → open the 1:1 DM (a 2-member space).
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in shell.settingsTarget = .companion(c.id) })
+        .onTapGesture { shell.activateCompanion(c) }
     }
 
     /// One click → the new-companion card shows immediately (no menu). Add-existing lives in the card.
@@ -535,6 +605,7 @@ struct ShellDock: View {
             Circle().strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 4])).foregroundStyle(shell.accent.opacity(0.6))
                 .frame(width: 40, height: 40)
                 .overlay(Image(systemName: "plus").font(.system(size: 15, weight: .light)).foregroundStyle(shell.accent))
+                .contentShape(Circle())          // whole disc is the tap target, not just the glyph
         }.buttonStyle(.plain).help("New companion in this space")
     }
 
@@ -558,13 +629,23 @@ struct ShellDock: View {
 
     /// Chat: bring this space's chat tile back to the desktop (from parked / popped-out / closed).
     private func openChat() {
-        guard let sid = appState.currentSpace?.id else { return }
-        appState.portWindows.revealChat(spaceId: sid)
+        guard let s = appState.currentSpace else { return }
+        appState.portWindows.revealChat(spaceId: s.id, spaceName: s.name)
         shell.arrangeBump += 1
     }
 
-    /// Placeholder tiles for terminal / browser until their real tiled-port hosts land (terminal ports
-    /// spawn as native floating windows today; a tiled terminal/browser is follow-up plumbing).
+    /// Dock "Terminal" → a real plain-shell terminal port. In the shell it's a tile (hoisted Ghostty
+    /// surface, re-parents like any tile); "" startup means it just drops into an interactive shell.
+    private func spawnTerminal() {
+        guard let sid = appState.currentSpace?.id else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        _ = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: home, spaceId: sid,
+                                             title: "terminal", companionName: "terminal",
+                                             postCard: false, startupCommandOverride: "")
+        shell.arrangeBump += 1
+    }
+
+    /// Placeholder tile for browser until its real tiled-port host lands (follow-up plumbing).
     private func spawnStub(_ kind: String, _ title: String) {
         guard let sid = appState.currentSpace?.id else { return }
         let html = """
@@ -577,4 +658,125 @@ struct ShellDock: View {
                                 presentation: "tiled", position: nil, size: CGSize(width: 380, height: 240))
         shell.arrangeBump += 1
     }
+}
+
+// MARK: - Chat member row (you + the space's companions, with live status)
+
+/// The chat tile's members — a THIN strip at rest (overlapping avatars + count, a pulse if anyone's
+/// thinking); **hover expands** it into the full list (you + companions, each with status). It's an
+/// overlay, so it doesn't permanently eat chat space. Click a companion → its 1:1 DM.
+struct ShellMemberRow: View {
+    @ObservedObject var shell: ShellState
+    @ObservedObject var appState: AppState
+    let accent: Color
+    /// Which space's members to show — nil means the current space (the group chat tile). DM tiles
+    /// pass their own space id so each chat window shows its OWN crew.
+    var spaceId: String? = nil
+    @State private var expanded = false
+    @State private var hoveredId: String?
+    @State private var hoverGen = 0     // hysteresis token so a brief exit doesn't flap the expansion
+
+    private var members: [AgentConfig] { appState.companions(forSpace: spaceId ?? appState.currentSpace?.id) }
+
+    var body: some View {
+        let sid = spaceId ?? appState.currentSpace?.id ?? ""
+        let thinking = appState.typingAgentNamesBySpace[sid] ?? []
+        VStack(spacing: 0) {
+            collapsedStrip(anyThinking: !thinking.isEmpty)
+            if expanded { fullList(thinking: thinking) }
+        }
+        .onHover { hovering in
+            hoverGen += 1
+            if hovering {
+                expanded = true
+            } else {
+                // Collapse after a short grace window; a fast sweep that clips the titlebar seam and
+                // comes back cancels it (newer hoverGen), so the list neither flaps nor sticks open.
+                let gen = hoverGen
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                    if gen == hoverGen { expanded = false }
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: expanded)
+    }
+
+    private func collapsedStrip(anyThinking: Bool) -> some View {
+        HStack(spacing: 8) {
+            HStack(spacing: -6) {                                        // overlapping avatars
+                ForEach(members.prefix(5)) { c in
+                    Circle().fill(ShellDock.avatarColor(c.id).gradient).frame(width: 15, height: 15)
+                        .overlay(Text(initials(c.displayName)).font(.system(size: 6, weight: .bold)).foregroundStyle(.white))
+                        .overlay(Circle().stroke(Color.black.opacity(0.5), lineWidth: 1))
+                }
+            }
+            Text("\(members.count) + you").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+            Spacer(minLength: 6)
+            if anyThinking { statusDot(thinking: true); Text("thinking").font(Port42Theme.mono(8)).foregroundStyle(accent) }
+            Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 7)).foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+        }
+        .padding(.horizontal, 10).frame(height: 26)
+        .background(Color.black.opacity(0.35))
+        .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
+    }
+
+    private func fullList(thinking: Set<String>) -> some View {
+        VStack(spacing: 2) {
+            memberRow(color: Port42Theme.textSecondary, name: appState.currentUser?.displayName ?? "you",
+                      thinking: false, companion: nil)
+            ForEach(members) { c in
+                memberRow(color: ShellDock.avatarColor(c.id), name: c.displayName,
+                          thinking: thinking.contains(c.displayName), companion: c)
+            }
+        }
+        .padding(.vertical, 6).padding(.horizontal, 6)
+        .background(Color(red: 0.05, green: 0.06, blue: 0.08))
+        .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
+        .transition(.opacity)   // fade only — a move-from-top slid the list up into the titlebar (glitch)
+    }
+
+    private func memberRow(color: Color, name: String, thinking: Bool, companion: AgentConfig?) -> some View {
+        let isYou = companion == nil
+        let hot = companion.map { hoveredId == $0.id } ?? false
+        return HStack(spacing: 8) {
+            Circle().fill(isYou ? AnyShapeStyle(color.opacity(0.5)) : AnyShapeStyle(color.gradient))
+                .frame(width: 20, height: 20)
+                .overlay(Text(initials(name)).font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
+            Text(name).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+            if isYou { Text("you").font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary) }
+            Spacer(minLength: 6)
+            if companion != nil { statusView(thinking: thinking) }
+            if hot { Image(systemName: "bubble.left").font(.system(size: 9)).foregroundStyle(accent) }   // → DM hint
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 7).fill(hot ? Color.white.opacity(0.06) : .clear))
+        .contentShape(Rectangle())
+        .onHover { h in if let c = companion { hoveredId = h ? c.id : (hoveredId == c.id ? nil : hoveredId) } }
+        .onTapGesture { if let c = companion { shell.activateCompanion(c) } }   // CLI → terminal, else DM
+    }
+
+    @ViewBuilder private func statusView(thinking: Bool) -> some View {
+        if thinking {
+            HStack(spacing: 4) {
+                statusDot(thinking: true)
+                Text("thinking").font(Port42Theme.mono(8)).foregroundStyle(accent)
+            }
+        } else {
+            statusDot(thinking: false)
+        }
+    }
+
+    @ViewBuilder private func statusDot(thinking: Bool) -> some View {
+        if thinking {
+            TimelineView(.animation) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                Circle().fill(accent).frame(width: 6, height: 6)
+                    .opacity(0.4 + 0.6 * abs(sin(t * 3)))     // pulse while thinking
+            }
+        } else {
+            Circle().fill(Color.white.opacity(0.22)).frame(width: 6, height: 6)   // idle
+        }
+    }
+
+    private func initials(_ name: String) -> String { name.isEmpty ? "?" : String(name.prefix(2)).uppercased() }
 }

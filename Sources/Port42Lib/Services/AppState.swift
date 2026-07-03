@@ -106,7 +106,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
     let messageId: String
     private let engine: LLMBackend
     private weak var appState: AppState?
-    private var bufferedContent = ""
+    private(set) var bufferedContent = ""
     private var isTyping = false
     private var toolExecutor: ToolExecutor?
     private var savedMessages: [[String: Any]] = []
@@ -812,6 +812,10 @@ public final class AppState: ObservableObject {
 
     private var spaceObservation: AnyDatabaseCancellable?
     private var messageObservation: AnyDatabaseCancellable?
+    /// SHELL multi-space chat: messages for spaces OTHER than the current one (open DM tiles), each
+    /// live-observed. `messages` stays the current space's; `messages(for:)` unifies the read.
+    @Published public var messagesBySpace: [String: [Message]] = [:]
+    private var extraMessageObservations: [String: AnyDatabaseCancellable] = [:]
     private var unreadObservation: AnyDatabaseCancellable?
     private var agentSpacesObservation: AnyDatabaseCancellable?
     private var senderCountsObservation: AnyDatabaseCancellable?
@@ -2402,7 +2406,8 @@ public final class AppState: ObservableObject {
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
                                  spaceId: String, title: String, companionName: String,
                                  systemPrompt: String? = nil, env: [String: String] = [:],
-                                 recordKey: String? = nil, postCard: Bool = true) -> String? {
+                                 recordKey: String? = nil, postCard: Bool = true,
+                                 startupCommandOverride: String? = nil) -> String? {
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
         // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
@@ -2415,7 +2420,9 @@ public final class AppState: ObservableObject {
         // function entirely → no --settings → no hooks → nothing posts. Other tools run as given.
         let cmdName = (command as NSString).lastPathComponent
         let launchCmd = GhosttyTerminalController.isHooksCapable(cmdName) ? cmdName : command
-        let startupCommand = quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)"
+        // A plain terminal (dock button) passes "" so it just drops into the interactive shell with
+        // nothing typed; companions pass nil and get their command auto-typed.
+        let startupCommand = startupCommandOverride ?? (quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)")
 
         let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
         // Bake the Port42 framing around the RAW systemPrompt here (centralized in
@@ -2440,14 +2447,30 @@ public final class AppState: ObservableObject {
             return nil
         }
 
-        // Native terminals can't render inline — pop out a floating native window directly.
-        // The bridge is unused by the terminal path but popOut's signature requires one.
-        let portMessageId = UUID().uuidString
-        let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: portMessageId, createdBy: companionName)
-        let portId = portWindows.popOut(html: json, bridge: bridge, spaceId: spaceId, createdBy: companionName,
+        // A terminal is a port; in the shell a port is a tile. So spawn it as a TILED terminal (a
+        // hoisted Ghostty surface re-parented like any tile) rather than a floating window. Outside
+        // the shell (classic app) keep the floating native window.
+        let portId: String
+        if ShellMode.isEnabled() {
+            portId = portWindows.addTiledTerminalPanel(configJSON: json, spaceId: spaceId,
+                                                       createdBy: companionName, title: title)
+            if let panel = portWindows.panels.first(where: { $0.id == portId }),
+               let controller = makeTerminalController(for: panel) {
+                let built = GhosttyTerminalView.makeDetached(
+                    config: config, env: controller.env,
+                    onTee: { controller.receiveTee($0) },
+                    onInject: { controller.bindSurface($0) })
+                portWindows.storeTerminalView(id: portId, view: built.view, coordinator: built.coordinator)
+            }
+        } else {
+            // The bridge is unused by the terminal path but popOut's signature requires one.
+            let portMessageId = UUID().uuidString
+            let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: portMessageId, createdBy: companionName)
+            portId = portWindows.popOut(html: json, bridge: bridge, spaceId: spaceId, createdBy: companionName,
                                         messageId: portMessageId, title: title, portType: "terminal",
                                         in: CGSize(width: 800, height: 600))
-        NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
+        }
+        NSLog("[Port42] Spawned native terminal port '%@' (id=%@, tiled=%@)", title, portId, ShellMode.isEnabled() ? "Y" : "N")
 
         // Step 5b: record params so the card's play can respawn after a close, and track the
         // currently-live port id under the stable card key (`recordKey` on respawn, else portId).
@@ -2874,6 +2897,76 @@ public final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - SHELL multi-space chat (B)
+    //
+    // The shell surfaces several chat tiles at once — the current space's chat plus any open DMs —
+    // each a live conversation in its OWN space. The current space streams through `messages`; every
+    // other surfaced space streams through `messagesBySpace`, one observation apiece. `messages(for:)`
+    // gives views a single read that works regardless of which bucket a space lives in.
+
+    /// Live read for a space's chat, current or backgrounded. Views pass their own `spaceId`.
+    public func messages(for spaceId: String?) -> [Message] {
+        guard let sid = spaceId else { return [] }
+        if sid == currentSpace?.id { return messages }
+        return messagesBySpace[sid] ?? []
+    }
+
+    /// The companions in a given space, current or not (reactive via `spaceAgentIds` + `companions`).
+    public func companions(forSpace spaceId: String?) -> [AgentConfig] {
+        guard let sid = spaceId else { return [] }
+        if sid == currentSpace?.id { return spaceCompanions }
+        let ids = spaceAgentIds[sid] ?? []
+        return companions.filter { ids.contains($0.id) }
+    }
+
+    /// Overlay in-flight streaming tokens (held on the active handler) onto DB rows for a space.
+    private func overlayStreaming(_ dbMessages: [Message], spaceId: String) -> [Message] {
+        guard !activeAgentHandlers.isEmpty else { return dbMessages }
+        var merged = dbMessages
+        for handler in activeAgentHandlers.values where handler.spaceId == spaceId {
+            if let idx = merged.firstIndex(where: { $0.id == handler.messageId }) {
+                merged[idx].content = handler.bufferedContent
+            }
+        }
+        return merged
+    }
+
+    /// Begin observing a NON-current space's chat into `messagesBySpace` (idempotent).
+    public func activateSpaceMessages(spaceId: String) {
+        guard spaceId != currentSpace?.id, extraMessageObservations[spaceId] == nil else { return }
+        messagesBySpace[spaceId] = overlayStreaming((try? db.getMessages(spaceId: spaceId, topic: "chat")) ?? [], spaceId: spaceId)
+        extraMessageObservations[spaceId] = db.observeMessages(spaceId: spaceId, topic: "chat") { [weak self] dbMessages in
+            Task { @MainActor in
+                guard let self else { return }
+                self.messagesBySpace[spaceId] = self.overlayStreaming(dbMessages, spaceId: spaceId)
+                if let last = dbMessages.last(where: { $0.senderType != "system" }) {
+                    self.lastActivityTimes[spaceId] = last.timestamp
+                }
+            }
+        }
+    }
+
+    /// Stop observing a backgrounded space and drop its cache (call when a DM tile closes).
+    public func deactivateSpaceMessages(spaceId: String) {
+        extraMessageObservations[spaceId]?.cancel()
+        extraMessageObservations.removeValue(forKey: spaceId)
+        messagesBySpace.removeValue(forKey: spaceId)
+    }
+
+    /// Resolve/create a companion's DM space and start streaming it — WITHOUT switching the current
+    /// space. Returns the direct space so the shell can surface its chat port as a tile. Unlike
+    /// `startSwim`, this leaves `currentSpace` (and its chat tile) exactly where it is.
+    @discardableResult
+    public func openDMSpace(with companion: AgentConfig) -> Space? {
+        guard let directSpace = try? db.getOrCreateDirectSpace(companion: companion) else {
+            print("[Port42] Failed to open DM space for \(companion.displayName)")
+            return nil
+        }
+        spaces = (try? db.getRegularSpaces()) ?? spaces
+        activateSpaceMessages(spaceId: directSpace.id)
+        return directSpace
     }
 
     /// Refresh cached last-activity times for all spaces and companion swim spaces.

@@ -306,6 +306,36 @@ space becomes a real place: its directory, its ports, its companions, its memory
 
 ---
 
+## TODO: adopt agent-comms standards — ACP + friends (interop for chat/agent comms)
+
+**Direction:** speak the open **agent-communication protocols** so Port42 isn't a walled garden —
+companions can be driven by / talk to external agents and clients over standard wires, and external
+tools can drive Port42 companions the same way. Today comms are Port42-internal (the bridge API +
+the WebSocket sync hub); this adds standard surfaces on top.
+
+Standards to map (pick the ones that earn their weight):
+- **ACP (Agent Client Protocol)** — the agent↔client/editor standard (Zed et al.). Lets a Port42
+  companion be an ACP *agent* an external client can drive, and/or Port42 be an ACP *client* that
+  hosts an external agent as a companion. Highest-fit for "chat comms with an outside agent."
+- **MCP (Model Context Protocol)** — already partly present (`port42-mcp.js` resource). Firm up:
+  Port42 as an MCP *server* (expose spaces/ports/companions as tools/resources) and as an MCP
+  *client* (a companion consumes external MCP servers). Clarify which direction is wired vs aspirational.
+- **A2A (Agent-to-Agent)** — companion↔companion across instances/vendors; overlaps the sync hub's
+  cross-peer mentions but as an open wire, not our bespoke protocol.
+
+Design notes / open questions:
+- **Map to the existing model, don't fork it.** A remote agent should appear as an `AgentConfig`
+  (a `Command`/remote mode) and land in a space's crew like any companion — reuse routing, the
+  member row, ports. The protocol is a transport, not a new entity.
+- Which protocol is inbound (drive Port42) vs outbound (Port42 drives external) vs both.
+- Auth/permission model for an external agent acting in a space (reuse the per-companion permission
+  bucket + secrets).
+- Streaming/turn semantics must fit `typingAgentNamesBySpace` + `turnComplete` so status/member-row
+  signals work for remote agents too.
+- Sequence after the companion loop lands (the internal contract is the thing we'd expose).
+
+---
+
 # New frontiers (2026-06-29) — bigger north stars
 
 Two larger directions added after the shell-prototype session. Both have written plans + working

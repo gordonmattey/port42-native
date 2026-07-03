@@ -68,6 +68,9 @@ struct TerminalPortConfig: Codable {
 final class GhosttyInputView: NSView {
     var surface: ghostty_surface_t?
     private var observers: [NSObjectProtocol] = []
+    /// When this view is hoisted OUT of SwiftUI (shell tile path), it owns its Coordinator so the
+    /// pty-tee callback's unretained userdata stays alive. Nil for the SwiftUI-managed floating path.
+    var retainedCoordinator: AnyObject?
 
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
@@ -305,12 +308,36 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GhosttyInputView {
         let view = GhosttyInputView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        Self.buildSurface(into: view, config: config, env: env, coordinator: context.coordinator)
+        return view
+    }
+
+    /// Create a Ghostty surface view OUTSIDE SwiftUI's lifecycle so it can be re-parented between a
+    /// shell tile, focus, and the park rail WITHOUT freeing the surface (exactly how the persistent
+    /// WKWebView is re-hosted). The view retains its Coordinator; the caller owns teardown (call
+    /// `coordinator.teardown()` when the PORT closes, not when a SwiftUI host unmounts).
+    @MainActor
+    static func makeDetached(config: TerminalPortConfig, env: [String: String],
+                             onTee: @escaping (String) -> Void,
+                             onInject: @escaping (((String) -> Void)?) -> Void) -> (view: GhosttyInputView, coordinator: Coordinator) {
+        let coordinator = Coordinator(onTee: onTee, startupCommand: config.startupCommand, onInject: onInject)
+        let view = GhosttyInputView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        view.retainedCoordinator = coordinator   // keep the coordinator alive with the view (tee cb userdata)
+        buildSurface(into: view, config: config, env: env, coordinator: coordinator)
+        return (view, coordinator)
+    }
+
+    /// The surface construction shared by the SwiftUI (`makeNSView`) and detached (`makeDetached`)
+    /// paths — one source of truth for the Ghostty C setup.
+    @MainActor
+    private static func buildSurface(into view: GhosttyInputView, config: TerminalPortConfig,
+                                     env: [String: String], coordinator: Coordinator) {
         view.wantsLayer = true
         view.registerForDraggedTypes([.fileURL])  // Step 5c: drop a file → paste its path
 
         guard let app = GhosttyApp.shared.ensureApp() else {
-            NSLog("[Ghostty] makeNSView: no app singleton")
-            return view
+            NSLog("[Ghostty] buildSurface: no app singleton")
+            return
         }
 
         // View not yet in a window here → scale unknown. Use a sane default; the
@@ -355,13 +382,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
         cStrings.forEach { free($0) }
         guard let surface else {
-            NSLog("[Ghostty] makeNSView: ghostty_surface_new returned nil")
-            return view
+            NSLog("[Ghostty] buildSurface: ghostty_surface_new returned nil")
+            return
         }
         view.surface = surface
-        context.coordinator.surface = surface
-        context.coordinator.view = view
-        NSLog("[Ghostty] makeNSView: surface created \(surface) for '\(config.companionName)'")
+        coordinator.surface = surface
+        coordinator.view = view
+        NSLog("[Ghostty] buildSurface: surface created \(surface) for '\(config.companionName)'")
 
         // PTY tee → copy bytes synchronously off the IO thread (gap #5), hand to
         // main, deliver via the coordinator's onTee. userdata = coordinator.
@@ -371,12 +398,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
             let copied = Data(bytes: UnsafeRawPointer(bytes), count: Int(len))
             let str = String(decoding: copied, as: UTF8.self)
             Task { @MainActor in coord.handleTee(str) }
-        }, Unmanaged.passUnretained(context.coordinator).toOpaque())
+        }, Unmanaged.passUnretained(coordinator).toOpaque())
 
         // Hand the controller a writer for this surface so chat→terminal routing
         // (routeMentionsToTerminals → controller.inject) can reach it. Reads the
         // coordinator's current surface each call, so it no-ops after teardown.
-        context.coordinator.onInject({ [weak coord = context.coordinator] line in
+        coordinator.onInject({ [weak coord = coordinator] line in
             guard let s = coord?.surface else { return }
             // Send the body, then Enter SEPARATELY after a short delay. Claude Code's TUI
             // heuristically treats a fast input burst as a paste, so a trailing "\r" in the same
@@ -392,7 +419,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         })
 
         GhosttyApp.shared.tick()  // initial pump so the shell starts producing IO
-        return view
     }
 
     func updateNSView(_ nsView: GhosttyInputView, context: Context) {

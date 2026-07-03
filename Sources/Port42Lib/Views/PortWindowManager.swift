@@ -112,6 +112,27 @@ public final class PortWindowManager: ObservableObject {
     /// Persistent WKWebViews, keyed by panel ID. Created once, reparented on dock/undock.
     public var webViews: [String: WKWebView] = [:]
 
+    /// Persistent Ghostty terminal views (shell tile path), keyed by panel ID. Same idea as
+    /// `webViews`: created once, re-parented between tile/focus/park with no reload. The paired
+    /// Coordinator owns the surface teardown, run on port close.
+    var terminalViews: [String: GhosttyInputView] = [:]
+    var terminalCoordinators: [String: GhosttyTerminalView.Coordinator] = [:]
+
+    /// The persistent NSView backing a port, whatever its type — the one thing a shell tile needs to
+    /// host any port uniformly (web → its WKWebView, terminal → its Ghostty surface view). Chat ports
+    /// are pure SwiftUI and return nil (the tile renders `ChatView` for those).
+    public func hostView(for id: String) -> NSView? {
+        if let wv = webViews[id] { return wv }
+        return terminalViews[id]
+    }
+
+    /// Register a hoisted terminal surface for a tiled terminal port (built by AppState, which owns
+    /// the controller the surface binds to).
+    func storeTerminalView(id: String, view: GhosttyInputView, coordinator: GhosttyTerminalView.Coordinator) {
+        terminalViews[id] = view
+        terminalCoordinators[id] = coordinator
+    }
+
     /// Step 8: reported content height for inline-presented ports, keyed by panel ID. Drives the
     /// SwiftUI inline host's frame so a registry-owned port auto-sizes like the legacy inline view.
     /// Floating ports ignore this (the window drives their size).
@@ -401,6 +422,26 @@ public final class PortWindowManager: ObservableObject {
         return bridge
     }
 
+    /// Create a TILED terminal port (shell path) — a panel only, no window, no webview. The caller
+    /// (AppState) then builds the controller + hoisted Ghostty surface and calls `storeTerminalView`.
+    /// This is the terminal twin of `registerTiledPort`: a terminal is a port; a port is a tile.
+    func addTiledTerminalPanel(configJSON: String, spaceId: String?, createdBy: String?,
+                               title: String, size: CGSize? = nil) -> String {
+        guard let appState = appState else { return "" }
+        let id = UUID().uuidString
+        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: id, createdBy: createdBy)
+        var panel = PortPanel(
+            id: id, udid: id, html: configJSON, bridge: bridge,
+            spaceId: spaceId, createdBy: createdBy, messageId: id,
+            userTitle: title, size: size ?? CGSize(width: 520, height: 380))
+        panel.portType = "terminal"
+        panel.presentation = "tiled"
+        panel.position = nil                    // let arrange place it
+        panels.append(panel)
+        persistPanel(id)
+        return id
+    }
+
     /// Step 8: pop an inline port out into a floating window by RE-PARENTING its existing
     /// WKWebView — no reload, so DOM/JS state survives (the spike-proven move). The port keeps
     /// its id; its inline host switches to a "popped out" state because `presentation` flips to
@@ -473,9 +514,12 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// SHELL: bring a space's chat back onto the desktop as a tile from any state (parked, popped-out
-    /// floating, or already tiled) — closing any floating window and marking it tiled. The dock's
-    /// "chat" button uses this; it's also how a closed/parked chat is reopened.
-    public func revealChat(spaceId: String) {
+    /// floating, already tiled — or DELETED). The dock's "chat" button uses this; it's how a
+    /// closed/parked chat is reopened, and it RE-CREATES the chat port if you deleted them all.
+    public func revealChat(spaceId: String, spaceName: String) {
+        if !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) {
+            ensureChatPort(spaceId: spaceId, spaceName: spaceName)   // gone entirely → make a fresh one
+        }
         guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
         if let window = windows[panels[idx].id] as? PortNSPanel { window.onClose = nil; window.close() }
         windows.removeValue(forKey: panels[idx].id)
@@ -533,6 +577,11 @@ public final class PortWindowManager: ObservableObject {
             destroyWebView(id)
         }
         appState?.teardownTerminalController(panelId: id)
+        // Tear down a hoisted terminal surface (shell tile path). The floating path frees via
+        // dismantleNSView; the detached view isn't SwiftUI-managed, so free it explicitly here.
+        terminalCoordinators.removeValue(forKey: id)?.teardown()
+        terminalViews[id]?.removeFromSuperview()
+        terminalViews.removeValue(forKey: id)
         unpersistPanel(id)
         Analytics.shared.portClosed()
         panels.removeAll { $0.id == id }

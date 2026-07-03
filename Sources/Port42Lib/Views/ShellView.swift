@@ -353,6 +353,7 @@ struct ShellSettingsView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     @State private var name = ""
+    @State private var promptDraft = ""            // companion system prompt (committed on save)
     @State private var confirmingDelete = false
     // Self-animated in/out so save and discard can exit DIFFERENTLY (save pops up, discard shrinks).
     @State private var cardScale: CGFloat = 0.92
@@ -377,6 +378,7 @@ struct ShellSettingsView: View {
         }
         .onAppear {
             name = space?.name ?? companion?.displayName ?? ""
+            promptDraft = companion?.systemPrompt ?? ""
             withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { cardScale = 1; cardOpacity = 1 }
             withAnimation(.easeOut(duration: 0.2)) { scrimOpacity = 0.6 }
         }
@@ -384,9 +386,16 @@ struct ShellSettingsView: View {
 
     // MARK: companion
 
+    /// Apply a mutation to the companion and persist immediately (discrete controls). The prompt
+    /// commits on save instead (it's a text editor). `updateCompanion` refreshes both lists.
+    private func edit(_ c: AgentConfig, _ mutate: (inout AgentConfig) -> Void) {
+        var x = c; mutate(&x); appState.updateCompanion(x)
+    }
+
     private func companionCard(_ c: AgentConfig) -> some View {
         let col = ShellDock.avatarColor(c.id)
-        return VStack(alignment: .leading, spacing: 18) {
+        return ScrollView(showsIndicators: false) {
+          VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("COMPANION SETTINGS").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
@@ -402,11 +411,47 @@ struct ShellSettingsView: View {
                     .textFieldStyle(.plain).font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.textPrimary)
                     .onSubmit { dismiss(save: true) }.onExitCommand { dismiss(save: false) }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("BRAIN").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
-                Text("\(c.mode.rawValue) · \(c.model ?? "—")").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
-                Text("edit model / prompt / secrets in Advanced (soon)").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+
+            fieldLabel("MODE")
+            segmented(["llm", "command", "remote"], selected: c.mode.rawValue) { v in
+                edit(c) { $0.mode = AgentMode(rawValue: v) ?? .llm }
             }
+
+            if c.mode == .llm {
+                fieldLabel("TRIGGER")
+                segmented(["mention-only", "all messages"], selected: c.trigger == .allMessages ? "all messages" : "mention-only") { v in
+                    edit(c) { $0.trigger = v == "all messages" ? .allMessages : .mentionOnly }
+                }
+                fieldLabel("PROVIDER")
+                segmented(["anthropic", "gemini", "compatible"], selected: (c.provider ?? .anthropic).rawValue) { v in
+                    edit(c) { $0.provider = provider(from: v) }
+                }
+                fieldLabel("MODEL")
+                TextField("model id", text: Binding(get: { c.model ?? "" }, set: { m in edit(c) { $0.model = m.isEmpty ? nil : m } }))
+                    .textFieldStyle(.plain).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(col.opacity(0.3), lineWidth: 1))
+                HStack {
+                    fieldLabel("THINKING").fixedSize()
+                    Spacer()
+                    Toggle("", isOn: Binding(get: { c.thinkingEnabled }, set: { on in edit(c) { $0.thinkingEnabled = on } }))
+                        .labelsHidden().toggleStyle(.switch).tint(col)
+                }
+                if c.thinkingEnabled {
+                    segmented(["low", "medium", "high"], selected: c.thinkingEffort) { v in edit(c) { $0.thinkingEffort = v } }
+                }
+                fieldLabel("SYSTEM PROMPT")
+                TextEditor(text: $promptDraft)
+                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
+                    .frame(height: 96).padding(8)
+                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(col.opacity(0.3), lineWidth: 1))
+            } else {
+                Text("\(c.mode.rawValue) config — command / connection editing lands in Advanced (soon)")
+                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+            }
+
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             Button { dismiss(save: false) { if let s = appState.currentSpace { appState.removeCompanionFromSpace(c, space: s) } } } label: {
                 HStack(spacing: 6) { Image(systemName: "rectangle.portrait.and.arrow.right"); Text("Remove from this space") }
@@ -425,8 +470,10 @@ struct ShellSettingsView: View {
                         .font(Port42Theme.mono(12)).foregroundStyle(Color.red.opacity(0.9))
                 }.buttonStyle(.plain)
             }
+          }
+          .padding(22)
         }
-        .padding(22).frame(width: 340)
+        .frame(width: 360, height: 560)
         .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(col.opacity(0.4), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 40)
@@ -504,42 +551,88 @@ struct ShellSettingsView: View {
         }
     }
 
-    /// Commit a pending rename for whichever target is open. Spaces normalize (lowercase-dashes);
-    /// companions keep free-form display names.
+    /// Commit pending text edits for whichever target is open — a space rename (normalized to
+    /// lowercase-dashes), or a companion's name + system prompt (free-form). Discrete companion
+    /// controls (mode/provider/model/thinking) already persisted on change.
     private func commitName() {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !n.isEmpty else { return }
         if let s = space {
+            guard !n.isEmpty else { return }
             let cleaned = n.lowercased().replacingOccurrences(of: " ", with: "-")
             if cleaned != s.name { var x = s; x.name = cleaned; appState.updateSpace(x) }
         } else if var c = companion {
-            if n != c.displayName { c.displayName = n; appState.updateCompanion(c) }
+            var changed = false
+            if !n.isEmpty, n != c.displayName { c.displayName = n; changed = true }
+            if promptDraft != (c.systemPrompt ?? "") { c.systemPrompt = promptDraft.isEmpty ? nil : promptDraft; changed = true }
+            if changed { appState.updateCompanion(c) }
         }
+    }
+
+    // MARK: small controls
+
+    private func fieldLabel(_ s: String) -> some View {
+        Text(s).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+    }
+
+    private func segmented(_ options: [String], selected: String, _ onTap: @escaping (String) -> Void) -> some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.self) { o in
+                let on = o == selected
+                Button { onTap(o) } label: {
+                    Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? shell.accent : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .background(on ? shell.accent.opacity(0.15) : Color.clear)
+                }.buttonStyle(.plain)
+            }
+        }
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+    }
+
+    private func provider(from v: String) -> AgentProvider {
+        switch v { case "gemini": return .gemini; case "compatible": return .compatibleEndpoint; default: return .anthropic }
     }
 }
 
-// MARK: - New companion (shell-native card)
+// MARK: - New companion (shell-native card — quick + full "Advanced" inline)
 
-/// A shell-native create-companion card (replaces the macOS sheet): name → a real LLM companion,
-/// created AND joined to the current space. Existing roster companions not here can be added with a
-/// tap. Self-animated in/out like the settings box; advanced config lives in companion settings later.
+/// The shell-native create-companion card. Default: name + type → a real companion in this space.
+/// "Advanced" expands the SAME card (no macOS sheet) to the full option set — mode (LLM/API/Command),
+/// provider/model/base-URL, thinking, system prompt, scope, secrets, command config, trigger.
 struct ShellNewCompanionView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     @State private var name = ""
-    @State private var selectedType: CompanionTypePreset?      // one tap → identity + constitution
-    @State private var showAdvanced = false                    // → the full form (all modes/options)
+    @State private var selectedType: CompanionTypePreset?
+    @State private var showAdvanced = false
+    // Advanced fields:
+    private enum NMode: String, CaseIterable { case llm, api, command }
+    @State private var mode: NMode = .llm
+    @State private var providerSel = "anthropic"      // llm: anthropic | gemini
+    @State private var model = "claude-opus-4-6"
+    @State private var baseURL = ""                   // api mode
+    @State private var thinkingOn = false
+    @State private var thinkingEffort = "low"
+    @State private var promptOverride = ""            // empty → type constitution / default
+    @State private var scopePath = ""
+    @State private var secretsCSV = ""
+    @State private var command = ""
+    @State private var argsText = ""
+    @State private var workingDir = ""
+    @State private var openInTerminal = false
+    @State private var triggerSel = "mention-only"
+    // anim
     @State private var cardScale: CGFloat = 0.92
     @State private var cardOpacity: Double = 0
     @State private var scrimOpacity: Double = 0
     @FocusState private var nameFocused: Bool
 
     private var acc: Color { shell.accent }
-    /// Creatable once there's an identity — either a typed name or a picked type (which names it).
     private var canCreate: Bool {
-        (!name.trimmingCharacters(in: .whitespaces).isEmpty || selectedType != nil) && appState.currentUser != nil
+        guard appState.currentUser != nil, !effectiveName.isEmpty else { return false }
+        if mode == .command { return !command.trimmingCharacters(in: .whitespaces).isEmpty }
+        return true
     }
-    /// Icon per type (mirrors the mockup): ✦ echo · ▲ architect · ⚙ compiler · ◈ operator.
     private func typeIcon(_ t: CompanionTypePreset) -> String {
         switch t { case .echo: return "sparkles"; case .architect: return "triangle"
                    case .compiler: return "gearshape"; case .operatorType: return "diamond" }
@@ -553,18 +646,13 @@ struct ShellNewCompanionView: View {
         ZStack {
             Color.black.opacity(scrimOpacity).ignoresSafeArea().contentShape(Rectangle())
                 .onTapGesture { dismiss() }
-            if showAdvanced {
-                // The full form (every mode + option), re-hosted in a shell card. Opt-in only.
-                NewCompanionSheet(isPresented: $shell.showNewCompanion)
-                    .environmentObject(appState)
-                    .frame(width: 500, height: 600)
-                    .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.6), radius: 40)
-                    .scaleEffect(cardScale).opacity(cardOpacity)
-            } else {
-                card
-            }
+            ScrollView(showsIndicators: false) { card.padding(22) }
+                .frame(width: 400, height: showAdvanced ? 620 : nil)
+                .fixedSize(horizontal: false, vertical: !showAdvanced)
+                .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
+                .shadow(color: .black.opacity(0.6), radius: 40)
+                .scaleEffect(cardScale).opacity(cardOpacity)
         }
         .onAppear {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { cardScale = 1; cardOpacity = 1 }
@@ -574,7 +662,7 @@ struct ShellNewCompanionView: View {
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("NEW COMPANION").font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
@@ -582,40 +670,35 @@ struct ShellNewCompanionView: View {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
                 }.buttonStyle(.plain)
             }
-            // Preview PFP + name
             HStack(spacing: 12) {
                 Circle().fill(acc.gradient).frame(width: 46, height: 46)
                     .overlay(Text(initials).font(Port42Theme.monoBold(16)).foregroundStyle(.white))
                     .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
                 TextField("name your companion", text: $name)
                     .textFieldStyle(.plain).font(Port42Theme.monoBold(16)).foregroundStyle(Port42Theme.textPrimary)
-                    .focused($nameFocused)
-                    .onSubmit { create() }
-                    .onExitCommand { dismiss() }
+                    .focused($nameFocused).onSubmit { create() }.onExitCommand { dismiss() }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(acc.opacity(0.35), lineWidth: 1))
 
-            // TYPE — one tap sets the constitution (system prompt) + KB scope + a default name.
-            VStack(alignment: .leading, spacing: 8) {
-                Text("TYPE — one tap sets identity + prompt").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+            if mode != .command {
+                label("TYPE — one tap sets identity + prompt")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                     ForEach(CompanionTypePreset.allCases, id: \.rawValue) { t in
                         let on = selectedType == t
                         Button { selectedType = on ? nil : t } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: typeIcon(t)).font(.system(size: 10))
-                                Text(t.displayName).font(Port42Theme.mono(11))
-                            }
-                            .foregroundStyle(on ? acc : Port42Theme.textPrimary)
-                            .padding(.horizontal, 11).padding(.vertical, 7)
-                            .background((on ? acc.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
-                            .overlay(Capsule().stroke(on ? acc.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
+                            HStack(spacing: 6) { Image(systemName: typeIcon(t)).font(.system(size: 10)); Text(t.displayName).font(Port42Theme.mono(11)) }
+                                .foregroundStyle(on ? acc : Port42Theme.textPrimary)
+                                .padding(.horizontal, 11).padding(.vertical, 7)
+                                .background((on ? acc.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
+                                .overlay(Capsule().stroke(on ? acc.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
                         }.buttonStyle(.plain).help(t.label)
                     }
                 }
             }
+
+            if showAdvanced { advancedFields }
 
             HStack(spacing: 10) {
                 Button { create() } label: {
@@ -623,81 +706,141 @@ struct ShellNewCompanionView: View {
                         .frame(maxWidth: .infinity).padding(.vertical, 10)
                         .background(canCreate ? acc : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
                 }.buttonStyle(.plain).disabled(!canCreate)
-                // Everything else — modes (API/Command), provider/model, secrets, pods, CLI presets…
-                Button { withAnimation(.spring(response: 0.3)) { showAdvanced = true } } label: {
-                    Text("Advanced…").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                Button { withAnimation(.spring(response: 0.3)) { showAdvanced.toggle() } } label: {
+                    HStack(spacing: 4) { Text("Advanced"); Image(systemName: showAdvanced ? "chevron.up" : "chevron.down").font(.system(size: 8)) }
+                        .font(Port42Theme.mono(11)).foregroundStyle(showAdvanced ? acc : Port42Theme.textSecondary)
                         .padding(.horizontal, 12).padding(.vertical, 10)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.14), lineWidth: 1))
-                }.buttonStyle(.plain).help("All options — modes, provider/model, secrets, pods")
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke((showAdvanced ? acc : Color.white).opacity(0.2), lineWidth: 1))
+                }.buttonStyle(.plain)
             }
 
             if !rosterNotHere.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("OR ADD EXISTING").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
-                        ForEach(rosterNotHere) { c in
-                            Button { addExisting(c) } label: {
-                                HStack(spacing: 6) {
-                                    Circle().fill(ShellDock.avatarColor(c.id).gradient).frame(width: 18, height: 18)
-                                    Text(c.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
-                                }
-                                .padding(.horizontal, 9).padding(.vertical, 6)
-                                .background(Color.white.opacity(0.05), in: Capsule())
-                                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
-                            }.buttonStyle(.plain)
-                        }
+                label("OR ADD EXISTING")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
+                    ForEach(rosterNotHere) { c in
+                        Button { addExisting(c) } label: {
+                            HStack(spacing: 6) {
+                                Circle().fill(ShellDock.avatarColor(c.id).gradient).frame(width: 18, height: 18)
+                                Text(c.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                            }
+                            .padding(.horizontal, 9).padding(.vertical, 6)
+                            .background(Color.white.opacity(0.05), in: Capsule())
+                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                        }.buttonStyle(.plain)
                     }
                 }
             }
         }
-        .padding(22).frame(width: 380)
-        .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
-        .shadow(color: .black.opacity(0.6), radius: 40)
-        .scaleEffect(cardScale).opacity(cardOpacity)
     }
 
-    /// The effective name: what's typed, else the picked type's name.
+    @ViewBuilder private var advancedFields: some View {
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+        label("MODE")
+        seg(["llm", "api", "command"], sel: mode.rawValue) { mode = NMode(rawValue: $0) ?? .llm }
+        label("TRIGGER")
+        seg(["mention-only", "all messages"], sel: triggerSel) { triggerSel = $0 }
+
+        switch mode {
+        case .llm:
+            label("PROVIDER");  seg(["anthropic", "gemini"], sel: providerSel) { providerSel = $0 }
+            label("MODEL");     boxField("model id", $model)
+            thinkingRow
+            label("SYSTEM PROMPT (overrides type)"); promptBox
+            label("KNOWLEDGE-BASE SCOPE"); boxField("scopes/…", $scopePath)
+        case .api:
+            label("BASE URL");  boxField("https://…/v1", $baseURL)
+            label("MODEL");     boxField("model id", $model)
+            label("SECRETS (comma-separated names)"); boxField("stripe, openai", $secretsCSV)
+            label("SYSTEM PROMPT"); promptBox
+        case .command:
+            label("COMMAND");   boxField("claude", $command)
+            label("ARGS");      boxField("--flag value", $argsText)
+            label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
+            HStack { label("OPEN IN TERMINAL"); Spacer(); Toggle("", isOn: $openInTerminal).labelsHidden().toggleStyle(.switch).tint(acc) }
+            label("SYSTEM PROMPT"); promptBox
+        }
+    }
+
+    private var thinkingRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack { label("THINKING"); Spacer(); Toggle("", isOn: $thinkingOn).labelsHidden().toggleStyle(.switch).tint(acc) }
+            if thinkingOn { seg(["low", "medium", "high"], sel: thinkingEffort) { thinkingEffort = $0 } }
+        }
+    }
+    private var promptBox: some View {
+        TextEditor(text: $promptOverride).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
+            .frame(height: 84).padding(8)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(acc.opacity(0.3), lineWidth: 1))
+    }
+    private func boxField(_ ph: String, _ text: Binding<String>) -> some View {
+        TextField(ph, text: text).textFieldStyle(.plain).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(acc.opacity(0.3), lineWidth: 1))
+    }
+    private func label(_ s: String) -> some View {
+        Text(s).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+    }
+    private func seg(_ opts: [String], sel: String, _ onTap: @escaping (String) -> Void) -> some View {
+        HStack(spacing: 0) {
+            ForEach(opts, id: \.self) { o in
+                let on = o == sel
+                Button { onTap(o) } label: {
+                    Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? acc : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6).background(on ? acc.opacity(0.15) : Color.clear)
+                }.buttonStyle(.plain)
+            }
+        }
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+    }
+
     private var effectiveName: String {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return n.isEmpty ? (selectedType?.displayName ?? "") : n
     }
-    private var initials: String {
-        let n = effectiveName
-        return n.isEmpty ? "?" : String(n.prefix(2)).uppercased()
-    }
+    private var initials: String { effectiveName.isEmpty ? "?" : String(effectiveName.prefix(2)).uppercased() }
 
     private func create() {
         guard canCreate, let user = appState.currentUser else { return }
         let nm = effectiveName
-        // A picked type brings a real constitution (system prompt) + KB scope; otherwise a plain prompt.
-        let prompt = selectedType.map(loadConstitution) ?? """
-            You are \(nm), a companion in Port42 — a personal system where humans and AI companions \
-            coexist in spaces. You are \(nm). Not an assistant, a companion. Keep replies concise and \
-            conversational; lowercase unless emphasis matters.
-            """
-        var c = AgentConfig.createLLM(ownerId: user.id, displayName: nm, systemPrompt: prompt,
-                                      provider: .anthropic, model: "claude-opus-4-6", trigger: .mentionOnly)
-        c.scopePath = selectedType?.defaultKBPath
-        appState.addCompanion(c)                                              // roster
-        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }   // join THIS space
-        dismiss()
-    }
-
-    /// Load a type's constitution (system prompt) from the bundle — same source as the old sheet.
-    private func loadConstitution(_ t: CompanionTypePreset) -> String {
-        guard let url = Bundle.module.url(forResource: t.constitutionFile, withExtension: "md", subdirectory: "constitutions"),
-              let text = try? String(contentsOf: url) else {
-            return "You are \(t.displayName), a companion in Port42. \(t.label)."
+        let trig: AgentTrigger = triggerSel == "all messages" ? .allMessages : .mentionOnly
+        var c: AgentConfig
+        if mode == .command {
+            let args = argsText.split(separator: " ").map(String.init)
+            c = AgentConfig.createCommand(ownerId: user.id, displayName: nm, command: command.trimmingCharacters(in: .whitespaces),
+                                          args: args.isEmpty ? nil : args, workingDir: nilIfEmpty(workingDir), envVars: nil,
+                                          systemPrompt: nilIfEmpty(promptOverride), openInTerminal: openInTerminal, trigger: trig)
+        } else {
+            let prov: AgentProvider = mode == .api ? .compatibleEndpoint : (providerSel == "gemini" ? .gemini : .anthropic)
+            let prompt = !promptOverride.isEmpty ? promptOverride
+                : (selectedType.map(loadConstitution) ?? "You are \(nm), a companion in Port42. Not an assistant, a companion.")
+            c = AgentConfig.createLLM(ownerId: user.id, displayName: nm, systemPrompt: prompt, provider: prov,
+                                      model: nilIfEmpty(model) ?? "claude-opus-4-6", trigger: trig)
+            c.providerBaseURL = mode == .api ? nilIfEmpty(baseURL) : nil
+            c.thinkingEnabled = thinkingOn; c.thinkingEffort = thinkingEffort
+            c.scopePath = nilIfEmpty(scopePath) ?? selectedType?.defaultKBPath
+            let secrets = secretsCSV.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            c.secretNames = secrets.isEmpty ? nil : secrets
         }
-        return text
-    }
-
-    private func addExisting(_ c: AgentConfig) {
+        appState.addCompanion(c)
         if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
         dismiss()
     }
 
+    private func nilIfEmpty(_ s: String) -> String? {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t
+    }
+    private func loadConstitution(_ t: CompanionTypePreset) -> String {
+        guard let url = Bundle.module.url(forResource: t.constitutionFile, withExtension: "md", subdirectory: "constitutions"),
+              let text = try? String(contentsOf: url) else { return "You are \(t.displayName), a companion in Port42. \(t.label)." }
+        return text
+    }
+    private func addExisting(_ c: AgentConfig) {
+        if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
+        dismiss()
+    }
     private func dismiss() {
         withAnimation(.easeIn(duration: 0.18)) { cardScale = 0.9; cardOpacity = 0; scrimOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { shell.showNewCompanion = false }

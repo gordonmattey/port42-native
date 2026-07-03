@@ -468,6 +468,56 @@ onboarding boot surface.
 
 ---
 
+## 8b. Port & space notifications — build in the shell BEFORE final integration (added w/ gordon)
+
+**Decision:** notifications (port activity + space activity) get built **in the shell now**, not
+bolted on at the D2 integration step. Reason: notifications *are* cross-space/ambient awareness, and
+the shell's own surfaces — the **galaxy** (all spaces at a glance) and the **Chrome** (global status)
+— are exactly where they belong. If we design them against `ContentView`'s sidebar and then flip to
+the shell, we'd retrofit twice. Get the model right against the galaxy/chrome first.
+
+**The core model (gordon): a notification IS the live port, surfaced in place.** Not a badge that
+sends you elsewhere — the actual port from another space **materializes into your current view**
+(floats in / summons as an overlay tile over the ambient surface), and you can **zoom right into it,
+interact, and zoom back out — without ever leaving the space you're in.** The thing that needs you
+comes to *you*. This is uniquely possible because of the shell's load-bearing primitive: a port is a
+**registry-owned webview re-parented between hosts with no reload** — so a port owned by space B can
+be hosted, live, in space A's shell (and in the focus overlay) without moving its ownership or
+tearing it down. The re-parent that powers tile↔float↔focus powers cross-space *summon* too.
+
+- **Zoom-in-place.** The surfaced port drops onto your desktop as a transient tile (its own accent /
+  a "from <space>" chip); ⌘↓ / click dives into it via the **same focus overlay** the zoom ladder
+  already uses; Esc/zoom-out returns you to exactly where you were. You never switched `currentSpace`.
+- **Dismiss / keep / go.** Flick it to the **parking rail** to hold it, let it recede back to its
+  home space, or "go there" to actually switch. Idle → it dissolves into the ambient surface (§8b
+  ties into idle-out, S5).
+
+**Two triggers for a surfaced port:**
+- **Port notifications** — a port needs attention / finished / errored; (later, when the deferred
+  **port loop** lands) a companion *built* a port for you. That port is what surfaces.
+- **Space notifications** — the cross-space "**where am I needed?**" signal (highest value:
+  **waiting-for-input** — a companion finished its turn, your move, in a space you're not looking at).
+  What surfaces is the space's **chat port** (or the relevant port) so you can answer *in place*.
+
+**At-rest / glance layer (when nothing is summoned):** the galaxy world for a space carries a
+ring/badge/pulse in its accent, + a **Chrome global indicator** ("N spaces need you"); out-of-app via
+**`notify.send`** (macOS notification) when the shell is idle/backgrounded. The summon (above) is the
+*engage* affordance; this is the *ambient awareness* one.
+
+**Where the signals come from (mostly exist):** `typingAgentNamesBySpace` (thinking), `turnComplete`,
+unread counts. **Waiting-for-input** is the one derived signal to add. Port completion/error needs a
+port-status signal (some present). Per the summer-2026 "richer space rows" note, **derive every
+signal from cached/observed `@Published` state, never per-render DB queries** (the SidebarView
+render-storm fix, commit 77b266a) — the galaxy already animates per-frame, so the notification state
+must be cheap to read.
+
+**Sequencing:** a shell phase between **S4** (companions/status give us the per-space signals) and
+**D2** (final integration). The **port-loop** "building" status folds in when that separate phase
+lands. This supersedes doing notifications only as sidebar rows in `summer2026-todo.md` — in the
+shell they're galaxy/chrome affordances.
+
+---
+
 ## 9. Relationship to existing plans
 
 - **`plan-uniform-port-create.md`** — the shell is the *payoff* of that plan. `port.create` spawns

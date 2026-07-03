@@ -217,6 +217,60 @@ public final class ShellState: ObservableObject {
         return p.y >= area.height - closeZoneHeight(area.height) ? .close : .park
     }
 
+    /// Direct-message spaces surfaced as tiles on the CURRENT desktop (B — multi-space chat). Each id
+    /// here means "render that space's chat port as a tile alongside the space chat"; `AppState` keeps
+    /// their messages live via `activateSpaceMessages`.
+    @Published public var openDMSpaceIds: [String] = []
+
+    /// Open a companion's 1:1 DM (a 2-member `direct` space) as its OWN live tile next to the space
+    /// chat — no space switch, nothing torn down. The space chat and every open DM coexist as separate
+    /// windows, each streaming its own conversation.
+    /// Clicking a companion in the dock/member list. A CLI companion (claude/gemini, `openInTerminal`)
+    /// launches/reveals its terminal port; everyone else opens a DM chat. Both are just ports.
+    public func activateCompanion(_ companion: AgentConfig) {
+        if companion.openInTerminal {
+            guard let sid = appState.currentSpace?.id else { return }
+            appState.ensureTerminalLive(companion: companion, spaceId: sid)
+        } else {
+            openDM(companion)
+        }
+    }
+
+    public func openDM(_ companion: AgentConfig) {
+        guard let dm = appState.openDMSpace(with: companion) else { return }   // resolve/stream DM space
+        if !openDMSpaceIds.contains(dm.id) { openDMSpaceIds.append(dm.id) }
+        appState.portWindows.revealChat(spaceId: dm.id, spaceName: dm.name)    // ensure its chat port exists + tiled
+        // Stamp it frontmost BEFORE arranging so it sorts to its own cell on top — not buried under the
+        // space chat, which shares the DM chat port's default z (both are chat anchors at z≈0).
+        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == dm.id }) {
+            bringToFront(panel.id)
+        }
+        arrangeBump += 1
+    }
+
+    /// Close a surfaced DM tile: stop streaming its space and drop it from the desktop.
+    public func closeDM(spaceId: String) {
+        openDMSpaceIds.removeAll { $0 == spaceId }
+        appState.deactivateSpaceMessages(spaceId: spaceId)
+        arrangeBump += 1
+    }
+
+    /// Drop every surfaced DM (used when leaving a desktop — DMs belong to the working session on the
+    /// space you opened them from, not the one you switch to).
+    public func clearOpenDMs() {
+        for sid in openDMSpaceIds { appState.deactivateSpaceMessages(spaceId: sid) }
+        openDMSpaceIds.removeAll()
+    }
+
+    /// Dismiss any tile via its close affordance. A surfaced DM is torn down (removed from the desktop
+    /// + streaming stopped); every other tile just closes its port.
+    public func dismissTile(_ panel: PortPanel) {
+        if let sid = panel.spaceId, openDMSpaceIds.contains(sid) {
+            closeDM(spaceId: sid)
+        }
+        appState.portWindows.close(panel.id)
+    }
+
     /// Bring a tile to the front (focus/hover/drag-start): stamp it frontmost via `nextZ()` and
     /// select it. `setZ` no-ops if the id isn't a panel, so it's safe for any tile.
     public func bringToFront(_ tileId: String) {
@@ -229,7 +283,11 @@ public final class ShellState: ObservableObject {
     /// user-initiated spawn/park; hand-drag positions survive a restart but a spawn re-grids them.
     public func applyArrange(area: CGSize) {
         guard let sid = appState.currentSpace?.id else { return }
-        let panels = appState.portWindows.panels.filter { $0.spaceId == sid && $0.presentation == "tiled" }
+        // Arrange the SAME set the desktop renders: the current space + any surfaced DM tiles. If this
+        // filter drifts from `tiledPanels`, DM ports never get a position and stack invisibly under the
+        // space chat at their default docked spot.
+        let allowed = Set([sid] + openDMSpaceIds)
+        let panels = appState.portWindows.panels.filter { allowed.contains($0.spaceId ?? "") && $0.presentation == "tiled" }
         let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, z: max($0.z, 1)) }
         let origins = Self.arrange(tiles, in: area)
         // Animate the moves here (not via a distant `.animation(value:)`) so the tiles visibly spring
