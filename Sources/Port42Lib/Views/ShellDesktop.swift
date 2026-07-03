@@ -480,12 +480,17 @@ struct ShellNotificationRail: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(shell.notifications) { n in card(n) }
+        // Pin to the top-left with Spacers — a greedy `.frame(maxWidth/Height: .infinity)` here would
+        // capture input across the WHOLE desktop and block tile focus / galaxy zoom. Spacers don't
+        // hit-test, so only the cards themselves are interactive.
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(shell.notifications) { n in card(n) }
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .padding(.leading, 12)
-        .allowsHitTesting(!shell.notifications.isEmpty)
+        .padding(.leading, 12).padding(.top, 60)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.notifications)
     }
 

@@ -77,28 +77,36 @@ public final class ShellState: ObservableObject {
     /// Specific foreign ports surfaced onto THIS desktop from a port notification (by port id, any space).
     @Published public var surfacedPortIds: Set<String> = []
 
-    /// Rebuild notifications from unread counts: a space with unread > 0 that is NOT the current space
-    /// and NOT already surfaced as a tile earns a peeking notification. Coalesced one-per-space; it
-    /// clears when you enter the space, surface it, or dismiss it (count → 0).
+    private var lastUnread: [String: Int] = [:]
+    private var notifSeeded = false
+
+    /// Raise a chat notification only for NEW activity — a space whose unread *increased* (a fresh
+    /// message), not for the pre-existing backlog. The first emission seeds the baseline silently so
+    /// launching with unread everywhere doesn't spam a wall of cards. A card clears when you enter the
+    /// space, surface it, or the unread goes to zero.
     private func refreshNotifications(from counts: [String: Int]) {
+        defer { lastUnread = counts }
+        guard notifSeeded else { notifSeeded = true; return }   // seed baseline; don't notify the backlog
         let currentId = appState.currentSpace?.id
         let surfaced = Set(openDMSpaceIds)
         for (spaceId, count) in counts {
-            guard count > 0, spaceId != currentId, !surfaced.contains(spaceId) else {
+            if count == 0 || spaceId == currentId || surfaced.contains(spaceId) {
                 notifications.removeAll { $0.portId == nil && $0.spaceId == spaceId }
                 continue
             }
-            let companion = appState.companions(forSpace: spaceId).first
-            let name = appState.spaces.first(where: { $0.id == spaceId })?.name
-                ?? companion?.displayName ?? "space"
-            if let idx = notifications.firstIndex(where: { $0.portId == nil && $0.spaceId == spaceId }) {
-                notifications[idx].count = count
-            } else {
+            let increased = count > (lastUnread[spaceId] ?? 0)
+            let existing = notifications.firstIndex(where: { $0.portId == nil && $0.spaceId == spaceId })
+            if let idx = existing {
+                notifications[idx].count = count            // keep an already-shown card current
+            } else if increased {
+                let companion = appState.companions(forSpace: spaceId).first
+                let name = appState.spaces.first(where: { $0.id == spaceId })?.name
+                    ?? companion?.displayName ?? "space"
                 notifications.append(ShellNotification(id: spaceId, spaceId: spaceId, spaceName: name,
                                                        companionName: companion?.displayName, count: count))
             }
+            // count > 0 but NOT increased and no existing card → stay silent (pre-existing backlog).
         }
-        // Drop any CHAT notification whose space fell out of the unread set (leaves port ones alone).
         notifications.removeAll { $0.portId == nil && counts[$0.spaceId] == nil }
     }
 
