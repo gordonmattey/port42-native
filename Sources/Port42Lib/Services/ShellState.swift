@@ -62,83 +62,75 @@ public final class ShellState: ObservableObject {
             .sink { [weak self] p in self?.raisePortNotification(id: p.id, spaceId: p.spaceId, title: p.title) }
     }
 
-    // MARK: - Notifications (§8b) — a live port/chat from ANOTHER space, peeking on this desktop
+    // MARK: - Notifications (§8b) — a notification IS the live port, PEEKING as a small tile here.
+    // Not a card: the actual port from another space attaches to your current desktop. Zoom into it →
+    // it STICKS in your space (adopted); ✕ detaches it (it lives on in its home space).
 
-    public struct ShellNotification: Identifiable, Equatable {
-        public let id: String                  // spaceId for a chat, portId for a port
+    public struct PeekPort: Identifiable, Equatable {
+        public let id: String        // portId for a port; spaceId for a space's chat
         public let spaceId: String
         public let spaceName: String
-        public let companionName: String?      // who, when the space is a companion DM
-        public var count: Int
-        public var portId: String? = nil       // nil = the space's chat; set = a specific port
-        public var portTitle: String? = nil
+        public let isChat: Bool
+        public let title: String
     }
-    @Published public var notifications: [ShellNotification] = []
-    /// Specific foreign ports surfaced onto THIS desktop from a port notification (by port id, any space).
+    @Published public var peekingPorts: [PeekPort] = []
+    /// Foreign ports ADOPTED onto this desktop (a peek you zoomed into sticks here), by port id.
     @Published public var surfacedPortIds: Set<String> = []
 
     private var lastUnread: [String: Int] = [:]
     private var notifSeeded = false
 
-    /// Raise a chat notification only for NEW activity — a space whose unread *increased* (a fresh
-    /// message), not for the pre-existing backlog. The first emission seeds the baseline silently so
-    /// launching with unread everywhere doesn't spam a wall of cards. A card clears when you enter the
-    /// space, surface it, or the unread goes to zero.
+    private func spaceLabel(_ sid: String) -> String {
+        appState.spaces.first(where: { $0.id == sid })?.name
+            ?? appState.companions(forSpace: sid).first?.displayName ?? "space"
+    }
+
+    /// New chat activity in another space → that space's chat peeks here (deduped per space). Seeds the
+    /// baseline silently so the unread backlog doesn't peek on launch; only an INCREASE peeks.
     private func refreshNotifications(from counts: [String: Int]) {
         defer { lastUnread = counts }
-        guard notifSeeded else { notifSeeded = true; return }   // seed baseline; don't notify the backlog
+        guard notifSeeded else { notifSeeded = true; return }
         let currentId = appState.currentSpace?.id
-        let surfaced = Set(openDMSpaceIds)
         for (spaceId, count) in counts {
-            if count == 0 || spaceId == currentId || surfaced.contains(spaceId) {
-                notifications.removeAll { $0.portId == nil && $0.spaceId == spaceId }
+            if count == 0 || spaceId == currentId || openDMSpaceIds.contains(spaceId) {
+                peekingPorts.removeAll { $0.isChat && $0.spaceId == spaceId }
                 continue
             }
             let increased = count > (lastUnread[spaceId] ?? 0)
-            let existing = notifications.firstIndex(where: { $0.portId == nil && $0.spaceId == spaceId })
-            if let idx = existing {
-                notifications[idx].count = count            // keep an already-shown card current
-            } else if increased {
-                let companion = appState.companions(forSpace: spaceId).first
-                let name = appState.spaces.first(where: { $0.id == spaceId })?.name
-                    ?? companion?.displayName ?? "space"
-                notifications.append(ShellNotification(id: spaceId, spaceId: spaceId, spaceName: name,
-                                                       companionName: companion?.displayName, count: count))
-            }
-            // count > 0 but NOT increased and no existing card → stay silent (pre-existing backlog).
+            guard increased, !peekingPorts.contains(where: { $0.isChat && $0.spaceId == spaceId }) else { continue }
+            let name = spaceLabel(spaceId)
+            peekingPorts.append(PeekPort(id: spaceId, spaceId: spaceId, spaceName: name, isChat: true, title: name))
         }
-        notifications.removeAll { $0.portId == nil && counts[$0.spaceId] == nil }
     }
 
-    /// A tiled port born in another space → a port notification (deduped by port id).
+    /// A tiled port born in another space → it peeks here (deduped by port id).
     private func raisePortNotification(id: String, spaceId: String?, title: String) {
         guard let sid = spaceId, sid != appState.currentSpace?.id else { return }
-        guard !notifications.contains(where: { $0.portId == id }) else { return }
-        let name = appState.spaces.first(where: { $0.id == sid })?.name ?? "space"
-        notifications.append(ShellNotification(id: id, spaceId: sid, spaceName: name,
-                                               companionName: nil, count: 1, portId: id, portTitle: title))
+        guard !peekingPorts.contains(where: { $0.id == id }), !surfacedPortIds.contains(id) else { return }
+        peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
 
-    /// Dismiss a notification without opening it.
-    public func acknowledgeNotification(_ n: ShellNotification) { notifications.removeAll { $0.id == n.id } }
-    public func acknowledgeNotification(spaceId: String) { notifications.removeAll { $0.portId == nil && $0.spaceId == spaceId } }
-
-    /// Click a notification → surface it as a live tile on THIS desktop (no space switch) and zoom in.
-    /// A port notification surfaces that specific port; a chat notification surfaces the space's chat.
-    public func openNotification(_ n: ShellNotification) {
-        if let pid = n.portId {
-            surfacedPortIds.insert(pid)                 // include it in the desktop's tiles
-            bringToFront(pid)
-            arrangeBump += 1
-            withAnimation(.spring(response: 0.4)) { zoom = .focus(pid) }
-        } else {
-            surfaceSpaceChat(spaceId: n.spaceId, spaceName: n.spaceName)
-            appState.lastReadDates[n.spaceId] = Date()  // viewing it clears the unread badge
-            if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == n.spaceId }) {
+    /// Zoom into a peek → it STICKS in your current space (adopted) and you focus it. Zooming back out
+    /// leaves you in your space with the port now a tile here.
+    public func adoptPeek(_ peek: PeekPort) {
+        peekingPorts.removeAll { $0.id == peek.id }
+        if peek.isChat {
+            surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
+            appState.lastReadDates[peek.spaceId] = Date()
+            if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == peek.spaceId }) {
                 withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
             }
+        } else {
+            surfacedPortIds.insert(peek.id)
+            bringToFront(peek.id)
+            arrangeBump += 1
+            withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
         }
-        notifications.removeAll { $0.id == n.id }
+    }
+
+    /// ✕ a peek → dismiss it from your desktop; it lives on in its home space.
+    public func dismissPeek(_ peek: PeekPort) {
+        peekingPorts.removeAll { $0.id == peek.id }
     }
 
     /// Surface ANY space's chat as a tile on the current desktop (generalizes `openDM`).
@@ -312,6 +304,9 @@ public final class ShellState: ObservableObject {
     /// Which rail zone the in-progress tile drag is currently over (drives the rail highlight); nil
     /// when the drag isn't over the rail.
     @Published public var draggingOverPark: ParkZone?
+    /// True while a tile is being dragged/resized — suppresses hover-to-front so tiles you drag OVER
+    /// don't pop in front of the one in your hand.
+    @Published public var isDraggingTile: Bool = false
 
     /// The right rail's width (spec §4: `max(64, screenW·0.05)`).
     nonisolated public static func parkWidth(_ screenW: CGFloat) -> CGFloat { max(64, screenW * 0.05) }
@@ -363,16 +358,23 @@ public final class ShellState: ObservableObject {
     public func clearOpenDMs() {
         for sid in openDMSpaceIds { appState.deactivateSpaceMessages(spaceId: sid) }
         openDMSpaceIds.removeAll()
-        surfacedPortIds.removeAll()          // foreign ports surfaced from notifications are per-desktop too
+        surfacedPortIds.removeAll()          // adopted foreign ports are per-desktop
+        peekingPorts.removeAll()             // peeks belong to the desktop you were on
     }
 
-    /// Dismiss any tile via its close affordance. A surfaced DM is torn down (removed from the desktop
-    /// + streaming stopped); every other tile just closes its port.
+    /// Dismiss a tile via its ✕. A surfaced foreign chat/port is DETACHED (removed from this desktop,
+    /// but lives on in its home space); a native tile of THIS space is actually closed.
     public func dismissTile(_ panel: PortPanel) {
-        if let sid = panel.spaceId, openDMSpaceIds.contains(sid) {
+        if let sid = panel.spaceId, openDMSpaceIds.contains(sid) {   // surfaced foreign chat / DM → detach
             closeDM(spaceId: sid)
+            return
         }
-        appState.portWindows.close(panel.id)
+        if surfacedPortIds.contains(panel.id) {                      // adopted foreign port → detach
+            surfacedPortIds.remove(panel.id)
+            arrangeBump += 1
+            return
+        }
+        appState.portWindows.close(panel.id)                         // a real tile of this space → close it
     }
 
     /// Bring a tile to the front (focus/hover/drag-start): stamp it frontmost via `nextZ()` and

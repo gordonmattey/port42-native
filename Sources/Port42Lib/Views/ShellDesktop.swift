@@ -286,6 +286,14 @@ struct ShellTile: View {
     private var isSelected: Bool { shell.selectedTileId == tile.id }
     private var sid: String? { appState.currentSpace?.id }
 
+    /// A tile that belongs to ANOTHER space (adopted from a peek) keeps its HOME space's accent, so it
+    /// still reads as "from elsewhere"; native tiles use the current space's accent.
+    private var tileAccent: Color {
+        guard let s = tile.panel?.spaceId, s != sid,
+              let space = appState.spaces.first(where: { $0.id == s }) else { return shell.accent }
+        return shell.accent(for: space)
+    }
+
     /// The DM partner when this tile is a surfaced DIRECT-message chat (else nil). A notification can
     /// also surface a regular space's chat through the same set, so require an actual direct space —
     /// direct spaces are excluded from `appState.spaces` (getRegularSpaces).
@@ -357,7 +365,7 @@ struct ShellTile: View {
         }
         .frame(width: liveSize.width, height: liveSize.height)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? shell.accent.opacity(0.7) : shell.accent.opacity(0.25), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? tileAccent.opacity(0.7) : tileAccent.opacity(0.25), lineWidth: 1))
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
         .overlay(cornerHandle(.nw), alignment: .topLeading)
@@ -374,9 +382,9 @@ struct ShellTile: View {
                 .buttonStyle(.plain)
             }
         }
-        .shadow(color: shell.accent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
+        .shadow(color: tileAccent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
         .scaleEffect(exposeScale, anchor: .center)            // exposé shrinks/grows the tile to ~fit its cell
-        .onHover { if $0 { shell.bringToFront(tile.id) } }   // hover raises the tile to the front + selects (BEFORE .position → tracking on the bounded tile)
+        .onHover { if $0 && !shell.isDraggingTile { shell.bringToFront(tile.id) } }   // hover raises to front — but not while a tile is being dragged over others
         .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: exposeFrame)
     }
@@ -390,7 +398,7 @@ struct ShellTile: View {
                     Text(dm.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     Text("· DM").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
                 } else {
-                    Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
+                    Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
                     Text(surfacedSpaceTitle ?? tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     if surfacedSpaceTitle != nil { Text("· from").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary) }
                 }
@@ -428,13 +436,14 @@ struct ShellTile: View {
         // Read the pointer in the desktop space so a drop onto the right rail parks/closes the port.
         DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
-                if moveDelta == .zero { shell.bringToFront(tile.id) }   // grabbing a tile raises it
+                if moveDelta == .zero { shell.bringToFront(tile.id); shell.isDraggingTile = true }   // grabbing a tile raises it
                 moveDelta = v.translation
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
             }
             .onEnded { v in
                 let zone = railZone(at: v.location)
                 shell.draggingOverPark = nil
+                shell.isDraggingTile = false
                 moveDelta = .zero
                 switch zone {                                                    // any tile (chat included) — count↓ re-grids
                 case .close: if let panel = tile.panel { shell.dismissTile(panel) }
@@ -456,7 +465,7 @@ struct ShellTile: View {
         // corner that the resize is moving, so a local-space translation lags behind the cursor.
         DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
-                if resizeCorner == nil { shell.bringToFront(tile.id) }
+                if resizeCorner == nil { shell.bringToFront(tile.id); shell.isDraggingTile = true }
                 resizeCorner = corner
                 resizeDelta = v.translation
             }
@@ -465,6 +474,7 @@ struct ShellTile: View {
                 commit(origin: f.origin, size: f.size)
                 resizeCorner = nil
                 resizeDelta = .zero
+                shell.isDraggingTile = false
             }
     }
 
@@ -480,53 +490,83 @@ struct ShellTile: View {
 /// at the bottom. It's a drop TARGET only — the drag is owned by the tile's move gesture, which sets
 /// `shell.draggingOverPark` for the highlight and calls `park`/`close` on drop. Faint at rest; lights
 /// up accent (park) or red (close) while a tile is dragged over the matching zone.
-/// Left-edge peeking notifications (§8b): a companion reply / chat from ANOTHER space, coalesced one
-/// card per space. Click → surface that space's chat as a live tile here and zoom in (no space
-/// switch); ✕ dismisses. Stays until acknowledged.
+/// Left-edge PEEK strip (§8b): a live port from another space, attached to this desktop as a small
+/// tile — not a card, the real thing. Click/zoom → it STICKS in your space (adopted); ✕ detaches it
+/// (it lives on in its home space). Spacers pin it top-left without hit-testing the empty desktop.
 struct ShellNotificationRail: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
 
     var body: some View {
-        // Pin to the top-left with Spacers — a greedy `.frame(maxWidth/Height: .infinity)` here would
-        // capture input across the WHOLE desktop and block tile focus / galaxy zoom. Spacers don't
-        // hit-test, so only the cards themselves are interactive.
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(shell.notifications) { n in card(n) }
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(shell.peekingPorts) { peek in ShellPeekTile(shell: shell, appState: appState, peek: peek) }
                 Spacer(minLength: 0)
             }
             Spacer(minLength: 0)
         }
         .padding(.leading, 12).padding(.top, 60)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.notifications)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
+    }
+}
+
+/// One peeking port: a live miniature tinted with its HOME space's accent + a glow (it's from
+/// elsewhere, catching your eye). Hover highlights it; click adopts it into your space.
+struct ShellPeekTile: View {
+    @ObservedObject var shell: ShellState
+    @ObservedObject var appState: AppState
+    let peek: ShellState.PeekPort
+    @State private var hovered = false
+
+    /// The accent of the space this peek CAME FROM (not the current space) — so the edge signals origin.
+    private var spaceColor: Color {
+        if let s = appState.spaces.first(where: { $0.id == peek.spaceId }) { return shell.accent(for: s) }
+        return shell.accent
     }
 
-    private func card(_ n: ShellState.ShellNotification) -> some View {
-        let col = ShellDock.avatarColor(n.companionName ?? n.spaceId)
-        return HStack(spacing: 8) {
-            Circle().fill(col.gradient).frame(width: 26, height: 26)
-                .overlay(Group {
-                    if n.portId != nil { Image(systemName: "square.stack.3d.up").font(.system(size: 11)).foregroundStyle(.white) }
-                    else { Text(String((n.companionName ?? n.spaceName).prefix(1)).uppercased()).font(Port42Theme.monoBold(11)).foregroundStyle(.white) }
-                })
-            VStack(alignment: .leading, spacing: 1) {
-                Text(n.portTitle ?? n.companionName ?? n.spaceName).font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
-                Text(n.portId != nil ? "port · \(n.spaceName)" : "\(n.count) new · \(n.spaceName)")
-                    .font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
+    var body: some View {
+        let col = spaceColor
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {                                        // header: what + from where
+                Image(systemName: peek.isChat ? "bubble.left.fill" : "square.stack.3d.up")
+                    .font(.system(size: 9)).foregroundStyle(col)
+                Text(peek.title).font(Port42Theme.monoBold(9)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                Text("· \(peek.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(col.opacity(0.85)).lineLimit(1)
+                Spacer(minLength: 4)
             }
-            Spacer(minLength: 4)
-            Button { shell.acknowledgeNotification(n) } label: {
-                Image(systemName: "xmark").font(.system(size: 8)).foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-            }.buttonStyle(.plain)
+            .padding(.horizontal, 9).frame(height: 24).background(Color.black.opacity(0.45))
+            peekContent.frame(height: 116).clipped()                   // the live port, in miniature
         }
-        .padding(.horizontal, 10).padding(.vertical, 8).frame(width: 210)
-        .background(Port42Theme.shellCard, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(shell.accent.opacity(0.45), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 18, x: 4, y: 4)
-        .contentShape(RoundedRectangle(cornerRadius: 11))
-        .onTapGesture { shell.openNotification(n) }        // click → surface + zoom in
+        .frame(width: 210)
+        .background(Port42Theme.shellCard)
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+        // Whole-tile hit shield ABOVE the live NSView (SwiftUI onTapGesture can't beat a hosted view —
+        // this is the same trick as the desktop click-shield). Runs adopt for any click on the tile.
+        .overlay(Color.black.opacity(0.001).contentShape(RoundedRectangle(cornerRadius: 11))
+            .onTapGesture { shell.adoptPeek(peek) })
+        // ✕ lives ABOVE the shield so it can still be clicked.
+        .overlay(alignment: .topTrailing) {
+            Button { shell.dismissPeek(peek) } label: {
+                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                    .padding(4).background(Color.black.opacity(0.5), in: Circle())
+            }.buttonStyle(.plain).padding(5)
+        }
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(col.opacity(hovered ? 1 : 0.7), lineWidth: hovered ? 2 : 1.5))
+        .shadow(color: col.opacity(hovered ? 0.75 : 0.45), radius: hovered ? 28 : 16)   // colored glow from its space
+        .scaleEffect(hovered ? 1.03 : 1.0)
+        .onHover { hovered = $0 }
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovered)
         .transition(.move(edge: .leading).combined(with: .opacity))
+    }
+
+    @ViewBuilder private var peekContent: some View {
+        if peek.isChat {
+            ChatView(spaceId: peek.spaceId).environmentObject(appState)
+        } else if let v = appState.portWindows.hostView(for: peek.id) {
+            ShellPortHost(view: v)
+        } else {
+            Color.black
+        }
     }
 }
 
@@ -711,7 +751,7 @@ struct ShellFocusContent: View {
                         Circle().fill(ShellDock.avatarColor(dm.id).gradient).frame(width: 18, height: 18)
                             .overlay(Text(String(dm.displayName.prefix(1)).uppercased()).font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
                     } else {
-                        Circle().fill(shell.accent).frame(width: 8, height: 8)
+                        Circle().fill(focusAccent).frame(width: 8, height: 8)
                     }
                     Text(title).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
                     Text(dmCompanion != nil ? "· DM" : "· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
@@ -725,12 +765,18 @@ struct ShellFocusContent: View {
             .frame(width: NSScreen.main.map { $0.frame.width * 0.78 } ?? 1100,
                    height: NSScreen.main.map { $0.frame.height * 0.8 } ?? 700)
             .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.5), lineWidth: 1))
-            .shadow(color: shell.accent.opacity(0.4), radius: 50)
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(focusAccent.opacity(0.5), lineWidth: 1))
+            .shadow(color: focusAccent.opacity(0.4), radius: 50)
         }
     }
 
     private var panel: PortPanel? { appState.portWindows.panels.first { $0.id == id } }
+    /// A focused port from ANOTHER space keeps its home-space accent (so it reads as foreign there too).
+    private var focusAccent: Color {
+        guard let s = panel?.spaceId, s != appState.currentSpace?.id,
+              let space = appState.spaces.first(where: { $0.id == s }) else { return shell.accent }
+        return shell.accent(for: space)
+    }
     /// The DM partner when focusing a chat that belongs to a 2-member `direct` space (else nil).
     /// Derived from the TILE's own space, so it works for a DM surfaced over a non-direct desktop.
     private var dmCompanion: AgentConfig? {

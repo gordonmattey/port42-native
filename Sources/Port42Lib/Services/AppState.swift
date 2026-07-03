@@ -2482,7 +2482,9 @@ public final class AppState: ObservableObject {
 
         // Leave an inline card in the space so the terminal has chat presence and can be reopened.
         // Local-only (the native window lives on this machine). The card references `key` (stable).
-        if postCard {
+        // In the SHELL the tiled terminal IS the presence, so the card would be a redundant second
+        // window — skip it there.
+        if postCard && !ShellMode.isEnabled() {
             let card = Message(
                 id: UUID().uuidString, spaceId: spaceId, senderId: currentUser?.id ?? "",
                 senderName: companionName, senderType: "system",
