@@ -173,6 +173,42 @@ struct AppStateTests {
         #expect(otherMsgs.count == 1) // "in other"
     }
 
+    /// SHELL (B) — multi-space chat read routing: `messages(for:)` routes the current space to
+    /// `messages` and every other to `messagesBySpace`, populated by `activateSpaceMessages` and
+    /// dropped by `deactivateSpaceMessages`. This is what lets a DM tile coexist with the space chat.
+    @Test("messages(for:) routes current vs background space")
+    @MainActor
+    func multiSpaceMessageRead() throws {
+        let state = try makeStateReady()
+        let generalId = state.currentSpace!.id
+
+        state.createSpace(name: "other")      // becomes current
+        let otherId = state.currentSpace!.id
+        state.sendMessage(content: "in other")
+
+        // Back to general; "other" is now a BACKGROUND space (like an open DM tile).
+        let general = try state.db.getAllSpaces().first { $0.id == generalId }!
+        state.selectSpace(general)
+        #expect(state.currentSpace?.id == generalId)
+
+        // Current-space read routes to `messages`; background space isn't observed yet → empty.
+        #expect(state.messages(for: generalId).count == state.messages.count)
+        #expect(state.messages(for: otherId).isEmpty)
+
+        // Activate the background space → synchronous initial read fills the cache.
+        state.activateSpaceMessages(spaceId: otherId)
+        #expect(state.messages(for: otherId).map(\.content).contains("in other"))
+
+        // Activating the CURRENT space is a no-op (guarded — it streams through `messages`).
+        state.activateSpaceMessages(spaceId: generalId)
+        #expect(state.messagesBySpace[generalId] == nil)
+
+        // Deactivate → cache dropped.
+        state.deactivateSpaceMessages(spaceId: otherId)
+        #expect(state.messagesBySpace[otherId] == nil)
+        #expect(state.messages(for: otherId).isEmpty)
+    }
+
     // MARK: - Drafts
 
     @Test("Draft preserved per space")
