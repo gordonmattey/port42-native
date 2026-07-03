@@ -94,7 +94,7 @@ public struct ShellView: View {
                 ZStack {
                     Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
                         .onTapGesture { shell.showSettings = false }
-                    SignOutSheet(isPresented: $shell.showSettings)
+                    SignOutSheet(isPresented: $shell.showSettings, accent: shell.accent)
                         .environmentObject(appState)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
@@ -107,7 +107,7 @@ public struct ShellView: View {
                 ZStack {
                     Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
                         .onTapGesture { shell.showUsage = false }
-                    UsageSheet(isPresented: $shell.showUsage)
+                    UsageSheet(isPresented: $shell.showUsage, accent: shell.accent)
                         .environmentObject(appState)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))

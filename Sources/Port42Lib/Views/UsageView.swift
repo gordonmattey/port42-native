@@ -3,6 +3,7 @@ import SwiftUI
 public struct UsageSheet: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
+    var accent: Color = Port42Theme.accent     // space accent (keyed off the current space in the shell)
 
     enum Period: String, CaseIterable {
         case day = "Day"
@@ -38,7 +39,7 @@ public struct UsageSheet: View {
                 Spacer()
                 Button("Done") { isPresented = false }
                     .font(Port42Theme.mono(12))
-                    .foregroundStyle(Port42Theme.accent)
+                    .foregroundStyle(accent)
                     .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
@@ -77,18 +78,18 @@ public struct UsageSheet: View {
 
             // Key stats
             HStack(spacing: 0) {
-                StatBox(label: "Total", value: formatTokens(totalInput + totalOutput))
+                StatBox(label: "Total", value: formatTokens(totalInput + totalOutput), accent: accent)
                 Spacer()
-                StatBox(label: "Requests", value: "\(totalRequests)")
+                StatBox(label: "Requests", value: "\(totalRequests)", accent: accent)
                 Spacer()
-                StatBox(label: "Avg/Req", value: totalRequests > 0 ? formatTokens((totalInput + totalOutput) / totalRequests) : "–")
+                StatBox(label: "Avg/Req", value: totalRequests > 0 ? formatTokens((totalInput + totalOutput) / totalRequests) : "–", accent: accent)
                 Spacer()
                 if totalCacheRead > 0 || totalCacheCreation > 0 {
                     let hitRate = (totalInput + totalCacheRead) > 0
                         ? Int(Double(totalCacheRead) / Double(totalInput + totalCacheRead) * 100) : 0
-                    StatBox(label: "Cache", value: "\(hitRate)%")
+                    StatBox(label: "Cache", value: "\(hitRate)%", accent: accent)
                 } else {
-                    StatBox(label: "Cache", value: "–")
+                    StatBox(label: "Cache", value: "–", accent: accent)
                 }
             }
             .padding(.horizontal, 20)
@@ -97,9 +98,9 @@ public struct UsageSheet: View {
             // Breakdown line
             HStack(spacing: 12) {
                 Text("\(formatTokens(totalInput)) in")
-                    .foregroundStyle(Port42Theme.accent.opacity(0.7))
+                    .foregroundStyle(accent.opacity(0.7))
                 Text("\(formatTokens(totalOutput)) out")
-                    .foregroundStyle(Port42Theme.accent.opacity(0.4))
+                    .foregroundStyle(accent.opacity(0.4))
                 if totalCacheRead > 0 {
                     Text("\(formatTokens(totalCacheRead)) cached")
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
@@ -138,7 +139,8 @@ public struct UsageSheet: View {
                                 inputTokens: agg.inputTokens,
                                 outputTokens: agg.outputTokens,
                                 requests: agg.requests,
-                                maxTokens: aggregates.map { $0.inputTokens + $0.outputTokens }.max() ?? 1
+                                maxTokens: aggregates.map { $0.inputTokens + $0.outputTokens }.max() ?? 1,
+                                accent: accent
                             )
                         }
                     }
@@ -167,10 +169,10 @@ public struct UsageSheet: View {
                                     Spacer()
                                     Text("\(formatTokens(record.inputTokens)) in")
                                         .font(Port42Theme.mono(10))
-                                        .foregroundStyle(Port42Theme.accent.opacity(0.7))
+                                        .foregroundStyle(accent.opacity(0.7))
                                     Text("\(formatTokens(record.outputTokens)) out")
                                         .font(Port42Theme.mono(10))
-                                        .foregroundStyle(Port42Theme.accent.opacity(0.4))
+                                        .foregroundStyle(accent.opacity(0.4))
                                     Text(timeAgo(record.timestamp))
                                         .font(Port42Theme.mono(10))
                                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
@@ -244,9 +246,9 @@ public struct UsageSheet: View {
             ForEach(options, id: \.self) { o in
                 let on = o == selected
                 Button { onTap(o) } label: {
-                    Text(label(o)).font(Port42Theme.mono(10)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
+                    Text(label(o)).font(Port42Theme.mono(10)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                        .background(on ? accent.opacity(0.15) : Color.clear)
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
@@ -315,12 +317,13 @@ public struct UsageSheet: View {
 private struct StatBox: View {
     let label: String
     let value: String
+    var accent: Color = Port42Theme.accent
 
     var body: some View {
         VStack(spacing: 2) {
             Text(value)
                 .font(Port42Theme.monoBold(16))
-                .foregroundStyle(Port42Theme.accent)
+                .foregroundStyle(accent)
             Text(label)
                 .font(Port42Theme.mono(10))
                 .foregroundStyle(Port42Theme.textSecondary)
@@ -334,6 +337,7 @@ private struct UsageRow: View {
     let outputTokens: Int
     let requests: Int
     let maxTokens: Int
+    var accent: Color = Port42Theme.accent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -356,10 +360,10 @@ private struct UsageRow: View {
 
                 HStack(spacing: 0) {
                     Rectangle()
-                        .fill(Port42Theme.accent.opacity(0.7))
+                        .fill(accent.opacity(0.7))
                         .frame(width: max(barWidth * inputFraction, 1))
                     Rectangle()
-                        .fill(Port42Theme.accent.opacity(0.3))
+                        .fill(accent.opacity(0.3))
                         .frame(width: max(barWidth * (1 - inputFraction), 0))
                 }
                 .frame(height: 6)

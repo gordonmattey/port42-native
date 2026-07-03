@@ -51,8 +51,12 @@ public struct SignOutSheet: View {
     @State private var tab: SettingsTab = .ai
     @State private var providerSel = "Anthropic"     // AI tab provider picker (was a radio-accordion)
 
-    public init(isPresented: Binding<Bool>) {
+    /// Space accent — keys the whole panel like the companion cards. Defaults to the theme accent for
+    /// the classic (non-shell) app, which has no per-space color.
+    let accent: Color
+    public init(isPresented: Binding<Bool>, accent: Color = Port42Theme.accent) {
         self._isPresented = isPresented
+        self.accent = accent
     }
 
     public var body: some View {
@@ -62,7 +66,7 @@ public struct SignOutSheet: View {
                 Text("SETTINGS").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
                 Button("Done") { isPresented = false }
-                    .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.accent).buttonStyle(.plain)
+                    .font(Port42Theme.mono(12)).foregroundStyle(accent).buttonStyle(.plain)
             }
             .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 14)
 
@@ -101,7 +105,7 @@ public struct SignOutSheet: View {
                             Text("screensaver lock").font(Port42Theme.mono(10))
                         }
                         .foregroundStyle(Port42Theme.bgPrimary).frame(maxWidth: .infinity)
-                        .padding(.vertical, 10).background(Port42Theme.accent).cornerRadius(6)
+                        .padding(.vertical, 10).background(accent).cornerRadius(6)
                     }.buttonStyle(.plain)
 
                     HStack(spacing: 10) {
@@ -140,9 +144,9 @@ public struct SignOutSheet: View {
             ForEach(SettingsTab.allCases, id: \.self) { t in
                 let on = tab == t
                 Button { tab = t } label: {
-                    Text(t.rawValue).font(Port42Theme.mono(11)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
+                    Text(t.rawValue).font(Port42Theme.mono(11)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 7)
-                        .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                        .background(on ? accent.opacity(0.15) : Color.clear)
                         .contentShape(Rectangle())     // clear bg isn't hittable → make the whole segment tappable
                 }.buttonStyle(.plain)
             }
@@ -157,9 +161,9 @@ public struct SignOutSheet: View {
             ForEach(opts, id: \.self) { o in
                 let on = o == sel
                 Button { onTap(o) } label: {
-                    Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
+                    Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                        .background(on ? accent.opacity(0.15) : Color.clear)
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
@@ -194,7 +198,7 @@ public struct SignOutSheet: View {
                             } else {
                                 Image(systemName: pluginUpgradeResult == "ok" ? "checkmark.circle.fill" : "arrow.up.circle")
                                     .font(.system(size: 10))
-                                    .foregroundStyle(pluginUpgradeResult == "ok" ? .green : Port42Theme.accent)
+                                    .foregroundStyle(pluginUpgradeResult == "ok" ? .green : accent)
                             }
                             Text(pluginUpgradeInProgress ? "upgrading..." : "upgrade port42-openclaw")
                                 .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
@@ -228,7 +232,7 @@ public struct SignOutSheet: View {
             HStack(spacing: 6) {
                 Text(publicURL.replacingOccurrences(of: "wss://", with: ""))
                     .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.accent)
+                    .foregroundStyle(accent)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -240,10 +244,10 @@ public struct SignOutSheet: View {
                 }) {
                     Text("copy")
                         .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.accent)
+                        .foregroundStyle(accent)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Port42Theme.accent.opacity(0.1))
+                        .background(accent.opacity(0.1))
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -290,10 +294,10 @@ public struct SignOutSheet: View {
                         Text("invite others")
                             .font(Port42Theme.monoBold(12))
                     }
-                    .foregroundStyle(Port42Theme.accent)
+                    .foregroundStyle(accent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Port42Theme.accent.opacity(0.1))
+                    .background(accent.opacity(0.1))
                     .cornerRadius(7)
                 }
                 .buttonStyle(.plain)
@@ -326,8 +330,8 @@ public struct SignOutSheet: View {
                     .foregroundStyle(Port42Theme.textPrimary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.06))
-                    .cornerRadius(6)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
                     .onSubmit {
                         appState.tunnel.setAuthToken(ngrokToken)
                     }
@@ -346,7 +350,7 @@ public struct SignOutSheet: View {
                             NSWorkspace.shared.open(url)
                         }
                     } label: {
-                        Text("ngrok.com").font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.accent)
+                        Text("ngrok.com").font(Port42Theme.monoBold(11)).foregroundStyle(accent)
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
                     Spacer()
@@ -354,7 +358,7 @@ public struct SignOutSheet: View {
                         Button(action: { editingToken = false }) {
                             Text("done")
                                 .font(Port42Theme.monoBold(11))
-                                .foregroundStyle(Port42Theme.accent)
+                                .foregroundStyle(accent)
                         }
                         .buttonStyle(.plain)
                     }
@@ -426,10 +430,10 @@ public struct SignOutSheet: View {
                     Button(action: doTestConnection) {
                         Text("test")
                             .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.accent)
+                            .foregroundStyle(accent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Port42Theme.accent.opacity(0.1))
+                            .background(accent.opacity(0.1))
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
@@ -437,10 +441,10 @@ public struct SignOutSheet: View {
                     Button(action: refreshAutoDetect) {
                         Text("refresh")
                             .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.accent)
+                            .foregroundStyle(accent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Port42Theme.accent.opacity(0.1))
+                            .background(accent.opacity(0.1))
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
@@ -496,8 +500,8 @@ public struct SignOutSheet: View {
                 .foregroundStyle(Port42Theme.textPrimary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(6)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
                 .onSubmit { saveManualCredential() }
                 .onChange(of: authCredentialInput) { _, newValue in
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -531,10 +535,10 @@ public struct SignOutSheet: View {
                 Button(action: saveManualCredential) {
                     Text(authCredentialInput.isEmpty ? "clear" : "save")
                         .font(Port42Theme.monoBold(12))
-                        .foregroundStyle(Port42Theme.accent)
+                        .foregroundStyle(accent)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Port42Theme.accent.opacity(0.1))
+                        .background(accent.opacity(0.1))
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -542,10 +546,10 @@ public struct SignOutSheet: View {
                 Button(action: doTestConnection) {
                     Text("test")
                         .font(Port42Theme.monoBold(12))
-                        .foregroundStyle(Port42Theme.accent)
+                        .foregroundStyle(accent)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Port42Theme.accent.opacity(0.1))
+                        .background(accent.opacity(0.1))
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
@@ -574,17 +578,17 @@ public struct SignOutSheet: View {
                         .foregroundStyle(Port42Theme.textPrimary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.06))
-                        .cornerRadius(6)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
 
                     HStack(spacing: 8) {
                         Button(action: saveGeminiKey) {
                             Text(geminiKeyInput.isEmpty ? "clear" : "save")
                                 .font(Port42Theme.monoBold(12))
-                                .foregroundStyle(Port42Theme.accent)
+                                .foregroundStyle(accent)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Port42Theme.accent.opacity(0.1))
+                                .background(accent.opacity(0.1))
                                 .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
@@ -592,10 +596,10 @@ public struct SignOutSheet: View {
                         Button(action: testGeminiKey) {
                             Text("test")
                                 .font(Port42Theme.monoBold(12))
-                                .foregroundStyle(Port42Theme.accent)
+                                .foregroundStyle(accent)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Port42Theme.accent.opacity(0.1))
+                                .background(accent.opacity(0.1))
                                 .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
@@ -624,8 +628,8 @@ public struct SignOutSheet: View {
                             .foregroundStyle(Port42Theme.textPrimary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(6)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -638,17 +642,17 @@ public struct SignOutSheet: View {
                             .foregroundStyle(Port42Theme.textPrimary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(6)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
                     }
 
                     Button(action: saveCompatibleConfig) {
                         Text("save")
                             .font(Port42Theme.monoBold(12))
-                            .foregroundStyle(Port42Theme.accent)
+                            .foregroundStyle(accent)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(Port42Theme.accent.opacity(0.1))
+                            .background(accent.opacity(0.1))
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
@@ -695,10 +699,10 @@ public struct SignOutSheet: View {
         let on = value.wrappedValue
         return Button(action: { value.wrappedValue.toggle() }) {          // §4 chip — whole capsule tappable
             Text(label).font(Port42Theme.mono(11))
-                .foregroundStyle(on ? Port42Theme.accent : Port42Theme.textPrimary)
+                .foregroundStyle(on ? accent : Port42Theme.textPrimary)
                 .padding(.horizontal, 11).padding(.vertical, 7)
-                .background((on ? Port42Theme.accent.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
-                .overlay(Capsule().stroke(on ? Port42Theme.accent.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
+                .background((on ? accent.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
+                .overlay(Capsule().stroke(on ? accent.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
         }.buttonStyle(.plain)
     }
 
@@ -707,14 +711,14 @@ public struct SignOutSheet: View {
             HStack(spacing: 6) {
                 Image(systemName: installed ? "checkmark.circle.fill" : "arrow.down.circle")
                     .font(.system(size: 10))
-                    .foregroundStyle(installed ? .green : Port42Theme.accent)
+                    .foregroundStyle(installed ? .green : accent)
                 Text(label)
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textPrimary)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(installed ? Color.green.opacity(0.1) : Port42Theme.accent.opacity(0.1))
+            .background(installed ? Color.green.opacity(0.1) : accent.opacity(0.1))
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
@@ -1008,8 +1012,8 @@ public struct SignOutSheet: View {
                             .textFieldStyle(.plain)
                             .frame(width: 100)
                             .padding(4)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(6)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
 
                         Menu {
                             Button("Bearer") { newSecretType = .bearerToken }
@@ -1035,8 +1039,8 @@ public struct SignOutSheet: View {
                             .font(Port42Theme.mono(11))
                             .textFieldStyle(.plain)
                             .padding(4)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(6)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
 
                         Button(action: {
                             let name = newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1052,7 +1056,7 @@ public struct SignOutSheet: View {
                             Text("add").font(Port42Theme.monoBold(11))                 // §7 accent-filled commit
                                 .foregroundStyle(ready ? .black : Port42Theme.textSecondary)
                                 .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(ready ? Port42Theme.accent : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                                .background(ready ? accent : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
                         }
                         .buttonStyle(.plain)
                         .disabled(newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -1095,10 +1099,10 @@ public struct SignOutSheet: View {
                     Text("check now")
                         .font(Port42Theme.monoBold(12))
                 }
-                .foregroundStyle(Port42Theme.accent)
+                .foregroundStyle(accent)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Port42Theme.accent.opacity(0.1))
+                .background(accent.opacity(0.1))
                 .cornerRadius(7)
             }
             .buttonStyle(.plain)
@@ -1112,7 +1116,7 @@ public struct SignOutSheet: View {
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
-            .tint(Port42Theme.accent)
+            .tint(accent)
             .onChange(of: autoUpdatesEnabled) { _, newValue in
                 UserDefaults.standard.set(newValue, forKey: "SUAutomaticallyUpdate")
                 UserDefaults.standard.set(newValue, forKey: "SUEnableAutomaticChecks")
