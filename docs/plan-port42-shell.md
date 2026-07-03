@@ -387,6 +387,9 @@ cards. **Still to port / revisit — this is the full list, so it's captured:**
   recent calls, requests). Surface as a shell overlay like Settings.
 
 **B. Settings panel itself — bring across properly, not just embedded:**
+> Build to **`docs/shell-style-guide.md`** — the form/control spec extracted from the add-companion
+> card (card chrome, `seg`, box fields, labels, menus, and the gap specs: accordion §9a, list row
+> §9b, whole-hit-area rule §0.1). The Settings reskin = rebuild its sections to those primitives.
 - **Shell-card treatment** — restyle `SignOutSheet` (today a fixed 460×740 light-era sheet) to match
   the shell cards (`ShellSettingsView` / new-companion): dark card, accent stroke, consistent padding.
   Secrets should feel identical to the per-companion editor (`ShellSecretsField`).
