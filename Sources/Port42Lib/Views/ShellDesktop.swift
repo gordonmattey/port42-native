@@ -457,11 +457,60 @@ struct ShellTileBody: View {
                 ChatView(spaceId: tile.panel?.spaceId).environmentObject(appState).padding(.top, 26)   // its OWN space
                 ShellMemberRow(shell: shell, appState: appState, accent: shell.accent, spaceId: tile.panel?.spaceId)
             }
+        } else if let panel = tile.panel, panel.portType == "browser",
+                  let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
+            ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html)   // address bar + page
         } else if let panel = tile.panel, let v = appState.portWindows.hostView(for: panel.id) {
             ShellPortHost(view: v, bridge: panel.bridge)      // web OR terminal — one host
         } else {
             Color.black
         }
+    }
+}
+
+/// A browser port's chrome: a slim address bar (back/forward/reload + URL field) over the embedded
+/// WKWebView. The webview is the persistent registry view, re-parented via ShellPortHost like any tile.
+struct ShellBrowserTile: View {
+    let webView: WKWebView
+    let accent: Color
+    @State private var urlText: String
+
+    init(webView: WKWebView, accent: Color, initialURL: String) {
+        self.webView = webView
+        self.accent = accent
+        _urlText = State(initialValue: initialURL)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                navButton("chevron.left") { webView.goBack() }
+                navButton("chevron.right") { webView.goForward() }
+                navButton("arrow.clockwise") { webView.reload() }
+                TextField("search or type a URL", text: $urlText)
+                    .textFieldStyle(.plain).font(Port42Theme.mono(11))
+                    .foregroundStyle(Port42Theme.textPrimary)
+                    .onSubmit(navigate)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
+            }
+            .padding(.horizontal, 10).frame(height: 34)
+            .background(Color(red: 0.06, green: 0.07, blue: 0.09))
+            .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
+            ShellPortHost(view: webView)
+        }
+    }
+
+    private func navigate() {
+        if let url = URL(string: PortWindowManager.normalizedBrowserURL(urlText)) {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    private func navButton(_ icon: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
+        }.buttonStyle(.plain)
     }
 }
 
@@ -575,7 +624,7 @@ struct ShellDock: View {
             HStack(spacing: 10) {                                   // — PORTS —
                 portButton("bubble.left.and.bubble.right", "Chat") { openChat() }
                 portButton("terminal", "Terminal") { spawnTerminal() }
-                portButton("globe", "Browser") { spawnStub("browser", "browser") }
+                portButton("globe", "Browser") { spawnBrowser() }
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -645,17 +694,11 @@ struct ShellDock: View {
         shell.arrangeBump += 1
     }
 
-    /// Placeholder tile for browser until its real tiled-port host lands (follow-up plumbing).
-    private func spawnStub(_ kind: String, _ title: String) {
+    /// Dock "Browser" → an embedded WebKit browser tile (address bar + real navigation) at a start page.
+    private func spawnBrowser() {
         guard let sid = appState.currentSpace?.id else { return }
-        let html = """
-        <html><body style="margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:#0a0e12;color:#00d4aa;font-family:ui-monospace,monospace">
-        <div style="font-size:30px">\(kind == "terminal" ? "&gt;_" : "🌐")</div>
-        <div style="font-size:12px;color:#8aa">\(kind) port — coming soon</div></body></html>
-        """
-        _ = appState.createPort(type: "web", title: title, html: html, command: nil, cwd: nil,
-                                systemPrompt: nil, spaceId: sid, createdBy: nil, createdByName: nil,
-                                presentation: "tiled", position: nil, size: CGSize(width: 380, height: 240))
+        _ = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
+                                                      createdBy: nil, title: "browser")
         shell.arrangeBump += 1
     }
 }

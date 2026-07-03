@@ -209,6 +209,12 @@ public final class PortWindowManager: ObservableObject {
                 // only web ports get a WKWebView.
                 if !panel.isChatPort && panel.portType != "terminal" {
                     createPortWebView(for: panel)
+                } else if panel.portType == "terminal" && panel.presentation != "floating" {
+                    // A tiled/parked terminal was on the shell desktop at shutdown — rebuild its
+                    // controller + hoisted Ghostty surface now so the tile has a live shell to host
+                    // again (floating terminals rebuild later via showRestoredFloatingPanels). The
+                    // process itself is gone across a restart, so this relaunches the startup command.
+                    rebuildTiledTerminal(panel, app: appState)
                 }
 
                 // Floating windows are NOT created here; they appear after
@@ -220,6 +226,18 @@ public final class PortWindowManager: ObservableObject {
         } catch {
             NSLog("[Port42] Failed to restore port panels: %@", error.localizedDescription)
         }
+    }
+
+    /// Rebuild a tiled/parked terminal's controller + hoisted Ghostty surface after a restart, and
+    /// register the view so the shell tile can host it (mirrors the spawn path).
+    private func rebuildTiledTerminal(_ panel: PortPanel, app: AnyObject) {
+        guard let appState = app as? AppState, let config = panel.terminalConfig,
+              let controller = appState.makeTerminalController(for: panel) else { return }
+        let built = GhosttyTerminalView.makeDetached(
+            config: config, env: controller.env,
+            onTee: { controller.receiveTee($0) },
+            onInject: { controller.bindSurface($0) })
+        storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
     }
 
     /// Create floating windows for restored web/terminal ports. Sets panelsVisible so that
@@ -440,6 +458,38 @@ public final class PortWindowManager: ObservableObject {
         panels.append(panel)
         persistPanel(id)
         return id
+    }
+
+    /// Create a TILED browser port — an embedded WKWebView navigated to a real URL (not an iframe, so
+    /// framing-blocked sites still load). `html` carries the start URL. A web port at heart: it uses
+    /// the same registry webview, just with permissive navigation.
+    func addTiledBrowserPanel(url: String, spaceId: String?, createdBy: String?,
+                              title: String, size: CGSize? = nil) -> String {
+        guard let appState = appState else { return "" }
+        let id = UUID().uuidString
+        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: id, createdBy: createdBy)
+        var panel = PortPanel(
+            id: id, udid: id, html: url, bridge: bridge,
+            spaceId: spaceId, createdBy: createdBy, messageId: id,
+            userTitle: title, size: size ?? CGSize(width: 900, height: 640))
+        panel.portType = "browser"
+        panel.presentation = "tiled"
+        panel.position = nil
+        panels.append(panel)
+        createPortWebView(for: panel)
+        persistPanel(id)
+        return id
+    }
+
+    /// Turn address-bar text into a loadable URL: pass through http(s), assume https for a bare
+    /// domain, else DuckDuckGo search. Empty → the start page.
+    static func normalizedBrowserURL(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return "https://duckduckgo.com" }
+        if s.hasPrefix("http://") || s.hasPrefix("https://") { return s }
+        if !s.contains(" "), s.contains(".") { return "https://" + s }
+        let q = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        return "https://duckduckgo.com/?q=" + q
     }
 
     /// Step 8: pop an inline port out into a floating window by RE-PARENTING its existing
@@ -841,19 +891,27 @@ public final class PortWindowManager: ObservableObject {
         heightHandlers[panel.id] = heightHandler
 
         let webView = FileDropWebView(frame: .zero, configuration: config)
-        let navDelegate = PortNavigationBlocker()
+        let isBrowser = panel.portType == "browser"
+        // A browser follows links & shows the site's own background; a normal port is locked to its
+        // document and drawn transparent over the shell.
+        let navDelegate: PortNavigationBlocker = isBrowser ? PortBrowserNavigation() : PortNavigationBlocker()
         webView.navigationDelegate = navDelegate
         navDelegates[panel.id] = navDelegate
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.allowsMagnification = false
+        webView.setValue(!isBrowser, forKey: "drawsBackground")
+        webView.allowsMagnification = isBrowser
 
         // Give bridge a reference to the webview for callbacks
         panel.bridge.setWebView(webView)
         webView.dropBridge = panel.bridge  // Step 5c: handle file drops onto this floating port
 
-        // Load content
-        let document = PortWebViewFactory.wrapHTML(panel.html)
-        webView.loadHTMLString(document, baseURL: URL(string: "http://port42.local/"))
+        // Load content: a browser navigates to a real URL (panel.html carries it); every other web
+        // port loads its HTML document.
+        if isBrowser, let url = URL(string: PortWindowManager.normalizedBrowserURL(panel.html)) {
+            webView.load(URLRequest(url: url))
+        } else {
+            let document = PortWebViewFactory.wrapHTML(panel.html)
+            webView.loadHTMLString(document, baseURL: URL(string: "http://port42.local/"))
+        }
 
         webViews[panel.id] = webView
     }
@@ -1314,6 +1372,14 @@ final class PortHeightHandler: NSObject, WKScriptMessageHandler {
 class PortNavigationBlocker: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(navigationAction.navigationType == .other ? .allow : .cancel)
+    }
+}
+
+/// A browser port must FOLLOW links (unlike a normal port, which is locked to its own document), so
+/// allow every navigation. Subclass so it fits the existing `navDelegates` registry.
+final class PortBrowserNavigation: PortNavigationBlocker {
+    override func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(.allow)
     }
 }
 
