@@ -101,6 +101,19 @@ public struct ShellView: View {
                         .shadow(color: .black.opacity(0.6), radius: 40)
                 }.zIndex(220)
             }
+
+            // Token Usage — the app's UsageSheet as a shell overlay.
+            if shell.showUsage {
+                ZStack {
+                    Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { shell.showUsage = false }
+                    UsageSheet(isPresented: $shell.showUsage)
+                        .environmentObject(appState)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.6), radius: 40)
+                }.zIndex(220)
+            }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
@@ -644,7 +657,7 @@ struct ShellNewCompanionView: View {
     @State private var command = ""
     @State private var argsText = ""
     @State private var workingDir = ""
-    @State private var openInTerminal = false
+    @State private var cliChoice = "claude"          // claude | gemini | codex | custom
     @State private var triggerSel = "mention-only"
     // anim
     @State private var cardScale: CGFloat = 0.92
@@ -655,7 +668,8 @@ struct ShellNewCompanionView: View {
     private var acc: Color { shell.accent }
     private var canCreate: Bool {
         guard appState.currentUser != nil, !effectiveName.isEmpty else { return false }
-        if mode == .command { return !command.trimmingCharacters(in: .whitespaces).isEmpty }
+        // CLI presets (claude/gemini/codex) carry their own command; only "custom" needs the field.
+        if mode == .command { return cliChoice != "custom" || !command.trimmingCharacters(in: .whitespaces).isEmpty }
         return true
     }
     private func typeIcon(_ t: CompanionTypePreset) -> String {
@@ -777,10 +791,18 @@ struct ShellNewCompanionView: View {
             label("MODEL");     boxField("model id", $model)
             label("SYSTEM PROMPT"); promptBox
         case .command:
-            label("COMMAND");   boxField("claude", $command)
-            label("ARGS");      boxField("--flag value", $argsText)
+            // Two kinds of command companion: a CLI LLM (claude/gemini/codex) that lives in a
+            // terminal tile, or a straight custom command that runs headless (NDJSON) — no terminal.
+            label("CLI")
+            seg(["claude", "gemini", "codex", "custom"], sel: cliChoice) { cliChoice = $0 }
+            if cliChoice == "custom" {
+                label("COMMAND");   boxField("my-cli", $command)
+                label("ARGS");      boxField("--flag value", $argsText)
+                Text("runs headless (NDJSON) — no terminal").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+            } else {
+                Text("opens in a terminal tile").font(Port42Theme.mono(9)).foregroundStyle(acc.opacity(0.8))
+            }
             label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
-            HStack { label("OPEN IN TERMINAL"); Spacer(); Toggle("", isOn: $openInTerminal).labelsHidden().toggleStyle(.switch).tint(acc) }
             label("SYSTEM PROMPT"); promptBox
         }
         // Secrets apply to any mode (rest.call / provider keys) — create + grant inline.
@@ -834,10 +856,13 @@ struct ShellNewCompanionView: View {
         let trig: AgentTrigger = triggerSel == "all messages" ? .allMessages : .mentionOnly
         var c: AgentConfig
         if mode == .command {
-            let args = argsText.split(separator: " ").map(String.init)
-            c = AgentConfig.createCommand(ownerId: user.id, displayName: nm, command: command.trimmingCharacters(in: .whitespaces),
+            // CLI LLM (claude/gemini/codex) → a terminal tile; custom → headless NDJSON command.
+            let isCLI = cliChoice != "custom"
+            let cmd = isCLI ? cliChoice : command.trimmingCharacters(in: .whitespaces)
+            let args = isCLI ? [] : argsText.split(separator: " ").map(String.init)
+            c = AgentConfig.createCommand(ownerId: user.id, displayName: nm, command: cmd,
                                           args: args.isEmpty ? nil : args, workingDir: nilIfEmpty(workingDir), envVars: nil,
-                                          systemPrompt: nilIfEmpty(promptOverride), openInTerminal: openInTerminal, trigger: trig)
+                                          systemPrompt: nilIfEmpty(promptOverride), openInTerminal: isCLI, trigger: trig)
         } else {
             let prov: AgentProvider = mode == .api ? .compatibleEndpoint : (providerSel == "gemini" ? .gemini : .anthropic)
             let prompt = !promptOverride.isEmpty ? promptOverride

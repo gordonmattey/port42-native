@@ -400,6 +400,13 @@ cards. **Still to port / revisit — this is the full list, so it's captured:**
 > Sequencing: the Chrome items (A) are small, high-value moves (icons + one overlay) — do first. The
 > Settings restyle + nav restructure (B) is the larger pass. Neither blocks daily use.
 
+**C. Follow-ups captured while here:**
+- **Codex chat round-trip.** The create form now offers claude/gemini/**codex** as CLI-LLM terminal
+  companions. codex opens in a terminal tile fine, but won't *post replies back into chat* yet:
+  `GhosttyTerminalController.isHooksCapable` only knows claude/gemini, and there's no codex hooks
+  shim (the ZDOTDIR shell-function + `--settings` that lets claude/gemini stream turns back). Adding
+  codex needs its own shim/hooks path. Until then codex = an interactive terminal, no companion loop.
+
 ### Phase S5 — Idle-out + boot fusion (the ambient loop closes)
 - **Idle timer** dismisses Layer 2 → Layer 0 (dreamscape) via the existing lock path; activity summons
   it back through the breakout transition. **Default idle `120s` (2 min), configurable** (the prototype's

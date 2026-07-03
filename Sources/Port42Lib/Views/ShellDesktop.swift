@@ -15,7 +15,7 @@ struct ShellChrome: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            mark
+            markMenu
             // ✨ + active-space name → toggles the galaxy (the only way up).
             Button {
                 withAnimation(.spring(response: 0.4)) {
@@ -37,33 +37,113 @@ struct ShellChrome: View {
 
             Spacer()
 
-            Text(appState.currentUser?.displayName ?? "you").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            // Same order as the pre-shell header cluster: status dots → pause → usage → settings.
+            // (Power/sign-out/reset moved to the PORT42 mark menu on the left.)
+            statusCluster                                    // gateway · tunnel · auth-key
+            stopAllButton                                    // kill switch for every companion call
+            chromeButton("chart.bar", "Token usage") { shell.showUsage = true }
             chromeButton("gearshape", "Settings") { shell.showSettings = true }
-            chromeButton("power", "Exit shell (⌘Q)") { NSApp.terminate(nil) }
+
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20)
+            profileChip                                      // name + PFP, far right
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .background(.black.opacity(0.45))
         .overlay(Rectangle().fill(shell.accent.opacity(0.25)).frame(height: 1), alignment: .bottom)
     }
 
-    private var mark: some View {
-        HStack(spacing: 9) {
-            Canvas { ctx, size in
-                var d = Path()
-                d.move(to: CGPoint(x: size.width / 2, y: 2)); d.addLine(to: CGPoint(x: size.width - 2, y: size.height / 2))
-                d.addLine(to: CGPoint(x: size.width / 2, y: size.height - 2)); d.addLine(to: CGPoint(x: 2, y: size.height / 2)); d.closeSubpath()
-                ctx.fill(d, with: .color(shell.accent))
-            }.frame(width: 16, height: 16).shadow(color: shell.accent, radius: 6)
-            Text("PORT42").font(Port42Theme.monoBold(14)).foregroundStyle(Port42Theme.textPrimary)
-            Text("// SHELL").font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+    /// The PORT42 mark is the session menu: sign out (lock) · power down (reboot) · reset (erase).
+    private var markMenu: some View {
+        Menu {
+            Button { appState.lockApp() } label: { Label("Sign out — screensaver lock", systemImage: "moon.zzz") }
+            Button { NSApp.terminate(nil) } label: { Label("Power down — quit", systemImage: "power") }
+            Divider()
+            Button(role: .destructive) { appState.resetApp() } label: { Label("Reset — erase all", systemImage: "trash") }
+        } label: {
+            mark
         }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .appKitTooltip("Session — sign out · power · reset")
+    }
+
+    /// The Port42 diamond — icon only (no "PORT42 // SHELL" wordmark). It IS the session menu button,
+    /// like the Apple menu. A rotated square renders reliably as a Menu label (a Canvas doesn't).
+    private var mark: some View {
+        Rectangle().fill(shell.accent)
+            .frame(width: 13, height: 13)
+            .rotationEffect(.degrees(45))
+            .frame(width: 24, height: 24)                 // hit box around the diamond
+            .shadow(color: shell.accent.opacity(0.8), radius: 5)
+            .contentShape(Rectangle())
     }
 
     private func chromeButton(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Port42Theme.textSecondary)
                 .frame(width: 26, height: 26).contentShape(Rectangle())
-        }.buttonStyle(.plain).help(help)
+        }.buttonStyle(.plain).appKitTooltip(help)
+    }
+
+    // MARK: global status + kill switch (ported from the pre-shell header cluster)
+
+    /// gateway (bolt) · tunnel (globe, when active) · Anthropic auth (key, colored by state).
+    private var statusCluster: some View {
+        HStack(spacing: 9) {
+            // Every indicator ALWAYS shows — the icon+color carry on/off state, they never disappear.
+            Image(systemName: appState.sync.isConnected ? "bolt.fill" : "bolt.slash").font(.system(size: 10))
+                .foregroundStyle(appState.sync.isConnected ? .green : Port42Theme.textSecondary)
+                .appKitTooltip(appState.sync.isConnected ? "Gateway connected" : "Gateway disconnected")
+            Image(systemName: "globe").font(.system(size: 10))
+                .foregroundStyle(appState.tunnel.publicURL != nil ? shell.accent : Port42Theme.textSecondary.opacity(0.4))
+                .appKitTooltip(appState.tunnel.publicURL != nil ? "Remote access on — \(appState.tunnel.publicURL ?? "")" : "Remote access off")
+            Image(systemName: "key.fill").font(.system(size: 10)).foregroundStyle(authDotColor)
+                .appKitTooltip(authTooltip)
+        }
+    }
+
+    /// Pause/resume EVERY companion call in one place — the global kill switch.
+    private var stopAllButton: some View {
+        Button {
+            appState.aiPaused.toggle()
+            LLMEngine.paused = appState.aiPaused
+        } label: {
+            Image(systemName: appState.aiPaused ? "pause.circle.fill" : "pause.circle").font(.system(size: 13))
+                .foregroundStyle(appState.aiPaused ? .red : Port42Theme.textSecondary)
+                .frame(width: 26, height: 26).contentShape(Rectangle())
+        }.buttonStyle(.plain).appKitTooltip(appState.aiPaused ? "AI paused — resume all" : "Pause all AI")
+    }
+
+    /// Account identity on the far right: display name, then the PFP disc (name left of the PFP).
+    private var profileChip: some View {
+        HStack(spacing: 8) {
+            Text(appState.currentUser?.displayName ?? "you").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            Circle().fill(shell.accent.gradient).frame(width: 22, height: 22)
+                .overlay(Text(userInitials).font(Port42Theme.monoBold(9)).foregroundStyle(.white))
+                .overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 1))
+        }
+    }
+    private var userInitials: String {
+        let n = appState.currentUser?.displayName ?? "you"
+        let parts = n.split(separator: " ")
+        if parts.count >= 2 { return String(parts[0].prefix(1) + parts[1].prefix(1)).uppercased() }
+        return String(n.prefix(2)).uppercased()
+    }
+
+    private var authDotColor: Color {
+        switch appState.authStatus {
+        case .connected: return .green
+        case .checking, .unknown: return Port42Theme.accent
+        case .noCredential: return .orange
+        case .error: return .red
+        }
+    }
+    private var authTooltip: String {
+        switch appState.authStatus {
+        case .connected: return "Anthropic auth active"
+        case .checking, .unknown: return "Checking credentials…"
+        case .noCredential: return "No Anthropic key — open Settings"
+        case .error(let msg): return "Anthropic auth error: \(msg)"
+        }
     }
 }
 

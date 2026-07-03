@@ -128,11 +128,11 @@ public struct ContentView: View {
 // that's what AppKit needs to trigger the tooltip tracking area. hitTest
 // returns nil so clicks fall through to the underlying buttons.
 
-private class PassthroughTooltipView: NSView {
+final class PassthroughTooltipView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-private struct TooltipHost: NSViewRepresentable {
+struct TooltipHost: NSViewRepresentable {
     let tooltip: String
     func makeNSView(context: Context) -> PassthroughTooltipView {
         let v = PassthroughTooltipView()
@@ -144,7 +144,10 @@ private struct TooltipHost: NSViewRepresentable {
     }
 }
 
-private extension View {
+extension View {
+    /// AppKit tooltip that fires even in a borderless/hiddenTitleBar window (where SwiftUI `.help()`
+    /// silently doesn't) — the shell's Chrome relies on this. Overlay (not background) so it's the
+    /// topmost NSView under the cursor; hitTest returns nil so clicks fall through.
     func appKitTooltip(_ text: String) -> some View {
         self.overlay(TooltipHost(tooltip: text))
     }

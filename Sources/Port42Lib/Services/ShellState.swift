@@ -37,6 +37,8 @@ public final class ShellState: ObservableObject {
     @Published public var showNewCompanion: Bool = false
     /// The global Settings panel (the app's SignOutSheet) surfaced as a shell overlay.
     @Published public var showSettings: Bool = false
+    /// The Token Usage panel (UsageSheet) surfaced as a shell overlay.
+    @Published public var showUsage: Bool = false
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).

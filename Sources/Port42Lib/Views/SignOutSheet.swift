@@ -131,62 +131,45 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
 
-            Spacer()
+            Spacer(minLength: 24)
 
-            // Actions
-            VStack(spacing: 10) {
-                Button(action: doSignOut) {
-                    VStack(spacing: 2) {
-                        Text("sign out")
-                            .font(Port42Theme.monoBold(14))
-                        Text("screensaver lock")
-                            .font(Port42Theme.mono(10))
-                    }
-                    .foregroundStyle(Port42Theme.bgPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Port42Theme.accent)
-                    .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-
-                HStack(spacing: 10) {
-                    Button(action: doOff) {
+            // In the shell these live in the Port42 mark menu (top-left); the classic app keeps them
+            // here as the only sign-out affordance.
+            if !ShellMode.isEnabled() {
+                VStack(spacing: 10) {
+                    Button(action: doSignOut) {
                         VStack(spacing: 2) {
-                            Text("off")
-                                .font(Port42Theme.monoBold(14))
-                            Text("reboot")
-                                .font(Port42Theme.mono(10))
+                            Text("sign out").font(Port42Theme.monoBold(14))
+                            Text("screensaver lock").font(Port42Theme.mono(10))
                         }
-                        .foregroundStyle(Port42Theme.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Port42Theme.textSecondary.opacity(0.15))
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
+                        .foregroundStyle(Port42Theme.bgPrimary).frame(maxWidth: .infinity)
+                        .padding(.vertical, 10).background(Port42Theme.accent).cornerRadius(6)
+                    }.buttonStyle(.plain)
 
-                    Button(action: doReset) {
-                        VStack(spacing: 2) {
-                            Text("reset")
-                                .font(Port42Theme.monoBold(14))
-                            Text("erase all")
-                                .font(Port42Theme.mono(10))
-                        }
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(6)
+                    HStack(spacing: 10) {
+                        Button(action: doOff) {
+                            VStack(spacing: 2) {
+                                Text("off").font(Port42Theme.monoBold(14))
+                                Text("reboot").font(Port42Theme.mono(10))
+                            }
+                            .foregroundStyle(Port42Theme.textPrimary).frame(maxWidth: .infinity)
+                            .padding(.vertical, 10).background(Port42Theme.textSecondary.opacity(0.15)).cornerRadius(6)
+                        }.buttonStyle(.plain)
+
+                        Button(action: doReset) {
+                            VStack(spacing: 2) {
+                                Text("reset").font(Port42Theme.monoBold(14))
+                                Text("erase all").font(Port42Theme.mono(10))
+                            }
+                            .foregroundStyle(.red).frame(maxWidth: .infinity)
+                            .padding(.vertical, 10).background(Color.red.opacity(0.1)).cornerRadius(6)
+                        }.buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-
+                .padding(.horizontal, 24).padding(.bottom, 24)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
-        .frame(width: 460, height: 740)
+        .frame(width: 460, height: ShellMode.isEnabled() ? 640 : 740)
         .background(Port42Theme.bgSecondary)
         .onDisappear {
             claudeSetup.cancel()
