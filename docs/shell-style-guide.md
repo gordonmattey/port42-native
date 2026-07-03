@@ -67,9 +67,10 @@ HStack(spacing: 0) {
         let on = o == selected
         Button { onTap(o) } label: {
             Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
-                .frame(maxWidth: .infinity).padding(.vertical, 6)     // ← full-width label = full hit area
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
                 .background(on ? accent.opacity(0.15) : Color.clear)
-        }.buttonStyle(.plain)
+                .contentShape(Rectangle())     // REQUIRED: a `.clear` background is NOT hit-testable —
+        }.buttonStyle(.plain)                  // without this only the text is tappable, not the segment
     }
 }
 .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))

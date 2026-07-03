@@ -247,6 +247,7 @@ public struct UsageSheet: View {
                     Text(label(o)).font(Port42Theme.mono(10)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
                         .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                        .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }

@@ -28,12 +28,9 @@ public struct SignOutSheet: View {
     @AppStorage("remoteAllowTerminal") private var remoteAllowTerminal = false
     @AppStorage("remoteAllowFS") private var remoteAllowFS = false
     @AppStorage("remoteAllowScreen") private var remoteAllowScreen = false
-    @State private var remoteExpanded = false
-    @State private var aiExpanded = false
     @StateObject private var instructionsSvc = InstructionService.shared
     @State private var pluginUpgradeInProgress = false
     @State private var pluginUpgradeResult: String?
-    @State private var secretsExpanded = false
     @State private var newSecretName = ""
     @State private var newSecretValue = ""
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
@@ -52,6 +49,9 @@ public struct SignOutSheet: View {
         case success
         case failure(String)
     }
+
+    enum SettingsTab: String, CaseIterable { case ai = "AI", secrets = "Secrets", remote = "Remote", updates = "Updates" }
+    @State private var tab: SettingsTab = .ai
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -74,19 +74,24 @@ public struct SignOutSheet: View {
                 statRow(label: "companions", value: "\(appState.companions.count)")
                 statRow(label: "messages", value: "\(appState.messages.count)+")
             }
-            .padding(.bottom, 18).padding(.horizontal, 24)
+            .padding(.bottom, 14).padding(.horizontal, 24)
 
-            // Sections — separated by spacing, not full-width dividers (§0.2).
-            VStack(alignment: .leading, spacing: 0) { aiConnectionSection }
-                .padding(.horizontal, 24).padding(.vertical, 10)
-            VStack(alignment: .leading, spacing: 0) { secretsSection }
-                .padding(.horizontal, 24).padding(.vertical, 10)
-            VStack(alignment: .leading, spacing: 0) { remoteAccessSection }
-                .padding(.horizontal, 24).padding(.vertical, 10)
-            VStack(alignment: .leading, spacing: 8) { updatesSection }
-                .padding(.horizontal, 24).padding(.vertical, 10)
+            // Tabs (shell §3 seg) — one section fully open at a time; no accordion.
+            tabBar.padding(.horizontal, 24).padding(.bottom, 12)
 
-            Spacer(minLength: 24)
+            // The selected section, fully open. Each builder self-gates on `tab`.
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    aiConnectionSection
+                    secretsSection
+                    remoteAccessSection
+                    if tab == .updates { updatesSection }
+                }
+                .padding(.horizontal, 24).padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Spacer(minLength: 0)
 
             // In the shell these live in the Port42 mark menu (top-left); the classic app keeps them
             // here as the only sign-out affordance.
@@ -129,6 +134,23 @@ public struct SignOutSheet: View {
         .onDisappear {
             claudeSetup.cancel()
         }
+    }
+
+    /// Shell segmented tab bar (§3) — the whole segment is tappable.
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(SettingsTab.allCases, id: \.self) { t in
+                let on = tab == t
+                Button { tab = t } label: {
+                    Text(t.rawValue).font(Port42Theme.mono(11)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 7)
+                        .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                        .contentShape(Rectangle())     // clear bg isn't hittable → make the whole segment tappable
+                }.buttonStyle(.plain)
+            }
+        }
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
     @ViewBuilder
@@ -290,24 +312,7 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var aiConnectionSection: some View {
-        Button(action: { withAnimation { aiExpanded.toggle(); if aiExpanded { secretsExpanded = false; remoteExpanded = false } } }) {
-            HStack(spacing: 6) {
-                Image(systemName: "brain")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                Text("AI connection")
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                Spacer()
-                Image(systemName: aiExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Port42Theme.textSecondary)
-            }
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-
-        if aiExpanded {
+        if tab == .ai {
 
         // MARK: Anthropic row
         VStack(alignment: .leading, spacing: 0) {
@@ -649,25 +654,7 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var remoteAccessSection: some View {
-        // Accordion header
-        Button(action: { withAnimation { remoteExpanded.toggle(); if remoteExpanded { aiExpanded = false; secretsExpanded = false } } }) {
-            HStack(spacing: 6) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                Text("Remote Access")
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                Spacer()
-                Image(systemName: remoteExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Port42Theme.textSecondary)
-            }
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-
-        if remoteExpanded {
+        if tab == .remote {
             VStack(alignment: .leading, spacing: 12) {
                 // Sharing / ngrok tunnel
                 sharingSection
@@ -1043,29 +1030,7 @@ public struct SignOutSheet: View {
 
     @ViewBuilder
     private var secretsSection: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.2)) { secretsExpanded.toggle(); if secretsExpanded { aiExpanded = false; remoteExpanded = false } } }) {
-            HStack(spacing: 6) {
-                Image(systemName: "key")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                Text("Secrets")
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                if !secrets.isEmpty {
-                    Text("(\(secrets.count))")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                }
-                Spacer()
-                Image(systemName: secretsExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Port42Theme.textSecondary)
-            }
-        }
-        .contentShape(Rectangle())
-        .buttonStyle(.plain)
-
-        if secretsExpanded {
+        if tab == .secrets {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Named credentials for rest.call. Companions reference these by name — they never see the raw value.")
                     .font(Port42Theme.mono(10))

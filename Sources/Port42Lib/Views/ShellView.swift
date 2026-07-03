@@ -837,6 +837,7 @@ struct ShellNewCompanionView: View {
                 Button { onTap(o) } label: {
                     Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? acc : Port42Theme.textSecondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 6).background(on ? acc.opacity(0.15) : Color.clear)
+                        .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }
