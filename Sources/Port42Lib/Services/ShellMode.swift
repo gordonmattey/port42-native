@@ -26,6 +26,20 @@ public enum ShellMode {
         return defaults.bool(forKey: flagKey)
     }
 
+    /// Fullscreen TAKEOVER — a SEPARATE opt-in from the shell UI. Off by default so the shell runs as
+    /// a normal window (title bar, Dock, menu bar) unless the user turns takeover on. Env wins for
+    /// dogfooding; else the persisted Settings toggle.
+    public static let takeoverKey = "PORT42_SHELL_TAKEOVER"
+    public static func takeoverEnabled(
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if let v = env[takeoverKey] {
+            return v == "1" || v.lowercased() == "true"
+        }
+        return defaults.bool(forKey: takeoverKey)   // default false
+    }
+
     /// Sane fallback when no display is reachable (headless test runner, or some locked states).
     public static let fallbackFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
 
@@ -59,5 +73,51 @@ public enum ShellMode {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         NSApp.presentationOptions = [.hideDock, .hideMenuBar]
         window.setFrame(windowFrame(for: window.screen ?? NSScreen.main), display: true, animate: false)
+    }
+
+    /// THE authoritative shell window presentation: fullscreen takeover if opted in, else a normal
+    /// window. Every path that sets up the shell window (launch, unlock/dive, ShellView.onAppear, the
+    /// Settings toggle) calls THIS — so the sites can't drift and forget to honor the flag.
+    public static func applyShellWindow(to window: NSWindow) {
+        if takeoverEnabled() { applyTakeover(to: window) } else { restoreWindow(window) }
+    }
+
+    /// Exact inverse of `applyTakeover`: return to a normal titled, movable, normal-level window with
+    /// the Dock + menu bar shown — so the toggle can flip fullscreen mode OFF live (no restart). The
+    /// shell UI itself is unchanged; it just renders in an ordinary window now.
+    public static func restoreWindow(_ window: NSWindow) {
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.standardWindowButton(.closeButton)?.isHidden = false
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+        window.standardWindowButton(.zoomButton)?.isHidden = false
+        window.titleVisibility = .hidden               // keep chrome flush; content fills under the bar
+        window.titlebarAppearsTransparent = true
+        window.isMovable = true
+        window.level = .normal
+        window.collectionBehavior = [.fullScreenPrimary]
+        NSApp.presentationOptions = []
+        // Remember the windowed size: a saved frame wins; first launch (none saved) fills the display.
+        if let saved = savedWindowedFrame(), saved.width > 200, saved.height > 200 {
+            window.setFrame(saved, display: true, animate: false)
+        } else if let screen = window.screen ?? NSScreen.main {
+            window.setFrame(screen.visibleFrame, display: true, animate: false)   // first launch = full display
+        }
+    }
+
+    // MARK: Windowed-frame persistence (remember the user's size across launches)
+
+    public static let windowFrameKey = "PORT42_SHELL_WINDOW_FRAME"
+
+    static func savedWindowedFrame(defaults: UserDefaults = .standard) -> CGRect? {
+        guard let s = defaults.string(forKey: windowFrameKey) else { return nil }
+        let r = NSRectFromString(s)
+        return (r.width > 0 && r.height > 0) ? r : nil
+    }
+
+    /// Persist the current window frame — but NEVER while fullscreen, or we'd save the takeover frame
+    /// and lose the user's windowed size.
+    public static func saveWindowedFrame(_ window: NSWindow, defaults: UserDefaults = .standard) {
+        guard !takeoverEnabled() else { return }
+        defaults.set(NSStringFromRect(window.frame), forKey: windowFrameKey)
     }
 }

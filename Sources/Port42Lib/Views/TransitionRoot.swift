@@ -251,11 +251,11 @@ public struct TransitionRoot: View {
         guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
         let screen = window.screen ?? NSScreen.main
 
-        // SHELL — the shell owns the full screen: re-apply the borderless-fullscreen takeover after
-        // every unlock/dive transition (which otherwise reset the frame + presentationOptions). One
-        // authoritative helper (ShellMode.applyTakeover) so the launch path and this can't drift.
+        // SHELL — re-apply the window presentation after every unlock/dive transition (which otherwise
+        // resets the frame + presentationOptions). Fullscreen takeover is OPT-IN: with it off, the
+        // shell restores to a normal windowed state instead of taking over the screen.
         if ShellMode.isEnabled() {
-            ShellMode.applyTakeover(to: window)
+            ShellMode.applyShellWindow(to: window)
             return
         }
 

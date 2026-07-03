@@ -32,6 +32,7 @@ public struct SignOutSheet: View {
     @State private var newSecretValue = ""
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
     @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
+    @AppStorage(ShellMode.takeoverKey) private var fullscreenTakeover = false
 
     enum AutoDetectStatus: Equatable {
         case unknown
@@ -47,7 +48,7 @@ public struct SignOutSheet: View {
         case failure(String)
     }
 
-    enum SettingsTab: String, CaseIterable { case ai = "AI", secrets = "Secrets", remote = "Remote", updates = "Updates" }
+    enum SettingsTab: String, CaseIterable { case ai = "AI", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
     @State private var tab: SettingsTab = .ai
     @State private var providerSel = "Anthropic"     // AI tab provider picker (was a radio-accordion)
 
@@ -87,6 +88,7 @@ public struct SignOutSheet: View {
                     aiConnectionSection
                     secretsSection
                     remoteAccessSection
+                    displaySection
                     if tab == .updates { updatesSection }
                 }
                 .padding(.horizontal, 24).padding(.vertical, 12)
@@ -870,6 +872,32 @@ public struct SignOutSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .transition(.opacity)
         }
+    }
+
+    @ViewBuilder
+    private var displaySection: some View {
+        if tab == .display {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("FULLSCREEN MODE").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                        Text("take over the screen — hides the Dock & menu bar. Off runs Port42 as a normal window.")
+                            .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $fullscreenTakeover).labelsHidden().toggleStyle(.switch).tint(accent)
+                        .onChange(of: fullscreenTakeover) { _, _ in applyTakeoverSetting() }
+                }
+            }
+        }
+    }
+
+    /// Flip fullscreen takeover live — @AppStorage has already written the flag, so re-apply the one
+    /// authoritative window presentation (no restart).
+    private func applyTakeoverSetting() {
+        guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible }) else { return }
+        ShellMode.applyShellWindow(to: window)
     }
 
     private func applyAuthPref(_ pref: AuthPreference) {

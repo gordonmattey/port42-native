@@ -35,6 +35,16 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         setupCustomCursor()
         UserDefaults.standard.set(100, forKey: "NSInitialToolTipDelay")
         ghosttyProbe()  // Step 1: confirm GhosttyKit links and resolves at runtime
+
+        // Remember the windowed shell size: persist the main window's frame on resize/move (never
+        // while fullscreen — saveWindowedFrame guards that), so relaunch reopens at the last size.
+        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                guard ShellMode.isEnabled(), let w = note.object as? NSWindow,
+                      !(w is NSPanel), w.canBecomeKey else { return }
+                ShellMode.saveWindowedFrame(w)
+            }
+        }
         NSLog("[Port42] Sparkle feedURL=%@", updaterController.updater.feedURL?.absoluteString ?? "nil")
 
         // Save current frame (user's preferred sidebar size) then maximize for the login screen.
@@ -48,7 +58,7 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             // (cheapest cut — fullscreen the existing window, hide Dock + menu bar). Default off
             // ⇒ the login-screen maximize below runs exactly as before.
             if ShellMode.isEnabled() {
-                self.applyShellTakeover(window: window)
+                self.applyShellWindow(window: window)          // takeover or windowed — the helper decides
             } else if let screen = window.screen ?? NSScreen.main {
                 window.setFrame(screen.visibleFrame, display: true, animate: false)
             }
@@ -87,14 +97,17 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Shell takeover (S1)
 
-    /// SHELL — S1 takeover (cheapest cut): fullscreen the existing window over the ambient surface
-    /// and hide the Dock + menu bar. Reversible — `applicationWillTerminate` restores them.
-    private func applyShellTakeover(window: NSWindow) {
-        ShellMode.applyTakeover(to: window)
+    /// Set up the shell window at launch via the one authoritative helper (takeover or windowed). The
+    /// takeover-only extras — the ⌘Q/Esc escape hatch and the restore-on-terminate flag — apply only
+    /// when fullscreen is actually on.
+    private func applyShellWindow(window: NSWindow) {
+        ShellMode.applyShellWindow(to: window)
         NSApp.activate(ignoringOtherApps: true)
-        shellTookOver = true
-        installShellEscapeHatch()
-        NSLog("[Port42] SHELL takeover active (PORT42_SHELL). Esc / ⌘Q to exit.")
+        if ShellMode.takeoverEnabled() {
+            shellTookOver = true
+            installShellEscapeHatch()
+            NSLog("[Port42] SHELL takeover active. Esc / ⌘Q to exit.")
+        }
     }
 
     /// Esc exits the shell (⌘Q already terminates). Yield to a focused text field/editor first so

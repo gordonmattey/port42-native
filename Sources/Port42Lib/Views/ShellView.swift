@@ -124,23 +124,23 @@ public struct ShellView: View {
         .onAppear {
             installInputMonitors()
             applyTakeoverToWindow()
-            // ShellView mounts fresh when you surface from the lock screen (TransitionRoot swaps
-            // LockScreenView → ShellView on unlock), so land in the galaxy — "open water" — and swim
-            // DOWN into a space from there, rather than snapping to the last space.
-            shell.zoom = .galaxy
+            // On unlock (TransitionRoot swaps LockScreenView → ShellView) land in the LAST space —
+            // `AppState.unlock()` has already restored it as currentSpace. Galaxy only if there's no
+            // space yet (fresh setup).
+            shell.zoom = appState.currentSpace != nil ? .space : .galaxy
         }
         .onDisappear { removeInputMonitors() }
     }
 
-    /// Apply the borderless-fullscreen takeover when the shell UI actually appears — the reliable
-    /// site (the window exists by now, unlike `applicationDidFinishLaunching`, and this doesn't
-    /// depend on which unlock/dive path ran). A few retries cover any first-frame timing.
+    /// Set up the shell window when the UI appears — the reliable site (the window exists by now,
+    /// unlike `applicationDidFinishLaunching`, and it's independent of which unlock/dive path ran).
+    /// Routes through the one authoritative helper (takeover or windowed). Retries cover first-frame timing.
     private func applyTakeoverToWindow() {
         guard ShellMode.isEnabled() else { return }
         for attempt in 0..<5 {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt) * 0.2) {
                 guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
-                ShellMode.applyTakeover(to: window)
+                ShellMode.applyShellWindow(to: window)
             }
         }
     }
