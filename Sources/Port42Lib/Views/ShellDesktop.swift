@@ -198,6 +198,9 @@ struct ShellDesktopView: View {
                 // Right-edge rail: park (main strip) + close (bottom zone). On top of the tiles.
                 ShellParkRail(shell: shell, appState: appState, area: geo.size)
                     .zIndex(10_000)
+                // Left-edge peeking notifications: a live chat/port from another space (§8b).
+                ShellNotificationRail(shell: shell, appState: appState)
+                    .zIndex(10_500)
             }
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
             // arrange animates via its own withAnimation (ShellState.applyArrange); here we only
@@ -275,11 +278,20 @@ struct ShellTile: View {
     private var isSelected: Bool { shell.selectedTileId == tile.id }
     private var sid: String? { appState.currentSpace?.id }
 
-    /// The DM partner when this tile is a surfaced direct-message chat (else nil → ordinary title).
+    /// The DM partner when this tile is a surfaced DIRECT-message chat (else nil). A notification can
+    /// also surface a regular space's chat through the same set, so require an actual direct space —
+    /// direct spaces are excluded from `appState.spaces` (getRegularSpaces).
     private var dmTileCompanion: AgentConfig? {
         guard tile.panel?.isChatPort == true, let s = tile.panel?.spaceId,
-              shell.openDMSpaceIds.contains(s) else { return nil }
+              shell.openDMSpaceIds.contains(s),
+              !appState.spaces.contains(where: { $0.id == s }) else { return nil }
         return appState.companions(forSpace: s).first
+    }
+    /// A surfaced REGULAR space's chat (from a notification) → show the space name, not "chat".
+    private var surfacedSpaceTitle: String? {
+        guard tile.panel?.isChatPort == true, let s = tile.panel?.spaceId,
+              s != appState.currentSpace?.id else { return nil }
+        return appState.spaces.first(where: { $0.id == s })?.name
     }
 
     /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize. The
@@ -371,7 +383,8 @@ struct ShellTile: View {
                     Text("· DM").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
                 } else {
                     Circle().fill(isFocused ? Port42Theme.textSecondary : shell.accent).frame(width: 7, height: 7)
-                    Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                    Text(surfacedSpaceTitle ?? tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                    if surfacedSpaceTitle != nil { Text("· from").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary) }
                 }
                 Spacer(minLength: 8)
             }
@@ -459,6 +472,48 @@ struct ShellTile: View {
 /// at the bottom. It's a drop TARGET only — the drag is owned by the tile's move gesture, which sets
 /// `shell.draggingOverPark` for the highlight and calls `park`/`close` on drop. Faint at rest; lights
 /// up accent (park) or red (close) while a tile is dragged over the matching zone.
+/// Left-edge peeking notifications (§8b): a companion reply / chat from ANOTHER space, coalesced one
+/// card per space. Click → surface that space's chat as a live tile here and zoom in (no space
+/// switch); ✕ dismisses. Stays until acknowledged.
+struct ShellNotificationRail: View {
+    @ObservedObject var shell: ShellState
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(shell.notifications) { n in card(n) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.leading, 12)
+        .allowsHitTesting(!shell.notifications.isEmpty)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.notifications)
+    }
+
+    private func card(_ n: ShellState.ShellNotification) -> some View {
+        let col = ShellDock.avatarColor(n.companionName ?? n.spaceId)
+        return HStack(spacing: 8) {
+            Circle().fill(col.gradient).frame(width: 26, height: 26)
+                .overlay(Text(String((n.companionName ?? n.spaceName).prefix(1)).uppercased())
+                    .font(Port42Theme.monoBold(11)).foregroundStyle(.white))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(n.companionName ?? n.spaceName).font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+                Text("\(n.count) new · \(n.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Button { shell.acknowledgeNotification(spaceId: n.spaceId) } label: {
+                Image(systemName: "xmark").font(.system(size: 8)).foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8).frame(width: 210)
+        .background(Port42Theme.shellCard, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(shell.accent.opacity(0.45), lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 18, x: 4, y: 4)
+        .contentShape(RoundedRectangle(cornerRadius: 11))
+        .onTapGesture { shell.openNotification(n) }        // click → surface + zoom in
+        .transition(.move(edge: .leading).combined(with: .opacity))
+    }
+}
+
 struct ShellParkRail: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState

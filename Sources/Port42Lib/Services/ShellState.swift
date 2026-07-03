@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import SwiftUI
+import Combine
 
 /// SHELL — S2 spine. The shell-only UI state (zoom ladder, selection, pinch latch) layered over
 /// `AppState`. It READS `AppState` (spaces, ports, current space); it never owns or duplicates
@@ -45,7 +46,81 @@ public final class ShellState: ObservableObject {
     @Published public var mouse: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     private let appState: AppState
-    public init(appState: AppState) { self.appState = appState }
+    private var notifSink: AnyCancellable?
+    public init(appState: AppState) {
+        self.appState = appState
+        // Notifications (§8b): a non-current space gaining unread activity (a companion reply / chat)
+        // raises a peeking notification. Later triggers (a port created elsewhere, a port raising its
+        // own) will call `raiseNotification` directly.
+        notifSink = appState.$unreadCounts
+            .receive(on: RunLoop.main)
+            .sink { [weak self] counts in self?.refreshNotifications(from: counts) }
+    }
+
+    // MARK: - Notifications (§8b) — a live port/chat from ANOTHER space, peeking on this desktop
+
+    public struct ShellNotification: Identifiable, Equatable {
+        public var id: String { spaceId }      // coalesced: one per source space
+        public let spaceId: String
+        public let spaceName: String
+        public let companionName: String?      // who, when the space is a companion DM
+        public var count: Int
+    }
+    @Published public var notifications: [ShellNotification] = []
+
+    /// Rebuild notifications from unread counts: a space with unread > 0 that is NOT the current space
+    /// and NOT already surfaced as a tile earns a peeking notification. Coalesced one-per-space; it
+    /// clears when you enter the space, surface it, or dismiss it (count → 0).
+    private func refreshNotifications(from counts: [String: Int]) {
+        let currentId = appState.currentSpace?.id
+        let surfaced = Set(openDMSpaceIds)
+        for (spaceId, count) in counts {
+            guard count > 0, spaceId != currentId, !surfaced.contains(spaceId) else {
+                notifications.removeAll { $0.spaceId == spaceId }
+                continue
+            }
+            let companion = appState.companions(forSpace: spaceId).first
+            let name = appState.spaces.first(where: { $0.id == spaceId })?.name
+                ?? companion?.displayName ?? "space"
+            if let idx = notifications.firstIndex(where: { $0.spaceId == spaceId }) {
+                notifications[idx].count = count
+            } else {
+                notifications.append(ShellNotification(spaceId: spaceId, spaceName: name,
+                                                       companionName: companion?.displayName, count: count))
+            }
+        }
+        // Drop any notification whose space fell out of the unread set entirely.
+        notifications.removeAll { counts[$0.spaceId] == nil }
+    }
+
+    /// Dismiss a notification without opening it.
+    public func acknowledgeNotification(spaceId: String) {
+        notifications.removeAll { $0.spaceId == spaceId }
+    }
+
+    /// Click a notification → surface that space's chat as a live tile on THIS desktop (no space
+    /// switch) and zoom into it, then acknowledge. Reuses the multi-space re-parent (DM coexistence).
+    public func openNotification(_ n: ShellNotification) {
+        surfaceSpaceChat(spaceId: n.spaceId, spaceName: n.spaceName)
+        acknowledgeNotification(spaceId: n.spaceId)
+        appState.lastReadDates[n.spaceId] = Date()      // viewing it clears the unread badge
+
+        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == n.spaceId }) {
+            withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
+        }
+    }
+
+    /// Surface ANY space's chat as a tile on the current desktop (generalizes `openDM`).
+    public func surfaceSpaceChat(spaceId: String, spaceName: String) {
+        guard spaceId != appState.currentSpace?.id else { return }
+        appState.activateSpaceMessages(spaceId: spaceId)
+        if !openDMSpaceIds.contains(spaceId) { openDMSpaceIds.append(spaceId) }
+        appState.portWindows.revealChat(spaceId: spaceId, spaceName: spaceName)
+        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == spaceId }) {
+            bringToFront(panel.id)
+        }
+        arrangeBump += 1
+    }
 
     // MARK: Per-space accent theme (prototype's SpaceDef.accent)
 
@@ -242,14 +317,7 @@ public final class ShellState: ObservableObject {
 
     public func openDM(_ companion: AgentConfig) {
         guard let dm = appState.openDMSpace(with: companion) else { return }   // resolve/stream DM space
-        if !openDMSpaceIds.contains(dm.id) { openDMSpaceIds.append(dm.id) }
-        appState.portWindows.revealChat(spaceId: dm.id, spaceName: dm.name)    // ensure its chat port exists + tiled
-        // Stamp it frontmost BEFORE arranging so it sorts to its own cell on top — not buried under the
-        // space chat, which shares the DM chat port's default z (both are chat anchors at z≈0).
-        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == dm.id }) {
-            bringToFront(panel.id)
-        }
-        arrangeBump += 1
+        surfaceSpaceChat(spaceId: dm.id, spaceName: dm.name)                   // surface + front + arrange
     }
 
     /// Close a surfaced DM tile: stop streaming its space and drop it from the desktop.
