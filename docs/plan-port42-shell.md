@@ -371,6 +371,35 @@ desktop. Merged because the "space" and "focus" rungs are only demoable with con
   | Status mapping | pure `status(for:in:)`: **thinking** = name in `typingAgentNamesBySpace[space]`; **porting** = tool-use flag set; **idle** = neither — table-test all three | — |
   | The loop | **mock the LLM:** send `Message` → stubbed companion calls `port.create(presentation:"tiled")` → assert a tiled panel lands on the **active** space + arrange ran | real companion latency/choreography |
 
+### S4.x — Global Chrome & Settings port (captured 2026-07-02, w/ gordon)
+
+The pre-shell **global header cluster** (`ContentView.swift:185`, the 38pt bar) and the **Settings
+panel** (`SignOutSheet`) are only partially in the shell. Done so far: a gear button in the Chrome
+opens `SignOutSheet` verbatim as an overlay; secrets management is shell-native in the companion
+cards. **Still to port / revisit — this is the full list, so it's captured:**
+
+**A. Global status + actions → the Chrome** (today only in `ContentView.swift:185`):
+- **Status indicators** — gateway (`bolt.fill`/`bolt.slash`, green when `sync.isConnected`), tunnel
+  (`globe` when `tunnel.publicURL`), API-key (`key.fill`, color from auth state). With tooltips.
+- **Stop-all-AI** — the pause button: `appState.aiPaused.toggle()` + `LLMEngine.paused`. A global
+  kill switch for every companion call. High-value; must be reachable fast in the Chrome.
+- **Usage panel** — `chart.bar` → `UsageSheet` (UsageView.swift): Token Usage history (in/out/cached,
+  recent calls, requests). Surface as a shell overlay like Settings.
+
+**B. Settings panel itself — bring across properly, not just embedded:**
+- **Shell-card treatment** — restyle `SignOutSheet` (today a fixed 460×740 light-era sheet) to match
+  the shell cards (`ShellSettingsView` / new-companion): dark card, accent stroke, consistent padding.
+  Secrets should feel identical to the per-companion editor (`ShellSecretsField`).
+- **Navigation** — the accordion stack is clunky; restructure (tabbed / sectioned nav within the card).
+- **Relocate Claude Code auth** — currently inside **Remote Access** (`remoteAccessSection`); it belongs
+  under **AI Connection**. "Not wrong but not great."
+- **Reconcile the two Secrets surfaces** — global (Settings) vs per-companion grant — so they're coherent.
+- **Sign-out / off / reset semantics** — "sign out → screensaver lock", "off → reboot", "reset → erase"
+  mean something specific under a shell takeover; verify each does the right thing here.
+
+> Sequencing: the Chrome items (A) are small, high-value moves (icons + one overlay) — do first. The
+> Settings restyle + nav restructure (B) is the larger pass. Neither blocks daily use.
+
 ### Phase S5 — Idle-out + boot fusion (the ambient loop closes)
 - **Idle timer** dismisses Layer 2 → Layer 0 (dreamscape) via the existing lock path; activity summons
   it back through the breakout transition. **Default idle `120s` (2 min), configurable** (the prototype's
