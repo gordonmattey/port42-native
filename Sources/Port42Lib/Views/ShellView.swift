@@ -87,8 +87,25 @@ public struct ShellView: View {
             if shell.showNewCompanion {
                 ShellNewCompanionView(shell: shell, appState: appState).zIndex(210)
             }
+
+            // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
+            // across; sections to be revisited for the shell over time).
+            if shell.showSettings {
+                ZStack {
+                    Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { shell.showSettings = false }
+                    SignOutSheet(isPresented: $shell.showSettings)
+                        .environmentObject(appState)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.6), radius: 40)
+                }.zIndex(220)
+            }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
+        .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
+            shell.showSettings = true
+        }
         .animation(.spring(response: 0.4), value: shell.zoom)
         .onChange(of: shell.zoom) { _, z in if z != .space { shell.exposeActive = false } }   // exposé lives at .space
         .onAppear {
@@ -354,6 +371,7 @@ struct ShellSettingsView: View {
     @ObservedObject var appState: AppState
     @State private var name = ""
     @State private var promptDraft = ""            // companion system prompt (committed on save)
+    @State private var selectedSecrets: Set<String> = []   // Keychain secrets granted to this companion
     @State private var confirmingDelete = false
     // Self-animated in/out so save and discard can exit DIFFERENTLY (save pops up, discard shrinks).
     @State private var cardScale: CGFloat = 0.92
@@ -379,6 +397,7 @@ struct ShellSettingsView: View {
         .onAppear {
             name = space?.name ?? companion?.displayName ?? ""
             promptDraft = companion?.systemPrompt ?? ""
+            selectedSecrets = Set(companion?.secretNames ?? [])
             withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { cardScale = 1; cardOpacity = 1 }
             withAnimation(.easeOut(duration: 0.2)) { scrimOpacity = 0.6 }
         }
@@ -451,6 +470,12 @@ struct ShellSettingsView: View {
                 Text("\(c.mode.rawValue) config — command / connection editing lands in Advanced (soon)")
                     .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
             }
+
+            fieldLabel("SECRETS")
+            ShellSecretsField(selected: Binding(
+                get: { selectedSecrets },
+                set: { v in selectedSecrets = v; edit(c) { $0.secretNames = v.isEmpty ? nil : v.sorted() } }
+            ), accent: col)
 
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             Button { dismiss(save: false) { if let s = appState.currentSpace { appState.removeCompanionFromSpace(c, space: s) } } } label: {
@@ -615,7 +640,7 @@ struct ShellNewCompanionView: View {
     @State private var thinkingEffort = "low"
     @State private var promptOverride = ""            // empty → type constitution / default
     @State private var scopePath = ""
-    @State private var secretsCSV = ""
+    @State private var selectedSecrets: Set<String> = []
     @State private var command = ""
     @State private var argsText = ""
     @State private var workingDir = ""
@@ -750,7 +775,6 @@ struct ShellNewCompanionView: View {
         case .api:
             label("BASE URL");  boxField("https://…/v1", $baseURL)
             label("MODEL");     boxField("model id", $model)
-            label("SECRETS (comma-separated names)"); boxField("stripe, openai", $secretsCSV)
             label("SYSTEM PROMPT"); promptBox
         case .command:
             label("COMMAND");   boxField("claude", $command)
@@ -759,6 +783,8 @@ struct ShellNewCompanionView: View {
             HStack { label("OPEN IN TERMINAL"); Spacer(); Toggle("", isOn: $openInTerminal).labelsHidden().toggleStyle(.switch).tint(acc) }
             label("SYSTEM PROMPT"); promptBox
         }
+        // Secrets apply to any mode (rest.call / provider keys) — create + grant inline.
+        label("SECRETS"); ShellSecretsField(selected: $selectedSecrets, accent: acc)
     }
 
     private var thinkingRow: some View {
@@ -821,9 +847,8 @@ struct ShellNewCompanionView: View {
             c.providerBaseURL = mode == .api ? nilIfEmpty(baseURL) : nil
             c.thinkingEnabled = thinkingOn; c.thinkingEffort = thinkingEffort
             c.scopePath = nilIfEmpty(scopePath) ?? selectedType?.defaultKBPath
-            let secrets = secretsCSV.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            c.secretNames = secrets.isEmpty ? nil : secrets
         }
+        c.secretNames = selectedSecrets.isEmpty ? nil : selectedSecrets.sorted()   // any mode
         appState.addCompanion(c)
         if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
         dismiss()
@@ -844,5 +869,103 @@ struct ShellNewCompanionView: View {
     private func dismiss() {
         withAnimation(.easeIn(duration: 0.18)) { cardScale = 0.9; cardOpacity = 0; scrimOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { shell.showNewCompanion = false }
+    }
+}
+
+/// Shell-native named-secrets editor (the old Settings → Secrets, brought into the shell). Toggle
+/// which Keychain secrets a companion may use (`selected`), and create/delete secrets inline. Used by
+/// both the new-companion card and companion settings — the value never leaves the Keychain; a
+/// companion references it by name.
+struct ShellSecretsField: View {
+    @Binding var selected: Set<String>
+    let accent: Color
+    @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
+    @State private var adding = false
+    @State private var newName = ""
+    @State private var newValue = ""
+    @State private var newType: Port42AuthStore.SecretType = .bearerToken
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(secrets) { row($0) }
+            if secrets.isEmpty && !adding {
+                Text("No secrets yet — add one for rest.call or provider keys.")
+                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+            }
+            if adding { addForm } else {
+                Button { adding = true } label: {
+                    HStack(spacing: 5) { Image(systemName: "plus"); Text("new secret") }
+                        .font(Port42Theme.mono(10)).foregroundStyle(accent)
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func row(_ s: Port42AuthStore.Secret) -> some View {
+        let on = selected.contains(s.name)
+        return HStack(spacing: 8) {
+            Button { if on { selected.remove(s.name) } else { selected.insert(s.name) } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 12)).foregroundStyle(on ? accent : Port42Theme.textSecondary)
+                    Text(s.name).font(Port42Theme.monoBold(12)).foregroundStyle(Port42Theme.textPrimary)
+                    Text(s.type.rawValue).font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                }
+            }.buttonStyle(.plain)
+            Spacer()
+            Button {
+                Port42AuthStore.shared.deleteSecret(name: s.name)
+                selected.remove(s.name)
+                secrets = Port42AuthStore.shared.listSecrets()
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
+            }.buttonStyle(.plain).help("Delete secret from Keychain")
+        }
+    }
+
+    private var addForm: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            box("name (e.g. stripe)", $newName)
+            Picker("", selection: $newType) {
+                Text("Bearer").tag(Port42AuthStore.SecretType.bearerToken)
+                Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
+                Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
+                Text("Header").tag(Port42AuthStore.SecretType.header)
+                Text("LLM").tag(Port42AuthStore.SecretType.llm)
+            }.labelsHidden().pickerStyle(.menu).tint(accent)
+            secureBox("credential value", $newValue)
+            HStack {
+                Button("cancel") { adding = false; newName = ""; newValue = "" }
+                    .buttonStyle(.plain).font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                Spacer()
+                Button("add") { save() }
+                    .buttonStyle(.plain).font(Port42Theme.monoBold(10)).foregroundStyle(accent)
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || newValue.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(8).background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func save() {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let value = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !value.isEmpty else { return }
+        Port42AuthStore.shared.saveSecret(name: name, type: newType, value: value)
+        secrets = Port42AuthStore.shared.listSecrets()
+        selected.insert(name)      // auto-grant the just-created secret
+        newName = ""; newValue = ""; adding = false
+    }
+
+    private func box(_ ph: String, _ t: Binding<String>) -> some View {
+        TextField(ph, text: t).textFieldStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+    }
+    private func secureBox(_ ph: String, _ t: Binding<String>) -> some View {
+        SecureField(ph, text: t).textFieldStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
     }
 }

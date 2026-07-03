@@ -35,6 +35,8 @@ public final class ShellState: ObservableObject {
 
     /// Show the New Companion form as a shell overlay (not a macOS sheet). Set from the dock's ＋ menu.
     @Published public var showNewCompanion: Bool = false
+    /// The global Settings panel (the app's SignOutSheet) surfaced as a shell overlay.
+    @Published public var showSettings: Bool = false
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).

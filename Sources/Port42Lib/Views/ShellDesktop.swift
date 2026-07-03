@@ -38,6 +38,7 @@ struct ShellChrome: View {
             Spacer()
 
             Text(appState.currentUser?.displayName ?? "you").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+            chromeButton("gearshape", "Settings") { shell.showSettings = true }
             chromeButton("power", "Exit shell (⌘Q)") { NSApp.terminate(nil) }
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
