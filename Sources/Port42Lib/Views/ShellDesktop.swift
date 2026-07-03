@@ -152,6 +152,9 @@ struct ShellChrome: View {
 struct ShellDesktopView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
+    /// The space the tile count last belonged to — so a count change from a SPACE SWITCH doesn't
+    /// re-grid (tiles keep their saved per-space positions); only spawn/park/close within a space does.
+    @State private var arrangedForSpace: String?
 
     private var sid: String? { appState.currentSpace?.id }
 
@@ -207,12 +210,17 @@ struct ShellDesktopView: View {
             // spring tile insertion/removal and the exposé transition.
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
-            .onAppear { seedIfNeeded(area: geo.size) }
+            .onAppear { seedIfNeeded(area: geo.size); arrangedForSpace = sid }
             .onChange(of: appState.currentSpace?.id) { _, _ in
                 shell.clearOpenDMs()                                                       // DMs are per-desktop
                 if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile
             }
-            .onChange(of: tiledPanels.count) { _, _ in shell.applyArrange(area: geo.size) }   // spawn/park/close re-grids
+            .onChange(of: tiledPanels.count) { _, _ in
+                // A spawn/park/close WITHIN the current space re-grids; a space SWITCH also changes the
+                // count, but each space's tiles keep their saved positions — adopt the space, don't arrange.
+                guard arrangedForSpace == sid else { arrangedForSpace = sid; return }
+                shell.applyArrange(area: geo.size)
+            }
             .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
         }
     }
