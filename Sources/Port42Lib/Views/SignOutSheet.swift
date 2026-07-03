@@ -18,11 +18,8 @@ public struct SignOutSheet: View {
     @StateObject private var claudeSetup = ClaudeCodeSetup()
     @State private var autoDetectStatus: AutoDetectStatus = .unknown
     @State private var currentCheckId: UUID?
-    @State private var anthropicExpanded = true
-    @State private var geminiExpanded = false
     @State private var geminiKeyInput = ""
     @State private var geminiTestResult: TestConnectionResult = .idle
-    @State private var compatibleExpanded = false
     @State private var compatibleBaseURL: String = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
     @State private var compatibleKeyInput = ""
     @AppStorage("remoteAllowTerminal") private var remoteAllowTerminal = false
@@ -52,6 +49,7 @@ public struct SignOutSheet: View {
 
     enum SettingsTab: String, CaseIterable { case ai = "AI", secrets = "Secrets", remote = "Remote", updates = "Updates" }
     @State private var tab: SettingsTab = .ai
+    @State private var providerSel = "Anthropic"     // AI tab provider picker (was a radio-accordion)
 
     public init(isPresented: Binding<Bool>) {
         self._isPresented = isPresented
@@ -151,6 +149,67 @@ public struct SignOutSheet: View {
         }
         .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+    }
+
+    /// Shell segmented control (§3) — whole segment tappable.
+    private func seg(_ opts: [String], sel: String, _ onTap: @escaping (String) -> Void) -> some View {
+        HStack(spacing: 0) {
+            ForEach(opts, id: \.self) { o in
+                let on = o == sel
+                Button { onTap(o) } label: {
+                    Text(o).font(Port42Theme.mono(10)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+        }
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
+    }
+
+    /// CLI context install (CLAUDE.md / GEMINI.md) + the openclaw plugin — lives on the AI screen
+    /// (it wires the CLI LLM companions), not Remote Access.
+    private var cliInstructionsBlock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("CLI CONTEXT").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                Text("installs Port42 context into your CLI tool config so agents can use the RPC API:")
+                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    cliInstructionButton(label: "CLAUDE.md", installed: instructionsSvc.hasClaudeInstructions,
+                                         action: { instructionsSvc.installInstructions(for: "claude") })
+                    cliInstructionButton(label: "GEMINI.md", installed: instructionsSvc.hasGeminiInstructions,
+                                         action: { instructionsSvc.installInstructions(for: "gemini") })
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("OPENCLAW PLUGIN").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
+                HStack(spacing: 10) {
+                    Button(action: upgradeOpenClawPlugin) {
+                        HStack(spacing: 6) {
+                            if pluginUpgradeInProgress {
+                                ProgressView().scaleEffect(0.6).frame(width: 10, height: 10)
+                            } else {
+                                Image(systemName: pluginUpgradeResult == "ok" ? "checkmark.circle.fill" : "arrow.up.circle")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(pluginUpgradeResult == "ok" ? .green : Port42Theme.accent)
+                            }
+                            Text(pluginUpgradeInProgress ? "upgrading..." : "upgrade port42-openclaw")
+                                .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain).disabled(pluginUpgradeInProgress)
+                    if let result = pluginUpgradeResult, result != "ok" {
+                        Text(result).font(Port42Theme.mono(10)).foregroundStyle(.red).lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(.top, 12)
     }
 
     @ViewBuilder
@@ -314,27 +373,13 @@ public struct SignOutSheet: View {
     private var aiConnectionSection: some View {
         if tab == .ai {
 
-        // MARK: Anthropic row
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: { withAnimation { anthropicExpanded.toggle() } }) {
-                HStack(spacing: 6) {
-                    Text(isAnthropicConfigured ? "◆" : "○")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(isAnthropicConfigured ? Port42Theme.accent : Port42Theme.textSecondary)
-                    Text("Anthropic")
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: anthropicExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-                .padding(.vertical, 7)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+        // Provider picker — shell seg (replaces the radio-accordion).
+        seg(["Anthropic", "Gemini", "Compatible"], sel: providerSel) { providerSel = $0 }
+            .padding(.bottom, 12)
 
-            if anthropicExpanded {
+        // MARK: Anthropic
+        VStack(alignment: .leading, spacing: 0) {
+            if providerSel == "Anthropic" {
                 VStack(alignment: .leading, spacing: 8) {
                     // Two mode buttons
                     HStack(spacing: 6) {
@@ -516,27 +561,9 @@ public struct SignOutSheet: View {
             }
         } // end Anthropic VStack
 
-        // MARK: Gemini row
+        // MARK: Gemini
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: { withAnimation { geminiExpanded.toggle() } }) {
-                HStack(spacing: 6) {
-                    Text(isGeminiConfigured ? "◆" : "○")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(isGeminiConfigured ? Port42Theme.accent : Port42Theme.textSecondary)
-                    Text("Gemini")
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: geminiExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-                .padding(.vertical, 7)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if geminiExpanded {
+            if providerSel == "Gemini" {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Paste your Gemini API key from AI Studio:")
                         .font(Port42Theme.mono(11))
@@ -584,27 +611,9 @@ public struct SignOutSheet: View {
             }
         }
 
-        // MARK: Compatible row
+        // MARK: Compatible
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: { withAnimation { compatibleExpanded.toggle() } }) {
-                HStack(spacing: 6) {
-                    Text(isCompatibleConfigured ? "◆" : "○")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(isCompatibleConfigured ? Port42Theme.accent : Port42Theme.textSecondary)
-                    Text("Compatible endpoint")
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: compatibleExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-                .padding(.vertical, 7)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if compatibleExpanded {
+            if providerSel == "Compatible" {
                 VStack(alignment: .leading, spacing: 8) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Base URL")
@@ -649,7 +658,9 @@ public struct SignOutSheet: View {
                 .padding(.top, 8)
             }
         }
-        } // end if aiExpanded
+
+        cliInstructionsBlock              // §B — CLI install lives on the AI screen (wires CLI LLMs)
+        } // end if tab == .ai
     }
 
     @ViewBuilder
@@ -674,68 +685,7 @@ public struct SignOutSheet: View {
                     }
                 }
 
-                Spacer().frame(height: 10)
-
-                // CLI instruction files
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("global CLI instructions")
-                        .font(Port42Theme.monoBold(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    Text("installs Port42 context into your CLI tool config so agents can use the RPC API:")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 10) {
-                        cliInstructionButton(
-                            label: "CLAUDE.md",
-                            installed: instructionsSvc.hasClaudeInstructions,
-                            action: { instructionsSvc.installInstructions(for: "claude") }
-                        )
-                        cliInstructionButton(
-                            label: "GEMINI.md",
-                            installed: instructionsSvc.hasGeminiInstructions,
-                            action: { instructionsSvc.installInstructions(for: "gemini") }
-                        )
-                    }
-                }
-
-                Spacer().frame(height: 10)
-
-                // OpenClaw plugin upgrade
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("openclaw plugin")
-                        .font(Port42Theme.monoBold(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    HStack(spacing: 10) {
-                        Button(action: upgradeOpenClawPlugin) {
-                            HStack(spacing: 6) {
-                                if pluginUpgradeInProgress {
-                                    ProgressView().scaleEffect(0.6).frame(width: 10, height: 10)
-                                } else {
-                                    Image(systemName: pluginUpgradeResult == "ok" ? "checkmark.circle.fill" : "arrow.up.circle")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(pluginUpgradeResult == "ok" ? .green : Port42Theme.accent)
-                                }
-                                Text(pluginUpgradeInProgress ? "upgrading..." : "upgrade port42-openclaw")
-                                    .font(Port42Theme.mono(11))
-                                    .foregroundStyle(Port42Theme.textPrimary)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.06))
-                            .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(pluginUpgradeInProgress)
-
-                        if let result = pluginUpgradeResult, result != "ok" {
-                            Text(result)
-                                .font(Port42Theme.mono(10))
-                                .foregroundStyle(.red)
-                                .lineLimit(1)
-                        }
-                    }
-                }
+                // CLI install (CLAUDE.md/GEMINI.md + openclaw) moved to the AI tab — it wires the CLI LLMs.
             }
             .padding(.leading, 8)
             .padding(.top, 8)
