@@ -59,77 +59,32 @@ public struct SignOutSheet: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Header
-            ZStack {
-                VStack(spacing: 8) {
-                    Text("\u{25C7}")
-                        .font(.system(size: 28, weight: .ultraLight))
-                        .foregroundStyle(Port42Theme.accent)
-
-                    if let user = appState.currentUser {
-                        Text(user.displayName)
-                            .font(Port42Theme.mono(14))
-                            .foregroundStyle(Port42Theme.textPrimary)
-                    }
-                }
-                HStack {
-                    Spacer()
-                    Button("Done") { isPresented = false }
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.accent)
-                        .buttonStyle(.plain)
-                }
-                .padding(.trailing, 20)
+            // Header — left-aligned tracking label (shell style-guide §1), no centered logo/name.
+            HStack {
+                Text("SETTINGS").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
+                Spacer()
+                Button("Done") { isPresented = false }
+                    .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.accent).buttonStyle(.plain)
             }
-            .padding(.top, 28)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 14)
 
-            Divider().overlay(Color.white.opacity(0.08))
-
-            // Stats
+            // Stats (§9c — no dividers, spacing groups them)
             VStack(spacing: 10) {
                 statRow(label: "spaces", value: "\(appState.spaces.count)")
                 statRow(label: "companions", value: "\(appState.companions.count)")
                 statRow(label: "messages", value: "\(appState.messages.count)+")
             }
-            .padding(.vertical, 16)
-            .padding(.horizontal, 24)
+            .padding(.bottom, 18).padding(.horizontal, 24)
 
-            Divider().overlay(Color.white.opacity(0.08))
-
-            // AI Connection (accordion)
-            VStack(alignment: .leading, spacing: 0) {
-                aiConnectionSection
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-
-            Divider().overlay(Color.white.opacity(0.08))
-
-            // Secrets
-            VStack(alignment: .leading, spacing: 0) {
-                secretsSection
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-
-            Divider().overlay(Color.white.opacity(0.08))
-
-            // Remote Access (accordion — includes sharing/ngrok)
-            VStack(alignment: .leading, spacing: 0) {
-                remoteAccessSection
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-
-            Divider().overlay(Color.white.opacity(0.08))
-
-            // Updates
-            VStack(alignment: .leading, spacing: 8) {
-                updatesSection
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
+            // Sections — separated by spacing, not full-width dividers (§0.2).
+            VStack(alignment: .leading, spacing: 0) { aiConnectionSection }
+                .padding(.horizontal, 24).padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 0) { secretsSection }
+                .padding(.horizontal, 24).padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 0) { remoteAccessSection }
+                .padding(.horizontal, 24).padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 8) { updatesSection }
+                .padding(.horizontal, 24).padding(.vertical, 10)
 
             Spacer(minLength: 24)
 
@@ -208,7 +163,7 @@ public struct SignOutSheet: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Port42Theme.accent.opacity(0.1))
-                        .cornerRadius(4)
+                        .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
 
@@ -219,7 +174,7 @@ public struct SignOutSheet: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color.red.opacity(0.1))
-                        .cornerRadius(4)
+                        .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
             }
@@ -258,7 +213,7 @@ public struct SignOutSheet: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .background(Port42Theme.accent.opacity(0.1))
-                    .cornerRadius(5)
+                    .cornerRadius(7)
                 }
                 .buttonStyle(.plain)
 
@@ -273,7 +228,7 @@ public struct SignOutSheet: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                     .background(Port42Theme.textSecondary.opacity(0.08))
-                    .cornerRadius(4)
+                    .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
             } else {
@@ -291,7 +246,7 @@ public struct SignOutSheet: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
                     .background(Color.white.opacity(0.06))
-                    .cornerRadius(4)
+                    .cornerRadius(6)
                     .onSubmit {
                         appState.tunnel.setAuthToken(ngrokToken)
                     }
@@ -305,14 +260,14 @@ public struct SignOutSheet: View {
                     Text("get one free at")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
-                    Text("ngrok.com")
-                        .font(Port42Theme.monoBold(11))
-                        .foregroundStyle(Port42Theme.accent)
-                        .onTapGesture {
-                            if let url = URL(string: "https://dashboard.ngrok.com/get-started/your-authtoken") {
-                                NSWorkspace.shared.open(url)
-                            }
+                    Button {                                             // §0.1 — a real button, not a bare-text tap
+                        if let url = URL(string: "https://dashboard.ngrok.com/get-started/your-authtoken") {
+                            NSWorkspace.shared.open(url)
                         }
+                    } label: {
+                        Text("ngrok.com").font(Port42Theme.monoBold(11)).foregroundStyle(Port42Theme.accent)
+                            .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
                     Spacer()
                     if editingToken {
                         Button(action: { editingToken = false }) {
@@ -369,10 +324,8 @@ public struct SignOutSheet: View {
                         .font(.system(size: 9))
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(5)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -428,7 +381,7 @@ public struct SignOutSheet: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Port42Theme.accent.opacity(0.1))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
 
@@ -439,7 +392,7 @@ public struct SignOutSheet: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Port42Theme.accent.opacity(0.1))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
 
@@ -495,7 +448,7 @@ public struct SignOutSheet: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color.white.opacity(0.06))
-                .cornerRadius(4)
+                .cornerRadius(6)
                 .onSubmit { saveManualCredential() }
                 .onChange(of: authCredentialInput) { _, newValue in
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -533,7 +486,7 @@ public struct SignOutSheet: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Port42Theme.accent.opacity(0.1))
-                        .cornerRadius(4)
+                        .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
 
@@ -544,7 +497,7 @@ public struct SignOutSheet: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Port42Theme.accent.opacity(0.1))
-                        .cornerRadius(4)
+                        .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
 
@@ -573,10 +526,8 @@ public struct SignOutSheet: View {
                         .font(.system(size: 9))
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(5)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -593,7 +544,7 @@ public struct SignOutSheet: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .background(Color.white.opacity(0.06))
-                        .cornerRadius(4)
+                        .cornerRadius(6)
 
                     HStack(spacing: 8) {
                         Button(action: saveGeminiKey) {
@@ -603,7 +554,7 @@ public struct SignOutSheet: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(Port42Theme.accent.opacity(0.1))
-                                .cornerRadius(4)
+                                .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
 
@@ -614,7 +565,7 @@ public struct SignOutSheet: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(Port42Theme.accent.opacity(0.1))
-                                .cornerRadius(4)
+                                .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
 
@@ -643,10 +594,8 @@ public struct SignOutSheet: View {
                         .font(.system(size: 9))
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(5)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -663,7 +612,7 @@ public struct SignOutSheet: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                             .background(Color.white.opacity(0.06))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -677,7 +626,7 @@ public struct SignOutSheet: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                             .background(Color.white.opacity(0.06))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
                     }
 
                     Button(action: saveCompatibleConfig) {
@@ -687,7 +636,7 @@ public struct SignOutSheet: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(Port42Theme.accent.opacity(0.1))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
                 }
@@ -723,7 +672,7 @@ public struct SignOutSheet: View {
                 // Sharing / ngrok tunnel
                 sharingSection
 
-                Divider().overlay(Color.white.opacity(0.08))
+                Spacer().frame(height: 10)
 
                 // Permission toggles
                 VStack(alignment: .leading, spacing: 6) {
@@ -738,7 +687,7 @@ public struct SignOutSheet: View {
                     }
                 }
 
-                Divider().overlay(Color.white.opacity(0.08))
+                Spacer().frame(height: 10)
 
                 // CLI instruction files
                 VStack(alignment: .leading, spacing: 6) {
@@ -763,7 +712,7 @@ public struct SignOutSheet: View {
                     }
                 }
 
-                Divider().overlay(Color.white.opacity(0.08))
+                Spacer().frame(height: 10)
 
                 // OpenClaw plugin upgrade
                 VStack(alignment: .leading, spacing: 6) {
@@ -787,7 +736,7 @@ public struct SignOutSheet: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color.white.opacity(0.06))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
                         }
                         .buttonStyle(.plain)
                         .disabled(pluginUpgradeInProgress)
@@ -807,21 +756,14 @@ public struct SignOutSheet: View {
     }
 
     private func remoteApiToggle(_ label: String, value: Binding<Bool>) -> some View {
-        Button(action: { value.wrappedValue.toggle() }) {
-            HStack(spacing: 6) {
-                Image(systemName: value.wrappedValue ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 10))
-                    .foregroundStyle(value.wrappedValue ? Port42Theme.accent : Port42Theme.textSecondary)
-                Text(label)
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textPrimary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.white.opacity(0.06))
-            .cornerRadius(4)
-        }
-        .buttonStyle(.plain)
+        let on = value.wrappedValue
+        return Button(action: { value.wrappedValue.toggle() }) {          // §4 chip — whole capsule tappable
+            Text(label).font(Port42Theme.mono(11))
+                .foregroundStyle(on ? Port42Theme.accent : Port42Theme.textPrimary)
+                .padding(.horizontal, 11).padding(.vertical, 7)
+                .background((on ? Port42Theme.accent.opacity(0.12) : Color.white.opacity(0.04)), in: Capsule())
+                .overlay(Capsule().stroke(on ? Port42Theme.accent.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1))
+        }.buttonStyle(.plain)
     }
 
     private func cliInstructionButton(label: String, installed: Bool, action: @escaping () -> Void) -> some View {
@@ -837,7 +779,7 @@ public struct SignOutSheet: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(installed ? Color.green.opacity(0.1) : Port42Theme.accent.opacity(0.1))
-            .cornerRadius(4)
+            .cornerRadius(6)
         }
         .buttonStyle(.plain)
     }
@@ -1024,8 +966,8 @@ public struct SignOutSheet: View {
                 .foregroundStyle(selectedAuthPref == pref ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.5))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(selectedAuthPref == pref ? Port42Theme.accent.opacity(0.15) : Port42Theme.bgPrimary)
-                .cornerRadius(4)
+                .background(selectedAuthPref == pref ? Port42Theme.accent.opacity(0.15) : Color.white.opacity(0.05))
+                .cornerRadius(6)
         }
         .buttonStyle(.plain)
     }
@@ -1164,7 +1106,7 @@ public struct SignOutSheet: View {
                             .frame(width: 100)
                             .padding(4)
                             .background(Color.white.opacity(0.06))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
 
                         Menu {
                             Button("Bearer") { newSecretType = .bearerToken }
@@ -1191,7 +1133,7 @@ public struct SignOutSheet: View {
                             .textFieldStyle(.plain)
                             .padding(4)
                             .background(Color.white.opacity(0.06))
-                            .cornerRadius(4)
+                            .cornerRadius(6)
 
                         Button(action: {
                             let name = newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1202,9 +1144,12 @@ public struct SignOutSheet: View {
                             newSecretName = ""
                             newSecretValue = ""
                         }) {
-                            Text("add")
-                                .font(Port42Theme.mono(11))
-                                .foregroundStyle(Port42Theme.accent)
+                            let ready = !newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                        !newSecretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            Text("add").font(Port42Theme.monoBold(11))                 // §7 accent-filled commit
+                                .foregroundStyle(ready ? .black : Port42Theme.textSecondary)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(ready ? Port42Theme.accent : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
                         }
                         .buttonStyle(.plain)
                         .disabled(newSecretName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -1251,7 +1196,7 @@ public struct SignOutSheet: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Port42Theme.accent.opacity(0.1))
-                .cornerRadius(5)
+                .cornerRadius(7)
             }
             .buttonStyle(.plain)
 

@@ -32,9 +32,9 @@ public struct UsageSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Text("Token Usage")
-                    .font(Port42Theme.monoBold(16))
-                    .foregroundStyle(Port42Theme.textPrimary)
+                Text("TOKEN USAGE")
+                    .font(Port42Theme.monoBold(13)).tracking(3)
+                    .foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
                 Button("Done") { isPresented = false }
                     .font(Port42Theme.mono(12))
