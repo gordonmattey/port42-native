@@ -512,7 +512,7 @@ struct ShellSettingsView: View {
           .padding(22)
         }
         .frame(width: 360, height: 560)
-        .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+        .background(Port42Theme.shellCard, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(col.opacity(0.4), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 40)
         .scaleEffect(cardScale).opacity(cardOpacity)
@@ -567,7 +567,7 @@ struct ShellSettingsView: View {
             }
         }
         .padding(22).frame(width: 340)
-        .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+        .background(Port42Theme.shellCard, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 40)
         .scaleEffect(cardScale).opacity(cardOpacity)
@@ -688,7 +688,7 @@ struct ShellNewCompanionView: View {
             ScrollView(showsIndicators: false) { card.padding(22) }
                 .frame(width: 400, height: showAdvanced ? 620 : nil)
                 .fixedSize(horizontal: false, vertical: !showAdvanced)
-                .background(Color(red: 0.06, green: 0.07, blue: 0.09), in: RoundedRectangle(cornerRadius: 16))
+                .background(Port42Theme.shellCard, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(acc.opacity(0.4), lineWidth: 1))
                 .shadow(color: .black.opacity(0.6), radius: 40)
                 .scaleEffect(cardScale).opacity(cardOpacity)

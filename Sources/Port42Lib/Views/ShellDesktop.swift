@@ -392,7 +392,7 @@ struct ShellTile: View {
         .padding(.leading, 10).padding(.trailing, 18)   // trailing inset clears the top-right resize zone
         .frame(maxWidth: .infinity)          // span the tile so the drag handle is easy to grab
         .frame(height: titleBarH)
-        .background(Color(red: 0.06, green: 0.07, blue: 0.09))
+        .background(Port42Theme.shellCard)
     }
 
     /// An invisible 16×16 corner drag zone that resizes from that corner.
@@ -576,7 +576,7 @@ struct ShellBrowserTile: View {
                     .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
             }
             .padding(.horizontal, 10).frame(height: 34)
-            .background(Color(red: 0.06, green: 0.07, blue: 0.09))
+            .background(Port42Theme.shellCard)
             .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
             ShellPortHost(view: webView)
         }
@@ -648,7 +648,7 @@ struct ShellFocusContent: View {
                     Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } } label: {
                         Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
                     }.buttonStyle(.plain).help("Exit focus (Esc)")
-                }.padding(.horizontal, 16).padding(.vertical, 11).background(Color(red: 0.06, green: 0.07, blue: 0.09))
+                }.padding(.horizontal, 16).padding(.vertical, 11).background(Port42Theme.shellCard)
                 body(for: id)
             }
             .frame(width: NSScreen.main.map { $0.frame.width * 0.78 } ?? 1100,

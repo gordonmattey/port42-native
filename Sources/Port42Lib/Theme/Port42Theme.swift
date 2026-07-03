@@ -4,6 +4,9 @@ public enum Port42Theme {
     // Backgrounds
     public static let bgPrimary = Color(hex: 0x000000)
     public static let bgSecondary = Color(hex: 0x111111)
+    /// The shell overlay-card fill — a slightly blue-tinted near-black. One source of truth so every
+    /// floating card (settings box, new-companion, Settings/Usage overlays) reads identically.
+    public static let shellCard = Color(red: 0.06, green: 0.07, blue: 0.09)
     public static let bgSidebar = Color(hex: 0x0A0A0A)
     public static let bgInput = Color(hex: 0x1A1A1A)
     public static let bgHover = Color(hex: 0x1A1A1A)

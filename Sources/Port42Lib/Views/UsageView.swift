@@ -47,13 +47,8 @@ public struct UsageSheet: View {
 
             // Period selector + navigation
             HStack(spacing: 12) {
-                Picker("", selection: $period) {
-                    ForEach(Period.allCases, id: \.self) { p in
-                        Text(p.rawValue).tag(p)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
+                shellSeg(Period.allCases, selected: period, label: { $0.rawValue }) { period = $0 }
+                    .frame(width: 220)
 
                 Spacer()
 
@@ -117,13 +112,8 @@ public struct UsageSheet: View {
 
             // Grouping toggle
             HStack {
-                Picker("Group by", selection: $grouping) {
-                    ForEach(Grouping.allCases, id: \.self) { g in
-                        Text(g.rawValue).tag(g)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 260)
+                shellSeg(Grouping.allCases, selected: grouping, label: { $0.rawValue }) { grouping = $0 }
+                    .frame(width: 280)
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -195,7 +185,7 @@ public struct UsageSheet: View {
             }
         }
         .frame(width: 520, height: 560)
-        .background(Port42Theme.bgPrimary)
+        .background(Port42Theme.shellCard)
         .onChange(of: period) { offset = 0; reload() }
         .onChange(of: offset) { reload() }
         .onChange(of: grouping) { reload() }
@@ -245,6 +235,23 @@ public struct UsageSheet: View {
             f.dateFormat = "MMMM yyyy"
             return f.string(from: from)
         }
+    }
+
+    /// Shell-native segmented control (matches ShellNewCompanionView.seg) — replaces native pickers.
+    private func shellSeg<T: Hashable>(_ options: [T], selected: T, label: @escaping (T) -> String,
+                                       onTap: @escaping (T) -> Void) -> some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.self) { o in
+                let on = o == selected
+                Button { onTap(o) } label: {
+                    Text(label(o)).font(Port42Theme.mono(10)).foregroundStyle(on ? Port42Theme.accent : Port42Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .background(on ? Port42Theme.accent.opacity(0.15) : Color.clear)
+                }.buttonStyle(.plain)
+            }
+        }
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
     private func reload() {
