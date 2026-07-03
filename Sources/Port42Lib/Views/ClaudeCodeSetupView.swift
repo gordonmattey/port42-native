@@ -74,10 +74,10 @@ public struct ClaudeCodeSetupView: View {
                     }
                 }
                 .padding(12)
-                .background(Port42Theme.bgPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(Color.white.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 8)
                         .stroke(Port42Theme.accent.opacity(0.3), lineWidth: 1)
                 )
 
@@ -122,15 +122,15 @@ public struct ClaudeCodeSetupView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         Text(setup.output)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(Port42Theme.mono(10))
                             .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .id("output-end")
                     }
                     .frame(maxHeight: 120)
                     .padding(8)
-                    .background(Port42Theme.bgPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .background(Color.white.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
                     .onChange(of: setup.output) { _, _ in
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo("output-end", anchor: .bottom)
@@ -173,9 +173,9 @@ public struct ClaudeCodeSetupView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Port42Theme.accent.opacity(0.08))
-            .cornerRadius(4)
+            .cornerRadius(7)
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: 7)
                     .stroke(Port42Theme.accent.opacity(0.2), lineWidth: 1)
             )
         }
@@ -197,7 +197,7 @@ public struct ClaudeCodeSetupView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(Port42Theme.accent)
-                .cornerRadius(5)
+                .cornerRadius(7)
         }
         .buttonStyle(.plain)
     }

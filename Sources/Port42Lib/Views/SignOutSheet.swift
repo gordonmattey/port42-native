@@ -381,10 +381,9 @@ public struct SignOutSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             if providerSel == "Anthropic" {
                 VStack(alignment: .leading, spacing: 8) {
-                    // Two mode buttons
-                    HStack(spacing: 6) {
-                        authPrefButton(.autoDetect, label: "auto")
-                        authPrefButton(.manualEntry, label: "manual")
+                    // auto / manual — shell seg
+                    seg(["auto", "manual"], sel: selectedAuthPref == .autoDetect ? "auto" : "manual") { v in
+                        applyAuthPref(v == "auto" ? .autoDetect : .manualEntry)
                     }
 
         // Auto-detect status and guided setup
@@ -869,44 +868,33 @@ public struct SignOutSheet: View {
         }
     }
 
-    private func authPrefButton(_ pref: AuthPreference, label: String) -> some View {
-        Button(action: {
-            withAnimation(.easeIn(duration: 0.1)) {
-                selectedAuthPref = pref
-                authSaved = false
-                testResult = .idle
-                // Pre-fill with saved credential when switching to manual
-                if pref == .manualEntry {
-                    authCredentialInput = Port42AuthStore.shared.loadCredential() ?? ""
-                    let trimmed = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                    detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
-                }
+    private func applyAuthPref(_ pref: AuthPreference) {
+        withAnimation(.easeIn(duration: 0.1)) {
+            selectedAuthPref = pref
+            authSaved = false
+            testResult = .idle
+            // Pre-fill with saved credential when switching to manual
+            if pref == .manualEntry {
+                authCredentialInput = Port42AuthStore.shared.loadCredential() ?? ""
+                let trimmed = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
             }
-            Port42AuthStore.shared.savePreference(pref: pref)
-            if pref == .autoDetect {
-                AgentAuthResolver.shared.clearCache()
-                checkAutoDetect()
-            } else {
-                claudeSetup.cancel()
-            }
-            // Update global auth status
-            appState.authStatus = .checking
-            DispatchQueue.global(qos: .userInitiated).async {
-                let status = AgentAuthResolver.shared.checkStatus()
-                DispatchQueue.main.async {
-                    appState.authStatus = status
-                }
-            }
-        }) {
-            Text(label)
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(selectedAuthPref == pref ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.5))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(selectedAuthPref == pref ? Port42Theme.accent.opacity(0.15) : Color.white.opacity(0.05))
-                .cornerRadius(6)
         }
-        .buttonStyle(.plain)
+        Port42AuthStore.shared.savePreference(pref: pref)
+        if pref == .autoDetect {
+            AgentAuthResolver.shared.clearCache()
+            checkAutoDetect()
+        } else {
+            claudeSetup.cancel()
+        }
+        // Update global auth status
+        appState.authStatus = .checking
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = AgentAuthResolver.shared.checkStatus()
+            DispatchQueue.main.async {
+                appState.authStatus = status
+            }
+        }
     }
 
     private func saveManualCredential() {
