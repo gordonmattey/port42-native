@@ -510,6 +510,27 @@ struct ShellNotificationRail: View {
     }
 }
 
+/// A real NSView that captures clicks over a peek's live port view — the only thing that reliably
+/// beats a hosted WKWebView/Ghostty surface in the AppKit hit-test. On mouseDown it runs `onClick`
+/// (adopt). Transparent; the live port still renders beneath it.
+struct PeekClickCatcher: NSViewRepresentable {
+    let onClick: () -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = Catcher(); v.onClick = onClick; return v
+    }
+    func updateNSView(_ v: NSView, context: Context) { (v as? Catcher)?.onClick = onClick }
+    final class Catcher: NSView {
+        var onClick: (() -> Void)?
+        override func hitTest(_ point: NSPoint) -> NSView? { self }          // always capture
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {
+            // Run adopt on a FRESH main-loop tick, not nested inside this AppKit event — otherwise the
+            // animated `zoom = .focus` set here doesn't reliably drive the SwiftUI focus render.
+            DispatchQueue.main.async { [weak self] in self?.onClick?() }
+        }
+    }
+}
+
 /// One peeking port: a live miniature tinted with its HOME space's accent + a glow (it's from
 /// elsewhere, catching your eye). Hover highlights it; click adopts it into your space.
 struct ShellPeekTile: View {
@@ -527,34 +548,33 @@ struct ShellPeekTile: View {
     var body: some View {
         let col = spaceColor
         return VStack(spacing: 0) {
-            HStack(spacing: 6) {                                        // header: what + from where
+            HStack(spacing: 6) {                                        // header (SwiftUI — clicks work here)
                 Image(systemName: peek.isChat ? "bubble.left.fill" : "square.stack.3d.up")
                     .font(.system(size: 9)).foregroundStyle(col)
                 Text(peek.title).font(Port42Theme.monoBold(9)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
                 Text("· \(peek.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(col.opacity(0.85)).lineLimit(1)
                 Spacer(minLength: 4)
+                Button { shell.dismissPeek(peek) } label: {            // ✕ (SwiftUI button, in the header)
+                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain)
             }
             .padding(.horizontal, 9).frame(height: 24).background(Color.black.opacity(0.45))
+            .contentShape(Rectangle()).onTapGesture { shell.adoptPeek(peek) }   // tap header (not ✕) → zoom in
             peekContent.frame(height: 116).clipped()                   // the live port, in miniature
+                // A REAL AppKit view over the content: a hosted NSView (terminal/web) wins the AppKit
+                // hit-test over any SwiftUI overlay, so only another NSView can capture the click.
+                .overlay(PeekClickCatcher { shell.adoptPeek(peek) })
         }
         .frame(width: 210)
         .background(Port42Theme.shellCard)
         .clipShape(RoundedRectangle(cornerRadius: 11))
-        // Whole-tile hit shield ABOVE the live NSView (SwiftUI onTapGesture can't beat a hosted view —
-        // this is the same trick as the desktop click-shield). Runs adopt for any click on the tile.
-        .overlay(Color.black.opacity(0.001).contentShape(RoundedRectangle(cornerRadius: 11))
-            .onTapGesture { shell.adoptPeek(peek) })
-        // ✕ lives ABOVE the shield so it can still be clicked.
-        .overlay(alignment: .topTrailing) {
-            Button { shell.dismissPeek(peek) } label: {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
-                    .padding(4).background(Color.black.opacity(0.5), in: Circle())
-            }.buttonStyle(.plain).padding(5)
-        }
         .overlay(RoundedRectangle(cornerRadius: 11).stroke(col.opacity(hovered ? 1 : 0.7), lineWidth: hovered ? 2 : 1.5))
         .shadow(color: col.opacity(hovered ? 0.75 : 0.45), radius: hovered ? 28 : 16)   // colored glow from its space
         .scaleEffect(hovered ? 1.03 : 1.0)
-        .onHover { hovered = $0 }
+        .onHover { h in
+            hovered = h
+            shell.hoveredPeekId = h ? peek.id : (shell.hoveredPeekId == peek.id ? nil : shell.hoveredPeekId)
+        }
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovered)
         .transition(.move(edge: .leading).combined(with: .opacity))
     }

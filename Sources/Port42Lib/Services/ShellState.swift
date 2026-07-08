@@ -110,22 +110,38 @@ public final class ShellState: ObservableObject {
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
 
-    /// Zoom into a peek → it STICKS in your current space (adopted) and you focus it. Zooming back out
-    /// leaves you in your space with the port now a tile here.
+    /// A port peek being adopted — focused now; it STICKS as a tile only when you zoom back OUT. This
+    /// avoids the re-parent race: focus hosts the port's view alone (no competing grid tile) during the
+    /// zoom, and the tile is created on exit.
+    private var pendingAdoptPortId: String?
+
+    /// The peek currently under the cursor — makes it the ⌘↓/pinch zoom-in target (peeks aren't
+    /// desktop tiles, so hovering one otherwise leaves the gesture pointed at an in-space tile).
+    @Published public var hoveredPeekId: String?
+
+    /// Zoom into a peek → you focus it; zooming back out leaves it as a tile in your current space.
     public func adoptPeek(_ peek: PeekPort) {
         peekingPorts.removeAll { $0.id == peek.id }
         if peek.isChat {
+            // Chat renders via SwiftUI ChatView (no re-parented NSView), so tile + focus can't race.
             surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
             appState.lastReadDates[peek.spaceId] = Date()
             if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == peek.spaceId }) {
                 withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
             }
         } else {
-            surfacedPortIds.insert(peek.id)
+            pendingAdoptPortId = peek.id                    // stick it here only on zoom-out
             bringToFront(peek.id)
-            arrangeBump += 1
             withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
         }
+    }
+
+    /// Called when zoom returns to the desktop — a port adopted via a peek becomes a real tile now.
+    public func finalizePendingAdopt() {
+        guard let pid = pendingAdoptPortId else { return }
+        pendingAdoptPortId = nil
+        surfacedPortIds.insert(pid)
+        arrangeBump += 1
     }
 
     /// ✕ a peek → dismiss it from your desktop; it lives on in its home space.
@@ -222,6 +238,11 @@ public final class ShellState: ObservableObject {
                 zoom = .space
             }
         case .space:
+            // A hovered peek is the zoom target: the gesture adopts it (peeks aren't desktop tiles,
+            // so they never set selectedTileId — without this ⌘↓/pinch would zoom an in-space tile).
+            if let pid = hoveredPeekId, let peek = peekingPorts.first(where: { $0.id == pid }) {
+                adoptPeek(peek); return
+            }
             // Focus the highlighted desktop tile (chat or a tiled port); else the first port.
             if let tid = selectedTileId ?? selectedPort { zoom = .focus(tid) }   // nothing ⇒ stay
         case .focus:

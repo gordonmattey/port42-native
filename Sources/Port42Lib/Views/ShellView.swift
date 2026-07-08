@@ -120,7 +120,10 @@ public struct ShellView: View {
             shell.showSettings = true
         }
         .animation(.spring(response: 0.4), value: shell.zoom)
-        .onChange(of: shell.zoom) { _, z in if z != .space { shell.exposeActive = false } }   // exposé lives at .space
+        .onChange(of: shell.zoom) { _, z in
+            if z != .space { shell.exposeActive = false }   // exposé lives at .space
+            if z == .space { shell.finalizePendingAdopt() } // a peek focused then zoomed out sticks as a tile
+        }
         .onAppear {
             installInputMonitors()
             applyTakeoverToWindow()
