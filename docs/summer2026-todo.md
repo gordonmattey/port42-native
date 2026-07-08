@@ -394,6 +394,60 @@ every action returns the fresh post-action frame, so the companion loops perceiv
 
 ---
 
+# Pluggable primitives + Hermes as reference engine (2026-07-08)
+
+## TODO: pluggable engine-primitives — Port42 as the composition layer (→ `docs/pluggable-primitives-architecture.md`)
+
+**Direction:** stop hand-building the agent brain; make the engine-facing capabilities a set of
+**pluggable slots** and let the user plug in *anything*. Port42 becomes the **composition layer**
+that owns the **user-facing** primitives (`port`, `space`, `permission`, the zoom/peek/adopt/dismiss
+grammar) and the slot **contracts**; engine-facing primitives (reasoning / autonomy / execution /
+skills / memory / tools) are rented. **Hermes Agent** (Nous, MIT, self-improving skills, local +
+model-agnostic) is the **reference external plugin** that proves the slots are real. Its properties
+are *representative members of an open set*, not a fixed list. Full analysis in four docs:
+[thesis](./shell-with-intelligence-thesis.md) · [investigation](./hermes-engine-investigation.md) ·
+[integration-map](./hermes-integration-map.md) · [architecture](./pluggable-primitives-architecture.md).
+
+Why it earns a north-star slot:
+- **Payoff = focus.** Renting the engine slots lets the team pour effort into the user-facing
+  primitives — the only place we're differentiated (the whole shell thesis).
+- **We're not hollow on the engine side.** `tick` (loop engine + execution backends) is the *native*
+  provider for the Autonomy + Execution slots; `fs`/`storage` (kv) + creases/fold are the native
+  Memory slot; the bridge via `port42-mcp` is the Tools slot. So every slot ships a Port42-native
+  provider *and* accepts a foreign one. The slot Hermes most uniquely fills is **skills /
+  self-improvement** (no native equivalent yet — candidate for `tick` to grow).
+- **This lands the OS-vs-app question on OS.** Moat = the user-facing grammar + slot contracts +
+  the bridge, none of which an engine vendor builds. Relates to / subsumes the earlier
+  "adopt agent-comms standards — ACP + friends" item (the slot contracts are the open wire).
+
+Load-bearing rules (don't violate as current work touches routing/tools/memory):
+- **The one invariant, two-directional (both surfaces Port42-owned):** *Up* — an engine primitive
+  reaches the user only through a user-facing primitive (a skill surfaces as a port/command/…; a
+  proactive tick surfaces as a peek). *Down* — an engine primitive touches the machine only through
+  the bridge (permission-gated). An engine may keep its own sandbox for *ephemeral* compute, but
+  host-touching = our gate. Testable: any leak (an engine's own chat UI up; raw host access down) =
+  boundary broken.
+- **Anti-"Hermes-in-a-trenchcoat" guard:** define every slot contract against **≥2 providers**
+  (`tick` *and* Hermes) from day one. A slot that only makes sense with Hermes plugged in is a fake
+  abstraction. **The slot contracts are the product-defining work — not the Hermes adapter.**
+
+Open (unresolved) — **skill ↔ port relationship.** A skill is engine-facing (a persistent
+*procedure*); a port is user-facing (a disposable *surface*). Not the same axis — a skill may
+produce zero/one/many ports, and a port needn't come from a skill. "Skill = disposable render" is
+too tidy. The real question the *up*-invariant forces: **how does a persisted engine-side skill
+surface in the user layer** (command? dock item? space object? a port it spins up?). Design work,
+not a settled mapping.
+
+Phased (leads with contracts, not wiring): **P0** write the slot contracts on paper, validated
+against `tick` + Hermes simultaneously → **P1** prove the *down*-invariant (Hermes → `port42-mcp` as
+its only host-touching tool; "create a port showing X" renders through the gated bridge; near-zero
+Swift via the existing MCP server) → **P2** Autonomy slot behind one contract (`tick` vs Hermes
+daemon; proactive output → peeks) → **P3** Skills slot + the *up*-question → **P4** Memory ownership
+line + local-model default (the local-first payoff). Onboarding an external engine reuses the
+proven `OpenClawService` playbook + `AgentMode.remote`.
+
+---
+
 ## Sequencing (rough)
 
 1. **First-class terminal ports** (in progress — `docs/plan-first-class-terminal-ports.md`,
