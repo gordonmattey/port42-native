@@ -512,20 +512,18 @@ struct ShellNotificationRail: View {
 
 /// A real NSView that captures clicks over a peek's live port view — the only thing that reliably
 /// beats a hosted WKWebView/Ghostty surface in the AppKit hit-test. On mouseDown it runs `onClick`
-/// (adopt). Transparent; the live port still renders beneath it.
+/// (which previews an unseen peek, keeps a seen one). Transparent; the live port renders beneath it.
 struct PeekClickCatcher: NSViewRepresentable {
     let onClick: () -> Void
-    func makeNSView(context: Context) -> NSView {
-        let v = Catcher(); v.onClick = onClick; return v
-    }
+    func makeNSView(context: Context) -> NSView { let v = Catcher(); v.onClick = onClick; return v }
     func updateNSView(_ v: NSView, context: Context) { (v as? Catcher)?.onClick = onClick }
     final class Catcher: NSView {
         var onClick: (() -> Void)?
         override func hitTest(_ point: NSPoint) -> NSView? { self }          // always capture
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func mouseDown(with event: NSEvent) {
-            // Run adopt on a FRESH main-loop tick, not nested inside this AppKit event — otherwise the
-            // animated `zoom = .focus` set here doesn't reliably drive the SwiftUI focus render.
+            // Run on a FRESH main-loop tick, not nested in this AppKit event — otherwise the animated
+            // `zoom = .focus` doesn't reliably drive the SwiftUI focus render.
             DispatchQueue.main.async { [weak self] in self?.onClick?() }
         }
     }
@@ -545,6 +543,11 @@ struct ShellPeekTile: View {
         return shell.accent
     }
 
+    /// Two-state click: an unseen peek previews (zoom in); once seen (counting down) a click keeps it.
+    private func clickPeek() {
+        if peek.seen { shell.keepPeek(peek) } else { shell.previewPeek(peek) }
+    }
+
     var body: some View {
         let col = spaceColor
         return VStack(spacing: 0) {
@@ -554,16 +557,24 @@ struct ShellPeekTile: View {
                 Text(peek.title).font(Port42Theme.monoBold(9)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
                 Text("· \(peek.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(col.opacity(0.85)).lineLimit(1)
                 Spacer(minLength: 4)
+                if let rem = shell.peekRemaining[peek.id] {            // seen → 10s countdown ring (pauses on hover)
+                    ZStack {
+                        Circle().stroke(col.opacity(0.25), lineWidth: 2)
+                        Circle().trim(from: 0, to: max(0, rem / 10))
+                            .stroke(col, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }.frame(width: 11, height: 11)
+                }
                 Button { shell.dismissPeek(peek) } label: {            // ✕ (SwiftUI button, in the header)
                     Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
                 }.buttonStyle(.plain)
             }
             .padding(.horizontal, 9).frame(height: 24).background(Color.black.opacity(0.45))
-            .contentShape(Rectangle()).onTapGesture { shell.adoptPeek(peek) }   // tap header (not ✕) → zoom in
+            .contentShape(Rectangle()).onTapGesture { clickPeek() }    // tap header → preview (unseen) / keep (seen)
             peekContent.frame(height: 116).clipped()                   // the live port, in miniature
-                // A REAL AppKit view over the content: a hosted NSView (terminal/web) wins the AppKit
-                // hit-test over any SwiftUI overlay, so only another NSView can capture the click.
-                .overlay(PeekClickCatcher { shell.adoptPeek(peek) })
+                // A real AppKit view over the content wins the hit-test vs the hosted NSView, so it's the
+                // only thing that can capture the click. First click previews; once seen, click keeps.
+                .overlay(PeekClickCatcher { clickPeek() })
         }
         .frame(width: 210)
         .background(Port42Theme.shellCard)

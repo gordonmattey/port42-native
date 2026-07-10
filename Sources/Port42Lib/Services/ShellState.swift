@@ -72,6 +72,7 @@ public final class ShellState: ObservableObject {
         public let spaceName: String
         public let isChat: Bool
         public let title: String
+        public var seen: Bool = false   // true after you've previewed it → its 10s countdown is armed
     }
     @Published public var peekingPorts: [PeekPort] = []
     /// Foreign ports ADOPTED onto this desktop (a peek you zoomed into sticks here), by port id.
@@ -110,43 +111,89 @@ public final class ShellState: ObservableObject {
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
 
-    /// A port peek being adopted — focused now; it STICKS as a tile only when you zoom back OUT. This
-    /// avoids the re-parent race: focus hosts the port's view alone (no competing grid tile) during the
-    /// zoom, and the tile is created on exit.
-    private var pendingAdoptPortId: String?
+    /// A port peek being PREVIEWED — focused now; on zoom-out it returns to the rail as a *seen* peek
+    /// with a 10s countdown (evaporate-by-default). Keeping it is a separate act (drag → `keepPeek`).
+    /// Stashing the whole peek avoids the re-parent race: focus hosts the port's view alone during the
+    /// zoom (no competing rail tile), and the peek is re-added on exit.
+    private var pendingPreviewPeek: PeekPort?
 
     /// The peek currently under the cursor — makes it the ⌘↓/pinch zoom-in target (peeks aren't
     /// desktop tiles, so hovering one otherwise leaves the gesture pointed at an in-space tile).
     @Published public var hoveredPeekId: String?
 
-    /// Zoom into a peek → you focus it; zooming back out leaves it as a tile in your current space.
-    public func adoptPeek(_ peek: PeekPort) {
-        peekingPorts.removeAll { $0.id == peek.id }
+    /// Seconds left before a *seen* peek evaporates, by peek id (drives the countdown ring).
+    @Published public var peekRemaining: [String: Double] = [:]
+    private var peekTimer: Timer?
+    private let peekLifetime: Double = 10
+
+    /// Click / hover-gesture on a peek → PREVIEW it (zoom in). Non-committal: keeping is a drag.
+    public func previewPeek(_ peek: PeekPort) {
         if peek.isChat {
-            // Chat renders via SwiftUI ChatView (no re-parented NSView), so tile + focus can't race.
+            // Chat renders via SwiftUI ChatView (no re-parented NSView); surfacing IS keeping for chat.
+            peekingPorts.removeAll { $0.id == peek.id }
+            peekRemaining[peek.id] = nil
             surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
             appState.lastReadDates[peek.spaceId] = Date()
             if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == peek.spaceId }) {
                 withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
             }
-        } else {
-            pendingAdoptPortId = peek.id                    // stick it here only on zoom-out
-            bringToFront(peek.id)
-            withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
+            return
+        }
+        // Port peek: remove from the rail during the zoom (frees the view for the focus host — no race),
+        // stash it, and re-add as a seen / counting-down peek when you zoom back out.
+        peekingPorts.removeAll { $0.id == peek.id }
+        peekRemaining[peek.id] = nil
+        var seenPeek = peek; seenPeek.seen = true
+        pendingPreviewPeek = seenPeek
+        bringToFront(peek.id)
+        withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
+    }
+
+    /// Zoom returned to the desktop after a preview → the peek comes back as *seen* and its countdown
+    /// starts. Ignore it and it evaporates; drag it to keep it.
+    public func settleAfterPreview() {
+        guard let peek = pendingPreviewPeek else { return }
+        pendingPreviewPeek = nil
+        guard !surfacedPortIds.contains(peek.id) else { return }        // already kept via drag mid-preview
+        if !peekingPorts.contains(where: { $0.id == peek.id }) { peekingPorts.append(peek) }
+        startPeekCountdown(peek.id)
+    }
+
+    /// Drag a peek into the space → KEEP it as a real tile (cancels its countdown).
+    public func keepPeek(_ peek: PeekPort) {
+        peekingPorts.removeAll { $0.id == peek.id }
+        peekRemaining[peek.id] = nil
+        if pendingPreviewPeek?.id == peek.id { pendingPreviewPeek = nil }
+        surfacedPortIds.insert(peek.id)
+        arrangeBump += 1
+    }
+
+    private func startPeekCountdown(_ id: String) {
+        peekRemaining[id] = peekLifetime
+        guard peekTimer == nil else { return }
+        peekTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tickPeekCountdowns() }
         }
     }
 
-    /// Called when zoom returns to the desktop — a port adopted via a peek becomes a real tile now.
-    public func finalizePendingAdopt() {
-        guard let pid = pendingAdoptPortId else { return }
-        pendingAdoptPortId = nil
-        surfacedPortIds.insert(pid)
-        arrangeBump += 1
+    private func tickPeekCountdowns() {
+        for (id, rem) in peekRemaining {
+            if id == hoveredPeekId { continue }                         // hover pauses the countdown
+            let next = rem - 0.1
+            if next <= 0 {
+                peekRemaining[id] = nil
+                peekingPorts.removeAll { $0.id == id }                  // evaporate (still lives in its home space)
+            } else {
+                peekRemaining[id] = next
+            }
+        }
+        if peekRemaining.isEmpty { peekTimer?.invalidate(); peekTimer = nil }
     }
 
     /// ✕ a peek → dismiss it from your desktop; it lives on in its home space.
     public func dismissPeek(_ peek: PeekPort) {
         peekingPorts.removeAll { $0.id == peek.id }
+        peekRemaining[peek.id] = nil
     }
 
     /// Surface ANY space's chat as a tile on the current desktop (generalizes `openDM`).
@@ -241,7 +288,7 @@ public final class ShellState: ObservableObject {
             // A hovered peek is the zoom target: the gesture adopts it (peeks aren't desktop tiles,
             // so they never set selectedTileId — without this ⌘↓/pinch would zoom an in-space tile).
             if let pid = hoveredPeekId, let peek = peekingPorts.first(where: { $0.id == pid }) {
-                adoptPeek(peek); return
+                previewPeek(peek); return
             }
             // Focus the highlighted desktop tile (chat or a tiled port); else the first port.
             if let tid = selectedTileId ?? selectedPort { zoom = .focus(tid) }   // nothing ⇒ stay
@@ -381,6 +428,8 @@ public final class ShellState: ObservableObject {
         openDMSpaceIds.removeAll()
         surfacedPortIds.removeAll()          // adopted foreign ports are per-desktop
         peekingPorts.removeAll()             // peeks belong to the desktop you were on
+        peekRemaining.removeAll()
+        peekTimer?.invalidate(); peekTimer = nil
     }
 
     /// Dismiss a tile via its ✕. A surfaced foreign chat/port is DETACHED (removed from this desktop,
