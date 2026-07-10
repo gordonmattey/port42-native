@@ -235,6 +235,9 @@ backs the automated checks below.
 
 ## 7. Phases + test suite
 
+> Concrete, runnable version: **`docs/test-plan-port-units.md`** — the render probe + three-tier
+> (unit / probe / eyeball) suite with a hard gate per phase. Build the probe FIRST.
+
 Each phase builds, is testable, and has a gate.
 
 ### Spike (pre-Phase 0) — validate I1 + I2
