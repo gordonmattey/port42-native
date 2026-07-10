@@ -302,8 +302,14 @@ include; red → gate-2.
 Replace the rail `VStack` with absolutely-positioned peek `PortUnit`s (`railSlot`). Preview =
 `zoom = .focus`; the unit resizes mini→focus in place. Delete `previewPeek`'s reparent/stash logic
 and `pendingPreviewPeek`.
+**Also fix — same-space peek self-suppression:** today a peek only fires for activity in a space you
+are *not* currently in; sending a peek to the space you're sitting in does **nothing** (it's
+suppressed as "already here"). A peek is a live port surface, not just an unread badge, so a
+same-space peek should still surface the port (peek in from the rail, focusable/adoptable) rather than
+being swallowed. Add a same-space peek path: notification → peek even when `targetSpace ==
+currentSpace`, deduped so it doesn't double with the space's own tiles.
 **Gate (§9 Phase 1):** the in-code peek repro assertion — if `window` ever goes nil, the root
-cause isn't fixed; **stop**.
+cause isn't fixed; **stop**. Plus: a peek addressed to the current space surfaces (does not vanish).
 
 ### Phase 2 — collapse / cleanup
 Remove `ShellFocusContent`'s webview path; terminals + browser + chat onto the unit. Delete the
@@ -487,14 +493,15 @@ per-phase test exercises.
 4. From space A, drive a notification/peek for a port living in **space B** → it peeks in as a unit.
 5. The original grey repro, now *interleaved with Act I state*: `preview peekB → focus webA → out → preview peekB again → out`. → **peekB never blanks on the 2nd preview**; webA's focus cycle unaffected.
 6. Three peeks open at once; preview each; **keep** one (drag-in / `keepPeek`) → it becomes a tile in A (`make` still ==1, no remount on adopt); let the other two evaporate.
+7. **Same-space peek (regression):** from space A, drive a peek addressed to **space A itself** → it still surfaces (peeks in, focusable) and is **not** self-suppressed; deduped against A's existing tiles.
 
 **Act III — browser + cross-space move** *(adds Phase 2)*
-7. Open a **browser** port, navigate, focus, out ×3. → address bar in focus chrome, page crisp, `make==1`.
-8. `move(keptPort, to: B)` then switch A→B→A. → the port is present in B, absent from A; **no re-arrange on switch**; every surviving unit stays `window!=nil` across both switches.
+8. Open a **browser** port, navigate, focus, out ×3. → address bar in focus chrome, page crisp, `make==1`.
+9. `move(keptPort, to: B)` then switch A→B→A. → the port is present in B, absent from A; **no re-arrange on switch**; every surviving unit stays `window!=nil` across both switches.
 
 **Act IV — persistence across restart** *(adds Phase 3)*
-9. With the busy desktop from Acts I–III, trigger arrange + exposé. → 0 windowless, all `make==1`.
-10. Simulate restart (`DatabaseService` reload). → tiles restore at position in their spaces; the **kept/moved** port restores in **B**; a parked port restores parked. `ports(in:)` returns the right set per space.
+10. With the busy desktop from Acts I–III, trigger arrange + exposé. → 0 windowless, all `make==1`.
+11. Simulate restart (`DatabaseService` reload). → tiles restore at position in their spaces; the **kept/moved** port restores in **B**; a parked port restores parked. `ports(in:)` returns the right set per space.
 
 #### What each gate runs
 
