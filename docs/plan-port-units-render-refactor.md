@@ -108,6 +108,55 @@ by frame, never by superview.**
 
 ## 3. Target design — Port Units
 
+### The facade — `PortManager` (the one top-level interface)
+
+Consumers — `ShellDesktop`, Chrome, dock, notifications/peeks, the `port.create` API, companions —
+hold **no** port state and never reach past this facade. Lifecycle, which-space, presentation-state,
+geometry, persistence, and the live-view registry are all sealed behind it. A caller says *open /
+present / move* and never touches a webview, a reparent, or a rect.
+
+```swift
+@MainActor final class PortManager: ObservableObject {
+    @Published private(set) var ports: [Port]              // single source of truth
+
+    // ── lifecycle ──
+    func open(_ spec: PortSpec, in space: SpaceID) -> PortID
+    func close(_ id: PortID)
+    func move(_ id: PortID, to space: SpaceID)             // re-home a port; its state is unchanged
+
+    // ── state (presentation) ──
+    func present(_ id: PortID, as state: Presentation)     // the ONLY state mutator
+    func bringToFront(_ id: PortID)
+    func setFrame(_ id: PortID, _ rect: CGRect)            // drag / resize commit
+
+    // ── layout & queries ──
+    func arrange(_ space: SpaceID)
+    func ports(in space: SpaceID) -> [Port]
+    func port(_ id: PortID) -> Port?
+}
+
+struct Port: Identifiable {
+    let id: PortID
+    var space: SpaceID                                     // which space owns it
+    let kind: Kind             // .web · .terminal · .browser · .chat
+    var state: Presentation    // .tiled · .peek(Int) · .focus · .parked · .hidden
+    var frame: CGRect; var z: Int                          // committed geometry
+}
+enum Presentation { case tiled, peek(Int), focus, parked, hidden }
+```
+
+Behind the facade sit three sealed collaborators: the pure **`placement()`** (state → geometry,
+below), the **registry** of one live `NSView` per port (`hostView(for:)`), and the **store**
+(`port_panels` persistence). Everything after this subsection is the *rendering half* — how
+`PortManager.ports` becomes pixels via `PortUnit` + `placement`, with no reparenting.
+
+> **Migration note.** `PortManager` is the consolidation target: today's scattered verbs —
+> `registerTiledPort` / `popOut` / `dock` / `park` / `switchToSpace` / `previewPeek` /
+> `surfaceSpaceChat` / `applyArrange` and the raw presentation flags — all fold into
+> `open`/`present`/`move`/`arrange`. It can start as a **thin facade over the existing
+> `PortWindowManager` + `ShellState`** and absorb their logic phase by phase, so no phase is a
+> big-bang rewrite.
+
 ### Principle
 
 Every port's live view is mounted **once**, in a persistent, absolutely-positioned

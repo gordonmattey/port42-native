@@ -143,6 +143,54 @@ tiles at position; an imported port persists in the space it was kept in.
 
 ---
 
+## Integration test — the golden path (run cumulatively at every gate)
+
+The per-phase tiers above prove each *change* in isolation. This proves the **whole system still
+holds together** end-to-end — every port kind, every state, across spaces, across a restart. It's
+**one scripted scenario** that grows as phases land: each phase adds the steps it enables, and **the
+full accumulated script re-runs at every subsequent gate** (a phase can't regress what an earlier
+phase shipped).
+
+Run it two ways at each gate: **B-instrumented** (`PortRenderProbe.enabled = true` throughout — every
+step asserts `window != nil`, `superview` stable, `makes == 1`) and then **C-eyeball** (a human walks
+the same numbered script judging crispness/feel). The integration script is the peek/preview repro
+plus the tile-focus cycle plus space moves plus persistence, chained — the combinations no single
+per-phase test exercises.
+
+### The script (`GoldenPath`), by the phase that unlocks each act
+
+**Act I — one of each kind, focused in place** *(needs Phase 0)*
+1. Open a **web** tile, a **terminal** tile, a **chat** tile in space A. → 3 units, each `make==1`, `window!=nil`.
+2. Focus each in turn (`present(.focus)`), zoom back out, ×3. → resize-in-place, no grey, PTY/DOM intact.
+3. Two tiles overlap → focus the back one → it comes forward (I7); the other stays mounted (`window!=nil`).
+
+**Act II — peeks from another space, interleaved with focus** *(adds Phase 1)*
+4. From space A, drive a notification/peek for a port living in **space B** → it peeks in as a unit.
+5. The original grey repro, now *interleaved with Act I state*: `preview peekB → focus webA → out → preview peekB again → out`. → **peekB never blanks on the 2nd preview**; webA's focus cycle unaffected.
+6. Three peeks open at once; preview each; **keep** one (drag-in / `keepPeek`) → it becomes a tile in A (`make` still ==1, no remount on adopt); let the other two evaporate.
+
+**Act III — browser + cross-space move** *(adds Phase 2)*
+7. Open a **browser** port, navigate, focus, out ×3. → address bar in focus chrome, page crisp, `make==1`.
+8. `move(keptPort, to: B)` then switch A→B→A. → the port is present in B, absent from A; **no re-arrange on switch**; every surviving unit stays `window!=nil` across both switches.
+
+**Act IV — persistence across restart** *(adds Phase 3)*
+9. With the busy desktop from Acts I–III, trigger arrange + exposé. → 0 windowless, all `make==1`.
+10. Simulate restart (`DatabaseService` reload). → tiles restore at position in their spaces; the **kept/moved** port restores in **B**; a parked port restores parked. `ports(in:)` returns the right set per space.
+
+### What each gate runs
+
+| Gate | Integration acts exercised | New combination it must survive |
+|---|---|---|
+| **Phase 0** | Act I | focus/zoom across kinds without detach |
+| **Phase 1** | Acts I–II | peek repro **while** tiles focus — the cross-feature blank |
+| **Phase 2** | Acts I–III | browser + move layered on the peek/focus load |
+| **Phase 3** | Acts I–IV | the full desktop survives arrange/exposé **and** a restart |
+
+**Gate rule for the integration run:** the accumulated `GoldenPath` must pass B-instrumented (no
+windowless / no remake at any step) **before** the phase's own Tier-C sign-off. A per-phase unit test
+can be green while the *integration* of two features blanks — Act II step 5 is exactly that class of
+bug (peek fine alone, focus fine alone, blank when interleaved). This script is where those hide.
+
 ## The rule this plan enforces
 
 > **No phase merges until its Tier B run prints `PASS` and its Tier A tests are green.** Tier C
