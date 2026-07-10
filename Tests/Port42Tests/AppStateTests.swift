@@ -173,6 +173,23 @@ struct AppStateTests {
         #expect(otherMsgs.count == 1) // "in other"
     }
 
+    /// Regression: sending to a DIRECT/DM space via toSpaceId must work. `spaces` (getRegularSpaces)
+    /// excludes direct spaces, so the resolver has to fall through to getAllSpaces — else a send in a
+    /// DM silently no-ops (the classic-chat-after-login bug).
+    @Test("sendMessage delivers to a direct/DM space (not in getRegularSpaces)")
+    @MainActor
+    func sendToDirectSpace() throws {
+        let state = try makeStateReady()
+        let companion = AgentConfig.createLLM(ownerId: state.currentUser!.id, displayName: "echo",
+                                              systemPrompt: "hi", provider: .anthropic, model: "x", trigger: .mentionOnly)
+        state.addCompanion(companion)
+        let dm = try state.db.getOrCreateDirectSpace(companion: companion)
+
+        #expect(!state.spaces.contains { $0.id == dm.id })     // direct space is excluded from `spaces`
+        state.sendMessage(content: "hi in dm", toSpaceId: dm.id)
+        #expect(try state.db.getMessages(spaceId: dm.id).contains { $0.content == "hi in dm" })
+    }
+
     /// SHELL (B) — multi-space chat read routing: `messages(for:)` routes the current space to
     /// `messages` and every other to `messagesBySpace`, populated by `activateSpaceMessages` and
     /// dropped by `deactivateSpaceMessages`. This is what lets a DM tile coexist with the space chat.

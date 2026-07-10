@@ -280,6 +280,10 @@ struct Port42App: App {
                 Button("Test Ghostty Hooks (Step 7)") {
                     GhosttyDebugHarness.shared.runHooksTest()
                 }
+                Divider()
+                Button("Port Resize Spike (I1+I2)") {
+                    PortResizeSpikeHarness.shared.run()
+                }
             }
             #endif
         }

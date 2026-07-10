@@ -1940,8 +1940,14 @@ public final class AppState: ObservableObject {
         guard let user = currentUser else { return }
         let space: Space
         if let targetId = toSpaceId {
-            guard let ch = spaces.first(where: { $0.id == targetId }) else { return }
-            space = ch
+            // Resolve ANY space by id — `spaces` is getRegularSpaces() and EXCLUDES direct/DM spaces,
+            // so a DM/swim target must fall back to currentSpace (the DM you're in) or the full space
+            // list. Without this, sending in a DM silently no-ops.
+            if let ch = spaces.first(where: { $0.id == targetId })
+                ?? (currentSpace?.id == targetId ? currentSpace : nil)
+                ?? (try? db.getAllSpaces())?.first(where: { $0.id == targetId }) {
+                space = ch
+            } else { return }
         } else {
             guard let ch = currentSpace else { return }
             space = ch
