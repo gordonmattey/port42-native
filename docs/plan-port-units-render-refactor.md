@@ -282,53 +282,38 @@ backs the automated checks below.
 
 ---
 
-## 7. Phases + test suite
+## 7. Phases
 
-> Concrete, runnable version: **`docs/test-plan-port-units.md`** — the render probe + three-tier
-> (unit / probe / eyeball) suite with a hard gate per phase. Build the probe FIRST.
-
-Each phase builds, is testable, and has a gate.
+Each phase builds, is testable, and has a gate. **The concrete per-phase tests and the cumulative
+integration scenario live in §9 (Test plan) — and the render probe there is built FIRST, before
+Phase 0.** Below is the *change* and the *gate* for each phase; the gate resolves against §9.
 
 ### Spike (pre-Phase 0) — validate I1 + I2
-- Test: the SpikeView above.
-- **Gate:** no pass, no refactor.
+The `SpikeView` above (one persistent host, animate frame 10×). **Gate:** no pass, no refactor.
+✅ **PASSED** (see Status, top of doc).
 
 ### Phase 0 — tile focus = resize in place (safe surface)
 Make desktop-tile focus resize-in-place: `zoom == .focus(tileId)` animates the tile's own
 `PortUnit` to `focusRect` + top z + backdrop; delete `ShellFocusContent`'s host for tiles.
-- *Unit (Swift Testing):* `placement(for:tiled)` == `resolvedPortFrame`;
-  `placement(for:focused)` == `focusRect(area)`; zoom maps tile→focus→tile.
-- *Instrumented assertions:* focusing a tile ⇒ 0 new makes for that host; `window != nil`
-  and `superview` stable across focus/unfocus.
-- *Manual checklist:* focus a web tile → zoom out ×5 (no blank); a terminal tile ×5; two
-  overlapping tiles keep z; drag + corner-resize still work.
+**Gate (§9 Phase 0):** Tier B green (make==1, never windowless) on web + chat. Terminals green →
+include; red → gate-2.
 
 ### Phase 1 — peeks as units
-Replace the rail `VStack` with absolutely-positioned peek `PortUnit`s (`railSlot`).
-Preview = `zoom = .focus`; unit resizes mini→focus in place. Delete `previewPeek` reparent
-/stash logic.
-- *Unit:* `railSlot(index, area)` layout; `portsInContext` includes peeks; `previewPeek`
-  sets `zoom` without touching `pendingPreviewPeek` (assert the field is gone);
-  `settleAfterPreview` only does countdown bookkeeping; countdown/keep/dismiss/hover-pause.
-- *Instrumented assertion (the regression that would've caught today's bug):* run the exact
-  repro in code (preview ONE→out→preview TWO→out→preview ONE→out) and assert
-  `window != nil` throughout + make-count == 1 per peek.
-- *Manual checklist:* repro matrix (ONE×2, ONE→TWO, three peeks), countdown to vanish,
-  hover-pause, click-to-keep, ✕.
+Replace the rail `VStack` with absolutely-positioned peek `PortUnit`s (`railSlot`). Preview =
+`zoom = .focus`; the unit resizes mini→focus in place. Delete `previewPeek`'s reparent/stash logic
+and `pendingPreviewPeek`.
+**Gate (§9 Phase 1):** the in-code peek repro assertion — if `window` ever goes nil, the root
+cause isn't fixed; **stop**.
 
 ### Phase 2 — collapse / cleanup
-Remove `ShellFocusContent`'s webview path; terminals + browser onto the unit; chat for
-consistency. Delete `pendingPreviewPeek` and reparent workarounds.
-- *Unit:* browser content-rect = unit rect minus address-bar height; chat unit selects
-  `ChatView`; dead-code removal keeps state transitions green.
-- *Instrumented + manual:* browser navigate then focus; terminal type then focus; chat —
-  0 blanks, 0 new makes.
+Remove `ShellFocusContent`'s webview path; terminals + browser + chat onto the unit. Delete the
+remaining reparent workarounds.
+**Gate (§9 Phase 2):** all three port kinds green on Tier B; no orphaned old-path code remains.
 
 ### Phase 3 — regression sweep + persistence
-- *Unit:* `adoptedSpaceIds` persistence (imported port survives space-switch + simulated
-  restart) via `DatabaseService(inMemory:)`.
-- *Manual:* drag/resize/arrange/exposé; switch spaces (no rearrange); relaunch restores
-  tiles; imported port persists in the space it was kept in.
+Full-desktop regression (arrange / exposé / drag / space-switch) + `adoptedSpaceIds` persistence
+across space-switch and restart.
+**Gate (§9 Phase 3):** clean Tier B across a busy desktop; persistence unit tests green.
 
 ---
 
@@ -343,12 +328,204 @@ consistency. Delete `pendingPreviewPeek` and reparent workarounds.
 
 ---
 
-## 9. Effort
+## 9. Test plan (concrete, per-step)
+
+§7 names the phases; this makes their tests **runnable and unambiguous** so no step ships on faith.
+Every phase has three tiers and a hard gate.
+
+### Why three tiers
+
+The visual bug (grey/blank) is **GPU-composited in a separate WKWebView content process** — you
+*cannot* assert pixels from Swift. So we don't test "is it grey"; we test the **three conditions that
+make grey impossible** (the invariants I1–I7, §5), plus the pure logic, plus a human eyeball for the
+last mile.
+
+| Tier | Runs where | Catches | Automated? |
+|---|---|---|---|
+| **A · Unit** | `swift test`, headless | wrong geometry / state logic | ✅ fully |
+| **B · Probe (instrumented)** | in-app harness, DEBUG | the blank's *cause* (detach / remake / orphan) | ✅ asserts, ▶ human clicks "run" |
+| **C · Eyeball** | the human, numbered protocol | crisp render, real feel | manual, scripted |
+
+**If A + B are green, C cannot show a blank** — that's the whole point. C then only judges quality
+(crisp, smooth), never correctness of the mount.
+
+### Tier B — the probe (build this FIRST, before Phase 0)
+
+The instrument that turns "did it blank" into a crashing assertion. One file, DEBUG-only.
+
+```swift
+#if DEBUG
+@MainActor enum PortRenderProbe {
+    private static var makes: [String: Int] = [:]          // port id → make count (lifetime)
+    static var enabled = false                             // on only during a harness run
+
+    /// Call from ShellPortHost.makeNSView. >1 per port ⇒ a reparent/remake happened → the bug.
+    static func recordMake(_ id: String) {
+        makes[id, default: 0] += 1
+        assert(!enabled || makes[id]! == 1, "PortUnit \(id) remade \(makes[id]!)× — reparent leak")
+    }
+    /// Call on every transition (present/arrange/zoom) for each staged port.
+    static func assertHealthy(_ id: String, view: NSView, expectedContainer: NSView) {
+        guard enabled else { return }
+        assert(view.window != nil,               "PortUnit \(id) went WINDOWLESS → will blank")
+        assert(view.superview === expectedContainer, "PortUnit \(id) orphaned/stolen from its container")
+    }
+    static func reset() { makes.removeAll() }
+}
+#endif
+```
+
+Wire points (Phase 0): `ShellPortHost.makeNSView` → `recordMake(id)`; `PortUnit`'s `.onChange(of:
+placement)` (and a per-frame hook during the harness) → `assertHealthy`. In production these are
+no-ops (`enabled == false`); the harness flips `enabled` on for its run.
+
+**Harness:** a Debug-menu item **"Port Units — cycle"** that, for a chosen port, runs each phase's
+transition sequence 10× with `enabled = true`, then prints `PASS`/`FAIL(id, reason)` to `/tmp/portunit.log`.
+Same idea as `PortResizeSpike` but exercising the real `PortUnit`. **This is the acceptance test** — a
+FAIL means the root cause isn't fixed; do not proceed.
+
+### Phase 0 — tile focus = resize in place
+
+**Change:** desktop-tile focus animates the tile's own `PortUnit` to `focusRect` + top z + backdrop;
+delete `ShellFocusContent`'s webview host for tiles.
+
+**A · Unit** (`PortUnitTests.swift`, headless)
+- `placement(for: p, tiled: true).rect == resolvedPortFrame(p, area)`
+- `placement(for: p, zoom: .focus(p.id)).rect == focusRect(area)` and `.z == focusZ`
+- `placement(for: p, notInContext).visible == false`
+- zoom sequence maps `tile → focus → tile` (state, not geometry, is the driver)
+
+**B · Probe** (harness "cycle" on a web tile, then a terminal tile)
+- sequence: `focus → space → focus → space` ×10
+- assert: `makes[id] == 1`, `window != nil` every step, `superview` stable
+- **the terminal case is I6** — Ghostty must survive resize-in-place; if the probe fails only for
+  terminals, gate-2 applies (ship web/chat, keep terminals on old path).
+
+**C · Eyeball** (numbered)
+1. Focus a web tile → zoom out. Repeat ×5. → **no grey, crisp at both sizes.**
+2. Same for a terminal tile ×5. → PTY intact, no corruption.
+3. Two overlapping tiles → focus the back one → it comes forward correctly (I7).
+4. Drag + corner-resize a tile → still works.
+
+**Gate:** B green (make==1, never windowless) on web+chat. Terminals: green → include; red → gate-2.
+
+### Phase 1 — peeks as units
+
+**Change:** replace the rail `VStack` with absolutely-positioned peek `PortUnit`s (`railSlot`);
+`previewPeek` just sets `zoom = .focus`; delete `pendingPreviewPeek` + the stash/reparent dance.
+
+**A · Unit**
+- `railSlot(index, area)` positions (0,1,2 stack from top-left, 210 wide)
+- `portsInContext == tiledPanels ∪ peekingPorts` (deduped)
+- `previewPeek(p)` sets `zoom == .focus(p.id)` **and** `pendingPreviewPeek` field is **gone** (compile-time: deleted)
+- `settleAfterPreview` only touches countdown/seen bookkeeping (no peek add/remove/reparent)
+- countdown: `tick` decrements; hover pauses; reaches 0 → peek removed; `keepPeek` → `surfacedPortIds` + cancel
+
+**B · Probe — THE regression that would've caught the original grey**
+- drive the exact repro **in code**: `preview ONE → out → preview TWO → out → preview ONE → out`
+- assert throughout: `window != nil`, and `makes[peekId] == 1` per peek
+- also: three peeks open simultaneously, preview each → all stay make==1
+
+**C · Eyeball**
+1. The repro matrix by hand (ONE×2, ONE→TWO, three peeks). → no grey on any 2nd+ preview.
+2. Countdown ring visibly drains; **hover pauses it**; ignore → evaporates.
+3. Drag a peek into the space → **keeps** as a tile; ✕ dismisses.
+
+**Gate (kill criterion):** if `window` ever goes nil in the repro, the root cause isn't fixed — **stop**.
+
+### Phase 2 — collapse / cleanup
+
+**Change:** delete `ShellFocusContent`'s webview path; terminals + browser + chat onto `PortUnit`.
+
+**A · Unit**
+- browser content-rect == `unit.rect` minus address-bar height
+- chat unit selects `ChatView(spaceId:)` (no NSView mount → no blank risk, still a unit)
+- dead-code removal keeps all state-transition unit tests green (regression guard)
+
+**B · Probe:** browser navigate → focus → out ×5; terminal type → focus → out ×5 → make==1, no windowless.
+
+**C · Eyeball:** browser (address bar in focus chrome, page crisp); terminal (types + focuses clean);
+chat (renders, no blank).
+
+**Gate:** all three port kinds green on B; no orphaned old-path code remains.
+
+### Phase 3 — regression sweep + persistence
+
+**A · Unit** (`DatabaseService(inMemory:)`)
+- an adopted/imported port persists across a space-switch + simulated restart (`adoptedSpaceIds` row)
+- `ports(in: space)` returns the right set after move/adopt/close
+
+**B · Probe:** full-desktop cycle (arrange, exposé, drag, space-switch) with several ports → 0 windowless, makes all ==1.
+
+**C · Eyeball:** drag / resize / arrange / exposé; switch spaces (no re-arrange); relaunch restores
+tiles at position; an imported port persists in the space it was kept in.
+
+**Gate:** clean B across a busy desktop; persistence unit tests green; manual sweep clean.
+
+### Integration test — the golden path (run cumulatively at every gate)
+
+The per-phase tiers above prove each *change* in isolation. This proves the **whole system still
+holds together** end-to-end — every port kind, every state, across spaces, across a restart. It's
+**one scripted scenario** that grows as phases land: each phase adds the steps it enables, and **the
+full accumulated script re-runs at every subsequent gate** (a phase can't regress what an earlier
+phase shipped).
+
+Run it two ways at each gate: **B-instrumented** (`PortRenderProbe.enabled = true` throughout — every
+step asserts `window != nil`, `superview` stable, `makes == 1`) and then **C-eyeball** (a human walks
+the same numbered script judging crispness/feel). The integration script is the peek/preview repro
+plus the tile-focus cycle plus space moves plus persistence, chained — the combinations no single
+per-phase test exercises.
+
+#### The script (`GoldenPath`), by the phase that unlocks each act
+
+**Act I — one of each kind, focused in place** *(needs Phase 0)*
+1. Open a **web** tile, a **terminal** tile, a **chat** tile in space A. → 3 units, each `make==1`, `window!=nil`.
+2. Focus each in turn (`present(.focus)`), zoom back out, ×3. → resize-in-place, no grey, PTY/DOM intact.
+3. Two tiles overlap → focus the back one → it comes forward (I7); the other stays mounted (`window!=nil`).
+
+**Act II — peeks from another space, interleaved with focus** *(adds Phase 1)*
+4. From space A, drive a notification/peek for a port living in **space B** → it peeks in as a unit.
+5. The original grey repro, now *interleaved with Act I state*: `preview peekB → focus webA → out → preview peekB again → out`. → **peekB never blanks on the 2nd preview**; webA's focus cycle unaffected.
+6. Three peeks open at once; preview each; **keep** one (drag-in / `keepPeek`) → it becomes a tile in A (`make` still ==1, no remount on adopt); let the other two evaporate.
+
+**Act III — browser + cross-space move** *(adds Phase 2)*
+7. Open a **browser** port, navigate, focus, out ×3. → address bar in focus chrome, page crisp, `make==1`.
+8. `move(keptPort, to: B)` then switch A→B→A. → the port is present in B, absent from A; **no re-arrange on switch**; every surviving unit stays `window!=nil` across both switches.
+
+**Act IV — persistence across restart** *(adds Phase 3)*
+9. With the busy desktop from Acts I–III, trigger arrange + exposé. → 0 windowless, all `make==1`.
+10. Simulate restart (`DatabaseService` reload). → tiles restore at position in their spaces; the **kept/moved** port restores in **B**; a parked port restores parked. `ports(in:)` returns the right set per space.
+
+#### What each gate runs
+
+| Gate | Integration acts exercised | New combination it must survive |
+|---|---|---|
+| **Phase 0** | Act I | focus/zoom across kinds without detach |
+| **Phase 1** | Acts I–II | peek repro **while** tiles focus — the cross-feature blank |
+| **Phase 2** | Acts I–III | browser + move layered on the peek/focus load |
+| **Phase 3** | Acts I–IV | the full desktop survives arrange/exposé **and** a restart |
+
+**Gate rule for the integration run:** the accumulated `GoldenPath` must pass B-instrumented (no
+windowless / no remake at any step) **before** the phase's own Tier-C sign-off. A per-phase unit test
+can be green while the *integration* of two features blanks — Act II step 5 is exactly that class of
+bug (peek fine alone, focus fine alone, blank when interleaved). This script is where those hide.
+
+### The rule this plan enforces
+
+> **No phase merges until its Tier B run prints `PASS` and its Tier A tests are green.** Tier C
+> confirms feel, never correctness. "Looks fine on my click-through" is not a gate — the probe is.
+
+This is exactly what was missing on the chat send-bug and the port-render fumble: a *runnable* proof
+per step, not a manual glance. Every step here has one.
+
+---
+
+## 10. Effort
 
 ~1 day after the spike passes. Phase 0 is a few hours and de-risks the rest. Do **not**
 write refactor code before the spike validates I1 + I2.
 
-## 10. Related
+## 11. Related
 
 - Supersedes the reparent-based peek preview added in `d17f31e` (hover-peek + gesture zoom)
   and the notifications-as-ports lifecycle work.
