@@ -23,6 +23,13 @@ public struct ShellView: View {
 
     private var galaxyShown: Bool { shell.zoom == .galaxy }
     private var focusShown: Bool { if case .focus = shell.zoom { return true } else { return false } }
+    /// Focus on a DESKTOP TILE is a resize-in-place of the tile's own unit inside the desktop
+    /// (Phase 0) — no overlay mounts and the desktop must stay interactive. Focus on anything
+    /// else (a previewed peek) still uses the `ShellFocusContent` overlay until Phase 1.
+    private var desktopTileFocused: Bool {
+        if case .focus(let id) = shell.zoom { return shell.isDesktopTile(id) }
+        return false
+    }
 
     /// Chrome sits flush at the very top edge (topInset 0). A center notch, if any, overlaps only
     /// the Chrome's empty middle (mark is left, actions are right), so nothing important is clipped.
@@ -44,18 +51,27 @@ public struct ShellView: View {
                     ShellChrome(shell: shell, appState: appState)
                     ShellDesktopView(shell: shell, appState: appState)
                 }
-                VStack { Spacer(); ShellDock(shell: shell, appState: appState).padding(.bottom, 24) }
+                // The dock hides while a desktop tile is focused (the old focus overlay covered
+                // it; the in-desktop focus card doesn't reach it). Pure SwiftUI — safe to unmount.
+                if !desktopTileFocused {
+                    VStack { Spacer(); ShellDock(shell: shell, appState: appState).padding(.bottom, 24) }
+                        .transition(.opacity)
+                }
             }
             .padding(.top, topInset)                                   // clear the notch / top edge
             .scaleEffect(galaxyShown ? 0.94 : 1.0, anchor: .center)
             .opacity(galaxyShown ? 0.5 : 1.0)
-            .allowsHitTesting(shell.zoom == .space)
+            // Phase 0: a focused desktop tile lives INSIDE this group — it must stay
+            // interactive at .focus. Only the galaxy takes input away from the desktop.
+            .allowsHitTesting(shell.zoom == .space || desktopTileFocused)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: shell.zoom)
 
             // Click-shield: a hit-capturing sibling ABOVE the desktop (outside its allowsHitTesting
-            // group) whenever we're not in the space. SwiftUI's allowsHitTesting doesn't stop the
-            // embedded chat WKWebView from getting AppKit clicks; this real layer does.
-            if shell.zoom != .space {
+            // group) whenever the desktop shouldn't take input (galaxy, or a peek-focus overlay).
+            // SwiftUI's allowsHitTesting doesn't stop the embedded chat WKWebView from getting
+            // AppKit clicks; this real layer does. NOT shown for a focused desktop tile — that
+            // tile needs its clicks; its own backdrop (in ShellDesktopView) shields the rest.
+            if shell.zoom != .space && !desktopTileFocused {
                 Color.black.opacity(0.001).ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { }
@@ -69,9 +85,11 @@ public struct ShellView: View {
                     .zIndex(110)
             }
 
-            // Focus — one port immersive; its tile shows a placeholder while the webview is
-            // re-parented up here (no reload). Translucent overlay above the desktop.
-            if case .focus(let id) = shell.zoom {
+            // Focus overlay — ONLY for a focused port that is NOT a desktop tile (a previewed
+            // peek from another space). A desktop tile focuses by resizing ITS OWN unit in
+            // place (Phase 0) — mounting this overlay for it would be the reparent bug again.
+            // Phase 1 moves peeks onto units too, then this overlay's webview path dies.
+            if case .focus(let id) = shell.zoom, !shell.isDesktopTile(id) {
                 ShellFocusContent(shell: shell, appState: appState, id: id)
                     .transition(.opacity)
                     .zIndex(120)

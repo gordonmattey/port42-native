@@ -404,6 +404,11 @@ cards. **Still to port / revisit — this is the full list, so it's captured:**
 > Settings restyle + nav restructure (B) is the larger pass. Neither blocks daily use.
 
 **C. Follow-ups captured while here:**
+- **Device-permission prompts don't surface in shell mode** (found 2026-07-10, during the
+  port-units Spike 3): an external gateway call that trips a permission gate (automation, screen,
+  terminal.exec, …) hangs to timeout — the approval prompt has no shell-native surface, so remote
+  callers can't be approved or denied. Needs a shell overlay (like Settings/Usage) for the
+  permission request, wired into this Chrome/Settings pass.
 - **Codex chat round-trip.** The create form now offers claude/gemini/**codex** as CLI-LLM terminal
   companions. codex opens in a terminal tile fine, but won't *post replies back into chat* yet:
   `GhosttyTerminalController.isHooksCapable` only knows claude/gemini, and there's no codex hooks

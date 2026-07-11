@@ -48,8 +48,20 @@ public final class ShellState: ObservableObject {
     private let appState: AppState
     private var notifSink: AnyCancellable?
     private var portSink: AnyCancellable?
+
+    #if DEBUG
+    /// The live shell instance, for DEBUG harnesses only (the render-probe cycle drives
+    /// `zoom` on the real shell). Weak — the harness must never keep a dead shell alive.
+    public private(set) static weak var debugCurrent: ShellState?
+    /// DEBUG accessor for harnesses that need the panels/registry behind this shell.
+    public var debugAppState: AppState? { appState }
+    #endif
+
     public init(appState: AppState) {
         self.appState = appState
+        #if DEBUG
+        Self.debugCurrent = self
+        #endif
         // Notifications (§8b): a non-current space gaining unread activity (a companion reply / chat)
         // raises a peeking chat notification…
         notifSink = appState.$unreadCounts
@@ -247,6 +259,24 @@ public final class ShellState: ObservableObject {
     }
 
     // MARK: Read-through helpers (never duplicate AppState)
+
+    /// THE desktop-tile predicate — the one source for "which panels are staged as tiles on
+    /// this desktop": the current space's tiled panels, plus surfaced DM chats, plus adopted
+    /// foreign ports. The desktop renders this set, `applyArrange` grids it, and ShellView's
+    /// focus branch checks membership — one filter, so they can never drift apart (Phase 0).
+    public var desktopTilePanels: [PortPanel] {
+        guard let sid = appState.currentSpace?.id else { return [] }
+        let allowed = Set([sid] + openDMSpaceIds)
+        return appState.portWindows.panels.filter { p in
+            p.presentation == "tiled" && (allowed.contains(p.spaceId ?? "") || surfacedPortIds.contains(p.id))
+        }
+    }
+
+    /// Is this port staged as a tile on the current desktop? (Focus on a desktop tile is a
+    /// resize-in-place of its own unit; focus on anything else still uses the overlay path.)
+    public func isDesktopTile(_ id: String) -> Bool {
+        desktopTilePanels.contains { $0.id == id }
+    }
 
     /// Non-background port udids on the current space, in panel order.
     public var currentSpacePortIds: [String] {
@@ -458,12 +488,11 @@ public final class ShellState: ObservableObject {
     /// and WRITE the resulting positions back — the layout authority (§4). Called on ⌘L and every
     /// user-initiated spawn/park; hand-drag positions survive a restart but a spawn re-grids them.
     public func applyArrange(area: CGSize) {
-        guard let sid = appState.currentSpace?.id else { return }
-        // Arrange the SAME set the desktop renders: the current space + any surfaced DM tiles. If this
-        // filter drifts from `tiledPanels`, DM ports never get a position and stack invisibly under the
-        // space chat at their default docked spot.
-        let allowed = Set([sid] + openDMSpaceIds)
-        let panels = appState.portWindows.panels.filter { allowed.contains($0.spaceId ?? "") && $0.presentation == "tiled" }
+        guard appState.currentSpace != nil else { return }
+        // Arrange the SAME set the desktop renders — `desktopTilePanels`, the shared predicate
+        // (Phase 0). Previously this filter omitted adopted foreign ports (`surfacedPortIds`),
+        // so a kept peek never got gridded and stacked at its home-space position.
+        let panels = desktopTilePanels
         let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, z: max($0.z, 1)) }
         let origins = Self.arrange(tiles, in: area)
         // Animate the moves here (not via a distant `.animation(value:)`) so the tiles visibly spring

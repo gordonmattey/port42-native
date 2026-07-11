@@ -36,6 +36,32 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(100, forKey: "NSInitialToolTipDelay")
         ghosttyProbe()  // Step 1: confirm GhosttyKit links and resolves at runtime
 
+        #if DEBUG
+        // Spike 3 (I6) hands-free trigger: `defaults write <domain> PORT42_SPIKE3_AUTORUN -bool true`
+        // → the resize spike opens at launch and runs its full sequence. One-shot (self-clearing),
+        // so normal launches are untouched. Exists because permission-gated remote automation can't
+        // click the Debug menu (see plan-port-units-render-refactor.md §11).
+        if UserDefaults.standard.bool(forKey: "PORT42_SPIKE3_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_SPIKE3_AUTORUN")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                GhosttyResizeSpikeHarness.shared.run(autorun: true)
+            }
+        }
+        if UserDefaults.standard.bool(forKey: "PORT42_SPIKE2_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_SPIKE2_AUTORUN")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                PortDesktopSpikeHarness.shared.run(autorun: true)
+            }
+        }
+        if UserDefaults.standard.bool(forKey: "PORT42_PROBE_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_AUTORUN")
+            // Waits for the shell to be unlocked + a non-chat tile to exist, then cycles.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                PortUnitCycleHarness.shared.runWhenReady()
+            }
+        }
+        #endif
+
         // Remember the windowed shell size: persist the main window's frame on resize/move (never
         // while fullscreen — saveWindowedFrame guards that), so relaunch reopens at the last size.
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
@@ -283,6 +309,16 @@ struct Port42App: App {
                 Divider()
                 Button("Port Resize Spike (I1+I2)") {
                     PortResizeSpikeHarness.shared.run()
+                }
+                Button("Ghostty Resize Spike (I6)") {
+                    GhosttyResizeSpikeHarness.shared.run()
+                }
+                Button("Port Desktop Spike (I2 stressors)") {
+                    PortDesktopSpikeHarness.shared.run()
+                }
+                Divider()
+                Button("Port Units — cycle") {
+                    PortUnitCycleHarness.shared.run()
                 }
             }
             #endif

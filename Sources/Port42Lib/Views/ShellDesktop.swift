@@ -158,14 +158,15 @@ struct ShellDesktopView: View {
 
     private var sid: String? { appState.currentSpace?.id }
 
-    /// The tiled ports on this desktop: the current space's, plus any open DM chats surfaced as
-    /// tiles alongside it (B — the space chat and each DM coexist as separate live windows).
-    private var tiledPanels: [PortPanel] {
-        guard let sid else { return [] }
-        let allowed = Set([sid] + shell.openDMSpaceIds)
-        return appState.portWindows.panels.filter { p in
-            p.presentation == "tiled" && (allowed.contains(p.spaceId ?? "") || shell.surfacedPortIds.contains(p.id))
-        }
+    /// The tiled ports on this desktop — `ShellState.desktopTilePanels`, the ONE predicate
+    /// shared with `applyArrange` and ShellView's focus branch (Phase 0: no drift possible).
+    private var tiledPanels: [PortPanel] { shell.desktopTilePanels }
+
+    /// The desktop tile currently focused (resize-in-place). nil when unfocused or when the
+    /// focused id isn't a desktop tile (a previewed peek — still the overlay path until Phase 1).
+    private var focusedDesktopTileId: String? {
+        if case .focus(let id) = shell.zoom, tiledPanels.contains(where: { $0.id == id }) { return id }
+        return nil
     }
 
     var body: some View {
@@ -182,14 +183,33 @@ struct ShellDesktopView: View {
                         .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false } }
                         .zIndex(1)
                 }
+                // Focus backdrop (Phase 0): dims the desktop + rails behind a focused tile's
+                // unit; tap → back to the space. The unit itself sits above at focusZ.
+                if focusedDesktopTileId != nil {
+                    Color.black.opacity(0.75).ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }
+                        .zIndex(ShellPlacement.backdropZ)
+                        .transition(.opacity)
+                }
                 // All tiled ports (the chat is one of them), painted back-to-front by z. In exposé
                 // they spread to the fit grid (a TEMPORARY arrange — real positions are untouched).
+                // Focus is a GEOMETRY STATE of the same tile (placement §3): the tile's one view
+                // resizes to the focus rect in place — it is never re-mounted elsewhere.
                 ForEach(tiledPanels.sorted { $0.z < $1.z }, id: \.id) { p in
+                    let pl = ShellPlacement.placement(
+                        id: p.id, position: p.position, size: p.size, z: p.z,
+                        zoom: shell.zoom, onDesktop: true,
+                        fallbackIndex: tiledPanels.firstIndex { $0.id == p.id } ?? 0,
+                        area: geo.size)
                     ShellTile(shell: shell, appState: appState,
                               tile: ShellTileModel(id: p.id, title: p.title, panel: p),
-                              frame: resolvedPortFrame(p, area: geo.size), area: geo.size,
-                              exposeFrame: shell.exposeActive ? exposeRect(p, geo.size) : nil)
-                        .zIndex(shell.exposeActive ? 5 : Double(max(p.z, 1)))
+                              frame: ShellPlacement.resolvedTileFrame(position: p.position, size: p.size,
+                                                                      fallbackIndex: tiledPanels.firstIndex { $0.id == p.id } ?? 0),
+                              area: geo.size,
+                              exposeFrame: shell.exposeActive ? exposeRect(p, geo.size) : nil,
+                              focusFrame: pl.chrome == .focus ? pl.rect : nil)
+                        .zIndex(shell.exposeActive ? 5 : pl.z)
                 }
                 if shell.exposeActive {
                     VStack { Spacer()
@@ -244,13 +264,6 @@ struct ShellDesktopView: View {
                       width: colW - gap, height: rowH - gap)
     }
 
-    /// A port tile's frame — its persisted position/size, or a cheap cascade seed until arrange runs.
-    private func resolvedPortFrame(_ p: PortPanel, area: CGSize) -> CGRect {
-        if let pos = p.position { return CGRect(origin: pos, size: p.size) }
-        let i = tiledPanels.firstIndex { $0.id == p.id } ?? 0
-        return CGRect(x: 330 + Double(i % 4) * 90, y: 200 + Double(i % 3) * 80, width: p.size.width, height: p.size.height)
-    }
-
     /// Seed the grid on first entry into a space (nothing positioned yet). Hand-tuned layouts that
     /// come back from the DB with positions are left exactly as-is (arrange only re-grids on spawn/⌘L).
     private func seedIfNeeded(area: CGSize) {
@@ -272,6 +285,9 @@ struct ShellTile: View {
     let frame: CGRect
     let area: CGSize
     var exposeFrame: CGRect? = nil        // set in exposé → scale-to-fit this cell (transient)
+    /// Set when this tile is focused (Phase 0): the tile's ONE view animates to this rect in
+    /// place — focus is a geometry state, not a second mount. nil = normal tile geometry.
+    var focusFrame: CGRect? = nil
 
     /// A tile corner (any corner resizes; the opposite corner stays pinned).
     enum Corner { case nw, ne, sw, se }
@@ -310,9 +326,10 @@ struct ShellTile: View {
         return appState.spaces.first(where: { $0.id == s })?.name
     }
 
-    /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize. The
-    /// tile is placed top-left via `.offset`, so both move and resize just recompute this rect.
+    /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize.
+    /// A FOCUSED tile's frame is the focus rect — geometry only; drags don't apply in focus.
     private var liveFrame: CGRect {
+        if let f = focusFrame { return f }
         if let c = resizeCorner { return Self.resized(frame, corner: c, by: resizeDelta) }
         return CGRect(x: frame.minX + moveDelta.width, y: frame.minY + moveDelta.height,
                       width: frame.width, height: frame.height)
@@ -348,30 +365,28 @@ struct ShellTile: View {
         return CGRect(x: x, y: y, width: w, height: h)
     }
 
+    private var cornerRadius: CGFloat { isFocused ? ShellPlacement.focusCorner : 10 }
+
     var body: some View {
         VStack(spacing: 0) {
             titleBar
-            ZStack {
-                if isFocused {
-                    VStack(spacing: 6) {
-                        Image(systemName: "viewfinder").font(.system(size: 22)).foregroundStyle(Port42Theme.textSecondary)
-                        Text("focused — Esc to return").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.5))
-                } else {
-                    ShellTileBody(shell: shell, appState: appState, tile: tile)
-                }
-            }
-            .frame(width: liveSize.width, height: max(0, liveSize.height - titleBarH))
+            // The body stays mounted through focus (Phase 0): focus resizes this SAME view to
+            // the focus rect — no placeholder, no second mount, the webview never detaches.
+            ShellTileBody(shell: shell, appState: appState, tile: tile)
+                .frame(width: liveSize.width, height: max(0, liveSize.height - titleBarH))
         }
         .frame(width: liveSize.width, height: liveSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? tileAccent.opacity(0.7) : tileAccent.opacity(0.25), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(
+            isFocused ? tileAccent.opacity(0.5) : (isSelected ? tileAccent.opacity(0.7) : tileAccent.opacity(0.25)),
+            lineWidth: 1))
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
-        .overlay(cornerHandle(.nw), alignment: .topLeading)
-        .overlay(cornerHandle(.ne), alignment: .topTrailing)
-        .overlay(cornerHandle(.sw), alignment: .bottomLeading)
-        .overlay(cornerHandle(.se), alignment: .bottomTrailing)
+        // In focus the tile isn't movable/resizable — the handles come off.
+        .overlay(alignment: .topLeading)     { if !isFocused { cornerHandle(.nw) } }
+        .overlay(alignment: .topTrailing)    { if !isFocused { cornerHandle(.ne) } }
+        .overlay(alignment: .bottomLeading)  { if !isFocused { cornerHandle(.sw) } }
+        .overlay(alignment: .bottomTrailing) { if !isFocused { cornerHandle(.se) } }
         // In exposé, the whole tile is a pick target (over the body/handles): click → select + exit.
         .overlay {
             if shell.exposeActive {
@@ -382,11 +397,13 @@ struct ShellTile: View {
                 .buttonStyle(.plain)
             }
         }
-        .shadow(color: tileAccent.opacity(isSelected ? 0.3 : 0.12), radius: isSelected ? 22 : 12)
+        .shadow(color: tileAccent.opacity(isFocused ? 0.4 : (isSelected ? 0.3 : 0.12)),
+                radius: isFocused ? 50 : (isSelected ? 22 : 12))
         .scaleEffect(exposeScale, anchor: .center)            // exposé shrinks/grows the tile to ~fit its cell
-        .onHover { if $0 && !shell.isDraggingTile { shell.bringToFront(tile.id) } }   // hover raises to front — but not while a tile is being dragged over others
+        .onHover { if $0 && !shell.isDraggingTile && !isFocused { shell.bringToFront(tile.id) } }   // hover raises to front — but not while dragging or focused
         .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: exposeFrame)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: focusFrame)   // focus = the unit's frame animating
     }
 
     private var titleBar: some View {
@@ -407,15 +424,23 @@ struct ShellTile: View {
             .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
             .contentShape(Rectangle())
             .gesture(moveGesture)
-            Button { shell.bringToFront(tile.id); withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
-                Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-            }.buttonStyle(.plain).help("Focus (⌘↓)")
-            if let panel = tile.panel {
-                // No "pop out to floating window": a tile IS the floating window. States are tile ⇄
-                // parked (rail) ⇄ focus — one frame, not two.
-                Button { shell.dismissTile(panel) } label: {
-                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain)
+            if isFocused {
+                // Focus chrome: the exit affordance (Esc works too); no close, no re-focus.
+                Text("· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
+                Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } } label: {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain).help("Exit focus (Esc)")
+            } else {
+                Button { shell.bringToFront(tile.id); withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
+                    Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                }.buttonStyle(.plain).help("Focus (⌘↓)")
+                if let panel = tile.panel {
+                    // No "pop out to floating window": a tile IS the floating window. States are tile ⇄
+                    // parked (rail) ⇄ focus — one frame, not two.
+                    Button { shell.dismissTile(panel) } label: {
+                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                    }.buttonStyle(.plain)
+                }
             }
         }
         .padding(.leading, 10).padding(.trailing, 18)   // trailing inset clears the top-right resize zone
@@ -436,11 +461,13 @@ struct ShellTile: View {
         // Read the pointer in the desktop space so a drop onto the right rail parks/closes the port.
         DragGesture(coordinateSpace: .named("desktop"))
             .onChanged { v in
+                guard !isFocused else { return }                        // a focused unit doesn't drag
                 if moveDelta == .zero { shell.bringToFront(tile.id); shell.isDraggingTile = true }   // grabbing a tile raises it
                 moveDelta = v.translation
                 shell.draggingOverPark = railZone(at: v.location)       // highlight the rail zone under the drag
             }
             .onEnded { v in
+                guard !isFocused else { return }
                 let zone = railZone(at: v.location)
                 shell.draggingOverPark = nil
                 shell.isDraggingTile = false
@@ -594,7 +621,7 @@ struct ShellPeekTile: View {
         if peek.isChat {
             ChatView(spaceId: peek.spaceId).environmentObject(appState)
         } else if let v = appState.portWindows.hostView(for: peek.id) {
-            ShellPortHost(view: v)
+            ShellPortHost(view: v, probeId: peek.id)
         } else {
             Color.black
         }
@@ -682,9 +709,10 @@ struct ShellTileBody: View {
             }
         } else if let panel = tile.panel, panel.portType == "browser",
                   let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
-            ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html)   // address bar + page
+            ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html,
+                             probeId: panel.id)   // address bar + page
         } else if let panel = tile.panel, let v = appState.portWindows.hostView(for: panel.id) {
-            ShellPortHost(view: v, bridge: panel.bridge)      // web OR terminal — one host
+            ShellPortHost(view: v, bridge: panel.bridge, probeId: panel.id)   // web OR terminal — one host
         } else {
             Color.black
         }
@@ -696,11 +724,13 @@ struct ShellTileBody: View {
 struct ShellBrowserTile: View {
     let webView: WKWebView
     let accent: Color
+    var probeId: String? = nil
     @State private var urlText: String
 
-    init(webView: WKWebView, accent: Color, initialURL: String) {
+    init(webView: WKWebView, accent: Color, initialURL: String, probeId: String? = nil) {
         self.webView = webView
         self.accent = accent
+        self.probeId = probeId
         _urlText = State(initialValue: initialURL)
     }
 
@@ -720,7 +750,7 @@ struct ShellBrowserTile: View {
             .padding(.horizontal, 10).frame(height: 34)
             .background(Port42Theme.shellCard)
             .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
-            ShellPortHost(view: webView)
+            ShellPortHost(view: webView, probeId: probeId)
         }
     }
 
@@ -744,6 +774,9 @@ struct ShellBrowserTile: View {
 struct ShellPortHost: NSViewRepresentable {
     let view: NSView
     var bridge: PortBridge? = nil
+    /// Port id for the Tier-B render probe (§9, DEBUG-only): lets `PortRenderProbe` count
+    /// makes / verify window-attachment per port. nil = unprobed (production behavior).
+    var probeId: String? = nil
 
     func makeNSView(context: Context) -> NSView {
         let container = PortWebViewContainer()
@@ -757,6 +790,9 @@ struct ShellPortHost: NSViewRepresentable {
             view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
+        #if DEBUG
+        if let pid = probeId { PortRenderProbe.recordMake(pid, view: view, container: container) }
+        #endif
         return container
     }
 
@@ -827,7 +863,7 @@ struct ShellFocusContent: View {
                 ShellMemberRow(shell: shell, appState: appState, accent: shell.accent, spaceId: panel?.spaceId)
             }
         } else if let p = panel, let v = appState.portWindows.hostView(for: p.id) {
-            ShellPortHost(view: v, bridge: p.bridge)
+            ShellPortHost(view: v, bridge: p.bridge, probeId: p.id)
         } else {
             Color.black
         }

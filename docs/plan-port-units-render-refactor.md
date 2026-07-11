@@ -4,7 +4,12 @@ Fix the shell's shared-webview rendering so tiles, peeks, and focus stop blankin
 root cause is architectural; this replaces reparenting with a single persistent,
 absolutely-positioned per-port unit whose geometry is state-driven.
 
-Status: **spike PASSED — cleared to build Phase 0.**
+Status: **Phase 0 BUILT and Tier-B-PASSED (2026-07-10).** Spikes 1+2+3 all passed (I1/I2/I6);
+the probe was calibrated on the old code (FAIL: 19 remakes + 2 windowless in 10 focus cycles),
+then the resize-in-place rework flipped the same cycle to **PASS (zero remounts, zero
+windowless)**. Tier A: 9/9 placement tests + 46 shell-suite tests green. Remaining for the
+Phase 0 gate: Tier C eyeball + a terminal-frontmost Tier B re-run (§7 Phase 0 as-built note).
+Next: Phase 1 — peeks as units (+ the same-space peek self-suppression fix).**
 
 **Spike result (I1 + I2 validated).** A throwaway floating panel
 (`PortResizeSpike.swift`, Debug menu → "Port Resize Spike") hosts one persistent
@@ -268,6 +273,50 @@ Prove I1 + I2 in isolation, ~1 hour, zero production code touched.
   sizes, `webview.window != nil` on every frame.**
 - Converts the day-long gamble into a one-hour yes/no. Fail cheap.
 
+### Spike 2 — desktop conditions (I2 under the real desktop's stressors)
+
+Spike 1 proved reuse for ONE host in a clean ZStack. The real desktop adds stressors the
+spike never exercised; each is a one-button addition to the same spike panel (reuses
+`SpikeCounters`/`SpikeLog`, still zero production code, ~1h):
+
+1. **ForEach reorder** — 3–4 units in a `ForEach(items, id: \.id)` whose data array a
+   button re-sorts (simulating hover → `bringToFront` → z re-sort). Answers directly
+   whether a stable-id ForEach *reorder* remakes NSViews — if reorder is safe, the
+   iterate-in-stable-order change is unnecessary; if it remakes, that change is mandatory
+   and proven, not speculative.
+2. **Sibling insert/remove** — add/remove a unit while others cycle (spawn/close with the
+   desktop's insertion spring `.animation(value: count)` attached). Survivors stay make==1.
+3. **Exposé scale** — toggle `scaleEffect` on/off around a unit mid-cycle.
+4. **Conditional overlay churn** — toggle an `if`-overlay on the unit (the exposé
+   pick-target pattern) while cycling.
+5. **Hit-test slice (10 min)** — the spike page gets a click-counter button; verify clicks
+   still reach the webview at "focus" geometry under a dim backdrop sibling. (The rest of
+   the hit-testing risk only exists in the real shell — it stays in Tier C.)
+
+**Pass = every unit make==1, window never nil, counters ticking crisp.** A remake under
+one stressor is a *design input*, not a kill (see §8 gate 1).
+
+### Spike 3 — Ghostty resize-in-place (retires I6 BEFORE Phase 0)
+
+Nothing about I6 needs the refactor to exist — it's testable today. Host a real
+`GhosttyInputView` in a spike panel (borrow the `GhosttyDebugHarness` infrastructure) and
+animate its frame mini↔full 10× (~45 min):
+
+- type before, cycle, type after → keystrokes land;
+- run something stateful (`vim` / `less`) across the cycle → TUI redraws at both sizes,
+  no PTY corruption.
+
+This is the highest-value spike of the lot: it converts "terminals: green → include; red
+→ gate-2" from a discovery *after* building Phase 0 into a known *before* — if red,
+Phase 0 is built WITH the terminal-exclusion predicate from the start instead of
+retrofitting it.
+
+### What spiking can't offset
+
+The residual I2 risk — SwiftUI remaking for a reason none of the spikes model — is
+irreducible by spiking; that's what the probe (§9) + kill criteria (§8) are for. The
+probe-calibration run (§9 Tier B) covers the "is the instrument real" risk.
+
 ### Turn "did it blank" into a checkable invariant
 
 Blanking can't be unit-tested, but its cause can be asserted at runtime. For any staged
@@ -288,11 +337,54 @@ Each phase builds, is testable, and has a gate. **The concrete per-phase tests a
 integration scenario live in §9 (Test plan) — and the render probe there is built FIRST, before
 Phase 0.** Below is the *change* and the *gate* for each phase; the gate resolves against §9.
 
-### Spike (pre-Phase 0) — validate I1 + I2
+### Spike 1 (pre-Phase 0) — validate I1 + I2
 The `SpikeView` above (one persistent host, animate frame 10×). **Gate:** no pass, no refactor.
 ✅ **PASSED** (see Status, top of doc).
 
-### Phase 0 — tile focus = resize in place (safe surface)
+### Spike 2 (pre-Phase 0) — I2 under desktop conditions
+Extend the spike panel with the four desktop stressors + the hit-test slice (§6). **Gate:** every
+unit make==1, never windowless. A remake under one stressor mandates its mitigation in Phase 0
+(§8 gate 1); a remake no restructuring fixes = the gate-1 kill.
+✅ **PASSED** (2026-07-10, `PortDesktopSpike.swift`, log `/tmp/spike2-desktop.log`): four live web
+units through reorder ×10 / churn ×6 / scale ×6 / overlay ×6 / combined ×12 — `makes[A=1 B=1 C=1
+D=1]`, zero windowless, churn unit X remounted 3× (by design). **Finding: a stable-id ForEach
+data-order re-sort does NOT remake NSViews** — the desktop's `sorted { $0.z < $1.z }` ForEach is
+safe as-is; the iterate-in-stable-order mitigation is NOT needed in Phase 0. Hit-test slice: clicks
+reached every page's button by hand (at tile geometry; the focused-over-backdrop click stays in
+Phase 0's Tier C). Hands-free via the one-shot `PORT42_SPIKE2_AUTORUN` defaults flag.
+
+### Spike 3 (pre-Phase 0) — Ghostty resize-in-place (I6)
+A real `GhosttyInputView` in a spike panel; mini↔full ×10; typing + a TUI (`vim`/`less`) across the
+cycle (§6). **Gate:** green → terminals ride the unit path from Phase 0; red → Phase 0 ships with
+the terminal-exclusion predicate from the start (gate-2 decided up front, never a retrofit).
+✅ **PASSED** (2026-07-10, `GhosttyResizeSpike.swift`, log `/tmp/spike3-ghostty.log`): the detached
+production terminal (`makeDetached`, the exact shell-tile path) survived 10× animated mini(210)↔full
+resize — `make==1`, never windowless, shell alive, and an automated **PTY round-trip** (inject
+`echo SPIKE3-*-$((6*7))` through the surface, observe `…-42` on the pty tee) held **before and
+after** the cycle; text crisp at both sizes. Runs hands-free via the one-shot
+`PORT42_SPIKE3_AUTORUN` defaults flag. Human residue (optional): a TUI (`vim`/`less`) across a cycle.
+
+### Phase 0 — tile focus = resize in place (safe surface) — ⬅ CODE COMPLETE (2026-07-10); gate pending Tier B run
+> **As built:** `PortPlacement.swift` — pure `placement()` / `focusRect(in: area)` (area-based, no
+> NSScreen) / `resolvedTileFrame` (hoisted from the view); `PortUnitTests` (9 tests, green) are the
+> Tier A gate. `ShellTile` gained `focusFrame:` — focus resizes the tile's OWN view to the focus
+> rect (placeholder branch deleted; gestures/handles/close disabled in focus; titlebar shows the
+> focus/exit chrome; corner 10→16). Focus backdrop (z 11_900, tap-to-exit) lives inside the
+> desktop ZStack; the ForEach keeps its z-sort (Spike 2 proved reorder safe). `ShellView`: the
+> desktop stays hit-testable during desktop-tile focus (`allowsHitTesting(.space || tileFocused)`,
+> click-shield only when the desktop shouldn't take input), the dock hides during tile focus, and
+> **`ShellFocusContent` now mounts ONLY for a focused non-desktop port (a previewed peek — Phase 1
+> kills that path)**. The desktop-tile predicate is unified on `ShellState.desktopTilePanels`
+> (view render + `applyArrange` + focus branch — and this fixed a live bug: adopted/kept foreign
+> ports were previously omitted from arrange and never got gridded). Chrome stays visible during
+> tile focus (deliberate; Tier C judges). All 46 shell-suite tests green.
+> **Gate status:** Tier A ✅ (9/9 + all 46 shell-suite tests) · **Tier B ✅ PASS** (2026-07-10,
+> `/tmp/portunit.log`): the SAME cycle that printed FAIL (19 remakes + 2 windowless) on the old
+> code now prints `PASS makes[—]` — every port mounted once at desktop render, zero remounts and
+> zero windowless across 10 focus↔space cycles. Tier C eyeball ⏳ (§9's numbered script: web ×5,
+> terminal ×5, overlap/I7, drag+resize) — plus re-run the cycle harness with a terminal tile
+> frontmost for the per-kind Tier B sweep. Per the gate rule (A+B green) Phase 0 is mergeable;
+> C judges feel.
 Make desktop-tile focus resize-in-place: `zoom == .focus(tileId)` animates the tile's own
 `PortUnit` to `focusRect` + top z + backdrop; delete `ShellFocusContent`'s host for tiles.
 **Gate (§9 Phase 0):** Tier B green (make==1, never windowless) on web + chat. Terminals green →
@@ -325,8 +417,14 @@ across space-switch and restart.
 
 ## 8. Decision gates (kill criteria)
 
-1. **After spike:** blank-on-resize or >1 make → **abandon resize approach**; fall back to
-   AppKit overlay layer or a transition snapshot. (Cheapest exit.)
+1. **After Spike 1 (passed) / Spike 2:** blank-on-resize, or >1 make that no identity
+   restructuring fixes → **abandon resize approach**; fall back to AppKit overlay layer or a
+   transition snapshot. (Cheapest exit.)
+   - Spike 2 nuance: a remake under a *specific* stressor is a design input, not a kill — the
+     matching mitigation (e.g. reorder remakes → iterate the ForEach in stable order) becomes
+     mandatory in Phase 0. Only a remake that survives restructuring kills.
+   - **Spike 3 (I6):** red does NOT kill — it moves gate-2 up front: Phase 0 is built with the
+     terminal-exclusion predicate from day one instead of discovering it at Phase 0's Tier B run.
 2. **After Phase 0:** tile-focus clean but I6 (terminals) fails → ship the unit model for
    web/chat, keep terminals on the old path, revisit.
 3. **After Phase 1:** the instrumented repro assertion is the acceptance test — if `window`
@@ -389,6 +487,19 @@ no-ops (`enabled == false`); the harness flips `enabled` on for its run.
 transition sequence 10× with `enabled = true`, then prints `PASS`/`FAIL(id, reason)` to `/tmp/portunit.log`.
 Same idea as `PortResizeSpike` but exercising the real `PortUnit`. **This is the acceptance test** — a
 FAIL means the root cause isn't fixed; do not proceed.
+
+**Calibration (run once, before any Phase 0 code):** point the harness at TODAY's reparenting
+focus cycle — it must print **FAIL (make > 1)**. An instrument that can't detect the disease we
+already have isn't an acceptance test. Free, and it validates the probe's wiring.
+✅ **CALIBRATED** (2026-07-10, `/tmp/portunit.log`): on today's code the cycle printed **FAIL —
+19 remakes in 10 focus↔space cycles (~2/cycle: focus host mount + tile re-mount) AND two
+WINDOWLESS hits** (one mid-transition via the 30Hz sweep, one at a step boundary) — both §2
+failure modes, observed live. The probe is proven; Phase 0's gate is this run flipping to PASS
+(zero remakes, zero windowless). Built as `PortRenderProbe.swift` + `PortUnitCycleHarness`
+(Debug menu "Port Units — cycle", or the one-shot `PORT42_PROBE_AUTORUN` defaults flag which
+waits for unlock + a tile); `ShellPortHost` carries an optional `probeId` from every call site.
+Deviation from the sketch above: violations are recorded and reported as `FAIL(id, reason)`
+rather than crashing asserts, so a failing run still finishes and prints its verdict.
 
 ### Phase 0 — tile focus = resize in place
 
@@ -529,10 +640,19 @@ per step, not a manual glance. Every step here has one.
 
 ## 10. Effort
 
-~1 day after the spike passes. Phase 0 is a few hours and de-risks the rest. Do **not**
-write refactor code before the spike validates I1 + I2.
+~1 day after the spikes pass, plus ~2h for Spikes 2–3 up front (both retire decisions, not just
+anxiety). Phase 0 is a few hours and de-risks the rest. Do **not** write refactor code before
+Spike 1 validates I1 + I2 and Spikes 2–3 have reported (order: Spike 3 → Spike 2 → probe →
+Phase 0).
 
 ## 11. Related
+
+**Captured during Spike 3 (2026-07-10): device-permission prompts are not hooked up in shell
+mode.** An external gateway call that needs a permission grant (e.g. `run_applescript` from a
+remote caller) hangs until the HTTP timeout — the approval prompt never surfaces over the shell,
+so the caller can neither be approved nor denied. Pre-approval via Settings → Remote Access is
+the only path today. The permission-prompt surface needs a shell-native home (S4.x's
+Chrome/Settings pass in `plan-port42-shell.md` is the natural place); tracked there.
 
 - Supersedes the reparent-based peek preview added in `d17f31e` (hover-peek + gesture zoom)
   and the notifications-as-ports lifecycle work.
