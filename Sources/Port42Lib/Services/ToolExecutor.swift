@@ -798,7 +798,7 @@ public final class ToolExecutor {
                 systemPrompt: input["systemPrompt"] as? String,
                 env: input["env"] as? [String: String] ?? [:],
                 spaceId: sid, createdBy: createdBy, createdByName: createdByName,
-                presentation: (input["presentation"] as? String) ?? "inline")
+                presentation: input["presentation"] as? String)   // nil → mode default (shell: tiled)
             return [textBlock(jsonString(result))]
 
         case "terminal_exec":

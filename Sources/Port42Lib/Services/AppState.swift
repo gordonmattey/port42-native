@@ -2513,16 +2513,23 @@ public final class AppState: ObservableObject {
     /// floating window. Terminals ignore `inline` — they're always a native window + card.
     @discardableResult
     /// SHELL — S2.2: `presentation` replaces the old (dead) `inline: Bool` routing flag
-    /// (`spec-shell-reimplementation.md` open-decision #2). "inline" (default) keeps today's
-    /// behavior — a web port renders inline in chat; "tiled" registers it as a desktop tile on the
-    /// shell desktop at `position` (arrange picks the spot when nil). Terminals are unaffected
-    /// (always a native window). Returns {id, title} or {error}.
+    /// (`spec-shell-reimplementation.md` open-decision #2). "inline" — a web port renders inline
+    /// in chat; "tiled" registers it as a desktop tile at `position` (arrange picks the spot when
+    /// nil). Terminals are unaffected (always a native window / shell tile).
+    ///
+    /// PHASE 1 (port-units): when the caller doesn't say (nil), the default is MODE-DEPENDENT —
+    /// **tiled in shell mode**, inline in the classic app. The shell's surface IS the desktop;
+    /// the old inline default made every remote/companion `port.create` a chat-fence message
+    /// that never reached the desktop or the peek path (the "same-space peek shows nothing"
+    /// root cause — the cross-space "port peek" people saw was really the CHAT unread peek).
+    /// An explicit "inline" is still honored everywhere. Returns {id, title} or {error}.
     func createPort(type: String?, title: String?, html: String?,
                     command: String?, args: [String] = [], cwd: String?,
                     systemPrompt: String?, env: [String: String] = [:],
                     spaceId: String, createdBy: String?, createdByName: String?,
-                    presentation: String = "inline", position: CGPoint? = nil,
+                    presentation: String? = nil, position: CGPoint? = nil,
                     size: CGSize? = nil) -> [String: Any] {
+        let presentation = presentation ?? (ShellMode.isEnabled() ? "tiled" : "inline")
         switch PortCreateValidation.validate(type: type, html: html, command: command) {
         case .error(let message):
             return ["error": message]

@@ -18,6 +18,7 @@ public struct PortPlacement: Equatable {
     public enum Chrome: Equatable {
         case tile
         case focus
+        case peek
     }
 }
 
@@ -27,8 +28,20 @@ public enum ShellPlacement {
     public static let focusZ: Double = 12_000
     /// z of the dim backdrop behind a focused unit (covers tiles + rails, below the unit).
     public static let backdropZ: Double = 11_900
+    /// Base z of peeking units — above the park rail (10_000), below the backdrop/focus.
+    public static let peekZ: Double = 10_500
     public static let tileCorner: CGFloat = 10
     public static let focusCorner: CGFloat = 16
+    public static let peekCorner: CGFloat = 11
+    /// A peek unit's footprint (Phase 1): the old rail tile — 24pt header + 116pt live content.
+    public static let peekSize = CGSize(width: 210, height: 140)
+
+    /// The rail slot for the Nth peek (Phase 1): stacked from the top-left, under the Chrome,
+    /// replacing the old rail `VStack`. Pure so peeks are absolutely positioned like any unit.
+    nonisolated public static func railSlot(_ index: Int, in area: CGSize) -> CGRect {
+        CGRect(x: 12, y: 60 + Double(index) * (peekSize.height + 12),
+               width: peekSize.width, height: peekSize.height)
+    }
 
     /// The focus card: 0.78×0.8 of the desktop area, centered — the same proportions
     /// `ShellFocusContent` used, but derived from the AREA (headless, no NSScreen).
@@ -48,13 +61,16 @@ public enum ShellPlacement {
     }
 
     /// State → geometry for one port. `onDesktop` = the port is staged on this desktop
-    /// (a member of `desktopTilePanels`); off-desktop ports are invisible, never unmounted.
+    /// (a member of `contextItems`); off-desktop ports are invisible, never unmounted.
+    /// Precedence: focused > peeking > tiled — a previewed peek resizes railSlot → focusRect
+    /// IN PLACE (the same view), exactly like tile focus.
     nonisolated public static func placement(id: String,
                                              position: CGPoint?,
                                              size: CGSize,
                                              z: Int,
                                              zoom: ShellState.Zoom,
                                              onDesktop: Bool,
+                                             peekIndex: Int? = nil,
                                              fallbackIndex: Int,
                                              area: CGSize) -> PortPlacement {
         guard onDesktop else {
@@ -63,6 +79,10 @@ public enum ShellPlacement {
         if case .focus(let fid) = zoom, fid == id {
             return PortPlacement(rect: focusRect(in: area), corner: focusCorner,
                                  z: focusZ, chrome: .focus, visible: true)
+        }
+        if let i = peekIndex {
+            return PortPlacement(rect: railSlot(i, in: area), corner: peekCorner,
+                                 z: peekZ + Double(i), chrome: .peek, visible: true)
         }
         let rect = resolvedTileFrame(position: position, size: size, fallbackIndex: fallbackIndex)
         return PortPlacement(rect: rect, corner: tileCorner,

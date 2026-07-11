@@ -60,6 +60,13 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 PortUnitCycleHarness.shared.runWhenReady()
             }
         }
+        if UserDefaults.standard.bool(forKey: "PORT42_PROBE_PEEK_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_PEEK_AUTORUN")
+            // Phase 1 gate: the scripted peek repro (preview 1 → out → 2 → out → 1 → out → keep).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                PortUnitCycleHarness.shared.runPeekReproWhenReady()
+            }
+        }
         #endif
 
         // Remember the windowed shell size: persist the main window's frame on resize/move (never
@@ -319,6 +326,9 @@ struct Port42App: App {
                 Divider()
                 Button("Port Units — cycle") {
                     PortUnitCycleHarness.shared.run()
+                }
+                Button("Port Units — peek repro") {
+                    PortUnitCycleHarness.shared.runPeekRepro()
                 }
             }
             #endif

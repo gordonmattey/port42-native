@@ -4,12 +4,15 @@ Fix the shell's shared-webview rendering so tiles, peeks, and focus stop blankin
 root cause is architectural; this replaces reparenting with a single persistent,
 absolutely-positioned per-port unit whose geometry is state-driven.
 
-Status: **Phase 0 BUILT and Tier-B-PASSED (2026-07-10).** Spikes 1+2+3 all passed (I1/I2/I6);
-the probe was calibrated on the old code (FAIL: 19 remakes + 2 windowless in 10 focus cycles),
-then the resize-in-place rework flipped the same cycle to **PASS (zero remounts, zero
-windowless)**. Tier A: 9/9 placement tests + 46 shell-suite tests green. Remaining for the
-Phase 0 gate: Tier C eyeball + a terminal-frontmost Tier B re-run (§7 Phase 0 as-built note).
-Next: Phase 1 — peeks as units (+ the same-space peek self-suppression fix).**
+Status: **Phases 0 + 1 BUILT and Tier-B-PASSED (2026-07-10).** Spikes 1+2+3 passed (I1/I2/I6);
+the probe was calibrated on the old code (FAIL: 19 remakes + 2 windowless), then Phase 0 flipped
+the focus cycle to PASS, and Phase 1 flipped the **original grey repro** (preview 1 → out → 2 →
+out → 1 → out → keep) to PASS — make==1 per peek, zero windowless, adopt without remount. The
+same-space gap's root cause (external `port.create` defaulted to an inline chat fence) is fixed:
+shell-mode default is `tiled`, same-space births peek. Tier A: 18 port-unit tests, 55 green
+across the shell suites. Phase 0 committed (`d752ace`); Phase 1 in the working tree. Remaining:
+Tier C eyeball for both phases + a terminal-frontmost cycle re-run. Next: Phase 2 — collapse
+`ShellFocusContent`'s webview path + remaining reparent workarounds.**
 
 **Spike result (I1 + I2 validated).** A throwaway floating panel
 (`PortResizeSpike.swift`, Debug menu → "Port Resize Spike") hosts one persistent
@@ -390,7 +393,29 @@ Make desktop-tile focus resize-in-place: `zoom == .focus(tileId)` animates the t
 **Gate (§9 Phase 0):** Tier B green (make==1, never windowless) on web + chat. Terminals green →
 include; red → gate-2.
 
-### Phase 1 — peeks as units
+### Phase 1 — peeks as units — ⬅ CODE COMPLETE + Tier B PASSED (2026-07-10); Tier C pending
+> **As built:** peeks and tiles are ONE ForEach of `ShellState.contextItems` (peek state wins the
+> per-id dedupe), so peek → focus → tile are geometry states of one mounted view — adopt never
+> remounts (I3/I4 across keep, proven by the instrumented repro). `placement()` gained
+> `.peek`/`railSlot` (peekZ 10_500, 210×140). `ShellTile` grew the `.peek` chrome (mini header +
+> ring + ✕ + click-catcher + home-accent glow, folded in from the deleted `ShellPeekTile` /
+> `ShellNotificationRail`); drag-to-keep adopts at the drop spot (no re-grid), close-zone drops
+> dismiss. `previewPeek` = mark seen + `zoom = .focus` (the stash dance and `pendingPreviewPeek`
+> are DELETED); `settleAfterPreview` only arms countdowns.
+> **Root cause of the same-space gap found live:** external/companion `port.create` defaulted to
+> `presentation:"inline"` → a chat-fence message, never a desktop tile or a port peek (the
+> cross-space "port peek" people saw was really the CHAT unread peek). Fix: **in shell mode the
+> web default is `tiled`** (explicit "inline" honored); `handlePortCreated` drops the same-space
+> guard (a same-space birth peeks in, then settles into the grid when its entry clears — it can't
+> evaporate from its own home space); the user's own dock/⌘K spawns are exempt via
+> `noteUserSpawn`. Verified end-to-end via the gateway: a same-space `port.create` now lands as a
+> positioned desktop unit (was: invisible inline fence).
+> **Gate:** Tier A ✅ (18 port-unit tests; 55 across the shell suites) · **Tier B ✅ PASS** — the
+> scripted repro `preview 1 → out → preview 2 → out → preview 1 → out → keep 2` ran make==1 per
+> peek, zero windowless (`/tmp/portunit.log`; Debug menu "Port Units — peek repro" or the
+> `PORT42_PROBE_PEEK_AUTORUN` flag), and the Phase 0 cycle re-ran PASS (no regression) · Tier C ⏳
+> (repro matrix by hand, ring drains / hover pauses, drag-to-keep feel, same-space peek visual).
+
 Replace the rail `VStack` with absolutely-positioned peek `PortUnit`s (`railSlot`). Preview =
 `zoom = .focus`; the unit resizes mini→focus in place. Delete `previewPeek`'s reparent/stash logic
 and `pendingPreviewPeek`.

@@ -23,11 +23,11 @@ public struct ShellView: View {
 
     private var galaxyShown: Bool { shell.zoom == .galaxy }
     private var focusShown: Bool { if case .focus = shell.zoom { return true } else { return false } }
-    /// Focus on a DESKTOP TILE is a resize-in-place of the tile's own unit inside the desktop
-    /// (Phase 0) — no overlay mounts and the desktop must stay interactive. Focus on anything
-    /// else (a previewed peek) still uses the `ShellFocusContent` overlay until Phase 1.
+    /// Focus on a DESKTOP UNIT (a tile or a peeking port) is a resize-in-place of that unit
+    /// inside the desktop — no overlay mounts and the desktop must stay interactive. After
+    /// Phase 1 every focusable id is a unit; `ShellFocusContent` is unreachable (Phase 2 deletes it).
     private var desktopTileFocused: Bool {
-        if case .focus(let id) = shell.zoom { return shell.isDesktopTile(id) }
+        if case .focus(let id) = shell.zoom { return shell.isDesktopUnit(id) }
         return false
     }
 
@@ -85,11 +85,10 @@ public struct ShellView: View {
                     .zIndex(110)
             }
 
-            // Focus overlay — ONLY for a focused port that is NOT a desktop tile (a previewed
-            // peek from another space). A desktop tile focuses by resizing ITS OWN unit in
-            // place (Phase 0) — mounting this overlay for it would be the reparent bug again.
-            // Phase 1 moves peeks onto units too, then this overlay's webview path dies.
-            if case .focus(let id) = shell.zoom, !shell.isDesktopTile(id) {
+            // Focus overlay — ONLY for a focused id that is NOT a desktop unit. After Phase 1
+            // (tiles AND peeks are units) nothing reaches this; it stays as a safety net until
+            // Phase 2 deletes ShellFocusContent's webview path outright.
+            if case .focus(let id) = shell.zoom, !shell.isDesktopUnit(id) {
                 ShellFocusContent(shell: shell, appState: appState, id: id)
                     .transition(.opacity)
                     .zIndex(120)

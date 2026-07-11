@@ -67,11 +67,12 @@ public final class ShellState: ObservableObject {
         notifSink = appState.$unreadCounts
             .receive(on: RunLoop.main)
             .sink { [weak self] counts in self?.refreshNotifications(from: counts) }
-        // …and a TILED port BORN in another space raises a peeking port notification — the live port
-        // from elsewhere, clickable to surface here (the heart of §8b).
+        // …and a TILED port's birth raises a peeking port notification — the live port,
+        // clickable to surface here (§8b). Phase 1: same-space births peek too (the
+        // self-suppression fix); only the user's own shell-UI spawns are exempt.
         portSink = appState.portWindows.portCreated
             .receive(on: RunLoop.main)
-            .sink { [weak self] p in self?.raisePortNotification(id: p.id, spaceId: p.spaceId, title: p.title) }
+            .sink { [weak self] p in self?.handlePortCreated(id: p.id, spaceId: p.spaceId, title: p.title) }
     }
 
     // MARK: - Notifications (§8b) — a notification IS the live port, PEEKING as a small tile here.
@@ -116,18 +117,21 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// A tiled port born in another space → it peeks here (deduped by port id).
-    private func raisePortNotification(id: String, spaceId: String?, title: String) {
-        guard let sid = spaceId, sid != appState.currentSpace?.id else { return }
+    /// Port ids the USER just spawned from the shell UI (dock/⌘K) — their birth shouldn't
+    /// peek at the person who made them. One-shot; consumed by `handlePortCreated`.
+    private var userSpawnedPortIds: Set<String> = []
+    public func noteUserSpawn(_ id: String) { userSpawnedPortIds.insert(id) }
+
+    /// A tiled port's birth → it peeks here, deduped by port id (Phase 1: same-space births
+    /// included — a peek is a live surface with an attention beat, not just an unread badge.
+    /// A same-space port renders in PEEK state until its entry clears, then settles into the
+    /// grid — it can't evaporate from its own home space). Internal so tests drive it directly.
+    func handlePortCreated(id: String, spaceId: String?, title: String) {
+        guard let sid = spaceId else { return }
+        if userSpawnedPortIds.remove(id) != nil { return }              // you made it; it's right there
         guard !peekingPorts.contains(where: { $0.id == id }), !surfacedPortIds.contains(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
-
-    /// A port peek being PREVIEWED — focused now; on zoom-out it returns to the rail as a *seen* peek
-    /// with a 10s countdown (evaporate-by-default). Keeping it is a separate act (drag → `keepPeek`).
-    /// Stashing the whole peek avoids the re-parent race: focus hosts the port's view alone during the
-    /// zoom (no competing rail tile), and the peek is re-added on exit.
-    private var pendingPreviewPeek: PeekPort?
 
     /// The peek currently under the cursor — makes it the ⌘↓/pinch zoom-in target (peeks aren't
     /// desktop tiles, so hovering one otherwise leaves the gesture pointed at an in-space tile).
@@ -151,33 +155,31 @@ public final class ShellState: ObservableObject {
             }
             return
         }
-        // Port peek: remove from the rail during the zoom (frees the view for the focus host — no race),
-        // stash it, and re-add as a seen / counting-down peek when you zoom back out.
-        peekingPorts.removeAll { $0.id == peek.id }
-        peekRemaining[peek.id] = nil
-        var seenPeek = peek; seenPeek.seen = true
-        pendingPreviewPeek = seenPeek
-        bringToFront(peek.id)
+        // Port peek (Phase 1): the unit stays mounted exactly where it is — mark it seen and
+        // zoom; placement() resizes it railSlot → focusRect IN PLACE. No removal, no stash,
+        // no reparent — the stash dance (`pendingPreviewPeek`) is gone with the rail VStack.
+        if let i = peekingPorts.firstIndex(where: { $0.id == peek.id }) { peekingPorts[i].seen = true }
+        peekRemaining[peek.id] = nil                     // countdown pauses during the preview
         withAnimation(.spring(response: 0.4)) { zoom = .focus(peek.id) }
     }
 
-    /// Zoom returned to the desktop after a preview → the peek comes back as *seen* and its countdown
-    /// starts. Ignore it and it evaporates; drag it to keep it.
+    /// Zoom returned to the desktop → every *seen*, still-peeking port starts its countdown
+    /// (evaporate-by-default for a foreign port; a same-space port settles into the grid when
+    /// its entry clears). Pure bookkeeping — no peek add/remove, no view moves (Phase 1).
     public func settleAfterPreview() {
-        guard let peek = pendingPreviewPeek else { return }
-        pendingPreviewPeek = nil
-        guard !surfacedPortIds.contains(peek.id) else { return }        // already kept via drag mid-preview
-        if !peekingPorts.contains(where: { $0.id == peek.id }) { peekingPorts.append(peek) }
-        startPeekCountdown(peek.id)
+        for p in peekingPorts where p.seen && !p.isChat && peekRemaining[p.id] == nil {
+            startPeekCountdown(p.id)
+        }
     }
 
-    /// Drag a peek into the space → KEEP it as a real tile (cancels its countdown).
-    public func keepPeek(_ peek: PeekPort) {
+    /// Keep a peek: it becomes a real tile of this desktop (cancels its countdown).
+    /// `arrange: false` = the caller placed it by hand (drag-to-keep) — don't re-grid.
+    public func keepPeek(_ peek: PeekPort, arrange: Bool = true) {
         peekingPorts.removeAll { $0.id == peek.id }
         peekRemaining[peek.id] = nil
-        if pendingPreviewPeek?.id == peek.id { pendingPreviewPeek = nil }
         surfacedPortIds.insert(peek.id)
-        arrangeBump += 1
+        bringToFront(peek.id)
+        if arrange { arrangeBump += 1 }
     }
 
     private func startPeekCountdown(_ id: String) {
@@ -272,10 +274,45 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// Is this port staged as a tile on the current desktop? (Focus on a desktop tile is a
-    /// resize-in-place of its own unit; focus on anything else still uses the overlay path.)
-    public func isDesktopTile(_ id: String) -> Bool {
-        desktopTilePanels.contains { $0.id == id }
+    /// One renderable unit on the desktop (Phase 1): a tiled panel, a peeking port, or a
+    /// chat peek — ONE ForEach row per port id, so peek → tile → focus are geometry states
+    /// of the same mounted view (I3/I4: identity never changes across adopt).
+    public struct PortContextItem: Identifiable {
+        public let id: String            // panel id (ports) · spaceId (chat peeks)
+        public let panel: PortPanel?     // nil = a chat peek with no local panel (renders ChatView)
+        public let peek: PeekPort?       // non-nil while the unit is in peek state
+        public let peekIndex: Int?       // rail slot while peeking
+    }
+
+    /// The desktop's render list: peeks first (rail order), then tiles — deduped by id with
+    /// PEEK STATE WINNING (a same-space port that's both tiled and peeking renders once, in
+    /// the rail, and settles into the grid when its peek entry clears). Pure → headless.
+    nonisolated public static func contextItems(tiled: [PortPanel], peeks: [PeekPort],
+                                                allPanels: [PortPanel]) -> [PortContextItem] {
+        var items: [PortContextItem] = []
+        var seen = Set<String>()
+        for (i, p) in peeks.enumerated() {
+            let panel = allPanels.first { $0.id == p.id }
+            if panel == nil && !p.isChat { continue }     // a port peek whose panel vanished
+            items.append(PortContextItem(id: p.id, panel: panel, peek: p, peekIndex: i))
+            seen.insert(p.id)
+        }
+        for t in tiled where !seen.contains(t.id) {
+            items.append(PortContextItem(id: t.id, panel: t, peek: nil, peekIndex: nil))
+        }
+        return items
+    }
+
+    /// The live render list for the current desktop.
+    public var contextItems: [PortContextItem] {
+        Self.contextItems(tiled: desktopTilePanels, peeks: peekingPorts,
+                          allPanels: appState.portWindows.panels)
+    }
+
+    /// Is this id a unit on the current desktop (tile OR peek)? Focus on a desktop unit is a
+    /// resize-in-place of that unit; nothing else can be focused after Phase 1.
+    public func isDesktopUnit(_ id: String) -> Bool {
+        contextItems.contains { $0.id == id }
     }
 
     /// Non-background port udids on the current space, in panel order.

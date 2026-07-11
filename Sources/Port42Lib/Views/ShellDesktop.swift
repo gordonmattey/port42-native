@@ -162,10 +162,13 @@ struct ShellDesktopView: View {
     /// shared with `applyArrange` and ShellView's focus branch (Phase 0: no drift possible).
     private var tiledPanels: [PortPanel] { shell.desktopTilePanels }
 
-    /// The desktop tile currently focused (resize-in-place). nil when unfocused or when the
-    /// focused id isn't a desktop tile (a previewed peek — still the overlay path until Phase 1).
-    private var focusedDesktopTileId: String? {
-        if case .focus(let id) = shell.zoom, tiledPanels.contains(where: { $0.id == id }) { return id }
+    /// Everything the desktop renders (Phase 1): tiles ∪ peeks, one unit per id — a peek is
+    /// the same unit as the tile it may become; adopt/preview never remounts.
+    private var contextItems: [ShellState.PortContextItem] { shell.contextItems }
+
+    /// The desktop unit currently focused (resize-in-place) — a tile OR a previewed peek.
+    private var focusedUnitId: String? {
+        if case .focus(let id) = shell.zoom, contextItems.contains(where: { $0.id == id }) { return id }
         return nil
     }
 
@@ -183,33 +186,46 @@ struct ShellDesktopView: View {
                         .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false } }
                         .zIndex(1)
                 }
-                // Focus backdrop (Phase 0): dims the desktop + rails behind a focused tile's
-                // unit; tap → back to the space. The unit itself sits above at focusZ.
-                if focusedDesktopTileId != nil {
+                // Focus backdrop: dims the desktop + rails behind a focused unit (tile OR
+                // previewed peek); tap → back to the space. The unit sits above at focusZ.
+                if focusedUnitId != nil {
                     Color.black.opacity(0.75).ignoresSafeArea()
                         .contentShape(Rectangle())
                         .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }
                         .zIndex(ShellPlacement.backdropZ)
                         .transition(.opacity)
                 }
-                // All tiled ports (the chat is one of them), painted back-to-front by z. In exposé
-                // they spread to the fit grid (a TEMPORARY arrange — real positions are untouched).
-                // Focus is a GEOMETRY STATE of the same tile (placement §3): the tile's one view
-                // resizes to the focus rect in place — it is never re-mounted elsewhere.
-                ForEach(tiledPanels.sorted { $0.z < $1.z }, id: \.id) { p in
+                // Every desktop unit — tiles AND peeks, ONE ForEach (I3), identity = port id
+                // (I4). Tile / peek / focus are geometry states of the same mounted view
+                // (placement §3): a previewed peek resizes railSlot → focusRect in place; an
+                // adopted peek slides rail → grid — never re-mounted. Paint order is zIndex.
+                ForEach(contextItems) { item in
+                    let fallbackIdx = tiledPanels.firstIndex { $0.id == item.id } ?? 0
                     let pl = ShellPlacement.placement(
-                        id: p.id, position: p.position, size: p.size, z: p.z,
+                        id: item.id, position: item.panel?.position,
+                        size: item.panel?.size ?? ShellPlacement.peekSize,
+                        z: item.panel?.z ?? 0,
                         zoom: shell.zoom, onDesktop: true,
-                        fallbackIndex: tiledPanels.firstIndex { $0.id == p.id } ?? 0,
+                        peekIndex: item.peekIndex, fallbackIndex: fallbackIdx,
                         area: geo.size)
                     ShellTile(shell: shell, appState: appState,
-                              tile: ShellTileModel(id: p.id, title: p.title, panel: p),
-                              frame: ShellPlacement.resolvedTileFrame(position: p.position, size: p.size,
-                                                                      fallbackIndex: tiledPanels.firstIndex { $0.id == p.id } ?? 0),
+                              tile: ShellTileModel(id: item.id,
+                                                   title: item.peek?.title ?? item.panel?.title ?? "port",
+                                                   panel: item.panel),
+                              frame: ShellPlacement.resolvedTileFrame(
+                                  position: item.panel?.position,
+                                  size: item.panel?.size ?? ShellPlacement.peekSize,
+                                  fallbackIndex: fallbackIdx),
                               area: geo.size,
-                              exposeFrame: shell.exposeActive ? exposeRect(p, geo.size) : nil,
-                              focusFrame: pl.chrome == .focus ? pl.rect : nil)
-                        .zIndex(shell.exposeActive ? 5 : pl.z)
+                              exposeFrame: (shell.exposeActive && item.peek == nil && item.panel != nil)
+                                  ? exposeRect(item.panel!, geo.size) : nil,
+                              focusFrame: pl.chrome == .focus ? pl.rect : nil,
+                              peek: item.peek,
+                              peekFrame: pl.chrome == .peek ? pl.rect : nil)
+                        .zIndex(shell.exposeActive && item.peek == nil ? 5 : pl.z)
+                        .transition(item.peek != nil
+                            ? AnyTransition.move(edge: .leading).combined(with: .opacity)
+                            : AnyTransition.opacity)
                 }
                 if shell.exposeActive {
                     VStack { Spacer()
@@ -219,16 +235,16 @@ struct ShellDesktopView: View {
                     }.zIndex(9_000).allowsHitTesting(false)
                 }
                 // Right-edge rail: park (main strip) + close (bottom zone). On top of the tiles.
+                // (The old left-edge notification rail is gone — peeks are absolutely-positioned
+                // units in the ForEach above, Phase 1.)
                 ShellParkRail(shell: shell, appState: appState, area: geo.size)
                     .zIndex(10_000)
-                // Left-edge peeking notifications: a live chat/port from another space (§8b).
-                ShellNotificationRail(shell: shell, appState: appState)
-                    .zIndex(10_500)
             }
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
             // arrange animates via its own withAnimation (ShellState.applyArrange); here we only
-            // spring tile insertion/removal and the exposé transition.
+            // spring unit insertion/removal (tiles + peeks) and the exposé transition.
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
             .onAppear { seedIfNeeded(area: geo.size); arrangedForSpace = sid }
             .onChange(of: appState.currentSpace?.id) { _, _ in
@@ -288,6 +304,10 @@ struct ShellTile: View {
     /// Set when this tile is focused (Phase 0): the tile's ONE view animates to this rect in
     /// place — focus is a geometry state, not a second mount. nil = normal tile geometry.
     var focusFrame: CGRect? = nil
+    /// Set while this unit is a PEEK (Phase 1): the peek entry + its rail rect. The same view
+    /// renders peek chrome at railSlot; preview resizes it to focus, adopt slides it to grid.
+    var peek: ShellState.PeekPort? = nil
+    var peekFrame: CGRect? = nil
 
     /// A tile corner (any corner resizes; the opposite corner stays pinned).
     enum Corner { case nw, ne, sw, se }
@@ -295,12 +315,28 @@ struct ShellTile: View {
     @State private var moveDelta: CGSize = .zero
     @State private var resizeCorner: Corner? = nil
     @State private var resizeDelta: CGSize = .zero
+    @State private var peekHovered = false
 
     private let titleBarH: CGFloat = 34
+    private let peekHeaderH: CGFloat = 24
 
     private var isFocused: Bool { shell.zoom == .focus(tile.id) }
+    private var isPeeking: Bool { peekFrame != nil && !isFocused }
     private var isSelected: Bool { shell.selectedTileId == tile.id }
     private var sid: String? { appState.currentSpace?.id }
+    private var headerH: CGFloat { isPeeking ? peekHeaderH : titleBarH }
+
+    /// The accent of the space a peek CAME FROM (its home) — the edge signals origin.
+    private func peekAccent(_ p: ShellState.PeekPort) -> Color {
+        if let s = appState.spaces.first(where: { $0.id == p.spaceId }) { return shell.accent(for: s) }
+        return shell.accent
+    }
+
+    /// Two-state peek click: unseen previews (zoom in, in place); seen keeps (adopts as a tile).
+    private func clickPeek(_ p: ShellState.PeekPort) {
+        let cur = shell.peekingPorts.first { $0.id == p.id } ?? p
+        if cur.seen { shell.keepPeek(cur) } else { shell.previewPeek(cur) }
+    }
 
     /// A tile that belongs to ANOTHER space (adopted from a peek) keeps its HOME space's accent, so it
     /// still reads as "from elsewhere"; native tiles use the current space's accent.
@@ -327,9 +363,14 @@ struct ShellTile: View {
     }
 
     /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize.
-    /// A FOCUSED tile's frame is the focus rect — geometry only; drags don't apply in focus.
+    /// A FOCUSED unit's frame is the focus rect (drags don't apply); a PEEKING unit rides its
+    /// rail slot plus any drag-to-keep translation.
     private var liveFrame: CGRect {
         if let f = focusFrame { return f }
+        if let pf = peekFrame {
+            return CGRect(x: pf.minX + moveDelta.width, y: pf.minY + moveDelta.height,
+                          width: pf.width, height: pf.height)
+        }
         if let c = resizeCorner { return Self.resized(frame, corner: c, by: resizeDelta) }
         return CGRect(x: frame.minX + moveDelta.width, y: frame.minY + moveDelta.height,
                       width: frame.width, height: frame.height)
@@ -365,31 +406,49 @@ struct ShellTile: View {
         return CGRect(x: x, y: y, width: w, height: h)
     }
 
-    private var cornerRadius: CGFloat { isFocused ? ShellPlacement.focusCorner : 10 }
+    private var cornerRadius: CGFloat {
+        isFocused ? ShellPlacement.focusCorner : (isPeeking ? ShellPlacement.peekCorner : 10)
+    }
+    /// The unit's edge color: a peek glows in its HOME space's accent; tiles use tileAccent.
+    private var unitAccent: Color { peek.map(peekAccent) ?? tileAccent }
+    private var strokeColor: Color {
+        if isPeeking { return unitAccent.opacity(peekHovered ? 1 : 0.7) }
+        if isFocused { return unitAccent.opacity(0.5) }
+        return isSelected ? unitAccent.opacity(0.7) : unitAccent.opacity(0.25)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            titleBar
-            // The body stays mounted through focus (Phase 0): focus resizes this SAME view to
-            // the focus rect — no placeholder, no second mount, the webview never detaches.
-            ShellTileBody(shell: shell, appState: appState, tile: tile)
-                .frame(width: liveSize.width, height: max(0, liveSize.height - titleBarH))
+            // Chrome by state (a chrome swap never remakes the hosted view — Spike 1).
+            if isPeeking, let peek { peekHeader(peek) } else { titleBar }
+            // The body stays mounted through peek/tile/focus: state changes only resize this
+            // SAME view — no placeholder, no second mount, the webview never detaches.
+            Group {
+                if let peek, peek.isChat, tile.panel == nil {
+                    ChatView(spaceId: peek.spaceId).environmentObject(appState)   // chat peek, live miniature
+                } else {
+                    ShellTileBody(shell: shell, appState: appState, tile: tile)
+                }
+            }
+            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH))
+            // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
+            // NSView — the only thing that reliably captures the click (preview / keep).
+            .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
         }
         .frame(width: liveSize.width, height: liveSize.height)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(
-            isFocused ? tileAccent.opacity(0.5) : (isSelected ? tileAccent.opacity(0.7) : tileAccent.opacity(0.25)),
-            lineWidth: 1))
+            strokeColor, lineWidth: isPeeking ? (peekHovered ? 2 : 1.5) : 1))
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
-        // In focus the tile isn't movable/resizable — the handles come off.
-        .overlay(alignment: .topLeading)     { if !isFocused { cornerHandle(.nw) } }
-        .overlay(alignment: .topTrailing)    { if !isFocused { cornerHandle(.ne) } }
-        .overlay(alignment: .bottomLeading)  { if !isFocused { cornerHandle(.sw) } }
-        .overlay(alignment: .bottomTrailing) { if !isFocused { cornerHandle(.se) } }
+        // Focused/peeking units aren't corner-resizable — the handles come off.
+        .overlay(alignment: .topLeading)     { if !isFocused && !isPeeking { cornerHandle(.nw) } }
+        .overlay(alignment: .topTrailing)    { if !isFocused && !isPeeking { cornerHandle(.ne) } }
+        .overlay(alignment: .bottomLeading)  { if !isFocused && !isPeeking { cornerHandle(.sw) } }
+        .overlay(alignment: .bottomTrailing) { if !isFocused && !isPeeking { cornerHandle(.se) } }
         // In exposé, the whole tile is a pick target (over the body/handles): click → select + exit.
         .overlay {
-            if shell.exposeActive {
+            if shell.exposeActive && !isPeeking {
                 Button {
                     withAnimation(.spring(response: 0.4)) { shell.exposeActive = false }
                     shell.bringToFront(tile.id)
@@ -397,13 +456,22 @@ struct ShellTile: View {
                 .buttonStyle(.plain)
             }
         }
-        .shadow(color: tileAccent.opacity(isFocused ? 0.4 : (isSelected ? 0.3 : 0.12)),
-                radius: isFocused ? 50 : (isSelected ? 22 : 12))
-        .scaleEffect(exposeScale, anchor: .center)            // exposé shrinks/grows the tile to ~fit its cell
-        .onHover { if $0 && !shell.isDraggingTile && !isFocused { shell.bringToFront(tile.id) } }   // hover raises to front — but not while dragging or focused
+        .shadow(color: unitAccent.opacity(isPeeking ? (peekHovered ? 0.75 : 0.45)
+                                                    : (isFocused ? 0.4 : (isSelected ? 0.3 : 0.12))),
+                radius: isPeeking ? (peekHovered ? 28 : 16) : (isFocused ? 50 : (isSelected ? 22 : 12)))
+        .scaleEffect(isPeeking ? (peekHovered ? 1.03 : 1.0) : exposeScale, anchor: .center)
+        .onHover { h in
+            if isPeeking, let peek {
+                peekHovered = h                                       // glow + pauses the countdown
+                shell.hoveredPeekId = h ? peek.id : (shell.hoveredPeekId == peek.id ? nil : shell.hoveredPeekId)
+            } else if h && !shell.isDraggingTile && !isFocused {
+                shell.bringToFront(tile.id)                           // hover raises to front
+            }
+        }
         .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: exposeFrame)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: focusFrame)   // focus = the unit's frame animating
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: peekHovered)
     }
 
     private var titleBar: some View {
@@ -449,6 +517,34 @@ struct ShellTile: View {
         .background(Port42Theme.shellCard)
     }
 
+    /// A peeking unit's mini header (folded in from the old ShellPeekTile, Phase 1): origin
+    /// icon + title + home space, the 10s countdown ring once seen, and ✕ to dismiss.
+    private func peekHeader(_ p: ShellState.PeekPort) -> some View {
+        let col = peekAccent(p)
+        return HStack(spacing: 6) {
+            Image(systemName: p.isChat ? "bubble.left.fill" : "square.stack.3d.up")
+                .font(.system(size: 9)).foregroundStyle(col)
+            Text(p.title).font(Port42Theme.monoBold(9)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
+            Text("· \(p.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(col.opacity(0.85)).lineLimit(1)
+            Spacer(minLength: 4)
+            if let rem = shell.peekRemaining[p.id] {            // seen → countdown ring (pauses on hover)
+                ZStack {
+                    Circle().stroke(col.opacity(0.25), lineWidth: 2)
+                    Circle().trim(from: 0, to: max(0, rem / 10))
+                        .stroke(col, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }.frame(width: 11, height: 11)
+            }
+            Button { shell.dismissPeek(p) } label: {
+                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 9).frame(height: peekHeaderH).background(Color.black.opacity(0.45))
+        .contentShape(Rectangle())
+        .onTapGesture { clickPeek(p) }                          // tap → preview (unseen) / keep (seen)
+        .gesture(moveGesture)                                   // drag-to-keep starts from the header too
+    }
+
     /// An invisible 16×16 corner drag zone that resizes from that corner.
     private func cornerHandle(_ corner: Corner) -> some View {
         Color.clear
@@ -468,10 +564,25 @@ struct ShellTile: View {
             }
             .onEnded { v in
                 guard !isFocused else { return }
-                let zone = railZone(at: v.location)
                 shell.draggingOverPark = nil
                 shell.isDraggingTile = false
                 moveDelta = .zero
+                // Drag-to-keep (Phase 1): pulling a peek into the space ADOPTS it as a tile at
+                // the drop spot (no re-grid — the user chose the place); the close zone dismisses.
+                if isPeeking, let peek, let pf = peekFrame {
+                    guard hypot(v.translation.width, v.translation.height) > 40 else { return }   // a wiggle isn't a keep
+                    if railZone(at: v.location) == .close { shell.dismissPeek(peek); return }
+                    if peek.isChat {                                     // chat adopts via surface, not surfacedPortIds
+                        shell.dismissPeek(peek)
+                        shell.surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
+                        return
+                    }
+                    shell.keepPeek(peek, arrange: false)
+                    commit(origin: CGPoint(x: pf.minX + v.translation.width, y: pf.minY + v.translation.height),
+                           size: tile.panel?.size ?? pf.size)
+                    return
+                }
+                let zone = railZone(at: v.location)
                 switch zone {                                                    // any tile (chat included) — count↓ re-grids
                 case .close: if let panel = tile.panel { shell.dismissTile(panel) }
                 case .park:  if let panel = tile.panel { appState.portWindows.park(id: panel.id) }
@@ -513,30 +624,6 @@ struct ShellTile: View {
 
 // MARK: - Right-edge parking + close rail
 
-/// The right-edge rail: parked ports as clickable chips (click → unpark) with a **close** drop zone
-/// at the bottom. It's a drop TARGET only — the drag is owned by the tile's move gesture, which sets
-/// `shell.draggingOverPark` for the highlight and calls `park`/`close` on drop. Faint at rest; lights
-/// up accent (park) or red (close) while a tile is dragged over the matching zone.
-/// Left-edge PEEK strip (§8b): a live port from another space, attached to this desktop as a small
-/// tile — not a card, the real thing. Click/zoom → it STICKS in your space (adopted); ✕ detaches it
-/// (it lives on in its home space). Spacers pin it top-left without hit-testing the empty desktop.
-struct ShellNotificationRail: View {
-    @ObservedObject var shell: ShellState
-    @ObservedObject var appState: AppState
-
-    var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(shell.peekingPorts) { peek in ShellPeekTile(shell: shell, appState: appState, peek: peek) }
-                Spacer(minLength: 0)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 12).padding(.top, 60)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
-    }
-}
-
 /// A real NSView that captures clicks over a peek's live port view — the only thing that reliably
 /// beats a hosted WKWebView/Ghostty surface in the AppKit hit-test. On mouseDown it runs `onClick`
 /// (which previews an unseen peek, keeps a seen one). Transparent; the live port renders beneath it.
@@ -556,78 +643,12 @@ struct PeekClickCatcher: NSViewRepresentable {
     }
 }
 
-/// One peeking port: a live miniature tinted with its HOME space's accent + a glow (it's from
-/// elsewhere, catching your eye). Hover highlights it; click adopts it into your space.
-struct ShellPeekTile: View {
-    @ObservedObject var shell: ShellState
-    @ObservedObject var appState: AppState
-    let peek: ShellState.PeekPort
-    @State private var hovered = false
-
-    /// The accent of the space this peek CAME FROM (not the current space) — so the edge signals origin.
-    private var spaceColor: Color {
-        if let s = appState.spaces.first(where: { $0.id == peek.spaceId }) { return shell.accent(for: s) }
-        return shell.accent
-    }
-
-    /// Two-state click: an unseen peek previews (zoom in); once seen (counting down) a click keeps it.
-    private func clickPeek() {
-        if peek.seen { shell.keepPeek(peek) } else { shell.previewPeek(peek) }
-    }
-
-    var body: some View {
-        let col = spaceColor
-        return VStack(spacing: 0) {
-            HStack(spacing: 6) {                                        // header (SwiftUI — clicks work here)
-                Image(systemName: peek.isChat ? "bubble.left.fill" : "square.stack.3d.up")
-                    .font(.system(size: 9)).foregroundStyle(col)
-                Text(peek.title).font(Port42Theme.monoBold(9)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
-                Text("· \(peek.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(col.opacity(0.85)).lineLimit(1)
-                Spacer(minLength: 4)
-                if let rem = shell.peekRemaining[peek.id] {            // seen → 10s countdown ring (pauses on hover)
-                    ZStack {
-                        Circle().stroke(col.opacity(0.25), lineWidth: 2)
-                        Circle().trim(from: 0, to: max(0, rem / 10))
-                            .stroke(col, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                    }.frame(width: 11, height: 11)
-                }
-                Button { shell.dismissPeek(peek) } label: {            // ✕ (SwiftUI button, in the header)
-                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain)
-            }
-            .padding(.horizontal, 9).frame(height: 24).background(Color.black.opacity(0.45))
-            .contentShape(Rectangle()).onTapGesture { clickPeek() }    // tap header → preview (unseen) / keep (seen)
-            peekContent.frame(height: 116).clipped()                   // the live port, in miniature
-                // A real AppKit view over the content wins the hit-test vs the hosted NSView, so it's the
-                // only thing that can capture the click. First click previews; once seen, click keeps.
-                .overlay(PeekClickCatcher { clickPeek() })
-        }
-        .frame(width: 210)
-        .background(Port42Theme.shellCard)
-        .clipShape(RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(col.opacity(hovered ? 1 : 0.7), lineWidth: hovered ? 2 : 1.5))
-        .shadow(color: col.opacity(hovered ? 0.75 : 0.45), radius: hovered ? 28 : 16)   // colored glow from its space
-        .scaleEffect(hovered ? 1.03 : 1.0)
-        .onHover { h in
-            hovered = h
-            shell.hoveredPeekId = h ? peek.id : (shell.hoveredPeekId == peek.id ? nil : shell.hoveredPeekId)
-        }
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hovered)
-        .transition(.move(edge: .leading).combined(with: .opacity))
-    }
-
-    @ViewBuilder private var peekContent: some View {
-        if peek.isChat {
-            ChatView(spaceId: peek.spaceId).environmentObject(appState)
-        } else if let v = appState.portWindows.hostView(for: peek.id) {
-            ShellPortHost(view: v, probeId: peek.id)
-        } else {
-            Color.black
-        }
-    }
-}
-
+/// The right-edge rail: parked ports as clickable chips (click → unpark) with a **close** drop zone
+/// at the bottom. It's a drop TARGET only — the drag is owned by the tile's move gesture, which sets
+/// `shell.draggingOverPark` for the highlight and calls `park`/`close` on drop. Faint at rest; lights
+/// up accent (park) or red (close) while a tile is dragged over the matching zone.
+/// (Peeks — the old left-edge strip — are now absolutely-positioned units in the desktop ForEach,
+/// rendered by ShellTile's `.peek` chrome. Phase 1.)
 struct ShellParkRail: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
@@ -953,17 +974,20 @@ struct ShellDock: View {
     private func spawnTerminal() {
         guard let sid = appState.currentSpace?.id else { return }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        _ = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: home, spaceId: sid,
-                                             title: "terminal", companionName: "terminal",
-                                             postCard: false, startupCommandOverride: "")
+        if let id = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: home, spaceId: sid,
+                                                     title: "terminal", companionName: "terminal",
+                                                     postCard: false, startupCommandOverride: "") {
+            shell.noteUserSpawn(id)                       // your own spawn shouldn't peek at you
+        }
         shell.arrangeBump += 1
     }
 
     /// Dock "Browser" → an embedded WebKit browser tile (address bar + real navigation) at a start page.
     private func spawnBrowser() {
         guard let sid = appState.currentSpace?.id else { return }
-        _ = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
-                                                      createdBy: nil, title: "browser")
+        let id = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
+                                                           createdBy: nil, title: "browser")
+        shell.noteUserSpawn(id)                           // your own spawn shouldn't peek at you
         shell.arrangeBump += 1
     }
 }

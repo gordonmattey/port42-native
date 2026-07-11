@@ -766,7 +766,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 systemPrompt: opts["systemPrompt"] as? String,
                 env: opts["env"] as? [String: String] ?? [:],
                 spaceId: sid, createdBy: createdBy, createdByName: createdBy,
-                presentation: (opts["presentation"] as? String) ?? "inline")
+                presentation: opts["presentation"] as? String)   // nil → mode default (shell: tiled)
 
         // port42.port.exec(id, js) — execute JS on a live port
         case "port.exec":

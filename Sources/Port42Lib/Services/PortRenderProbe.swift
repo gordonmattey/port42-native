@@ -171,5 +171,89 @@ public final class PortUnitCycleHarness {
         PortRenderProbe.enabled = false
         running = false
     }
+
+    // MARK: - Phase 1 gate: the peek repro, scripted (§9 "THE regression that would've
+    // caught the original grey"). Fabricates two web ports in ANOTHER space (their births
+    // raise peeks), then drives `preview ONE → out → preview TWO → out → preview ONE → out`,
+    // then KEEPS one mid-run (adopt must not remount). Kill criterion 3: any windowless →
+    // the root cause isn't fixed; stop.
+
+    public func runPeekRepro() {
+        guard !running else { return }
+        guard let shell = ShellState.debugCurrent, let app = shell.debugAppState,
+              let current = app.currentSpace?.id,
+              let other = app.spaces.first(where: { $0.id != current })?.id else {
+            PortRenderProbe.log("PEEK REPRO — no shell / no second space; abort")
+            return
+        }
+        running = true
+        PortRenderProbe.reset()
+        PortRenderProbe.enabled = true
+        PortRenderProbe.log("=== PEEK REPRO — ports in \(other.prefix(8)), watched from \(current.prefix(8)) ===")
+
+        let stamp = String(UUID().uuidString.prefix(6))
+        let ids = ["peek-\(stamp)-1", "peek-\(stamp)-2"]
+        for (i, id) in ids.enumerated() {
+            _ = app.portWindows.registerTiledPort(
+                id: id,
+                html: "<html><title>peek \(i + 1)</title><body style=\"background:#1a0f2e;color:#9ff;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh\"><h1>PEEK \(i + 1)</h1><script>setInterval(()=>{document.title='t'+Date.now()},500)</script></body></html>",
+                spaceId: other, createdBy: "peek-repro", title: "peek \(i + 1)", position: nil)
+        }
+
+        sweep = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
+            Task { @MainActor in PortRenderProbe.checkAll("frame") }
+        }
+
+        func peek(_ id: String) -> ShellState.PeekPort? { shell.peekingPorts.first { $0.id == id } }
+        var steps: [(String, () -> Void)] = []
+        func preview(_ id: String) { if let p = peek(id) { shell.previewPeek(p) } else { PortRenderProbe.log("MISSING peek \(id)") } }
+        func out() { withAnimation(.spring(response: 0.4)) { shell.zoom = .space }; shell.settleAfterPreview() }
+
+        steps.append(("peeks-raised", {
+            if shell.peekingPorts.filter({ ids.contains($0.id) }).count != 2 {
+                PortRenderProbe.log("VIOLATION setup: expected 2 peeks, have \(shell.peekingPorts.count)")
+            }
+        }))
+        steps.append(("preview-1", { preview(ids[0]) }))
+        steps.append(("out-1",     { out() }))
+        steps.append(("preview-2", { preview(ids[1]) }))
+        steps.append(("out-2",     { out() }))
+        steps.append(("preview-1-again", { preview(ids[0]) }))   // the original grey trigger
+        steps.append(("out-3",     { out() }))
+        steps.append(("keep-2",    { if let p = peek(ids[1]) { shell.keepPeek(p) } }))   // adopt: no remount
+        steps.append(("post-keep", { }))
+
+        var i = 0
+        func step() {
+            guard i < steps.count else {
+                // Cleanup: drop the fabricated ports + any leftover peek/surfaced entries.
+                for id in ids {
+                    if let p = peek(id) { shell.dismissPeek(p) }
+                    shell.surfacedPortIds.remove(id)
+                    app.portWindows.close(id)
+                }
+                finish(shell: shell)
+                return
+            }
+            let (phase, act) = steps[i]
+            act()
+            i += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
+                PortRenderProbe.checkAll(phase)
+                step()
+            }
+        }
+        // Let the portCreated sink deliver + the peek units mount before driving.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { step() }
+    }
+
+    /// Autorun entry for the peek repro (launch flag): wait for the shell — and for any
+    /// other harness run (the Phase 0 cycle) to finish — then run.
+    public func runPeekReproWhenReady() {
+        if !running, ShellState.debugCurrent?.debugAppState?.currentSpace != nil {
+            runPeekRepro(); return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runPeekReproWhenReady() }
+    }
 }
 #endif
