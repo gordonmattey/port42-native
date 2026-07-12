@@ -341,6 +341,59 @@ Design notes / open questions:
 Two larger directions added after the shell-prototype session. Both have written plans + working
 throwaway proofs; they sit above the space-experience polish as *platform* moves.
 
+## TODO: synchronous agentic-CLI invoke from ports (command-companion call/await) (2026-07-11)
+
+**Gap found while dogfooding the generative-interface engine** (`port42-growth/gi-engine/`). A port
+that builds surfaces via `port42.ai.complete` gets one-shot raw-model output — no iteration, no
+self-critique. Claude Code (a *command* companion) would build far better surfaces, but there is
+**no synchronous way for a port to invoke a command companion and get its result back**:
+
+- `port42.companions.invoke(id, prompt)` works for LLM companions only (tested: `echo` → "pong" in
+  1.7s). Command companions are **hard-rejected**: `"companion 'claude' is not an LLM companion"`
+  (~3ms, confirmed against two separately-created `claude` command companions).
+- `port42.ai.complete` is likewise raw one-shot.
+- The only path to a CLI companion today is **async channel messaging**: `messages.send` (@mention) →
+  the CLI runs → its reply lands in the channel later → the caller must poll `messages.recent` and
+  parse. A port cannot call-and-await it.
+
+Want: a first-class **call/await for command companions** so a surface can ask Claude Code (or
+gemini/codex) to produce a result and get it back inline. Shape options: (a) extend
+`companions.invoke` to accept command companions and resolve when the CLI turn completes (reuse the
+Ghostty `turnComplete` signal already wired for terminal companions); (b) a dedicated
+`companions.run(id, prompt) → Promise<text>` that spawns/uses a headless CLI turn. Either way it
+fits the loop model: only the heavy **Regenerate** loop pays the agentic cost; Patch stays on
+`ai.complete`; Morph stays local. Connects to the generative-interface work — the engine's model
+client is already injected, so a loop-routed client (agentic build → fast patch → local morph) drops
+straight in once the call/await exists.
+
+Interim (no new API, buildable now): a purpose-built **LLM** "surface-builder" companion whose system
+prompt carries the DSL + design guidance, invoked via the existing `companions.invoke` — better
+primed than an inline prompt, synchronous (~1.7s), still one-shot (not agentic).
+
+## TODO: migrate injected context → installable skills (general fix) (2026-06-25)
+
+Port42 currently injects large context blocks into companion system prompts inside the app —
+`ports-context.txt` (~1100 lines), `llms.txt`, the companion-relationship preamble. Outside the app
+(Claude Code, Cursor, any external agent) none of it exists, and generic built-ins fill the gap
+(e.g. `artifact-design` teaches a non-Port42 aesthetic for what should be *ports*). The general fix:
+**move this context out of always-injected prompt blocks and into installable Agent Skills**, so the
+same knowledge (a) loads on-demand instead of costing every turn, and (b) travels to any agent, not
+just in-app companions.
+
+Skills suite (each = "what lives inside the app, packaged to ship everywhere"):
+- **`port42-ports`** — the port surface language: `port42.*` bridge, read-before-patch discipline,
+  stateful-app pattern, and the port42 design system (overrides `artifact-design` for port tasks).
+  *v0 scaffolded in `port42-growth/port42-ports/`.*
+- **`port42-companion`** — relationship state (fold/position/creases/engravings). *Built.*
+- **`port42-channels`** — the standalone channel runtime / gateway. *Spec stage.*
+
+Work: (1) make `sync-docs.sh` the single source so the skill's `bridge-and-patterns.txt` never
+drifts from the injected `ports-context.txt`; (2) install script writes `skillOverrides:
+{"artifact-design": "off"}` in Port42-managed config; (3) decide which in-app injections become
+lazy skills vs stay resident (safety-critical prompt bits stay; reference material becomes skills).
+Connects to the loop/generative-interface work — the port design system carries the loop-affordance
+vocabulary.
+
 ## TODO: GUI shell — replace the desktop, not the OS (→ `docs/plan-port42-shell.md`)
 
 Port42 boots into a **fullscreen surface with no macOS Dock and no menu bar**, and the desktop is
