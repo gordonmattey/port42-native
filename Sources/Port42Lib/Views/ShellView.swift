@@ -22,14 +22,10 @@ public struct ShellView: View {
     @State private var monitors: [Any] = []
 
     private var galaxyShown: Bool { shell.zoom == .galaxy }
+    /// Focus IS a desktop state (Phase 2): every focusable id is a unit, and focus resizes that
+    /// unit in place inside the desktop — there is no focus overlay. `ShellState.zoomIn` only
+    /// targets units and `exitFocusIfGone` snaps back when the focused unit leaves the desktop.
     private var focusShown: Bool { if case .focus = shell.zoom { return true } else { return false } }
-    /// Focus on a DESKTOP UNIT (a tile or a peeking port) is a resize-in-place of that unit
-    /// inside the desktop — no overlay mounts and the desktop must stay interactive. After
-    /// Phase 1 every focusable id is a unit; `ShellFocusContent` is unreachable (Phase 2 deletes it).
-    private var desktopTileFocused: Bool {
-        if case .focus(let id) = shell.zoom { return shell.isDesktopUnit(id) }
-        return false
-    }
 
     /// Chrome sits flush at the very top edge (topInset 0). A center notch, if any, overlaps only
     /// the Chrome's empty middle (mark is left, actions are right), so nothing important is clipped.
@@ -51,9 +47,9 @@ public struct ShellView: View {
                     ShellChrome(shell: shell, appState: appState)
                     ShellDesktopView(shell: shell, appState: appState)
                 }
-                // The dock hides while a desktop tile is focused (the old focus overlay covered
-                // it; the in-desktop focus card doesn't reach it). Pure SwiftUI — safe to unmount.
-                if !desktopTileFocused {
+                // The dock hides while a unit is focused (the focus card doesn't reach it).
+                // Pure SwiftUI — safe to unmount.
+                if !focusShown {
                     VStack { Spacer(); ShellDock(shell: shell, appState: appState).padding(.bottom, 24) }
                         .transition(.opacity)
                 }
@@ -61,17 +57,16 @@ public struct ShellView: View {
             .padding(.top, topInset)                                   // clear the notch / top edge
             .scaleEffect(galaxyShown ? 0.94 : 1.0, anchor: .center)
             .opacity(galaxyShown ? 0.5 : 1.0)
-            // Phase 0: a focused desktop tile lives INSIDE this group — it must stay
-            // interactive at .focus. Only the galaxy takes input away from the desktop.
-            .allowsHitTesting(shell.zoom == .space || desktopTileFocused)
+            // A focused unit lives INSIDE this group — it must stay interactive at .focus.
+            // Only the galaxy takes input away from the desktop (Phase 2).
+            .allowsHitTesting(shell.zoom != .galaxy)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: shell.zoom)
 
             // Click-shield: a hit-capturing sibling ABOVE the desktop (outside its allowsHitTesting
-            // group) whenever the desktop shouldn't take input (galaxy, or a peek-focus overlay).
-            // SwiftUI's allowsHitTesting doesn't stop the embedded chat WKWebView from getting
-            // AppKit clicks; this real layer does. NOT shown for a focused desktop tile — that
-            // tile needs its clicks; its own backdrop (in ShellDesktopView) shields the rest.
-            if shell.zoom != .space && !desktopTileFocused {
+            // group) while the galaxy owns input. SwiftUI's allowsHitTesting doesn't stop the
+            // embedded chat WKWebView from getting AppKit clicks; this real layer does. A focused
+            // unit needs no shield — its own backdrop (in ShellDesktopView) covers the rest.
+            if galaxyShown {
                 Color.black.opacity(0.001).ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { }
@@ -85,14 +80,8 @@ public struct ShellView: View {
                     .zIndex(110)
             }
 
-            // Focus overlay — ONLY for a focused id that is NOT a desktop unit. After Phase 1
-            // (tiles AND peeks are units) nothing reaches this; it stays as a safety net until
-            // Phase 2 deletes ShellFocusContent's webview path outright.
-            if case .focus(let id) = shell.zoom, !shell.isDesktopUnit(id) {
-                ShellFocusContent(shell: shell, appState: appState, id: id)
-                    .transition(.opacity)
-                    .zIndex(120)
-            }
+            // (The focus overlay is gone — Phase 2. Focus is a geometry state of the unit
+            // already mounted in ShellDesktopView; nothing can focus that isn't a unit.)
 
             // Settings box (long-press a world / companion) — rename, accent, delete. Top layer.
             // It self-animates in/out (save pops, discard shrinks), so no view-level transition.
@@ -141,6 +130,9 @@ public struct ShellView: View {
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
             if z == .space { shell.settleAfterPreview() }   // a previewed peek returns as seen + counting down
         }
+        // The focused unit left the desktop (closed via API, evaporated, detached) → back to
+        // the space rung. Focus has no overlay to fall into (Phase 2); this is the safety net.
+        .onChange(of: shell.contextItems.map(\.id)) { _, _ in shell.exitFocusIfGone() }
         .onAppear {
             installInputMonitors()
             applyTakeoverToWindow()

@@ -12,9 +12,9 @@ import AppKit
 /// instance* before and after a presentation flip. Same instance = not recreated = the webview (and its
 /// JS state) was re-parented, not reloaded.
 ///
-/// `inline ↔ floating` exists today and is asserted for real. `tiled` / `parked` arrive in S3; those
-/// tests are stubbed `.disabled` until `promoteToTiled` / `park` land — fill in the body and drop the
-/// trait when they do.
+/// Phase 2 (port units): the shell has NO floating presentation — its transitions are
+/// inline → tiled (undock), tiled ↔ parked. `inline → floating` survives only on the classic
+/// path (until classic mode is retired), asserted with an explicit `shellMode: false`.
 @Suite("Re-parent stability (no reload)")
 struct ReParentStabilityTests {
 
@@ -25,7 +25,7 @@ struct ReParentStabilityTests {
         return (state.portWindows, state)
     }
 
-    @Test("inline → floating keeps the SAME webview instance (no recreate)")
+    @Test("classic undock (inline → floating) keeps the SAME webview instance (no recreate)")
     @MainActor
     func inlineToFloatingPreservesInstance() throws {
         let (manager, _) = try makeManager()
@@ -33,7 +33,7 @@ struct ReParentStabilityTests {
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         let before = try #require(manager.webViews["p1"])
 
-        manager.promoteInlineToFloating(id: "p1", in: CGSize(width: 800, height: 600))
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
 
         let after = try #require(manager.webViews["p1"])
         #expect(after === before)  // re-parented, not reloaded
@@ -53,22 +53,18 @@ struct ReParentStabilityTests {
         #expect(manager.webViews["p1"] === before)
     }
 
-    // MARK: - S3 (tiled / floating / parked re-parents)
+    // MARK: - S3/Phase 2 (tiled / parked — the shell's only presentations)
 
-    @Test("tiled → floating → tiled keeps the SAME webview instance (no recreate)")
+    @Test("shell undock (inline → tiled) keeps the SAME webview instance (no recreate)")
     @MainActor
-    func tiledFloatingRoundTripPreservesInstance() throws {
+    func shellUndockPreservesInstance() throws {
         let (manager, _) = try makeManager()
-        manager.registerTiledPort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
-                                  createdBy: nil, title: nil, position: CGPoint(x: 100, y: 100))
+        manager.registerInlinePort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
+                                    createdBy: nil, title: nil, anchorMessageId: "m1")
         let before = try #require(manager.webViews["p1"])
 
-        manager.popOutTiled(id: "p1", in: CGSize(width: 800, height: 600))   // → floating
-        #expect(manager.webViews["p1"] === before)
-        #expect(manager.panels.first { $0.id == "p1" }?.presentation == "floating")
-
-        manager.dockToTile(id: "p1")                                          // → back to tiled
-        #expect(manager.webViews["p1"] === before)
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: true)
+        #expect(manager.webViews["p1"] === before)   // the tile adopts the same live view
         #expect(manager.panels.first { $0.id == "p1" }?.presentation == "tiled")
     }
 

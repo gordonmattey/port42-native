@@ -67,6 +67,13 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 PortUnitCycleHarness.shared.runPeekReproWhenReady()
             }
         }
+        if UserDefaults.standard.bool(forKey: "PORT42_PROBE_KINDS_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_KINDS_AUTORUN")
+            // Phase 2 gate: per-kind focus cycles (web / terminal / browser on the unit path).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                PortUnitCycleHarness.shared.runKindsWhenReady()
+            }
+        }
         #endif
 
         // Remember the windowed shell size: persist the main window's frame on resize/move (never
@@ -329,6 +336,9 @@ struct Port42App: App {
                 }
                 Button("Port Units — peek repro") {
                     PortUnitCycleHarness.shared.runPeekRepro()
+                }
+                Button("Port Units — kinds (web/term/browser)") {
+                    PortUnitCycleHarness.shared.runKinds()
                 }
             }
             #endif

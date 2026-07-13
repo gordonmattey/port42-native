@@ -23,6 +23,7 @@
 #if DEBUG
 import SwiftUI
 import AppKit
+import WebKit
 
 @MainActor
 public enum PortRenderProbe {
@@ -67,6 +68,14 @@ public enum PortRenderProbe {
     /// the fixed code a clean run shows zero makes (never remounted) and a swept, healthy view.
     public static func reset() {
         makes.removeAll(); violations.removeAll(); seenViolations.removeAll()
+    }
+
+    /// A port was legitimately CLOSED — drop it from the watch. Its view going windowless is
+    /// correct (it's gone), not a violation; without this, a harness that closes a fabricated
+    /// port poisons every later sweep (the kinds run's terminal flagged the browser's run).
+    public static func untrack(_ id: String) {
+        tracked.removeValue(forKey: id)
+        makes.removeValue(forKey: id)
     }
 
     public static var makesDescription: String {
@@ -231,6 +240,7 @@ public final class PortUnitCycleHarness {
                     if let p = peek(id) { shell.dismissPeek(p) }
                     shell.surfacedPortIds.remove(id)
                     app.portWindows.close(id)
+                    PortRenderProbe.untrack(id)   // closed = correctly windowless, off the watch
                 }
                 finish(shell: shell)
                 return
@@ -254,6 +264,137 @@ public final class PortUnitCycleHarness {
             runPeekRepro(); return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runPeekReproWhenReady() }
+    }
+
+    // MARK: - Phase 2 gate: per-kind cycles (§9 Phase 2 Tier B). Every port kind — web,
+    // terminal, browser — rides the same unit path; each gets its own 10× focus↔space cycle
+    // with the probe armed. Browser additionally navigates MID-RUN (the live webview must
+    // survive a load across focus geometry). Uses an existing tile of the kind when one is
+    // on the desktop, else fabricates one (and cleans it up after). Terminal PTY integrity
+    // is Spike 3's harness + Tier C typing; here the terminal proves mount/window health.
+
+    private struct KindRun { let kind: String; let id: String; let fabricated: Bool }
+    private var kindVerdicts: [String] = []
+
+    public func runKinds() {
+        guard !running else { return }
+        guard let shell = ShellState.debugCurrent, let app = shell.debugAppState,
+              let sid = app.currentSpace?.id else {
+            PortRenderProbe.log("KINDS — no shell/space; abort"); return
+        }
+        running = true
+        kindVerdicts = []
+        PortRenderProbe.log("=== PORT UNITS KINDS — web / terminal / browser ===")
+        nextKind(0, shell: shell, app: app, sid: sid)
+    }
+
+    private func nextKind(_ i: Int, shell: ShellState, app: AppState, sid: String) {
+        let kinds = ["web", "terminal", "browser"]
+        guard i < kinds.count else {
+            let pass = kindVerdicts.allSatisfy { $0.hasSuffix("PASS") }
+            PortRenderProbe.log("KINDS \(pass ? "PASS" : "FAIL")  [\(kindVerdicts.joined(separator: " · "))]")
+            running = false
+            return
+        }
+        let kind = kinds[i]
+        guard let run = acquireKind(kind, app: app, sid: sid) else {
+            kindVerdicts.append("\(kind) FAIL")
+            PortRenderProbe.log("KINDS \(kind) — could not acquire a tile; FAIL")
+            nextKind(i + 1, shell: shell, app: app, sid: sid)
+            return
+        }
+        // Let the unit mount; a fabricated same-space birth peeks — clear the peek entry so
+        // the unit settles to a plain tile (geometry only; the mounted view is untouched).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if let p = shell.peekingPorts.first(where: { $0.id == run.id }) { shell.dismissPeek(p) }
+            self.cycleOneKind(run, shell: shell, app: app) {
+                self.nextKind(i + 1, shell: shell, app: app, sid: sid)
+            }
+        }
+    }
+
+    /// An existing tiled non-chat panel of this kind with a live view, else a fabricated one.
+    private func acquireKind(_ kind: String, app: AppState, sid: String) -> KindRun? {
+        if let p = app.portWindows.panels.first(where: {
+            $0.spaceId == sid && $0.presentation == "tiled" && !$0.isChatPort
+                && $0.portType == kind && app.portWindows.hostView(for: $0.id) != nil
+        }) { return KindRun(kind: kind, id: p.id, fabricated: false) }
+        let stamp = String(UUID().uuidString.prefix(6))
+        switch kind {
+        case "web":
+            let id = "kind-web-\(stamp)"
+            _ = app.portWindows.registerTiledPort(
+                id: id,
+                html: "<html><title>kind web</title><body style=\"background:#102a1a;color:#9f9;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh\"><h1>WEB</h1><script>setInterval(()=>{document.title='t'+Date.now()},500)</script></body></html>",
+                spaceId: sid, createdBy: "kinds-harness", title: "kind web", position: nil)
+            return KindRun(kind: kind, id: id, fabricated: true)
+        case "browser":
+            let id = app.portWindows.addTiledBrowserPanel(url: "https://example.com",
+                                                          spaceId: sid, createdBy: "kinds-harness",
+                                                          title: "kind browser")
+            return id.isEmpty ? nil : KindRun(kind: kind, id: id, fabricated: true)
+        case "terminal":
+            guard let id = app.spawnNativeTerminalPort(
+                command: "/bin/zsh", cwd: NSHomeDirectory(), spaceId: sid,
+                title: "kind term", companionName: "kinds-harness",
+                postCard: false, startupCommandOverride: "") else { return nil }
+            return KindRun(kind: kind, id: id, fabricated: true)
+        default: return nil
+        }
+    }
+
+    /// One kind's 10× focus↔space cycle with the probe armed (browser navigates mid-run).
+    private func cycleOneKind(_ run: KindRun, shell: ShellState, app: AppState,
+                              completion: @escaping () -> Void) {
+        PortRenderProbe.reset()
+        PortRenderProbe.enabled = true
+        PortRenderProbe.log("--- KINDS \(run.kind) — target \(run.id.prefix(8)) (\(run.fabricated ? "fabricated" : "existing")) ---")
+        sweep = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
+            Task { @MainActor in PortRenderProbe.checkAll("frame") }
+        }
+        var step = 0
+        func finishKind() {
+            self.sweep?.invalidate(); self.sweep = nil
+            withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
+            let v = PortRenderProbe.violations
+            let verdict = v.isEmpty ? "PASS" : "FAIL"
+            self.kindVerdicts.append("\(run.kind) \(verdict)")
+            PortRenderProbe.log("KINDS \(run.kind) \(verdict)  \(PortRenderProbe.makesDescription)")
+            for viol in v { PortRenderProbe.log("  FAIL(\(viol))") }
+            PortRenderProbe.enabled = false
+            if run.fabricated {
+                shell.surfacedPortIds.remove(run.id)
+                app.portWindows.close(run.id)
+                PortRenderProbe.untrack(run.id)   // closed = correctly windowless, off the watch
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { completion() }
+        }
+        func tick() {
+            guard step < 20 else { finishKind(); return }
+            let toFocus = step % 2 == 0
+            withAnimation(.spring(response: 0.4)) { shell.zoom = toFocus ? .focus(run.id) : .space }
+            // Browser: navigate mid-run — a load must not detach/blank the unit.
+            if run.kind == "browser", step == 9,
+               let wv = app.portWindows.hostView(for: run.id) as? WKWebView {
+                wv.loadHTMLString(
+                    "<html><body style=\"background:#0b2239;color:#8fd;font-family:monospace\"><h1>NAVIGATED MID-CYCLE</h1></body></html>",
+                    baseURL: nil)
+            }
+            step += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                PortRenderProbe.checkAll(toFocus ? "focus" : "space")
+                tick()
+            }
+        }
+        tick()
+    }
+
+    /// Autorun entry for the kinds cycle (launch flag): wait for the shell, then run.
+    public func runKindsWhenReady() {
+        if !running, ShellState.debugCurrent?.debugAppState?.currentSpace != nil {
+            runKinds(); return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runKindsWhenReady() }
     }
 }
 #endif

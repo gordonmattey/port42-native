@@ -22,9 +22,11 @@ struct ShellStateTests {
     /// Register a non-background port on `space` so `selectedPort`/focus has something to target.
     @MainActor
     private func addPort(_ id: String, to space: Space, in state: AppState) {
-        state.portWindows.registerInlinePort(id: id, html: "<title>\(id)</title><div/>",
-                                              spaceId: space.id, createdBy: nil, title: nil,
-                                              anchorMessageId: "m-\(id)")
+        // A TILED port — a desktop unit. Phase 2: only units are focusable (zoomIn skips
+        // anything that isn't on the desktop), so the ladder's focus rung needs a real tile.
+        _ = state.portWindows.registerTiledPort(id: id, html: "<title>\(id)</title><div/>",
+                                                spaceId: space.id, createdBy: nil, title: nil,
+                                                position: nil)
     }
 
     @Test("⌘↑/pinch-out steps focus → space → galaxy, one rung per gesture")

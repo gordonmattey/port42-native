@@ -1190,7 +1190,7 @@ struct RegisteredInlinePortView: View {
     private func popOut() {
         let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
         let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-        manager.promoteInlineToFloating(id: id, in: bounds)
+        manager.undockInline(id: id, in: bounds)
     }
 
     private func focus() {

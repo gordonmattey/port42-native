@@ -315,6 +315,27 @@ public final class ShellState: ObservableObject {
         contextItems.contains { $0.id == id }
     }
 
+    /// Focus is only valid while its target is a desktop unit (Phase 2 — there is no focus
+    /// overlay to catch anything else). Called when the unit set changes: if the focused unit
+    /// left the desktop (closed via API, evaporated, detached, moved away), fall back to the
+    /// space rung instead of a dead focus state (hit-testing off, no backdrop, no exit).
+    public func exitFocusIfGone() {
+        if case .focus(let id) = zoom, !isDesktopUnit(id) {
+            withAnimation(.spring(response: 0.4)) { zoom = .space }
+        }
+    }
+
+    /// Re-home a port to another space (the facade's `move`, plan §3) and clear this desktop's
+    /// peek/adoption residue for it — a moved port is native to its new space, not surfaced.
+    public func movePort(id: String, toSpace sid: String) {
+        appState.portWindows.move(id: id, toSpace: sid)
+        peekingPorts.removeAll { $0.id == id }
+        peekRemaining[id] = nil
+        surfacedPortIds.remove(id)
+        exitFocusIfGone()
+        arrangeBump += 1
+    }
+
     /// Non-background port udids on the current space, in panel order.
     public var currentSpacePortIds: [String] {
         guard let sid = appState.currentSpace?.id else { return [] }
@@ -357,8 +378,13 @@ public final class ShellState: ObservableObject {
             if let pid = hoveredPeekId, let peek = peekingPorts.first(where: { $0.id == pid }) {
                 previewPeek(peek); return
             }
-            // Focus the highlighted desktop tile (chat or a tiled port); else the first port.
-            if let tid = selectedTileId ?? selectedPort { zoom = .focus(tid) }   // nothing ⇒ stay
+            // Focus the highlighted desktop UNIT; else the first unit. Only a desktop unit is
+            // focusable (Phase 2 — the focus overlay is gone): a parked/inline port has no
+            // mounted view to resize, so it can never be a focus target.
+            if let tid = [selectedTileId, selectedPort].compactMap({ $0 }).first(where: isDesktopUnit)
+                        ?? contextItems.first?.id {
+                zoom = .focus(tid)
+            }
         case .focus:
             break                                 // floor — no wraparound
         }

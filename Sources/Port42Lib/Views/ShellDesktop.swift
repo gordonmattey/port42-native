@@ -4,8 +4,9 @@ import WebKit
 
 /// SHELL — S2.2b. The real shell desktop that replaces `ContentView` at the space rung: a Chrome
 /// top bar (§7a) + a grid of tiled ports (the chat is a tile) composited over the dreamscape, plus
-/// a bottom launcher dock. Tiles re-parent their registry webview into the focus overlay with no
-/// reload. Chat is a real `isChatPort` PortPanel rendered as an ordinary tile (no special-casing).
+/// a bottom launcher dock. Every port is ONE persistent unit (Port Units, plan §3): tile / peek /
+/// focus are geometry states of the same mounted view — no reparenting, no focus overlay.
+/// Chat is a real `isChatPort` PortPanel rendered as an ordinary tile (no special-casing).
 
 // MARK: - Chrome (Layer 2 top bar, §7a)
 
@@ -654,8 +655,8 @@ struct ShellParkRail: View {
     @ObservedObject var appState: AppState
     let area: CGSize
 
-    /// Ports put away in the rail. Only `parked` now — there's no in-shell floating; a tile that isn't
-    /// parked is on the desktop. One click docks a parked port back to a tile.
+    /// Ports put away in the rail. Only `parked` — the shell has NO floating presentation
+    /// (Phase 2): a port here is tiled, parked, or peeking. One click restores a chip to a tile.
     private var railPanels: [PortPanel] {
         guard let sid = appState.currentSpace?.id else { return [] }
         let allowed = Set([sid] + shell.openDMSpaceIds)              // parked DM tiles dock here too
@@ -687,20 +688,19 @@ struct ShellParkRail: View {
     }
 
     private func chip(_ p: PortPanel) -> some View {
-        let floating = p.presentation == "floating"
-        return Button {
-            if floating { appState.portWindows.dockToTile(id: p.id) } else { appState.portWindows.unpark(id: p.id) }
+        Button {
+            appState.portWindows.unpark(id: p.id)
             shell.arrangeBump += 1
         } label: {
             VStack(spacing: 4) {
-                Image(systemName: floating ? "macwindow" : "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
+                Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
                 Text(p.title.prefix(6)).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 8)
             .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(shell.accent.opacity(0.3), lineWidth: 1))
         }
-        .buttonStyle(.plain).help(floating ? "Dock \(p.title) back to a tile" : "Restore \(p.title)")
+        .buttonStyle(.plain).help("Restore \(p.title)")
         .padding(.horizontal, 6)
     }
 
@@ -768,10 +768,10 @@ struct ShellBrowserTile: View {
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
             }
-            .padding(.horizontal, 10).frame(height: 34)
+            .padding(.horizontal, 10).frame(height: ShellPlacement.browserBarH)
             .background(Port42Theme.shellCard)
             .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
-            ShellPortHost(view: webView, probeId: probeId)
+            ShellPortHost(view: webView, probeId: probeId)   // page rect = unit content − bar
         }
     }
 
@@ -822,74 +822,8 @@ struct ShellPortHost: NSViewRepresentable {
     }
 }
 
-// MARK: - Focus content (the immersive single port; same webview, re-parented)
-
-struct ShellFocusContent: View {
-    @ObservedObject var shell: ShellState
-    @ObservedObject var appState: AppState
-    let id: String
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.9).ignoresSafeArea()
-                .onTapGesture { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    if let dm = dmCompanion {                         // DM → show the partner, not a generic dot
-                        Circle().fill(ShellDock.avatarColor(dm.id).gradient).frame(width: 18, height: 18)
-                            .overlay(Text(String(dm.displayName.prefix(1)).uppercased()).font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
-                    } else {
-                        Circle().fill(focusAccent).frame(width: 8, height: 8)
-                    }
-                    Text(title).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
-                    Text(dmCompanion != nil ? "· DM" : "· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                    Spacer()
-                    Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } } label: {
-                        Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
-                    }.buttonStyle(.plain).help("Exit focus (Esc)")
-                }.padding(.horizontal, 16).padding(.vertical, 11).background(Port42Theme.shellCard)
-                body(for: id)
-            }
-            .frame(width: NSScreen.main.map { $0.frame.width * 0.78 } ?? 1100,
-                   height: NSScreen.main.map { $0.frame.height * 0.8 } ?? 700)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(focusAccent.opacity(0.5), lineWidth: 1))
-            .shadow(color: focusAccent.opacity(0.4), radius: 50)
-        }
-    }
-
-    private var panel: PortPanel? { appState.portWindows.panels.first { $0.id == id } }
-    /// A focused port from ANOTHER space keeps its home-space accent (so it reads as foreign there too).
-    private var focusAccent: Color {
-        guard let s = panel?.spaceId, s != appState.currentSpace?.id,
-              let space = appState.spaces.first(where: { $0.id == s }) else { return shell.accent }
-        return shell.accent(for: space)
-    }
-    /// The DM partner when focusing a chat that belongs to a 2-member `direct` space (else nil).
-    /// Derived from the TILE's own space, so it works for a DM surfaced over a non-direct desktop.
-    private var dmCompanion: AgentConfig? {
-        guard panel?.isChatPort == true, let sid = panel?.spaceId else { return nil }
-        let isDirect = shell.openDMSpaceIds.contains(sid)
-            || (sid == appState.currentSpace?.id && appState.currentSpace?.type == "direct")
-        guard isDirect else { return nil }
-        return appState.companions(forSpace: sid).first
-    }
-    private var title: String { dmCompanion?.displayName ?? panel?.title ?? "port" }
-
-    @ViewBuilder
-    private func body(for id: String) -> some View {
-        if panel?.isChatPort == true {
-            ZStack(alignment: .top) {                                    // same member strip as the tile
-                ChatView(spaceId: panel?.spaceId).environmentObject(appState).padding(.top, 26)
-                ShellMemberRow(shell: shell, appState: appState, accent: shell.accent, spaceId: panel?.spaceId)
-            }
-        } else if let p = panel, let v = appState.portWindows.hostView(for: p.id) {
-            ShellPortHost(view: v, bridge: p.bridge, probeId: p.id)
-        } else {
-            Color.black
-        }
-    }
-}
+// (ShellFocusContent is deleted — Phase 2. Focus is the `.focus` chrome of the unit already
+// mounted in the desktop ForEach; there is no second mount and no focus overlay.)
 
 // MARK: - Dock (companions | ports)
 

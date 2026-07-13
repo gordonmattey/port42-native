@@ -60,13 +60,13 @@ struct RegisteredInlinePortTests {
         #expect(!saved.contains(where: { $0.id == "p1" }))
     }
 
-    @Test("promoteInlineToFloating flips presentation to floating")
+    @Test("classic undock flips presentation to floating")
     @MainActor
     func promotes() throws {
         let (manager, _) = try makeManager()
         manager.registerInlinePort(id: "p1", html: "<div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
-        manager.promoteInlineToFloating(id: "p1", in: CGSize(width: 800, height: 600))
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
         let panel = try #require(manager.panels.first(where: { $0.id == "p1" }))
         #expect(panel.presentation == "floating")
         // The same webview survives — promotion re-parents, never recreates.
@@ -79,7 +79,7 @@ struct RegisteredInlinePortTests {
         let (manager, state) = try makeManager()
         manager.registerInlinePort(id: "p1", html: "<div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
-        manager.promoteInlineToFloating(id: "p1", in: CGSize(width: 800, height: 600))
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
         let saved = try state.db.fetchPortPanels()
         #expect(saved.contains(where: { $0.id == "p1" }))
     }
@@ -92,7 +92,7 @@ struct RegisteredInlinePortTests {
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         let inlineSize = try #require(manager.panels.first(where: { $0.id == "p1" })).size
         #expect(inlineSize.width < 200)  // registered tiny
-        manager.promoteInlineToFloating(id: "p1", in: CGSize(width: 800, height: 600))
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
         let floatingSize = try #require(manager.panels.first(where: { $0.id == "p1" })).size
         #expect(floatingSize.width >= 200)
         #expect(floatingSize.height >= 150)

@@ -483,7 +483,7 @@ public final class ToolExecutor {
                 if panel.presentation == "inline" {
                     let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
                     let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-                    appState.portWindows.promoteInlineToFloating(id: panel.id, in: bounds)
+                    appState.portWindows.undockInline(id: panel.id, in: bounds)
                     return [textBlock("Popped out '\(panel.title)'")]
                 }
                 if appState.portWindows.restore(panel.id) {

@@ -4,15 +4,17 @@ Fix the shell's shared-webview rendering so tiles, peeks, and focus stop blankin
 root cause is architectural; this replaces reparenting with a single persistent,
 absolutely-positioned per-port unit whose geometry is state-driven.
 
-Status: **Phases 0 + 1 BUILT and Tier-B-PASSED (2026-07-10).** Spikes 1+2+3 passed (I1/I2/I6);
-the probe was calibrated on the old code (FAIL: 19 remakes + 2 windowless), then Phase 0 flipped
-the focus cycle to PASS, and Phase 1 flipped the **original grey repro** (preview 1 → out → 2 →
-out → 1 → out → keep) to PASS — make==1 per peek, zero windowless, adopt without remount. The
-same-space gap's root cause (external `port.create` defaulted to an inline chat fence) is fixed:
-shell-mode default is `tiled`, same-space births peek. Tier A: 18 port-unit tests, 55 green
-across the shell suites. Phase 0 committed (`d752ace`); Phase 1 in the working tree. Remaining:
-Tier C eyeball for both phases + a terminal-frontmost cycle re-run. Next: Phase 2 — collapse
-`ShellFocusContent`'s webview path + remaining reparent workarounds.**
+Status: **Phases 0 + 1 committed (`d752ace`, `0cceb6b`); Phase 2 BUILT and Tier-B-PASSED
+(2026-07-12) — `KINDS PASS [web · terminal · browser]`, cycle + peek repro re-ran PASS.** Spikes 1+2+3 passed (I1/I2/I6); the probe was
+calibrated on the old code (FAIL: 19 remakes + 2 windowless), Phase 0 flipped the focus cycle to
+PASS, Phase 1 flipped the **original grey repro** to PASS (make==1 per peek, zero windowless,
+adopt without remount) and fixed the same-space gap (shell-mode `port.create` defaults to
+`tiled`; same-space births peek). Phase 2 deleted `ShellFocusContent` + the focus overlay
+(focus targets are units by construction), eliminated the shell's "floating" presentation
+entirely (undock = tile; legacy rows normalize at restore), pulled `move` (re-home) forward,
+and added the per-kind Tier B harness ("Port Units — kinds"). **Decided: classic mode will be
+retired as its own task after this refactor.** Remaining: Phase 2 Tier B run + Tier C eyeball
+(all phases), then Phase 3 — regression sweep + adoption persistence.
 
 **Spike result (I1 + I2 validated).** A throwaway floating panel
 (`PortResizeSpike.swift`, Debug menu → "Port Resize Spike") hosts one persistent
@@ -428,10 +430,45 @@ currentSpace`, deduped so it doesn't double with the space's own tiles.
 **Gate (§9 Phase 1):** the in-code peek repro assertion — if `window` ever goes nil, the root
 cause isn't fixed; **stop**. Plus: a peek addressed to the current space surfaces (does not vanish).
 
-### Phase 2 — collapse / cleanup
+### Phase 2 — collapse / cleanup — ⬅ CODE COMPLETE + Tier B PASSED (2026-07-12); Tier C pending
+> **As built:** `ShellFocusContent` + the ShellView focus-overlay branch are DELETED — focus is
+> only ever the `.focus` chrome of a mounted unit. Made unreachable-by-construction, not by hope:
+> `zoomIn` skips any non-unit target (falls back to the first `contextItem`; parked/inline ports
+> can't be focused), and `exitFocusIfGone` (ShellView watches `contextItems` ids) snaps focus →
+> space when the focused unit leaves the desktop (closed via API, evaporated, moved) — no stuck
+> hit-test state. ShellView simplified: `desktopTileFocused` collapsed into `focusShown`,
+> click-shield only for the galaxy, `allowsHitTesting(zoom != .galaxy)`.
+> **The shell has NO floating presentation** (the "floating limbo" — flagged floating with
+> createWindow suppressed = invisible port — is eliminated at every entrance): `undockInline`
+> (renamed from `promoteInlineToFloating`) lands a TILE in shell mode (a tile IS the port's
+> window; classic mode still floats until it's retired); restored legacy "floating" rows
+> normalize to tiled in `showRestoredFloatingPanels` (breaking-change OK per GM); dead code
+> deleted — `popOutTiled` (no callers), `dockToTile` + the park-rail chip's floating branch
+> (unreachable), `createWindow`'s `force:` path. **Decision (2026-07-12): classic mode will be
+> retired entirely** (ContentView + the NSPanel/floating layer) as its own planned task after
+> this refactor lands.
+> **`move` pulled in from Phase 3's Act III** (GM call): `PortWindowManager.move(id:toSpace:)`
+> re-homes by rewriting the persisted `spaceId` (+ the bridge's), no migration needed;
+> `ShellState.movePort` clears peek/adoption residue and exits a stale focus. (`adoptedSpaceIds`
+> adoption-persistence remains Phase 3.) `browserBarH` hoisted into `ShellPlacement` (page rect =
+> unit content − bar).
+> **Gate:** Tier A ✅ — 10 new Phase 2 tests (zoomIn unit-guard ×2, exitFocusIfGone, shell/classic
+> undock, restore normalization, move ×3, browser bar); `ReParentStability` rewritten to the new
+> transitions (inline→tiled shell undock replaces the deleted tiled↔floating round-trip);
+> `ShellStateTests.addPort` now registers a TILED port (only units are focusable). Full suite:
+> 646 tests, only the known pre-existing failures (agent routing / CLI presets / sender-owner /
+> app-state) · **Tier B ✅ PASS** (2026-07-12, `/tmp/portunit.log`) — the new "Port Units — kinds"
+> harness (`PORT42_PROBE_KINDS_AUTORUN` or Debug menu): per-kind 10× focus↔space cycles printed
+> `KINDS PASS [web PASS · terminal PASS · browser PASS]` — zero remakes, zero windowless, browser
+> navigating MID-cycle; the Phase 0 cycle + Phase 1 peek repro re-ran PASS the same session (no
+> regression). Instrument fix found by the first run: a harness-closed fabricated port stayed on
+> the probe's watch and its dead view false-positived the NEXT kind's sweep — `PortRenderProbe.
+> untrack(id)` now removes closed ports (closed = correctly windowless) · Tier C ⏳ (browser
+> focus feel, terminal typing, gateway undock landing visibly as a tile).
 Remove `ShellFocusContent`'s webview path; terminals + browser + chat onto the unit. Delete the
 remaining reparent workarounds.
-**Gate (§9 Phase 2):** all three port kinds green on Tier B; no orphaned old-path code remains.
+**Gate (§9 Phase 2):** all three port kinds green on Tier B; no orphaned old-path code remains
+(grep-proven: `ShellFocusContent` / `popOutTiled` / `dockToTile` / `promoteInlineToFloating` — zero hits).
 
 ### Phase 3 — regression sweep + persistence
 Full-desktop regression (arrange / exposé / drag / space-switch) + `adoptedSpaceIds` persistence

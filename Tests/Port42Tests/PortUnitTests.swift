@@ -246,3 +246,164 @@ struct PortUnitPeekTests {
         #expect(shell.isDesktopUnit("kp"))                      // now a tile of this desktop
     }
 }
+
+/// Tier A for Phase 2 — collapse/cleanup (§9): focus can ONLY target desktop units (the
+/// focus overlay + `ShellFocusContent` are deleted — a compile-time fact), the shell has no
+/// "floating" presentation (undock lands a tile; legacy rows normalize at restore), and
+/// `move` re-homes a port by rewriting its persisted `spaceId`.
+@Suite("Port Units — collapse (Phase 2)")
+struct PortUnitCollapseTests {
+
+    @MainActor
+    private func makeState() throws -> (ShellState, AppState) {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        return (ShellState(appState: state), state)
+    }
+
+    @Test("zoomIn skips a non-unit selection and falls back to a desktop unit")
+    @MainActor
+    func zoomInSkipsNonUnits() throws {
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        _ = state.portWindows.registerTiledPort(id: "t1", html: "<title>t1</title>", spaceId: space.id,
+                                                createdBy: nil, title: "t1", position: nil)
+        _ = state.portWindows.registerTiledPort(id: "p1", html: "<title>p1</title>", spaceId: space.id,
+                                                createdBy: nil, title: "p1", position: nil)
+        state.portWindows.park(id: "p1")                        // p1 leaves the desktop
+
+        shell.selectedTileId = "p1"                             // stale selection on a parked port
+        shell.zoomIn()
+        #expect(shell.zoom == .focus("t1"))                     // fell back to a real unit
+    }
+
+    @Test("zoomIn with no units stays at the space rung (never a dead focus)")
+    @MainActor
+    func zoomInNoUnitsStays() throws {
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        _ = state.portWindows.registerTiledPort(id: "p1", html: "<title>p1</title>", spaceId: space.id,
+                                                createdBy: nil, title: "p1", position: nil)
+        state.portWindows.park(id: "p1")                        // the only port is parked
+
+        shell.zoomIn()
+        #expect(shell.zoom == .space)
+    }
+
+    @Test("exitFocusIfGone: focus snaps to space when the focused unit leaves the desktop")
+    @MainActor
+    func exitFocusWhenUnitGone() throws {
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        _ = state.portWindows.registerTiledPort(id: "f1", html: "<title>f1</title>", spaceId: space.id,
+                                                createdBy: nil, title: "f1", position: nil)
+        shell.zoom = .focus("f1")
+
+        shell.exitFocusIfGone()
+        #expect(shell.zoom == .focus("f1"))                     // still a unit — untouched
+
+        state.portWindows.close("f1")                           // closed out from under the focus
+        shell.exitFocusIfGone()
+        #expect(shell.zoom == .space)
+    }
+
+    @Test("shell undock lands a tile — there is no floating presentation in the shell")
+    @MainActor
+    func shellUndockTiles() throws {
+        let (_, state) = try makeState()
+        _ = state.portWindows.registerInlinePort(id: "i1", html: "<title>i1</title>", spaceId: "s1",
+                                                 createdBy: nil, title: "i1", anchorMessageId: nil)
+
+        state.portWindows.undockInline(id: "i1", in: CGSize(width: 800, height: 600), shellMode: true)
+        let p = try #require(state.portWindows.panels.first { $0.id == "i1" })
+        #expect(p.presentation == "tiled")
+        #expect(p.size.width >= 200 && p.size.height >= 150)    // outgrew its 100×100 inline seed
+    }
+
+    @Test("classic undock still floats (until classic mode is retired)")
+    @MainActor
+    func classicUndockFloats() throws {
+        let (_, state) = try makeState()
+        _ = state.portWindows.registerInlinePort(id: "i2", html: "<title>i2</title>", spaceId: "s1",
+                                                 createdBy: nil, title: "i2", anchorMessageId: nil)
+
+        state.portWindows.undockInline(id: "i2", in: CGSize(width: 800, height: 600), shellMode: false)
+        #expect(state.portWindows.panels.first { $0.id == "i2" }?.presentation == "floating")
+    }
+
+    @Test("restored floating ports normalize to tiles in shell mode (no limbo)")
+    @MainActor
+    func restoredFloatingNormalizes() throws {
+        let (_, state) = try makeState()
+        _ = state.portWindows.registerInlinePort(id: "fl", html: "<title>fl</title>", spaceId: "s1",
+                                                 createdBy: nil, title: "fl", anchorMessageId: nil)
+        state.portWindows.undockInline(id: "fl", in: CGSize(width: 800, height: 600), shellMode: false)
+        #expect(state.portWindows.panels.first { $0.id == "fl" }?.presentation == "floating")
+
+        state.portWindows.showRestoredFloatingPanels(shellMode: true)
+        #expect(state.portWindows.panels.first { $0.id == "fl" }?.presentation == "tiled")
+    }
+
+    @Test("move re-homes a port: it renders in the new space, not the old")
+    @MainActor
+    func moveRehomes() throws {
+        let (shell, state) = try makeState()
+        let a = Space.create(name: "a"); let b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        _ = state.portWindows.registerTiledPort(id: "m1", html: "<title>m1</title>", spaceId: a.id,
+                                                createdBy: nil, title: "m1", position: nil)
+        #expect(shell.isDesktopUnit("m1"))
+
+        shell.movePort(id: "m1", toSpace: b.id)
+        #expect(!shell.isDesktopUnit("m1"))                     // gone from A's desktop
+        #expect(state.portWindows.panels.first { $0.id == "m1" }?.spaceId == b.id)
+        #expect(state.portWindows.panels.first { $0.id == "m1" }?.bridge.spaceId == b.id)
+
+        state.currentSpace = b
+        #expect(shell.isDesktopUnit("m1"))                      // native in B
+    }
+
+    @Test("move exits a stale focus and clears peek/adoption residue")
+    @MainActor
+    func moveClearsResidue() throws {
+        let (shell, state) = try makeState()
+        let a = Space.create(name: "a"); let b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        _ = state.portWindows.registerTiledPort(id: "m2", html: "<title>m2</title>", spaceId: b.id,
+                                                createdBy: "someone", title: "m2", position: nil)
+        shell.handlePortCreated(id: "m2", spaceId: b.id, title: "m2")   // peeks into A
+        shell.previewPeek(shell.peekingPorts[0])                        // focused
+        #expect(shell.zoom == .focus("m2"))
+
+        shell.movePort(id: "m2", toSpace: b.id)                 // re-home while focused
+        #expect(shell.zoom == .space)                           // focus exited (unit left A)
+        #expect(shell.peekingPorts.isEmpty)
+        #expect(!shell.surfacedPortIds.contains("m2"))
+    }
+
+    @Test("move survives a restart (spaceId is the persisted column)")
+    @MainActor
+    func movePersists() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let shell = ShellState(appState: state)
+        let a = Space.create(name: "a"); let b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        _ = state.portWindows.registerTiledPort(id: "m3", html: "<title>m3</title>", spaceId: a.id,
+                                                createdBy: nil, title: "m3", position: nil)
+        shell.movePort(id: "m3", toSpace: b.id)
+
+        let restored = try db.fetchPortPanels()
+        #expect(restored.first { $0.id == "m3" }?.spaceId == b.id)
+    }
+
+    @Test("browser page rect = unit content minus the address bar")
+    func browserContentRect() {
+        let unit = ShellPlacement.focusRect(in: CGSize(width: 1000, height: 800))
+        #expect(ShellPlacement.browserBarH == 34)
+        #expect(unit.height - ShellPlacement.browserBarH > 0)
+    }
+}

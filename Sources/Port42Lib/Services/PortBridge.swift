@@ -14,7 +14,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     private(set) weak var webView: WKWebView?
     private weak var appState: AnyObject?  // AppState, weakly held to avoid import cycle
-    public let spaceId: String?
+    /// The port's home space. Updated by `PortWindowManager.move` when a port is re-homed, so
+    /// API calls / permissions keep attributing to the space the port actually lives in.
+    public internal(set) var spaceId: String?
     public let messageId: String?
     public let createdBy: String?
 
@@ -822,7 +824,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             case "restore", "undock":
                 // Step 8: undock on an inline port pops it out (re-parents its live webview, no reload).
                 if panel.presentation == "inline" {
-                    state.portWindows.promoteInlineToFloating(id: panel.id, in: CGSize(width: 800, height: 600))
+                    state.portWindows.undockInline(id: panel.id, in: CGSize(width: 800, height: 600))
                     return ["ok": true]
                 }
                 return ["ok": state.portWindows.restore(panel.id)]

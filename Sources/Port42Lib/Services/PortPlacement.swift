@@ -35,6 +35,9 @@ public enum ShellPlacement {
     public static let peekCorner: CGFloat = 11
     /// A peek unit's footprint (Phase 1): the old rail tile — 24pt header + 116pt live content.
     public static let peekSize = CGSize(width: 210, height: 140)
+    /// A browser unit's address bar height (Phase 2): the page rect is the unit's content
+    /// rect minus this bar — the bar is chrome, part of the unit, never a second mount.
+    public static let browserBarH: CGFloat = 34
 
     /// The rail slot for the Nth peek (Phase 1): stacked from the top-left, under the Chrome,
     /// replacing the old rail `VStack`. Pure so peeks are absolutely positioned like any unit.
@@ -43,8 +46,8 @@ public enum ShellPlacement {
                width: peekSize.width, height: peekSize.height)
     }
 
-    /// The focus card: 0.78×0.8 of the desktop area, centered — the same proportions
-    /// `ShellFocusContent` used, but derived from the AREA (headless, no NSScreen).
+    /// The focus card: 0.78×0.8 of the desktop area, centered — the old focus overlay's
+    /// proportions, but derived from the AREA (headless, no NSScreen).
     nonisolated public static func focusRect(in area: CGSize) -> CGRect {
         let w = area.width * 0.78, h = area.height * 0.8
         return CGRect(x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h)
