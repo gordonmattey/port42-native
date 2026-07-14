@@ -4,11 +4,13 @@ Fix the shell's shared-webview rendering so tiles, peeks, and focus stop blankin
 root cause is architectural; this replaces reparenting with a single persistent,
 absolutely-positioned per-port unit whose geometry is state-driven.
 
-Status: **Phases 0–3 BUILT and Tier-B-PASSED (0+1 committed `d752ace`/`0cceb6b`, 2 committed
-`ed5b8e6`, 3 in the working tree).** Phase 3's `DESKTOP PASS` (2026-07-14) closed the last
-Tier B gate — and caught a real dual-mount bug on the way (a tiled port's chat anchor stealing
-its webview; fixed). Remaining: Tier C eyeball across all phases, then the classic-mode
-retirement task. Spikes 1+2+3 passed (I1/I2/I6); the probe was
+Status: **COMPLETE (2026-07-14).** All four phases committed (`d752ace`, `0cceb6b`, `ed5b8e6`,
+`bdbce55`), every Tier B gate PASSED, and **Tier C signed off live**: the original grey repro run
+by hand (no grey), same-space + cross-space peeks fired via the gateway (origin accents, live
+counters, drag-to-keep), and the restart check — a kept foreign port restored on its adopter's
+desktop after relaunch (adoption persisted). Phase 3's sweep also caught + fixed a real
+dual-mount bug (a tiled port's chat anchor stealing its webview). Next: the classic-mode
+retirement task (its own plan). Spikes 1+2+3 passed (I1/I2/I6); the probe was
 calibrated on the old code (FAIL: 19 remakes + 2 windowless), Phase 0 flipped the focus cycle to
 PASS, Phase 1 flipped the **original grey repro** to PASS (make==1 per peek, zero windowless,
 adopt without remount) and fixed the same-space gap (shell-mode `port.create` defaults to
