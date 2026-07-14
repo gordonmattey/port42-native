@@ -15,8 +15,10 @@ struct ShellChrome: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
+        // Every element sits in a 26pt-tall container (chromeRow) so all their vertical
+        // centers coincide — intrinsic sizes differ (Menu, padded capsule, bare icons).
         HStack(spacing: 16) {
-            markMenu
+            chromeRow { markMenu }
             // ✨ + active-space name → toggles the galaxy (the only way up).
             Button {
                 withAnimation(.spring(response: 0.4)) {
@@ -30,6 +32,7 @@ struct ShellChrome: View {
                 .padding(.horizontal, 11).padding(.vertical, 4)
                 .background(shell.accent.opacity(shell.zoom == .galaxy ? 0.2 : 0.12), in: Capsule())
                 .overlay(Capsule().stroke(shell.accent.opacity(shell.zoom == .galaxy ? 0.7 : 0.4), lineWidth: 1))
+                .frame(height: 26)
             }
             .buttonStyle(.plain).help("All spaces (⌘↑ / pinch out)")
 
@@ -40,13 +43,13 @@ struct ShellChrome: View {
 
             // Same order as the pre-shell header cluster: status dots → pause → usage → settings.
             // (Power/sign-out/reset moved to the PORT42 mark menu on the left.)
-            statusCluster                                    // gateway · tunnel · auth-key
+            chromeRow { statusCluster }                      // gateway · tunnel · auth-key
             stopAllButton                                    // kill switch for every companion call
             chromeButton("chart.bar", "Token usage") { shell.showUsage = true }
             chromeButton("gearshape", "Settings") { shell.showSettings = true }
 
-            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20)
-            profileChip                                      // name + PFP, far right
+            chromeRow { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20) }
+            chromeRow { profileChip }                        // name + PFP, far right
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .background(.black.opacity(0.45))
@@ -76,6 +79,11 @@ struct ShellChrome: View {
             .frame(width: 24, height: 24)                 // hit box around the diamond
             .shadow(color: shell.accent.opacity(0.8), radius: 5)
             .contentShape(Rectangle())
+    }
+
+    /// The Chrome's uniform 26pt row container — centers any element on the shared axis.
+    private func chromeRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content().frame(height: 26)
     }
 
     private func chromeButton(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
