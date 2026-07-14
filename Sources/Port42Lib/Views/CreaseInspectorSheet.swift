@@ -5,6 +5,9 @@ import SwiftUI
 public struct CreaseInspectorSheet: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    /// Set when hosted as a shell overlay (not a system sheet) — closing runs this instead
+    /// of the environment dismiss, which is a no-op outside a sheet.
+    var onClose: (() -> Void)? = nil
 
     let companion: AgentConfig
     let spaceId: String
@@ -22,9 +25,10 @@ public struct CreaseInspectorSheet: View {
         case engravings = "engravings"
     }
 
-    public init(companion: AgentConfig, spaceId: String) {
+    public init(companion: AgentConfig, spaceId: String, onClose: (() -> Void)? = nil) {
         self.companion = companion
         self.spaceId = spaceId
+        self.onClose = onClose
     }
 
     public var body: some View {
@@ -40,7 +44,7 @@ public struct CreaseInspectorSheet: View {
                         .foregroundStyle(Port42Theme.textSecondary)
                 }
                 Spacer()
-                Button(action: { dismiss() }) {
+                Button(action: { if let onClose { onClose() } else { dismiss() } }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12))
                         .foregroundStyle(Port42Theme.textSecondary)
@@ -82,7 +86,7 @@ public struct CreaseInspectorSheet: View {
             }
         }
         .frame(width: 460, height: 540)
-        .background(Port42Theme.bgPrimary)
+        .background(Port42Theme.shellCard)
         .onAppear { loadState() }
     }
 

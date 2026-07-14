@@ -36,6 +36,18 @@ public final class ShellState: ObservableObject {
 
     /// Show the New Companion form as a shell overlay (not a macOS sheet). Set from the dock's ＋ menu.
     @Published public var showNewCompanion: Bool = false
+    /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.
+    @Published public var showQuickSwitcher: Bool = false
+
+    /// A companion whose epistemic memory (fold/position/creases/engravings) is being
+    /// inspected — the classic swim window's eye icon, re-homed to the chat member strip.
+    /// Space-scoped: the inspector reads the relationship state of THAT chat's space.
+    public struct InspectTarget: Identifiable {
+        public let companion: AgentConfig
+        public let spaceId: String
+        public var id: String { companion.id + spaceId }
+    }
+    @Published public var inspecting: InspectTarget?
     /// The global Settings panel (the app's SignOutSheet) surfaced as a shell overlay.
     @Published public var showSettings: Bool = false
     /// The Token Usage panel (UsageSheet) surfaced as a shell overlay.
@@ -277,7 +289,8 @@ public final class ShellState: ObservableObject {
         guard let sid = appState.currentSpace?.id else { return [] }
         let allowed = Set([sid] + openDMSpaceIds)
         return appState.portWindows.panels.filter { p in
-            p.presentation == "tiled" && (allowed.contains(p.spaceId ?? "") || p.adoptedSpaceIds.contains(sid))
+            p.presentation == "tiled" && !p.isBackground
+                && (allowed.contains(p.spaceId ?? "") || p.adoptedSpaceIds.contains(sid))
         }
     }
 

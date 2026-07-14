@@ -9,9 +9,9 @@ code fence — it becomes a registered port and renders inline. Include a <title
 include a port in a reply; port.create is the imperative, addressable path that also makes terminals.)
 
 ONE PORT, TWO PRESENTATIONS: a port is the same registered entity (one id, one live surface)
-whether shown inline in chat or floating in a window. port.manage(id, "undock") pops an inline
+whether shown inline in chat or as a tile on the shell desktop. port.manage(id, "undock") pops an inline
 port out by re-parenting its live surface into a window — no reload, DOM/JS state preserved. A
-floating port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
+desktop port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
 [terminal:id] card) so it keeps its place in the conversation.
 
 Drive any port with port.push (data → web ports, raw keystrokes → terminals), list with
@@ -83,7 +83,7 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
                                     type "terminal": opts.command (e.g. "bash"|"htop"|"claude"),
                                                      opts.args?, opts.cwd?, opts.systemPrompt?, opts.env?
   ports.list(capabilities?)       → [{ id, title, capabilities, status, createdBy, cwd?, surfaceBound?, x?, y? }]
-                                    status: 'floating' | 'docked' | 'inline'. Terminal ports report
+                                    status: 'tiled' | 'parked' | 'docked' | 'inline'. Terminal ports report
                                     surfaceBound. Filter terminals with capabilities: ["terminal"].
   port.push(id, data)            → send input to a port (type-dispatched): a WEB port receives a
                                     'port42:data' CustomEvent (event.detail); a TERMINAL port receives
@@ -94,8 +94,8 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
   port.history(id)                → [{ version, createdBy, createdAt }]
   port.manage(id, action)         → focus | close | dock | undock
   port.restore(id, version)       → roll back to a previous version
-  port.move(id, x, y)            → move a floating port (macOS coords: Y=0 is bottom)
-  port.position(id)              → { x, y, width, height } of a floating port
+  port.move(id, x, y)            → move a port's tile on the desktop
+  port.position(id)              → { x, y, width, height } of a port's tile
   port.exec(id, js)              → execute JS on a port's webview, returns result
   port.rename(id, title)         → rename a port by ID
 

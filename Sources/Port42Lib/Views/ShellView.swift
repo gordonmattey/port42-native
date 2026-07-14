@@ -20,6 +20,8 @@ public struct ShellView: View {
     }
 
     @State private var monitors: [Any] = []
+    /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
+    @State private var switcherSpaceId: String?
 
     private var galaxyShown: Bool { shell.zoom == .galaxy }
     /// Focus IS a desktop state (Phase 2): every focusable id is a unit, and focus resizes that
@@ -94,6 +96,18 @@ public struct ShellView: View {
                 ShellNewCompanionView(shell: shell, appState: appState).zIndex(210)
             }
 
+            // Quick Switcher (⌘K) — fuzzy jump across spaces/companions, migrated from the
+            // classic app as a shell overlay. The scrim dismisses; selection lands at .space.
+            if shell.showQuickSwitcher {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.45).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { shell.showQuickSwitcher = false }
+                    QuickSwitcher(isPresented: $shell.showQuickSwitcher, shell: shell)
+                        .environmentObject(appState)
+                        .padding(.top, 120)
+                }.zIndex(215)
+            }
+
             // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
             // across; sections to be revisited for the shell over time).
             if shell.showSettings {
@@ -101,6 +115,44 @@ public struct ShellView: View {
                     Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
                         .onTapGesture { shell.showSettings = false }
                     SignOutSheet(isPresented: $shell.showSettings, accent: shell.accent)
+                        .environmentObject(appState)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.6), radius: 40)
+                }.zIndex(220)
+            }
+
+            // Bring-Your-Own-Agent flow (invite deep links) — the classic sheets, hosted as
+            // shell overlays: an encrypted space invite opens the connect card, which chains
+            // into the Python/LangChain or OpenClaw snippet card.
+            if appState.showAgentConnectSheet, let space = appState.agentConnectSpace {
+                shellSheetOverlay(isPresented: $appState.showAgentConnectSheet) {
+                    AgentConnectSheet(isPresented: $appState.showAgentConnectSheet,
+                                      space: space, inviteURL: appState.agentConnectInviteURL)
+                        .environmentObject(appState)
+                }
+            }
+            if appState.showPythonAgentSheet, let space = appState.pythonAgentSpace {
+                shellSheetOverlay(isPresented: $appState.showPythonAgentSheet) {
+                    PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, space: space)
+                        .environmentObject(appState)
+                }
+            }
+            if appState.showOpenClawSheet, let space = appState.openClawSpace {
+                shellSheetOverlay(isPresented: $appState.showOpenClawSheet) {
+                    OpenClawSheet(isPresented: $appState.showOpenClawSheet, space: space)
+                        .environmentObject(appState)
+                }
+            }
+
+            // Epistemic-memory inspector (the eye in a chat's member strip) — same shell
+            // overlay chrome as Settings/Usage: scrim, rounded card, accent stroke, glow.
+            if let target = shell.inspecting {
+                ZStack {
+                    Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
+                        .onTapGesture { shell.inspecting = nil }
+                    CreaseInspectorSheet(companion: target.companion, spaceId: target.spaceId,
+                                         onClose: { shell.inspecting = nil })
                         .environmentObject(appState)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
@@ -125,6 +177,18 @@ public struct ShellView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
             shell.showSettings = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .quickSwitcherRequested)) { _ in
+            shell.showQuickSwitcher.toggle()          // ⌘K — migrated from the classic app
+        }
+        // The switcher changed the space → land on the desktop rung (galaxy/focus would
+        // otherwise linger over the new space). Scoped to switcher closes, so a space
+        // change from galaxy management (e.g. delete) never yanks the ladder.
+        .onChange(of: shell.showQuickSwitcher) { _, showing in
+            if showing { switcherSpaceId = appState.currentSpace?.id }
+            else if switcherSpaceId != appState.currentSpace?.id {
+                withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
+            }
+        }
         .animation(.spring(response: 0.4), value: shell.zoom)
         .onChange(of: shell.zoom) { _, z in
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
@@ -144,11 +208,40 @@ public struct ShellView: View {
         .onDisappear { removeInputMonitors() }
     }
 
+    /// Esc pressed with a shell modal open → close the topmost one (matches every card's ✕
+    /// and scrim-click). Returns false when nothing was open, so Esc falls through to the
+    /// exposé/ladder handling. (A focused text field never reaches here — the yield check
+    /// hands Esc to the field, whose own onExitCommand closes its card.)
+    private func closeTopmostModal() -> Bool {
+        if shell.inspecting != nil { shell.inspecting = nil; return true }
+        if shell.showUsage { shell.showUsage = false; return true }
+        if shell.showSettings { shell.showSettings = false; return true }
+        if appState.showAgentConnectSheet { appState.showAgentConnectSheet = false; return true }
+        if appState.showPythonAgentSheet { appState.showPythonAgentSheet = false; return true }
+        if appState.showOpenClawSheet { appState.showOpenClawSheet = false; return true }
+        if shell.showNewCompanion { shell.showNewCompanion = false; return true }
+        if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
+        if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
+        return false
+    }
+
+    /// A classic sheet hosted as a shell overlay: scrim dismisses, card floats on top.
+    @ViewBuilder
+    private func shellSheetOverlay<Content: View>(isPresented: Binding<Bool>,
+                                                  @ViewBuilder content: () -> Content) -> some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
+                .onTapGesture { isPresented.wrappedValue = false }
+            content()
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.6), radius: 40)
+        }.zIndex(225)
+    }
+
     /// Set up the shell window when the UI appears — the reliable site (the window exists by now,
     /// unlike `applicationDidFinishLaunching`, and it's independent of which unlock/dive path ran).
     /// Routes through the one authoritative helper (takeover or windowed). Retries cover first-frame timing.
     private func applyTakeoverToWindow() {
-        guard ShellMode.isEnabled() else { return }
         for attempt in 0..<5 {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt) * 0.2) {
                 guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
@@ -191,7 +284,8 @@ public struct ShellView: View {
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { shell.exposeActive.toggle() }
                 return nil
             }
-            if e.keyCode == 53 {   // Esc — exit exposé first, else peel back to the desktop
+            if e.keyCode == 53 {   // Esc — close a modal first, then exposé, else peel the ladder
+                if closeTopmostModal() { return nil }
                 if shell.exposeActive { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false }; return nil }
                 guard shell.zoom != .space else { return e }
                 shell.galaxyHover = nil

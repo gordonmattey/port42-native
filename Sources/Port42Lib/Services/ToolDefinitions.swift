@@ -238,7 +238,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "port_rename",
-            "description": "Rename a port. Sets the port's display title (shown in the title bar). Works for floating, docked, and inline ports. Use the port's id from ports_list.",
+            "description": "Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -250,7 +250,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "port_move",
-            "description": "Move a floating port window to specific screen coordinates. Use screen_info to get display bounds first. Coordinates are in macOS screen space (origin at bottom-left of main display). Example: to position at top-right, use x = screenWidth - portWidth, y = screenHeight - portHeight - menuBarHeight.",
+            "description": "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -272,7 +272,7 @@ enum ToolDefinitions {
         ],
         [
             "name": "port_manage",
-            "description": "Manage a port window. Actions: focus (bring to front), close, minimize/dock (hide but keep running in background), restore/undock (show a docked port as floating window). Check the status field from ports_list — use restore/undock for 'docked' ports, focus for 'floating' ports.",
+            "description": "Manage a port. Actions: focus (raise to the front of the desktop), close, minimize/dock (off the desktop but still running), restore/undock (bring a docked/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.",
             "input_schema": [
                 "type": "object",
                 "properties": [

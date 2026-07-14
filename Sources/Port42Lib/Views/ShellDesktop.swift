@@ -869,13 +869,17 @@ struct ShellDock: View {
     }
 
     /// One click → the new-companion card shows immediately (no menu). Add-existing lives in the card.
+    /// Same VStack skeleton as a companion chip (ghost label) so the circles align in the dock row.
     private var addCompanionButton: some View {
-        Button { shell.showNewCompanion = true } label: {
-            Circle().strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 4])).foregroundStyle(shell.accent.opacity(0.6))
-                .frame(width: 40, height: 40)
-                .overlay(Image(systemName: "plus").font(.system(size: 15, weight: .light)).foregroundStyle(shell.accent))
-                .contentShape(Circle())          // whole disc is the tap target, not just the glyph
-        }.buttonStyle(.plain).help("New companion in this space")
+        VStack(spacing: 3) {
+            Button { shell.showNewCompanion = true } label: {
+                Circle().strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 4])).foregroundStyle(shell.accent.opacity(0.6))
+                    .frame(width: 40, height: 40)
+                    .overlay(Image(systemName: "plus").font(.system(size: 15, weight: .light)).foregroundStyle(shell.accent))
+                    .contentShape(Circle())          // whole disc is the tap target, not just the glyph
+            }.buttonStyle(.plain).help("New companion in this space")
+            Text(" ").font(Port42Theme.mono(8)).hidden()   // ghost label — matches the chips' name row
+        }
     }
 
     private func portButton(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
@@ -1012,7 +1016,20 @@ struct ShellMemberRow: View {
             if isYou { Text("you").font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary) }
             Spacer(minLength: 6)
             if companion != nil { statusView(thinking: thinking) }
-            if hot { Image(systemName: "bubble.left").font(.system(size: 9)).foregroundStyle(accent) }   // → DM hint
+            if hot, let c = companion {
+                // The eye — inspect this companion's epistemic memory (fold/position/creases/
+                // engravings) in THIS chat's space. Migrated from the swim window's titlebar.
+                Button {
+                    if let sid = spaceId ?? appState.currentSpace?.id {
+                        shell.inspecting = ShellState.InspectTarget(companion: c, spaceId: sid)
+                    }
+                } label: {
+                    Image(systemName: "eye").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 18, height: 18).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Inspect \(c.displayName)'s inner state")
+                Image(systemName: "bubble.left").font(.system(size: 9)).foregroundStyle(accent)   // → DM hint
+            }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 7).fill(hot ? Color.white.opacity(0.06) : .clear))

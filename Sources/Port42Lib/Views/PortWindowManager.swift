@@ -32,11 +32,10 @@ public struct PortPanel: Identifiable {
     public var isBackground: Bool = false
     public var portType: String = "web"
     public var isChatPort: Bool = false
-    /// Step 8: presentation mode — "floating" (own NSPanel) or "inline" (hosted in a chat
-    /// `[port:id]` card). A port is the same registered entity in either mode; pop-out flips
-    /// this to "floating" and re-parents the same WKWebView. Inline ports are session-only
-    /// (re-registered from their anchor message on render), so they are never persisted.
-    public var presentation: String = "floating"
+    /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip), or "inline" (hosted in
+    /// a chat `[port:id]` card; session-only, never persisted). "floating" is RETIRED with
+    /// classic mode — the v39 migration rewrote any legacy rows to "tiled".
+    public var presentation: String = "tiled"
     /// For an inline port, the id of the chat message whose `[port:id]` card (or `` ```port ``
     /// fence) anchors it. Lets dock-back return the webview to its inline host.
     public var anchorMessageId: String? = nil
@@ -85,7 +84,7 @@ public struct PortPanel: Identifiable {
 // MARK: - Port Window Manager
 
 /// Manages popped-out and docked port panels.
-/// Floating panels use native NSPanel windows for zero-lag dragging.
+/// Every port renders as a unit on the shell desktop (no OS windows).
 /// WKWebViews are created once and reparented between docked/floating states.
 @MainActor
 public final class PortWindowManager: ObservableObject {
@@ -93,7 +92,6 @@ public final class PortWindowManager: ObservableObject {
     @Published public var panels: [PortPanel] = []
 
     /// Panel IDs where the mouse is currently hovering (drives title bar visibility).
-    @Published public var hoveredPanels: Set<String> = []
 
     /// Database for persisting port panel state across restarts.
     private weak var db: DatabaseService?
@@ -104,18 +102,7 @@ public final class PortWindowManager: ObservableObject {
     /// Currently active space ID for port visibility management.
     public var activeSpaceId: String? = nil
 
-    /// When true, window close events skip DB cleanup (app is quitting).
-    /// nonisolated(unsafe): written synchronously on .main queue in willTerminate before windows close.
-    private nonisolated(unsafe) var isTerminating = false
-
-    /// True after showRestoredFloatingPanels() has run (lock screen is gone).
-    /// switchToSpace creates windows only when this is true.
-    var panelsVisible: Bool = false
-
-    /// Native windows for floating panels, keyed by panel ID.
-    var windows: [String: NSPanel] = [:]
-
-    /// Persistent WKWebViews, keyed by panel ID. Created once, reparented on dock/undock.
+    /// Persistent WKWebViews, keyed by panel ID. Created once; a port's unit hosts it.
     public var webViews: [String: WKWebView] = [:]
 
     /// Fires when a TILED port is created (web/terminal/browser), so the shell can raise a §8b
@@ -165,9 +152,6 @@ public final class PortWindowManager: ObservableObject {
     /// Set database reference for persistence.
     public func setDatabase(_ db: DatabaseService) {
         self.db = db
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.isTerminating = true
-        }
     }
 
     /// Restore persisted port panels from the database after app launch.
@@ -225,16 +209,12 @@ public final class PortWindowManager: ObservableObject {
                 // only web ports get a WKWebView.
                 if !panel.isChatPort && panel.portType != "terminal" {
                     createPortWebView(for: panel)
-                } else if panel.portType == "terminal" && panel.presentation != "floating" {
-                    // A tiled/parked terminal was on the shell desktop at shutdown — rebuild its
-                    // controller + hoisted Ghostty surface now so the tile has a live shell to host
-                    // again (floating terminals rebuild later via showRestoredFloatingPanels). The
-                    // process itself is gone across a restart, so this relaunches the startup command.
+                } else if panel.portType == "terminal" {
+                    // A terminal was on a desktop at shutdown — rebuild its controller + hoisted
+                    // Ghostty surface now so its tile has a live shell to host again. The process
+                    // itself is gone across a restart, so this relaunches the startup command.
                     rebuildTiledTerminal(panel, app: appState)
                 }
-
-                // Floating windows are NOT created here; they appear after
-                // the lock screen dismisses via showRestoredFloatingPanels().
             }
             if !saved.isEmpty {
                 NSLog("[Port42] Restored %d port panels from database", saved.count)
@@ -254,49 +234,6 @@ public final class PortWindowManager: ObservableObject {
             onTee: { controller.receiveTee($0) },
             onInject: { controller.bindSurface($0) })
         storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
-    }
-
-    /// Create floating windows for restored web/terminal ports. Sets panelsVisible so that
-    /// subsequent switchToSpace calls can create chat port windows on demand.
-    /// SHELL mode: the shell has NO floating presentation (Phase 2) — legacy "floating" rows
-    /// (pre-shell pop-outs) normalize to tiles on their space's desktop instead of restoring
-    /// into limbo (createWindow is suppressed in the shell, so "floating" would mean an
-    /// invisible port). Chat panels keep their own path (`ensureChatTiled` repositions them).
-    public func showRestoredFloatingPanels(shellMode: Bool = ShellMode.isEnabled()) {
-        panelsVisible = true
-        if shellMode {
-            for idx in panels.indices where !panels[idx].isBackground && !panels[idx].isChatPort
-                && panels[idx].presentation == "floating" {
-                NSLog("[Port42] Normalizing restored floating port to a tile: %@", panels[idx].title)
-                panels[idx].presentation = "tiled"
-                persistPanel(panels[idx].id)
-            }
-            return
-        }
-        // Only genuine floating ports get an NSPanel; tiled/parked ports live on the shell desktop.
-        for panel in panels where !panel.isBackground && !panel.isChatPort
-            && panel.presentation == "floating" && windows[panel.id] == nil {
-            NSLog("[Port42] Creating restored window for: %@", panel.title)
-            let bounds = NSApp?.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-            createWindow(for: panel, in: bounds)
-        }
-    }
-
-    /// Hide all floating panel windows (when lock screen or dreamscape shows).
-    public func hideFloatingPanels() {
-        panelsVisible = false
-        for (id, window) in windows {
-            if let nsPanel = window as? PortNSPanel {
-                nsPanel.onClose = nil
-                nsPanel.close()
-            }
-            windows.removeValue(forKey: id)
-            // Keep the panel and webview alive, just remove the window
-            webViews[id]?.removeFromSuperview()
-            // Closing the window freed any Ghostty surface it hosted; drop the controller.
-            // showRestoredFloatingPanels rebuilds both when the panels reappear.
-            appState?.teardownTerminalController(panelId: id)
-        }
     }
 
     /// Persist permissions for a bridge after a grant, so they survive restart.
@@ -363,16 +300,10 @@ public final class PortWindowManager: ObservableObject {
                 destroyWebView(existingId)
                 createPortWebView(for: panels[idx])
             }
-            persistPanel(existingId)
             // If backgrounded, restore it since new content was created
-            if wasBackground {
-                panels[idx].isBackground = false
-                persistPanel(existingId)
-                createWindowForExistingPanel(panels[idx])
-            } else if let window = windows[existingId] {
-                updateWindowContent(window, panel: panels[idx])
-                window.makeKeyAndOrderFront(nil)
-            }
+            if wasBackground { panels[idx].isBackground = false }
+            persistPanel(existingId)
+            bringToFront(existingId)
             return existingId
         }
 
@@ -393,6 +324,8 @@ public final class PortWindowManager: ObservableObject {
             size: CGSize(width: w, height: h)
         )
         panel.portType = portType
+        panel.presentation = "tiled"                      // pop-out lands on the desktop
+        panel.position = nil                              // arrange places it
         panels.append(panel)
 
         // Native terminal ports host a Ghostty surface, not a WKWebView.
@@ -400,9 +333,7 @@ public final class PortWindowManager: ObservableObject {
             createPortWebView(for: panel)
         }
         persistPanel(panel.id)
-
-        // Create native floating window
-        createWindow(for: panel, in: bounds)
+        portCreated.send((id: panel.id, spaceId: spaceId, title: panel.title))
         Analytics.shared.portPoppedOut()
         return newUdid
     }
@@ -524,13 +455,9 @@ public final class PortWindowManager: ObservableObject {
         return "https://duckduckgo.com/?q=" + q
     }
 
-    /// Step 8: undock an inline port — give it its own window. Classic mode: RE-PARENT its
-    /// existing WKWebView into a floating NSPanel (no reload, DOM/JS state survives). SHELL
-    /// mode: a tile IS a port's window (there is no floating presentation in the shell —
-    /// Phase 2), so the port lands on its space's desktop as a tile instead; the desktop's
-    /// count-change arrange places it. `shellMode` is injectable for headless tests.
-    public func undockInline(id: String, in bounds: CGSize,
-                             shellMode: Bool = ShellMode.isEnabled()) {
+    /// Step 8: undock an inline port — give it its own window. A tile IS a port's window:
+    /// the port lands on its space's desktop; the desktop's count-change arrange places it.
+    public func undockInline(id: String, in bounds: CGSize) {
         guard let idx = panels.firstIndex(where: { $0.id == id }),
               panels[idx].presentation == "inline" else {
             bringToFront(id)
@@ -541,16 +468,9 @@ public final class PortWindowManager: ObservableObject {
         if panels[idx].size.width < 200 || panels[idx].size.height < 150 {
             panels[idx].size = CGSize(width: screen.width * 0.4, height: screen.height * 0.4)
         }
-        if shellMode {
-            panels[idx].presentation = "tiled"
-            panels[idx].position = nil                    // let arrange place it
-            persistPanel(id)                              // now a desktop tile → persisted
-            Analytics.shared.portPoppedOut()
-            return
-        }
-        panels[idx].presentation = "floating"
-        persistPanel(id)                       // now a real floating panel → persisted
-        createWindow(for: panels[idx], in: bounds)  // adopts webViews[id] via PortWebViewHost → re-parents
+        panels[idx].presentation = "tiled"
+        panels[idx].position = nil                    // let arrange place it
+        persistPanel(id)                              // now a desktop tile → persisted
         Analytics.shared.portPoppedOut()
     }
 
@@ -595,17 +515,15 @@ public final class PortWindowManager: ObservableObject {
             && ($0.spaceId == spaceId || $0.adoptedSpaceIds.contains(spaceId)) }
     }
 
-    /// SHELL: make a space's real `isChatPort` panel a desktop tile so it renders alongside the
-    /// synthetic prototype chat (for the side-by-side comparison before the stub is retired). Only
-    /// touches a default-`floating` chat with no window (never an intentional pop-out/park), and
-    /// reseeds its position — `ensureChatPort`'s frame is computed for the non-shell docked layout
-    /// (right of the sidebar) and lands off-screen in the fullscreen shell.
+    /// SHELL: make sure a space's `isChatPort` panel is a desktop tile with a visible slot
+    /// (legacy rows could carry an off-screen classic-layout position; parked stays parked).
     public func ensureChatTiled(spaceId: String) {
         guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }),
-              panels[idx].presentation == "floating", windows[panels[idx].id] == nil else { return }
-        panels[idx].presentation = "tiled"
-        panels[idx].position = CGPoint(x: 540, y: 300)   // a visible slot, offset from the synthetic chat
-        persistPanel(panels[idx].id)
+              panels[idx].presentation != "parked" else { return }
+        if panels[idx].presentation != "tiled" {
+            panels[idx].presentation = "tiled"
+            persistPanel(panels[idx].id)
+        }
     }
 
     /// Park a tiled port into the right-edge rail (minimize to a chip). Same webview, no reload —
@@ -624,8 +542,6 @@ public final class PortWindowManager: ObservableObject {
             ensureChatPort(spaceId: spaceId, spaceName: spaceName)   // gone entirely → make a fresh one
         }
         guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
-        if let window = windows[panels[idx].id] as? PortNSPanel { window.onClose = nil; window.close() }
-        windows.removeValue(forKey: panels[idx].id)
         panels[idx].presentation = "tiled"
         persistPanel(panels[idx].id)
     }
@@ -653,29 +569,13 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
-    /// Close a panel with confirmation dialog. Used by the UI close button.
+    /// Close a panel (the shell's ✕ affordances confirm by gesture, not a dialog).
     public func closeWithConfirmation(_ id: String) {
-        guard let window = windows[id] else { close(id); return }
-        let alert = NSAlert()
-        alert.messageText = "Close this port?"
-        alert.informativeText = "The port and any running processes will be stopped."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
-        alert.beginSheetModal(for: window) { [weak self] response in
-            if response == .alertFirstButtonReturn {
-                self?.close(id)
-            }
-        }
+        close(id)
     }
 
     /// Close a panel by ID.
     public func close(_ id: String) {
-        if let window = windows[id] as? PortNSPanel {
-            window.onClose = nil
-            window.close()
-        }
-        windows.removeValue(forKey: id)
         if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
             destroyWebView(id)
         }
@@ -721,56 +621,35 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(panels[idx].id)
     }
 
-    /// Toggle always-on-top for a floating panel.
+    /// Toggle always-on-top for a panel (kept as a stored flag; the shell's z-sort may use it).
     public func toggleAlwaysOnTop(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].isAlwaysOnTop.toggle()
-        let pinned = panels[idx].isAlwaysOnTop
-        if let window = windows[id] {
-            window.level = pinned ? .floating : .normal
-        }
     }
 
-    /// Send a port to the background (hidden but still running).
+    /// Send a port to the background (off the desktop, still running). The unit unmounts —
+    /// the live view stays in the registry and remounts (repainting) on restore.
     public func minimize(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
-
-        // Hide the window but keep webview alive
-        if let window = windows[id] as? PortNSPanel {
-            window.onClose = nil
-            window.close()
-        }
-        windows.removeValue(forKey: id)
-        webViews[id]?.removeFromSuperview()
-        // The Ghostty surface lives in the (now-closed) window's content view; closing it
-        // freed the surface, so drop the controller. Restoring rebuilds both.
-        appState?.teardownTerminalController(panelId: id)
-
         panels[idx].isBackground = true
         persistPanel(id)
         NSLog("[Port42] Port minimized to background: %@", panels[idx].title)
     }
 
-    /// Restore a background port to a floating window. Returns false if the port is not backgrounded.
+    /// Restore a background port to the desktop. Returns false if the port is not backgrounded.
     @discardableResult
     public func restore(_ id: String) -> Bool {
         guard let idx = panels.firstIndex(where: { $0.id == id }), panels[idx].isBackground else { return false }
         panels[idx].isBackground = false
         persistPanel(id)
-
-        // Recreate the floating window
-        createWindowForExistingPanel(panels[idx])
         NSLog("[Port42] Port restored from background: %@", panels[idx].title)
         return true
     }
 
-    /// Stop a port by destroying its webview (keeps window open).
+    /// Stop a port by destroying its webview.
     public func stop(_ id: String) {
         guard panels.contains(where: { $0.id == id }) else { return }
         destroyWebView(id)
-        if let window = windows[id], let panel = panels.first(where: { $0.id == id }) {
-            updateWindowContent(window, panel: panel)
-        }
         NSLog("[Port42] Port stopped: %@", panels.first(where: { $0.id == id })?.title ?? id)
     }
 
@@ -783,9 +662,6 @@ public final class PortWindowManager: ObservableObject {
         } else {
             destroyWebView(id)
             createPortWebView(for: panels[idx])
-        }
-        if let window = windows[id] {
-            updateWindowContent(window, panel: panels[idx])
         }
         NSLog("[Port42] Port restarted: %@", panels[idx].title)
     }
@@ -816,9 +692,10 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port restored to v%d: %@", version, panel.title)
     }
 
-    /// Bring a floating panel to front and make it key.
+    /// Raise a panel to the top of the desktop z-order (the shell's ForEach paints by z).
     public func bringToFront(_ id: String) {
-        windows[id]?.makeKeyAndOrderFront(nil)
+        let top = (panels.map(\.z).max() ?? 0) + 1
+        setZ(id: id, z: top)
     }
 
     // MARK: - Port Update
@@ -879,21 +756,20 @@ public final class PortWindowManager: ObservableObject {
             // equivalent yet — see summer2026-todo "native terminal output-streaming bridge".)
             let caps = PortPanel.mergeCapabilities(panel.storedCapabilities,
                                                    isTerminal: panel.portType == "terminal")
-            let origin = windows[panel.id]?.frame.origin ?? panel.position
+            let origin = panel.position
             return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: nil, isBackground: panel.isBackground, presentation: panel.presentation, x: origin?.x, y: origin?.y)
         }
     }
 
-    /// Current frame of a floating port window (nil if docked or not found).
+    /// Current frame of a port's tile (nil if it has no committed position yet).
     public func portFrame(by id: String) -> CGRect? {
-        guard let panel = findPort(by: id) else { return nil }
-        return windows[panel.id]?.frame
+        guard let panel = findPort(by: id), let pos = panel.position else { return nil }
+        return CGRect(origin: pos, size: panel.size)
     }
 
-    /// Move a floating port window to the given screen coordinates.
+    /// Move a port's tile to the given desktop coordinates.
     public func movePort(id: String, x: CGFloat, y: CGFloat) {
         guard let panel = findPort(by: id) else { return }
-        windows[panel.id]?.setFrameOrigin(NSPoint(x: x, y: y))
         if let idx = panels.firstIndex(where: { $0.id == panel.id }) {
             panels[idx].position = CGPoint(x: x, y: y)
             persistPanel(panel.id)
@@ -979,174 +855,25 @@ public final class PortWindowManager: ObservableObject {
         inlineHeights.removeValue(forKey: id)
     }
 
-    // MARK: - Native Window Management
-
-    private func createWindow(for panel: PortPanel, in bounds: CGSize) {
-        guard NSApp != nil else { return }
-        // SHELL — the shell owns port presentation: ports are tiles on the shell desktop, never
-        // separate OS windows (Phase 2: the shell has no floating presentation at all). This is
-        // the single chokepoint for window creation (restore / space-switch / bring-to-front all
-        // route here); classic mode is the only consumer.
-        guard !ShellMode.isEnabled() else { return }
-        var windowFrame: CGRect
-        if let pos = panel.position {
-            // Restore saved position
-            windowFrame = CGRect(origin: pos, size: panel.size)
-        } else {
-            // Position relative to the main window
-            let offset = CGFloat(windows.count % 5) * 24
-            windowFrame = CGRect(x: 100 + offset, y: 100 + offset, width: panel.size.width, height: panel.size.height)
-            if let mainWindow = NSApp?.keyWindow {
-                let mainFrame = mainWindow.frame
-                windowFrame.origin.x = mainFrame.midX - panel.size.width / 2 + offset
-                windowFrame.origin.y = mainFrame.midY - panel.size.height / 2 - offset
-            }
-        }
-
-        let window = PortNSPanel(
-            contentRect: windowFrame,
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.isMovableByWindowBackground = false
-        window.level = panel.isAlwaysOnTop ? .floating : .normal
-        window.isReleasedWhenClosed = false
-        window.animationBehavior = .utilityWindow
-        window.minSize = NSSize(width: 100, height: 50)
-        window.backgroundColor = NSColor(Port42Theme.bgPrimary)
-
-        let panelId = panel.id
-        window.onClose = { [weak self] in
-            self?.panelWindowClosed(panelId)
-        }
-        window.hoverHandler = { [weak self] hovering in
-            if hovering {
-                self?.hoveredPanels.insert(panelId)
-            } else {
-                self?.hoveredPanels.remove(panelId)
-            }
-        }
-
-        // Observe move/resize to persist position
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: window, queue: .main
-        ) { [weak self] _ in Task { @MainActor [weak self] in self?.windowFrameChanged(panelId) } }
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didResizeNotification, object: window, queue: .main
-        ) { [weak self] _ in Task { @MainActor [weak self] in self?.windowFrameChanged(panelId) } }
-
-        // Native terminal ports need their controller (hooks socket + env) ready BEFORE
-        // updateWindowContent builds the GhosttyTerminalView, which reads the env.
-        if panel.portType == "terminal" {
-            appState?.makeTerminalController(for: panel)
-        }
-
-        updateWindowContent(window, panel: panel)
-        // Install hover tracking AFTER contentView is set by updateWindowContent
-        window.installHoverTracking()
-
-        windows[panel.id] = window
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    private func windowFrameChanged(_ id: String) {
-        guard let window = windows[id],
-              let idx = panels.firstIndex(where: { $0.id == id }) else { return }
-        let frame = window.frame
-        panels[idx].size = frame.size
-        panels[idx].position = frame.origin
-        persistPanel(id)
-    }
-
-    private func createWindowForExistingPanel(_ panel: PortPanel) {
-        guard windows[panel.id] == nil else { return }
-        let bounds = NSApp?.keyWindow?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-        createWindow(for: panel, in: bounds)
-    }
-
-    private func updateWindowContent(_ window: NSPanel, panel: PortPanel) {
-        guard let appState = appState else { return }
-        let contentView = PortPanelContentView(panel: panel, manager: self, isChatPort: panel.isChatPort)
-            .environmentObject(appState)
-        let hv = NSHostingView(rootView: contentView)
-        hv.sizingOptions = []
-        window.contentView = hv
-    }
-
-    private func panelWindowClosed(_ id: String) {
-        windows.removeValue(forKey: id)
-        if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
-            destroyWebView(id)
-        }
-        appState?.teardownTerminalController(panelId: id)
-        if !isTerminating {
-            unpersistPanel(id)
-        }
-        panels.removeAll { $0.id == id }
-    }
 
     // MARK: - Space-Aware Port Visibility
 
-    /// Switch to a new space: hide old space's ports, show new space's ports.
-    /// Before unlock (panelsVisible = false): only the chat port record is ensured, no windows created.
-    /// After unlock (panelsVisible = true): chat port window created on demand; web ports use makeKeyAndOrderFront.
+    /// Switch to a new space: track it and make sure its chat port record exists (the shell
+    /// desktop renders per-space from `panels` — there are no windows to hide/show).
     public func switchToSpace(_ spaceId: String, spaceName: String) {
-        if let oldId = activeSpaceId, oldId != spaceId {
-            for panel in panels where panel.spaceId == oldId {
-                windows[panel.id]?.orderOut(nil)
-            }
-        }
-
-        // Capture the current chat port's frame before updating activeSpaceId,
-        // so the new space's chat port can inherit position/size.
-        let inheritFrame: CGRect? = activeSpaceId.flatMap { oldId in
-            panels.first(where: { $0.isChatPort && $0.spaceId == oldId && !$0.isBackground })
-                .flatMap { windows[$0.id]?.frame }
-        }
-
         activeSpaceId = spaceId
-        ensureChatPort(spaceId: spaceId, spaceName: spaceName, inheritFrame: inheritFrame)
-
-        for panel in panels where panel.spaceId == spaceId && !panel.isBackground {
-            if panel.isChatPort && panelsVisible && windows[panel.id] == nil {
-                createWindowForExistingPanel(panel)
-            } else {
-                windows[panel.id]?.makeKeyAndOrderFront(nil)
-            }
-        }
+        ensureChatPort(spaceId: spaceId, spaceName: spaceName)
     }
 
-    /// Ensure a chat port record exists for the space (record only — no window).
-    /// If inheritFrame is provided, the new port inherits that size/position so it
-    /// appears where the previous space's chat port was.
-    private func ensureChatPort(spaceId: String, spaceName: String, inheritFrame: CGRect? = nil) {
+    /// Ensure a chat port record exists for the space (record only; the shell tiles it).
+    private func ensureChatPort(spaceId: String, spaceName: String) {
         guard let appState = appState else { return }
         guard !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
         let newId = UUID().uuidString
         let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: nil, createdBy: nil)
-        let size: CGSize
-        let position: CGPoint?
-        if let inheritFrame {
-            // Subsequent spaces reuse the previous chat port's frame.
-            size = inheritFrame.size
-            position = CGPoint(x: inheritFrame.origin.x, y: inheritFrame.origin.y)
-        } else {
-            // First chat port: dock to the right of the sidebar, occupying the top
-            // half of the screen and half of the width that remains beside the sidebar.
-            let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-            let sidebarWidth = NSApp?.windows.first(where: { !($0 is NSPanel) && $0.isVisible })?.frame.width ?? 220
-            let w = max(360, (screen.width - sidebarWidth) / 2)
-            let h = screen.height / 2
-            size = CGSize(width: w, height: h)
-            // macOS origin is bottom-left, so top half means y starts at the vertical midpoint.
-            position = CGPoint(x: screen.minX + sidebarWidth, y: screen.minY + screen.height / 2)
-        }
+        // A visible default; `ensureChatTiled`/arrange position it on the shell desktop.
+        let size = CGSize(width: 520, height: 420)
+        let position: CGPoint? = nil
         var panel = PortPanel(
             id: newId,
             udid: newId,
@@ -1459,210 +1186,6 @@ struct PortWebViewHost: NSViewRepresentable {
     }
 }
 
-// MARK: - Native Panel Window
-
-/// NSPanel subclass with close callback and custom drag region.
-/// Also owns the window-level hover tracking area so mouseEntered/mouseExited
-/// fire reliably regardless of key window status — bypasses hitTest entirely.
-class PortNSPanel: NSPanel {
-    var onClose: (() -> Void)?
-    var hoverHandler: ((Bool) -> Void)?
-    private var hoverTrackingArea: NSTrackingArea?
-
-    override var canBecomeKey: Bool {
-        // Yield to sheets/modals — don't steal focus from settings, add companion, etc.
-        let mainWindow = NSApp.windows.first(where: { !($0 is NSPanel) && $0.isVisible })
-        if mainWindow?.sheets.isEmpty == false { return false }
-        return true
-    }
-
-    override func close() {
-        onClose?()
-        super.close()
-    }
-
-    /// Add tracking area to contentView with self (the NSPanel) as owner.
-    /// NSPanel is an NSResponder so it receives mouseEntered/mouseExited directly —
-    /// no hitTest involvement, works for non-key windows with .activeAlways.
-    func installHoverTracking() {
-        guard let cv = contentView else { return }
-        if let old = hoverTrackingArea { cv.removeTrackingArea(old) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        cv.addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hoverHandler?(true)
-        super.mouseEntered(with: event)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hoverHandler?(false)
-        super.mouseExited(with: event)
-    }
-
-    // Prevent Escape from closing the panel (default NSPanel behaviour)
-    override func cancelOperation(_ sender: Any?) {}
-}
-
-// MARK: - Panel Content View (rendered inside NSPanel)
-
-struct PortPanelContentView: View {
-    let panel: PortPanel
-    @ObservedObject var manager: PortWindowManager
-    var isChatPort: Bool = false
-    @EnvironmentObject var appState: AppState
-    @State private var showCode = false
-    @State private var pendingPerm: PortPermission?
-    @State private var nsWindow: NSWindow? = nil
-    @State private var isKeyWindow = false
-    @State private var showBar = false
-    @State private var showVersions = false
-    @State private var chatMenuOpen = false
-    @State private var showInspector = false
-    @State private var inspectorCompanion: AgentConfig?
-    @State private var hideTask: DispatchWorkItem? = nil
-
-    private var isHovered: Bool { manager.hoveredPanels.contains(panel.id) }
-
-    /// Show the title bar then schedule it to hide after `duration` seconds.
-    private func flashBar(for duration: Double = 2.5) {
-        hideTask?.cancel()
-        withAnimation(.easeInOut(duration: 0.2)) { showBar = true }
-        let task = DispatchWorkItem {
-            withAnimation(.easeInOut(duration: 0.4)) { showBar = false }
-        }
-        hideTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: task)
-    }
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            // Content fills edge to edge
-            if isChatPort {
-                ChatView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if panel.portType == "terminal", let cfg = panel.terminalConfig,
-                      let controller = appState.terminalControllers[panel.id] {
-                GhosttyTerminalView(
-                    config: cfg,
-                    env: controller.env,
-                    onTee: { controller.receiveTee($0) },
-                    onInject: { controller.bindSurface($0) }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if showCode {
-                ScrollView(.vertical) {
-                    Text(panel.html)
-                        .font(Port42Theme.mono(12))
-                        .foregroundColor(Port42Theme.textSecondary)
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let webView = manager.webViews[panel.id] {
-                PortWebViewHost(webView: webView, bridge: panel.bridge)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            // Always-present invisible drag strip — drag works even when title bar is hidden
-            VStack(spacing: 0) {
-                PortDragArea()
-                    .frame(height: 36)
-                    .allowsHitTesting(true)
-                Spacer()
-            }
-
-            // Title bar overlay — timed flash on hover/focus, always on for code view
-            if showBar || showCode || showVersions || chatMenuOpen {
-                VStack(alignment: .leading, spacing: 0) {
-                    PortPanelTitleBar(panel: panel, manager: manager, showCode: $showCode, showVersions: $showVersions, isChatPort: isChatPort, isTerminal: panel.portType == "terminal", chatMenuOpen: $chatMenuOpen, showInspector: $showInspector, inspectorCompanion: $inspectorCompanion)
-                    if showVersions {
-                        HStack {
-                            PortVersionDropdown(panel: panel, manager: manager, isPresented: $showVersions)
-                                .transition(.opacity)
-                            Spacer()
-                        }
-                    }
-                    Spacer()
-                }
-                .transition(.opacity)
-            }
-
-            // Inline permission overlay
-            if let perm = pendingPerm {
-                PortPermissionOverlay(
-                    permission: perm,
-                    createdBy: panel.createdBy,
-                    onAllow: { panel.bridge.grantPermission() },
-                    onDeny: { panel.bridge.denyPermission() }
-                )
-            }
-
-            // Window border glow: bright when key, dim when hovering, off otherwise
-            Rectangle()
-                .stroke(Port42Theme.accent.opacity(isKeyWindow ? 0.6 : isHovered ? 0.3 : 0), lineWidth: 1)
-                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.5 : isHovered ? 0.2 : 0), radius: isKeyWindow ? 12 : 8)
-                .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.3 : 0), radius: 24)
-                .animation(.easeInOut(duration: 0.25), value: isKeyWindow)
-                .animation(.easeInOut(duration: 0.3), value: isHovered)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Port42Theme.bgPrimary)
-        .ignoresSafeArea()
-        .background(WindowRefAccessor { w in nsWindow = w })
-        .onAppear {
-            flashBar(for: 2.0)
-        }
-        .onChange(of: manager.hoveredPanels.contains(panel.id)) { _, hovered in
-            if hovered {
-                flashBar()
-            } else if !showVersions && !chatMenuOpen {
-                hideTask?.cancel()
-                withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
-            }
-        }
-        .onChange(of: showVersions) { _, showing in
-            if !showing && !manager.hoveredPanels.contains(panel.id) {
-                withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
-            }
-        }
-        .onChange(of: chatMenuOpen) { _, open in
-            if !open && !manager.hoveredPanels.contains(panel.id) {
-                withAnimation(.easeInOut(duration: 0.3)) { showBar = false }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
-            if let w = nsWindow, note.object as? NSWindow == w {
-                isKeyWindow = true
-                flashBar(for: 1.5)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
-            if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = false }
-        }
-        .onReceive(panel.bridge.$pendingPermission) { perm in
-            pendingPerm = perm
-        }
-        .sheet(isPresented: $showInspector) {
-            if let companion = inspectorCompanion, let spaceId = appState.currentSpace?.id {
-                CreaseInspectorSheet(companion: companion, spaceId: spaceId)
-                    .environmentObject(appState)
-            }
-        }
-    }
-}
-
-/// Grabs the NSWindow from the SwiftUI view hierarchy without consuming any space or events.
 struct WindowRefAccessor: NSViewRepresentable {
     let callback: (NSWindow?) -> Void
     func makeNSView(context: Context) -> NSView {
@@ -1754,368 +1277,6 @@ struct PortPermissionOverlay: View {
     }
 }
 
-// MARK: - Panel Title Bar
-
-struct PortPanelTitleBar: View {
-    let panel: PortPanel
-    @ObservedObject var manager: PortWindowManager
-    @Binding var showCode: Bool
-    @State private var versionHovered = false
-    @Binding var showVersions: Bool
-    var isChatPort: Bool = false
-    /// Native terminal ports have no source/stop/restart concept — hide those buttons.
-    var isTerminal: Bool = false
-    /// Set true while a chat menu (members list / inspect picker) is open so the parent
-    /// keeps the auto-hiding title bar visible — otherwise moving onto the popover hides
-    /// the bar and dismisses the popover with it.
-    @Binding var chatMenuOpen: Bool
-    /// Hosted on the stable parent (PortPanelContentView) so the modal sheet isn't torn
-    /// down when the auto-hiding title bar disappears — that caused a re-present flash loop.
-    @Binding var showInspector: Bool
-    @Binding var inspectorCompanion: AgentConfig?
-    @EnvironmentObject var appState: AppState
-    @State private var showMembers = false
-    @State private var showCompanionPicker = false
-
-    /// Always read the live panel from manager so rename/title updates reflect immediately.
-    private var livePanel: PortPanel {
-        manager.panels.first(where: { $0.id == panel.id }) ?? panel
-    }
-
-    /// Companions assigned to the current space — drive the crease-inspector eye.
-    private var spaceAgents: [AgentConfig] {
-        guard let id = appState.currentSpace?.id else { return [] }
-        return (try? appState.db.getAgentsForSpace(spaceId: id)) ?? []
-    }
-
-    /// Members of the current space (the chat port always shows the current space).
-    private var members: [SpaceMember] {
-        guard let id = appState.currentSpace?.id else { return [] }
-        var result = (try? appState.db.getSpaceMembers(spaceId: id)) ?? []
-        if let user = appState.currentUser,
-           !result.contains(where: { $0.senderId == user.id }) {
-            result.insert(SpaceMember(senderId: user.id, name: user.displayName, type: "human", owner: user.displayName), at: 0)
-        }
-        for agent in spaceAgents {
-            if !result.contains(where: { $0.senderId == agent.id }) {
-                result.append(SpaceMember(senderId: agent.id, name: agent.displayName, type: "agent", owner: appState.currentUser?.displayName))
-            }
-        }
-        return result
-    }
-
-    private var onlineIds: Set<String> {
-        guard let id = appState.currentSpace?.id else { return [] }
-        var ids = appState.sync.onlineUsers[id] ?? []
-        if let userId = appState.currentUser?.id { ids.insert(userId) }
-        for companion in appState.companions { ids.insert(companion.id) }
-        return ids
-    }
-
-    private func openInspector() {
-        let agents = spaceAgents
-        if agents.count == 1 {
-            inspectorCompanion = agents[0]
-            showInspector = true
-        } else if agents.count > 1 {
-            showCompanionPicker = true
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            // Draggable title area (padded to clear macOS traffic light buttons)
-            HStack(spacing: 8) {
-                Image(systemName: "circle")
-                    .font(.system(size: 8))
-                    .foregroundStyle(Port42Theme.accent)
-                Text(livePanel.title)
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .lineLimit(1)
-                if let creator = livePanel.createdBy {
-                    Text("·")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    Text(creator)
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                        .lineLimit(1)
-                }
-                if let version = PortPanel.extractVersion(from: livePanel.html) {
-                    Text("·")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    Text("v\(version)")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(versionHovered ? Port42Theme.accent : Port42Theme.textSecondary.opacity(0.6))
-                        .onHover { hovering in
-                            versionHovered = hovering
-                            if hovering { showVersions = true }
-                        }
-                }
-                Spacer()
-            }
-            .background(PortDragArea())
-
-            // Buttons (not draggable) — mode-dependent; web-only buttons hidden for chat
-            // and native terminal ports
-            if !isChatPort && !isTerminal {
-                if showCode {
-                    Button(action: { showCode = false }) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Port42Theme.accent)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Run port")
-                } else {
-                    Button(action: { showCode = true }) {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Stop")
-
-                    Button(action: { manager.restart(panel.id) }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Restart")
-
-                    Button(action: { showCode = true }) {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("View source")
-                }
-            }
-
-            // Chat ports: member avatars (hover for full list) + crease-inspector eye.
-            if isChatPort {
-                if !members.isEmpty {
-                    HStack(spacing: -4) {
-                        ForEach(Array(members.prefix(6))) { member in
-                            MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
-                        }
-                        if members.count > 6 {
-                            ZStack {
-                                Circle()
-                                    .fill(Port42Theme.bgPrimary)
-                                    .frame(width: 16, height: 16)
-                                Text("+\(members.count - 6)")
-                                    .font(Port42Theme.mono(7))
-                                    .foregroundStyle(Port42Theme.textSecondary)
-                            }
-                        }
-                    }
-                    .onTapGesture { showMembers.toggle() }
-                    .popover(isPresented: $showMembers, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("members")
-                                .font(Port42Theme.monoBold(11))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                            ForEach(members) { member in
-                                HStack(spacing: 8) {
-                                    MemberAvatar(member: member, size: 16, isOnline: onlineIds.contains(member.senderId))
-                                    Text(member.displayName(localOwner: appState.currentUser?.displayName))
-                                        .font(Port42Theme.mono(12))
-                                        .foregroundStyle(Port42Theme.textPrimary)
-                                }
-                            }
-                        }
-                        .padding(12)
-                    }
-                }
-
-                if !spaceAgents.isEmpty {
-                    Button(action: openInspector) {
-                        Image(systemName: "eye")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(spaceAgents.count == 1
-                          ? "Inspect \(spaceAgents[0].displayName)'s inner state"
-                          : "Inspect a companion's inner state")
-                    .popover(isPresented: $showCompanionPicker, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("inspect")
-                                .font(Port42Theme.monoBold(11))
-                                .foregroundStyle(Port42Theme.textSecondary)
-                            ForEach(spaceAgents) { agent in
-                                Button(action: {
-                                    showCompanionPicker = false
-                                    inspectorCompanion = agent
-                                    showInspector = true
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Circle()
-                                            .fill(Port42Theme.textAgent)
-                                            .frame(width: 8, height: 8)
-                                        Text(agent.displayName)
-                                            .font(Port42Theme.mono(12))
-                                            .foregroundStyle(Port42Theme.textPrimary)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(12)
-                    }
-                }
-            }
-
-            Button(action: { manager.toggleAlwaysOnTop(panel.id) }) {
-                Image(systemName: livePanel.isAlwaysOnTop ? "pin.fill" : "pin")
-                    .font(.system(size: 10))
-                    .foregroundStyle(livePanel.isAlwaysOnTop ? Port42Theme.accent : Port42Theme.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(livePanel.isAlwaysOnTop ? "Unpin" : "Always on top")
-
-            Button(action: { manager.minimize(panel.id) }) {
-                Image(systemName: "minus")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Background")
-
-            Button(action: { manager.closeWithConfirmation(panel.id) }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Close")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Port42Theme.bgSecondary)
-        .onChange(of: showMembers) { _, v in chatMenuOpen = v || showCompanionPicker }
-        .onChange(of: showCompanionPicker) { _, v in chatMenuOpen = v || showMembers }
-    }
-}
-
-// MARK: - Version Dropdown
-
-struct PortVersionDropdown: View {
-    let panel: PortPanel
-    let manager: PortWindowManager
-    @Binding var isPresented: Bool
-    @State private var versions: [PortVersionSummary] = []
-    @State private var hoveredId: Int64?
-
-    private var currentMetaVersion: String? {
-        PortPanel.extractVersion(from: panel.html)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if versions.isEmpty {
-                Text("No version history")
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .padding(10)
-            } else {
-                ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(versions, id: \.id) { ver in
-                            let isCurrent = ver.displayVersion == currentMetaVersion
-                                || (currentMetaVersion == nil && ver.id == versions.first?.id)
-                            Button(action: {
-                                if !isCurrent {
-                                    manager.restoreVersion(panel.id, version: ver.version)
-                                }
-                                isPresented = false
-                            }) {
-                                HStack(spacing: 8) {
-                                    Text("v\(ver.displayVersion)")
-                                        .font(Port42Theme.monoBold(11))
-                                        .foregroundStyle(isCurrent ? Port42Theme.accent : Port42Theme.textPrimary)
-                                    if let by = ver.createdBy {
-                                        Text(by)
-                                            .font(Port42Theme.mono(10))
-                                            .foregroundStyle(Port42Theme.textSecondary)
-                                            .lineLimit(1)
-                                    }
-                                    if let saves = ver.saveCount, saves > 1 {
-                                        Text("\(saves) saves")
-                                            .font(Port42Theme.mono(9))
-                                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
-                                    }
-                                    Spacer()
-                                    Text(timeAgo(ver.createdAt))
-                                        .font(Port42Theme.mono(9))
-                                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                                    if isCurrent {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 9))
-                                            .foregroundStyle(Port42Theme.accent)
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 5)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .background(
-                                isCurrent ? Port42Theme.accent.opacity(0.08) :
-                                hoveredId == ver.id ? Port42Theme.accent.opacity(0.12) : Color.clear
-                            )
-                            .onHover { h in hoveredId = h ? ver.id : nil }
-                        }
-                    }
-                }
-                .frame(maxHeight: 200)
-            }
-        }
-        .frame(width: 260)
-        .background(Port42Theme.bgSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .shadow(color: .black.opacity(0.4), radius: 8)
-        .padding(.leading, 10)
-        .onHover { hovering in
-            if !hovering {
-                withAnimation(.easeInOut(duration: 0.15)) { isPresented = false }
-            }
-        }
-        .onAppear {
-            versions = manager.fetchVersionSummaries(panel.id)
-        }
-    }
-
-    private func timeAgo(_ date: Date) -> String {
-        let seconds = Int(-date.timeIntervalSinceNow)
-        if seconds < 60 { return "now" }
-        if seconds < 3600 { return "\(seconds / 60)m ago" }
-        if seconds < 86400 { return "\(seconds / 3600)h ago" }
-        return "\(seconds / 86400)d ago"
-    }
-}
-
 // MARK: - WebView Container (preserves first responder on click)
 
 /// NSView container that ensures clicks inside the webview don't trigger
@@ -2151,42 +1312,3 @@ class PortWebViewContainer: NSView {
     // File drops are handled by FileDropWebView (the webview subview), not the container.
 }
 
-// MARK: - Drag Area (makes region draggable by window)
-
-/// NSView that enables window dragging when used as background.
-struct PortDragArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = PortDragNSView()
-        return view
-    }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-class PortDragNSView: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        NSCursor.openHand.set()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        NSCursor.closedHand.set()
-        super.mouseDown(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        NSCursor.openHand.set()
-    }
-}

@@ -1049,9 +1049,9 @@ struct InlinePortView: View {
 
 /// Renders an *active* inline web port hosted by a single registry-owned WKWebView (adopted via
 /// `PortWebViewHost`), instead of the legacy `InlinePortView` which owned its own webview+bridge.
-/// Because the registry owns the view, pop-out RE-PARENTS the same webview into a floating window
-/// with no reload — DOM/JS state survives. When the port is popped out (presentation == "floating")
-/// the inline host shows a "popped out" state and the webview lives in the panel instead.
+/// Because the registry owns the view, undock RE-PARENTS the same webview onto the shell desktop
+/// with no reload — DOM/JS state survives. When the port lives on the desktop (tiled/parked) the
+/// inline host shows an "on the desktop" reference card and never adopts the webview.
 struct RegisteredInlinePortView: View {
     let id: String
     let html: String
@@ -1073,13 +1073,12 @@ struct RegisteredInlinePortView: View {
 
     /// The live registered panel (nil before registration / after close).
     private var panel: PortPanel? { manager.panels.first(where: { $0.id == id }) }
-    private var isFloating: Bool { panel?.presentation == "floating" }
-    /// The webview LIVES ELSEWHERE — floating panel, desktop tile, or park rail. The inline
-    /// anchor must NOT adopt it: two mounts sharing one view is the grey bug (the Phase 3
-    /// desktop sweep caught a tiled port's chat anchor stealing its webview off the desktop).
+    /// The webview LIVES ELSEWHERE — a desktop tile or a park-rail chip. The inline anchor
+    /// must NOT adopt it: two mounts sharing one view is the grey bug (the Phase 3 desktop
+    /// sweep caught a tiled port's chat anchor stealing its webview off the desktop).
     private var livesElsewhere: Bool {
         guard let pres = panel?.presentation else { return false }
-        return pres == "floating" || pres == "tiled" || pres == "parked"
+        return pres == "tiled" || pres == "parked"
     }
     private var title: String { bridge?.title ?? panel?.title ?? PortPanel.extractTitle(from: html) }
     private var height: CGFloat { max(manager.inlineHeights[id] ?? 100, 100) }
@@ -1093,13 +1092,13 @@ struct RegisteredInlinePortView: View {
                 .zIndex(1)
 
             if livesElsewhere {
-                // The webview lives in its floating panel / desktop tile — a reference card only.
+                // The webview lives in its desktop tile — a reference card only.
                 Button(action: focus) {
                     HStack(spacing: 8) {
-                        Image(systemName: isFloating ? "macwindow" : "square.grid.2x2")
+                        Image(systemName: "square.grid.2x2")
                             .font(.system(size: 11))
                             .foregroundStyle(Port42Theme.accent)
-                        Text(isFloating ? "popped out — click to focus" : "on the desktop — click to focus")
+                        Text("on the desktop — click to focus")
                             .font(Port42Theme.mono(11))
                             .foregroundStyle(Port42Theme.textSecondary)
                         Spacer()

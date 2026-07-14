@@ -83,12 +83,17 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
 
-        // Remember the windowed shell size: persist the main window's frame on resize/move (never
-        // while fullscreen — saveWindowedFrame guards that), so relaunch reopens at the last size.
+        // Remember the windowed shell size: persist the SHELL window's frame on resize/move
+        // (never while fullscreen — saveWindowedFrame guards that), so relaunch reopens at the
+        // last size. Pinned to the shell window itself: a sheet or dialog (inspector, Sparkle
+        // update) is also a resizable key window, and saving ITS frame once relaunched the app
+        // at modal size.
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
-                guard ShellMode.isEnabled(), let w = note.object as? NSWindow,
-                      !(w is NSPanel), w.canBecomeKey else { return }
+                guard let w = note.object as? NSWindow,
+                      !(w is NSPanel), !w.isSheet, w.canBecomeKey,
+                      w === NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey && !$0.isSheet })
+                else { return }
                 ShellMode.saveWindowedFrame(w)
             }
         }
@@ -101,14 +106,8 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             if frame.width > 100 && frame.height > 100 {
                 UserDefaults.standard.set(NSStringFromRect(frame), forKey: "p42MainWindowFrame")
             }
-            // SHELL — S1: behind PORT42_SHELL, take over the full screen over the ambient surface
-            // (cheapest cut — fullscreen the existing window, hide Dock + menu bar). Default off
-            // ⇒ the login-screen maximize below runs exactly as before.
-            if ShellMode.isEnabled() {
-                self.applyShellWindow(window: window)          // takeover or windowed — the helper decides
-            } else if let screen = window.screen ?? NSScreen.main {
-                window.setFrame(screen.visibleFrame, display: true, animate: false)
-            }
+            // The shell IS the app: set up its window (takeover or windowed — the helper decides).
+            self.applyShellWindow(window: window)
         }
 
         // Focus follows mouse: make the main window key when the cursor enters it.

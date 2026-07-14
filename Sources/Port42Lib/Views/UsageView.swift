@@ -37,10 +37,12 @@ public struct UsageSheet: View {
                     .font(Port42Theme.monoBold(13)).tracking(3)
                     .foregroundStyle(Port42Theme.textSecondary)
                 Spacer()
-                Button("Done") { isPresented = false }
-                    .font(Port42Theme.mono(12))
-                    .foregroundStyle(accent)
-                    .buttonStyle(.plain)
+                Button { isPresented = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Close")
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)

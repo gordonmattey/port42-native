@@ -615,6 +615,12 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v39-retire-floating") { db in
+            // Classic mode is retired: there are no floating OS windows, so the "floating"
+            // presentation ceases to exist. Legacy pop-outs become desktop tiles.
+            try db.execute(sql: "UPDATE port_panels SET presentation = 'tiled' WHERE presentation = 'floating'")
+        }
+
         try migrator.migrate(dbQueue)
     }
 

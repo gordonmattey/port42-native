@@ -66,8 +66,12 @@ public struct SignOutSheet: View {
             HStack {
                 Text("SETTINGS").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.textSecondary).tracking(3)
                 Spacer()
-                Button("Done") { isPresented = false }
-                    .font(Port42Theme.mono(12)).foregroundStyle(accent).buttonStyle(.plain)
+                Button { isPresented = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Close")
             }
             .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 14)
 
@@ -97,43 +101,9 @@ public struct SignOutSheet: View {
 
             Spacer(minLength: 0)
 
-            // In the shell these live in the Port42 mark menu (top-left); the classic app keeps them
-            // here as the only sign-out affordance.
-            if !ShellMode.isEnabled() {
-                VStack(spacing: 10) {
-                    Button(action: doSignOut) {
-                        VStack(spacing: 2) {
-                            Text("sign out").font(Port42Theme.monoBold(14))
-                            Text("screensaver lock").font(Port42Theme.mono(10))
-                        }
-                        .foregroundStyle(Port42Theme.bgPrimary).frame(maxWidth: .infinity)
-                        .padding(.vertical, 10).background(accent).cornerRadius(6)
-                    }.buttonStyle(.plain)
-
-                    HStack(spacing: 10) {
-                        Button(action: doOff) {
-                            VStack(spacing: 2) {
-                                Text("off").font(Port42Theme.monoBold(14))
-                                Text("reboot").font(Port42Theme.mono(10))
-                            }
-                            .foregroundStyle(Port42Theme.textPrimary).frame(maxWidth: .infinity)
-                            .padding(.vertical, 10).background(Port42Theme.textSecondary.opacity(0.15)).cornerRadius(6)
-                        }.buttonStyle(.plain)
-
-                        Button(action: doReset) {
-                            VStack(spacing: 2) {
-                                Text("reset").font(Port42Theme.monoBold(14))
-                                Text("erase all").font(Port42Theme.mono(10))
-                            }
-                            .foregroundStyle(.red).frame(maxWidth: .infinity)
-                            .padding(.vertical, 10).background(Color.red.opacity(0.1)).cornerRadius(6)
-                        }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 24).padding(.bottom, 24)
-            }
+            // (Sign-out / power / reset live in the shell's Port42 mark menu, top-left.)
         }
-        .frame(width: 460, height: ShellMode.isEnabled() ? 640 : 740)
+        .frame(width: 460, height: 640)
         .background(Port42Theme.shellCard)
         .onDisappear {
             claudeSetup.cancel()

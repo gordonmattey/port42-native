@@ -13,7 +13,7 @@ public final class ToolExecutor {
     let createdByName: String?
     /// True when this executor runs an in-app companion composing a chat reply. Routes
     /// `port_create({type:"web"})` to an inline port; external/remote executors (inChat=false) open a
-    /// floating window instead. See AppState.createPort.
+    /// desktop tile instead. See AppState.createPort.
     let inChat: Bool
 
     /// Granted permissions for this conversation (per-companion, per-space).
@@ -51,7 +51,7 @@ public final class ToolExecutor {
         }
     }
 
-    /// Resolve a port's WKWebView by ID — checks floating/docked ports first, then inline ports.
+    /// Resolve a port's WKWebView by ID — checks desktop/docked ports first, then inline ports.
     private func resolvePortWebView(id: String) -> WKWebView? {
         if let wv = appState?.portWindows.webViews[id] { return wv }
         if let bridge = appState?.findInlineBridge(by: id) { return bridge.webView }
@@ -385,12 +385,12 @@ public final class ToolExecutor {
         // MARK: Ports
         case "ports_list":
             let filterCaps = (input["capabilities"] as? [String]) ?? []
-            let floating = appState.portWindows.allPorts()
+            let registered = appState.portWindows.allPorts()
             let inline = appState.inlinePorts().filter { $0.spaceId == spaceId || spaceId == nil }.suffix(5)
             typealias PortInfo = (id: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, status: String, x: CGFloat?, y: CGFloat?, surfaceBound: Bool?)
             // surfaceBound (what terminal_list used to report) comes from the live controller; only
             // terminal ports have one, so non-terminals carry nil and omit the field.
-            let all: [PortInfo] = floating.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.presentation == "inline" ? "inline" : ($0.isBackground ? "docked" : "floating"), x: $0.x, y: $0.y, surfaceBound: appState.terminalControllers[$0.udid]?.isSurfaceBound) }
+            let all: [PortInfo] = registered.map { (id: $0.udid, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: $0.isBackground ? "docked" : $0.presentation, x: $0.x, y: $0.y, surfaceBound: appState.terminalControllers[$0.udid]?.isSurfaceBound) }
                 + inline.map { (id: $0.id, title: $0.title, createdBy: $0.createdBy, capabilities: $0.capabilities, cwd: $0.cwd, status: "inline", x: CGFloat?.none, y: CGFloat?.none, surfaceBound: Bool?.none) }
             let filtered = filterCaps.isEmpty ? all : all.filter { p in
                 filterCaps.allSatisfy { p.capabilities.contains($0) }
@@ -478,8 +478,8 @@ public final class ToolExecutor {
                 appState.portWindows.minimize(panel.id)
                 return [textBlock("Docked '\(panel.title)'")]
             case "restore", "undock":
-                // Step 8: undock on a registry inline port pops it out — re-parents its live
-                // webview into a floating window (no reload).
+                // Undock on a registry inline port pops it out — its live webview becomes a
+                // desktop tile (no reload; a tile IS the port's window).
                 if panel.presentation == "inline" {
                     let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
                     let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)

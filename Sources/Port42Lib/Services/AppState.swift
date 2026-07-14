@@ -2453,30 +2453,19 @@ public final class AppState: ObservableObject {
             return nil
         }
 
-        // A terminal is a port; in the shell a port is a tile. So spawn it as a TILED terminal (a
-        // hoisted Ghostty surface re-parented like any tile) rather than a floating window. Outside
-        // the shell (classic app) keep the floating native window.
-        let portId: String
-        if ShellMode.isEnabled() {
-            portId = portWindows.addTiledTerminalPanel(configJSON: json, spaceId: spaceId,
+        // A terminal is a port; a port is a tile: spawn it as a TILED terminal (a hoisted
+        // Ghostty surface hosted by its unit, like any tile).
+        let portId = portWindows.addTiledTerminalPanel(configJSON: json, spaceId: spaceId,
                                                        createdBy: companionName, title: title)
-            if let panel = portWindows.panels.first(where: { $0.id == portId }),
-               let controller = makeTerminalController(for: panel) {
-                let built = GhosttyTerminalView.makeDetached(
-                    config: config, env: controller.env,
-                    onTee: { controller.receiveTee($0) },
-                    onInject: { controller.bindSurface($0) })
-                portWindows.storeTerminalView(id: portId, view: built.view, coordinator: built.coordinator)
-            }
-        } else {
-            // The bridge is unused by the terminal path but popOut's signature requires one.
-            let portMessageId = UUID().uuidString
-            let bridge = PortBridge(appState: self, spaceId: spaceId, messageId: portMessageId, createdBy: companionName)
-            portId = portWindows.popOut(html: json, bridge: bridge, spaceId: spaceId, createdBy: companionName,
-                                        messageId: portMessageId, title: title, portType: "terminal",
-                                        in: CGSize(width: 800, height: 600))
+        if let panel = portWindows.panels.first(where: { $0.id == portId }),
+           let controller = makeTerminalController(for: panel) {
+            let built = GhosttyTerminalView.makeDetached(
+                config: config, env: controller.env,
+                onTee: { controller.receiveTee($0) },
+                onInject: { controller.bindSurface($0) })
+            portWindows.storeTerminalView(id: portId, view: built.view, coordinator: built.coordinator)
         }
-        NSLog("[Port42] Spawned native terminal port '%@' (id=%@, tiled=%@)", title, portId, ShellMode.isEnabled() ? "Y" : "N")
+        NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
 
         // Step 5b: record params so the card's play can respawn after a close, and track the
         // currently-live port id under the stable card key (`recordKey` on respawn, else portId).
@@ -2486,19 +2475,9 @@ public final class AppState: ObservableObject {
             companionName: companionName, systemPrompt: systemPrompt, env: env)
         terminalLiveIds[key] = portId
 
-        // Leave an inline card in the space so the terminal has chat presence and can be reopened.
-        // Local-only (the native window lives on this machine). The card references `key` (stable).
-        // In the SHELL the tiled terminal IS the presence, so the card would be a redundant second
-        // window — skip it there.
-        if postCard && !ShellMode.isEnabled() {
-            let card = Message(
-                id: UUID().uuidString, spaceId: spaceId, senderId: currentUser?.id ?? "",
-                senderName: companionName, senderType: "system",
-                content: "[terminal:\(key):\(title)]",
-                timestamp: Date(), replyToId: nil, syncStatus: "local", createdAt: Date()
-            )
-            try? db.saveMessage(card)
-        }
+        // (No chat card: the tiled terminal IS the presence on the desktop. `postCard` is
+        // accepted for API compatibility but there is no classic window to anchor a card to.)
+        _ = postCard
 
         return portId
     }
@@ -2517,19 +2496,17 @@ public final class AppState: ObservableObject {
     /// in chat; "tiled" registers it as a desktop tile at `position` (arrange picks the spot when
     /// nil). Terminals are unaffected (always a native window / shell tile).
     ///
-    /// PHASE 1 (port-units): when the caller doesn't say (nil), the default is MODE-DEPENDENT —
-    /// **tiled in shell mode**, inline in the classic app. The shell's surface IS the desktop;
-    /// the old inline default made every remote/companion `port.create` a chat-fence message
-    /// that never reached the desktop or the peek path (the "same-space peek shows nothing"
-    /// root cause — the cross-space "port peek" people saw was really the CHAT unread peek).
-    /// An explicit "inline" is still honored everywhere. Returns {id, title} or {error}.
+    /// PHASE 1 (port-units): when the caller doesn't say (nil), the default is **tiled** —
+    /// the shell's surface IS the desktop; the old inline default made every remote/companion
+    /// `port.create` a chat-fence message that never reached the desktop or the peek path.
+    /// An explicit "inline" is still honored. Returns {id, title} or {error}.
     func createPort(type: String?, title: String?, html: String?,
                     command: String?, args: [String] = [], cwd: String?,
                     systemPrompt: String?, env: [String: String] = [:],
                     spaceId: String, createdBy: String?, createdByName: String?,
                     presentation: String? = nil, position: CGPoint? = nil,
                     size: CGSize? = nil) -> [String: Any] {
-        let presentation = presentation ?? (ShellMode.isEnabled() ? "tiled" : "inline")
+        let presentation = presentation ?? "tiled"
         switch PortCreateValidation.validate(type: type, html: html, command: command) {
         case .error(let message):
             return ["error": message]
@@ -2786,8 +2763,7 @@ public final class AppState: ObservableObject {
 
     public func lockApp() {
         cancelStreaming(spaceId: currentSpace?.id ?? "")
-        portWindows.hideFloatingPanels()
-        showDreamscape = true
+        showDreamscape = true          // the lock screen covers the shell; tiles stay mounted
     }
 
     /// Power off: keep data but require bootloader (name entry) on next launch.
@@ -2795,14 +2771,11 @@ public final class AppState: ObservableObject {
         cancelStreaming(spaceId: currentSpace?.id ?? "")
         currentUser = nil
         isSetupComplete = false
-        portWindows.hideFloatingPanels()
         showDreamscape = true
     }
 
     public func unlock() {
         showDreamscape = false
-        // Show any restored floating port panels now that lock screen is gone
-        portWindows.showRestoredFloatingPanels()
         Analytics.shared.appOpened()
         // Restore last view if already set up
         if isSetupComplete {
@@ -2819,7 +2792,6 @@ public final class AppState: ObservableObject {
     }
 
     public func resetApp() {
-        portWindows.hideFloatingPanels()
         currentSpace = nil
         currentUser = nil
         spaces = []

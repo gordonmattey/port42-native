@@ -11,20 +11,8 @@ import AppKit
 /// (the graduation). The logic lives here as pure helpers so the S1 test gate runs headlessly —
 /// `NSApp` / `NSScreen.main` are nil in the test runner.
 public enum ShellMode {
-    /// The flag that turns the shell on: `PORT42_SHELL` as an env var or the persisted Settings key.
-    public static let flagKey = "PORT42_SHELL"
-
-    /// Is shell mode enabled? The env var wins (dogfood via `PORT42_SHELL=1 ./build.sh --run`);
-    /// otherwise the persisted `UserDefaults` toggle (the in-app Settings switch, S1+) decides.
-    public static func isEnabled(
-        env: [String: String] = ProcessInfo.processInfo.environment,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        if let v = env[flagKey] {
-            return v == "1" || v.lowercased() == "true"
-        }
-        return defaults.bool(forKey: flagKey)
-    }
+    // (The PORT42_SHELL flag is gone — classic mode is retired; the shell IS the app.
+    //  Only the fullscreen-takeover choice below remains.)
 
     /// Fullscreen TAKEOVER — a SEPARATE opt-in from the shell UI. Off by default so the shell runs as
     /// a normal window (title bar, Dock, menu bar) unless the user turns takeover on. Env wins for
@@ -87,9 +75,12 @@ public enum ShellMode {
     /// shell UI itself is unchanged; it just renders in an ordinary window now.
     public static func restoreWindow(_ window: NSWindow) {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.standardWindowButton(.closeButton)?.isHidden = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
-        window.standardWindowButton(.zoomButton)?.isHidden = false
+        // No traffic lights — the shell's Port42 mark menu owns quit/sign-out, and the buttons
+        // sat on top of the Chrome. (The styleMask keeps closable/miniaturizable so ⌘W/⌘M and
+        // window management still function; only the visible buttons go.)
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.titleVisibility = .hidden               // keep chrome flush; content fills under the bar
         window.titlebarAppearsTransparent = true
         window.isMovable = true

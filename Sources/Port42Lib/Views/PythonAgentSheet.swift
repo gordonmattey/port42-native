@@ -70,13 +70,11 @@ struct PythonAgentSheet: View {
                 .foregroundStyle(Port42Theme.accent)
             Spacer()
             Button(action: { isPresented = false }) {
-                Text("esc")
-                    .font(Port42Theme.mono(10))
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Port42Theme.textSecondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Port42Theme.bgHover)
-                    .cornerRadius(3)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }

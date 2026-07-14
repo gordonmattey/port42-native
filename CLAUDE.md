@@ -21,8 +21,6 @@ port42-native/
     go.mod / go.sum
   Sources/Port42/
     Port42App.swift          # @main entry, creates AppState, window config
-  Sources/Port42B/
-    Port42B.swift            # Second app instance for local testing (separate DB)
   Sources/Port42Lib/
     Models/
       AppUser.swift          # User identity with P256 signing keys (Keychain)
@@ -31,13 +29,12 @@ port42-native/
       AgentConfig.swift      # Companion config: LLM/Command modes, triggers, provider
     Views/
       SetupView.swift        # First-launch: set display name
-      ContentView.swift      # NavigationSplitView (sidebar + chat)
-      SidebarView.swift      # Channel list, companions, user info, lock icons
-      ChatView.swift         # Channel header + message list + input
+      ShellView.swift        # THE app surface: shell root (zoom spine, galaxy, overlays)
+      ShellDesktop.swift     # Chrome + tiled port units + dock + park rail
+      ChatView.swift         # Chat surface (rendered inside a shell chat tile)
       MessageView.swift      # Individual message (human/agent/system)
       InputView.swift        # Text input with send
-      QuickSwitcher.swift    # Cmd+K overlay with fuzzy search, invite link pasting
-      NewChannelSheet.swift  # Create channel modal
+      QuickSwitcher.swift    # Cmd+K shell overlay with fuzzy search, invite link pasting
       NgrokSetupSheet.swift  # Ngrok auth token setup
       SignOutSheet.swift     # Settings panel (gateway URL, sign out)
     Services/
@@ -98,10 +95,8 @@ Port42.app/Contents/
 ### Development
 
 ```bash
-./build.sh              # Debug build into .build/Port42.app
+./build.sh              # Debug build into .build/Port42Dev.app (isolated dev instance)
 ./build.sh --run        # Debug build and launch
-./build.sh --peer       # Build and launch a second instance for local testing
-./build.sh --run --peer # Build and launch both instances
 ```
 
 > **IMPORTANT — always rebuild the runnable bundle with `./build.sh`, never bare `swift build`.**
@@ -190,5 +185,6 @@ Tests use **Swift Testing** (not XCTest). Key conventions:
 - **M1 (Local Chat Shell)**: Done
 - **M2 (Companions)**: Done (LLM agents, command agents, channel membership, invite links, Quick Switcher)
 - **M3 (Sync)**: In progress. Done: gateway, WebSocket sync, E2E encryption, typing indicators, remote identity, sender attribution, member list, cross-peer mentions, invite system, channel join tokens. Remaining: presence dots (F-505), relay auth (F-511), join/leave announcements bugfix (F-515), reply threading (F-303), message status (F-304), offline queue (F-504 partial)
-- **Ports**: Done (Phase 1-5). Inline ports, pop-out floating panels, generative ports, device APIs (terminal, audio, camera, screen, clipboard, files, notifications, browser, automation). Unified API: same bridge methods accessible from ports (JS) and conversation (tool use). Compact port blocks with controls.
+- **Ports**: Done (Phase 1-5 + the port-units refactor). Inline ports, desktop tile units (tiled/parked/peek/focus — no OS windows), generative ports, device APIs (terminal, audio, camera, screen, clipboard, files, notifications, browser, automation). Unified API: same bridge methods accessible from ports (JS) and conversation (tool use).
+- **Shell**: THE app surface (classic ContentView retired 2026-07-14). Zoom spine (galaxy ↔ space ↔ focus), port units, peeks, adoption persistence, ⌘K switcher.
 

@@ -317,34 +317,10 @@ struct PortUnitCollapseTests {
         _ = state.portWindows.registerInlinePort(id: "i1", html: "<title>i1</title>", spaceId: "s1",
                                                  createdBy: nil, title: "i1", anchorMessageId: nil)
 
-        state.portWindows.undockInline(id: "i1", in: CGSize(width: 800, height: 600), shellMode: true)
+        state.portWindows.undockInline(id: "i1", in: CGSize(width: 800, height: 600))
         let p = try #require(state.portWindows.panels.first { $0.id == "i1" })
         #expect(p.presentation == "tiled")
         #expect(p.size.width >= 200 && p.size.height >= 150)    // outgrew its 100×100 inline seed
-    }
-
-    @Test("classic undock still floats (until classic mode is retired)")
-    @MainActor
-    func classicUndockFloats() throws {
-        let (_, state) = try makeState()
-        _ = state.portWindows.registerInlinePort(id: "i2", html: "<title>i2</title>", spaceId: "s1",
-                                                 createdBy: nil, title: "i2", anchorMessageId: nil)
-
-        state.portWindows.undockInline(id: "i2", in: CGSize(width: 800, height: 600), shellMode: false)
-        #expect(state.portWindows.panels.first { $0.id == "i2" }?.presentation == "floating")
-    }
-
-    @Test("restored floating ports normalize to tiles in shell mode (no limbo)")
-    @MainActor
-    func restoredFloatingNormalizes() throws {
-        let (_, state) = try makeState()
-        _ = state.portWindows.registerInlinePort(id: "fl", html: "<title>fl</title>", spaceId: "s1",
-                                                 createdBy: nil, title: "fl", anchorMessageId: nil)
-        state.portWindows.undockInline(id: "fl", in: CGSize(width: 800, height: 600), shellMode: false)
-        #expect(state.portWindows.panels.first { $0.id == "fl" }?.presentation == "floating")
-
-        state.portWindows.showRestoredFloatingPanels(shellMode: true)
-        #expect(state.portWindows.panels.first { $0.id == "fl" }?.presentation == "tiled")
     }
 
     @Test("move re-homes a port: it renders in the new space, not the old")

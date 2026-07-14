@@ -1,8 +1,6 @@
 #!/bin/bash
 # Build Port42.app
-# Usage: ./build.sh [--release] [--run] [--peer]
-#   --peer   Build and launch a second instance (Port42-Peer.app) with
-#            its own data directory and gateway port for local testing
+# Usage: ./build.sh [--release] [--run]
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -45,13 +43,11 @@ export BUILD_NUMBER
 
 CONFIG="debug"
 RUN=false
-PEER=false
 
 for arg in "$@"; do
     case "$arg" in
         --release) CONFIG="release" ;;
         --run)     RUN=true ;;
-        --peer)    PEER=true ;;
     esac
 done
 
@@ -145,7 +141,7 @@ if [ ! -d "$DIR/GhosttyKit.xcframework" ]; then
     echo "[build] GhosttyKit.xcframework extracted."
 fi
 
-# Build Swift + Go (shared by both app and peer)
+# Build Swift + Go
 echo "[build] Swift ($CONFIG)..."
 cd "$DIR"
 if [ "$CONFIG" = "release" ]; then
@@ -174,14 +170,22 @@ go build -o "$SHIM_BIN" .
 # We also kill the bundled gateway so the relaunched app gets a fresh one on
 # port 4242 instead of talking to a stale process. This is the single place that
 # owns "clean up before rebuild" — rebuild.sh just delegates here.
-# Surgical: kill ONLY this build's instance ($EXEC) and the gateway on ITS port ($GW_PORT),
-# identified by listening socket — never the installed daily-driver Port42 / its 4242 gateway.
-echo "[build] Killing any running $DISPLAY_NAME + its gateway (port $GW_PORT) before rebuild..."
-pkill -x "$EXEC" 2>/dev/null || true
-lsof -ti "tcp:$GW_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
-for i in {1..10}; do pgrep -x "$EXEC" >/dev/null 2>&1 || break; sleep 0.3; done
-pkill -9 -x "$EXEC" 2>/dev/null || true
-lsof -ti "tcp:$GW_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+# Surgical: kill ONLY instances launched FROM THIS BUILD DIR (the bundle we're about to
+# overwrite in place) — NEVER the installed daily-driver at /Applications, even on a
+# release build (its process is also named "Port42"; a name-based pkill killed the app
+# the user was working in). Same for the gateway: only kill a $GW_PORT listener whose
+# binary lives under the build dir.
+BUILD_REAL=$(cd "$DIR/.build" 2>/dev/null && pwd -P || echo "$DIR/.build")
+echo "[build] Killing any running $DISPLAY_NAME launched from $BUILD_REAL (never the installed app)..."
+pkill -f "$BUILD_REAL/$APP_DIR_NAME.app/Contents/MacOS/$EXEC" 2>/dev/null || true
+for pid in $(lsof -ti "tcp:$GW_PORT" 2>/dev/null); do
+    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in "$BUILD_REAL"*) kill "$pid" 2>/dev/null || true ;; esac
+done
+for i in {1..10}; do pgrep -f "$BUILD_REAL/$APP_DIR_NAME.app/Contents/MacOS/$EXEC" >/dev/null 2>&1 || break; sleep 0.3; done
+pkill -9 -f "$BUILD_REAL/$APP_DIR_NAME.app/Contents/MacOS/$EXEC" 2>/dev/null || true
+for pid in $(lsof -ti "tcp:$GW_PORT" 2>/dev/null); do
+    case "$(ps -o comm= -p "$pid" 2>/dev/null)" in "$BUILD_REAL"*) kill -9 "$pid" 2>/dev/null || true ;; esac
+done
 sleep 0.3
 
 # --- Package the main app ---
@@ -216,7 +220,7 @@ fi
 envsubst < "$DIR/Info.plist" > "$APP/Contents/Info.plist"
 if $DEV_ISO; then
     # Launcher (the bundle's main executable) sets the isolated data dir + gateway port, then
-    # execs the real binary. This is the same technique --peer uses.
+    # execs the real binary.
     cat > "$MACOS/$EXEC-Launcher" << EOF
 #!/bin/bash
 D="\$(cd "\$(dirname "\$0")" && pwd)"
@@ -352,91 +356,3 @@ if $RUN; then
     open "$APP"
 fi
 
-# --- Build and launch the peer (if requested) ---
-if $PEER; then
-    PEER_APP="$DIR/.build/Port42-Peer.app"
-    PEER_MACOS="$PEER_APP/Contents/MacOS"
-    PEER_RESOURCES="$PEER_APP/Contents/Resources"
-    rm -rf "$PEER_APP"
-    mkdir -p "$PEER_MACOS" "$PEER_RESOURCES"
-
-    cp "$DIR/.build/$CONFIG/Port42" "$PEER_MACOS/Port42-Peer"
-    install_name_tool -add_rpath "@loader_path/../Frameworks" "$PEER_MACOS/Port42-Peer" 2>/dev/null || true
-    cp "$GATEWAY_BIN" "$PEER_MACOS/port42-gateway"
-    cp "$SHIM_BIN" "$PEER_MACOS/port42-claude-shim"
-    cp "$DIR/Sources/Port42/Resources/AppIcon.icns" "$PEER_RESOURCES/AppIcon.icns"
-    for bundle in "$DIR/.build/$CONFIG"/*.bundle; do
-        [ -d "$bundle" ] && cp -R "$bundle" "$PEER_RESOURCES/"
-    done
-
-    # Copy Sparkle framework to peer
-    PEER_FRAMEWORKS="$PEER_APP/Contents/Frameworks"
-    mkdir -p "$PEER_FRAMEWORKS"
-    if [ -d "$SPARKLE_FW" ]; then
-        cp -R "$SPARKLE_FW" "$PEER_FRAMEWORKS/"
-    fi
-
-    # Peer gets a different bundle ID and name
-    sed -e 's/com.port42.app/com.port42.peer/' \
-        -e 's/<string>Port42<\/string>/<string>Port42-Peer<\/string>/' \
-        "$DIR/Info.plist" > "$PEER_APP/Contents/Info.plist"
-
-    # Wrapper script that sets env vars and execs the real binary
-    cat > "$PEER_MACOS/Port42-Peer-Launcher" << 'EOF'
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-export PORT42_DATA_DIR="Port42-Peer"
-export PORT42_GATEWAY_PORT="4244"
-exec "$DIR/Port42-Peer"
-EOF
-    chmod +x "$PEER_MACOS/Port42-Peer-Launcher"
-
-    # Point Info.plist at the launcher
-    sed -i '' 's/<string>Port42-Peer<\/string>/<string>Port42-Peer-Launcher<\/string>/' \
-        "$PEER_APP/Contents/Info.plist"
-    # Fix: only replace the CFBundleExecutable value, not CFBundleName
-    # The sed above is too broad. Let's just write it properly:
-    cat > "$PEER_APP/Contents/Info.plist" << 'PLIST_EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleExecutable</key>
-	<string>Port42-Peer-Launcher</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.port42.peer</string>
-	<key>CFBundleName</key>
-	<string>Port42-Peer</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.port42.peer.invite</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>port42</string>
-			</array>
-		</dict>
-	</array>
-</dict>
-</plist>
-PLIST_EOF
-
-    codesign --deep --force --sign - --entitlements "$DIR/Port42.entitlements" "$PEER_APP"
-
-    echo "[build] Ready: $PEER_APP"
-    echo "[build] Launching peer (data: Port42-Peer, gateway: 4244)..."
-    open "$PEER_APP"
-fi

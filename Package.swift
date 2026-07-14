@@ -40,11 +40,6 @@ let package = Package(
                 .linkedFramework("Carbon")
             ]
         ),
-        .executableTarget(
-            name: "Port42B",
-            dependencies: ["Port42Lib"],
-            path: "Sources/Port42B"
-        ),
         .testTarget(
             name: "Port42Tests",
             dependencies: ["Port42Lib"],

@@ -50,13 +50,8 @@ public struct TransitionRoot: View {
             if appState.showDreamscape {
                 LockScreenView()
             } else if transitionPhase != .none || (appState.isSetupComplete && transitionPhase == .none) {
-                // SHELL — S2.1: behind PORT42_SHELL, the shell root replaces the split-view app
-                // surface (ambient surface + zoom spine + galaxy). Default off ⇒ ContentView.
-                if ShellMode.isEnabled() {
-                    ShellView(appState: appState)
-                } else {
-                    ContentView()
-                }
+                // The shell IS the app (classic ContentView retired).
+                ShellView(appState: appState)
             } else if !appState.showDreamscape && bootCinematicDone {
                 SetupView()
             }
@@ -202,19 +197,6 @@ public struct TransitionRoot: View {
                 preWarmBreakoutVideo = true
             }
         }
-        // Accent frame glow — for the windowed (non-shell) app only. The edge-to-edge shell fills the
-        // whole screen, so a border around the frame is just a green line; drop it there.
-        .overlay {
-            if !ShellMode.isEnabled() {
-                Rectangle()
-                    .stroke(Port42Theme.accent.opacity(isKeyWindow ? 0.6 : 0), lineWidth: 1)
-                    .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.5 : 0), radius: 12)
-                    .shadow(color: Port42Theme.accent.opacity(isKeyWindow ? 0.3 : 0), radius: 24)
-                    .animation(.easeInOut(duration: 0.25), value: isKeyWindow)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
-        }
         .background(WindowRefAccessor { w in nsWindow = w })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             if let w = nsWindow, note.object as? NSWindow == w { isKeyWindow = true }
@@ -249,34 +231,10 @@ public struct TransitionRoot: View {
 
     private func restoreWindowFrame() {
         guard let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
-        let screen = window.screen ?? NSScreen.main
-
-        // SHELL — re-apply the window presentation after every unlock/dive transition (which otherwise
-        // resets the frame + presentationOptions). Fullscreen takeover is OPT-IN: with it off, the
-        // shell restores to a normal windowed state instead of taking over the screen.
-        if ShellMode.isEnabled() {
-            ShellMode.applyShellWindow(to: window)
-            return
-        }
-
-        let screenFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-
-        // If we have a saved frame that isn't full-screen, restore it
-        if let frameString = UserDefaults.standard.string(forKey: "p42MainWindowFrame") {
-            let frame = NSRectFromString(frameString)
-            if frame.width > 100 && frame.height > 100 {
-                let isFullScreen = abs(frame.width - screenFrame.width) < 20 && abs(frame.height - screenFrame.height) < 20
-                if !isFullScreen {
-                    window.setFrame(frame, display: true, animate: false)
-                    return
-                }
-            }
-        }
-
-        // No usable saved frame — full-height sidebar flush to the screen's left edge,
-        // so the first chat port can dock immediately to its right.
-        let sidebarWidth: CGFloat = 220
-        window.setFrame(CGRect(x: screenFrame.minX, y: screenFrame.minY, width: sidebarWidth, height: screenFrame.height), display: true, animate: false)
+        // Re-apply the shell window presentation after every unlock/dive transition (which
+        // otherwise resets the frame + presentationOptions). Fullscreen takeover is OPT-IN:
+        // with it off, the shell restores to its remembered windowed frame.
+        ShellMode.applyShellWindow(to: window)
     }
 
     private func startEnterAquariumTransition() {

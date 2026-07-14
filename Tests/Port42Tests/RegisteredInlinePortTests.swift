@@ -60,31 +60,31 @@ struct RegisteredInlinePortTests {
         #expect(!saved.contains(where: { $0.id == "p1" }))
     }
 
-    @Test("classic undock flips presentation to floating")
+    @Test("undock flips presentation to tiled (a tile IS the port's window)")
     @MainActor
     func promotes() throws {
         let (manager, _) = try makeManager()
         manager.registerInlinePort(id: "p1", html: "<div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
-        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600))
         let panel = try #require(manager.panels.first(where: { $0.id == "p1" }))
-        #expect(panel.presentation == "floating")
-        // The same webview survives — promotion re-parents, never recreates.
+        #expect(panel.presentation == "tiled")
+        // The same webview survives — undock re-parents, never recreates.
         #expect(manager.webViews["p1"] != nil)
     }
 
-    @Test("promotion persists the now-floating port")
+    @Test("undock persists the now-tiled port")
     @MainActor
     func promotionPersists() throws {
         let (manager, state) = try makeManager()
         manager.registerInlinePort(id: "p1", html: "<div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
-        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600))
         let saved = try state.db.fetchPortPanels()
         #expect(saved.contains(where: { $0.id == "p1" }))
     }
 
-    @Test("promotion gives a real floating size (was tiny inline)")
+    @Test("undock gives a real desktop size (was tiny inline)")
     @MainActor
     func promotionResizes() throws {
         let (manager, _) = try makeManager()
@@ -92,9 +92,9 @@ struct RegisteredInlinePortTests {
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         let inlineSize = try #require(manager.panels.first(where: { $0.id == "p1" })).size
         #expect(inlineSize.width < 200)  // registered tiny
-        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600), shellMode: false)
-        let floatingSize = try #require(manager.panels.first(where: { $0.id == "p1" })).size
-        #expect(floatingSize.width >= 200)
-        #expect(floatingSize.height >= 150)
+        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600))
+        let tiledSize = try #require(manager.panels.first(where: { $0.id == "p1" })).size
+        #expect(tiledSize.width >= 200)
+        #expect(tiledSize.height >= 150)
     }
 }

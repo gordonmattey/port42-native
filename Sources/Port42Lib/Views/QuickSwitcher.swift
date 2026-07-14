@@ -19,13 +19,17 @@ struct QuickSwitcherItem: Identifiable {
 public struct QuickSwitcher: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
+    /// The shell hosting this switcher (⌘K migrated from the classic app): companion
+    /// selection opens a DM TILE on the current desktop via the shell, not a space switch.
+    var shell: ShellState?
 
     @State private var query = ""
     @State private var selectedIndex = 0
     @FocusState private var isFocused: Bool
 
-    public init(isPresented: Binding<Bool>) {
+    public init(isPresented: Binding<Bool>, shell: ShellState? = nil) {
         self._isPresented = isPresented
+        self.shell = shell
     }
 
     public var body: some View {
@@ -71,7 +75,27 @@ public struct QuickSwitcher: View {
 
             Divider().background(Port42Theme.border)
 
-            // Invite link hint
+            // Agent invite hint (port42://agent — adds a companion; a feature migrated
+            // from the classic app along with the switcher).
+            if let agent = parsedAgentInvite {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Port42Theme.accent)
+                    Text("press enter to add companion \(agent.displayName)")
+                        .font(Port42Theme.mono(12))
+                        .foregroundStyle(Port42Theme.accent)
+                    Text(agent.model)
+                        .font(Port42Theme.mono(10))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Port42Theme.accent.opacity(0.1))
+            }
+
+            // Space invite link hint
             if let inviteInfo = parsedInvite {
                 HStack(spacing: 8) {
                     Image(systemName: "link")
@@ -232,6 +256,16 @@ public struct QuickSwitcher: View {
         return nil
     }
 
+    /// A pasted `port42://agent?...` link → the invited companion (nil if the query isn't one).
+    private var parsedAgentInvite: AgentInviteData? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        for candidate in [trimmed, extractURL(from: trimmed)].compactMap({ $0 })
+        where candidate.hasPrefix("port42://agent") {
+            return try? AgentInvite.parse(link: candidate)
+        }
+        return nil
+    }
+
     private var parsedInvite: SpaceInviteData? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -288,6 +322,18 @@ public struct QuickSwitcher: View {
     // MARK: - Actions
 
     private func selectCurrent() {
+        if let agent = parsedAgentInvite, let user = appState.currentUser {
+            let companion = AgentConfig.createLLM(
+                ownerId: user.id, displayName: agent.displayName,
+                systemPrompt: agent.systemPrompt, provider: agent.provider,
+                model: agent.model, trigger: .mentionOnly)
+            appState.addCompanion(companion)
+            if let space = appState.currentSpace {          // land it in THIS space's crew
+                appState.addCompanionToSpace(companion, space: space)
+            }
+            isPresented = false
+            return
+        }
         if let invite = parsedInvite {
             appState.joinSpaceFromInvite(invite)
             isPresented = false
@@ -303,7 +349,8 @@ public struct QuickSwitcher: View {
         case .space(let space):
             appState.selectSpace(space)
         case .companion(let companion):
-            appState.startSwim(with: companion)
+            if let shell { shell.activateCompanion(companion) }   // DM tile on this desktop
+            else { appState.startSwim(with: companion) }
         case .friend(let friend):
             appState.startDM(with: friend)
         }
