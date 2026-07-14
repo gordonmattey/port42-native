@@ -16,7 +16,7 @@ struct TerminalPortConfig: Codable {
     /// Full shell line typed into the shell once it's ready (companion command + quoted
     /// args). Empty = just an interactive shell, type nothing.
     var startupCommand: String = ""
-    let cwd: String
+    var cwd: String
     let spaceId: String
     let spaceName: String
     let companionName: String

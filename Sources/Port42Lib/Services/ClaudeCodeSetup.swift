@@ -204,7 +204,10 @@ public final class ClaudeCodeSetup: ObservableObject {
 
     /// Search PATH and common locations for a binary.
     nonisolated public static func findBinary(_ name: String) -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         let commonPaths = [
+            "\(home)/.local/bin/\(name)",     // the claude installer's home (a Finder-launched
+            "\(home)/bin/\(name)",            // app has a minimal PATH — `which` can't see these)
             "/usr/local/bin/\(name)",
             "/opt/homebrew/bin/\(name)",
             "/usr/bin/\(name)",
@@ -217,7 +220,6 @@ public final class ClaudeCodeSetup: ObservableObject {
         }
 
         // Check nvm installations
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
         let nvmBase = "\(home)/.nvm/versions/node"
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmBase) {
             // Sort descending to prefer newest version

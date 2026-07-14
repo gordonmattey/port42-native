@@ -220,6 +220,13 @@ public enum TerminalSessionBootstrap {
             env["PORT42_CLAUDE_PATH"] = real
         }
 
+        // Live-cwd tracking: the injected zshrc writes $PWD here on every cd (chpwd hook),
+        // so a rebuilt terminal (app restart) reopens in the directory the user was actually
+        // in — not the spawn cwd. Keyed by port id (sessionId == panelId), survives restarts.
+        if let cwdFile = liveCwdFile(portId: sessionId) {
+            env["PORT42_CWD_FILE"] = cwdFile
+        }
+
         // Intercept `claude` so it routes through the shim. Two mechanisms, because a PATH
         // entry alone LOSES to the user's interactive shell startup re-prepending its own
         // dirs (e.g. `.zshrc` doing `export PATH="$HOME/.local/bin:$PATH"`):
@@ -274,6 +281,13 @@ public enum TerminalSessionBootstrap {
             + "if [ -n \"$PORT42_CLAUDE_SHIM\" ]; then\n"
             + "  claude() { \"$PORT42_CLAUDE_SHIM\" \"$@\"; }\n"
             + "fi\n"
+            + "# Port42: report the live cwd so a rebuilt terminal reopens where you were.\n"
+            + "if [ -n \"$PORT42_CWD_FILE\" ]; then\n"
+            + "  __port42_track_cwd() { print -r -- \"$PWD\" >| \"$PORT42_CWD_FILE\" 2>/dev/null }\n"
+            + "  typeset -ag chpwd_functions\n"
+            + "  chpwd_functions+=(__port42_track_cwd)\n"
+            + "  __port42_track_cwd\n"
+            + "fi\n"
         let files: [String: String] = [
             ".zshenv":   sourceLine(".zshenv"),
             ".zprofile": sourceLine(".zprofile"),
@@ -289,5 +303,36 @@ public enum TerminalSessionBootstrap {
 
     public static func cleanup(tempDir: String) {
         try? FileManager.default.removeItem(atPath: tempDir)
+    }
+
+    // MARK: Live cwd (per-port, survives restarts)
+
+    /// The stable file the shell writes its cwd into: `<AppSupport>/<data-dir>/term-cwd/<portId>`.
+    /// nil if Application Support is unreachable. Same data-dir resolution as the DB
+    /// (`PORT42_DATA_DIR` baked by the dev launcher; "Port42" for the installed app).
+    public static func liveCwdFile(portId: String) -> String? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask).first else { return nil }
+        let dataDir = ProcessInfo.processInfo.environment["PORT42_DATA_DIR"] ?? "Port42"
+        let dir = base.appendingPathComponent(dataDir).appendingPathComponent("term-cwd")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent(portId).path
+    }
+
+    /// The last cwd the port's shell reported, if it still exists on disk.
+    public static func savedLiveCwd(portId: String) -> String? {
+        guard let file = liveCwdFile(portId: portId),
+              let cwd = try? String(contentsOfFile: file, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !cwd.isEmpty else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDir), isDir.boolValue else { return nil }
+        return cwd
+    }
+
+    /// Forget a closed port's cwd record.
+    public static func clearLiveCwd(portId: String) {
+        guard let file = liveCwdFile(portId: portId) else { return }
+        try? FileManager.default.removeItem(atPath: file)
     }
 }

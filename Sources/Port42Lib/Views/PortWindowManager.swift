@@ -227,8 +227,18 @@ public final class PortWindowManager: ObservableObject {
     /// Rebuild a tiled/parked terminal's controller + hoisted Ghostty surface after a restart, and
     /// register the view so the shell tile can host it (mirrors the spawn path).
     private func rebuildTiledTerminal(_ panel: PortPanel, app: AnyObject) {
-        guard let appState = app as? AppState, let config = panel.terminalConfig,
-              let controller = appState.makeTerminalController(for: panel) else { return }
+        guard let appState = app as? AppState, var config = panel.terminalConfig else { return }
+        // Reopen where the user actually WAS: the shell reported its live cwd on every cd
+        // (PORT42_CWD_FILE); the spawn cwd is only the fallback.
+        if let liveCwd = TerminalSessionBootstrap.savedLiveCwd(portId: panel.id) {
+            config.cwd = liveCwd
+        }
+        // A claude terminal resumes its most recent conversation in that cwd instead of
+        // starting cold (falls back to a fresh session when there's nothing to continue).
+        if config.startupCommand == "claude" {
+            config.startupCommand = "claude --continue || claude"
+        }
+        guard let controller = appState.makeTerminalController(for: panel) else { return }
         let built = GhosttyTerminalView.makeDetached(
             config: config, env: controller.env,
             onTee: { controller.receiveTee($0) },
@@ -585,6 +595,7 @@ public final class PortWindowManager: ObservableObject {
         terminalCoordinators.removeValue(forKey: id)?.teardown()
         terminalViews[id]?.removeFromSuperview()
         terminalViews.removeValue(forKey: id)
+        TerminalSessionBootstrap.clearLiveCwd(portId: id)   // a closed port forgets its cwd
         unpersistPanel(id)
         Analytics.shared.portClosed()
         panels.removeAll { $0.id == id }

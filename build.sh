@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build Port42.app
-# Usage: ./build.sh [--release] [--run]
+# Usage: ./build.sh [--release] [--run] [--no-dmg]
+#   --no-dmg  Release build of the .app only — skip DMG/notarization/publish
+#             (installing locally by hand; nothing is pushed anywhere)
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -43,11 +45,13 @@ export BUILD_NUMBER
 
 CONFIG="debug"
 RUN=false
+NO_DMG=false
 
 for arg in "$@"; do
     case "$arg" in
         --release) CONFIG="release" ;;
         --run)     RUN=true ;;
+        --no-dmg)  NO_DMG=true ;;
     esac
 done
 
@@ -289,7 +293,7 @@ fi
 echo "[build] Ready: $APP"
 
 # --- Release: package DMG, notarize, staple, update dist ---
-if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
     DIST="$DIR/dist"
     DMG="$DIST/Port42.dmg"
     mkdir -p "$DIST"
