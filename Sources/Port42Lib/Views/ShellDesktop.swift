@@ -840,7 +840,7 @@ struct ShellDock: View {
                 ForEach(appState.spaceCompanions) { companionChip($0) }
                 addCompanionButton
             }
-            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40)
+            dockAligned { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 40) }
             HStack(spacing: 10) {                                   // — PORTS —
                 portButton("bubble.left.and.bubble.right", "Chat") { openChat() }
                 portButton("terminal", "Terminal") { spawnTerminal() }
@@ -883,11 +883,22 @@ struct ShellDock: View {
     }
 
     private func portButton(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(shell.accent)
-                .frame(width: 46, height: 46).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.3), lineWidth: 1))
-        }.buttonStyle(.plain).help(label)
+        dockAligned {
+            Button(action: action) {
+                Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(shell.accent)
+                    .frame(width: 46, height: 46).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.3), lineWidth: 1))
+            }.buttonStyle(.plain).help(label)
+        }
+    }
+
+    /// Center a dock item on the companion CIRCLES' row, not the full chip height: every chip
+    /// is circle + name label, so unlabeled items get a ghost label to share the same skeleton.
+    private func dockAligned<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 3) {
+            content()
+            Text(" ").font(Port42Theme.mono(8)).hidden()
+        }
     }
 
     private func initials(_ name: String) -> String {
