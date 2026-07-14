@@ -88,8 +88,13 @@ public final class ShellState: ObservableObject {
         public var seen: Bool = false   // true after you've previewed it → its 10s countdown is armed
     }
     @Published public var peekingPorts: [PeekPort] = []
-    /// Foreign ports ADOPTED onto this desktop (a peek you zoomed into sticks here), by port id.
-    @Published public var surfacedPortIds: Set<String> = []
+
+    /// Is this port adopted onto the CURRENT desktop? Phase 3: adoption lives on the panel
+    /// (`adoptedSpaceIds`, persisted) — not a session set — so it survives switch + restart.
+    private func isAdoptedHere(_ id: String) -> Bool {
+        guard let sid = appState.currentSpace?.id else { return false }
+        return appState.portWindows.panels.first { $0.id == id }?.adoptedSpaceIds.contains(sid) ?? false
+    }
 
     private var lastUnread: [String: Int] = [:]
     private var notifSeeded = false
@@ -129,7 +134,7 @@ public final class ShellState: ObservableObject {
     func handlePortCreated(id: String, spaceId: String?, title: String) {
         guard let sid = spaceId else { return }
         if userSpawnedPortIds.remove(id) != nil { return }              // you made it; it's right there
-        guard !peekingPorts.contains(where: { $0.id == id }), !surfacedPortIds.contains(id) else { return }
+        guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
 
@@ -177,7 +182,9 @@ public final class ShellState: ObservableObject {
     public func keepPeek(_ peek: PeekPort, arrange: Bool = true) {
         peekingPorts.removeAll { $0.id == peek.id }
         peekRemaining[peek.id] = nil
-        surfacedPortIds.insert(peek.id)
+        if let sid = appState.currentSpace?.id {                     // adoption is persisted (Phase 3)
+            appState.portWindows.adopt(id: peek.id, into: sid)
+        }
         bringToFront(peek.id)
         if arrange { arrangeBump += 1 }
     }
@@ -270,7 +277,7 @@ public final class ShellState: ObservableObject {
         guard let sid = appState.currentSpace?.id else { return [] }
         let allowed = Set([sid] + openDMSpaceIds)
         return appState.portWindows.panels.filter { p in
-            p.presentation == "tiled" && (allowed.contains(p.spaceId ?? "") || surfacedPortIds.contains(p.id))
+            p.presentation == "tiled" && (allowed.contains(p.spaceId ?? "") || p.adoptedSpaceIds.contains(sid))
         }
     }
 
@@ -328,10 +335,9 @@ public final class ShellState: ObservableObject {
     /// Re-home a port to another space (the facade's `move`, plan §3) and clear this desktop's
     /// peek/adoption residue for it — a moved port is native to its new space, not surfaced.
     public func movePort(id: String, toSpace sid: String) {
-        appState.portWindows.move(id: id, toSpace: sid)
+        appState.portWindows.move(id: id, toSpace: sid)   // strips the new home from adopters
         peekingPorts.removeAll { $0.id == id }
         peekRemaining[id] = nil
-        surfacedPortIds.remove(id)
         exitFocusIfGone()
         arrangeBump += 1
     }
@@ -519,7 +525,8 @@ public final class ShellState: ObservableObject {
     public func clearOpenDMs() {
         for sid in openDMSpaceIds { appState.deactivateSpaceMessages(spaceId: sid) }
         openDMSpaceIds.removeAll()
-        surfacedPortIds.removeAll()          // adopted foreign ports are per-desktop
+        // (Adopted ports are NOT cleared — Phase 3: adoption lives on the panel, persisted,
+        // so a kept port is still on this desktop when you come back. Peeks stay transient.)
         peekingPorts.removeAll()             // peeks belong to the desktop you were on
         peekRemaining.removeAll()
         peekTimer?.invalidate(); peekTimer = nil
@@ -532,8 +539,8 @@ public final class ShellState: ObservableObject {
             closeDM(spaceId: sid)
             return
         }
-        if surfacedPortIds.contains(panel.id) {                      // adopted foreign port → detach
-            surfacedPortIds.remove(panel.id)
+        if let cur = appState.currentSpace?.id, panel.adoptedSpaceIds.contains(cur) {
+            appState.portWindows.unadopt(id: panel.id, from: cur)   // adopted foreign port → detach (persisted)
             arrangeBump += 1
             return
         }
@@ -553,8 +560,8 @@ public final class ShellState: ObservableObject {
     public func applyArrange(area: CGSize) {
         guard appState.currentSpace != nil else { return }
         // Arrange the SAME set the desktop renders — `desktopTilePanels`, the shared predicate
-        // (Phase 0). Previously this filter omitted adopted foreign ports (`surfacedPortIds`),
-        // so a kept peek never got gridded and stacked at its home-space position.
+        // (Phase 0). Previously this filter omitted adopted foreign ports, so a kept peek
+        // never got gridded and stacked at its home-space position.
         let panels = desktopTilePanels
         let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, z: max($0.z, 1)) }
         let origins = Self.arrange(tiles, in: area)

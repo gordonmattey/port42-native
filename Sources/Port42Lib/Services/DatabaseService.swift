@@ -606,6 +606,15 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v38-adopted-spaces") { db in
+            // Port Units Phase 3: adoption is a fact about the PORT, not the session — the
+            // spaces that kept a peek of this port (JSON string array; nil/empty = none).
+            // Persisted so an adopted port survives space-switch and restart.
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "adoptedSpaceIds", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1709,6 +1718,9 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var presentation: String
     /// SHELL S3 — z-order among tiled ports (monotonic; higher = frontmost).
     public var z: Int
+    /// Port Units Phase 3 — spaces that ADOPTED this port (kept its peek), JSON string array.
+    /// nil/empty = none. The port renders on its home desktop AND every adopter's.
+    public var adoptedSpaceIds: String?
 
     public init(from panel: PortPanel) {
         self.id = panel.id
@@ -1739,5 +1751,10 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.createdAt = Date()
         self.presentation = panel.presentation
         self.z = panel.z
+        if !panel.adoptedSpaceIds.isEmpty,
+           let json = try? JSONSerialization.data(withJSONObject: panel.adoptedSpaceIds),
+           let str = String(data: json, encoding: .utf8) {
+            self.adoptedSpaceIds = str
+        }
     }
 }

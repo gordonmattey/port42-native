@@ -25,6 +25,9 @@ public struct PortPanel: Identifiable {
     /// SHELL S3 — z-order among tiled ports on the shell desktop (monotonic; higher = frontmost).
     /// Assigned by `ShellState.focus(_:)`; persisted so a hand-tuned layout restores in order.
     public var z: Int = 0
+    /// Port Units Phase 3 — spaces that ADOPTED this port (kept its peek). The port renders on
+    /// its home desktop AND every adopter's; persisted, so adoption survives switch + restart.
+    public var adoptedSpaceIds: [String] = []
     public var isAlwaysOnTop: Bool = false
     public var isBackground: Bool = false
     public var portType: String = "web"
@@ -211,6 +214,12 @@ public final class PortWindowManager: ObservableObject {
                 // fell out of the desktop render (which filters presentation == "tiled").
                 panel.presentation = row.presentation
                 panel.z = row.z
+                // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
+                if let adoptedStr = row.adoptedSpaceIds,
+                   let data = adoptedStr.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
+                    panel.adoptedSpaceIds = arr
+                }
                 panels.append(panel)
                 // Chat ports render ChatView; terminal ports host a Ghostty surface —
                 // only web ports get a WKWebView.
@@ -549,12 +558,41 @@ public final class PortWindowManager: ObservableObject {
 
     /// Re-home a port to another space (the facade's `move`, plan §3): only `spaceId` changes —
     /// presentation, geometry, and the live view are untouched. `spaceId` is a stored column,
-    /// so the move survives restart with no extra persistence machinery.
+    /// so the move survives restart with no extra persistence machinery. Native beats adopted:
+    /// the new home is stripped from the adopters (other adopters keep it).
     public func move(id: String, toSpace spaceId: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].spaceId = spaceId
         panels[idx].bridge.spaceId = spaceId   // API calls/permissions attribute to the new home
+        panels[idx].adoptedSpaceIds.removeAll { $0 == spaceId }
         persistPanel(id)
+    }
+
+    /// Phase 3 — ADOPT a foreign port onto a space's desktop (keep a peek): persisted on the
+    /// panel, so it survives space-switch and restart. Idempotent; a port's own home is never
+    /// an adopter (native beats adopted).
+    public func adopt(id: String, into spaceId: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }),
+              panels[idx].spaceId != spaceId,
+              !panels[idx].adoptedSpaceIds.contains(spaceId) else { return }
+        panels[idx].adoptedSpaceIds.append(spaceId)
+        persistPanel(id)
+    }
+
+    /// Phase 3 — DETACH an adopted port from a space's desktop (✕ on the tile): drop the
+    /// adoption and persist. The port lives on in its home space and any other adopters.
+    public func unadopt(id: String, from spaceId: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }),
+              panels[idx].adoptedSpaceIds.contains(spaceId) else { return }
+        panels[idx].adoptedSpaceIds.removeAll { $0 == spaceId }
+        persistPanel(id)
+    }
+
+    /// Phase 3 — the ports a space's desktop stages (the facade's `ports(in:)`): its native
+    /// panels plus every panel adopted into it. Background panels excluded.
+    public func panels(in spaceId: String) -> [PortPanel] {
+        panels.filter { !$0.isBackground
+            && ($0.spaceId == spaceId || $0.adoptedSpaceIds.contains(spaceId)) }
     }
 
     /// SHELL: make a space's real `isChatPort` panel a desktop tile so it renders alongside the

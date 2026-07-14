@@ -573,7 +573,7 @@ struct ShellTile: View {
                 if isPeeking, let peek, let pf = peekFrame {
                     guard hypot(v.translation.width, v.translation.height) > 40 else { return }   // a wiggle isn't a keep
                     if railZone(at: v.location) == .close { shell.dismissPeek(peek); return }
-                    if peek.isChat {                                     // chat adopts via surface, not surfacedPortIds
+                    if peek.isChat {                                     // chat adopts via surface, not panel adoption
                         shell.dismissPeek(peek)
                         shell.surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
                         return

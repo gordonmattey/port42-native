@@ -4,17 +4,20 @@ Fix the shell's shared-webview rendering so tiles, peeks, and focus stop blankin
 root cause is architectural; this replaces reparenting with a single persistent,
 absolutely-positioned per-port unit whose geometry is state-driven.
 
-Status: **Phases 0 + 1 committed (`d752ace`, `0cceb6b`); Phase 2 BUILT and Tier-B-PASSED
-(2026-07-12) — `KINDS PASS [web · terminal · browser]`, cycle + peek repro re-ran PASS.** Spikes 1+2+3 passed (I1/I2/I6); the probe was
+Status: **Phases 0–3 BUILT and Tier-B-PASSED (0+1 committed `d752ace`/`0cceb6b`, 2 committed
+`ed5b8e6`, 3 in the working tree).** Phase 3's `DESKTOP PASS` (2026-07-14) closed the last
+Tier B gate — and caught a real dual-mount bug on the way (a tiled port's chat anchor stealing
+its webview; fixed). Remaining: Tier C eyeball across all phases, then the classic-mode
+retirement task. Spikes 1+2+3 passed (I1/I2/I6); the probe was
 calibrated on the old code (FAIL: 19 remakes + 2 windowless), Phase 0 flipped the focus cycle to
 PASS, Phase 1 flipped the **original grey repro** to PASS (make==1 per peek, zero windowless,
 adopt without remount) and fixed the same-space gap (shell-mode `port.create` defaults to
 `tiled`; same-space births peek). Phase 2 deleted `ShellFocusContent` + the focus overlay
 (focus targets are units by construction), eliminated the shell's "floating" presentation
 entirely (undock = tile; legacy rows normalize at restore), pulled `move` (re-home) forward,
-and added the per-kind Tier B harness ("Port Units — kinds"). **Decided: classic mode will be
-retired as its own task after this refactor.** Remaining: Phase 2 Tier B run + Tier C eyeball
-(all phases), then Phase 3 — regression sweep + adoption persistence.
+and added the per-kind Tier B harness ("Port Units — kinds"). Phase 3 made adoption a persisted
+fact on the panel (`adoptedSpaceIds`, v38) — a kept peek survives space-switch and restart.
+**Decided: classic mode will be retired as its own task after this refactor.**
 
 **Spike result (I1 + I2 validated).** A throwaway floating panel
 (`PortResizeSpike.swift`, Debug menu → "Port Resize Spike") hosts one persistent
@@ -470,7 +473,35 @@ remaining reparent workarounds.
 **Gate (§9 Phase 2):** all three port kinds green on Tier B; no orphaned old-path code remains
 (grep-proven: `ShellFocusContent` / `popOutTiled` / `dockToTile` / `promoteInlineToFloating` — zero hits).
 
-### Phase 3 — regression sweep + persistence
+### Phase 3 — regression sweep + persistence — ⬅ CODE COMPLETE + Tier B PASSED (2026-07-14); Tier C pending
+> **As built:** adoption is a fact about the PORT, not the session. `PortPanel.adoptedSpaceIds`
+> (v38 migration, JSON column; `PersistedPortPanel` + `restoreFromDB` round-trip) replaces
+> `ShellState.surfacedPortIds` — DELETED, no dual source of truth. `keepPeek` → `adopt(id:into:)`
+> (persisted, idempotent, never into the port's own home); ✕-detach → `unadopt(id:from:)`;
+> `clearOpenDMs` no longer touches adoption (THE fix: a kept port survives the space switch);
+> `move` strips only the new home from adopters (native beats adopted). New facade query
+> `panels(in:)` = native ∪ adopted. Peeks/DMs stay session-scoped, deliberately.
+> **Design decision (per plan §2):** unmount-on-switch KEPT — leaving a space unmounts its units
+> (remount repaints; Spike 2), memory stays proportional to the current desktop. The probe gets
+> STAGED semantics: the harness `untrack`s ids that unstage by design (switch-away, dismissed
+> peeks); the one id that must survive a switch mounted is the ADOPTED port (in both desktops'
+> contextItems → same ForEach row, no remake).
+> **Gate:** Tier A ✅ — 7-test adoption suite (switch survival, restart round-trip via a second
+> AppState over the same DB, detach un-persists, move strips new-home-only, adopt guards,
+> `panels(in:)`, parked-restores-parked); full run: only the known pre-existing failures ·
+> **Tier B ✅ PASS** (2026-07-14, `/tmp/portunit.log`) — new harness "Port Units — desktop"
+> (`PORT42_PROBE_DESKTOP_AUTORUN` / Debug menu): busy desktop (web+terminal+browser + 2 peeks),
+> keep/dismiss, arrange ×2, exposé on/off, drag-sim, focus web+terminal, then **A→B→A** — every
+> port make==1 per stay, zero windowless, the kept port still on A after the round trip.
+> **The sweep earned its keep before passing — it caught a REAL bug:** a TILED port whose birth
+> fence is visible in its space's chat had its webview STOLEN by the chat's inline anchor
+> (`RegisteredInlinePortView` only knew presentation "floating"; tiled/parked fell through to
+> the adopt path — two mounts, one view, the §2 disease). Fixed: a desktop-resident port's chat
+> anchor renders an "on the desktop — click to focus" reference card and never adopts. Also an
+> instrument fix: `PortRenderProbe.retain(only:)` prunes the watch to currently-staged ids at
+> arm (a pre-run visit to another space had left its unmounted tiles on the watch) · Tier C ⏳
+> (drag/arrange/exposé feel; switch — kept port stays; relaunch — tiles at position, kept port
+> restores in the space it was kept in, parked restores parked).
 Full-desktop regression (arrange / exposé / drag / space-switch) + `adoptedSpaceIds` persistence
 across space-switch and restart.
 **Gate (§9 Phase 3):** clean Tier B across a busy desktop; persistence unit tests green.

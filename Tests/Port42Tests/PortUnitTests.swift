@@ -241,7 +241,7 @@ struct PortUnitPeekTests {
 
         shell.keepPeek(shell.peekingPorts[0], arrange: false)   // drag-to-keep: hand-placed
         #expect(shell.peekingPorts.isEmpty)
-        #expect(shell.surfacedPortIds.contains("kp"))
+        #expect(state.portWindows.panels.first { $0.id == "kp" }?.adoptedSpaceIds == [space.id])
         #expect(shell.arrangeBump == bump)                      // no re-grid on a hand drop
         #expect(shell.isDesktopUnit("kp"))                      // now a tile of this desktop
     }
@@ -381,7 +381,7 @@ struct PortUnitCollapseTests {
         shell.movePort(id: "m2", toSpace: b.id)                 // re-home while focused
         #expect(shell.zoom == .space)                           // focus exited (unit left A)
         #expect(shell.peekingPorts.isEmpty)
-        #expect(!shell.surfacedPortIds.contains("m2"))
+        #expect(state.portWindows.panels.first { $0.id == "m2" }?.adoptedSpaceIds.isEmpty == true)
     }
 
     @Test("move survives a restart (spaceId is the persisted column)")
@@ -405,5 +405,138 @@ struct PortUnitCollapseTests {
         let unit = ShellPlacement.focusRect(in: CGSize(width: 1000, height: 800))
         #expect(ShellPlacement.browserBarH == 34)
         #expect(unit.height - ShellPlacement.browserBarH > 0)
+    }
+}
+
+/// Tier A for Phase 3 — adoption persistence (§9): adoption is a fact about the PORT
+/// (`PortPanel.adoptedSpaceIds`, v38 column), not the session — a kept peek survives
+/// `clearOpenDMs` (space switch) and a restart; ✕-detach un-persists; `move` strips only
+/// the new home from adopters; `panels(in:)` is the facade query (native ∪ adopted).
+@Suite("Port Units — adoption persistence (Phase 3)")
+struct PortUnitAdoptionTests {
+
+    @MainActor
+    private func makeState(db: DatabaseService? = nil) throws -> (ShellState, AppState, DatabaseService) {
+        let database = try db ?? DatabaseService(inMemory: true)
+        let state = AppState(db: database)
+        return (ShellState(appState: state), state, database)
+    }
+
+    /// A port native to `home`, peeked into and KEPT on the current desktop.
+    @MainActor
+    private func adoptPort(_ id: String, home: Space, shell: ShellState, state: AppState) {
+        _ = state.portWindows.registerTiledPort(id: id, html: "<title>\(id)</title>", spaceId: home.id,
+                                                createdBy: "someone", title: id, position: nil)
+        shell.handlePortCreated(id: id, spaceId: home.id, title: id)
+        shell.keepPeek(shell.peekingPorts.first { $0.id == id }!)
+    }
+
+    @Test("keepPeek adoption survives clearOpenDMs (the space-switch wipe)")
+    @MainActor
+    func adoptionSurvivesSwitch() throws {
+        let (shell, state, _) = try makeState()
+        let a = Space.create(name: "a"); let b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        adoptPort("ad1", home: b, shell: shell, state: state)
+        #expect(shell.isDesktopUnit("ad1"))
+
+        shell.clearOpenDMs()                                    // what a space switch runs
+        #expect(shell.isDesktopUnit("ad1"))                     // still on A's desktop
+        #expect(shell.peekingPorts.isEmpty)                     // peeks stayed transient
+    }
+
+    @Test("adoption survives a restart (restoreFromDB round-trip)")
+    @MainActor
+    func adoptionSurvivesRestart() throws {
+        let (shell, state, db) = try makeState()
+        let a = Space.create(name: "a"); let b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        adoptPort("ad2", home: b, shell: shell, state: state)
+
+        let state2 = AppState(db: db)                           // "relaunch" over the same DB
+        state2.portWindows.restoreFromDB(appState: state2)
+        let restored = try #require(state2.portWindows.panels.first { $0.id == "ad2" })
+        #expect(restored.adoptedSpaceIds == [a.id])
+        #expect(restored.spaceId == b.id)                       // home unchanged
+
+        let shell2 = ShellState(appState: state2)
+        state2.spaces = [a, b]; state2.currentSpace = a
+        #expect(shell2.isDesktopUnit("ad2"))                    // back on A's desktop
+    }
+
+    @Test("✕-detach unadopts and persists (the port lives on at home)")
+    @MainActor
+    func detachUnpersists() throws {
+        let (shell, state, db) = try makeState()
+        let a = Space.create(name: "a"); let b = Space.create(name: "b")
+        state.spaces = [a, b]; state.currentSpace = a
+        adoptPort("ad3", home: b, shell: shell, state: state)
+        let panel = try #require(state.portWindows.panels.first { $0.id == "ad3" })
+
+        shell.dismissTile(panel)                                // adopted → detach, not close
+        let after = try #require(state.portWindows.panels.first { $0.id == "ad3" })
+        #expect(after.adoptedSpaceIds.isEmpty)
+        #expect(!shell.isDesktopUnit("ad3"))                    // off A's desktop
+        let rows = try db.fetchPortPanels()
+        #expect(rows.first { $0.id == "ad3" }?.adoptedSpaceIds == nil)   // un-persisted
+    }
+
+    @Test("move strips only the NEW home from adopters (native beats adopted)")
+    @MainActor
+    func moveStripsNewHomeOnly() throws {
+        let (_, state, _) = try makeState()
+        let a = Space.create(name: "a"); let b = Space.create(name: "b"); let c = Space.create(name: "c")
+        state.spaces = [a, b, c]; state.currentSpace = a
+        _ = state.portWindows.registerTiledPort(id: "mv", html: "<title>mv</title>", spaceId: a.id,
+                                                createdBy: nil, title: "mv", position: nil)
+        state.portWindows.adopt(id: "mv", into: b.id)
+        state.portWindows.adopt(id: "mv", into: c.id)
+
+        state.portWindows.move(id: "mv", toSpace: b.id)         // B becomes home
+        let p = try #require(state.portWindows.panels.first { $0.id == "mv" })
+        #expect(p.spaceId == b.id)
+        #expect(p.adoptedSpaceIds == [c.id])                    // C's adoption preserved
+    }
+
+    @Test("adopt is idempotent and never adopts a port into its own home")
+    @MainActor
+    func adoptGuards() throws {
+        let (_, state, _) = try makeState()
+        _ = state.portWindows.registerTiledPort(id: "g1", html: "<title>g1</title>", spaceId: "home",
+                                                createdBy: nil, title: "g1", position: nil)
+        state.portWindows.adopt(id: "g1", into: "home")         // own home — refused
+        state.portWindows.adopt(id: "g1", into: "s2")
+        state.portWindows.adopt(id: "g1", into: "s2")           // dup — refused
+        #expect(state.portWindows.panels.first { $0.id == "g1" }?.adoptedSpaceIds == ["s2"])
+    }
+
+    @Test("panels(in:) = native plus adopted; close drops the port everywhere")
+    @MainActor
+    func panelsInQuery() throws {
+        let (_, state, _) = try makeState()
+        _ = state.portWindows.registerTiledPort(id: "q1", html: "<title>q1</title>", spaceId: "sA",
+                                                createdBy: nil, title: "q1", position: nil)
+        _ = state.portWindows.registerTiledPort(id: "q2", html: "<title>q2</title>", spaceId: "sB",
+                                                createdBy: nil, title: "q2", position: nil)
+        state.portWindows.adopt(id: "q2", into: "sA")
+
+        #expect(state.portWindows.panels(in: "sA").map(\.id).sorted() == ["q1", "q2"])
+        #expect(state.portWindows.panels(in: "sB").map(\.id) == ["q2"])
+        state.portWindows.close("q2")
+        #expect(state.portWindows.panels(in: "sA").map(\.id) == ["q1"])
+        #expect(state.portWindows.panels(in: "sB").isEmpty)
+    }
+
+    @Test("a parked port restores parked (presentation round-trips)")
+    @MainActor
+    func parkedRestoresParked() throws {
+        let (_, state, db) = try makeState()
+        _ = state.portWindows.registerTiledPort(id: "pk1", html: "<title>pk1</title>", spaceId: "sA",
+                                                createdBy: nil, title: "pk1", position: nil)
+        state.portWindows.park(id: "pk1")
+
+        let state2 = AppState(db: db)
+        state2.portWindows.restoreFromDB(appState: state2)
+        #expect(state2.portWindows.panels.first { $0.id == "pk1" }?.presentation == "parked")
     }
 }

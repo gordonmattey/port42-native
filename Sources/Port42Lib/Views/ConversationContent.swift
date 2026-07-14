@@ -1074,6 +1074,13 @@ struct RegisteredInlinePortView: View {
     /// The live registered panel (nil before registration / after close).
     private var panel: PortPanel? { manager.panels.first(where: { $0.id == id }) }
     private var isFloating: Bool { panel?.presentation == "floating" }
+    /// The webview LIVES ELSEWHERE — floating panel, desktop tile, or park rail. The inline
+    /// anchor must NOT adopt it: two mounts sharing one view is the grey bug (the Phase 3
+    /// desktop sweep caught a tiled port's chat anchor stealing its webview off the desktop).
+    private var livesElsewhere: Bool {
+        guard let pres = panel?.presentation else { return false }
+        return pres == "floating" || pres == "tiled" || pres == "parked"
+    }
     private var title: String { bridge?.title ?? panel?.title ?? PortPanel.extractTitle(from: html) }
     private var height: CGFloat { max(manager.inlineHeights[id] ?? 100, 100) }
 
@@ -1085,14 +1092,14 @@ struct RegisteredInlinePortView: View {
                 .background(Port42Theme.bgSecondary)
                 .zIndex(1)
 
-            if isFloating {
-                // The webview now lives in the floating panel — show a compact "popped out" state.
+            if livesElsewhere {
+                // The webview lives in its floating panel / desktop tile — a reference card only.
                 Button(action: focus) {
                     HStack(spacing: 8) {
-                        Image(systemName: "macwindow")
+                        Image(systemName: isFloating ? "macwindow" : "square.grid.2x2")
                             .font(.system(size: 11))
                             .foregroundStyle(Port42Theme.accent)
-                        Text("popped out — click to focus")
+                        Text(isFloating ? "popped out — click to focus" : "on the desktop — click to focus")
                             .font(Port42Theme.mono(11))
                             .foregroundStyle(Port42Theme.textSecondary)
                         Spacer()
@@ -1151,7 +1158,7 @@ struct RegisteredInlinePortView: View {
             }
             Spacer()
 
-            if !isFloating {
+            if !livesElsewhere {
                 if showCode {
                     iconButton("play.fill", help: "Run port", accent: true) { showCode = false }
                 } else {
@@ -1160,8 +1167,8 @@ struct RegisteredInlinePortView: View {
                 }
             }
 
-            iconButton("macwindow", help: isFloating ? "Focus window" : "Pop out") {
-                isFloating ? focus() : popOut()
+            iconButton("macwindow", help: livesElsewhere ? "Focus" : "Pop out") {
+                livesElsewhere ? focus() : popOut()
             }
         }
     }

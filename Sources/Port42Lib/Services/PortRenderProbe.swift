@@ -78,6 +78,18 @@ public enum PortRenderProbe {
         makes.removeValue(forKey: id)
     }
 
+    /// Arm-time prune: keep only ids the harness knows are STAGED on the desktop right now.
+    /// Anything else on the watch was mounted earlier on some other desktop and is windowless
+    /// BY DESIGN (unmount-on-switch) — a pre-armed stale entry, not a violation. (The desktop
+    /// sweep's first FAIL was exactly this: a tile of the away-space, tracked from a pre-run
+    /// visit, flagged windowless the whole run.)
+    public static func retain(only staged: Set<String>) {
+        for id in tracked.keys where !staged.contains(id) {
+            tracked.removeValue(forKey: id)
+            makes.removeValue(forKey: id)
+        }
+    }
+
     public static var makesDescription: String {
         makes.isEmpty ? "makes[—]"
             : "makes[" + makes.keys.sorted().map { "\($0.prefix(8))=\(makes[$0]!)" }.joined(separator: " ") + "]"
@@ -145,6 +157,7 @@ public final class PortUnitCycleHarness {
     private func start(shell: ShellState, id: String) {
         running = true
         PortRenderProbe.reset()
+        PortRenderProbe.retain(only: Set(shell.contextItems.map(\.id)))   // staged-only watch
         PortRenderProbe.enabled = true
         PortRenderProbe.log("=== PORT UNITS CYCLE — target \(id) ===")
         // The tile's initial mount happened before reset(), so during the run ANY make is a
@@ -197,6 +210,7 @@ public final class PortUnitCycleHarness {
         }
         running = true
         PortRenderProbe.reset()
+        PortRenderProbe.retain(only: Set(shell.contextItems.map(\.id)))   // staged-only watch
         PortRenderProbe.enabled = true
         PortRenderProbe.log("=== PEEK REPRO — ports in \(other.prefix(8)), watched from \(current.prefix(8)) ===")
 
@@ -238,8 +252,7 @@ public final class PortUnitCycleHarness {
                 // Cleanup: drop the fabricated ports + any leftover peek/surfaced entries.
                 for id in ids {
                     if let p = peek(id) { shell.dismissPeek(p) }
-                    shell.surfacedPortIds.remove(id)
-                    app.portWindows.close(id)
+                    app.portWindows.close(id)                       // close drops adoption with the panel
                     PortRenderProbe.untrack(id)   // closed = correctly windowless, off the watch
                 }
                 finish(shell: shell)
@@ -347,6 +360,7 @@ public final class PortUnitCycleHarness {
     private func cycleOneKind(_ run: KindRun, shell: ShellState, app: AppState,
                               completion: @escaping () -> Void) {
         PortRenderProbe.reset()
+        PortRenderProbe.retain(only: Set(shell.contextItems.map(\.id)))   // staged-only watch
         PortRenderProbe.enabled = true
         PortRenderProbe.log("--- KINDS \(run.kind) — target \(run.id.prefix(8)) (\(run.fabricated ? "fabricated" : "existing")) ---")
         sweep = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
@@ -363,8 +377,7 @@ public final class PortUnitCycleHarness {
             for viol in v { PortRenderProbe.log("  FAIL(\(viol))") }
             PortRenderProbe.enabled = false
             if run.fabricated {
-                shell.surfacedPortIds.remove(run.id)
-                app.portWindows.close(run.id)
+                app.portWindows.close(run.id)                       // close drops adoption with the panel
                 PortRenderProbe.untrack(run.id)   // closed = correctly windowless, off the watch
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { completion() }
@@ -395,6 +408,158 @@ public final class PortUnitCycleHarness {
             runKinds(); return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runKindsWhenReady() }
+    }
+
+    // MARK: - Phase 3 gate: the busy-desktop sweep (§9 Phase 3 Tier B / golden path III–IV).
+    // Several ports of every kind + peeks, then arrange / exposé / drag-sim / focus, then a
+    // space switch A→B→A. STAGED semantics: leaving a space unmounts its units BY DESIGN (a
+    // remount repaints — Spike 2), so unstaged ids are untracked at the switch; the one id
+    // that must survive the switch mounted is the ADOPTED port (it's in both desktops'
+    // contextItems — same ForEach row, never remade). Phase 3's win is asserted directly:
+    // the kept port is still on A's desktop AFTER A→B→A (adoption persisted on the panel).
+
+    public func runDesktop() {
+        guard !running else { return }
+        guard let shell = ShellState.debugCurrent, let app = shell.debugAppState,
+              let sid = app.currentSpace?.id,
+              let other = app.spaces.first(where: { $0.id != sid }),
+              let otherIdx = app.spaces.firstIndex(where: { $0.id == other.id }),
+              let homeIdx = app.spaces.firstIndex(where: { $0.id == sid }) else {
+            PortRenderProbe.log("DESKTOP — no shell / no second space; abort"); return
+        }
+        running = true
+        PortRenderProbe.log("=== PORT UNITS DESKTOP — busy desktop, in \(sid.prefix(8)), peeks from \(other.id.prefix(8)) ===")
+
+        let area = NSApp?.keyWindow?.contentView?.bounds.size ?? CGSize(width: 1440, height: 900)
+        let stamp = String(UUID().uuidString.prefix(6))
+
+        // Space A: one fresh web tile + a terminal + a browser (existing tiles reused).
+        let webId = "desk-web-\(stamp)"
+        _ = app.portWindows.registerTiledPort(
+            id: webId,
+            html: "<html><title>desk web</title><body style=\"background:#102a1a;color:#9f9;font-family:monospace\"><h1>DESK</h1><script>setInterval(()=>{document.title='t'+Date.now()},500)</script></body></html>",
+            spaceId: sid, createdBy: "desktop-harness", title: "desk web", position: nil)
+        let termRun = acquireKind("terminal", app: app, sid: sid)
+        let browserRun = acquireKind("browser", app: app, sid: sid)
+        // Space B: two web ports — their births peek into A.
+        let peekIds = ["desk-peek-\(stamp)-1", "desk-peek-\(stamp)-2"]
+        for (i, id) in peekIds.enumerated() {
+            _ = app.portWindows.registerTiledPort(
+                id: id,
+                html: "<html><title>desk peek \(i + 1)</title><body style=\"background:#1a0f2e;color:#9ff;font-family:monospace\"><h1>PEEK \(i + 1)</h1></body></html>",
+                spaceId: other.id, createdBy: "desktop-harness", title: "desk peek \(i + 1)", position: nil)
+        }
+        let fabricated = [webId] + peekIds
+            + (termRun?.fabricated == true ? [termRun!.id] : [])
+            + (browserRun?.fabricated == true ? [browserRun!.id] : [])
+
+        func peek(_ id: String) -> ShellState.PeekPort? { shell.peekingPorts.first { $0.id == id } }
+        /// Ids currently staged on this desktop with a live tracked view (chat excluded).
+        func stagedIds() -> [String] {
+            shell.contextItems.map(\.id).filter { app.portWindows.hostView(for: $0) != nil }
+        }
+
+        var steps: [(String, () -> Void)] = []
+        steps.append(("setup", {
+            // The A-side web tile's own same-space birth peeked — settle it into the grid.
+            if let p = peek(webId) { shell.dismissPeek(p) }
+            if shell.peekingPorts.filter({ peekIds.contains($0.id) }).count != 2 {
+                PortRenderProbe.log("VIOLATION setup: expected 2 peeks from \(other.id.prefix(8)), have \(shell.peekingPorts.count)")
+            }
+        }))
+        steps.append(("keep-1", {                              // adopt peek 1 (persisted, Phase 3)
+            if let p = peek(peekIds[0]) { shell.keepPeek(p) }
+        }))
+        steps.append(("dismiss-2", {                           // dismiss peek 2 → unstaged by design
+            if let p = peek(peekIds[1]) { shell.dismissPeek(p) }
+            PortRenderProbe.untrack(peekIds[1])
+        }))
+        steps.append(("arrange-1", { shell.applyArrange(area: area) }))
+        steps.append(("expose-on", { withAnimation(.spring(response: 0.4)) { shell.exposeActive = true } }))
+        steps.append(("expose-off", { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false } }))
+        steps.append(("drag-sim", {                            // a hand move: commit frame + raise
+            shell.bringToFront(webId)
+            app.portWindows.updateTileFrame(id: webId, position: CGPoint(x: 80, y: 120),
+                                            size: CGSize(width: 420, height: 340))
+        }))
+        steps.append(("focus-web", { withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(webId) } }))
+        steps.append(("out-web", { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }))
+        if let term = termRun {
+            steps.append(("focus-term", { withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(term.id) } }))
+            steps.append(("out-term", { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }))
+        }
+        steps.append(("arrange-2", { shell.applyArrange(area: area) }))
+        steps.append(("switch-away", {                         // A→B: A's units unstage BY DESIGN…
+            for id in stagedIds() where id != peekIds[0] {     // …except the adopted port: it is in
+                PortRenderProbe.untrack(id)                    // BOTH desktops' contextItems and must
+            }                                                  // survive the switch mounted (no remake)
+            shell.jumpToSpace(index: otherIdx)
+        }))
+        steps.append(("in-B", {
+            if !shell.isDesktopUnit(peekIds[0]) {
+                PortRenderProbe.log("VIOLATION switch: kept port not on B's (its home) desktop")
+            }
+        }))
+        steps.append(("switch-home", {
+            for id in stagedIds() where id != peekIds[0] { PortRenderProbe.untrack(id) }
+            shell.jumpToSpace(index: homeIdx)
+        }))
+        steps.append(("back-in-A", {                           // THE Phase 3 assertion: adoption held
+            if !shell.desktopTilePanels.contains(where: { $0.id == peekIds[0] }) {
+                PortRenderProbe.log("VIOLATION adoption: kept port missing from A after A→B→A")
+            }
+        }))
+        steps.append(("settle", { }))
+
+        // Let the fabricated units mount + the peeks raise before arming the probe.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            self.armAndRunDesktop(steps: steps, fabricated: fabricated, shell: shell, app: app)
+        }
+    }
+
+    /// The armed half of the desktop sweep (nested step funcs need a @MainActor method body).
+    private func armAndRunDesktop(steps: [(String, () -> Void)], fabricated: [String],
+                                  shell: ShellState, app: AppState) {
+        PortRenderProbe.reset()
+        PortRenderProbe.retain(only: Set(shell.contextItems.map(\.id)))   // staged-only watch
+        PortRenderProbe.enabled = true
+        sweep = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
+            Task { @MainActor in PortRenderProbe.checkAll("frame") }
+        }
+        var i = 0
+        func step() {
+            guard i < steps.count else {
+                self.sweep?.invalidate(); self.sweep = nil
+                let v = PortRenderProbe.violations
+                PortRenderProbe.log(v.isEmpty ? "DESKTOP PASS  \(PortRenderProbe.makesDescription)"
+                                              : "DESKTOP FAIL  \(PortRenderProbe.makesDescription)")
+                for viol in v { PortRenderProbe.log("  FAIL(\(viol))") }
+                PortRenderProbe.enabled = false
+                for id in fabricated {                     // cleanup (adoption drops with the panel)
+                    if let p = shell.peekingPorts.first(where: { $0.id == id }) { shell.dismissPeek(p) }
+                    app.portWindows.close(id)
+                    PortRenderProbe.untrack(id)
+                }
+                self.running = false
+                return
+            }
+            let (phase, act) = steps[i]
+            act()
+            i += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                PortRenderProbe.checkAll(phase)
+                step()
+            }
+        }
+        step()
+    }
+
+    /// Autorun entry for the desktop sweep (launch flag): wait for the shell, then run.
+    public func runDesktopWhenReady() {
+        if !running, ShellState.debugCurrent?.debugAppState?.currentSpace != nil {
+            runDesktop(); return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runDesktopWhenReady() }
     }
 }
 #endif

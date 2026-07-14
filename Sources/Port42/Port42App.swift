@@ -74,6 +74,13 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 PortUnitCycleHarness.shared.runKindsWhenReady()
             }
         }
+        if UserDefaults.standard.bool(forKey: "PORT42_PROBE_DESKTOP_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_DESKTOP_AUTORUN")
+            // Phase 3 gate: busy-desktop sweep (arrange/exposé/drag/focus + A→B→A adoption).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                PortUnitCycleHarness.shared.runDesktopWhenReady()
+            }
+        }
         #endif
 
         // Remember the windowed shell size: persist the main window's frame on resize/move (never
@@ -339,6 +346,9 @@ struct Port42App: App {
                 }
                 Button("Port Units — kinds (web/term/browser)") {
                     PortUnitCycleHarness.shared.runKinds()
+                }
+                Button("Port Units — desktop (busy sweep + A→B→A)") {
+                    PortUnitCycleHarness.shared.runDesktop()
                 }
             }
             #endif
