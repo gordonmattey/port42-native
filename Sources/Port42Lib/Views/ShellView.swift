@@ -193,6 +193,10 @@ public struct ShellView: View {
         .onChange(of: shell.zoom) { _, z in
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
             if z == .space { shell.settleAfterPreview() }   // a previewed peek returns as seen + counting down
+            // Keyboard follows focus (§B): every keyboard-driven path here (⌘` swap, ⌘↓,
+            // double-click header, peek preview) skips the AppKit click that would normally
+            // move the first responder — hand the keyboard to the focused unit's surface.
+            if case .focus(let id) = z { appState.portWindows.focusKeyboard(on: id) }
         }
         // The focused unit left the desktop (closed via API, evaporated, detached) → back to
         // the space rung. Focus has no overlay to fall into (Phase 2); this is the safety net.
@@ -271,9 +275,26 @@ public struct ShellView: View {
             return e
         }
 
-        // Keys — ⌘↑/↓ ladder, ⌘1…N space jump, Esc peels one rung. Yields to a focused text
-        // field / web port / terminal first (§3.1) so typing and TUI Esc reach the surface.
+        // Keys — ⌘↑/↓ ladder, Esc peels one rung. Yields to a focused text field / web port /
+        // terminal first (§3.1) so typing and TUI Esc reach the surface — EXCEPT the few
+        // shell-global chords (plan-working-set §B), which drive the shell from anywhere.
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            // Shell-global chords bypass the editor yield: ⌘`/⇧⌘` cycle, ⌘1…9 jump, ⌘K
+            // switcher. Consumed here, so the menu's ⌘K can't double-fire.
+            let f = e.modifierFlags
+            if let chord = ShellState.shellGlobalChord(
+                keyCode: e.keyCode, characters: e.charactersIgnoringModifiers?.lowercased(),
+                command: f.contains(.command), shift: f.contains(.shift),
+                option: f.contains(.option), control: f.contains(.control)) {
+                switch chord {
+                case .cycleForward:     shell.cycleStep(forward: true)
+                case .cycleBackward:    shell.cycleStep(forward: false)
+                case .jumpSpace(let i): shell.jumpToSpace(index: i)
+                case .quickSwitcher:    shell.showQuickSwitcher.toggle()
+                }
+                return nil
+            }
+
             let isEditor = Self.responderIsEditor(e.window?.firstResponder)
             if ShellState.shouldYieldKey(isEditor: isEditor, keyCode: e.keyCode,
                                          focusedPortIsTerminal: shell.focusedPortIsTerminal) {
@@ -296,10 +317,6 @@ public struct ShellView: View {
             guard e.modifierFlags.contains(.command) else { return e }
             if e.keyCode == 126 { shell.zoomOut(); return nil }   // ⌘↑ → up toward galaxy
             if e.keyCode == 125 { shell.zoomIn();  return nil }   // ⌘↓ → down toward focus
-            if let s = e.charactersIgnoringModifiers, let n = Int(s), n >= 1, n <= 9 {
-                shell.jumpToSpace(index: n - 1)                   // ⌘1…9 → Nth space
-                return nil
-            }
             return e
         }
 

@@ -130,6 +130,29 @@ public final class PortWindowManager: ObservableObject {
         terminalCoordinators[id] = coordinator
     }
 
+    /// Hand the KEYBOARD to a port's live surface. Keyboard-driven focus (⌘` cycling, ⌘↓,
+    /// double-click header) never routes through an AppKit click, so the first responder
+    /// must be moved by hand — without this, keystrokes keep flowing to the PREVIOUSLY
+    /// focused surface. A chat/unhosted unit has no NSView: release the old surface's grip
+    /// instead, so typing can't land in a port that's no longer in front.
+    /// Deferred one runloop turn: callers fire from inside a SwiftUI update transaction
+    /// (zoom onChange / withAnimation), where an immediate makeFirstResponder can be
+    /// dropped or beaten by the in-flight view churn. After the turn, ours is the last word.
+    public func focusKeyboard(on id: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let v = self.hostView(for: id), let win = v.window {
+                win.makeFirstResponder(v)
+            } else if let panel = self.panels.first(where: { $0.id == id }), panel.isChatPort {
+                // The chat unit is pure SwiftUI — focus its input FIELD via the existing
+                // focusChatInput listener (scoped by spaceId so only THIS chat's field grabs).
+                NotificationCenter.default.post(name: .focusChatInput, object: panel.spaceId)
+            } else if let win = NSApp?.keyWindow {   // NSApp is nil headless (tests)
+                win.makeFirstResponder(nil)
+            }
+        }
+    }
+
     /// Step 8: reported content height for inline-presented ports, keyed by panel ID. Drives the
     /// SwiftUI inline host's frame so a registry-owned port auto-sizes like the legacy inline view.
     /// Floating ports ignore this (the window drives their size).

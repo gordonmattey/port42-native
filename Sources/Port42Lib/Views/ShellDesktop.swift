@@ -231,7 +231,10 @@ struct ShellDesktopView: View {
                               focusFrame: pl.chrome == .focus ? pl.rect : nil,
                               peek: item.peek,
                               peekFrame: pl.chrome == .peek ? pl.rect : nil)
-                        .zIndex(shell.exposeActive && item.peek == nil ? 5 : pl.z)
+                        // Cycling (§B): the burst's landing renders on TOP transiently — no z
+                        // stamp until the burst commits, so intermediates don't pollute MRU.
+                        .zIndex(shell.exposeActive && item.peek == nil
+                                ? 5 : (shell.cycleBoostId == item.id ? 8_500 : pl.z))
                         .transition(item.peek != nil
                             ? AnyTransition.move(edge: .leading).combined(with: .opacity)
                             : AnyTransition.opacity)
@@ -326,7 +329,8 @@ struct ShellTile: View {
     @State private var resizeDelta: CGSize = .zero
     @State private var peekHovered = false
 
-    private let titleBarH: CGFloat = 34
+    static let titleBarH: CGFloat = 34
+    private var titleBarH: CGFloat { Self.titleBarH }
     private let peekHeaderH: CGFloat = 24
 
     private var isFocused: Bool { shell.zoom == .focus(tile.id) }
@@ -373,16 +377,25 @@ struct ShellTile: View {
 
     /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize.
     /// A FOCUSED unit's frame is the focus rect (drags don't apply); a PEEKING unit rides its
-    /// rail slot plus any drag-to-keep translation.
+    /// rail slot plus any drag-to-keep translation (peeks stay unclamped — drag-to-keep/close
+    /// wants freedom, and a peek can't strand: it evaporates). A TILE's live frame clamps to
+    /// the work area AS IT DRAGS — the pointer can wander, the tile stops at the edge, so it
+    /// can never even transiently disappear under the Chrome / out of the window.
     private var liveFrame: CGRect {
         if let f = focusFrame { return f }
         if let pf = peekFrame {
             return CGRect(x: pf.minX + moveDelta.width, y: pf.minY + moveDelta.height,
                           width: pf.width, height: pf.height)
         }
-        if let c = resizeCorner { return Self.resized(frame, corner: c, by: resizeDelta) }
-        return CGRect(x: frame.minX + moveDelta.width, y: frame.minY + moveDelta.height,
-                      width: frame.width, height: frame.height)
+        if let c = resizeCorner {
+            var f = Self.resized(frame, corner: c, by: resizeDelta)
+            f.origin = Self.clampedOrigin(f.origin, size: f.size, area: area)
+            return f
+        }
+        let origin = Self.clampedOrigin(
+            CGPoint(x: frame.minX + moveDelta.width, y: frame.minY + moveDelta.height),
+            size: frame.size, area: area)
+        return CGRect(origin: origin, size: frame.size)
     }
     private var liveSize: CGSize { liveFrame.size }
     /// Center for `.position`. The tile's own frame stays bounded (liveSize), so its hover/hit region
@@ -448,6 +461,13 @@ struct ShellTile: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(
             strokeColor, lineWidth: isPeeking ? (peekHovered ? 2 : 1.5) : 1))
+        // ⌘` landing flash (§B): a brief bright accent ring so the hop is visible; the state
+        // clears cycleFlashId ~0.35s after each step and the ring fades out.
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius)
+            .stroke(unitAccent, lineWidth: 2.5)
+            .opacity(shell.cycleFlashId == tile.id ? 1 : 0)
+            .animation(.easeOut(duration: 0.3), value: shell.cycleFlashId)
+            .allowsHitTesting(false))
         // Invisible resize zones on ALL four corners (no visible grip). Overlaid on top so a corner
         // grab resizes even over the titlebar/body; the buttons are inset to clear the top corners.
         // Focused/peeking units aren't corner-resizable — the handles come off.
@@ -475,6 +495,10 @@ struct ShellTile: View {
                 shell.hoveredPeekId = h ? peek.id : (shell.hoveredPeekId == peek.id ? nil : shell.hoveredPeekId)
             } else if h && !shell.isDraggingTile && !isFocused {
                 shell.bringToFront(tile.id)                           // hover raises to front
+                // FOCUS FOLLOWS MOUSE (GM call): hovering a tile hands it the KEYBOARD too —
+                // terminal/web surfaces via first responder, the chat via its input field —
+                // so "mouse over it, start typing" just works. Same one entry point as ⌘`.
+                appState.portWindows.focusKeyboard(on: tile.id)
             }
         }
         .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
@@ -500,6 +524,18 @@ struct ShellTile: View {
             }
             .frame(maxHeight: .infinity)          // fill the full titlebar height so the WHOLE bar drags
             .contentShape(Rectangle())
+            // Double-click the header TOGGLES focus (GM ask; a bigger target than the
+            // viewfinder button): zoom into an unfocused tile, back out of a focused one.
+            // Attached BEFORE the drag so both arbitrate: a still double-click toggles,
+            // any movement drags.
+            .onTapGesture(count: 2) {
+                if isFocused {
+                    withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
+                } else {
+                    shell.bringToFront(tile.id)
+                    withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) }
+                }
+            }
             .gesture(moveGesture)
             if isFocused {
                 // Focus chrome: the exit affordance (Esc works too); no close, no re-focus.
@@ -625,9 +661,22 @@ struct ShellTile: View {
             }
     }
 
+    /// Clamp a committed tile origin so its HEADER stays reachable: never above the desktop's
+    /// top edge (y ≥ 0 — beyond it the titlebar slides under the Chrome / the macOS title
+    /// area and the tile can never be grabbed again), never below the bottom with the header
+    /// off-screen, and never fully off the sides. Pure + static → headless (`ShellLayoutTests`).
+    static func clampedOrigin(_ o: CGPoint, size: CGSize, area: CGSize) -> CGPoint {
+        let minVisibleX: CGFloat = 60                       // a grabbable sliver must remain
+        let x = min(max(o.x, minVisibleX - size.width), max(minVisibleX - size.width, area.width - minVisibleX))
+        let y = min(max(o.y, 0), max(0, area.height - Self.titleBarH))
+        return CGPoint(x: x, y: y)
+    }
+
     /// Persist the tile's new geometry (drag/resize end) → the panel record (survives restart, §4).
+    /// The origin clamps into the work area — a drag can wander, but it can't STICK out of reach.
     private func commit(origin: CGPoint, size: CGSize) {
-        appState.portWindows.updateTileFrame(id: tile.id, position: origin, size: size)
+        appState.portWindows.updateTileFrame(
+            id: tile.id, position: Self.clampedOrigin(origin, size: size, area: area), size: size)
     }
 }
 

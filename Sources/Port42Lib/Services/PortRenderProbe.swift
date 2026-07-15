@@ -561,5 +561,80 @@ public final class PortUnitCycleHarness {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runDesktopWhenReady() }
     }
+
+    // MARK: - ⌘` cycling gate (plan-working-set §B Tier B): the focus SWAP — focus(A) →
+    // focus(B) with NO .space between — is the one genuinely new render path (placement
+    // resizes A back to its own rect while B grows to focusRect, simultaneously). Two
+    // fabricated web tiles, ten direct swaps driven through the REAL cycling entry point
+    // (cycleStep at the focus rung), probe armed: zero makes, zero windowless, or FAIL.
+
+    public func runCycleSwap() {
+        guard !running else { return }
+        guard let shell = ShellState.debugCurrent, let app = shell.debugAppState,
+              let sid = app.currentSpace?.id else {
+            PortRenderProbe.log("CYCLESWAP — no shell/space; abort"); return
+        }
+        running = true
+        let stamp = String(UUID().uuidString.prefix(6))
+        let ids = ["cyc-\(stamp)-a", "cyc-\(stamp)-b"]
+        for (i, id) in ids.enumerated() {
+            _ = app.portWindows.registerTiledPort(
+                id: id,
+                html: "<html><title>cyc \(i)</title><body style=\"background:#0f1f2e;color:#9cf;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh\"><h1>CYC \(i)</h1><script>setInterval(()=>{document.title='t'+Date.now()},500)</script></body></html>",
+                spaceId: sid, createdBy: "cycleswap-harness", title: "cyc \(i)", position: nil)
+        }
+        // Let the units mount; same-space births peek — settle them into the grid first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            self.armAndRunCycleSwap(ids: ids, shell: shell, app: app)
+        }
+    }
+
+    /// The armed half of the cycle-swap gate (nested step funcs need a @MainActor method body).
+    private func armAndRunCycleSwap(ids: [String], shell: ShellState, app: AppState) {
+        for id in ids {
+            if let p = shell.peekingPorts.first(where: { $0.id == id }) { shell.dismissPeek(p) }
+        }
+        PortRenderProbe.reset()
+        PortRenderProbe.retain(only: Set(shell.contextItems.map(\.id)))
+        PortRenderProbe.enabled = true
+        PortRenderProbe.log("=== CYCLESWAP — \(ids[0].prefix(12)) ↔ \(ids[1].prefix(12)) ===")
+        sweep = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
+            Task { @MainActor in PortRenderProbe.checkAll("frame") }
+        }
+        withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(ids[0]) }
+        var i = 0
+        func swap() {
+            guard i < 10 else {
+                self.sweep?.invalidate(); self.sweep = nil
+                shell.commitCycleBurst()
+                withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
+                let v = PortRenderProbe.violations
+                PortRenderProbe.log(v.isEmpty ? "CYCLESWAP PASS  \(PortRenderProbe.makesDescription)"
+                                              : "CYCLESWAP FAIL  \(PortRenderProbe.makesDescription)")
+                for viol in v { PortRenderProbe.log("  FAIL(\(viol))") }
+                PortRenderProbe.enabled = false
+                for id in ids { app.portWindows.close(id); PortRenderProbe.untrack(id) }
+                self.running = false
+                return
+            }
+            // The REAL entry point: a chord step at the focus rung swaps in place. Steps
+            // are 0.55s apart (inside the 1s burst window → exercises the snapshot walk).
+            shell.cycleStep(forward: true)
+            i += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                PortRenderProbe.checkAll("swap-\(i)")
+                swap()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { swap() }
+    }
+
+    /// Autorun entry for the cycle-swap gate (launch flag): wait for the shell, then run.
+    public func runCycleSwapWhenReady() {
+        if !running, ShellState.debugCurrent?.debugAppState?.currentSpace != nil {
+            runCycleSwap(); return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in self?.runCycleSwapWhenReady() }
+    }
 }
 #endif

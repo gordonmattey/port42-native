@@ -291,6 +291,25 @@ struct ShellLayoutTests {
         #expect(tiny.width == ShellState.minTileSize.width && tiny.height == ShellState.minTileSize.height)
     }
 
+    @Test("a committed drag clamps so the header stays reachable — never above the top, never fully off an edge")
+    func dragCommitClampsToReachable() {
+        let area = CGSize(width: 1440, height: 900)
+        let size = CGSize(width: 460, height: 400)
+        // Dragged up under the Chrome / macOS title area → pinned to the top edge (y 0),
+        // where the titlebar is still grabbable (the reported stuck-tile bug).
+        #expect(ShellTile.clampedOrigin(CGPoint(x: 300, y: -180), size: size, area: area) == CGPoint(x: 300, y: 0))
+        // Below the bottom → the header stays visible above the edge.
+        let low = ShellTile.clampedOrigin(CGPoint(x: 300, y: 2000), size: size, area: area)
+        #expect(low.y == area.height - ShellTile.titleBarH)
+        // Off the left/right → a grabbable sliver remains inside.
+        let left = ShellTile.clampedOrigin(CGPoint(x: -2000, y: 100), size: size, area: area)
+        #expect(left.x == 60 - size.width)
+        let right = ShellTile.clampedOrigin(CGPoint(x: 2000, y: 100), size: size, area: area)
+        #expect(right.x == area.width - 60)
+        // An in-bounds drop is untouched.
+        #expect(ShellTile.clampedOrigin(CGPoint(x: 320, y: 240), size: size, area: area) == CGPoint(x: 320, y: 240))
+    }
+
     @Test("drag + edge-resize commit (updateTileFrame) persists position & size across a restart")
     @MainActor
     func tileGeometryCommitSurvivesRestart() throws {

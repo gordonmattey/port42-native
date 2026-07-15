@@ -513,7 +513,10 @@ public struct ConversationContent: View {
                             }
                         }
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in
+                    .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { note in
+                        // Scoped: a spaceId object targets ONE chat's field (the shell's
+                        // keyboard-follows-focus); a nil object keeps the legacy broadcast.
+                        if let sid = note.object as? String, sid != spaceId { return }
                         isInputFocused = true
                     }
                     .onKeyPress(.upArrow) {

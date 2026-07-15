@@ -466,6 +466,135 @@ public final class ShellState: ObservableObject {
         else if pinchAccum < -threshold { pinchFired = true; zoomOut() }
     }
 
+    // MARK: Shell-global chords (plan-working-set §B) — the yield BYPASS
+
+    /// The few chords that drive the shell even while a terminal/webview/text field owns the
+    /// keyboard. Kept deliberately tiny — every other key keeps today's yield behavior, so
+    /// ports never lose a keystroke they currently receive. ⌘⌥Tab joins with the space
+    /// switcher (C). ⌘↑/⌘↓ stay yielded (GM call: click/pinch cover the ladder while typing).
+    public enum ShellChord: Equatable {
+        case cycleForward       // ⌘`  — next desktop unit (MRU)
+        case cycleBackward      // ⇧⌘` — previous
+        case jumpSpace(Int)     // ⌘1…9 — Nth working space (0-based)
+        case quickSwitcher      // ⌘K — the switcher must open from anywhere
+    }
+
+    /// Classify a keystroke as a shell-global chord (nil = not one; normal yield applies).
+    /// `characters` = `charactersIgnoringModifiers`, lowercased by the caller. The backtick
+    /// matches by character ("`"/"~" — layout-proof) with the ANSI keyCode 50 as fallback.
+    /// Pure → headless-tested.
+    nonisolated public static func shellGlobalChord(keyCode: UInt16, characters: String?,
+                                                    command: Bool, shift: Bool,
+                                                    option: Bool, control: Bool) -> ShellChord? {
+        guard command, !option, !control else { return nil }
+        let ch = characters ?? ""
+        if keyCode == 50 || ch == "`" || ch == "~" {
+            return shift ? .cycleBackward : .cycleForward
+        }
+        guard !shift else { return nil }
+        if ch == "k" { return .quickSwitcher }
+        if let n = Int(ch), (1...9).contains(n) { return .jumpSpace(n - 1) }
+        return nil
+    }
+
+    // MARK: ⌘` port cycling (plan-working-set §B)
+
+    /// MRU order of the current desktop's units: tiles only (chat included; no peeks, no
+    /// parked, no backgrounded), frontmost first — the z-stamp IS the recency signal.
+    public var cycleOrder: [String] {
+        desktopTilePanels.sorted { $0.z > $1.z }.map(\.id)
+    }
+
+    /// One cycling BURST: chords < `cycleBurstWindow` apart walk an order snapshotted at the
+    /// first tap (naive MRU re-sorts on every raise — A and B would swap ranks 1↔2 forever
+    /// and a third tap could never reach C). The burst commits ONE MRU update when it ends.
+    private struct CycleBurst { var order: [String]; var index: Int; var lastAt: Date }
+    private var cycleBurst: CycleBurst?
+    private var cycleCommitTimer: Timer?
+    public static let cycleBurstWindow: TimeInterval = 1.0
+
+    /// Render-only top boost for the burst's current landing (like exposé's) — visible on top
+    /// WITHOUT a z stamp, so intermediates never pollute the MRU order.
+    @Published public var cycleBoostId: String?
+    /// A brief accent flash on the landing tile so the hop is visible; state clears it.
+    @Published public var cycleFlashId: String?
+
+    /// Pure wrap-around step through a snapshot of `count` units. Forward walks DOWN the MRU
+    /// list (toward older); backward wraps up. Headless-tested.
+    nonisolated public static func cycleNext(count: Int, index: Int, forward: Bool) -> Int {
+        guard count > 0 else { return 0 }
+        return ((index + (forward ? 1 : -1)) % count + count) % count
+    }
+
+    /// ⌘` / ⇧⌘` — one cycling step. `now` injected for headless burst-timing tests.
+    public func cycleStep(forward: Bool, now: Date = Date()) {
+        guard zoom != .galaxy else { return }                       // cycling is a desktop gesture
+        if let b = cycleBurst, now.timeIntervalSince(b.lastAt) <= Self.cycleBurstWindow {
+            advanceCycle(forward: forward, now: now)
+        } else {
+            commitCycleBurst()                                      // a stale burst commits first
+            let order = cycleOrder
+            guard order.count > 1 else { return }
+            // Start from the unit you're ON (focused, else selected, else frontmost) so the
+            // first tap bounces to the SECOND hot port, like macOS ⌘`.
+            let startId: String? = { if case .focus(let f) = zoom { return f } else { return selectedTileId } }()
+            let start = startId.flatMap { order.firstIndex(of: $0) } ?? 0
+            cycleBurst = CycleBurst(order: order, index: start, lastAt: now)
+            advanceCycle(forward: forward, now: now)
+        }
+    }
+
+    private func advanceCycle(forward: Bool, now: Date) {
+        guard var b = cycleBurst else { return }
+        let live = Set(desktopTilePanels.map(\.id))
+        var idx = b.index
+        for _ in 0..<b.order.count {                                // skip ids that died mid-burst
+            idx = Self.cycleNext(count: b.order.count, index: idx, forward: forward)
+            if live.contains(b.order[idx]) { break }
+        }
+        guard live.contains(b.order[idx]) else { commitCycleBurst(); return }   // nothing left alive
+        b.index = idx; b.lastAt = now
+        cycleBurst = b
+        landCycle(on: b.order[idx])
+        scheduleCycleCommit()
+    }
+
+    /// Land a step: select + boost + flash; at the focus rung swap the focused unit IN PLACE
+    /// (a geometry state — the next unit's own view resizes; no zoom-out bounce). The keyboard
+    /// follows the landing at BOTH rungs — cycling is an intentional "go to that port", unlike
+    /// hover-raise (which deliberately never steals the keyboard). The .focus swap's keyboard
+    /// handoff also runs via ShellView's zoom onChange; the direct call covers the .space rung.
+    private func landCycle(on id: String) {
+        selectedTileId = id
+        cycleBoostId = id
+        cycleFlashId = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            if self?.cycleFlashId == id { self?.cycleFlashId = nil }
+        }
+        if case .focus = zoom {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { zoom = .focus(id) }
+        }
+        appState.portWindows.focusKeyboard(on: id)
+    }
+
+    private func scheduleCycleCommit() {
+        cycleCommitTimer?.invalidate()
+        cycleCommitTimer = Timer.scheduledTimer(withTimeInterval: Self.cycleBurstWindow,
+                                                repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.commitCycleBurst() }
+        }
+    }
+
+    /// End of burst: the ONE MRU update — only the final landing gets a z stamp.
+    public func commitCycleBurst() {
+        cycleCommitTimer?.invalidate(); cycleCommitTimer = nil
+        cycleBoostId = nil
+        guard let b = cycleBurst else { return }
+        cycleBurst = nil
+        let id = b.order[b.index]
+        if desktopTilePanels.contains(where: { $0.id == id }) { bringToFront(id) }
+    }
+
     // MARK: Key yield (§3.1) — pure decision, headless-tested
 
     /// Whether the shell should YIELD a key to a focused field/port instead of driving the zoom

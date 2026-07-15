@@ -88,6 +88,13 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 RestWakeProbeHarness.shared.runWhenReady()
             }
         }
+        if UserDefaults.standard.bool(forKey: "PORT42_PROBE_CYCLESWAP_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_CYCLESWAP_AUTORUN")
+            // ⌘` gate: focus(A)→focus(B) swaps in place — zero remakes, zero windowless.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                PortUnitCycleHarness.shared.runCycleSwapWhenReady()
+            }
+        }
         #endif
 
         // Remember the windowed shell size: persist the SHELL window's frame on resize/move
@@ -358,6 +365,9 @@ struct Port42App: App {
                 }
                 Button("Rest/Wake — probe (silence + wake calibration)") {
                     RestWakeProbeHarness.shared.run()
+                }
+                Button("⌘` cycle — focus swap probe") {
+                    PortUnitCycleHarness.shared.runCycleSwap()
                 }
             }
             #endif

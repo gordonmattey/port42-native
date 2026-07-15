@@ -120,7 +120,12 @@ final class GhosttyInputView: NSView {
         if let s = surface { ghostty_surface_set_content_scale(s, scale, scale) }
         pushSize()
         pushDisplayID()
-        win.makeFirstResponder(self)
+        // NO keyboard claim here. Joining a window happens on every mount — spawn, peek
+        // arrival, space-switch return — and claiming the first responder from whatever the
+        // user was typing in is a keyboard STEAL (it also made "last mounted terminal keeps
+        // the keys" the de-facto focus model once port units stopped re-mounting on focus).
+        // The keyboard moves on the user's intent only: a click (mouseDown above) or a
+        // keyboard-driven focus (⌘`/⌘↓/double-click → PortWindowManager.focusKeyboard).
         setFocus(win.isKeyWindow)
 
         let nc = NotificationCenter.default
@@ -246,7 +251,15 @@ final class GhosttyInputView: NSView {
     }
 
     // MARK: mouse
-    override func mouseDown(with e: NSEvent)      { mouseButton(e, GHOSTTY_MOUSE_PRESS,   GHOSTTY_MOUSE_LEFT) }
+    override func mouseDown(with e: NSEvent) {
+        // Click-to-focus: AppKit does NOT hand a custom view the keyboard on click (text
+        // views do it themselves in mouseDown) — without this, clicking a terminal never
+        // moved the first responder and typing kept flowing to the previously focused
+        // surface. This is the terminal's ONE legitimate keyboard claim alongside the
+        // shell's keyboard-driven focus (`PortWindowManager.focusKeyboard`).
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        mouseButton(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT)
+    }
     override func mouseUp(with e: NSEvent)        { mouseButton(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) }
     override func rightMouseDown(with e: NSEvent) { mouseButton(e, GHOSTTY_MOUSE_PRESS,   GHOSTTY_MOUSE_RIGHT) }
     override func rightMouseUp(with e: NSEvent)   { mouseButton(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT) }
