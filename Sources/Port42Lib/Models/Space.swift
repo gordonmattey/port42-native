@@ -21,8 +21,12 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// space never loses its color when others are added/deleted. Nil for spaces predating this /
     /// remote spaces → `ShellState.accent(for:)` falls back to a stable id-hash.
     public var accent: String?
+    /// Rest/Wake (the working set): nil = working (galaxy front, ⌘1–9, peeks live); a timestamp =
+    /// at rest (off the front, no index, fully silent — sync continues underneath). A timestamp
+    /// rather than a bool so the galaxy shelf can sort by recency of resting.
+    public var restedAt: Date?
 
-    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil) {
+    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -32,7 +36,11 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.heartbeatInterval = heartbeatInterval
         self.heartbeatPrompt = heartbeatPrompt
         self.accent = accent
+        self.restedAt = restedAt
     }
+
+    /// A rested space is alive-but-dormant: nothing is lost, it just can't reach for attention.
+    public var isResting: Bool { restedAt != nil }
 
     public static func create(name: String, type: String = "team") -> Space {
         Space(

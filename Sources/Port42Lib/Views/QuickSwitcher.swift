@@ -347,7 +347,9 @@ public struct QuickSwitcher: View {
     private func select(_ item: QuickSwitcherItem) {
         switch item.kind {
         case .space(let space):
-            appState.selectSpace(space)
+            // ⌘K always finds rested spaces; selecting one WAKES + enters (plan-working-set §A).
+            if space.isResting { appState.wakeAndEnterSpace(space) }
+            else { appState.selectSpace(space) }
         case .companion(let companion):
             if let shell { shell.activateCompanion(companion) }   // DM tile on this desktop
             else { appState.startSwim(with: companion) }
@@ -369,7 +371,7 @@ public struct QuickSwitcher: View {
 
     private func kindLabel(_ item: QuickSwitcherItem) -> String {
         switch item.kind {
-        case .space: return "space"
+        case .space(let space): return space.isResting ? "resting" : "space"
         case .companion: return "🏊"
         case .friend: return "friend"
         }

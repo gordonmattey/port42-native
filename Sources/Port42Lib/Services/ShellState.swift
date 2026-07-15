@@ -116,14 +116,23 @@ public final class ShellState: ObservableObject {
             ?? appState.companions(forSpace: sid).first?.displayName ?? "space"
     }
 
+    /// Is this space at rest? A rested space is FULLY SILENT — no chat peeks, no port-birth
+    /// peeks; unread still accumulates (visible only inside the galaxy shelf). A DM (`direct`)
+    /// space is never in `appState.spaces`, so it can never read as rested here — correct,
+    /// since only galaxy worlds carry the rest affordance.
+    private func isRested(_ spaceId: String) -> Bool {
+        appState.spaces.first { $0.id == spaceId }?.isResting ?? false
+    }
+
     /// New chat activity in another space → that space's chat peeks here (deduped per space). Seeds the
     /// baseline silently so the unread backlog doesn't peek on launch; only an INCREASE peeks.
-    private func refreshNotifications(from counts: [String: Int]) {
+    /// Internal so tests drive it directly.
+    func refreshNotifications(from counts: [String: Int]) {
         defer { lastUnread = counts }
         guard notifSeeded else { notifSeeded = true; return }
         let currentId = appState.currentSpace?.id
         for (spaceId, count) in counts {
-            if count == 0 || spaceId == currentId || openDMSpaceIds.contains(spaceId) {
+            if count == 0 || spaceId == currentId || openDMSpaceIds.contains(spaceId) || isRested(spaceId) {
                 peekingPorts.removeAll { $0.isChat && $0.spaceId == spaceId }
                 continue
             }
@@ -144,10 +153,20 @@ public final class ShellState: ObservableObject {
     /// A same-space port renders in PEEK state until its entry clears, then settles into the
     /// grid — it can't evaporate from its own home space). Internal so tests drive it directly.
     func handlePortCreated(id: String, spaceId: String?, title: String) {
-        guard let sid = spaceId else { return }
+        guard let sid = spaceId, !isRested(sid) else { return }        // a rested space is fully silent
         if userSpawnedPortIds.remove(id) != nil { return }              // you made it; it's right there
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
+    }
+
+    /// Rest a space (the settings card's action): delegates the state change to `AppState` and
+    /// silences it IMMEDIATELY — any peek already raised from that space (chat or port) clears
+    /// here, since peeks are shell state that a counts tick wouldn't re-evaluate on its own.
+    public func restSpace(_ space: Space) {
+        appState.restSpace(space)
+        guard appState.spaces.first(where: { $0.id == space.id })?.isResting == true else { return }
+        for p in peekingPorts where p.spaceId == space.id { peekRemaining[p.id] = nil }
+        peekingPorts.removeAll { $0.spaceId == space.id }
     }
 
     /// The peek currently under the cursor — makes it the ⌘↓/pinch zoom-in target (peeks aren't
@@ -385,8 +404,9 @@ public final class ShellState: ObservableObject {
     public func zoomIn() {
         switch zoom {
         case .galaxy:
-            if let h = galaxyHover, appState.spaces.indices.contains(h),
-               appState.spaces[h].id != appState.currentSpace?.id {
+            // Hover indexes the WORKING SET (the galaxy front renders workingSpaces only).
+            if let h = galaxyHover, appState.workingSpaces.indices.contains(h),
+               appState.workingSpaces[h].id != appState.currentSpace?.id {
                 jumpToSpace(index: h)             // hover-dive: enter the hovered space
             } else {
                 zoom = .space
@@ -409,10 +429,20 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// ⌘1…N — jump straight to the Nth space (0-based) and land on its desktop rung.
+    /// Where the shell lands on boot/unlock: the current space's desktop — or the GALAXY when
+    /// there's nothing working to land on: no space yet (fresh setup), or EVERY space rests
+    /// (an all-rested boot shows the empty front + shelf, not the inside of a rested space).
+    /// Pure → headless.
+    nonisolated public static func initialZoom(hasCurrentSpace: Bool, allRested: Bool) -> Zoom {
+        (hasCurrentSpace && !allRested) ? .space : .galaxy
+    }
+
+    /// ⌘1…N — jump straight to the Nth WORKING space (0-based, working-set order) and land on
+    /// its desktop rung. Rested spaces have no index — ⌘K (which wakes) is their way back.
     public func jumpToSpace(index: Int) {
-        guard appState.spaces.indices.contains(index) else { return }
-        appState.selectSpace(appState.spaces[index])
+        let working = appState.workingSpaces
+        guard working.indices.contains(index) else { return }
+        appState.selectSpace(working[index])
         selectedPortId = nil
         galaxyHover = nil
         zoom = .space

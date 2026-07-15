@@ -621,6 +621,15 @@ public final class DatabaseService {
             try db.execute(sql: "UPDATE port_panels SET presentation = 'tiled' WHERE presentation = 'floating'")
         }
 
+        migrator.registerMigration("v40-rest-wake") { db in
+            // Rest/Wake (the working set — docs/plan-working-set.md §A): nil = working,
+            // a timestamp = at rest (off the galaxy front, unindexed, fully silent). A
+            // datetime rather than a bool so the galaxy shelf sorts by recency of resting.
+            try db.alter(table: "spaces") { t in
+                t.add(column: "restedAt", .datetime)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 

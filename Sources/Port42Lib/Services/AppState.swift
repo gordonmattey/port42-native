@@ -1015,9 +1015,13 @@ public final class AppState: ObservableObject {
                 startSwim(with: companion)
             } else {
                 let lastId = UserDefaults.standard.string(forKey: "lastSelectedSpaceId")
-                if let lastId, let restored = spaces.first(where: { $0.id == lastId }) {
+                // Prefer a WORKING space as current. A rested lastId is only honored when
+                // every space rests (you rested the last one and stayed in it) — otherwise
+                // fall back to the first working space.
+                if let lastId, let restored = spaces.first(where: { $0.id == lastId }),
+                   !restored.isResting || workingSpaces.isEmpty {
                     selectSpace(restored)
-                } else if let first = spaces.first {
+                } else if let first = workingSpaces.first ?? spaces.first {
                     selectSpace(first)
                 }
             }
@@ -1754,6 +1758,65 @@ public final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Rest / Wake (the working set — docs/plan-working-set.md §A)
+    //
+    // Every space is either in the WORKING SET (galaxy front, ⌘1–9, peeks live) or AT REST
+    // (off the front, no index, fully silent). `spaces` keeps holding ALL regular spaces —
+    // ⌘K and the galaxy shelf need the rested ones — the split is computed here.
+
+    /// The working set: what the galaxy front, ⌘1–9 and the space switcher index.
+    public var workingSpaces: [Space] { spaces.filter { !$0.isResting } }
+
+    /// The galaxy shelf: rested spaces, most recently rested first.
+    public var restingSpaces: [Space] {
+        spaces.filter { $0.isResting }
+            .sorted { ($0.restedAt ?? .distantPast) > ($1.restedAt ?? .distantPast) }
+    }
+
+    /// Guard: only a WORKING space can rest (no double-rest). ANY working space may — including
+    /// the last one (GM call 2026-07-14, reversing the plan's original last-space guard): an
+    /// all-rested galaxy is simply an empty front with a full shelf. Pure → headless.
+    nonisolated public static func canRest(_ spaces: [Space], id: String) -> Bool {
+        spaces.first(where: { $0.id == id })?.isResting == false
+    }
+
+    /// Where resting `id` lands you: non-nil only when resting the CURRENT space — the first
+    /// OTHER working space. Resting the last working space returns nil: you simply STAY in the
+    /// now-rested space (it's still alive, just off the front). (A's minimal recency fallback;
+    /// C's MRU stack upgrades this one function to "most recent working space".) Pure → headless.
+    nonisolated public static func restLandingId(_ spaces: [Space], resting id: String,
+                                                 currentId: String?) -> String? {
+        guard currentId == id else { return nil }
+        return spaces.first { !$0.isResting && $0.id != id }?.id
+    }
+
+    /// Rest a space: off the galaxy front, unindexed, fully silent (sync continues underneath).
+    /// Resting the current space lands you in the first other working space, if any exists.
+    public func restSpace(_ space: Space) {
+        guard Self.canRest(spaces, id: space.id) else { return }
+        let landingId = Self.restLandingId(spaces, resting: space.id, currentId: currentSpace?.id)
+        var s = space
+        s.restedAt = Date()
+        updateSpace(s)
+        if let landingId, let landing = spaces.first(where: { $0.id == landingId }) {
+            selectSpace(landing)
+        }
+    }
+
+    /// Wake a rested space: back into the working set (galaxy front, indexes, peeks).
+    public func wakeSpace(_ space: Space) {
+        guard space.isResting else { return }
+        var s = space
+        s.restedAt = nil
+        updateSpace(s)
+    }
+
+    /// Wake + enter — the galaxy-shelf click and the ⌘K path (selecting a rested space).
+    public func wakeAndEnterSpace(_ space: Space) {
+        wakeSpace(space)
+        if let woken = spaces.first(where: { $0.id == space.id }) { selectSpace(woken) }
+    }
+
     // MARK: - Heartbeats
 
     public func scheduleAllHeartbeats() {
@@ -1908,7 +1971,7 @@ public final class AppState: ObservableObject {
             }
 
             if currentSpace?.id == space.id {
-                if let first = spaces.first {
+                if let first = workingSpaces.first ?? spaces.first {   // never land in a rested space
                     selectSpace(first)
                 }
             }

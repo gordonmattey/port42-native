@@ -201,9 +201,10 @@ public struct ShellView: View {
             installInputMonitors()
             applyTakeoverToWindow()
             // On unlock (TransitionRoot swaps LockScreenView → ShellView) land in the LAST space —
-            // `AppState.unlock()` has already restored it as currentSpace. Galaxy only if there's no
-            // space yet (fresh setup).
-            shell.zoom = appState.currentSpace != nil ? .space : .galaxy
+            // `AppState.unlock()` has already restored it as currentSpace. Galaxy if there's no
+            // space yet (fresh setup) or every space rests (show the shelf, not a rested inside).
+            shell.zoom = ShellState.initialZoom(hasCurrentSpace: appState.currentSpace != nil,
+                                                allRested: appState.workingSpaces.isEmpty)
         }
         .onDisappear { removeInputMonitors() }
     }
@@ -340,6 +341,9 @@ struct ShellGalaxyView: View {
     @ObservedObject var appState: AppState
 
     @State private var newSpaceHovered = false
+    /// The resting shelf starts collapsed on every galaxy visit (rested worlds stay quiet).
+    @State private var shelfExpanded = false
+    @State private var shelfHovered: String?
 
     var body: some View {
         ZStack {
@@ -356,8 +360,9 @@ struct ShellGalaxyView: View {
                 VStack(spacing: 20) {
                     Text("PORT42 · SPACES").font(Port42Theme.monoBold(13)).foregroundStyle(Port42Theme.textPrimary).tracking(5)
                     ScrollView(showsIndicators: false) {
+                        // The galaxy FRONT is the working set only — rested worlds live in the shelf.
                         LazyVGrid(columns: columns, spacing: 24) {
-                            ForEach(Array(appState.spaces.enumerated()), id: \.element.id) { index, space in
+                            ForEach(Array(appState.workingSpaces.enumerated()), id: \.element.id) { index, space in
                                 world(space, index: index)
                             }
                             newSpaceCard   // spaces are created here in the galaxy, not the Chrome
@@ -367,6 +372,9 @@ struct ShellGalaxyView: View {
                         .frame(maxWidth: .infinity, minHeight: max(0, geo.size.height - 150), alignment: .center)
                         .padding(.vertical, 6)
                     }
+                    if !appState.restingSpaces.isEmpty {
+                        restShelf
+                    }
                     Text("hover + ⌘↓ / pinch-in to dive in · ⌘1…9 jump · ⌘↑ / pinch-out to zoom")
                         .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
                 }
@@ -375,6 +383,86 @@ struct ShellGalaxyView: View {
             }
         }
         .onAppear { shell.galaxyHover = nil }   // no phantom world lit on entry (hover starts fresh)
+    }
+
+    // MARK: the resting shelf (Rest/Wake — plan-working-set §A)
+
+    /// A dim, collapsed row at the galaxy's bottom ("N resting") that expands to the rested
+    /// worlds — each a quiet chip with its unread count. Clicking a chip wakes + enters;
+    /// long-press opens the same settings card (whose slot reads "Wake" for a rested space).
+    private var restShelf: some View {
+        VStack(spacing: 12) {
+            if shelfExpanded {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 18) {
+                        ForEach(appState.restingSpaces) { space in
+                            restingChip(space)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+                }
+                .frame(maxWidth: 680)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { shelfExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: shelfExpanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("\(appState.restingSpaces.count) resting")
+                        .font(Port42Theme.mono(10)).tracking(2)
+                }
+                .foregroundStyle(Port42Theme.textSecondary.opacity(0.85))
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(Color.white.opacity(0.04), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help(shelfExpanded ? "Collapse the resting shelf" : "Show resting spaces")
+        }
+    }
+
+    /// One rested world: a small, still, dim orb (no animation — quiet by design) with its
+    /// name and accumulated unread count. Tap = wake + enter; long-press = settings.
+    private func restingChip(_ space: Space) -> some View {
+        let acc = shell.accent(for: space)
+        let unread = appState.unreadCounts[space.id] ?? 0
+        let hovered = shelfHovered == space.id
+        return VStack(spacing: 7) {
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    Circle().fill(RadialGradient(
+                        gradient: Gradient(colors: [acc.opacity(hovered ? 0.45 : 0.22), acc.opacity(0.02), .clear]),
+                        center: .center, startRadius: 0, endRadius: 24))
+                    Circle().fill(acc.opacity(hovered ? 0.75 : 0.4)).frame(width: 14, height: 14)
+                }
+                .frame(width: 44, height: 44)
+                if unread > 0 {
+                    Text(unread > 99 ? "99+" : "\(unread)")
+                        .font(Port42Theme.monoBold(8)).foregroundStyle(Port42Theme.textPrimary)
+                        .padding(.horizontal, 4).padding(.vertical, 1.5)
+                        .background(acc.opacity(0.35), in: Capsule())
+                        .offset(x: 6, y: -2)
+                }
+            }
+            Text(space.name.uppercased())
+                .font(Port42Theme.mono(9)).tracking(1)
+                .foregroundStyle(hovered ? acc : Port42Theme.textSecondary.opacity(0.8))
+                .lineLimit(1)
+        }
+        .frame(width: 76)
+        .contentShape(Rectangle())
+        .onHover { h in shelfHovered = h ? space.id : (shelfHovered == space.id ? nil : shelfHovered) }
+        .animation(.spring(response: 0.3), value: hovered)
+        // Same arbitration as a front world: hold = settings (where the slot reads "Wake"),
+        // tap = wake + enter this space.
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.45)
+            .onEnded { _ in shell.settingsTarget = .space(space.id) })
+        .onTapGesture {
+            appState.wakeAndEnterSpace(space)
+            withAnimation(.spring(response: 0.45)) { shell.zoom = .space }
+        }
     }
 
     /// The galaxy's "new space" affordance — a ghost world-card. Creating a space is a galaxy action
@@ -658,6 +746,21 @@ struct ShellSettingsView: View {
                 }
             }
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            // Rest / Wake (plan-working-set §A): one slot, two states. Any working space may
+            // rest — even the last one (GM call: an all-rested galaxy is an empty front).
+            if space.isResting {
+                Button { dismiss(save: true) { appState.wakeSpace(space) } } label: {
+                    HStack(spacing: 6) { Image(systemName: "sun.max"); Text("Wake") }
+                        .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                }.buttonStyle(.plain)
+                    .help("Back into the working set — galaxy front, ⌘1…9, peeks")
+            } else {
+                Button { dismiss(save: true) { shell.restSpace(space) } } label: {
+                    HStack(spacing: 6) { Image(systemName: "moon.zzz"); Text("Rest this space") }
+                        .font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
+                }.buttonStyle(.plain)
+                    .help("Off the galaxy front, fully silent — nothing is lost")
+            }
             if confirmingDelete {
                 HStack(spacing: 10) {
                     Text("Delete this space?").font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)

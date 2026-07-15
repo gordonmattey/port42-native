@@ -81,6 +81,13 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 PortUnitCycleHarness.shared.runDesktopWhenReady()
             }
         }
+        if UserDefaults.standard.bool(forKey: "PORT42_PROBE_REST_AUTORUN") {
+            UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_REST_AUTORUN")
+            // Rest/Wake gate: a rested space is fully silent, a woken one peeks again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                RestWakeProbeHarness.shared.runWhenReady()
+            }
+        }
         #endif
 
         // Remember the windowed shell size: persist the SHELL window's frame on resize/move
@@ -348,6 +355,9 @@ struct Port42App: App {
                 }
                 Button("Port Units — desktop (busy sweep + A→B→A)") {
                     PortUnitCycleHarness.shared.runDesktop()
+                }
+                Button("Rest/Wake — probe (silence + wake calibration)") {
+                    RestWakeProbeHarness.shared.run()
                 }
             }
             #endif
