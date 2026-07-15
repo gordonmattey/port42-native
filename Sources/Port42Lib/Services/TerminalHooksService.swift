@@ -251,7 +251,8 @@ public enum TerminalSessionBootstrap {
             // (1) zsh function via ZDOTDIR
             if writeZshIntegration(tempDir: tempDir) {
                 env["ZDOTDIR"] = tempDir
-                env["PORT42_REAL_ZDOTDIR"] = ProcessInfo.processInfo.environment["ZDOTDIR"] ?? NSHomeDirectory()
+                env["PORT42_REAL_ZDOTDIR"] = realZdotdir(
+                    inherited: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
             }
         }
         let existing = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -266,6 +267,22 @@ public enum TerminalSessionBootstrap {
         }
 
         return TerminalHookSession(socketPath: socketPath, tempDir: tempDir, env: env)
+    }
+
+    /// The USER'S real zsh dotfile location for a spawned shell — never a Port42 shim.
+    /// When this app was itself launched from inside a Port42 terminal (`open(1)` propagates
+    /// the caller's environment), the inherited ZDOTDIR is that terminal's shim dir; treating
+    /// it as "real" makes every new shim source the old shim, whose own source line resolves
+    /// to ITSELF in the child (its PORT42_REAL_ZDOTDIR is the same dir) → infinite source
+    /// recursion, surfacing as zsh's "job table full or recursion limit exceeded" on every
+    /// startup file. Prefer the inherited PORT42_REAL_ZDOTDIR (the true original, carried
+    /// through the same terminal env), else a NON-shim ZDOTDIR, else $HOME. Pure → headless.
+    static func realZdotdir(inherited: [String: String], home: String) -> String {
+        func nonShim(_ path: String?) -> String? {
+            guard let path, !path.hasPrefix("/tmp/port42-shim-") else { return nil }
+            return path
+        }
+        return nonShim(inherited["PORT42_REAL_ZDOTDIR"]) ?? nonShim(inherited["ZDOTDIR"]) ?? home
     }
 
     /// Write the zsh startup files into `dir` (used as ZDOTDIR). Each sources the user's

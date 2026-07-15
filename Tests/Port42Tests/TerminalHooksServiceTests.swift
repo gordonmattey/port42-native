@@ -6,6 +6,26 @@ import Darwin
 @Suite("Terminal Hooks Service")
 struct TerminalHooksServiceTests {
 
+    @Test("realZdotdir never resolves to a Port42 shim — the source-recursion guard")
+    func realZdotdirNeverAShim() {
+        typealias B = TerminalSessionBootstrap
+        let home = "/Users/u"
+        // Clean app env → $HOME.
+        #expect(B.realZdotdir(inherited: [:], home: home) == home)
+        // A genuine user ZDOTDIR (dotfiles in ~/.config/zsh) is honored.
+        #expect(B.realZdotdir(inherited: ["ZDOTDIR": "/Users/u/.config/zsh"], home: home)
+                == "/Users/u/.config/zsh")
+        // App launched FROM a Port42 terminal (open(1) propagates env): the inherited ZDOTDIR
+        // is that terminal's shim — must NOT be treated as real (it would source itself).
+        #expect(B.realZdotdir(inherited: ["ZDOTDIR": "/tmp/port42-shim-44BA7A22"], home: home) == home)
+        // Same launch, with the true original carried alongside → prefer it.
+        #expect(B.realZdotdir(inherited: ["ZDOTDIR": "/tmp/port42-shim-44BA7A22",
+                                          "PORT42_REAL_ZDOTDIR": "/Users/u"], home: home) == "/Users/u")
+        // Belt-and-braces: even PORT42_REAL_ZDOTDIR pointing at a shim is refused.
+        #expect(B.realZdotdir(inherited: ["PORT42_REAL_ZDOTDIR": "/tmp/port42-shim-AAAA1111"],
+                              home: home) == home)
+    }
+
     /// Connect to a Unix domain socket and write `payload`, then close (one event per conn,
     /// matching how the shim's notifier behaves).
     private func sendToSocket(_ path: String, _ payload: String) throws {
