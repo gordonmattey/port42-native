@@ -134,24 +134,32 @@ per-(companion,space) too. Sequence the session-id change with that.
 
 ---
 
-## TODO: shim `.zshenv` recursion / job-table error on terminal startup
+## ~~TODO: shim `.zshenv` recursion / job-table error on terminal startup~~ — DONE 2026-07-15
 
-Observed on every native-terminal spawn (e.g. during `dev-reboot`):
+Root cause found (differs from the guess below): an app instance **launched from inside a
+Port42 terminal** inherits that terminal's shim `ZDOTDIR` (`open(1)` propagates the caller's
+env); `TerminalSessionBootstrap` blessed it as `PORT42_REAL_ZDOTDIR`, so every new shim
+sourced the old shim, whose own source line resolves to itself in the child → infinite
+recursion. Fixed in `1e6816f`: `realZdotdir()` never accepts a `/tmp/port42-shim-*` path —
+prefers the inherited `PORT42_REAL_ZDOTDIR` (the true original), else a non-shim `ZDOTDIR`,
+else `$HOME`. Tier A: guard cases in `TerminalHooksServiceTests`; verified live by spawning
+from a poisoned-env app instance.
 
-```
-/tmp/port42-shim-<id>/.zshenv:1: job table full or recursion limit exceeded
-```
+---
 
-The per-session shim `ZDOTDIR` (`TerminalSessionBootstrap`) writes startup files that source the
-user's real equivalent (`$PORT42_REAL_ZDOTDIR`, default `$HOME`). The error means the generated
-`.zshenv` is **re-sourcing itself** (or the user's `.zshenv` re-enters the per-session dir) →
-infinite recursion until zsh's job table fills. Non-fatal (the shell still comes up), but it
-spams every terminal and risks subtle env breakage.
+## TODO: companion-global epistemic memory (creases/fold accumulate across spaces)
 
-Fix direction: guard against re-entry — e.g. set a sentinel env var the first time the generated
-`.zshenv` runs and bail if it's already set, and ensure sourcing the real `ZDOTDIR` can't point
-back at the per-session dir. Verify with a clean spawn (no error line) + `which claude` still
-resolves the shim function.
+Today creases / fold / position / engravings are keyed **per-(companion, space)** — echo's 11
+creases live under its DM space, and inspecting echo from any other space shows nothing (found
+2026-07-15; scoping works as designed, but the design is wrong). A companion is ONE being: its
+inner state should accumulate with the companion no matter which space you meet it in.
+
+Fix direction: re-key the relationship tables to `companionId` alone (migration: merge existing
+per-space rows — creases/engravings union, fold/position pick the most recent), update the
+space-scoped bridge APIs (`creases.*`, `fold.*`, `position.*`) and `CreaseInspectorSheet` /
+member-strip eye to read companion-global state. Decide whether space context stays as a *tag*
+on each crease (provenance) rather than a partition. Also sweep the orphaned rows found in the
+prod DB (creases/engravings under deleted space ids — space deletion doesn't cascade these).
 
 ---
 
@@ -238,6 +246,45 @@ existing `browser.*` API (back it onto the port? deprecate?); navigation/permiss
 whether companions can drive it (navigate/capture/execute) the way they drive terminals. Mirrors
 the terminal-ports work — likely an analogous `browser_spawn`/`browser_*` tool surface + inline
 card.
+
+---
+
+## TODO: WebRTC in browser ports — camera / mic / screen share (Meet, Jitsi, LiveKit, …)
+
+A browser port pointed at a video-call app (Google Meet, Jitsi, Whereby, a LiveKit room) should
+be able to **participate**, not just watch — your camera + mic in, and screen-share out. Today it
+can't: `getUserMedia`/`getDisplayMedia` inside the port's `WKWebView` are denied. Motivating case
+2026-07-15: "show a Google Meet in the shell / pipe video + audio into a port."
+
+Current state (assessed 2026-07-15):
+- ✅ `Info.plist` already has `NSCameraUsageDescription` + `NSMicrophoneUsageDescription` — the OS
+  *can* prompt.
+- ❌ Entitlements missing: neither `Port42.entitlements` nor `Port42.release.entitlements` has
+  `com.apple.security.device.camera` or `com.apple.security.device.audio-input`. Under the
+  hardened runtime (notarized release) WKWebView `getUserMedia` is silently denied without these.
+- ❌ No `WKUIDelegate` media-capture handler: even with entitlements, WebKit won't hand a page the
+  camera/mic until we implement
+  `webView(_:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:)` and grant.
+  The browser port's webview sets no such delegate.
+
+Fix direction:
+1. Add the two device entitlements to BOTH entitlement files (verify notarization still passes —
+   these are allowed under Developer ID + hardened runtime; they are NOT get-task-allow).
+2. Wire a `WKUIDelegate` on the browser-port webview that answers the media-capture request —
+   auto-grant, or (better) route through the S4 permission-prompt shell surface so the user sees
+   "this port wants camera/mic" once, consistent with the rest of the permission model.
+3. **Screen share out (`getDisplayMedia`)**: flakier in WKWebView — validate separately. May need a
+   `ScreenCaptureKit`-backed path fed into the page, or the newer WebKit display-capture support;
+   confirm what actually works on macOS 14+ before committing to an approach.
+4. Ship-time gotchas to verify live: Google Meet **UA-sniffs** and may still show "browser not
+   supported" in embedded WebKit even once capture works — test Meet specifically, and note Jitsi /
+   LiveKit / Whereby as the open-protocol fallbacks that behave better in an embedded webview.
+
+Relationship to Tier 3 (deferred, not this item): a NATIVE media/`video` port type (WebRTC or
+own-capture composited into a port surface, reusing the existing `camera.capture` / `screen_capture`
+native bridges) is the Port42-native end-state — better for open protocols and your own streams, but
+can't join proprietary Meet (no public join SDK). This item is the pragmatic "make embedded video
+calls work" step; the native port type is a separate, larger north star.
 
 ---
 
@@ -444,6 +491,190 @@ every action returns the fresh post-action frame, so the companion loops perceiv
   **guardrails on destructive actions**. Non-negotiable, not polish.
 - Build: keyboard-only operator (`screenshot`+`key`+`type`) → pointer actions → safety layer →
   optional `computer.operate({goal})` server-side loop.
+
+## NORTH STAR (concept): native ports = actors (query-in / stream-out), not pixels — "streaming video is a hack" (2026-07-15)
+
+**The thesis under the media plane.** A port is not pixels — it is an **addressable endpoint /
+actor**: you send it **queries (the bridge: `push`/`exec`/`patch`/`update`)** and it emits a **data
+stream (its events/state: `port42:data`, state deltas, PTY bytes, `turnComplete`)**. `type + state +
+render` is the object; **query-in / stream-out is its contract.** Pixel/video streaming is the
+**fallback for opaque surfaces you don't own** — it throws away the query interface and ships dead
+pixels — never the mechanism for a port you *do* own. (GM: "streaming video is a hack… you just send
+queries to ports and the response is some data stream… native ports is going to be a big thing.")
+
+**Three things fall out of the actor framing (the payoff):**
+- **Location transparency.** A query-in/stream-out interface doesn't care WHERE the port runs — local,
+  another instance, a server. Distribution/multiplayer comes nearly free because the interface is
+  **message-based, not pixel-based**; the gateway just routes queries + streams (it already routes
+  messages). Video breaks this — grabbing pixels pins the port to one machine.
+- **Rendering is just ONE subscriber to the stream.** The local view draws; a remote peer is another
+  subscriber; **an agent is another subscriber** (querying a port + consuming its stream is how a
+  companion "sees" it); a recorder is another. So *render / share / agent-observe / persist* collapse
+  into **one mechanism: "subscribe to a port's stream."**
+- **Half of it already exists.** The unified-API thesis IS this: humans query ports via UI→bridge,
+  agents via tool-use→bridge — the same methods. A port is already an endpoint both humans and agents
+  query. What's new is only: let a subscriber live on another instance, and let queries arrive from
+  one. **The bridge doesn't change; its transport extends across the network.**
+
+**Chat already proves it.** The chat port (Swift) is shared across instances not by screen-sharing
+but by **syncing messages** — each renders its own native SwiftUI. Nobody would stream chat as
+video. That's the model for *every* port; chat just got there first because messages were always
+data.
+
+**The replication ladder, by how much state you own:**
+- **Chat port** → sync messages. **DONE today** — the template.
+- **Terminal port (Ghostty)** → state = the **PTY byte stream** (+ grid/cursor/scrollback). Stream
+  bytes over a data channel; each end runs its own Ghostty, renders identically; input goes to the
+  one real process on the origin host. Collaborative `tmux`/`mosh` — I/O, not pixels.
+- **HTML/web port** → state = **HTML + the bridge event stream**, and **the port bridge is ALREADY a
+  replication protocol**: `getHtml` = snapshot, `push` = state delta in, `patch` = targeted mutation,
+  `update`/`exec` = apply state. Share = replicate via `getHtml` then mirror the `push`/`patch`/
+  `update` stream across instances; bidirectional = each side's interactions become pushes that sync.
+- **Opaque surface** (webpage you don't control, arbitrary macOS app via computer-use) → **the ONLY
+  tier where video isn't a hack** — the honest pixel fallback for things outside the port model.
+
+**So "native ports" = a port is a self-describing, replicable unit of live interactive state.** Its
+definition suffices to reconstruct it anywhere — which is *why* it already persists across restart,
+moves between spaces, and adopts onto another desktop. Sharing to a peer is the next verb on the same
+object: the remote gets a **live port** (typeable, zoomable, adoptable), **not a video of one.** That
+is the whole difference between Port42 and screen-sharing.
+
+**Consequence for the media plane below:** most port-sharing is a **data-channel problem (state
+replication)**; only the opaque-surface fallback is a **media problem**. This is *why* libp2p/Iroh
+datagrams matter more than WebRTC media tracks for our case — replication rides datagrams, video is
+the exception. Sequence this concept BEFORE heavy media work: the first multiplayer win is a shared
+HTML/terminal port over a data channel (state replication), not a video call.
+
+---
+
+## TODO: live media plane — WebRTC streaming across instances; ports & agents as tracks (2026-07-15)
+
+**Direction:** make real-time **audio/video/data** a first-class plane in Port42, streamed
+**peer-to-peer over WebRTC between instances**, with **ports and agents as the media sources and
+sinks**. The end-state is *multiplayer Port42*: live shared ports, native voice/video rooms per
+space, and — the part nobody's built — **agents that call humans, join rooms with other humans and
+other agents, and have a rendered (even 3D) presence in the video space.** This is the Tier-3
+end-state noted in "WebRTC in browser ports" above; that item is the pragmatic embed-a-Meet step,
+**this is the native platform move.**
+
+**The load-bearing insight (why this is smaller than it looks):** WebRTC's genuinely hard problem
+is **signaling** — exchanging SDP offers/answers + ICE candidates to bootstrap a peer connection —
+and *Port42 already has the signaling plane.* The sync layer (`SyncService` ↔ `gateway.go`) already
+routes typed, E2E-encrypted messages between instances, with a `call`/`response` pair already in the
+switch. Adding a `signal` message type beside `typing`/`call`/`response` is a small, in-pattern
+extension. **We don't build the hard part of WebRTC — we already have it.**
+
+**Three-plane architecture:**
+- **Signaling plane = the existing sync channel.** SDP/ICE ride the encrypted WebSocket; the gateway
+  does routing + presence, exactly what signaling needs. New `signal` message type; near-zero new
+  infra.
+- **Media/data plane = WebRTC peer connections.** Once signaled, peers connect **directly (P2P)** and
+  the gateway leaves the media path (streaming doesn't hammer the relay). Two flows: **media tracks**
+  (camera, mic, screen, *a port's rendered surface*) and **data channels** (low-latency — live port
+  state, cursors, an agent's token stream).
+- **Sources & sinks = ports and agents.** *Anything* is a track. A port's surface → a video track
+  (co-watch a running port across machines). An agent → a **source** (streams a generated avatar /
+  voice / `audio.speak` track — incl. **3D rendered presence** via SceneKit/Metal or WebGL frames
+  published like any participant) *or* a **sink** (consumes your screen/camera track in real time =
+  live computer-use-with-vision). Native `camera.capture`/`screen_capture` bridges already give
+  outbound tracks with **no WKWebView entitlement mess** (that's the browser-port item's problem, not
+  this one's).
+
+**Scope decision (GM, 2026-07-15): audio + screen-share + 3D avatars — DROP camera video.** Camera
+is the heaviest, most commoditized, least-differentiated piece; cutting it changes the physics and
+leans into what's novel:
+- **Audio** ~40 kbps; **screen share** is caller-controlled + often paused; **3D avatars are the
+  sleeper win because they're a DATA-CHANNEL problem, not a media track.** Don't stream avatar video
+  — stream **parameters** (audio + pose + visemes) and **render the avatar locally** on each peer
+  (VRChat / Rec Room / Meta Codec Avatars model). Cost = *kilobits of motion data*, not megabits of
+  pixels; degrades gracefully (drop a pose frame → the avatar just smooths).
+- **Consequence:** per-participant payload = 1 audio track + optional screen track + a tiny pose
+  data-channel. So light that **rooms may not need a heavy SFU** — forwarding audio + pose for N
+  people is cheap, and mesh scales to more participants than camera-video ever could. The part we
+  drop is exactly the expensive/face-staring part; what remains is the differentiated part.
+
+**NAT traversal — how P2P is actually solved, and what it means here:**
+- **STUN** (free, majority of cases): a public server tells each peer its public IP:port; peers swap
+  via signaling + **UDP hole-punch** a direct path. **ICE** orchestrates candidate gathering/checks.
+- **TURN** (the ~10–20% fallback): symmetric-NAT-on-both-ends can't hole-punch → a relay with a
+  public IP both peers reach; media flows through it. Rent (Cloudflare/Twilio/Xirsys) or self-host
+  `coturn`.
+- **The Port42-native answer — the gateway IS the supernode (decentralized TURN).** Historical
+  lineage the model comes from: Napster (1999, central index + P2P transfer) → **FastTrack/KaZaA
+  (2001) introduced supernodes** (well-connected peers relay for leaf nodes) → **Skype (2003, same
+  builders) relayed NAT'd calls through supernodes** (Microsoft later centralized them onto hosted
+  servers ~2012). A supernode is just decentralized TURN — a peer with a public IP doing the relay.
+
+**Two planes — do NOT conflate (the load-bearing networking distinction):**
+- **Control plane (signaling) = TCP; ngrok/reverse-proxy stays exactly as-is.** SDP/ICE exchange,
+  presence, the invite page — low-bandwidth, latency-tolerant. This is the reverse-proxy job the
+  gateway + ngrok already do. Unchanged.
+- **Media plane (audio / screen / pose packets) = UDP; NEVER rides ngrok.** Real-time media wants
+  UDP (loss-tolerant, no TCP head-of-line stutter). Two sub-paths:
+  - **Direct (the good path, ~80%):** STUN + ICE + **UDP hole-punch** → peers talk UDP-to-UDP with
+    **no server in the media path** — lowest latency, zero relay bandwidth. **This is why we still
+    need NAT traversal: it's not a burden, it's what keeps most media serverless.** Always tried first.
+  - **Relay fallback (~20%, symmetric-NAT-both-ends):** needs a box **actually UDP-reachable on a
+    public IP**. **Correction to avoid the trap:** an ngrok-tunneled gateway is NOT this — ngrok gives
+    the gateway a public *TCP/HTTP* face while it sits behind NAT; it does **not** make it UDP-reachable
+    for media relay. So: **gateway on a public-IP host (VPS / home UDP port-forward)** → runs `coturn`
+    there and genuinely IS the supernode; **gateway only ngrok-reachable (home box)** → rely on direct
+    hole-punch for the majority + point the fallback at a **shared/rented UDP TURN** (`coturn` on a
+    ~$5 VPS; audio+pose bandwidth is tiny → cheap). ngrok is not in the media path.
+- **Fallback ladder** (worst→best): direct UDP → relayed UDP (real TURN) → relayed TCP
+  (TURN-over-TCP, last resort for locked-down networks — the only rung ngrok could carry, and it's
+  the bottom, not the plan).
+
+**Prior art — do NOT build the traversal stack from scratch.** The NAT/relay problem is solved by
+existing P2P transport libraries; evaluate before writing any ICE/TURN code:
+- **libp2p** (Protocol Labs; **go-libp2p**, rust, js): AutoNAT + **Circuit Relay v2** (relay = the
+  supernode role) + **DCUtR** (hole-punch coordinated *through* the relay, then upgrade to direct —
+  exactly our pattern) + identity/encryption/QUIC. Battle-tested (IPFS, Filecoin, eth consensus,
+  Polkadot). **Fit note: our gateway is already Go → go-libp2p drops in as a native lib**, no Rust
+  sidecar/FFI.
+- **Iroh** (n0/number0): Rust, **QUIC/UDP-native**, "dial by node ID," aggressive hole-punch → DERP-
+  style **self-hostable relay** fallback → upgrade to direct. The self-hostable relay **IS the
+  gateway-as-supernode**, prebuilt. (Rust → needs FFI or a sidecar next to the Go gateway.)
+- **Reference:** Tailscale's **DERP** + their "How NAT traversal works" post — canonical.
+- **The crucial fork — these are TRANSPORT, not MEDIA.** They give a NAT-traversed, encrypted
+  byte/datagram channel by node-ID (solves the connectivity problem we kept hitting) but **no Opus /
+  jitter buffer / video codec** (WebRTC gives both — that's its value, and TURN is its cost). Mapped
+  onto the scoped payload: **avatar pose/visemes = small datagrams → libp2p/Iroh is *ideal* (no media
+  engine)**; **audio = Opus over their datagram stream** (own it, bounded); **screen = a video codec**
+  (the most work — the one place WebRTC's engine most earns its keep). Clean candidate architecture:
+  **go-libp2p transport substrate** (traversal + relay + identity + encryption, self-hostable relay =
+  supernode) + pose/control on datagrams + Opus audio + WebRTC media only where a turnkey codec is
+  wanted. Tradeoff: own more of the media stack, but the NAT/relay problem is solved + self-hostable
+  and fits a native, data-heavy, agents-as-sources app better than a generic video stack. **Decide
+  libp2p/Iroh vs raw-WebRTC at P0 — it's the foundational choice.**
+- **Rooms: mesh may suffice given the light payload; SFU only if needed.** Mesh P2P is N² connections
+  and normally collapses past ~4–5 peers — but with audio+pose-only streams the per-peer cost is tiny,
+  so mesh stretches further. Fall back to a **Selective Forwarding Unit** (self-host LiveKit/mediasoup,
+  or managed LiveKit Cloud / Cloudflare Realtime; also sidesteps NAT) only when participant counts or
+  screen-share load demand it. Decide empirically, not upfront.
+
+**The WebRTC engine (open question):** link **libwebrtc** (heavy Google C++ lib) vs the pragmatic
+**WKWebView-as-engine** trick (a headless-ish webview runs the `RTCPeerConnection`; bridge media in/out
+to native surfaces — reuses WebKit's mature stack, cost is native↔webview media plumbing). Decide by
+prototype.
+
+**Why it earns a north-star slot:** no one has shipped agents *calling* humans, joining mixed
+human+agent rooms, with synthetic/3D presence. It's native to this architecture (agent = a media
+source is just another track), not bolted on. Stitches into the other north stars: a streaming
+agent-with-vision **is** the computer-use operator loop with a live feed; shared ports **are** the
+collaborative shell; and it rides the pluggable-primitives *up*-invariant (a stream surfaces as a
+port/peek).
+
+**Phased (leads with the cheap proof; scope = audio + screen + avatars, no camera):** **P0** add the
+`signal` message type to sync + a throwaway 1:1 P2P **audio** call between two dev instances over
+public STUN (proves signaling-is-free) → **P1** a port's surface as an outbound **screen-share**
+track (co-watch one port across instances) → **P2** relay fallback = **gateway-as-supernode**
+(measure UDP-over-ngrok quality; `coturn` only if it fails) + a real 1:1 agent↔human call (agent as
+audio source via `audio.speak`/TTS, sink via frame→vision) → **P3** **avatars as a pose/viseme
+data-channel**, rendered locally → **P4** rooms (mesh-first given the light payload; SFU only if
+counts/screen-share demand it), mixed human/agent, with synthetic/3D agent presence. Open infra
+decisions to settle before P2: **relay** (gateway/ngrok vs real UDP TURN) and **engine** (libwebrtc
+vs WKWebView-as-engine).
 
 ---
 
