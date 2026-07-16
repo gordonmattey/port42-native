@@ -576,6 +576,46 @@ HTML/terminal port over a data channel (state replication), not a video call.
 
 ---
 
+## BUG: closing a port leaks its mic / speech recognition — forever, unstoppably (2026-07-16)
+
+**Found by sampling a 90%-CPU app at 3am.** The hot stacks were not webviews and not SwiftUI:
+```
+827  DispatchQueue: SFLocalSpeechRecognitionClient  (serial)
+760  DispatchQueue: com.apple.Speech.Task.Internal  (serial)
+     + AUScheduledParameterRefresher, caulk::*, coremedia.imagequeue.*
+```
+A voice port had called `audio.capture({transcribe:true})`. The port was **closed hours earlier**.
+The **on-device speech recogniser was still running** — an ML model chewing a core, continuously,
+with no port left to show for it. This is the user's "I closed it and it's still going".
+
+**Why it's unstoppable (the real bug):**
+- `audio.capture` starts an **app-level** resource (`AudioBridge`: AVAudioEngine + `SFSpeechRecognizer`).
+- `audio.stopCapture` is a **bridge method — callable only from the port's own JS**, and is *not*
+  exposed on the gateway ("Unknown tool: audio_stopCapture").
+- `PortWindowManager.close()` destroys the webview → **the only thing that could ever stop it is gone.**
+- Net: **the mic + speech recognition run until the app quits.** No UI, no API, no recovery.
+
+**It's a class, not a one-off.** `close()` currently releases: webview ✓, terminal controller ✓,
+hoisted terminal surface ✓, live-cwd file ✓ — and **nothing else the port acquired**. Same shape
+almost certainly applies to `camera.stream` / `screen.stream` (both push frames and have `stop*`
+methods only reachable from the dead port's JS).
+
+**Fix:**
+1. **Port lifecycle teardown must be exhaustive.** `close()` releases *everything the port acquired* —
+   audio capture, camera stream, screen stream, timers. Track acquisitions per-`PortBridge` and
+   release them in one place, so a new capability can't be added without a teardown.
+2. **Never let a resource be stoppable only from the thing that dies.** Any `start` reachable from a
+   port needs a `stop` reachable from the *app* (and ideally the gateway), keyed by port id.
+3. **Make it visible** — a live mic/camera/screen capture should show an indicator + a kill switch
+   (this is also the "always-visible indicator + stop" the computer-use north star already demands).
+4. **Test:** open a mic port, close it, assert the recogniser is down (sample/threads or an
+   AudioBridge state assert). This is Tier-A-able at the AudioBridge level.
+
+**Severity: high.** Silent, permanent, burns a core, and it's a *privacy* issue as much as a perf one
+— **the microphone stays live after the thing that asked for it is gone.**
+
+---
+
 ## TODO: the webview registry never evicts — cost scales with ports-ever-created (2026-07-16)
 
 **Measured, not theorised (2026-07-16):** a dev instance with **101 ports** was running **88 live
