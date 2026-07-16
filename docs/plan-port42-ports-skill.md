@@ -76,6 +76,17 @@ A port that dies silently is undebuggable. Ship `window.onerror` → write it in
   nothing anywhere said why. `typeof start === 'undefined'` while `port42` existed was the tell —
   **`port42` is injected by the app, so its presence proves nothing about your own script.**
 
+**Never render when nobody's looking — a port that doesn't idle is a CPU bomb.**
+An unconditional `requestAnimationFrame` loop runs at 60fps forever: while peeking at 210px, while
+backgrounded, while the human is in another space. Four animated ports at once **cooked a machine**
+and had to be killed (2026-07-16).
+- **Pause on hidden** (`document.hidden`), **pause when off-screen** (`IntersectionObserver`), and —
+  once it exists — on the port's presentation event (see the summer-todo item; the shell knows the
+  state but doesn't yet tell you).
+- **Throttle when small/unfocused** (~15-30fps), **cap `devicePixelRatio`**, and **scale particle /
+  geometry counts to the tile's size** — a 210px peek does not need 900 particles.
+- The desktop is made of live ports: assume **5-10 of you** are running at once. Budget accordingly.
+
 **Retina:** `ctx.setTransform(DPR,0,0,DPR,0,0)` once, then draw in CSS pixels.
 
 ## §2 — Patterns worth teaching (earned in the same session)

@@ -576,6 +576,41 @@ HTML/terminal port over a data channel (state replication), not a video call.
 
 ---
 
+## TODO: ports must know their presentation state — or the desktop melts (2026-07-16)
+
+**Found the hard way:** four animated ports (three.js scenes + a live WebGL shader) running as tiles
+at once **cooked the CPU** and had to be killed. Each ran an unconditional `requestAnimationFrame`
+loop at 60fps — *including while peeking at 210px, backgrounded, or ignored*. Nothing throttles.
+
+**The gap:** a port is **never told what it is right now.** The bridge pushes `audio.*`, `browser.*`,
+`camera.frame`, `screen.frame` — and nothing about the port's own presentation. So a port literally
+cannot idle: it has no signal to idle *on*.
+
+**The sting: the shell already knows.** `panel.isBackground`, `presentation` (tiled/parked/inline),
+the peek entry, the zoom rung (`.focus(id)`) — all live in `ShellState`/`PortWindowManager` already.
+The information exists; it's simply never delivered to the port. *(Third instance of this exact shape
+tonight: the bus remembers every closed port but exposes no reopen; the shell knows visibility but
+never tells the port. The system knows; nothing exposes the knowing.)*
+
+**Fix — two halves:**
+1. **Tell the port.** `pushEvent("port42:presentation", {state:"focused|tiled|peek|parked|background",
+   visible:bool, w,h})` on every state change, consumed as `port42.on('presentation', …)`. Small: the
+   state transitions already exist and are already observed.
+2. **Defend anyway.** The shell should throttle/suspend backgrounded ports it knows are invisible
+   (a port that lies or ignores the signal must not be able to melt the machine). Belt and braces:
+   the platform enforces, the port cooperates.
+
+**Why it's load-bearing, not polish:** "the desktop IS live ports" is the shell thesis. It does not
+survive each live port burning a core — with the working set + peeks + adopted ports, a busy desktop
+is 5–10 live surfaces. Today that's 5–10 × 60fps. This caps how many ports a person can *have*, which
+caps the product.
+
+**Port-side discipline** (goes in the `port42-ports` skill): pause the loop when not visible
+(`document.hidden` + `IntersectionObserver` today, the presentation event once it exists), drop to
+~15-30fps when small/unfocused, cap `devicePixelRatio`, scale particle/geometry counts to tile size.
+
+---
+
 ## TODO: a port has a URL — paste it in a browser and you're in it (2026-07-16)
 
 **GM:** *"it would be cool to be able to take a url of a port and paste it into a browser and you're
