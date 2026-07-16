@@ -576,6 +576,36 @@ HTML/terminal port over a data channel (state replication), not a video call.
 
 ---
 
+## TODO: the webview registry never evicts — cost scales with ports-ever-created (2026-07-16)
+
+**Measured, not theorised (2026-07-16):** a dev instance with **101 ports** was running **88 live
+WKWebView (WebContent) processes** — Port42Dev at ~90% CPU, prod at ~50%, *with no demos running*.
+
+**Diagnosis, in order:**
+- **Not a leak.** Tested directly: create 3 ports → +3 WebContent; close them → back to baseline
+  exactly. Webviews die correctly with their port.
+- **Not space-scoped.** Closing/leaving spaces frees **nothing** — the registry keeps every port's
+  webview alive regardless of the current space. Only closing the **port** frees it.
+- **It's the port-units contract working as designed.** *Mount once, never re-mount* is precisely what
+  killed the grey-blank bug (`plan-port-units-render-refactor.md`, I1–I4) and makes space-switching
+  instant. **The bill: every port ever created stays live forever.** Cost scales with
+  ports-ever-created, not with what's on screen.
+
+**The tension to resolve (this is design, not a fix):** mount-once (correct, instant, never blanks)
+vs. evict (scales). A busy user hits this at a few dozen ports; a year of building hits 101.
+Candidate policy: keep mounted = current space's tiles + adopted + peeks + anything focused recently;
+**evict the rest and re-mount on return**, accepting a repaint on a space you haven't visited in a
+while. That trade (a repaint on return vs. 88 permanently-live webviews) is almost certainly worth it
+— but it must not resurrect the blanking bug, so the eviction path needs the Tier-B probe
+(`PortRenderProbe`) pointed at it: an evicted-then-remounted port must come back clean, once.
+
+**Related and compounding:** ports also never idle (see the presentation-state item below) — so it's
+not just 88 live surfaces, it's 88 live surfaces *rendering*. Fix both: evict what isn't needed, idle
+what's kept. Also relevant: `ports.closed`/reopen (a purge story needs a recovery story) and "ports
+scoped to space".
+
+---
+
 ## TODO: ports must know their presentation state — or the desktop melts (2026-07-16)
 
 **Found the hard way:** four animated ports (three.js scenes + a live WebGL shader) running as tiles
