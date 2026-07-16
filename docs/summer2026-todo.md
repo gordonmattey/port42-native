@@ -163,6 +163,35 @@ prod DB (creases/engravings under deleted space ids — space deletion doesn't c
 
 ---
 
+## TODO: permission UX — one guided flow, not a dialog avalanche (2026-07-16)
+
+**Found live** (building a mic port): first use fires **three dialogs back-to-back** — Port42's own
+`.microphone` card, then macOS's **Microphone** consent, then macOS's **Speech Recognition** consent
+(`SFSpeechRecognizer` needs its own separate TCC grant — nobody expects that one). GM: *"our
+permission box should say: we're asking you for two permissions, Apple will show you the screens,
+click Yes and Yes."*
+
+**Fix:** Port42's card **owns and narrates the whole flow** — *"Port42 needs your microphone to
+transcribe you. macOS will ask twice next — Microphone, then Speech Recognition. Say yes to both."*
+One intentional sequence instead of an avalanche. (The macOS grants are one-time-per-app forever, so
+this is a first-run cliff, not ongoing friction — but the first run is the one that matters.)
+
+**Same session, same feature — the rest of the permission findings** (all feed the permission-prompt
+shell surface, S4.x / Track A #1):
+- **The card renders inside the chat tile** (`ChatView.swift:72-89`), so when you're focused on a
+  port the prompt is **off-screen and the call silently hangs** — that's the "permissions haven't
+  worked since the shell refactor" bug. `PortBridge.checkPermission` *does* set
+  `activePermissionBridge` correctly (line ~200); only the **render site** is wrong. It must be a
+  **shell-level overlay** (scrim + zIndex, like Settings/⌘K/inspector).
+- **Grants are per-port** — each port is its own `PortBridge` with its own `grantedPermissions`
+  (cached per port). Three AI-using ports = approving `.ai` three times, for ports *you authored*.
+  Consider: batch several pending grants into one card; a "my own ports" / Settings pre-approval
+  scope.
+- Diagnostic worth keeping: the same bug has two faces — "no prompt at all" (focused on a port) and
+  "a pile of prompts" (sitting on the desktop where the chat tile is visible).
+
+---
+
 ## TODO: `ports.list` API consistency (raw text + capabilities)
 
 Small API-consistency item found while verifying terminal-port spawns over the gateway:
