@@ -576,6 +576,46 @@ HTML/terminal port over a data channel (state replication), not a video call.
 
 ---
 
+## TODO: port teleport — moving a port between instances must be IN the protocol (2026-07-16)
+
+**Proved by accident, 2026-07-16.** Four live ports (OPEN WATER, ATELIER 3D, SHADER, THE BUS) were
+copied from the dev instance into the production instance — different bundle id, different gateway,
+different database — with one `port.create` each. **They arrived alive and ran.** Ports teleport
+trivially *because they are self-describing*: a port's whole being is HTML + state, so there is
+nothing to export. That half is free.
+
+**What did NOT travel — and this is the whole lesson: the addresses.** Each port had *dev* companion
+UUIDs baked into its JS (`onthekeys`, `sonnet`, `echo`). Those are meaningful **only in the instance
+that minted them**. Copied as-is, every `companions.invoke` would fail silently. It only worked
+because a human hand-remapped them (`onthekeys→sage`, `sonnet→muse`, `echo→echo`) — i.e. **a person
+stood in as the resolution layer**. That is exactly the keystone gap in
+[`membrane/bus-architecture.md`](membrane/bus-architecture.md) (cross-instance Address), seen from
+the other direction.
+
+**So the protocol must carry:**
+1. **Transfer as a first-class operation** — `port.send(id, to:<instance>)` / `port.fork`, not
+   "re-create it by hand". The port's **state travels with it** (`port42.storage` contents — the
+   sculpture's forms, the marks), not just its HTML.
+2. **References must be ADDRESSES, not raw local UUIDs.** A port referring to a companion should say
+   `port42://agent/<id>` (resolvable) or a **role/capability** reference ("a fast companion", "the
+   one that makes music") — never a bare UUID that only one instance can resolve. Otherwise every
+   teleport needs a human translator.
+3. **Rebinding on arrival** — when a port lands in a new instance, its references resolve: by
+   address, by name, or by an explicit binding step ("this port wants a Haiku companion → bind to
+   sage"). Unresolvable references should surface *loudly*, not fail silently (they failed silently
+   in the hand-copy; only foreknowledge caught it).
+4. **Provenance** — a teleported port should know where it came from (its origin address), which is
+   what later lets the two copies find each other.
+
+**Copy vs. co-presence (the real prize).** Tonight was a *copy* — two independent ports that now
+drift apart. With addressing done properly it stops being a copy: **the same port, reachable from
+both instances, subscribed to each other.** You wouldn't remap echo — echo would simply be
+*reachable*. That is the difference between "I sent you a file" and "we're in the room together",
+and it's the same Address work the media plane needs. Do addressing once; teleport, multiplayer, and
+subscription all fall out of it.
+
+---
+
 ## TODO: live media plane — WebRTC streaming across instances; ports & agents as tracks (2026-07-15)
 
 **Direction:** make real-time **audio/video/data** a first-class plane in Port42, streamed
