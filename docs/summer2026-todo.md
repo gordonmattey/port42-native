@@ -576,6 +576,52 @@ HTML/terminal port over a data channel (state replication), not a video call.
 
 ---
 
+## TODO: a port has a URL — paste it in a browser and you're in it (2026-07-16)
+
+**GM:** *"it would be cool to be able to take a url of a port and paste it into a browser and you're
+just in it."* This is the sharing story, and most of it already exists.
+
+**Already there:**
+- The gateway is **already an HTTP server serving HTML** — `/` (root page), `/invite` (a real landing
+  page with OG tags for link previews), plus `/call` (HTTP bridge) and `/ws` (WebSocket).
+- It **already tunnels via ngrok** → it can have a public URL today.
+- **Ports are self-describing HTML**, and `port_versions` keeps every version forever (proved
+  2026-07-16 — four closed ports restored straight out of the DB).
+- **`port42://` deep links already work** in-app (space + agent invites, parsed in `QuickSwitcher`).
+
+**The hop:** `GET /port/<id>` → serve that port's latest HTML from `port_versions`. With the tunnel,
+that's a public URL that renders the port in any browser, on any device.
+
+**The interesting part — the bridge (this is the whole design).** A browser-served port has no
+WKWebView message handler, so `port42.*` is undefined and any real port breaks instantly. But the
+gateway *already* exposes the same methods over `/call` and `/ws`. So the served page gets a
+**`port42` shim backed by HTTP/WebSocket** — same method surface, **a third calling path** alongside
+the native bridge and LLM tool-use. Which means **this falls out of the API/tool-use unification item
+above** ("one base implementation, different calling paths"): do that refactor and the browser path is
+nearly free. Don't build a bespoke browser API — make the browser a third caller of the one base.
+
+**Copy vs. co-presence (same distinction as port teleport).** Serving the HTML gives a *dead copy*.
+Serving the HTML **+ a live WS bridge back to the bus** gives **the same port, in a browser** —
+addressable, subscribed, live. Send someone a link and they are *in your port*, not looking at a
+photocopy of it. That's the sharing primitive Port42 has never had.
+
+**LOAD-BEARING SAFETY — do not skip.** A public URL to a live port that can call the bridge is
+**remote code execution on your Mac**. The browser shim must be **capability-scoped by construction**,
+not by policy:
+- A **share token** per link (revocable, expiring, per-port — never a session key).
+- A **strict subset** of the bridge: the port's own data + its own stream. **Never** `fs.*`,
+  `terminal.exec`, `automation.*`, `clipboard.*`, `rest.call`.
+- **Read-only vs interactive** as an explicit choice at share time.
+- The permission model here is the *product*, not a nice-to-have — this is the one feature where
+  getting it wrong hands a stranger your machine.
+
+**Why it's worth it:** it makes a port shareable with anyone who has a browser — no install, no
+account. That's the demo you send Dom; that's how a port escapes the app. Related: "port teleport"
+(below), cross-instance addressing in `membrane/bus-architecture.md` (the keystone), and the
+`ports.list`/tool-use unification item.
+
+---
+
 ## TODO: port teleport — moving a port between instances must be IN the protocol (2026-07-16)
 
 **Proved by accident, 2026-07-16.** Four live ports (OPEN WATER, ATELIER 3D, SHADER, THE BUS) were
