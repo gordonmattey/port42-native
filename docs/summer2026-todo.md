@@ -412,6 +412,99 @@ Design notes / open questions:
 
 ---
 
+## TODO: MCP as a port capability, with the viewer's own credentials (2026-07-16)
+
+**Trigger:** Anthropic shipped view-time MCP for generated pages. A page calls connectors when it is
+opened, using the *viewer's* permissions, so two people open the same generated dashboard and see
+their own Stripe rows, their own repos, their own queues. Row-level security for throwaway apps.
+
+**Verified against the runtime contract (0.1.12), not the write-ups:**
+- A page declares `capabilities: {mcp: {servers: [{server, tools}]}}` and calls `window.claude.mcp`.
+- Calls run **with the viewer's credentials and never expose tokens**. The per-viewer property is real.
+- Two arms, and the shape is instructive: a section *displaying* data registers
+  `watchTool(server, tool, input, handler)` (replays cache, refreshes when stale, polls only via
+  `refetchInterval`); an *action* calls `callTool` once.
+- **Two constraints the hype drops:** (1) **only claude.ai connectors are valid**; locally-configured
+  MCP servers are explicitly not. (2) **A page declaring MCP cannot be shared publicly.**
+
+**The read: it validates the thesis and demonstrates the wall in the same feature.** A generated
+surface calling tools with the viewer's permissions *is* the harness, and it is exactly our "one
+bridge, permission-gated per asker". The biggest lab in the world independently building it is the
+strongest confirmation the model is right. And it works only with their connector registry, on their
+site, against their model. A harness that fits one horse (see `one-pager-2026-07.md`).
+
+**What we have:** `port42-mcp.js` is Port42 as an MCP *server* (exposes the bridge to Claude Code,
+Gemini CLI, any MCP tool over the gateway WS). It ships in the bundle and **nothing wires it**; you
+run it by hand. There is **no MCP client anywhere in the app**: a port or companion cannot consume an
+external MCP server today. The direction that matters is the one that doesn't exist.
+
+**Build:**
+1. **MCP client as a bridge capability.** `port42.mcp.callTool(server, tool, input)` /
+   `watchTool(...)` / `listTools()`, so a PORT can call the user's MCP servers, and a companion
+   reaches the same methods as tools (the unified-API invariant: one base, thin calling paths).
+2. **Per-server permission, not a blanket `.mcp` bucket.** "This port may call Stripe" is a different
+   sentence from "this port may call MCP". The per-asker permission model already fits; this is a new
+   scope, not a new mechanism.
+3. **Local servers are the differentiator, not a gap.** Port42 runs on your machine. The local MCP
+   servers claude.ai *cannot* reach are precisely what a port should be able to call. Same for
+   model-agnostic: MCP is a wire, not a vendor, so a Gemini companion or a local model reaches the
+   same servers.
+4. **`watchTool` is the right shape and worth copying.** Display = watch (cache replay, refresh when
+   stale, poll only on an explicit interval); action = call once. That is Subscribe/Notify from
+   `membrane/bus-architecture.md`: a port displaying data is a subscriber to a stream. Someone else
+   arrived at the same decomposition independently, which is evidence for the model.
+5. **The compounding move, and its danger.** MCP + "a port has a URL" + per-viewer identity gives the
+   same "two people, same dashboard, different rows" property, except the port is yours, the servers
+   can be local, and the page isn't trapped in a tab you don't own. **Note that Anthropic forbids
+   public sharing of an MCP-declaring page. That restriction is correct and we need it harder.** A
+   shared port that can call connectors is either the best feature in the product or a
+   credential-laundering machine, decided entirely by *whose* credentials run the call. **Settle the
+   identity model before the transport:** a shared port must execute MCP calls as the VIEWER, never
+   as the author, and never as "whoever opened it, using the author's grant".
+
+**Where it lives: the gateway (GM, 2026-07-16).** The MCP client belongs in the Go gateway, not the
+Swift app. The gateway is where every caller already converges (port JS, companion tool-use, external
+agents over `/call` and `/ws`), it already holds long-lived connections, and Go has the SDK. One MCP
+client serving all callers *is* the unified-API principle, enforced by construction rather than
+asserted. Putting it in the app would mint a fifth calling path immediately.
+
+**But the permission decision cannot move there yet, and that is the real finding.** GM: *"they could
+have diff permissions so that needs to be considered in the p42 protocol layer."* Correct, and it is
+worse than it looks: **the protocol already has an authenticated principal and throws it away.**
+- `gateway.go` runs a real handshake: challenge nonce, `identify` with `sender_id`, auth, and
+  `env.PeerID = peer.ID // authenticated peer identity`.
+- `AppState.onCallReceived` receives that `senderId` and immediately flattens it:
+  `RemoteToolExecutor(senderId:, senderName: "remote-\(senderId.prefix(8))")` →
+  `ToolExecutor(spaceId: nil, createdBy: senderName)`.
+- That display string becomes the permission key (`portPerms.<label>.global`).
+
+So permissions are keyed on a **label**, not a principal. The gate asks "what is it called" when it
+should ask "who is this". Same root as the `spaceId: nil` bug found the same night.
+
+**The missing concept is a PRINCIPAL in the protocol layer**, and four separate problems are all it:
+
+| Question | The identity it needs |
+|---|---|
+| Which MCP servers may this caller reach? | the caller's principal |
+| Whose credentials run a *shared* port's MCP call? | the **viewer's** principal, never the author's |
+| Which port on which instance does this address reach? | the peer's principal (cross-instance address) |
+| Who is asking for the microphone right now? | the asker's principal |
+
+`PermissionRequester` (added 2026-07-16 with the permission coordinator) is an accidental first draft
+of this: `id` / `displayName` / `spaceId` / `createdBy`. It is a label in an identity's clothes.
+Promote it, back it with the gateway's authenticated `peer.ID`, and carry it end to end. Then a
+permission is a statement about a principal, an MCP grant is per-(principal, server), and a shared
+port executing as the viewer is the default rather than a special case.
+
+**Sequence:** after the API/tool-use unification. MCP is a fourth calling path; do not bolt it beside
+three inconsistent ones. The principal work is arguably *part of* the unification, not after it: one
+base implementation needs one answer to "who is calling". Related: "adopt agent-comms standards (ACP
++ friends)" above (the parent item), "a port has a URL", "port teleport", and
+`membrane/bus-architecture.md` (cross-instance address + per-element right-of-way, which are the same
+question again).
+
+---
+
 # New frontiers (2026-06-29) — bigger north stars
 
 Two larger directions added after the shell-prototype session. Both have written plans + working
@@ -613,6 +706,308 @@ methods only reachable from the dead port's JS).
 
 **Severity: high.** Silent, permanent, burns a core, and it's a *privacy* issue as much as a perf one
 — **the microphone stays live after the thing that asked for it is gone.**
+
+---
+
+## TODO: the platform hides its failures — make every refusal legible (2026-07-16)
+
+**One family, three sightings in one session.** Port42 refuses things correctly and then says nothing,
+so the author sees a blank rectangle, a frozen picture, or a lie. Every one of these cost a live
+debugging round, and each is cheap to fix.
+
+**1. CDN loads are silently blocked (GM: "should be something to add to the list").**
+The port document carries a tight, correct CSP:
+```
+default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;
+```
+So `<script src="https://unpkg.com/...">` never loads; so do remote images; and because
+`connect-src` falls back to `default-src 'none'`, **all `fetch`/XHR/WebSocket from a port are blocked
+too** (which is why `rest.call` exists). The policy is right. **The silence is the bug.**
+- **Fix, one line, free:** a CSP violation fires `securitypolicyviolation` on `document`. Nobody
+  listens. The wrapper should listen and surface it, the same way a port is told to surface
+  `window.onerror`: *"blocked by policy: script-src https://unpkg.com/three.min.js"*. The platform
+  must hold itself to the rule it gives authors.
+- **Also:** the CSP is **duplicated** in `PortView.swift:245` and `PortWindowManager.swift:947`. Two
+  copies of the port document wrapper, primed to drift. One wrapper, one policy.
+- **Document the consequence** in the skill: the library must travel inline (three.js min is ~613KB
+  against a 2MB payload cap; raw WebGL is ~0KB). Proven 2026-07-16: OPEN WATER carries three.js as a
+  631KB inline block, and the cats port was built by lifting that same block out of it.
+
+**2. The JS bridge never rejects** (its own item below): a failed call resolves with `{error}`, so
+every `try/catch` in every port is decoration.
+
+**3. `terminal.exec` truncates at 50,000 bytes** (`ShellExec.maxOutputBytes`). It *does* append
+`... (truncated)` (credit where due), but the cap is **undocumented in the API reference**, so a port
+shelling out for JSON gets `Expected '}'` and no idea why. Document it, and say so in the skill: over
+~50KB, **gzip and inflate in the port** (`DecompressionStream('gzip')` works in WKWebView; 190KB of
+JSON became 37KB of base64 for the session-history port).
+
+**The through-line:** the skill tells authors "make failure visible — a port that dies silently is
+undebuggable." The platform does not follow its own instruction. Fixing that is worth more than any
+single one of these bugs, because it is what stops the *next* one costing a debugging round.
+
+**4. The frame lies (a native-chrome sibling, 2026-07-17).** Building the version-history popover: a
+`macOS .popover` sizes to its content **once, at present-time, and never grows.** A toggle that
+swapped 1 grouped row for 349 saves left the fanned list clipped to the popover's original ~90px —
+data correct, query correct, toggle correct, and it still read as "nothing fans out." Fix: a FIXED
+content height, not `maxHeight`. Distinct from the others (nothing is hidden or refused) but the same
+felt experience: every layer worked and the container betrayed it. Belongs in the skill next to
+`setSize(w,h,false)` and `preserveDrawingBuffer` — the class of bug where the frame, not the logic,
+is wrong.
+
+---
+
+## BUG: the JS bridge never rejects — every port fails silently (2026-07-16)
+
+**Found by a voice port that said LISTENING while the mic was refused.** `PortBridge.bridgeJS`:
+
+```js
+function call(method, args) {
+    return new Promise((resolve) => {   // resolve ONLY. There is no reject, anywhere.
+```
+
+Native handlers report failure by **returning** `["error": "..."]`. `call()` resolves that as a
+**value**, so the obvious, correct-looking port code cannot see it:
+
+```js
+try { await port42.audio.capture({transcribe:true}); }
+catch(e) { setMode('idle'); }        // NEVER FIRES. The bridge already said no.
+```
+
+**`ai.complete` is the only method that special-cases it** (`if (r && r.error) throw new Error(r.error)`).
+Every other method on the surface — `audio.*`, `camera.*`, `screen.*`, `browser.*`, `fs.*`,
+`clipboard.*`, `terminal.exec`, `port.*` — fails silently. A port author who writes textbook
+`try/catch` gets a lie.
+
+**This is "make failure visible" inverted: the PLATFORM hides the failure**, and no amount of
+discipline in the port fixes it. It also means every `.catch()` in every port built this session is
+decoration.
+
+**Fix (Track A #2, the unification):** one contract for the return envelope. `call()` rejects when the
+handler returns `error`, so `ai.complete`'s special case disappears into the base. A caller must never
+need to know that one method throws and forty don't. Audit every port afterwards: code that reads
+`r.error` still works if the reject carries the same message.
+
+**Live proof (2026-07-16):** `audio.capture` returned
+`{"error":"failed to start audio capture: ... avfaudio error -536870206"}` — CoreAudio refusing the
+input because **another app held the mic** (GM was on a Signal call). Correct behaviour by the bridge,
+correct error text, and the port displayed "LISTENING" anyway.
+
+**Related, small:** `AudioBridge.capture` should say *why* in human terms. CoreAudio can be asked
+directly (`kAudioDevicePropertyDeviceIsRunningSomewhere` on the default input device = the mic is
+held), so the error can read "your microphone is in use by another app" instead of a bare OSStatus.
+Same for the reverse case in the permission-UX item.
+
+---
+
+## BUG: the app froze mid-demo, every port went grey (2026-07-16) — UNDIAGNOSED
+
+**Reported by GM, live, during a demo.** First two demos fine. On the **third**, it started glitching:
+**every port turned grey**, nothing could be interacted with, **LLM calls stopped working**, and the
+app had to be killed. No diagnostic was captured.
+
+**Why grey matters:** grey ports + an unclickable UI is the signature of the **main actor being
+blocked** (SwiftUI stops compositing, webviews stop painting, clicks aren't serviced). It is also the
+signature of the **blanking bug** the port-units mount-once contract was built to kill
+(`plan-port-units-render-refactor.md`, I1-I4). Those are different causes with the same face, and
+nothing recorded so far separates them.
+
+**Candidates, none confirmed:**
+- **A blocked main actor.** Everything on the bridge is `@MainActor`. Any sync wait, or a re-entrant
+  bridge call (e.g. `port.exec` running JS that itself calls `port42.*`), could wedge it. Suspected
+  the same night but NOT demonstrated: the calls that appeared to prove it were hitting a gateway
+  whose app was already dead (see below).
+- **The permission hang.** LLM calls stopped, and `.ai` is permission-gated. A gated call with no
+  reachable prompt awaits a continuation forever. "Third demo" fits: the first ports' grants were
+  cached, a later one asked, and the ask had nowhere to render. This is the known ship-blocker.
+- **Accumulation.** Third demo = most ports = most live webviews, none of which idle or evict.
+
+**The diagnostic to run BEFORE killing it next time** (this is the whole ask):
+```
+sample Port42Dev 5 -file /tmp/p42-hang.txt; open /tmp/p42-hang.txt
+```
+A blocked main thread names its blocker in the first stack. This is how the mic leak was caught.
+Consider shipping a DEBUG watchdog that samples itself when the main thread stalls > 2s, so a demo
+freeze is never again unrecoverable evidence.
+
+**Severity: ship-blocking.** It failed in front of an audience, and it is the product's core claim
+(the desktop IS live ports) failing under exactly the load the claim implies.
+
+---
+
+## BUG: the gateway outlives the app (2026-07-16)
+
+**Found while diagnosing the freeze.** After the app is killed, its gateway subprocess **keeps
+running and keeps listening**: `Port42Dev.app/Contents/MacOS/port42-gateway -addr :4243`, `ppid 1`,
+up 1d04h with no app. Prod's `:4242` gateway was in the same state.
+
+**Consequence:** every `/call` **hangs forever** rather than failing, because the socket accepts and
+nothing answers. This wasted real debugging time (calls were read as an app deadlock when the app was
+simply gone), and a relaunch would meet a busy port.
+
+**Root cause (found, both sides):** on Unix a child does **not** die with its parent. It is reparented
+to launchd (`ppid 1`) and keeps running. macOS has no `PR_SET_PDEATHSIG`, so nothing tells the gateway
+its parent is gone. Both mechanisms that could stop it are cooperative and both are skipped by a kill:
+- **App side:** `GatewayProcess.swift:79-86` terminates the gateway on
+  `NSApplication.willTerminateNotification`; `Port42App.swift:264` calls `stop()`. **A SIGKILL (Force
+  Quit, or killing a frozen app) runs neither.** Cleanup code in a dead process is not cleanup.
+- **Gateway side:** `main.go:71` handles `os.Interrupt` / `SIGTERM` correctly, but **nobody sends it**,
+  and there is **no parent watch at all** (no `getppid`, no pipe, no kqueue).
+
+So it runs away because the only two things that could stop it are a signal nobody sends and a
+handler a killed app never reaches.
+
+**Fix — it must live in the CHILD, the only side still alive:**
+1. **Pipe EOF (preferred).** The app passes the gateway a pipe (stdin suffices) and holds the write
+   end; the gateway reads and exits on EOF. When the app dies **by any means** the kernel closes the
+   write end. Survives SIGKILL, no polling, ~5 lines of Go.
+2. Alternatives: poll `getppid() == 1` every ~2s (trivial, short orphan window), or kqueue
+   `NOTE_EXIT` on the parent pid (immediate, more code).
+3. **Reap on launch** — detect a stale gateway on our port and kill it before binding.
+4. **Fail fast** — a `/call` with no app behind it must error, never hang. This cost real debugging
+   time on 2026-07-16: hung calls were read as an app deadlock when the app was simply gone.
+
+**It is the same class as the mic leak and the never-evicting registry:** nothing releases what it
+acquired. Here the leaked thing is the app's own child process, and the lesson generalizes —
+**teardown that only runs on the happy path is not teardown.** That matters most for the
+standing-intent direction (`plan-standing-intent.md`): unattended work makes every leak permanent.
+
+---
+
+## BUG: parked/backgrounded ports keep running their AI — burning the subscription (2026-07-17)
+
+**GM, live: subscription limit hit two days running, and this is the likely cause.** A port that
+self-generates (SHADER: `ai.complete` → new GLSL → `port.update`, in a loop) **keeps running its loop
+while parked or backgrounded** — off the desktop, out of `ports.list`, invisible — and keeps calling
+the model. Proof captured 2026-07-17: SHADER, not on the desktop and with a dead webview, still wrote
+a **burst of 6 `port.update`s in 9 seconds** (versions 369-374) from its generative loop. Multiply by
+days and it eats a subscription with nothing on screen to show for it.
+
+**This is the convergence of three already-filed items, and it now has a dollar cost:**
+- Ports are never told their presentation state, so they can't idle (the presentation-state item).
+- The webview registry never evicts, so a parked port stays *live* (the eviction item).
+- Nothing stops an `ai.complete` loop from the app side (the never-rejecting/no-stop theme).
+
+**Fix — parking MUST pause the port:**
+1. **Park = suspend.** When a port is parked (or backgrounded), deliver a presentation event
+   (`port42:presentation {state:"parked", visible:false}`) AND, belt-and-braces, have the shell
+   throttle/suspend it — pause rAF, and critically **halt outstanding/looping `ai.complete`**. A
+   parked port must not be able to call the model.
+2. **A generative loop must check visibility before each invoke.** Port-side discipline for the
+   skill: never `ai.complete` when `!visible`. But the platform must enforce it too (a port that
+   ignores the signal can't be allowed to bill you).
+3. **Verify by token count:** park SHADER, watch `port_versions` for it — zero new saves while
+   parked is the gate.
+
+**Severity: high — it's costing real money, unattended, twice now.** Same root as the mic leak: a
+resource keeps running after the thing that showed it is gone.
+
+---
+
+## TODO: port parking — exact placement + never truly close (2026-07-17)
+
+**Two asks from GM, same lifecycle:**
+
+**1. Place a parked port exactly where you want in the rail.** Dragging a port into the park rail
+should let you drop it at a chosen position in the vertical list, and reorder within the rail — not
+just append. Today parking appends; make the rail a reorderable list with drop-index targeting (the
+drag already tracks a `ParkZone`; add an insertion index + a drop indicator).
+
+**2. Never truly close a port — closing = park/archive, always reopenable.** GM: *"i want to be able
+to reopen closed ports. we should never close them."* The version store already keeps every port
+forever (proven repeatedly 2026-07-16/17: five ports recovered by hand from `port_versions`, incl.
+SHADER, say-it-see-it, four workspaces, PORT WORKBENCH). So "close" should mean **archive, not
+destroy**, and there must be a **reopen affordance** — a list/gallery of closed ports (title, last
+saved, a preview) that recreates the port from its latest stored HTML. Recreation is trivial and
+proven; the only missing piece is the UI.
+- Design: `port.manage(id, "close")` → archive (keep the row, drop the live webview to save
+  resources — which also serves the eviction item). A "closed / archived ports" view lists them;
+  reopen = `port.create` from the latest `port_versions` HTML (or a true un-archive that restores the
+  same id).
+- **This is the fifth face of the session's theme:** the system remembers every port; nothing exposes
+  the reopen. Recovering them by hand tonight was a 2-second read-and-recreate each time.
+- Pairs with the eviction item (archived = evicted-but-recoverable) and "ports scoped to space".
+
+---
+
+## TODO: AI-edit a port from its chrome — through the port42 API (2026-07-17)
+
+*Extends into element-targeting: the reference implementation already exists. See "workspace [1B]"
+(`1B97BD69`, restored 2026-07-17) — its `✎ shape` button toggles shape-mode: a capture-phase click
+SELECTS an element and a "change this →" popover scopes the prompt to that node
+(`engine.say(text, target)` where target carries id/type/label). It persists learned utterance→
+transform mappings to `port42.storage` ('gi-anneal') so repeated edits get instant + free. GM wants
+this promoted from one port into native chrome: an edit icon → a prompt bar drops from the header;
+type to change the whole port, OR toggle shape, click an element, and scope the prompt to it. The
+element picker is the port-to-port highlighter prototyped in PORT WORKBENCH; the storage-backed
+learning cache is the thing worth stealing wholesale. Whole-port edit = full regen; a shaped element =
+targeted `port.patch` (which also solves the big-port output-token limit below).*
+
+**Ask (GM):** a button in a web port's chrome opens a small prompt box — pick a companion
+(pre-selected default) and type a change; the companion rewrites the port. Sits beside the
+refresh/versions icons added the same day.
+
+**The load-bearing constraint (GM): it must go THROUGH the port42 API, not around it.** The tempting
+shortcut is `LLMEngine.oneShot` (a native collected-text call), but that bypasses companion identity,
+model resolution, context, and permissions — i.e. it mints a parallel calling path, the exact
+fragmentation the API-unification item exists to kill. So this feature *forces* a first real slice of
+that unification, which is why it earns its own entry rather than being a quick chrome add.
+
+**Why there's no clean native path today:** the bridge's `companions.invoke`
+(`handleCompanionInvoke`, PortBridge.swift:1406) resolves the companion, builds an identity +
+space-context system prompt, then **streams** via `PortAIHandler` and returns `__deferred__`. Built
+for the port-JS path; not reusable as "invoke → get text" from native chrome. `oneShot` is the only
+collected path and it skips all the context. Neither is right.
+
+**Plan:**
+1. **Extract the shared base (the unification slice).** `AppState.invokeCompanion(id:, prompt:,
+   system:?) async -> String?` owns companion + model resolution and runs `LLMEngine.send` (the REAL
+   path, not `oneShot`) with a small collecting delegate that accumulates tokens → full text. The
+   bridge's `companions.invoke` becomes a thin caller (keeps its own streaming for ports; shares the
+   resolution + prompt-building). One base, two callers — the thesis, demonstrated.
+2. **Chrome button** (`wand.and.stars`) on web ports → popover: companion picker (LLM companions,
+   default = last-used in UserDefaults), prompt field, Update, progress/error state.
+3. **Compose the edit from API verbs:** read current HTML → `invokeCompanion(picked, editPrompt)`
+   (prompt carries the HTML + the change + "return ONLY the full HTML") → strip code fences → apply
+   via `port.update`.
+4. **The safety net is already shipped:** a bad AI edit is one more save; the version-history chrome
+   restores it in a click. This is what makes destructive AI regeneration safe to offer at all.
+
+**Honest limit:** full-regen needs the model to re-emit the whole document, so it works on small/
+medium ports but NOT a 630KB three.js port (exceeds output tokens → truncated, broken HTML). v1 tries
+and leans on restore; **targeted-patch mode** (ask the companion for a `search`/`replace` and apply
+via `port.patch`) is the follow-up that makes it work on large ports — and it's the honest use of
+`patch` as the surgical delta verb (`membrane/bus-architecture.md`).
+
+**Sequence:** it's a natural first slice of the API/tool-use unification — do it as part of that, not
+before. Relates to: the never-rejecting-bridge bug (the collecting delegate must surface errors, not
+swallow them) and the principal item (the edit's save should be attributed to the picked companion,
+which needs the principal work to not flatten to `remote-http-cal`).
+
+---
+
+## TODO: port_versions stamps every update — auto-saves, not checkpoints (2026-07-17)
+
+**Surfaced by the new version-history chrome.** Every `port.update` and `port.patch` calls
+`savePortVersion`, so a port driven hard over the gateway accrues hundreds of rows: measured in the
+dev DB — SHADER **331**, THE BUS 274, OPEN WATER 264, the cats port 249, one chat port **371**. The
+numeric `version` is really an auto-save counter (`v329`), not a version a human chose.
+
+**Two consequences:**
+- **The number is meaningless to a person.** The DB already groups by `<meta name="version">`
+  (`fetchPortVersionSummaries`), collapsing many saves into one logical version with a `saveCount`.
+  The chrome now shows "N versions · M saves" and the `<meta>` label instead of the raw counter — but
+  that's a display patch over a data question.
+- **It never evicts.** Same bill as the webview registry: prod carries 184 orphaned histories, and a
+  busy port keeps every keystroke of its history forever. A chat port at 371 saves is the tell that
+  *something re-saves on activity*, not just on human edits — worth finding what.
+
+**Fix direction:** (1) coalesce — don't stamp a new row when the previous save was seconds ago from
+the same caller (debounce), or only snapshot on a `<meta>` version bump; (2) a retention policy
+(keep every meta-version boundary + the last N saves, evict the middle); (3) investigate the chat
+port's 371 — a version per message/render is a leak, not history. Relates to "the webview registry
+never evicts" (same never-evicts theme) and the principal item (every gateway save is attributed to
+the single label `remote-http-cal`, so history can't tell two agents apart).
 
 ---
 

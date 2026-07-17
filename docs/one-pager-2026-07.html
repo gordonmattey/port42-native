@@ -1,0 +1,255 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Port42: The Harness</title>
+<style>
+  /* PORT42 SCHEMATIC: mono, sharp corners, hairline rules, teal only on the load-bearing path.
+     Print target: A4, one page. */
+  @page { size: A4; margin: 0; }
+  *{ margin:0; padding:0; box-sizing:border-box }
+  :root{
+    --bg:#06080a; --panel:#0a0c0e; --fg:#cdd4dd; --bright:#eef2f6;
+    --dim:#69727f; --rule:#1a1f26; --acc:#00d4aa;
+  }
+  html,body{ background:var(--bg) }
+  body{
+    font:8.5px/1.46 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    color:var(--fg);
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .page{
+    width:210mm; height:297mm; margin:0 auto; padding:10mm 11mm 8mm;
+    background:var(--bg); display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  /* ---- masthead ---- */
+  .top{ border-bottom:1px solid var(--acc); padding-bottom:5px; margin-bottom:7px }
+  .rule-top{ display:flex; align-items:baseline; gap:10px }
+  h1{ font-size:17px; font-weight:700; letter-spacing:.055em; color:var(--bright) }
+  h1 .slash{ color:var(--acc) }
+  .meta{ margin-left:auto; font-size:8px; color:var(--dim); letter-spacing:.12em }
+  .thesis{ margin-top:5px; font-size:10.4px; color:var(--acc); letter-spacing:.01em; font-weight:600 }
+
+  /* ---- columns ---- */
+  .cols{ display:grid; grid-template-columns:1fr 1fr; gap:0 11mm; flex:1 }
+  .col{ display:flex; flex-direction:column; gap:7px }
+  section{ break-inside:avoid }
+  h2{
+    font-size:7.8px; font-weight:700; letter-spacing:.16em; color:var(--acc);
+    text-transform:uppercase; padding-bottom:3px; margin-bottom:5px;
+    border-bottom:1px solid var(--rule);
+  }
+  p{ margin-bottom:5px }
+  p:last-child{ margin-bottom:0 }
+  em{ color:var(--bright); font-style:italic }
+  strong{ color:var(--bright); font-weight:700 }
+  .kicker{ color:var(--acc); font-weight:700 }
+
+  /* ---- the schematic: a literal line, nodes tapping it ---- */
+  .schem{
+    border:1px solid var(--rule); padding:6px 8px; margin:1px 0 4px;
+    font-size:7.4px; line-height:1.58; color:var(--dim); white-space:pre;
+  }
+  .schem b{ color:var(--acc); font-weight:400 }
+  .schem i{ color:var(--fg); font-style:normal }
+
+  /* ---- definition rows ---- */
+  .defs{ display:grid; grid-template-columns:auto 1fr; gap:0 8px }
+  .defs dt{
+    color:var(--acc); font-weight:700; white-space:nowrap;
+    border-right:1px solid var(--rule); padding:3px 8px 3px 0; margin-bottom:0;
+  }
+  .defs dd{ padding:3px 0; border-bottom:1px solid var(--rule) }
+  .defs dt{ border-bottom:1px solid var(--rule) }
+  .defs dt:last-of-type, .defs dd:last-of-type{ border-bottom:0 }
+
+  /* ---- bottom band ---- */
+  .band{ margin-top:8px; border-top:1px solid var(--acc); padding-top:8px }
+  .band-grid{ display:grid; grid-template-columns:1.35fr 1fr; gap:0 11mm }
+  .motion{ display:grid; grid-template-columns:auto 1fr; gap:0 8px; margin-top:4px }
+  .motion dt{ color:var(--acc); font-weight:700; padding:2px 0 }
+  .motion dd{ padding:2px 0 }
+  .foot{
+    margin-top:8px; padding-top:5px; border-top:1px solid var(--rule);
+    display:flex; gap:14px; font-size:7.8px; color:var(--dim); letter-spacing:.06em;
+  }
+  .foot .who{ color:var(--fg); white-space:nowrap; font-weight:700; letter-spacing:.1em }
+  .foot .right{ margin-left:auto; color:var(--acc); white-space:nowrap }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="top">
+    <div class="rule-top">
+      <h1>PORT42<span class="slash">://</span>THE HARNESS</h1>
+      <span class="meta">ONE PAGE &nbsp;·&nbsp; JUL 2026</span>
+    </div>
+    <div class="thesis">Every company is going to want its own harness for AI. Port42 is that harness.</div>
+  </div>
+
+  <div class="cols">
+    <!-- ================= LEFT ================= -->
+    <div class="col">
+
+      <section data-sec="s1">
+        <h2>Everyone bought the horse. Nobody has the collar.</h2>
+        <p>For most of recorded history people had horses and couldn't use them for work. The old
+        throat-and-girth harness ran across the animal's windpipe: the harder it pulled, the more it
+        choked itself. So horses carried messages and nobles, while oxen (slower, dumber, strong in
+        the wrong ways) pulled the ploughs. Then the horse collar arrived in Europe around the 10th
+        century. It moved the load onto the shoulders. The same animal, unchanged, could suddenly
+        pull a plough through heavy soil all day. Within a few generations European agriculture had
+        reorganized around it.</p>
+        <p><strong>The horse was never the bottleneck. The harness was.</strong></p>
+        <p>Every company now has the horse. Frontier models are extraordinary, they get better every
+        quarter, and they are available to your competitors at the same price on the same afternoon.
+        <strong>The model is not where the advantage is, and everyone has quietly worked this
+        out.</strong> What no company has is the harness: the thing that connects that power to the
+        actual work, in their actual context, under their actual control.</p>
+        <p>You can see the gap from your desk. It's the copy and paste. Out of the agent, into the
+        work, back out again, a hundred times a day. Every one of those is a place the agent should
+        have had hands and didn't. <strong>The human is the integration layer.</strong> That isn't a
+        workflow. It's a missing harness with a person standing in for it.</p>
+      </section>
+
+      <section data-sec="s2">
+        <h2>Everyone is building a harness. Theirs.</h2>
+        <p>The vendors know the harness is the prize. Claude Desktop, Codex, Cursor: they have
+        surfaces, they keep context, they are racing to be the place your work happens. Nobody needs
+        persuading that the harness matters. That argument is over, and it's the strongest
+        confirmation this thesis has.</p>
+        <p>It's also the problem. Their harness is built to hold their model, and to hold you. Your
+        work lives inside their experience, on their terms, moving at their roadmap. You are a
+        tenant.</p>
+        <p>And it only works if everyone brings the same horse. A vendor's harness assumes your whole
+        team standardized on one model, permanently, while the frontier moves every quarter and your
+        best engineer wants a different tool by Thursday. <strong>A harness that only fits one horse
+        isn't a harness. It's a saddle for one animal.</strong></p>
+      </section>
+
+      <section data-sec="s3">
+        <h2>So every company builds its own</h2>
+        <p>The harness is not a feature of the model. It's the shape of <em>your</em> work: your
+        surfaces, your rules, your people, your data, the memory of what happened here last week.
+        That is exactly the part a model vendor cannot ship you, because it isn't theirs to know. And
+        it's exactly the part you cannot afford to rent.</p>
+        <p>A hospital's harness is not a law firm's harness is not a trading desk's. The horizontal
+        case, developers, is the same shape with different surfaces.</p>
+        <p>Today they build it from scratch, badly, out of glue: a chat wrapper, a pile of API keys,
+        a permissions story invented in a meeting, and no shared surface anywhere. Port42 is that
+        harness, as a platform, so the company builds <em>their</em> harness instead of the plumbing
+        under it. Your keys. Anthropic, Gemini, any OpenAI-compatible endpoint, a local model. CLI
+        agents like Claude Code sit in the room as first-class members. <strong>The harness is yours;
+        the horse stays a choice you keep making.</strong></p>
+      </section>
+
+    </div>
+
+    <!-- ================= RIGHT ================= -->
+    <div class="col">
+
+      <section data-sec="s4">
+        <h2>What the harness actually is</h2>
+<div class="schem">   human  <b>──UI────┐</b>
+                   <b>│</b>                      <i>a port: live surface,</i>
+                   <b>├──▶ ONE BRIDGE ──▶</b>    <i>addressable, both of</i>
+                   <b>│</b>     <i>same methods</i>        <i>you drive it at once</i>
+   agent  <b>──tools─┘</b>     <i>same permissions</i>
+</div>
+        <dl class="defs">
+          <dt>A SPACE</dt>
+          <dd>is a room. People and AI companions are both <em>in</em> it. It persists: memory, a
+              history, a working directory on real disk. The AI has a place, and the place
+              remembers.</dd>
+          <dt>A PORT</dt>
+          <dd>is a live surface both of you drive. Not the agent sending a report about the chart, or
+              opening it in a browser. You and the agent <em>in</em> the chart, same surface, same
+              moment. Web or terminal.</dd>
+          <dt>ONE BRIDGE</dt>
+          <dd>two callers. A human reaches the clipboard, screen, files, terminal through the UI. An
+              agent reaches the same methods as tools. One implementation. That symmetry is the whole
+              design, and it's already how the product works.</dd>
+          <dt>PERMISSION</dt>
+          <dd>is the leash. Every capability gated per category, per asker, revocable. The harness
+              transmits power <em>and</em> makes it safe to apply. The part the glue-code version
+              never has, and the reason those pilots quietly never ship.</dd>
+        </dl>
+      </section>
+
+      <section data-sec="s5">
+        <h2>Chat already proves it. You just haven't noticed.</h2>
+        <p>Nobody screen-shares a chat window. You sync the messages, and each end renders its own
+        chat, natively. It would be absurd to stream pixels of a conversation across the
+        internet.</p>
+        <p>That's the model for <em>every</em> surface. Chat just got there first, because messages
+        were always data. Port42's bet is that a port is the same kind of object: you send it queries
+        and it emits a stream, so it can be driven by a human, or an agent, or a peer on another
+        machine, through one contract. Streaming pixels is what you do to surfaces you don't own.
+        It's the fax machine of collaboration: it works, and it throws away everything that made the
+        thing a thing.</p>
+        <p>A port describes itself completely, so it moves. Send one to another instance (different
+        machine, different database) and it arrives running. There is nothing to export. What doesn't
+        travel yet are the <em>addresses</em> it refers to: <strong>the copy is free; the addressing
+        is the remaining work.</strong></p>
+      </section>
+
+      <section data-sec="s6">
+        <h2>What's real today</h2>
+        <p>Port42 ships as a Mac app. The desktop <em>is</em> live ports: the conventional
+        windowed mode was deleted in July, not deprecated. Spaces, companions (both API models and
+        CLI agents like Claude Code), the unified bridge across ~40 capability methods, local-first
+        storage, end-to-end encrypted sync between instances, and full version history for every
+        port. <strong>It is used daily to build itself.</strong></p>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ================= BAND ================= -->
+  <div class="band">
+    <div class="band-grid">
+      <section data-sec="gtm">
+        <h2>Go to market: engineering teams first</h2>
+        <p><span class="kicker">Your agent already lives in a terminal. Give it a room.</span></p>
+        <p>Engineering teams are the only market that has already crossed the gap. They don't need
+        convincing that an agent can do the work; they watched it happen this morning. They feel the
+        harness problem daily without a word for it: the agent runs in a pane, alone, reporting text
+        about work nobody else can see. And they buy bottom-up. One person installs a DMG, with no
+        procurement between them and the first run.</p>
+        <p>They are also how every other vertical gets reached. The hospital's harness will be built
+        by the hospital's engineers. The horizontal isn't a detour from the verticals; it's the
+        channel into them.</p>
+      </section>
+
+      <section data-sec="motion">
+        <h2>The motion</h2>
+        <dl class="motion">
+          <dt>LAND</dt>
+          <dd>One developer, one machine, no account. Local-first, offline, your keys. First run
+              reaches <em>"my agent is in a room and it just made me something I can touch."</em>
+              That ships today.</dd>
+          <dt>EXPAND</dt>
+          <dd>A team space: two humans and their agents, encrypted, synced.</dd>
+          <dt>PROVE</dt>
+          <dd>The first company building its harness inside Port42 is Port42. Every surface exists
+              because the work demanded it, and every failure lands on me first. Doing that in public
+              is how the proof travels: engineering teams don't believe demos, they believe a bug
+              hunt.</dd>
+        </dl>
+      </section>
+    </div>
+
+    <div class="foot">
+      <span class="who">GORDON J. MATTEY</span>
+      <span>I started at the terminal when I was eight. It was <em>immediate</em>: thought went in,
+      reality came out. Then twenty-five years building platforms at 500M-user scale, watching that
+      immediacy get renovated away one window at a time.</span>
+      <span class="right">gordon@port42.ai &nbsp;·&nbsp; port42.ai</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
