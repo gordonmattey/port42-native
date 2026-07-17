@@ -95,6 +95,46 @@ storage keys. Names should be display labels, but several paths treat them as to
 
 ---
 
+## TODO: launch claude in ANY terminal → auto-create a CLI companion (2026-07-17)
+
+**GM: "when i create a terminal and i launch claude in it, we should create a cli companion — we're
+in the injection path."** Correct, and the asset is already there.
+
+**Today:** a CLI companion exists only when you *explicitly spawn a command companion* — the startup
+command is `claude`/`gemini`, and `GhosttyTerminalController.isHooksCapable(startupCommand)` detects
+it at spawn (`AppState.swift:2495`). If you instead open a plain `bash` terminal port and *type*
+`claude`, nothing registers it: it's just a shell running claude, not a member of the space's crew —
+no name, no @mention, no turn signals, invisible to routing.
+
+**The asset:** Port42 injects the shim (`ZDOTDIR`) + hooks into **every** terminal, not just
+companion ones (`TerminalHooksService`). So claude launched interactively inside a plain terminal
+STILL inherits Port42's env, and its Stop hook (`port42-claude-shim notify turnComplete`) can fire.
+**We're already in the path — we just don't act on it.**
+
+**The feature:** detect a hooks-capable CLI (`claude`/`gemini`/`codex`) starting in any terminal port
+and **auto-register a CLI companion bound to that terminal** — it joins the space crew, gets a name,
+becomes @mentionable, and its turns surface (`turnComplete` → member-strip status). This is the GTM
+wedge automated: "your agent already lives in a terminal; give it a room" becomes automatic — launch
+claude, it's a room member.
+
+**Design questions:**
+- **Detection signal:** the shim emits a "claude started" event (cleanest — the shim already runs at
+  launch), OR the first `turnComplete` from an unregistered terminal registers it, OR sniff the PTY /
+  process. Prefer the shim emitting an explicit launch event: we own the shim.
+- **Naming:** auto-name (`claude`, or `claude-2` on collision) vs prompt. Lean auto with a rename
+  affordance. Whitespace-in-names rule applies (slugify).
+- **Dedup + lifecycle:** don't double-register; and the companion should **end when claude exits or
+  the terminal closes** — ties to exhaustive teardown (close() releases everything the port acquired)
+  and per-(companion, space) session ids below.
+- **Provenance:** a companion born this way is bound to a specific terminal port; killing the port
+  ends the companion, and vice versa.
+
+**Relationship:** directly serves the GTM beachhead (`gtm-engineering-teams.md`); pairs with the
+per-(companion,space) session-id item below (an auto-registered companion needs a stable session id
+too) and the teardown class.
+
+---
+
 ## TODO: per-(companion, space) terminal session ids
 
 **Problem:** a terminal companion spawns `claude` and resumes with `--continue`, which grabs the
@@ -589,6 +629,29 @@ becomes a thing you author, in the same grammar as everything inside it.
 Purely visual, least-privileged (no bridge powers needed), and it's the "set your port as your
 background" GM named. `ShellBackground` already exists as a layer; swap it for a rendered port
 surface. This is the thin end and it de-risks everything above it.
+
+**v1 SHIPPED 2026-07-17** (`ShellBackgroundPort`, `setBackgroundPort`, `port.manage(id,
+"background"/"unbackground")`, a "…" overflow menu in the port chrome). Works via curl; the chrome
+menu didn't take (likely the header drag gesture eats the Menu interaction — fixable). But live use
+surfaced a **v2 redesign that removes the special-casing (GM):**
+- **The background is ALWAYS a port — there is no native "regular background".** Today Layer 0 is a
+  native Canvas dreamscape OR a port; that split is the problem. Instead: the dreamscape becomes a
+  stock "ambient" **port** (the default), and "set as background" just swaps which port occupies the
+  Layer-0 slot. "Go back to a regular background" = re-select the default ambient port. One code path,
+  no native/port fork.
+- **The background port appears in your space as a port** — focus it, edit it, swap it, pull it up.
+  It's not hidden chrome; it's a normal port assigned the background slot. This is chrome-is-ports made
+  literal for the background.
+- **Interactive/AI is a CHOICE, not forced off.** GM: "if i choose an ai-enabled port to be the
+  background then fuck yeah i might want it to be AI." Drop the hard `allowsHitTesting(false)`; make
+  it a per-background mode (ambient/non-interactive vs live/interactive). An interactive Layer-0 port
+  only receives clicks where nothing on the desktop covers it — so it composes, but needs care with
+  the desktop's own click-to-deselect. The token/idle work already done is what lets an AI background
+  be affordable.
+- **v1 makes a fresh instance from HTML** (a webview lives in one place). v2 with background-always-a-
+  port dissolves this: the background slot hosts a real port, so "move the live port down" is natural.
+- **Fix the chrome menu** (drag-gesture conflict) as part of v2, since the menu is where set/swap/
+  clear lives.
 
 **Then, in order of privilege (which is the hard part):**
 - **Background** (no powers) → **dock** (needs space-switch + port-launch) → **space rail** (needs the
