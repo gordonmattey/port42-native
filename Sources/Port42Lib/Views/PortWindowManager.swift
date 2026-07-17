@@ -564,6 +564,7 @@ public final class PortWindowManager: ObservableObject {
     public func park(id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].presentation = "parked"
+        panels[idx].bridge.suspendAI()      // stop any in-flight generation the moment it's parked
         persistPanel(id)
     }
 
@@ -666,6 +667,7 @@ public final class PortWindowManager: ObservableObject {
     public func minimize(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].isBackground = true
+        panels[idx].bridge.suspendAI()      // backgrounded = off-screen: stop billing the model
         persistPanel(id)
         NSLog("[Port42] Port minimized to background: %@", panels[idx].title)
     }

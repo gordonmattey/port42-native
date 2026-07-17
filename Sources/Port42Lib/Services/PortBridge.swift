@@ -237,6 +237,28 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         activeStreams.removeValue(forKey: callId)
     }
 
+    /// True when this port is parked or backgrounded — off the visible desktop. Model calls are
+    /// refused while suspended so a self-generating port (a shader/generative loop) can't burn the
+    /// subscription while nobody is looking at it. (GM hit the token limit two days running from
+    /// exactly this: a parked SHADER port still writing a burst of generations from its loop.)
+    @MainActor
+    private var isSuspended: Bool {
+        guard let state = self.state,
+              let panel = state.portWindows.panels.first(where: { $0.bridge === self }) else { return false }
+        return panel.isBackground || panel.presentation == "parked"
+    }
+
+    /// Cancel every in-flight AI stream — called when the port is parked/backgrounded so a running
+    /// generation stops immediately, not just the next one. Gating new calls (see handleAIComplete)
+    /// stops the loop; this stops the current spend.
+    @MainActor
+    public func suspendAI() {
+        for (callId, handler) in activeStreams {
+            handler.engine.cancel()
+            removeStream(callId)
+        }
+    }
+
     /// Escape a string for safe embedding in JS string literals.
     private func escapeJSString(_ str: String) -> String {
         str.replacingOccurrences(of: "\\", with: "\\\\")
@@ -1346,6 +1368,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let prompt = args.first as? String, !prompt.isEmpty else {
             return ["error": "ai.complete requires a prompt"]
         }
+        // A parked/backgrounded port must not reach the model — this is the token-burn guard.
+        if isSuspended {
+            return ["error": "port is paused (parked or backgrounded). Bring it to the desktop to use AI."]
+        }
 
         let opts = args.count > 1 ? args[1] as? [String: Any] : nil
         let model = opts?["model"] as? String ?? resolveDefaultModel(state: state)
@@ -1419,6 +1445,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         guard companion.mode == .llm else {
             return ["error": "companion '\(companion.displayName)' is not an LLM companion"]
+        }
+
+        // Same token-burn guard as ai.complete: a paused port can't invoke a companion either.
+        if isSuspended {
+            return ["error": "port is paused (parked or backgrounded). Bring it to the desktop to use AI."]
         }
 
         // Model resolution: explicit option (not used for invoke) -> companion config -> creating companion -> system default
