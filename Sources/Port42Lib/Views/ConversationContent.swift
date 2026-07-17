@@ -1019,13 +1019,8 @@ struct InlinePortView: View {
         .onAppear {
             appState.registerPortBridge(bridge)
         }
-        .onReceive(bridge.$pendingPermission) { perm in
-            // Only route to ChatView dialog if this port isn't in a floating/docked panel
-            // (panels handle their own permission dialog)
-            if perm != nil && !appState.portWindows.panels.contains(where: { $0.bridge === bridge }) {
-                appState.activePermissionBridge = bridge
-            }
-        }
+        // (No permission routing here: the bridge asks AppState.permissions directly and the shell
+        // renders the one card. A view is no longer load-bearing for a prompt to appear.)
         // Step 5c: drops onto the inline port's webview are handled by FileDropWebView
         // (PortView.swift) → bridge.handleFileDrop. No SwiftUI .onDrop needed here.
     }

@@ -68,26 +68,11 @@ public struct ChatView: View {
                 .padding(.bottom, 52)
             }
 
-            // Inline permission overlay for inline ports
-            if let perm = activePerm {
-                PortPermissionOverlay(
-                    permission: perm,
-                    createdBy: appState.activePermissionBridge?.createdBy,
-                    onAllow: {
-                        appState.activePermissionBridge?.grantPermission()
-                        appState.activePermissionBridge = nil
-                    },
-                    onDeny: {
-                        appState.activePermissionBridge?.denyPermission()
-                        appState.activePermissionBridge = nil
-                    }
-                )
-            }
+            // (The permission card used to render HERE — inside a chat tile, so it was invisible
+            // whenever you were focused on a port and the gated call hung forever. It's a shell
+            // overlay now: ShellView → ShellPermissionOverlay.)
         }
         .background(Port42Theme.bgPrimary)
-        .onReceive(appState.$activePermissionBridge) { bridge in
-            activePerm = bridge?.pendingPermission
-        }
     }
 
     private func copyConversation() {

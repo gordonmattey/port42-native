@@ -797,12 +797,12 @@ public final class AppState: ObservableObject {
         return history
     }
 
-    /// The port bridge currently requesting a permission. Used to lift the
-    /// permission dialog out of the LazyVStack to prevent SwiftUI re-presentation bugs.
-    @Published public var activePermissionBridge: PortBridge?
-
-    /// The tool executor currently requesting a permission (for tool use in chat/swim).
-    @Published public var activeToolExecutor: ToolExecutor?
+    /// Every permission ask, from every caller (a port's JS, a companion's tool use, the gateway),
+    /// queued in one place and rendered once by `ShellView`. Replaces the old
+    /// `activePermissionBridge` / `activeToolExecutor` pair — two properties, two render sites, one
+    /// of which had been deleted with ContentView (60fc1d7), which is why gated gateway calls hung
+    /// forever with no prompt.
+    public let permissions = PermissionCoordinator()
 
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
@@ -916,19 +916,23 @@ public final class AppState: ObservableObject {
 
     // MARK: - Companion-Level Permission Persistence (P-260)
 
-    private func companionPermKey(createdBy: String, spaceId: String) -> String {
-        "portPerms.\(createdBy).\(spaceId)"
+    /// `spaceId: nil` = a caller with no space (the gateway: Claude Code, curl). It keys under
+    /// "global" rather than being unpersistable — the old signature required a space, so
+    /// `RemoteToolExecutor` (which passes nil) never restored OR saved a grant: every gateway call
+    /// re-asked, forever.
+    private func companionPermKey(createdBy: String, spaceId: String?) -> String {
+        "portPerms.\(createdBy).\(spaceId ?? "global")"
     }
 
     /// Load permissions previously granted to a companion in a space (auto-restore on new ports).
-    public func companionPermissions(createdBy: String, spaceId: String) -> Set<PortPermission> {
+    public func companionPermissions(createdBy: String, spaceId: String?) -> Set<PortPermission> {
         let key = companionPermKey(createdBy: createdBy, spaceId: spaceId)
         guard let raw = UserDefaults.standard.string(forKey: key), !raw.isEmpty else { return [] }
         return Set(raw.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
     }
 
     /// Persist a companion's granted permissions so future ports by the same companion auto-grant.
-    public func saveCompanionPermissions(_ permissions: Set<PortPermission>, createdBy: String, spaceId: String) {
+    public func saveCompanionPermissions(_ permissions: Set<PortPermission>, createdBy: String, spaceId: String?) {
         let key = companionPermKey(createdBy: createdBy, spaceId: spaceId)
         if permissions.isEmpty {
             UserDefaults.standard.removeObject(forKey: key)

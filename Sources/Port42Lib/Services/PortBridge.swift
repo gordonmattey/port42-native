@@ -53,11 +53,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Active AI streams keyed by callId.
     public var activeStreams: [Int: PortAIHandler] = [:]
 
-    /// The permission currently awaiting user approval, if any.
-    @Published public var pendingPermission: PortPermission?
-
-    /// Continuation for the pending permission prompt.
-    private var permissionContinuation: CheckedContinuation<Bool, Never>?
 
     /// Clipboard bridge. Created lazily on first clipboard call.
     private var clipboardBridge: ClipboardBridge?
@@ -100,8 +95,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 grantedPermissions = cached
             }
             // 2. Companion-level persistence (P-260): auto-restore permissions for same companion+space
-            if let by = createdBy, let cid = spaceId {
-                let companionPerms = state.companionPermissions(createdBy: by, spaceId: cid)
+            //    (spaceId nil = a spaceless caller's global grant — see AppState.companionPermKey)
+            if let by = createdBy {
+                let companionPerms = state.companionPermissions(createdBy: by, spaceId: spaceId)
                 if !companionPerms.isEmpty {
                     grantedPermissions.formUnion(companionPerms)
                 }
@@ -110,6 +106,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     }
 
     deinit {
+        // A port can die with a card still queued (closed while waiting). Deny it rather than leak
+        // the awaiter — the caller's `await` must always return.
+        if let mid = messageId, let state = appState as? AppState {
+            Task { @MainActor in state.permissions.cancelRequests(from: mid) }
+        }
         let ab = audioBridge
         if let ab {
             Task { @MainActor in ab.cleanup() }
@@ -147,15 +148,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - Permission Management
 
-    /// Grant the pending permission and resume the waiting method.
+    /// Record a granted permission: in-memory, view-recycling cache, DB, and the companion-level
+    /// grant. Called by the coordinator's answer path, never by a view.
     @MainActor
-    public func grantPermission() {
-        guard let perm = pendingPermission else { return }
+    private func recordGrant(_ perm: PortPermission) {
         grantedPermissions.insert(perm)
-        pendingPermission = nil
-        permissionContinuation?.resume(returning: true)
-        permissionContinuation = nil
-
         // Cache on AppState so permission survives LazyVStack view recycling
         if let mid = messageId {
             state?.cachePortPermissions(messageId: mid, permissions: grantedPermissions)
@@ -163,44 +160,34 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Persist to DB so permissions survive app restart
         state?.portWindows.persistPermissions(for: self)
         // Companion-level persistence (P-260): save so future ports by same companion auto-grant
-        if let by = createdBy, let cid = spaceId {
-            state?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: cid)
+        if let by = createdBy {
+            state?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: spaceId)
         }
     }
 
-    /// Deny the pending permission and resume the waiting method with false.
-    @MainActor
-    public func denyPermission() {
-        pendingPermission = nil
-        permissionContinuation?.resume(returning: false)
-        permissionContinuation = nil
+    /// How this port identifies itself on the permission card.
+    private var requester: PermissionRequester {
+        PermissionRequester(
+            id: messageId ?? ObjectIdentifier(self).debugDescription,
+            displayName: createdBy ?? title ?? "a port",
+            spaceId: spaceId,
+            createdBy: createdBy
+        )
     }
 
     /// Check and request permission for a method. Returns true if allowed.
+    ///
+    /// The ask now goes to `AppState.permissions` — one queue, rendered once by the shell. This
+    /// bridge owns no continuation, so a second concurrent ask can't clobber the first (it
+    /// coalesces), and there is no render site here to go missing.
     @MainActor
     private func checkPermission(for method: String) async -> Bool {
         guard let perm = PortPermission.permissionForMethod(method) else { return true }
-        if grantedPermissions.contains(perm) {
-            return true
-        }
-        // Deny any previous pending permission to avoid leaking its continuation
-        if let prev = permissionContinuation {
-            prev.resume(returning: false)
-            permissionContinuation = nil
-        }
-        // Ask the user.
-        // Also directly notify AppState for inline ports — InlinePortView's .onReceive
-        // may not be subscribed yet if the LazyVStack row hasn't been rendered.
-        // Panels handle their own permission prompt and don't need this.
-        return await withCheckedContinuation { continuation in
-            permissionContinuation = continuation
-            pendingPermission = perm
-            // Every permission prompt routes to the ChatView dialog via activePermissionBridge
-            // (floating windows — which rendered their own overlay — are retired).
-            if let state = self.state {
-                state.activePermissionBridge = self
-            }
-        }
+        if grantedPermissions.contains(perm) { return true }
+        guard let state = self.state else { return false }
+        let granted = await state.permissions.request(perm, from: requester)
+        if granted { recordGrant(perm) }
+        return granted
     }
 
     // MARK: - File Drop

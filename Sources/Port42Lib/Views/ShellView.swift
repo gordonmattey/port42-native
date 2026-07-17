@@ -13,9 +13,13 @@ import WebKit
 public struct ShellView: View {
     @ObservedObject private var appState: AppState
     @StateObject private var shell: ShellState
+    /// Observed directly: it's a plain `let` on AppState, so its changes don't come through
+    /// AppState's own objectWillChange.
+    @ObservedObject private var permissions: PermissionCoordinator
 
     public init(appState: AppState) {
         self.appState = appState
+        self.permissions = appState.permissions
         _shell = StateObject(wrappedValue: ShellState(appState: appState))
     }
 
@@ -172,6 +176,16 @@ public struct ShellView: View {
                         .shadow(color: .black.opacity(0.6), radius: 40)
                 }.zIndex(220)
             }
+
+            // Permission — the top layer, above every other overlay, because it BLOCKS: a caller
+            // is suspended on the answer. One site for every asker (port JS / companion tool use /
+            // gateway); see PermissionCoordinator for why this isn't rendered inside a tile.
+            if let request = permissions.current {
+                ShellPermissionOverlay(coordinator: permissions,
+                                       accent: shell.accent,
+                                       request: request)
+                    .zIndex(230)
+            }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
@@ -218,6 +232,9 @@ public struct ShellView: View {
     /// exposé/ladder handling. (A focused text field never reaches here — the yield check
     /// hands Esc to the field, whose own onExitCommand closes its card.)
     private func closeTopmostModal() -> Bool {
+        // Permission is topmost and BLOCKING — Esc is an explicit deny (a caller is suspended on
+        // the answer; there is no "close without answering").
+        if permissions.current != nil { permissions.resolveCurrent(granted: false); return true }
         if shell.inspecting != nil { shell.inspecting = nil; return true }
         if shell.showUsage { shell.showUsage = false; return true }
         if shell.showSettings { shell.showSettings = false; return true }

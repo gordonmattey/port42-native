@@ -192,11 +192,8 @@ struct PortPermissionTests {
         #expect(bridge.activeStreams.isEmpty)
     }
 
-    @Test("pending permission starts nil")
-    func pendingPermissionNil() {
-        let bridge = PortBridge(appState: NSObject(), spaceId: nil)
-        #expect(bridge.pendingPermission == nil)
-    }
+    // ("pending permission starts nil" retired: a bridge no longer owns pending-permission state.
+    //  Asks live on the one PermissionCoordinator — see PermissionCoordinatorTests.)
 
     // MARK: - Companion-Level Persistence (P-260)
 

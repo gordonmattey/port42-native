@@ -24,9 +24,6 @@ public final class ToolExecutor {
         grantedPermissions.insert(perm)
     }
 
-    /// Pending permission continuation for async approval flow.
-    private var permissionContinuation: CheckedContinuation<Bool, Never>?
-    @Published var pendingPermission: PortPermission?
 
     // Lazy bridge instances
     private lazy var clipboardBridge = ClipboardBridge()
@@ -45,9 +42,10 @@ public final class ToolExecutor {
         self.createdBy = createdBy
         self.createdByName = createdByName
         self.inChat = inChat
-        // Restore previously granted permissions so the user isn't re-prompted
-        if let by = createdBy, let cid = spaceId {
-            self.grantedPermissions = appState.companionPermissions(createdBy: by, spaceId: cid)
+        // Restore previously granted permissions so the user isn't re-prompted. spaceId nil = a
+        // spaceless caller (the gateway) → its global grant, which never restored before.
+        if let by = createdBy {
+            self.grantedPermissions = appState.companionPermissions(createdBy: by, spaceId: spaceId)
         }
     }
 
@@ -87,9 +85,11 @@ public final class ToolExecutor {
                     return [["type": "text", "text": "Permission denied: \(perm.rawValue)"]]
                 }
                 grantedPermissions.insert(perm)
-                // Persist now that the set includes the newly granted permission
-                if let by = createdBy, let cid = spaceId {
-                    appState?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: cid)
+                // Persist now that the set includes the newly granted permission. spaceId may be
+                // nil (the gateway) — that persists globally for the caller now, instead of not at
+                // all.
+                if let by = createdBy {
+                    appState?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: spaceId)
                 }
                 NSLog("[Port42] ToolExecutor: %@ permission granted for %@", perm.rawValue, name)
             }
@@ -103,32 +103,26 @@ public final class ToolExecutor {
         }
     }
 
-    /// Grant the pending permission (called from UI).
-    func grantPermission() {
-        pendingPermission = nil
-        appState?.activeToolExecutor = nil
-        permissionContinuation?.resume(returning: true)
-        permissionContinuation = nil
-        // Persistence happens in execute() after grantedPermissions.insert(perm)
-    }
-
-    /// Deny the pending permission (called from UI).
-    func denyPermission() {
-        pendingPermission = nil
-        appState?.activeToolExecutor = nil
-        permissionContinuation?.resume(returning: false)
-        permissionContinuation = nil
-    }
-
     // MARK: - Permission
 
+    /// How this caller identifies itself on the permission card. For the gateway
+    /// (`RemoteToolExecutor`) `spaceId` is nil — it isn't in a space — so its grant is global to
+    /// that caller rather than unpersistable, which is what nil used to mean.
+    private var requester: PermissionRequester {
+        PermissionRequester(
+            id: createdBy ?? "anonymous-tool-caller",
+            displayName: createdByName ?? createdBy ?? "a companion",
+            spaceId: spaceId,
+            createdBy: createdBy
+        )
+    }
+
+    /// Ask via the one coordinator. This executor holds no continuation, so concurrent asks
+    /// coalesce instead of clobbering each other — three gateway calls in ten seconds used to leak
+    /// all three waiters (verified 2026-07-16).
     private func requestPermission(_ perm: PortPermission) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            self.permissionContinuation = continuation
-            self.pendingPermission = perm
-            // Surface to AppState so the UI can show the prompt
-            self.appState?.activeToolExecutor = self
-        }
+        guard let appState else { return false }
+        return await appState.permissions.request(perm, from: requester)
     }
 
     // MARK: - Relationship-memory space resolution (D4: memory is space-scoped)
