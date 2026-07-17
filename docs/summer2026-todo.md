@@ -563,6 +563,57 @@ lazy skills vs stay resident (safety-critical prompt bits stay; reference materi
 Connects to the loop/generative-interface work — the port design system carries the loop-affordance
 vocabulary.
 
+## NORTH STAR: the chrome is ports too — the whole shell is made of what you make (2026-07-17)
+
+**GM: "set your port as your background… that is the ultimate goal. that the sidebar, the app bar,
+the entire space is just ports you created/customized."**
+
+The desktop is already live ports. This extends the thesis to its endpoint: **the shell's own chrome —
+the background, the top app bar, the dock, the space rail/sidebar — is ports too.** Not native
+SwiftUI that hosts ports, but ports all the way down. Your environment stops being an app you use and
+becomes a thing you author, in the same grammar as everything inside it.
+
+**Why it's the real endpoint, not a gimmick:**
+- **It completes the primitive.** If the chrome itself can be a port, the port is proven universal —
+  there is no privileged "app UI" category left. Anything a native panel does, a port can do. That is
+  the strongest possible statement of the bus thesis (`membrane/bus-architecture.md`): everything is
+  an addressable actor, including the shell's own faculties.
+- **It's the ultimate dogfood + the ultimate customization in one.** The app is built from its own
+  primitive, AND the user reshapes their whole environment with the same tools they build ports with.
+  Your dock is a port you wrote. Your background is a port you set. Your sidebar is yours.
+- **It subsumes half the backlog.** "Richer space rows", "a different dock view", ambient activity —
+  all become *a port you customize* rather than native features to spec. Pluggable-primitives
+  (user-facing primitives are Port42-owned) lands here: the grammar IS the chrome.
+
+**The wedge (shippable, safe): background-as-port first.** Let a port be set as the space background.
+Purely visual, least-privileged (no bridge powers needed), and it's the "set your port as your
+background" GM named. `ShellBackground` already exists as a layer; swap it for a rendered port
+surface. This is the thin end and it de-risks everything above it.
+
+**Then, in order of privilege (which is the hard part):**
+- **Background** (no powers) → **dock** (needs space-switch + port-launch) → **space rail** (needs the
+  space list + selection) → **top app bar** (needs gateway/tunnel/settings state).
+- Each step up needs MORE bridge authority, which is exactly the **principal/permission** work: a
+  background port must never have the dock's powers. Chrome ports are the case that forces
+  capability-scoped ports (a port granted "may switch spaces" is a different principal from a shader).
+  So this north star and the API-unification/principal work are the same spine.
+
+**The irreducible kernel (the honest limit):** something native must host the first port and run the
+bus — you can't render a port without a port host. So there's a **thin native kernel** (port host +
+bus + the bridge), and *everything above it* is ports. The goal isn't "no native code"; it's "no
+native *chrome*". Define that line deliberately.
+
+**Load-bearing prerequisite — the work just done matters here.** A chrome port is *always visible and
+never closed*, so it must never burn CPU or tokens: the presentation-state, eviction, and the
+parked/AI-pause fixes (2026-07-17) are what make an always-on port affordable. A dock that burns a
+core is not a dock. Idle-when-static is non-negotiable for chrome ports.
+
+**Relationship:** the natural top of `plan-port42-shell.md` (modes, space rail, dock) — that plan
+builds the chrome; this says the chrome should eventually BE ports. Sequence background-as-port as a
+near-term proof; the rest rides the principal work.
+
+---
+
 ## TODO: GUI shell — replace the desktop, not the OS (→ `docs/plan-port42-shell.md`)
 
 Port42 boots into a **fullscreen surface with no macOS Dock and no menu bar**, and the desktop is
