@@ -45,6 +45,12 @@ struct ShellChrome: View {
             // (Power/sign-out/reset moved to the PORT42 mark menu on the left.)
             chromeRow { statusCluster }                      // gateway · tunnel · auth-key
             stopAllButton                                    // kill switch for every companion call
+            // Reset background — a SHELL-level control, not a per-port one. Appears only when a port
+            // is set as the background; clears it back to the ambient dreamscape and pops the port
+            // back onto the desktop.
+            if shell.backgroundPortHtml != nil {
+                chromeButton("moon.stars", "Reset background") { shell.clearBackgroundToTile() }
+            }
             chromeButton("chart.bar", "Token usage") { shell.showUsage = true }
             chromeButton("gearshape", "Settings") { shell.showSettings = true }
 
@@ -329,6 +335,7 @@ struct ShellTile: View {
     @State private var resizeDelta: CGSize = .zero
     @State private var peekHovered = false
     @State private var showVersions = false
+    @State private var showMore = false
 
     /// Refresh + versions apply to authored HTML ports only: a terminal has no HTML to reload,
     /// and chat is native, not authored.
@@ -561,45 +568,53 @@ struct ShellTile: View {
                 }
             }
             .gesture(moveGesture)
-            if isFocused {
-                // Focus chrome: the exit affordance (Esc works too); no close, no re-focus.
-                Text("· focus").font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-                Button { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Exit focus (Esc)")
-            } else {
-                // Refresh + version history: a web port's own chrome. Both are pure wiring —
-                // `reloadPort` and `restoreVersion`/`fetchVersionSummaries` already existed in
-                // PortWindowManager with nothing exposing them. Web ports only: a terminal has no
-                // HTML to reload and chat isn't authored.
-                if isEditablePort {
-                    // Per-port AI pause: same pause.circle glyph as the global AI-pause in the top
-                    // chrome. Blocks this port's model calls while it stays visible + animating —
-                    // "pause the AI but keep the shader going". Bound to the port's bridge.
-                    if let bridge = tile.panel?.bridge {
-                        PortAIPauseButton(bridge: bridge)
-                    }
-                    Button { appState.portWindows.reloadPort(tile.id) } label: {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-                    }.buttonStyle(.plain).help("Refresh — restart this port in place")
-
-                    Button { showVersions = true } label: {
-                        Image(systemName: "clock.arrow.circlepath").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Versions — the port's saved history")
-                    .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
+            // Trailing chrome — the SAME controls whether tiled or focused (GM: "literally the same
+            // code"). Secondary actions live under "…"; only focus-toggle and close stay visible.
+            if isEditablePort, let bridge = tile.panel?.bridge {
+                // Overflow popover (NOT a SwiftUI Menu — Menu won't open reliably inside this
+                // scaled/positioned/animated tile). Holds pause, refresh, history, background.
+                Button { showMore = true } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 10)).foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 22, height: 22).contentShape(Rectangle())   // generous hit target
                 }
-                Button { shell.bringToFront(tile.id); withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
-                    Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-                }.buttonStyle(.plain).help("Focus (⌘↓)")
-                if let panel = tile.panel {
-                    // No "pop out to floating window": a tile IS the floating window. States are tile ⇄
-                    // parked (rail) ⇄ focus — one frame, not two.
-                    Button { shell.dismissTile(panel) } label: {
-                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
-                    }.buttonStyle(.plain)
+                .buttonStyle(.plain)
+                .help("More…")
+                .popover(isPresented: $showMore, arrowEdge: .bottom) {
+                    PortMorePopover(
+                        bridge: bridge,
+                        accent: shell.accent,
+                        onRefresh: { appState.portWindows.reloadPort(tile.id); showMore = false },
+                        onHistory: { showMore = false; showVersions = true },
+                        onSetBackground: {
+                            // Move the port to the background rather than clone it: set (captures the
+                            // HTML) then close the tile, so you don't see it twice. "port still stays
+                            // open" → gone; it lives as the background now (recoverable from history).
+                            appState.shell?.setBackgroundPort(id: tile.panel?.udid ?? tile.id)
+                            if let panel = tile.panel { shell.dismissTile(panel) }
+                            showMore = false
+                        })
                 }
+                .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
+            }
+            // Focus toggle: enter focus, or shrink back out if already focused.
+            Button {
+                if isFocused {
+                    withAnimation(.spring(response: 0.4)) { shell.zoom = .space }
+                } else {
+                    shell.bringToFront(tile.id)
+                    withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) }
+                }
+            } label: {
+                Image(systemName: isFocused ? "arrow.down.right.and.arrow.up.left" : "viewfinder")
+                    .font(.system(size: isFocused ? 11 : 9)).foregroundStyle(Port42Theme.textSecondary)
+                    .frame(width: 22, height: 22).contentShape(Rectangle())
+            }.buttonStyle(.plain).help(isFocused ? "Exit focus (Esc)" : "Focus (⌘↓)")
+            // Close.
+            if let panel = tile.panel {
+                Button { shell.dismissTile(panel) } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Port42Theme.textSecondary)
+                        .frame(width: 22, height: 22).contentShape(Rectangle())
+                }.buttonStyle(.plain).help("Close")
             }
         }
         .padding(.leading, 10).padding(.trailing, 18)   // trailing inset clears the top-right resize zone
@@ -1312,24 +1327,49 @@ struct PortVersionsPopover: View {
     }
 }
 
-// MARK: - Per-port AI pause (chrome)
 
-/// The pause.circle toggle in a web port's header — the per-port twin of the global AI-pause in the
-/// top chrome, same glyph and red-when-active. Blocks this port's model calls (isSuspended) while it
-/// stays on the desktop and keeps animating. Observes the bridge so the glyph reflects state.
-struct PortAIPauseButton: View {
+// MARK: - Port overflow actions (chrome "…")
+
+/// Secondary port actions behind the "…" in the chrome. A popover, not a Menu — Menu won't open
+/// reliably inside a scaled/positioned tile. Set-as-background is the first tenant; the long tail
+/// (park placement, reopen, edit-with-AI) lands here too.
+struct PortMorePopover: View {
     @ObservedObject var bridge: PortBridge
+    let accent: Color
+    let onRefresh: () -> Void
+    let onHistory: () -> Void
+    let onSetBackground: () -> Void
 
     var body: some View {
-        Button {
-            bridge.aiPaused.toggle()
-            if bridge.aiPaused { bridge.suspendAI() }   // stop any generation already in flight
-        } label: {
-            Image(systemName: bridge.aiPaused ? "pause.circle.fill" : "pause.circle")
-                .font(.system(size: 9))
-                .foregroundStyle(bridge.aiPaused ? .red : Port42Theme.textSecondary)
+        VStack(alignment: .leading, spacing: 0) {
+            // AI pause — stays open so you see it flip to Resume. Same behaviour as the token guard.
+            row(bridge.aiPaused ? "Resume AI" : "Pause AI",
+                icon: bridge.aiPaused ? "play.circle" : "pause.circle") {
+                bridge.aiPaused.toggle()
+                if bridge.aiPaused { bridge.suspendAI() }
+            }
+            row("Refresh", icon: "arrow.clockwise", action: onRefresh)
+            row("History…", icon: "clock.arrow.circlepath", action: onHistory)
+            Divider().opacity(0.4)
+            // Set-only: clearing is a shell-level action (the "reset background" control in the top
+            // chrome), not something that belongs on a random port.
+            row("Set as background", icon: "photo", action: onSetBackground)
+        }
+        .padding(.vertical, 4)
+        .frame(width: 200)
+        .background(Port42Theme.bgPrimary)
+    }
+
+    private func row(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 10)).foregroundStyle(accent).frame(width: 16)
+                Text(title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(bridge.aiPaused ? "AI paused for this port — resume" : "Pause AI for this port (keeps running)")
     }
 }

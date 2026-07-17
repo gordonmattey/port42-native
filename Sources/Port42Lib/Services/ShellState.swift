@@ -57,6 +57,58 @@ public final class ShellState: ObservableObject {
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).
     @Published public var mouse: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
+    // MARK: - Background-as-port (the chrome-is-ports wedge)
+
+    /// A port set as the space background — rendered full-bleed as Layer 0 instead of the ambient
+    /// Canvas dreamscape, non-interactive. The first step of "the chrome is ports too": your
+    /// background is a port you made. Persisted by id; HTML resolved on set/launch.
+    @Published public var backgroundPortHtml: String?
+    private static let bgKey = "shell.backgroundPortId"
+
+    /// Set (or clear, with nil) the background port. Resolves the port's latest HTML now and
+    /// remembers the id so it restores next launch.
+    @MainActor
+    public func setBackgroundPort(id: String?) {
+        guard let id else {
+            backgroundPortHtml = nil
+            UserDefaults.standard.removeObject(forKey: Self.bgKey)
+            return
+        }
+        if let html = resolveBackgroundHtml(id: id) {
+            backgroundPortHtml = html
+            UserDefaults.standard.set(id, forKey: Self.bgKey)
+        }
+    }
+
+    /// Resolve a port's current HTML: live panel first, then the version store (so a closed port can
+    /// still be a background).
+    @MainActor
+    private func resolveBackgroundHtml(id: String) -> String? {
+        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
+            return panel.html
+        }
+        return (try? appState.db.fetchPortHtml(udid: id)) ?? nil
+    }
+
+    /// Restore a background port set in a previous session.
+    @MainActor
+    public func restoreBackgroundPort() {
+        guard let id = UserDefaults.standard.string(forKey: Self.bgKey), !id.isEmpty else { return }
+        backgroundPortHtml = resolveBackgroundHtml(id: id)
+    }
+
+    /// Clear the background AND pop the port back onto the desktop as a tile — the reverse of "set as
+    /// background" (which closes the tile). GM: "when i do regular background, the background should
+    /// pop back in as a port."
+    @MainActor
+    public func clearBackgroundToTile() {
+        let html = backgroundPortHtml
+        setBackgroundPort(id: nil)                               // ambient dreamscape returns
+        guard let html, let sid = appState.currentSpace?.id else { return }
+        _ = appState.createPort(type: "web", title: "port", html: html, command: nil, cwd: nil,
+                                systemPrompt: nil, spaceId: sid, createdBy: nil, createdByName: nil)
+    }
+
     private let appState: AppState
     private var notifSink: AnyCancellable?
     private var portSink: AnyCancellable?
@@ -71,6 +123,7 @@ public final class ShellState: ObservableObject {
 
     public init(appState: AppState) {
         self.appState = appState
+        appState.shell = self          // back-ref so the bridge can reach shell-level state
         #if DEBUG
         Self.debugCurrent = self
         #endif
@@ -477,6 +530,7 @@ public final class ShellState: ObservableObject {
         case cycleBackward      // ⇧⌘` — previous
         case jumpSpace(Int)     // ⌘1…9 — Nth working space (0-based)
         case quickSwitcher      // ⌘K — the switcher must open from anywhere
+        case arrange            // ⌘L — grid the desktop (must fire even with a port focused)
     }
 
     /// Classify a keystroke as a shell-global chord (nil = not one; normal yield applies).
@@ -493,6 +547,7 @@ public final class ShellState: ObservableObject {
         }
         guard !shift else { return nil }
         if ch == "k" { return .quickSwitcher }
+        if ch == "l" { return .arrange }       // ⌘L — arrange the grid, even over a focused port
         if let n = Int(ch), (1...9).contains(n) { return .jumpSpace(n - 1) }
         return nil
     }

@@ -471,6 +471,12 @@ public final class ToolExecutor {
             case "minimize", "dock":
                 appState.portWindows.minimize(panel.id)
                 return [textBlock("Docked '\(panel.title)'")]
+            case "background":
+                appState.shell?.setBackgroundPort(id: panel.udid)
+                return [textBlock("Set '\(panel.title)' as the shell background")]
+            case "unbackground":
+                appState.shell?.setBackgroundPort(id: nil)
+                return [textBlock("Cleared the background — ambient dreamscape returns")]
             case "restore", "undock":
                 // Undock on a registry inline port pops it out — its live webview becomes a
                 // desktop tile (no reload; a tile IS the port's window).
@@ -486,7 +492,7 @@ public final class ToolExecutor {
                     return [textBlock("'\(panel.title)' is not docked — use focus to bring it to front")]
                 }
             default:
-                return [textBlock("Error: unknown action '\(action)'. Use: focus, close, minimize, restore (or undock)")]
+                return [textBlock("Error: unknown action '\(action)'. Use: focus, close, minimize, restore, background, unbackground")]
             }
 
         case "port_update":

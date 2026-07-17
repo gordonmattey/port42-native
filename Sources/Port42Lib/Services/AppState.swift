@@ -723,6 +723,10 @@ public final class AppState: ObservableObject {
     @Published public var authStatus: AuthStatus = .unknown
     /// When true, all LLM API calls are blocked
     @Published public var aiPaused: Bool = false
+
+    /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
+    /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
+    public weak var shell: ShellState?
     /// Output processors for CLI terminal companions: panelId → processor (keeps them alive)
     private var terminalOutputProcessors: [String: TerminalOutputProcessor] = [:]
     /// Native (Ghostty) terminal companion controllers: panelId → controller.

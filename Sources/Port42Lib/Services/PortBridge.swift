@@ -827,6 +827,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             case "focus":
                 state.portWindows.bringToFront(panel.id)
                 return ["ok": true]
+            case "background":
+                // Set this port as the shell background (Layer 0), full-bleed and ambient.
+                await state.shell?.setBackgroundPort(id: panel.udid)
+                return ["ok": true]
+            case "unbackground":
+                await state.shell?.setBackgroundPort(id: nil)     // clear → ambient Canvas returns
+                return ["ok": true]
             case "close":
                 state.portWindows.close(panel.id)
                 return ["ok": true]
@@ -841,7 +848,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 }
                 return ["ok": state.portWindows.restore(panel.id)]
             default:
-                return ["error": "unknown action '\(action)'. Use: focus, close, dock, undock"]
+                return ["error": "unknown action '\(action)'. Use: focus, close, dock, undock, background, unbackground"]
             }
 
         // port42.port.move(id, x, y) — move a floating port to screen coordinates

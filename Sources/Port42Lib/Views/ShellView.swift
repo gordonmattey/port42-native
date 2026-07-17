@@ -39,10 +39,20 @@ public struct ShellView: View {
 
     public var body: some View {
         ZStack {
-            // Layer 0 — the signed-in ambient background (prototype's Canvas dreamscape). The video
-            // dreamscape is the SCREENSAVER, shown only signed-out/locked (TransitionRoot).
-            ShellBackground(shell: shell)
-                .ignoresSafeArea()
+            // Layer 0 — the ambient background. Normally the Canvas dreamscape; but if a port is set
+            // as the background (the chrome-is-ports wedge), that port renders full-bleed here
+            // instead, non-interactive. Your background is a port you made.
+            if let bgHtml = shell.backgroundPortHtml {
+                // Interactive: it's Layer 0 behind the desktop, so ports/chrome on top win their
+                // clicks and only the empty gaps fall through to the background. That means an
+                // AI-enabled background port (a shader you can regenerate, a live surface) actually
+                // works — "if i choose an ai port to be the background, i might want it to be AI."
+                ShellBackgroundPort(html: bgHtml, appState: appState)
+                    .ignoresSafeArea()
+            } else {
+                ShellBackground(shell: shell)
+                    .ignoresSafeArea()
+            }
 
             // Layer 2 — the desktop GROUP (Chrome + tiles + dock). Stays mounted across rungs; it
             // recedes (scale + dim) behind the galaxy rather than being torn down. Structure mirrors
@@ -218,6 +228,7 @@ public struct ShellView: View {
         .onAppear {
             installInputMonitors()
             applyTakeoverToWindow()
+            shell.restoreBackgroundPort()            // a background port set last session
             // On unlock (TransitionRoot swaps LockScreenView → ShellView) land in the LAST space —
             // `AppState.unlock()` has already restored it as currentSpace. Galaxy if there's no
             // space yet (fresh setup) or every space rests (show the shelf, not a rested inside).
@@ -308,6 +319,7 @@ public struct ShellView: View {
                 case .cycleBackward:    shell.cycleStep(forward: false)
                 case .jumpSpace(let i): shell.jumpToSpace(index: i)
                 case .quickSwitcher:    shell.showQuickSwitcher.toggle()
+                case .arrange:          shell.arrangeBump += 1
                 }
                 return nil
             }
@@ -1236,5 +1248,35 @@ struct ShellSecretsField: View {
         SecureField(ph, text: t).textFieldStyle(.plain).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
             .padding(.horizontal, 8).padding(.vertical, 5)
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+// MARK: - Background-as-port (Layer 0)
+
+/// A port rendered full-bleed as the shell background. Its own dedicated webview + bridge (the
+/// live desktop tile, if any, keeps its own — a webview lives in exactly one place). Non-interactive
+/// and ambient: it fills the screen behind everything. The first step of "the chrome is ports too".
+struct ShellBackgroundPort: View {
+    let html: String
+    let appState: AppState
+    @State private var height: CGFloat = 0
+    @State private var bridge: PortBridge
+
+    init(html: String, appState: AppState) {
+        self.html = html
+        self.appState = appState
+        // Its own dedicated bridge (ambient: no messageId/space), backed by the real appState so
+        // port42.storage / ai / etc. resolve. A background port is a real port.
+        _bridge = State(initialValue: PortBridge(appState: appState, spaceId: nil))
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            PortView(html: html, bridge: bridge, height: $height)
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
+        }
+        // Re-mount if the chosen background changes (new HTML → new surface).
+        .id(html.hashValue)
     }
 }
