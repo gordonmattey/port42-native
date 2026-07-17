@@ -328,6 +328,30 @@ struct ShellTile: View {
     @State private var resizeCorner: Corner? = nil
     @State private var resizeDelta: CGSize = .zero
     @State private var peekHovered = false
+    @State private var showVersions = false
+
+    /// Refresh + versions apply to authored HTML ports only: a terminal has no HTML to reload,
+    /// and chat is native, not authored.
+    private var isEditablePort: Bool {
+        guard let p = tile.panel else { return false }
+        return p.portType == "web" && !p.isChatPort
+    }
+
+    /// The version history, as a picker. Every version is already kept forever in `port_versions`;
+    /// this is the first thing that lets a human reach one. Split into its own View: inlined here
+    /// it made SwiftUI's type-checker sit for >7 minutes without finishing. The popover fetches on
+    /// appear (not in the button action) — fetching into @State then flipping the popover in one
+    /// action builds the popover with the OLD empty list, which is why the first open showed nothing.
+    @ViewBuilder
+    private var versionPicker: some View {
+        PortVersionsPopover(accent: shell.accent,
+                            fetchGrouped: { appState.portWindows.fetchVersionSummaries(tile.id) },
+                            fetchAllSaves: { appState.portWindows.fetchSaveList(tile.id) }) { version in
+            appState.portWindows.restoreVersion(tile.id, version: version)
+            showVersions = false
+            appState.toastMessage = "Restored version \(version)"
+        }
+    }
 
     static let titleBarH: CGFloat = 34
     private var titleBarH: CGFloat { Self.titleBarH }
@@ -544,6 +568,22 @@ struct ShellTile: View {
                     Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11)).foregroundStyle(Port42Theme.textSecondary)
                 }.buttonStyle(.plain).help("Exit focus (Esc)")
             } else {
+                // Refresh + version history: a web port's own chrome. Both are pure wiring —
+                // `reloadPort` and `restoreVersion`/`fetchVersionSummaries` already existed in
+                // PortWindowManager with nothing exposing them. Web ports only: a terminal has no
+                // HTML to reload and chat isn't authored.
+                if isEditablePort {
+                    Button { appState.portWindows.reloadPort(tile.id) } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                    }.buttonStyle(.plain).help("Refresh — restart this port in place")
+
+                    Button { showVersions = true } label: {
+                        Image(systemName: "clock.arrow.circlepath").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Versions — the port's saved history")
+                    .popover(isPresented: $showVersions, arrowEdge: .bottom) { versionPicker }
+                }
                 Button { shell.bringToFront(tile.id); withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(tile.id) } } label: {
                     Image(systemName: "viewfinder").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
                 }.buttonStyle(.plain).help("Focus (⌘↓)")
@@ -1130,4 +1170,138 @@ struct ShellMemberRow: View {
     }
 
     private func initials(_ name: String) -> String { name.isEmpty ? "?" : String(name.prefix(2)).uppercased() }
+}
+
+// MARK: - Port version history (chrome)
+
+/// A port's kept versions, with restore. Its own View on purpose: inlined into ShellTileView's
+/// body the type-checker never finished (>7min). Two things are deliberate here —
+/// `Date.formatted(date:time:)` is replaced by a static formatter (it is notoriously slow to
+/// type-check), and the sort is precomputed rather than inlined into the ForEach.
+struct PortVersionsPopover: View {
+    let accent: Color
+    let fetchGrouped: () -> [PortVersionSummary]
+    let fetchAllSaves: () -> [PortVersionSummary]
+    let onRestore: (Int) -> Void
+
+    /// Fetched on appear, NOT passed in — see the note at the call site (first-open-empty bug).
+    @State private var grouped: [PortVersionSummary] = []
+    @State private var allSaves: [PortVersionSummary] = []
+    /// false = grouped by <meta> version; true = every individual save.
+    @State private var expanded = false
+
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d MMM HH:mm"
+        return f
+    }()
+
+    private var rows: [PortVersionSummary] {
+        (expanded ? allSaves : grouped).sorted { $0.version > $1.version }
+    }
+
+    /// Total DB saves: each `port.update`/`patch` stamps one. These are auto-saves, not hand-made
+    /// checkpoints, which is why the raw count runs to the hundreds.
+    private var totalSaves: Int {
+        grouped.reduce(0) { $0 + ($1.saveCount ?? 1) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            if rows.isEmpty {
+                Text("no saved history")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .padding(10)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(rows, id: \.version) { v in
+                            row(v)
+                            Divider().opacity(0.35)
+                        }
+                    }
+                }
+                // FIXED height, not maxHeight: macOS NSPopover sizes to content at present-time and
+                // won't grow afterward, so toggling 1 grouped row → 349 saves left the fanned list
+                // clipped to the popover's original tiny height. A stable frame presents it big
+                // enough for either mode.
+                .frame(height: 300)
+            }
+        }
+        .frame(width: 340)
+        .background(Port42Theme.bgPrimary)
+        .onAppear {
+            grouped = fetchGrouped()
+            allSaves = fetchAllSaves()
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("HISTORY")
+                .font(Port42Theme.monoBold(9))
+                .foregroundStyle(accent)
+            Spacer(minLength: 12)
+            Text("\(grouped.count) version\(grouped.count == 1 ? "" : "s") · \(totalSaves) saves")
+                .font(Port42Theme.mono(9))
+                .foregroundStyle(Port42Theme.textSecondary)
+            // Toggle: collapse to <meta> versions, or every individual save. The count is on the
+            // label on purpose — if it reads "(0)" the fetch is the bug, not the toggle.
+            Button { expanded.toggle() } label: {
+                Text(expanded ? "grouped" : "all saves (\(allSaves.count))")
+                    .font(Port42Theme.mono(8))
+                    .foregroundStyle(accent)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(accent.opacity(0.4), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help(expanded ? "Collapse to versions" : "Show every save")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+    }
+
+    private func row(_ v: PortVersionSummary) -> some View {
+        Button {
+            onRestore(v.version)
+        } label: {
+            HStack(spacing: 8) {
+                // The port's own <meta name="version"> where it set one, not the raw DB counter.
+                Text("v\(v.displayVersion)")
+                    .font(Port42Theme.monoBold(10))
+                    .foregroundStyle(accent)
+                    .frame(width: 40, alignment: .leading)
+                if let n = v.saveCount, n > 1 {
+                    Text("×\(n)")
+                        .font(Port42Theme.mono(8))
+                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                }
+                Text(who(v.createdBy))
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(Self.stamp.string(from: v.createdAt))
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(Port42Theme.textSecondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Restore this version")
+    }
+
+    /// Translate the internal caller label into something a human recognises. Every gateway caller
+    /// currently flattens to "remote-http-cal" (the principal-not-label bug); until that's fixed,
+    /// call it what it is rather than showing the raw token.
+    private func who(_ raw: String?) -> String {
+        guard let raw, !raw.isEmpty else { return "you" }
+        if raw.hasPrefix("remote-http") { return "API / agent" }
+        return raw
+    }
 }

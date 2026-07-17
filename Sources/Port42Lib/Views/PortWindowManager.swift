@@ -710,11 +710,18 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port reloaded in place: %@", panel.title)
     }
 
-    /// Lightweight version history for UI display (no HTML blobs).
+    /// Lightweight version history for UI display (no HTML blobs). Grouped by `<meta>` version.
     public func fetchVersionSummaries(_ id: String) -> [PortVersionSummary] {
         guard let panel = panels.first(where: { $0.id == id }),
               let db = db else { return [] }
         return (try? db.fetchPortVersionSummaries(portUdid: panel.udid)) ?? []
+    }
+
+    /// Every individual save (ungrouped, no HTML blobs) — the drill-down under the grouped view.
+    public func fetchSaveList(_ id: String) -> [PortVersionSummary] {
+        guard let panel = panels.first(where: { $0.id == id }),
+              let db = db else { return [] }
+        return (try? db.fetchPortSaveList(portUdid: panel.udid)) ?? []
     }
 
     /// Restore a port to a specific version from its history (no new version snapshot).

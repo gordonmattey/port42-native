@@ -1620,6 +1620,24 @@ public final class DatabaseService {
         }
     }
 
+    /// Every individual save (ungrouped), newest first, WITHOUT the HTML blob — the drill-down
+    /// under a meta-version group. `saveCount` is 1 per row here; `displayVersion` still resolves
+    /// the meta label. Capped so a 300-save port doesn't flood the popover.
+    public func fetchPortSaveList(portUdid: String, limit: Int = 500) throws -> [PortVersionSummary] {
+        try dbQueue.read { db in
+            try PortVersionSummary.fetchAll(db,
+                sql: """
+                    SELECT id, portUdid, version, createdBy, createdAt,
+                           metaVersion, 1 as saveCount
+                    FROM port_versions
+                    WHERE portUdid = ?
+                    ORDER BY version DESC
+                    LIMIT ?
+                    """,
+                arguments: [portUdid, limit])
+        }
+    }
+
     public func fetchPortHtml(udid: String) throws -> String? {
         try dbQueue.read { db in
             try String.fetchOne(db,
