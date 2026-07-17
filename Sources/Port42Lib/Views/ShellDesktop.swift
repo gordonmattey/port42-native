@@ -573,6 +573,12 @@ struct ShellTile: View {
                 // PortWindowManager with nothing exposing them. Web ports only: a terminal has no
                 // HTML to reload and chat isn't authored.
                 if isEditablePort {
+                    // Per-port AI pause: same pause.circle glyph as the global AI-pause in the top
+                    // chrome. Blocks this port's model calls while it stays visible + animating —
+                    // "pause the AI but keep the shader going". Bound to the port's bridge.
+                    if let bridge = tile.panel?.bridge {
+                        PortAIPauseButton(bridge: bridge)
+                    }
                     Button { appState.portWindows.reloadPort(tile.id) } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
                     }.buttonStyle(.plain).help("Refresh — restart this port in place")
@@ -1303,5 +1309,27 @@ struct PortVersionsPopover: View {
         guard let raw, !raw.isEmpty else { return "you" }
         if raw.hasPrefix("remote-http") { return "API / agent" }
         return raw
+    }
+}
+
+// MARK: - Per-port AI pause (chrome)
+
+/// The pause.circle toggle in a web port's header — the per-port twin of the global AI-pause in the
+/// top chrome, same glyph and red-when-active. Blocks this port's model calls (isSuspended) while it
+/// stays on the desktop and keeps animating. Observes the bridge so the glyph reflects state.
+struct PortAIPauseButton: View {
+    @ObservedObject var bridge: PortBridge
+
+    var body: some View {
+        Button {
+            bridge.aiPaused.toggle()
+            if bridge.aiPaused { bridge.suspendAI() }   // stop any generation already in flight
+        } label: {
+            Image(systemName: bridge.aiPaused ? "pause.circle.fill" : "pause.circle")
+                .font(.system(size: 9))
+                .foregroundStyle(bridge.aiPaused ? .red : Port42Theme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .help(bridge.aiPaused ? "AI paused for this port — resume" : "Pause AI for this port (keeps running)")
     }
 }

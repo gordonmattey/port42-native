@@ -237,12 +237,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         activeStreams.removeValue(forKey: callId)
     }
 
-    /// True when this port is parked or backgrounded — off the visible desktop. Model calls are
-    /// refused while suspended so a self-generating port (a shader/generative loop) can't burn the
-    /// subscription while nobody is looking at it. (GM hit the token limit two days running from
-    /// exactly this: a parked SHADER port still writing a burst of generations from its loop.)
+    /// Manual per-port AI pause (the pause.circle button in the port's chrome). Distinct from
+    /// park/background: the port stays on the desktop and keeps animating (a shader's rAF loop is
+    /// GPU, not AI) — only its model calls are blocked. GM: "pause the ai but keep the shader going."
+    @Published public var aiPaused: Bool = false
+
+    /// True when model calls must be refused: parked, backgrounded, or manually AI-paused. Off-screen
+    /// ports can't burn the subscription while nobody's looking; the manual pause lets a visible port
+    /// keep running without reaching the model.
     @MainActor
-    private var isSuspended: Bool {
+    var isSuspended: Bool {
+        if aiPaused { return true }
         guard let state = self.state,
               let panel = state.portWindows.panels.first(where: { $0.bridge === self }) else { return false }
         return panel.isBackground || panel.presentation == "parked"
