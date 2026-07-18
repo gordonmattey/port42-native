@@ -15,7 +15,114 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerMemoryMethods(into: &r, appState: appState)
     registerStorageMethods(into: &r, appState: appState)
     registerPortMethods(into: &r, appState: appState)
+    registerCommsMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Identity / spaces / companions / messages / bus
+//
+// Read-mostly, DB-backed, headless-testable. Reads that were hand-serialized JSON become structured
+// `BridgeValue` (array/object on every surface); the two send verbs return `{ok}` and are checked by
+// side effect. Space + sender resolution now derive from the PRINCIPAL (its space, its display name)
+// with an explicit `space_id` arg still able to target another space.
+
+@MainActor
+private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppState) {
+
+    func targetSpace(_ p: Principal, _ args: BridgeArgs) -> String {
+        args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
+    }
+    func senderName(_ p: Principal, _ args: BridgeArgs) -> String {
+        if let override = args.string("senderName") ?? args.string("sender_name"), !override.isEmpty { return override }
+        if p.kind == .companion, let c = appState.companions.first(where: { $0.id == p.id }) { return c.displayName }
+        return appState.currentUser?.displayName ?? "agent"
+    }
+
+    r["user.get"] = BridgeMethod(permission: nil) { _, _ in
+        guard let user = appState.currentUser else { throw BridgeError(code: "no_user", message: "no user signed in") }
+        return .object(["id": .string(user.id), "displayName": .string(user.displayName)])
+    }
+
+    r["space.current"] = BridgeMethod(permission: nil, paramNames: ["space_id"]) { _, args in
+        let sid = args.string("space_id")
+        guard let ch = (sid.flatMap { id in appState.spaces.first(where: { $0.id == id }) } ?? appState.currentSpace) else {
+            throw BridgeError.notFound("space")
+        }
+        let list = (try? appState.db.getSpaceMembers(spaceId: ch.id)) ?? []
+        return .object([
+            "id": .string(ch.id), "name": .string(ch.name), "type": .string(ch.type),
+            "memberCount": .int(list.count),
+            "members": .array(list.map { .fromJSONObject(Port42Members.dict($0)) }),
+        ])
+    }
+
+    r["space.list"] = BridgeMethod(permission: nil) { _, _ in
+        .array(appState.spaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) })
+    }
+
+    r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id"]) { _, args in
+        let companions = Port42Members.companions(appState: appState, spaceId: args.string("space_id"))
+        return .array(companions.map { c in
+            .object([
+                "id": .string(c.id), "name": .string(c.displayName),
+                "model": .string(c.model ?? "unknown"), "trigger": .string(c.trigger.rawValue),
+            ])
+        })
+    }
+
+    r["companions.get"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+        let id = try args.requireString("id")
+        guard let c = appState.companions.first(where: { $0.id == id }) else {
+            throw BridgeError.notFound("companion '\(id)'")
+        }
+        return .object([
+            "id": .string(c.id), "name": .string(c.displayName),
+            "model": .string(c.model ?? "unknown"), "systemPrompt": .string(c.systemPrompt ?? ""),
+        ])
+    }
+
+    r["messages.recent"] = BridgeMethod(permission: nil, paramNames: ["count", "space_id", "topic"]) { p, args in
+        let count = min(args.int("count") ?? 20, 100)
+        let topic = args.string("topic") ?? "chat"
+        let msgs = (try? appState.db.getMessages(spaceId: targetSpace(p, args), topic: topic)) ?? []
+        return .array(msgs.suffix(count).map { m in
+            .object([
+                "sender": .string(m.senderName), "content": .string(m.content),
+                "timestamp": .double(m.timestamp.timeIntervalSince1970),
+            ])
+        })
+    }
+
+    r["bus.read"] = BridgeMethod(permission: nil, paramNames: ["topic", "limit", "space_id"]) { p, args in
+        let topic = try args.requireString("topic")
+        let limit = min(args.int("limit") ?? 20, 100)
+        let msgs = (try? appState.db.getMessages(spaceId: targetSpace(p, args), topic: topic)) ?? []
+        return .array(msgs.suffix(limit).map { m in
+            .object([
+                "sender": .string(m.senderName), "content": .string(m.content),
+                "timestamp": .double(m.timestamp.timeIntervalSince1970), "topic": .string(m.topic),
+            ])
+        })
+    }
+
+    r["bus.publish"] = BridgeMethod(permission: nil, paramNames: ["topic", "payload", "space_id"]) { p, args in
+        let topic = try args.requireString("topic")
+        let payload = try args.requireString("payload")
+        appState.publishToBus(spaceId: targetSpace(p, args), topic: topic, payload: payload, senderName: senderName(p, args))
+        return .object(["ok": .bool(true), "topic": .string(topic)])
+    }
+
+    r["messages.send"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"]) { p, args in
+        let text = try args.requireString("text")
+        let target = args.string("space_id") ?? p.spaceId
+        let override = args.string("senderName") ?? args.string("sender_name")
+        if let name = override, !name.isEmpty {
+            appState.sendMessageAsNamedAgent(content: text, senderName: name, toSpaceId: target)
+        } else {
+            appState.sendMessage(content: text, toSpaceId: target)
+        }
+        return .object(["ok": .bool(true)])
+    }
 }
 
 // MARK: Ports (read/write core)

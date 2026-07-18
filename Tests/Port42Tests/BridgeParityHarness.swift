@@ -49,6 +49,10 @@ func makeParityWorld(companionName: String = "Echo", spaceName: String = "projec
     try db.saveAgent(companion)
     let space = Space.create(name: spaceName)
     try db.saveSpace(space)
+    // The real app populates these @Published arrays from the DB via restoreFromDB / observations;
+    // in a headless world we mirror that so state-backed reads (space.list, companions.*) see them.
+    state.spaces = [space]
+    state.companions = [companion]
     return ParityWorld(state: state, companion: companion, space: space)
 }
 

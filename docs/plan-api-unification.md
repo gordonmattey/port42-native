@@ -193,9 +193,17 @@ target to move bodies into.
   port method). **Deferred to a follow-up sub-batch (webview/terminal-touching, so Phase-2 live-only):**
   `port.create`, `port.push`, `port.exec`, `port.manage`, `port.info/resize/setTitle/setCapabilities`.
 
-**Batches remaining:** ports part 2 (the live-only ones above); messages/space/companions/bus; files;
-then the device families (screen/camera/clipboard/audio/notify/browser/automation) via stubbed bridges.
-Running total: 50 bridge tests green across 8 suites.
+- **Identity / spaces / companions / messages / bus** (user.get, space.current, space.list,
+  companions.list, companions.get, messages.recent, bus.read, bus.publish, messages.send — 9 methods),
+  2026-07-17. Read-mostly, DB-backed. Reads are structured arrays/objects; the two sends return `{ok}`
+  and are checked by side effect. Space + sender resolution derive from the principal (explicit
+  `space_id` still targets another space). `BridgeCommsTests`, 9 green. (The world builder now mirrors
+  the DB into `state.spaces`/`state.companions`, as the real app does via observations.) Deferred:
+  `messages.sendAsCreator` and `space.switchTo` (JS-only / UI action) → Phase-2 live-only.
+
+**Batches remaining:** ports part 2 + the JS-only sends above (live-only); files (fs.read/write/pick/
+list/mkdir); then the device families (screen/camera/clipboard/audio/notify/browser/automation) via
+stubbed bridges. Running total: 58 bridge tests green across 9 suites.
 
 **Work.**
 - Move the body of each `case` from the two switches into a registry entry. Most already delegate to
