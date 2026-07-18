@@ -43,6 +43,22 @@ public indirect enum BridgeValue: Equatable {
         }
     }
 
+    /// Build a BridgeValue from a Foundation JSON value (e.g. the output of `JSONSerialization`).
+    /// Handles the NSNumber bool-vs-number trap so `true` does not come back as `1`.
+    public static func fromJSONObject(_ obj: Any) -> BridgeValue {
+        if obj is NSNull { return .null }
+        if let n = obj as? NSNumber {
+            if CFGetTypeID(n) == CFBooleanGetTypeID() { return .bool(n.boolValue) }
+            let d = n.doubleValue
+            if d == d.rounded() && abs(d) < 9e15 { return .int(n.intValue) }
+            return .double(d)
+        }
+        if let s = obj as? String { return .string(s) }
+        if let a = obj as? [Any] { return .array(a.map { fromJSONObject($0) }) }
+        if let o = obj as? [String: Any] { return .object(o.mapValues { fromJSONObject($0) }) }
+        return .null
+    }
+
     /// Anthropic tool-result content blocks. A bare string is prose the model reads directly; a
     /// top-level image is an image block so the model can see it; anything structured is compact
     /// JSON in a text block so the model can parse it.

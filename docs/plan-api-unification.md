@@ -173,9 +173,20 @@ target to move bodies into.
   `position.read`) moved to structured `BridgeValue` and compare equal via the harness's semantic
   (sorted-keys) canonicalization.
 
-**Batches remaining:** storage; ports (`port.*` + `ports.list`); messages/space/companions/bus; files;
-then the live-only device families (screen/camera/clipboard/audio/notify/browser/automation) via
-stubbed bridges.
+- **Storage** (get / set / delete / list — 4 methods), 2026-07-17. The two old paths disagreed on
+  scope, return shape, and value handling. **GM: no backward compatibility needed**, so this is the one
+  clean contract, not a merge: scope derives from the **principal** (space or `__global__`, creator =
+  principal id or `__shared__`), `get → {value}` (JSON round-tripped), `set/delete → {ok}`, `list →
+  {keys}`. Because the shape is deliberately new, it is tested **directly** (`BridgeStorageTests`, 9
+  green) rather than by parity: round-trip, scope isolation by principal, global-vs-space, no-space
+  error, and the positional (JS) arg mapping. Added `BridgeValue.fromJSONObject` (handles the NSNumber
+  bool/int trap) for reads.
+
+  Note on method: where the old paths **agree**, parity (old == new) is the gate; where GM has chosen a
+  new shape, a **direct behavioral test** of the intended contract is the gate instead.
+
+**Batches remaining:** ports (`port.*` + `ports.list`); messages/space/companions/bus; files; then the
+live-only device families (screen/camera/clipboard/audio/notify/browser/automation) via stubbed bridges.
 
 **Work.**
 - Move the body of each `case` from the two switches into a registry entry. Most already delegate to

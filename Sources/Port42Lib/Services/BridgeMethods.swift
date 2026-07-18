@@ -13,7 +13,87 @@ import Foundation
 public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     var r: BridgeRegistry = [:]
     registerMemoryMethods(into: &r, appState: appState)
+    registerStorageMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Storage
+//
+// The two old paths disagreed (tool: fixed "tool" scope, {key,value} get, bare-array list, string-only
+// values; JS: opts-driven space/global scope, {value} get, {keys} list, any JSON value). GM: no
+// backward compatibility needed, so this is the one clean contract, not a merge of quirks:
+//
+//   scope   = opts.scope=="global" ? "__global__" : the caller's space   (space-scoped needs a space)
+//   creator = opts.shared ? "__shared__" : the caller's principal id
+//   get   → { value: <JSON-parsed, or null> }
+//   set   → { ok: true }   (value may be any JSON; non-strings are serialized)
+//   delete→ { ok: true }
+//   list  → { keys: [...] }
+//
+// Scope now derives from the PRINCIPAL, so a port and a companion each land in the scope that matches
+// who they are, without a per-surface branch.
+
+@MainActor
+private func registerStorageMethods(into r: inout BridgeRegistry, appState: AppState) {
+
+    // opts arrive nested (JS positional: (key, value, {scope,shared})) or flat (tool/gateway named
+    // dict). Read from "options" if present, else the args themselves.
+    func scope(_ p: Principal, _ args: BridgeArgs) throws -> (scope: String, creator: String) {
+        let opts = args.object("options") ?? args.dictionary
+        let scope: String
+        if (opts["scope"] as? String) == "global" {
+            scope = "__global__"
+        } else if let sid = p.spaceId {
+            scope = sid
+        } else {
+            throw BridgeError.badArg("storage requires space context for space-scoped storage")
+        }
+        let shared = (opts["shared"] as? Bool) ?? false
+        return (scope, shared ? "__shared__" : p.id)
+    }
+
+    r["storage.get"] = BridgeMethod(permission: nil, paramNames: ["key", "options"]) { p, args in
+        let key = try args.requireString("key")
+        let s = try scope(p, args)
+        guard let value = try appState.db.getPortStorage(key: key, scope: s.scope, creatorId: s.creator) else {
+            return .object(["value": .null])
+        }
+        if let data = value.data(using: .utf8),
+           let parsed = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            return .object(["value": .fromJSONObject(parsed)])
+        }
+        return .object(["value": .string(value)])
+    }
+
+    r["storage.set"] = BridgeMethod(permission: nil, paramNames: ["key", "value", "options"]) { p, args in
+        let key = try args.requireString("key")
+        guard let rawValue = args.any("value") else { throw BridgeError.badArg("storage.set requires a value") }
+        let s = try scope(p, args)
+        let stored: String
+        if let str = rawValue as? String {
+            stored = str
+        } else if let data = try? JSONSerialization.data(withJSONObject: rawValue, options: [.fragmentsAllowed]),
+                  let json = String(data: data, encoding: .utf8) {
+            stored = json
+        } else {
+            throw BridgeError.badArg("storage.set value must be serializable")
+        }
+        try appState.db.setPortStorage(key: key, value: stored, scope: s.scope, creatorId: s.creator)
+        return .object(["ok": .bool(true)])
+    }
+
+    r["storage.delete"] = BridgeMethod(permission: nil, paramNames: ["key", "options"]) { p, args in
+        let key = try args.requireString("key")
+        let s = try scope(p, args)
+        try appState.db.deletePortStorage(key: key, scope: s.scope, creatorId: s.creator)
+        return .object(["ok": .bool(true)])
+    }
+
+    r["storage.list"] = BridgeMethod(permission: nil, paramNames: ["options"]) { p, args in
+        let s = try scope(p, args)
+        let keys = try appState.db.listPortStorageKeys(scope: s.scope, creatorId: s.creator)
+        return .object(["keys": .array(keys.map { .string($0) })])
+    }
 }
 
 // MARK: Relationship memory
