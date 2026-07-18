@@ -15,7 +15,7 @@ extension AppState {
     /// uses this to decide whether to take the new path or fall back to its old switch (which still
     /// serves the live-only families not yet extracted).
     public func bridgeHandles(_ canonicalOrAlias: String) -> Bool {
-        bridgeRegistry[ToolNaming.resolveAlias(canonicalOrAlias)] != nil
+        bridgeRegistry[ToolNaming.resolveAlias(canonicalOrAlias)]?.wired == true
     }
 
     /// Run a bridge method by canonical name. Permission is checked against the principal's grants

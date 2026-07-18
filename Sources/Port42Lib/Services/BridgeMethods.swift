@@ -97,7 +97,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         return standardized
     }
 
-    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"]) { _, args in
+    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"], wired: false) { _, args in
         let path = try resolve(try args.requireString("path"))
         let encoding = args.string("encoding") ?? "utf8"
         do {
@@ -112,7 +112,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"]) { _, args in
+    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"], wired: false) { _, args in
         let path = try resolve(try args.requireString("path"))
         let data = try args.requireString("data")
         let encoding = args.string("encoding") ?? "utf8"
@@ -130,7 +130,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"]) { _, args in
+    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false) { _, args in
         let path = try resolve(try args.requireString("path"))
         do {
             let items = try FileManager.default.contentsOfDirectory(atPath: path)
@@ -140,7 +140,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"]) { _, args in
+    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false) { _, args in
         let path = try resolve(try args.requireString("path"))
         do {
             try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)

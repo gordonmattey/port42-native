@@ -18,6 +18,12 @@ public struct BridgeMethod {
     /// Positional parameter names, in call order, for the port-JS surface (which calls positionally).
     /// Empty for methods only ever called with named args.
     public let paramNames: [String]
+    /// Whether the calling-path adapters route to this method yet. Default true. Set false for a method
+    /// that is extracted + unit-tested but whose live adapter switch waits on other work — e.g. `fs.*`,
+    /// whose registry impl is a data-dir sandbox while port JS still relies on the picked-path model,
+    /// reconciled in Phase 3 (picked-path grant on the principal). `bridgeHandles` excludes unwired
+    /// methods, so they keep running on the old path until then.
+    public let wired: Bool
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
     /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
     /// two executors do today.
@@ -25,9 +31,11 @@ public struct BridgeMethod {
 
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
+                wired: Bool = true,
                 run: @escaping @MainActor (Principal, BridgeArgs) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
+        self.wired = wired
         self.run = run
     }
 }

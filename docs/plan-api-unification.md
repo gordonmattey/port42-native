@@ -287,8 +287,23 @@ is extracted and verified, not up front.
   `port.getHtml` over the gateway returns HTML instead of Unknown tool. "Always Allow" settings become
   pregrants. `BridgeDispatchTests`, 6 green (incl. the getHtml-no-longer-404 case).
 
-**Next:** wire `ToolExecutor.execute` (in-app companion) and `PortBridge.handleMethod` (port JS) the
-same way, then extract the live-only families, then delete the switches.
+- **In-app companion wired** (`ToolExecutor.execute`): registry-first, renders `BridgeValue` as
+  tool-use blocks. A companion's `ports_list` now returns a JSON array; `crease_read` keeps its prose.
+- **Port JS wired** (`PortBridge.handleMethod`): registry-first, positional args mapped to named via
+  `paramNames`, native JSON returned. `fs.*` is held back (see below).
+- **The `wired` flag** (`BridgeMethod.wired`, default true): a method extracted + unit-tested but not
+  yet adapter-routed. `fs.*` is `wired:false` — its registry impl is a data-dir sandbox, but port JS
+  still relies on the picked-path model (`fs.pick` → `fs.read` an absolute path), so routing it now
+  would break that flow. `bridgeHandles` excludes unwired methods, so `fs.*` keeps running on the old
+  path until Phase 3 gives the picked-path grant a home on the principal. The registry `fs.*` bodies
+  and their tests stay green via direct dispatch.
+
+**All three adapters now route registry-first with old-path fallback** (77 bridge tests green). The old
+switches still serve the live-only + unwired families and are deleted last.
+
+**Next:** extract the live-only families (verified live), reconcile `fs.*` (Phase 3), then delete the
+switches. **This is the point to start live-testing in Port42Dev** — `ports.list` consistent across JS
+/ companion / gateway, `port.getHtml` reachable over the gateway, both name spellings working.
 
 **Original goal.** Delete the two big switches; the three paths become adapters.
 

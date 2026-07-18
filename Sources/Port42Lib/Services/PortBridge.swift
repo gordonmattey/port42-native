@@ -301,7 +301,29 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     @MainActor
     private func handleMethod(_ method: String, args: [Any], callId: Int = 0) async -> Any {
-        // Permission guard
+        // Registry-first (Phase 2): port JS dispatches extracted+wired methods through the shared impl.
+        // JS calls positionally, so the positional args map to named via the method's paramNames; the
+        // native JSON value is returned (a BridgeError becomes {error}, the shape JS already handles).
+        let canonical = ToolNaming.resolveAlias(method)
+        if let state, let bridgeMethod = state.bridgeRegistry[canonical], bridgeMethod.wired {
+            let principal = Principal(
+                id: messageId ?? ObjectIdentifier(self).debugDescription,
+                displayName: createdBy ?? title ?? "a port",
+                spaceId: spaceId, kind: .port)
+            do {
+                let value = try await state.runBridgeMethod(
+                    canonical, principal: principal,
+                    args: BridgeArgs(positional: args, names: bridgeMethod.paramNames),
+                    pregrant: grantedPermissions)
+                return value.toJSONObject()
+            } catch let e as BridgeError {
+                return ["error": e.message]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+        }
+
+        // Permission guard (old path — live-only / unwired methods)
         let allowed = await checkPermission(for: method)
         if !allowed {
             return ["error": "permission denied"]
