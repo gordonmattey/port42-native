@@ -92,4 +92,28 @@ struct BridgeDispatchTests {
         let result = await exec.execute(method: "ports_list", input: [:])
         #expect(result is [Any])
     }
+
+    // MARK: in-app companion routing (ToolExecutor)
+
+    @Test("in-app companion ports_list routes through the registry (JSON array, not a text blob)")
+    @MainActor
+    func inAppPortsListIsJSON() async throws {
+        let w = try makeParityWorld()
+        _ = try makePortWithHtml(w, "<div>a</div>")
+        let exec = ToolExecutor(appState: w.state, spaceId: w.space.id, createdBy: w.companion.id, createdByName: w.companion.displayName)
+        let blocks = await exec.execute(name: "ports_list", input: [:])
+        let text = try #require(blocks.first?["text"] as? String)
+        // the clean contract: it parses as a JSON array, not the old "N ports:\n..." blob
+        let parsed = try JSONSerialization.jsonObject(with: try #require(text.data(using: .utf8)))
+        #expect(parsed is [Any])
+    }
+
+    @Test("in-app companion crease_read routes through the registry (prose preserved)")
+    @MainActor
+    func inAppCreaseReadProse() async throws {
+        let w = try makeParityWorld()
+        let exec = ToolExecutor(appState: w.state, spaceId: w.space.id, createdBy: w.companion.id, createdByName: w.companion.displayName)
+        let blocks = await exec.execute(name: "crease_read", input: [:])
+        #expect(blocks.first?["text"] as? String == "No creases yet. Creases form when a prediction breaks.")
+    }
 }

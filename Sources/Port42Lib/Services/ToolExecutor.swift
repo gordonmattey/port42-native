@@ -76,6 +76,27 @@ public final class ToolExecutor {
     /// Returns an array of content blocks (text or image).
     func execute(name: String, input: [String: Any]) async -> [[String: Any]] {
         NSLog("[Port42] ToolExecutor: executing %@", name)
+
+        // Registry-first (Phase 2): the in-app companion path dispatches extracted methods through the
+        // one shared impl, then renders the BridgeValue as tool-use content blocks. Unextracted
+        // (live-only) methods fall through to the old switch below. The dispatcher reads the persisted
+        // grants fresh, so `grantedPermissions` is passed only as a same-call pregrant.
+        let canonical = name.contains(".") ? name : (ToolNaming.canonical(fromTool: name) ?? name)
+        if let appState, appState.bridgeHandles(canonical) {
+            let principal = Principal(id: createdBy ?? "anonymous-tool-caller",
+                                      displayName: createdByName ?? createdBy ?? "a companion",
+                                      spaceId: spaceId, kind: .companion)
+            do {
+                let value = try await appState.runBridgeMethod(canonical, principal: principal,
+                                                               args: BridgeArgs(input), pregrant: grantedPermissions)
+                return value.toToolBlocks()
+            } catch let e as BridgeError {
+                return e.toToolBlocks()
+            } catch {
+                return [["type": "text", "text": "Error: \(error.localizedDescription)"]]
+            }
+        }
+
         if let perm = ToolDefinitions.permission(for: name) {
             if !grantedPermissions.contains(perm) {
                 NSLog("[Port42] ToolExecutor: requesting %@ permission for %@", perm.rawValue, name)
