@@ -24,6 +24,32 @@ principal; none should be built beside the current three inconsistent paths. The
 the natural home for the "make failure visible" fixes (never-rejecting bridge, silent CSP blocks) but
 those land as small follow-ups, not as part of the refactor's core.
 
+### Policy: we do NOT protect backward compatibility
+
+This platform is pre-WIRE (port42:// · libp2p · cross-instance). Breaking existing ports, callers, and
+return shapes is acceptable and expected. **Backward-compatibility shims are a bad smell: do not add
+them, and remove the ones already present.** A shim that preserves an old shape at the cost of a clean
+design is a defect, not a courtesy. Prefer the correct forward design and let consumers update.
+
+Concretely, when a root cause touches an old convention, fix the convention, do not wrap it. Resolve
+(not preserve) these:
+
+- **The never-reject convention.** JS `_reject` used to `resolve({error})` and each shim did
+  `if (r.error) throw`. Resolved: `call()`'s promise rejects; any `{error}` result rejects (routed once
+  in `userContentController`); the `if (r.error) throw` shims are deleted. A failed call is a real
+  rejection, not a value to inspect. (The HTTP/gateway path keeps `{error}` in the JSON body — correct
+  for a request/response transport, not a shim.)
+- **The bare-string unwrap.** `ai.complete` resolved with a bare string to match old ports
+  (`streamText`). Resolved: it resolves with the structured `{text: ...}` value; `streamText` deleted.
+- **Cancel settlement delegated to the engine.** See `docs/rca-aicomplete-cancel-hang.md`. Resolved:
+  settlement is core-owned.
+
+Still to resolve under this policy (tracked, not yet done):
+- `companions.invoke` still resolves a bare string and runs on the legacy `PortAIHandler` path — fold
+  into the streaming registry with the structured shape.
+- The big-bang self-describing registry (§ below / bridge-architecture doc §5) deletes the four parallel
+  metadata lists and the `window.port42` object literal (generic Proxy) — all compat-shaped duplication.
+
 ---
 
 ## 2. The current architecture (what we are collapsing)

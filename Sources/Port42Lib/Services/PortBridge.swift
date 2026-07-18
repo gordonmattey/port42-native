@@ -237,15 +237,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         activeStreams.removeValue(forKey: callId)
     }
 
-    /// Render a streaming method's final `BridgeValue` to the string the port's JS `_resolve` expects.
-    /// ai.complete returns `{text: "..."}`; ports have always received the bare text, so unwrap it
-    /// (falling back to a JSON encoding for any other shape).
-    static func streamText(_ value: BridgeValue) -> String {
-        if case let .object(obj) = value, case let .string(s)? = obj["text"] { return s }
-        if case let .string(s) = value { return s }
-        if let data = try? JSONSerialization.data(withJSONObject: value.toJSONObject()),
-           let str = String(data: data, encoding: .utf8) { return str }
-        return ""
+    /// Resolve a deferred call with a structured `BridgeValue` (a streaming method's final value, e.g.
+    /// ai.complete's `{text: ...}`). The JS promise resolves with the JSON object as-is; there is no
+    /// bare-string unwrap. Uses `_resolve` with a JSON value, mirroring the synchronous result path.
+    @MainActor
+    public func resolveValue(_ callId: Int, _ value: BridgeValue) {
+        let json = value.toJSONObject()
+        let jsonData = try? JSONSerialization.data(withJSONObject: json, options: [.fragmentsAllowed])
+        let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+        webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))") { _, _ in }
     }
 
     /// Manual per-port AI pause (the pause.circle button in the port's chrome). Distinct from
@@ -302,6 +302,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return
             }
 
+            // A failed call rejects the JS promise (no resolve({error}) convention). One place, so every
+            // method's error is a real rejection the caller catches, not a value it must inspect.
+            if let dict = result as? [String: Any], let errMsg = dict["error"] as? String {
+                rejectCall(callId, errMsg)
+                return
+            }
+
             let jsonData = try? JSONSerialization.data(withJSONObject: result)
             let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
             _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
@@ -353,7 +360,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                         args: BridgeArgs(positional: args, names: names),
                         pregrant: grants,
                         yield: { [weak self] token in self?.pushToken(callId, token) })
-                    self.resolveCall(callId, PortBridge.streamText(value))
+                    self.resolveValue(callId, value)
                 } catch let e as BridgeError {
                     self.rejectCall(callId, e.message)
                 } catch is CancellationError {
@@ -1648,9 +1655,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         setInterval(_checkConnection, 3000);
 
         function call(method, args) {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const id = ++_callId;
-                _pending[id] = resolve;
+                _pending[id] = { resolve: resolve, reject: reject };
                 window.webkit.messageHandlers.port42.postMessage({
                     method: method,
                     args: args || [],
@@ -1661,18 +1668,21 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         window.port42 = {
             _resolve: function(callId, data) {
-                const resolve = _pending[callId];
-                if (resolve) {
-                    delete _pending[callId];
-                    resolve(data);
-                }
-            },
-            _reject: function(callId, error) {
-                const resolve = _pending[callId];
-                if (resolve) {
+                const p = _pending[callId];
+                if (p) {
                     delete _pending[callId];
                     delete _tokenCallbacks[callId];
-                    resolve({"error": error});
+                    p.resolve(data);
+                }
+            },
+            // A failed call REJECTS the promise (no more resolve({error}) convention). Callers use
+            // try/catch or .catch; there is no r.error to check.
+            _reject: function(callId, error) {
+                const p = _pending[callId];
+                if (p) {
+                    delete _pending[callId];
+                    delete _tokenCallbacks[callId];
+                    p.reject(new Error(error));
                 }
             },
             _tokenCallback: function(callId, token) {
@@ -1699,14 +1709,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     opts = opts || {};
                     const id = _callId + 1;
                     if (opts.onToken) _tokenCallbacks[id] = opts.onToken;
+                    // Resolves with the structured result {text: ...} (no bare-string unwrap); a failed
+                    // call rejects (no r.error to check). _resolve/_reject clear _tokenCallbacks.
                     const p = call('ai.complete', [prompt, {
                         model: opts.model,
                         systemPrompt: opts.systemPrompt,
                         maxTokens: opts.maxTokens,
                         images: opts.images
                     }]).then(function(r) {
-                        delete _tokenCallbacks[id];
-                        if (r && r.error) throw new Error(r.error);
                         if (opts.onDone) opts.onDone(r);
                         return r;
                     });
@@ -1726,9 +1736,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     opts = opts || {};
                     const cid = _callId + 1;
                     if (opts.onToken) _tokenCallbacks[cid] = opts.onToken;
+                    // A failed invoke rejects (no r.error to check); _resolve/_reject clear _tokenCallbacks.
                     return call('companions.invoke', [id, prompt]).then(function(r) {
-                        delete _tokenCallbacks[cid];
-                        if (r && r.error) throw new Error(r.error);
                         if (opts.onDone) opts.onDone(r);
                         return r;
                     });

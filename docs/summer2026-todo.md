@@ -6,6 +6,21 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## HARDENING: stream continuation can dangle on non-cancel silent engine death (2026-07-18)
+
+Follow-up from `docs/rca-aicomplete-cancel-hang.md` (§8 residual). The cancel-hang is fixed
+(settlement is core-owned on cancel). But the general class remains: a streaming call's continuation is
+settled only by `LLMStreamCollector.finish`, driven by an engine terminal callback OR the cancel path.
+If a backend dies/deallocs mid-flight without any terminal event and without a cancel, the continuation
+dangles and the JS promise never settles. Low frequency, but it is the same root class.
+
+**Fix (proposed):** a collector-level safety net — a deinit guard and/or a max-duration timeout that
+settles the continuation as an error if no terminal event arrives. Closes the class fully so no engine
+misbehavior can leak a pending promise. Add a test: a backend that emits nothing ever, assert the call
+settles (errors) rather than hangs.
+
+---
+
 ## BUG: ports.list ignores space_id — can't scope ports to a space (2026-07-18)
 
 **Severity:** High. Blocks any per-space port UI and silently misleads callers.
