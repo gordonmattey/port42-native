@@ -1,11 +1,6 @@
 import Foundation
 import WebKit
 
-// MARK: - Constants
-
-/// Default max tokens for port AI calls (ai.complete and port generation).
-private let portAIMaxTokens = 16384
-
 // MARK: - Port Bridge
 
 /// Bridges port42.* JS calls from a port's WKWebView to native Swift services.
@@ -1411,7 +1406,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let opts = args.count > 1 ? args[1] as? [String: Any] : nil
         let model = opts?["model"] as? String ?? resolveDefaultModel(state: state)
         let systemPrompt = opts?["systemPrompt"] as? String ?? "You are a helpful assistant."
-        let maxTokens = opts?["maxTokens"] as? Int ?? portAIMaxTokens
+        let maxTokens = opts?["maxTokens"] as? Int ?? state.portAIMaxTokens
         let images = opts?["images"] as? [String]
 
         let backend = resolvePortAIBackend(state: state)
@@ -1549,7 +1544,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 messages: messages,
                 systemPrompt: companionSystemPrompt,
                 model: model,
-                maxTokens: portAIMaxTokens,
+                maxTokens: state.portAIMaxTokens,
                 tools: nil,
                 thinkingEnabled: false,
                 thinkingEffort: "low",
@@ -1565,37 +1560,15 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - Helpers
 
-    /// Resolve the LLM backend for port42.ai.complete() calls.
-    /// Uses the designated Port AI companion (portAICompanionId UserDefaults key) if set,
-    /// otherwise falls back to the creating companion's backend, then LLMEngine.
+    /// Resolve the LLM backend for port42.ai.complete() calls. Delegates to `AppState` (item 8: the
+    /// resolution is registry-owned now) with this port's creating companion id.
     private func resolvePortAIBackend(state: AppState) -> LLMBackend {
-        let savedId = UserDefaults.standard.string(forKey: "portAICompanionId") ?? ""
-        if !savedId.isEmpty,
-           let companion = state.companions.first(where: { $0.id == savedId }) {
-            return makeLLMBackend(for: companion)
-        }
-        if let creator = createdBy,
-           let companion = state.companions.first(where: { $0.id == creator }) {
-            return makeLLMBackend(for: companion)
-        }
-        return LLMEngine()
+        state.resolvePortAIBackend(createdBy: createdBy)
     }
 
-    /// Resolve the default model for port42.ai.complete() calls.
-    /// Prefers the designated Port AI companion's model, then creating companion, then system default.
+    /// Resolve the default model for port42.ai.complete() calls. Delegates to `AppState`.
     private func resolvePortAIModel(state: AppState) -> String {
-        let savedId = UserDefaults.standard.string(forKey: "portAICompanionId") ?? ""
-        if !savedId.isEmpty,
-           let companion = state.companions.first(where: { $0.id == savedId }),
-           let model = companion.model {
-            return model
-        }
-        if let creator = createdBy,
-           let companion = state.companions.first(where: { $0.id == creator }),
-           let model = companion.model {
-            return model
-        }
-        return "claude-sonnet-4-6"
+        state.resolvePortAIModel(createdBy: createdBy)
     }
 
     /// Resolve the default model from the creating companion or system default.
