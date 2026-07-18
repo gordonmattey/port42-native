@@ -42,3 +42,30 @@ public struct BridgeMethod {
 
 /// Canonical method name → its single implementation.
 public typealias BridgeRegistry = [String: BridgeMethod]
+
+// MARK: - BridgeStreamMethod (the streaming contract — item 8)
+//
+// `ai.complete` streams tokens and then resolves; `BridgeValue` is one-value-out, so streaming needs
+// its own shape. A stream method yields intermediate tokens via `yield` and returns the FINAL value.
+// Dispatch / principal / permission stay unified (same as `BridgeMethod`); only the delivery differs,
+// and each calling-path adapter wires `yield` to its surface: port JS → `_tokenCallback`, gateway →
+// chunked, tool-use → collect into the final text. This is what lets `ai.complete` join the registry
+// instead of being a special case, and it is where the never-rejecting-bridge fix lands (a thrown
+// `BridgeError` becomes a real reject, not a resolved `{error}`).
+public struct BridgeStreamMethod {
+    public let permission: PortPermission?
+    public let paramNames: [String]
+    /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
+    public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
+
+    public init(permission: PortPermission?,
+                paramNames: [String] = [],
+                run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
+        self.permission = permission
+        self.paramNames = paramNames
+        self.run = run
+    }
+}
+
+/// Canonical method name → its streaming implementation (separate from the one-shot registry).
+public typealias BridgeStreamRegistry = [String: BridgeStreamMethod]
