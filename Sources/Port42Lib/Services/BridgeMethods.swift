@@ -16,7 +16,98 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerStorageMethods(into: &r, appState: appState)
     registerPortMethods(into: &r, appState: appState)
     registerCommsMethods(into: &r, appState: appState)
+    registerFileMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Files
+//
+// The two old paths disagreed: JS allowed only user-picked paths (the FileBridge gate); the tool path
+// sandboxed relative paths into the Port42 data dir and gated absolute ones. GM: pick a sensible
+// default, not blocking. Canonical model = the sandbox: relative paths resolve under the data dir
+// (read/write/list/mkdir), which is safe and self-contained. Absolute-path access is a user-consented
+// action and routes through the picker (`fs.pick`) — Phase-2 live-only, since it needs the picked-path
+// grant carried on the principal. Reads return `{data}`, writes/mkdir return `{ok}`, list returns
+// `{items}`.
+
+/// The base directory relative file paths resolve under. Defaults to the Port42 app-support data dir;
+/// overridable in tests so file ops run in an isolated temp dir.
+public enum BridgeFilePaths {
+    public static var dataDir: String = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        .first!.appendingPathComponent("Port42").path
+}
+
+@MainActor
+private func registerFileMethods(into r: inout BridgeRegistry, appState: AppState) {
+
+    // Resolve a caller path to an absolute filesystem path INSIDE the data-dir sandbox, or throw.
+    // A leading "/" (absolute) is rejected here: it is the picker's job (fs.pick), not free reach.
+    func resolve(_ path: String) throws -> String {
+        guard !path.hasPrefix("/") else {
+            throw BridgeError(code: "absolute_path", message: "absolute paths require a user-picked file — use fs.pick")
+        }
+        // Block traversal out of the sandbox.
+        let joined = (BridgeFilePaths.dataDir as NSString).appendingPathComponent(path)
+        let standardized = (joined as NSString).standardizingPath
+        guard standardized.hasPrefix((BridgeFilePaths.dataDir as NSString).standardizingPath) else {
+            throw BridgeError(code: "escape", message: "path escapes the data directory")
+        }
+        return standardized
+    }
+
+    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"]) { _, args in
+        let path = try resolve(try args.requireString("path"))
+        let encoding = args.string("encoding") ?? "utf8"
+        do {
+            if encoding == "base64" {
+                let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
+                return .object(["data": .string(bytes.base64EncodedString())])
+            }
+            let text = try String(contentsOfFile: path, encoding: .utf8)
+            return .object(["data": .string(text)])
+        } catch {
+            throw BridgeError(code: "io", message: error.localizedDescription)
+        }
+    }
+
+    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"]) { _, args in
+        let path = try resolve(try args.requireString("path"))
+        let data = try args.requireString("data")
+        let encoding = args.string("encoding") ?? "utf8"
+        do {
+            let dir = (path as NSString).deletingLastPathComponent
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            if encoding == "base64", let bytes = Data(base64Encoded: data) {
+                try bytes.write(to: URL(fileURLWithPath: path))
+            } else {
+                try data.write(toFile: path, atomically: true, encoding: .utf8)
+            }
+            return .object(["ok": .bool(true)])
+        } catch {
+            throw BridgeError(code: "io", message: error.localizedDescription)
+        }
+    }
+
+    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"]) { _, args in
+        let path = try resolve(try args.requireString("path"))
+        do {
+            let items = try FileManager.default.contentsOfDirectory(atPath: path)
+            return .object(["items": .array(items.sorted().map { .string($0) })])
+        } catch {
+            throw BridgeError(code: "io", message: error.localizedDescription)
+        }
+    }
+
+    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"]) { _, args in
+        let path = try resolve(try args.requireString("path"))
+        do {
+            try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+            return .object(["ok": .bool(true)])
+        } catch {
+            throw BridgeError(code: "io", message: error.localizedDescription)
+        }
+    }
 }
 
 // MARK: Identity / spaces / companions / messages / bus
