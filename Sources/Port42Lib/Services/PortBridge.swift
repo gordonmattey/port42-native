@@ -557,38 +557,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if let cid = spaceId { info["spaceId"] = cid }
             return info
 
-        // port42.ai.models()
-        case "ai.models":
-            // Return models for the designated Port AI companion's provider
-            let portProvider: AgentProvider? = {
-                let savedId = UserDefaults.standard.string(forKey: "portAICompanionId") ?? ""
-                if !savedId.isEmpty,
-                   let companion = state.companions.first(where: { $0.id == savedId }) {
-                    return companion.provider
-                }
-                return nil
-            }()
-            switch portProvider {
-            case .gemini:
-                return [
-                    ["id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "tier": "flagship"],
-                    ["id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "tier": "balanced"],
-                    ["id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "tier": "fast"]
-                ]
-            default:
-                return [
-                    ["id": "claude-opus-4-6", "name": "Opus 4.6", "tier": "flagship"],
-                    ["id": "claude-sonnet-4-6", "name": "Sonnet 4.6", "tier": "balanced"],
-                    ["id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "tier": "fast"]
-                ]
-            }
-
-        // port42.ai.status() — check if AI calls are available
-        case "ai.status":
-            return ["paused": LLMEngine.paused]
-
-        // port42.ai.complete moved to the streaming registry (item 8): handled by the stream branch
-        // above, before this switch. It is no longer a case here.
+        // port42.ai.models / ai.status / ai.complete are all served by the registry now: models and
+        // status are the `ai` service module (BridgeServiceAI.swift, registry-first), complete streams
+        // via the stream registry. Only ai.cancel remains here — it cancels a stream by JS callId
+        // (streamTasks), which is transport-coupled, not a service method.
 
         // port42.ai.cancel(callId)
         case "ai.cancel":

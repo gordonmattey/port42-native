@@ -72,17 +72,32 @@ struct BridgeParamConsistencyTests {
         return matches(#""([^"]+)""#, in: inner)
     }
 
-    /// Parse every registry method out of BridgeMethods.swift.
+    /// The source files that register bridge methods: the built-ins, plus one file per service module.
+    /// A new service module is added here so its methods are consistency-checked too.
+    static let registrySources = [
+        "Sources/Port42Lib/Services/BridgeMethods.swift",
+        "Sources/Port42Lib/Services/BridgeServiceAI.swift",
+    ]
+
+    /// Parse every registry method out of the registry source files.
     static func parseMethods() throws -> [Method] {
         let root = URL(fileURLWithPath: #filePath)   // .../Tests/Port42Tests/BridgeParamConsistencyTests.swift
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let path = root.appendingPathComponent("Sources/Port42Lib/Services/BridgeMethods.swift").path
+        return try registrySources.flatMap { rel in
+            try parseFile(root.appendingPathComponent(rel).path)
+        }
+    }
+
+    static func parseFile(_ path: String) throws -> [Method] {
         let text = try String(contentsOfFile: path, encoding: .utf8)
 
         // Segment boundaries: top-level `private/public func …` (nested helpers have no access modifier,
         // so they never start a segment). Each register/build function is one segment.
         let ns = text as NSString
-        let re = try NSRegularExpression(pattern: #"(?m)^(?:private|public) func \w+"#)
+        // Top-level funcs only (column 0). Optional access modifier — a service module's register fn is
+        // internal (no modifier) because it's called cross-file; the built-ins' are private/public.
+        // Nested helpers are indented, so `^` never matches them.
+        let re = try NSRegularExpression(pattern: #"(?m)^(?:(?:private|public|internal) )?func \w+"#)
         let starts = re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { $0.range.location }
         guard !starts.isEmpty else { return [] }
 
@@ -117,8 +132,9 @@ struct BridgeParamConsistencyTests {
     @Test("Parser finds all registry methods (sanity)")
     func parserCoverage() throws {
         let methods = try Self.parseMethods()
-        // 54 one-shot (52 tool-exposed + audio.play + audio.stop) + ai.complete + companions.invoke = 56.
-        #expect(methods.count == 56, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // BridgeMethods.swift: 54 one-shot (52 tool-exposed + audio.play/stop) + companions.invoke = 55.
+        // BridgeServiceAI.swift: ai.models + ai.status (one-shot) + ai.complete (stream) = 3. Total 58.
+        #expect(methods.count == 58, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

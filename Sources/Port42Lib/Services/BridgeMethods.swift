@@ -22,81 +22,23 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerDeviceMethods(into: &r, appState: appState)
     registerLiveDeviceMethods(into: &r, appState: appState)
     registerPortLiveMethods(into: &r, appState: appState)
+    registerAIService(into: &r, appState: appState)   // ai.models, ai.status (BridgeServiceAI.swift)
     return r
 }
 
 // MARK: Streaming registry (item 8)
 //
-// ai.complete is the one streaming method (LLM engine → yield → final). Registered in the
-// self-describing shape (item 8 spike): it carries its own description + inputSchema, from which
-// `anthropicToolSchema` generates the tool-use schema. `ai.cancel` stays at the adapter (callId → Task
-// cancellation is a port-JS-shim concept, not a registry method).
+// Two streaming methods. `ai.complete` lives in its own service module (`BridgeServiceAI.swift`) — the
+// `ai` namespace is the reference plug-in service (see docs §6). `companions.invoke` is an agent-runtime
+// faculty too, but it lives in the `companions` namespace (platform roster + one runtime verb), so it
+// stays here with the comms surface. Both are self-describing (inline description + inputSchema), from
+// which `anthropicToolSchema` generates the tool-use schema. `ai.cancel` stays at the port-JS adapter
+// (callId → Task cancellation is transport-coupled, not a service method).
 @MainActor
 public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegistry {
     var r: BridgeStreamRegistry = [:]
 
-    r["ai.complete"] = BridgeStreamMethod(
-        permission: .ai,
-        paramNames: ["prompt", "options"],
-        description: "Complete a prompt with an LLM, streaming tokens back. Returns the full text.",
-        inputSchema: [
-            "type": "object",
-            "properties": [
-                "prompt": ["type": "string", "description": "The prompt to complete."] as [String: Any],
-                "options": [
-                    "type": "object",
-                    "description": "Optional: model, systemPrompt, maxTokens, images (base64 PNG).",
-                    "properties": [
-                        "model": ["type": "string"] as [String: Any],
-                        "systemPrompt": ["type": "string"] as [String: Any],
-                        "maxTokens": ["type": "integer"] as [String: Any],
-                        "images": ["type": "array", "items": ["type": "string"] as [String: Any]] as [String: Any]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ] as [String: Any],
-            "required": ["prompt"]
-        ]
-    ) { principal, args, yield in
-        // A parked/backgrounded/paused port must not reach the model (the token-burn guard). Only a
-        // port principal maps to a suspendable surface; gateway/companion callers are never suspended.
-        let bridge = appState.streamPortBridge(for: principal)
-        if let bridge, bridge.isSuspended {
-            throw BridgeError(code: "port_paused",
-                              message: "port is paused (parked or backgrounded). Bring it to the desktop to use AI.")
-        }
-
-        let prompt = try args.requireString("prompt")
-        guard !prompt.isEmpty else {
-            throw BridgeError(code: "bad_args", message: "ai.complete requires a prompt")
-        }
-        let opts = args.object("options")
-        let createdBy = appState.createdBy(for: principal, bridge: bridge)
-        let model = opts?["model"] as? String ?? appState.resolvePortAIModel(createdBy: createdBy)
-        let systemPrompt = opts?["systemPrompt"] as? String ?? "You are a helpful assistant."
-        let maxTokens = opts?["maxTokens"] as? Int ?? appState.portAIMaxTokens
-        let images = opts?["images"] as? [String]
-
-        let backend = appState.resolveStreamBackend(createdBy: createdBy)
-        backend.trackingSource = "port:\(principal.displayName)"
-
-        // Build the user message (multimodal if images provided).
-        let content: Any
-        if let images, !images.isEmpty {
-            var blocks: [[String: Any]] = images.map { base64 in
-                ["type": "image",
-                 "source": ["type": "base64", "media_type": "image/png", "data": base64] as [String: String]]
-            }
-            blocks.append(["type": "text", "text": prompt])
-            content = blocks
-        } else {
-            content = prompt
-        }
-        let messages: [[String: Any]] = [["role": "user", "content": content]]
-
-        return try await appState.runLLMStream(
-            backend: backend, messages: messages, systemPrompt: systemPrompt,
-            model: model, maxTokens: maxTokens, yield: yield)
-    }
+    registerAIServiceStream(into: &r, appState: appState)   // ai.complete (BridgeServiceAI.swift)
 
     r["companions.invoke"] = BridgeStreamMethod(
         permission: .ai,
