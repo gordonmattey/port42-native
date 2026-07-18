@@ -65,18 +65,27 @@ Verified unit + live in Port42Dev.
   the body reads. Green, zero bag-exemptions. Acid-tested: reintroducing the clipboard drift makes B1
   report exactly that method. This is the class clipboard belonged to; no others exist.
 
+**Service architecture defined; `ai` migrated as the reference (committed + pushed).** The bridge surface
+resolves into platform / device / **service** tenants; the service region is an agent substrate with
+three faculties (agent runtime, epistemic memory, knowledge). See `bridge-architecture-and-mcp.md` §6
+and the bridge-surface artifact.
+- **ae74b27** docs: the service / plug-in seam (§6), taxonomy + triad, MCP as one instance, `ai` named
+  the reference migration.
+- **6536c3b** `ai` migrated to its own module (`BridgeServiceAI.swift`): `ai.complete` (stream) +
+  `ai.models`/`ai.status` (moved off the old `PortBridge` switch into the registry), `ai.cancel` left a
+  documented transport shim. 58 methods B1/B2-green; `BridgeAIServiceTests` green; live in Port42Dev
+  (`ai.models`/`ai.status` served via the gateway, dotted + snake). No `BridgeService` protocol yet.
+- **e2cdd27** todo: AppleScript / Automation test-env enablement (the 7th env-only test failure).
+
 ## Next
 
-**Migrate `ai` to a service module (defines the plug-in pattern).** The bridge surface resolves into
-platform / device / **service** tenants; the service region is an agent substrate with three faculties
-(agent runtime, epistemic memory, knowledge). See `bridge-architecture-and-mcp.md` §6 and the
-bridge-surface artifact. `ai` is the reference migration because it has every facet (streaming, plain
-reads, an external provider backend, a transport-coupled cancel it excludes): move `ai.models`/`ai.status`
-off the old `PortBridge` switch into the registry, group the namespace in one `registerAIService`
-(complete/models/status + `.ai` gating + backend wiring), keep `ai.cancel` a documented stream-control
-shim. Additive; live `ai.complete` untouched. This nails the service pattern before generalizing to
-Keeper + storage, and tells Spike C's Proxy what a service namespace looks like (declared DSL name-map
-for Keeper, plain dispatch for `ai`/`storage`).
+**Migrate Keeper as the second service (formalizes the pattern).** `ai` is one data point; Keeper
+(`crease`/`engrave`/`fold`/`position`) is the one that earns or refutes a `BridgeService` abstraction,
+because it brings the parts `ai` did not: a **declared DSL name-map** (plural `creases`/`engravings` JS
+surface → singular `crease`/`engrave` methods, replacing the literal's inconsistent per-call patching
+and subsuming the `files.* -> fs.*` alias table) and a **two-faculty span** (epistemic memory +
+knowledge) over a DB backend. Doing `ai` then Keeper is what tells us whether the service pattern wants
+a formal type or stays a convention. `storage` (knowledge/KV) follows as the third, simplest tenant.
 
 **Then Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Prove a generic
 `window.port42` Proxy dispatches `port42.a.b(...args)` → `call('a.b', args)` identically to the current
