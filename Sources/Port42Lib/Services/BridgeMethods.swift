@@ -14,7 +14,135 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     var r: BridgeRegistry = [:]
     registerMemoryMethods(into: &r, appState: appState)
     registerStorageMethods(into: &r, appState: appState)
+    registerPortMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Ports (read/write core)
+//
+// The DB/panel-backed port methods, headless-testable. `ports.list` is the headline: text blob to
+// agents, array to JS today — now one `.array` of port objects on every surface (and `capabilities`
+// comes from the one source, fixing the `[]` vs `["terminal"]` split, todo #9). The mutators return
+// `{ok:true}` or throw `not_found`, instead of a mix of bool / prose / `{ok}`.
+//
+// Deferred to a follow-up sub-batch (they touch a live webview/terminal, so they are Phase-2 live-only):
+// port.create, port.push, port.exec, port.manage, port.info/resize/setTitle/setCapabilities.
+
+@MainActor
+private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
+
+    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities"]) { p, args in
+        let filterCaps = (args.array("capabilities") as? [String]) ?? []
+        let registered = appState.portWindows.allPorts()
+        let inline = appState.inlinePorts().filter { $0.spaceId == p.spaceId || p.spaceId == nil }.suffix(5)
+
+        var entries: [BridgeValue] = []
+        func entry(id: String, title: String, createdBy: String?, capabilities: [String],
+                   cwd: String?, status: String, x: CGFloat?, y: CGFloat?, surfaceBound: Bool?) {
+            if !filterCaps.isEmpty && !filterCaps.allSatisfy({ capabilities.contains($0) }) { return }
+            var o: [String: BridgeValue] = [
+                "id": .string(id), "title": .string(title),
+                "capabilities": .array(capabilities.map { .string($0) }),
+                "status": .string(status),
+            ]
+            if let createdBy { o["createdBy"] = .string(createdBy) }
+            if let cwd { o["cwd"] = .string(cwd) }
+            if let surfaceBound { o["surfaceBound"] = .bool(surfaceBound) }
+            if let x, let y { o["x"] = .double(Double(x)); o["y"] = .double(Double(y)) }
+            entries.append(.object(o))
+        }
+        for pt in registered {
+            entry(id: pt.udid, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
+                  cwd: pt.cwd, status: pt.isBackground ? "docked" : pt.presentation, x: pt.x, y: pt.y,
+                  surfaceBound: appState.terminalControllers[pt.udid]?.isSurfaceBound)
+        }
+        for pt in inline {
+            entry(id: pt.id, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
+                  cwd: pt.cwd, status: "inline", x: nil, y: nil, surfaceBound: nil)
+        }
+        return .array(entries)
+    }
+
+    r["port.getHtml"] = BridgeMethod(permission: nil, paramNames: ["id", "version"]) { _, args in
+        let id = try args.requireString("id")
+        if let version = args.int("version") {
+            guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
+                throw BridgeError.notFound("version \(version) for port '\(id)'")
+            }
+            return .string(html)
+        }
+        if let html = try? appState.db.fetchPortHtml(udid: id) { return .string(html) }
+        throw BridgeError.notFound("port '\(id)'")
+    }
+
+    r["port.history"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+        let id = try args.requireString("id")
+        let versions = (try? appState.db.fetchPortVersions(portUdid: id)) ?? []
+        let iso = ISO8601DateFormatter()
+        return .array(versions.map { v in
+            .object([
+                "version": .int(v.version),
+                "createdBy": .string(v.createdBy ?? "unknown"),
+                "createdAt": .string(iso.string(from: v.createdAt)),
+            ])
+        })
+    }
+
+    r["port.update"] = BridgeMethod(permission: nil, paramNames: ["id", "html"]) { _, args in
+        let id = try args.requireString("id")
+        let html = try args.requireString("html")
+        guard appState.portWindows.updatePort(idOrTitle: id, html: html) else {
+            throw BridgeError.notFound("port '\(id)'")
+        }
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.patch"] = BridgeMethod(permission: nil, paramNames: ["id", "search", "replace"]) { _, args in
+        let id = try args.requireString("id")
+        let search = try args.requireString("search")
+        let replace = try args.requireString("replace")
+        guard let current = try? appState.db.fetchPortHtml(udid: id) else {
+            throw BridgeError.notFound("port '\(id)'")
+        }
+        guard current.contains(search) else {
+            throw BridgeError.badArg("search string not found in port '\(id)' — read the current HTML with port.getHtml and copy the exact string")
+        }
+        let patched = current.replacingOccurrences(of: search, with: replace)
+        guard appState.portWindows.updatePort(idOrTitle: id, html: patched) else {
+            throw BridgeError.notFound("port '\(id)'")
+        }
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.restore"] = BridgeMethod(permission: nil, paramNames: ["id", "version"]) { _, args in
+        let id = try args.requireString("id")
+        let version = try args.requireInt("version")
+        guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
+            throw BridgeError.notFound("version \(version) for port '\(id)'")
+        }
+        guard appState.portWindows.updatePort(idOrTitle: id, html: html) else {
+            throw BridgeError.notFound("port '\(id)'")
+        }
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.rename"] = BridgeMethod(permission: nil, paramNames: ["id", "title"]) { _, args in
+        let id = try args.requireString("id")
+        let title = try args.requireString("title")
+        guard !title.isEmpty else { throw BridgeError.badArg("port.rename requires a non-empty title") }
+        appState.portWindows.renamePort(id: id, title: title)
+        if let bridge = appState.findInlineBridge(by: id) { bridge.title = title }
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y"]) { _, args in
+        let id = try args.requireString("id")
+        guard let x = args.double("x"), let y = args.double("y") else {
+            throw BridgeError.badArg("port.move requires numeric x and y")
+        }
+        appState.portWindows.movePort(id: id, x: CGFloat(x), y: CGFloat(y))
+        return .object(["ok": .bool(true)])
+    }
 }
 
 // MARK: Storage

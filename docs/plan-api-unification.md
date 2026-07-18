@@ -185,8 +185,17 @@ target to move bodies into.
   Note on method: where the old paths **agree**, parity (old == new) is the gate; where GM has chosen a
   new shape, a **direct behavioral test** of the intended contract is the gate instead.
 
-**Batches remaining:** ports (`port.*` + `ports.list`); messages/space/companions/bus; files; then the
-live-only device families (screen/camera/clipboard/audio/notify/browser/automation) via stubbed bridges.
+- **Ports, read/write core** (`ports.list`, `getHtml`, `history`, `update`, `patch`, `restore`,
+  `rename`, `move` — 8 methods), 2026-07-17. DB/panel-backed, so headless-testable. Clean contract:
+  `ports.list` is one `.array` of port objects on every surface (capabilities from the one source, so
+  the `[]` vs `["terminal"]` split is gone); `history` is a `.array`; the mutators return `{ok}` or
+  throw `not_found`/`bad_arg`. `BridgePortsTests`, 9 green (incl. the positional→named mapping on a real
+  port method). **Deferred to a follow-up sub-batch (webview/terminal-touching, so Phase-2 live-only):**
+  `port.create`, `port.push`, `port.exec`, `port.manage`, `port.info/resize/setTitle/setCapabilities`.
+
+**Batches remaining:** ports part 2 (the live-only ones above); messages/space/companions/bus; files;
+then the device families (screen/camera/clipboard/audio/notify/browser/automation) via stubbed bridges.
+Running total: 50 bridge tests green across 8 suites.
 
 **Work.**
 - Move the body of each `case` from the two switches into a registry entry. Most already delegate to
