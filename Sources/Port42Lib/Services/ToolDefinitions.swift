@@ -446,9 +446,9 @@ enum ToolDefinitions {
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "text": ["type": "string", "description": "The text to copy to clipboard"]
+                    "data": ["type": "string", "description": "The text to copy to clipboard"]
                 ],
-                "required": ["text"]
+                "required": ["data"]
             ] as [String: Any]
         ],
         [

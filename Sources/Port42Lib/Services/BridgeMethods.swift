@@ -441,9 +441,9 @@ private func registerDeviceMethods(into r: inout BridgeRegistry, appState: AppSt
         inputSchema: [
             "type": "object",
             "properties": [
-                "text": ["type": "string", "description": "The text to copy to clipboard"]
+                "data": ["type": "string", "description": "The text to copy to clipboard"]
             ],
-            "required": ["text"]
+            "required": ["data"]
         ]) { _, args in
         guard let data = args.any("data") else { throw BridgeError.missingArg("data") }
         return .fromJSONObject(clipboard.write([data]))
