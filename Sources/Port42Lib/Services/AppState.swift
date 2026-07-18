@@ -808,6 +808,12 @@ public final class AppState: ObservableObject {
     /// forever with no prompt.
     public let permissions = PermissionCoordinator()
 
+    /// The unified bridge method registry (API/tool-use unification, Phase 2). One implementation per
+    /// method; the three calling paths (port JS, companion tool-use, gateway) dispatch through it via
+    /// `runBridgeMethod`. Built once and stored: the bodies capture `self`, an intentional retain that
+    /// is fine because AppState lives for the app's lifetime.
+    public lazy var bridgeRegistry: BridgeRegistry = buildBridgeRegistry(self)
+
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?

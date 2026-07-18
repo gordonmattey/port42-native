@@ -1182,26 +1182,39 @@ public final class RemoteToolExecutor: ObservableObject {
     }
 
     public func execute(method: String, input: [String: Any]) async -> Any {
-        // Map dot-notation "terminal.exec" -> underscore "terminal_exec" for ToolExecutor
-        let toolName = method.replacingOccurrences(of: ".", with: "_")
+        // Resolve the incoming name to canonical: a dotted name IS canonical (`port.getHtml`,
+        // `ports.list`); a snake tool name maps through ToolNaming. This is what makes both spellings
+        // reach the same method and kills the `port.getHtml` → Unknown-tool class.
+        let canonical = method.contains(".") ? method : (ToolNaming.canonical(fromTool: method) ?? method)
 
-        // Pre-grant permissions the user has marked "Always Allow" in Settings
-        if let perm = ToolDefinitions.permission(for: toolName) {
-            let key: String?
-            switch perm {
-            case .terminal: key = "remoteAllowTerminal"
-            case .filesystem: key = "remoteAllowFS"
-            case .screen: key = "remoteAllowScreen"
-            default: key = nil
-            }
-            if let key, UserDefaults.standard.bool(forKey: key) {
-                internalExecutor.pregrant(perm)
+        // "Always Allow" settings become pre-grants for the registry path (and the old path below).
+        var pregrant: Set<PortPermission> = []
+        for (key, perm): (String, PortPermission) in [("remoteAllowTerminal", .terminal),
+                                                       ("remoteAllowFS", .filesystem),
+                                                       ("remoteAllowScreen", .screen)] {
+            if UserDefaults.standard.bool(forKey: key) { pregrant.insert(perm) }
+        }
+
+        // Registry-first (Phase 2): the unified path serves every extracted method, identically for
+        // JS / tool-use / gateway. Anything not yet extracted (the live-only families) falls through
+        // to the old switch below, unchanged.
+        if let appState, appState.bridgeHandles(canonical) {
+            let principal = Principal(id: senderId, displayName: senderName, spaceId: nil, kind: .peer)
+            do {
+                let value = try await appState.runBridgeMethod(canonical, principal: principal,
+                                                               args: BridgeArgs(input), pregrant: pregrant)
+                return value.toJSONObject()
+            } catch let e as BridgeError {
+                return e.toJSONObject()
+            } catch {
+                return ["error": error.localizedDescription]
             }
         }
 
-        // Pass the full JSON input directly — no manual argument mapping needed
+        // Old path (live-only families not yet extracted).
+        let toolName = method.replacingOccurrences(of: ".", with: "_")
+        for perm in pregrant { internalExecutor.pregrant(perm) }
         let result = await internalExecutor.execute(name: toolName, input: input)
-
         if let first = result.first {
             return (first["text"] as? String) ?? first
         }

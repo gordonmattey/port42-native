@@ -269,9 +269,28 @@ test below.
 - **Done:** every method family has a registry entry, a passing parity case (happy + error), a captured
   golden, and the coverage assertion is green. Old paths still live and untouched.
 
-### Phase 2 — thin adapters (switch the live paths onto the registry)
+### Phase 2 — thin adapters (switch the live paths onto the registry) — **IN PROGRESS**
 
-**Goal.** Delete the two big switches; the three paths become adapters.
+**Approach (safe, incremental — chosen over a big-bang delete):** each adapter goes **registry-first
+with old-path fallback**. It resolves the incoming name to canonical, and if the registry handles it,
+runs the one dispatch path; otherwise it falls through to its existing switch, which still serves the
+live-only families until they are extracted. So the old switches are deleted *last*, once every method
+is extracted and verified, not up front.
+
+**Landed:**
+- **The shared dispatcher** (`BridgeDispatcher.swift`): `AppState.runBridgeMethod(canonical, principal,
+  args, pregrant)` — resolve alias, look up the one impl, permission-gate via the coordinator (keyed by
+  principal, honoring pregrants), run. Plus `bridgeHandles(_)`. `AppState.bridgeRegistry` is built once
+  and stored. This is the single choke point every adapter shares.
+- **Gateway wired** (`RemoteToolExecutor.execute`): registry-first. A dotted name is canonical; a snake
+  tool name maps through `ToolNaming` — so **both spellings now reach the same method**, and
+  `port.getHtml` over the gateway returns HTML instead of Unknown tool. "Always Allow" settings become
+  pregrants. `BridgeDispatchTests`, 6 green (incl. the getHtml-no-longer-404 case).
+
+**Next:** wire `ToolExecutor.execute` (in-app companion) and `PortBridge.handleMethod` (port JS) the
+same way, then extract the live-only families, then delete the switches.
+
+**Original goal.** Delete the two big switches; the three paths become adapters.
 
 **Work.**
 - **`ToolUseAdapter`** (replaces `ToolExecutor.executeImpl`): `canonical(fromTool: name)` → registry
