@@ -93,35 +93,61 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         }
         let messages: [[String: Any]] = [["role": "user", "content": content]]
 
-        // Settlement is core-owned (see docs/rca-aicomplete-cancel-hang.md): on cancel we settle the
-        // continuation ourselves rather than depend on the engine emitting a terminal callback — the
-        // real LLMEngine deliberately swallows NSURLErrorCancelled, so relying on it dangles the promise.
-        // `collector` is hoisted so onCancel can settle it; `backend.cancel()` is only "stop the network".
-        var collector: LLMStreamCollector?
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<BridgeValue, Error>) in
-                let c = LLMStreamCollector(
-                    yield: yield, continuation: cont, engine: backend,
-                    onDone: { done in appState.releaseStreamCollector(done) })
-                collector = c
-                appState.retainStreamCollector(c)
-                do {
-                    try backend.send(
-                        messages: messages, systemPrompt: systemPrompt, model: model,
-                        maxTokens: maxTokens, tools: nil, thinkingEnabled: false,
-                        thinkingEffort: "low", delegate: c)
-                } catch {
-                    appState.releaseStreamCollector(c)
-                    cont.resume(throwing: (error as? BridgeError)
-                        ?? BridgeError(code: "ai_error", message: error.localizedDescription))
-                }
-            }
-        } onCancel: {
-            Task { @MainActor in
-                backend.cancel()
-                collector?.cancelIfPending()   // settle deterministically; a late engine callback no-ops
-            }
+        return try await appState.runLLMStream(
+            backend: backend, messages: messages, systemPrompt: systemPrompt,
+            model: model, maxTokens: maxTokens, yield: yield)
+    }
+
+    r["companions.invoke"] = BridgeStreamMethod(
+        permission: .ai,
+        paramNames: ["identifier", "prompt"],
+        description: "Invoke a companion (by id or name) with a prompt; streams its reply. The companion sees recent space context and replies to the caller, not the chat.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "identifier": ["type": "string", "description": "Companion id or display name."] as [String: Any],
+                "prompt": ["type": "string", "description": "What to ask the companion."] as [String: Any]
+            ] as [String: Any],
+            "required": ["identifier"]
+        ]
+    ) { principal, args, yield in
+        let identifier = try args.requireString("identifier")
+        guard !identifier.isEmpty else {
+            throw BridgeError(code: "bad_args", message: "companions.invoke requires a companion id or name")
         }
+        let prompt = args.string("prompt") ?? ""
+
+        let companion = appState.companions.first(where: { $0.id == identifier })
+            ?? appState.companions.first(where: { $0.displayName.lowercased() == identifier.lowercased() })
+        guard let companion else {
+            throw BridgeError(code: "not_found", message: "companion not found: \(identifier)")
+        }
+        guard companion.mode == .llm else {
+            throw BridgeError(code: "not_llm", message: "companion '\(companion.displayName)' is not an LLM companion")
+        }
+
+        let bridge = appState.streamPortBridge(for: principal)
+        if let bridge, bridge.isSuspended {
+            throw BridgeError(code: "port_paused",
+                              message: "port is paused (parked or backgrounded). Bring it to the desktop to use AI.")
+        }
+
+        let createdBy = appState.createdBy(for: principal, bridge: bridge)
+        let model = companion.model ?? appState.resolvePortAIModel(createdBy: createdBy)
+        let systemPrompt = appState.companionInvokeSystemPrompt(companion: companion, spaceId: principal.spaceId)
+        let messages = appState.companionInvokeMessages(companion: companion, prompt: prompt)
+        guard !messages.isEmpty else {
+            throw BridgeError(code: "no_messages", message: "no messages to send")
+        }
+
+        // The target companion's own backend (fixes a latent bug: the old path always used a bare
+        // LLMEngine, so a Gemini companion was invoked through the Anthropic engine). Override for tests.
+        let backend = appState.streamBackendOverride?(companion.id) ?? makeLLMBackend(for: companion)
+        backend.trackingSource = "port:invoke:\(companion.displayName)"
+
+        return try await appState.runLLMStream(
+            backend: backend, messages: messages, systemPrompt: systemPrompt,
+            model: model, maxTokens: appState.portAIMaxTokens, yield: yield)
     }
 
     return r

@@ -91,4 +91,105 @@ public extension AppState {
 
     /// In-flight collector count (for tests: 0 -> 1 -> 0 across a call).
     var activeStreamCollectorCount: Int { _activeStreamCollectors.count }
+
+    /// The streaming core shared by every registry stream method (ai.complete, companions.invoke):
+    /// send `messages` to `backend`, stream tokens via `yield`, return the final `{text: ...}`.
+    /// Settlement is core-owned — cancel settles the continuation directly (see the cancel-hang RCA),
+    /// not via an engine callback. Retains the collector for the call's lifetime (delegate is weak).
+    func runLLMStream(backend: LLMBackend, messages: [[String: Any]], systemPrompt: String,
+                      model: String, maxTokens: Int,
+                      yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue {
+        var collector: LLMStreamCollector?
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<BridgeValue, Error>) in
+                let c = LLMStreamCollector(
+                    yield: yield, continuation: cont, engine: backend,
+                    onDone: { [weak self] done in self?.releaseStreamCollector(done) })
+                collector = c
+                self.retainStreamCollector(c)
+                do {
+                    try backend.send(messages: messages, systemPrompt: systemPrompt, model: model,
+                                     maxTokens: maxTokens, tools: nil, thinkingEnabled: false,
+                                     thinkingEffort: "low", delegate: c)
+                } catch {
+                    self.releaseStreamCollector(c)
+                    cont.resume(throwing: (error as? BridgeError)
+                        ?? BridgeError(code: "ai_error", message: error.localizedDescription))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                backend.cancel()
+                collector?.cancelIfPending()
+            }
+        }
+    }
+
+    // MARK: - companions.invoke support (moved off PortBridge for the streaming registry)
+
+    /// Identity + space-context system prompt for a port-invoked companion.
+    func companionInvokeSystemPrompt(companion: AgentConfig, spaceId: String?) -> String {
+        let userName = currentUser?.displayName ?? "someone"
+        let contextDescription: String
+        if let ch = currentSpace, ch.type == "direct", let c = spaceCompanions.first {
+            contextDescription = "You are in a private 1:1 space (DM) with \(userName) and \(c.displayName)."
+        } else if let cid = spaceId, let ch = spaces.first(where: { $0.id == cid }) {
+            contextDescription = "You are in the #\(ch.name) space."
+        } else if let ch = currentSpace {
+            contextDescription = "You are in the #\(ch.name) space."
+        } else {
+            contextDescription = "You are in a Port42 conversation."
+        }
+        let basePrompt = companion.systemPrompt ?? "You are a helpful companion."
+        return """
+            IDENTITY: You are \(companion.displayName).
+
+            CONTEXT: You are an AI companion in Port42. \(contextDescription) \
+            The user is \(userName). You were invoked by a port (an interactive UI surface) to provide analysis or answers. \
+            Your response goes back to the port, not to the chat. Be helpful and concise.
+
+            INSTRUCTIONS: \(basePrompt)
+            """
+    }
+
+    /// Recent space conversation (last 20) plus the port's prompt, alternated user/assistant.
+    func companionInvokeMessages(companion: AgentConfig, prompt: String) -> [[String: Any]] {
+        var messages: [[String: Any]] = []
+        for msg in self.messages.suffix(20) {
+            if msg.isSystem { continue }
+            if msg.content.isEmpty || msg.content.hasPrefix("[error:") { continue }
+            if msg.senderId == companion.id {
+                messages.append(["role": "assistant", "content": msg.content])
+            } else if msg.isAgent {
+                let ownerNote = msg.senderOwner.map { " (belonging to \($0))" } ?? ""
+                messages.append(["role": "user", "content": "(companion \(msg.senderName)\(ownerNote) said): \(msg.content)"])
+            } else {
+                messages.append(["role": "user", "content": "[\(msg.senderName)]: \(msg.content)"])
+            }
+        }
+        if !prompt.isEmpty {
+            messages.append(["role": "user", "content": prompt])
+        }
+        return cleanAlternation(messages)
+    }
+
+    /// Ensure messages alternate user/assistant and start with user; merge consecutive same-role.
+    private func cleanAlternation(_ messages: [[String: Any]]) -> [[String: Any]] {
+        guard !messages.isEmpty else { return [] }
+        var result: [[String: Any]] = []
+        for msg in messages {
+            let role = msg["role"] as? String ?? "user"
+            if let last = result.last, last["role"] as? String == role {
+                let merged = (last["content"] as? String ?? "") + "\n" + (msg["content"] as? String ?? "")
+                result[result.count - 1] = ["role": role, "content": merged]
+            } else {
+                result.append(msg)
+            }
+        }
+        // Must start with user.
+        if result.first?["role"] as? String == "assistant" {
+            result.insert(["role": "user", "content": "(context)"], at: 0)
+        }
+        return result
+    }
 }

@@ -232,6 +232,34 @@ struct BridgeStreamTests {
         #expect(stub.cancelled == true)
         #expect(w.state.activeStreamCollectorCount == 0)
     }
+
+    // MARK: companions.invoke (folded into the streaming registry)
+
+    @Test("registered companions.invoke streams the companion's reply and resolves {text}")
+    @MainActor
+    func companionInvokeStreams() async throws {
+        let w = try makeParityWorld()   // companion "Echo"
+        w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["Hi"], finalText: "Hi from Echo") }
+        var toks: [String] = []
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let final = try await w.state.runBridgeStream(
+            "companions.invoke", principal: p,
+            args: BridgeArgs(["identifier": "Echo", "prompt": "hello"]), pregrant: [.ai]) { toks.append($0) }
+        #expect(toks == ["Hi"])
+        #expect(final == .object(["text": .string("Hi from Echo")]))
+    }
+
+    @Test("companions.invoke: an unknown companion throws (a real BridgeError, not a resolved {error})")
+    @MainActor
+    func companionInvokeNotFound() async throws {
+        let w = try makeParityWorld()
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        await #expect(throws: BridgeError.self) {
+            _ = try await w.state.runBridgeStream(
+                "companions.invoke", principal: p,
+                args: BridgeArgs(["identifier": "Nobody", "prompt": "hi"]), pregrant: [.ai]) { _ in }
+        }
+    }
 }
 
 // A hermetic LLM backend for streaming tests: yields the given tokens then finishes (or errors),

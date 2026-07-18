@@ -46,11 +46,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     public var grantedPermissions: Set<PortPermission> = []
 
     /// Active AI streams keyed by callId.
-    public var activeStreams: [Int: PortAIHandler] = [:]
-
-    /// In-flight streaming-registry calls (ai.complete), keyed by the JS callId so `ai.cancel(callId)`
-    /// can cancel the running Task. Distinct from `activeStreams`, which serves the legacy
-    /// PortAIHandler path (companions.invoke).
+    /// In-flight streaming-registry calls (ai.complete, companions.invoke), keyed by the JS callId so
+    /// `ai.cancel(callId)` and `suspendAI()` (park/background) can cancel the running Task. This is the
+    /// only in-flight-AI bookkeeping — the old PortAIHandler/activeStreams path is gone.
     public var streamTasks: [Int: Task<Void, Never>] = [:]
 
 
@@ -231,12 +229,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         webView?.evaluateJavaScript("port42._reject(\(callId), \"\(escaped)\")") { _, _ in }
     }
 
-    /// Remove a completed stream handler.
-    @MainActor
-    public func removeStream(_ callId: Int) {
-        activeStreams.removeValue(forKey: callId)
-    }
-
     /// Resolve a deferred call with a structured `BridgeValue` (a streaming method's final value, e.g.
     /// ai.complete's `{text: ...}`). The JS promise resolves with the JSON object as-is; there is no
     /// bare-string unwrap. Uses `_resolve` with a JSON value, mirroring the synchronous result path.
@@ -265,14 +257,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     }
 
     /// Cancel every in-flight AI stream — called when the port is parked/backgrounded so a running
-    /// generation stops immediately, not just the next one. Gating new calls (see handleAIComplete)
-    /// stops the loop; this stops the current spend.
+    /// generation stops immediately, not just the next one. Gating new calls (the `isSuspended` guard
+    /// in the registry stream methods) stops the loop; this stops the current spend. Cancelling the
+    /// Task trips runBridgeStream's cancel handler (backend.cancel + core-owned settlement).
     @MainActor
     public func suspendAI() {
-        for (callId, handler) in activeStreams {
-            handler.engine.cancel()
-            removeStream(callId)
-        }
+        for (_, task) in streamTasks { task.cancel() }
+        streamTasks.removeAll()
     }
 
     /// Escape a string for safe embedding in JS string literals.
@@ -429,9 +420,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             return NSNull()
 
-        // port42.companions.invoke(id, prompt)
-        case "companions.invoke":
-            return await handleCompanionInvoke(args: args, callId: callId, state: state)
+        // port42.companions.invoke moved to the streaming registry (item 8) — handled by the stream
+        // branch above, before this switch. No longer a case here.
 
         // port42.messages.recent(n)
         case "messages.recent":
@@ -605,16 +595,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             guard let targetId = args.first as? Int else {
                 return ["error": "ai.cancel requires a callId"]
             }
-            // ai.complete now runs as a tracked Task (streaming registry); cancel that first. Fall back
-            // to the legacy PortAIHandler stream, which companions.invoke still uses.
+            // ai.complete / companions.invoke run as tracked Tasks (streaming registry); cancel the
+            // Task, which trips runBridgeStream's cancel handler (backend.cancel + core settlement).
             if let task = streamTasks[targetId] {
                 task.cancel()
                 streamTasks.removeValue(forKey: targetId)
-                return ["ok": true]
-            }
-            if let handler = activeStreams[targetId] {
-                handler.engine.cancel()
-                removeStream(targetId)
                 return ["ok": true]
             }
             return ["error": "no active stream for callId \(targetId)"]
@@ -1455,143 +1440,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
-    // ai.complete moved to the streaming registry (item 8): its impl is `buildBridgeStreamRegistry`,
-    // dispatched by the stream branch in `handleMethod`. The old `handleAIComplete` is deleted;
-    // `companions.invoke` below still uses the PortAIHandler path.
-
-    // MARK: - Companion Invoke
-
-    @MainActor
-    private func handleCompanionInvoke(args: [Any], callId: Int, state: AppState) async -> Any {
-        guard let identifier = args.first as? String, !identifier.isEmpty else {
-            return ["error": "companions.invoke requires a companion id or name"]
-        }
-        let prompt = (args.count > 1 ? args[1] as? String : nil) ?? ""
-
-        // Resolve companion by ID or by name (case-insensitive)
-        let companion = state.companions.first(where: { $0.id == identifier })
-            ?? state.companions.first(where: { $0.displayName.lowercased() == identifier.lowercased() })
-
-        guard let companion else {
-            return ["error": "companion not found: \(identifier)"]
-        }
-
-        guard companion.mode == .llm else {
-            return ["error": "companion '\(companion.displayName)' is not an LLM companion"]
-        }
-
-        // Same token-burn guard as ai.complete: a paused port can't invoke a companion either.
-        if isSuspended {
-            return ["error": "port is paused (parked or backgrounded). Bring it to the desktop to use AI."]
-        }
-
-        // Model resolution: explicit option (not used for invoke) -> companion config -> creating companion -> system default
-        let model = companion.model ?? resolveDefaultModel(state: state)
-        let basePrompt = companion.systemPrompt ?? "You are a helpful companion."
-
-        // Build system prompt with identity and space context
-        let userName = state.currentUser?.displayName ?? "someone"
-        let contextDescription: String
-        if let ch = state.currentSpace, ch.type == "direct",
-           let companion = state.spaceCompanions.first {
-            contextDescription = "You are in a private 1:1 space (DM) with \(userName) and \(companion.displayName)."
-        } else if let cid = spaceId, let ch = state.spaces.first(where: { $0.id == cid }) {
-            contextDescription = "You are in the #\(ch.name) space."
-        } else if let ch = state.currentSpace {
-            contextDescription = "You are in the #\(ch.name) space."
-        } else {
-            contextDescription = "You are in a Port42 conversation."
-        }
-        let companionSystemPrompt = """
-            IDENTITY: You are \(companion.displayName).
-
-            CONTEXT: You are an AI companion in Port42. \(contextDescription) \
-            The user is \(userName). You were invoked by a port (an interactive UI surface) to provide analysis or answers. \
-            Your response goes back to the port, not to the chat. Be helpful and concise.
-
-            INSTRUCTIONS: \(basePrompt)
-            """
-
-        // Build space context messages (recent conversation)
-        var messages: [[String: Any]] = []
-        let recent = state.messages.suffix(20)
-        for msg in recent {
-            if msg.isSystem { continue }
-            if msg.content.isEmpty || msg.content.hasPrefix("[error:") { continue }
-            if msg.senderId == companion.id {
-                messages.append(["role": "assistant", "content": msg.content])
-            } else if msg.isAgent {
-                let ownerNote = msg.senderOwner.map { " (belonging to \($0))" } ?? ""
-                messages.append(["role": "user", "content": "(companion \(msg.senderName)\(ownerNote) said): \(msg.content)"])
-            } else {
-                messages.append(["role": "user", "content": "[\(msg.senderName)]: \(msg.content)"])
-            }
-        }
-
-        // Append the port's prompt as the final user message
-        if !prompt.isEmpty {
-            messages.append(["role": "user", "content": prompt])
-        }
-
-        // Ensure messages alternate and start with user
-        messages = cleanAlternation(messages)
-        guard !messages.isEmpty else {
-            return ["error": "no messages to send"]
-        }
-
-        let handler = PortAIHandler(callId: callId, bridge: self)
-        activeStreams[callId] = handler
-
-        do {
-            try handler.engine.send(
-                messages: messages,
-                systemPrompt: companionSystemPrompt,
-                model: model,
-                maxTokens: state.portAIMaxTokens,
-                tools: nil,
-                thinkingEnabled: false,
-                thinkingEffort: "low",
-                delegate: handler
-            )
-        } catch {
-            removeStream(callId)
-            return ["error": error.localizedDescription]
-        }
-
-        return ["__deferred__": true]
-    }
-
-    // MARK: - Helpers
-
-    /// Resolve the default model for companions.invoke (and any remaining port model needs). Delegates
-    /// to `AppState` (item 8: the resolution is registry-owned now) with this port's creating companion.
-    private func resolveDefaultModel(state: AppState) -> String {
-        state.resolvePortAIModel(createdBy: createdBy)
-    }
-
-    /// Ensure messages alternate user/assistant and start with user.
-    /// Merges consecutive same-role messages.
-    private func cleanAlternation(_ messages: [[String: Any]]) -> [[String: Any]] {
-        guard !messages.isEmpty else { return [] }
-        var result: [[String: Any]] = []
-        for msg in messages {
-            let role = msg["role"] as? String ?? "user"
-            if let last = result.last, last["role"] as? String == role {
-                // Merge consecutive same-role messages (text content only)
-                let lastContent = last["content"] as? String ?? ""
-                let thisContent = msg["content"] as? String ?? ""
-                let merged = lastContent + "\n" + thisContent
-                result[result.count - 1] = ["role": role, "content": merged]
-            } else {
-                result.append(msg)
-            }
-        }
-        // Must start with user
-        if result.first?["role"] as? String == "assistant" {
-            result.insert(["role": "user", "content": "(context)"], at: 0)
-        }
-        return result
-    }
+    // ai.complete and companions.invoke moved to the streaming registry (item 8):
+    // buildBridgeStreamRegistry, dispatched by the stream branch in handleMethod. The old
+    // handleAIComplete / handleCompanionInvoke and their helpers (resolveDefaultModel,
+    // cleanAlternation) are deleted; the message-building lives on AppState now.
 
     // MARK: - Storage Helpers
 

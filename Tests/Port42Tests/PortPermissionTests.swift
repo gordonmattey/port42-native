@@ -189,7 +189,7 @@ struct PortPermissionTests {
     @Test("new bridge has no active streams")
     func newBridgeNoStreams() {
         let bridge = PortBridge(appState: NSObject(), spaceId: nil)
-        #expect(bridge.activeStreams.isEmpty)
+        #expect(bridge.streamTasks.isEmpty)
     }
 
     // ("pending permission starts nil" retired: a bridge no longer owns pending-permission state.

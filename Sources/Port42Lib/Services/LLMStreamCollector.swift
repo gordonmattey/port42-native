@@ -4,8 +4,8 @@ import Foundation
 //
 // Bridges the delegate-based LLM engine (`LLMStreamDelegate`: token / finish / error callbacks) to the
 // `BridgeStreamMethod` shape (yield tokens via a closure, return a final `BridgeValue`, throw on error).
-// `PortAIHandler` does the same but pushes into a specific `PortBridge`'s JS shim; this pushes into the
-// unified `yield` + a continuation, so `ai.complete` can live in the registry and stream to ANY surface.
+// It pushes into the unified `yield` + a continuation, so ai.complete / companions.invoke live in the
+// registry and stream to ANY surface (port JS, gateway, tool-use) instead of a per-surface handler.
 //
 // Usage:
 //   return try await withCheckedThrowingContinuation { cont in
