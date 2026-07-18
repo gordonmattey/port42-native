@@ -132,11 +132,10 @@ struct BridgeParamConsistencyTests {
     @Test("Parser finds all registry methods (sanity)")
     func parserCoverage() throws {
         let methods = try Self.parseMethods()
-        // Source-scan covers the `r["..."] = BridgeMethod` form. Keeper's 12 methods are now
-        // manifest-declared (BridgeServiceKeeper.swift), so they leave the source-scan and are checked
-        // by the runtime probe below instead. BridgeMethods.swift: 42 one-shot + companions.invoke = 43.
-        // BridgeServiceAI.swift: ai.models + ai.status + ai.complete = 3. Total 46.
-        #expect(methods.count == 46, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // Source-scan covers the `r["..."] = BridgeMethod` form. Manifest-declared services (Keeper 12,
+        // storage 4) leave the source-scan and are checked by the runtime probe below instead.
+        // BridgeMethods.swift: 38 one-shot + companions.invoke = 39. BridgeServiceAI.swift: 3. Total 42.
+        #expect(methods.count == 42, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")
@@ -171,26 +170,28 @@ struct BridgeParamConsistencyTests {
     // invokes each method with an input built from the manifest's `required` props and asserts no
     // argument-shaped error, which catches the clipboard class (a required prop the body never reads)
     // by actually running the body. Keeper is headless (DB-backed), so this runs without hardware.
-    @Test("manifest service consistency (Keeper): every method accepts its required args, no arg error")
+    @Test("manifest service consistency: every method accepts its required args, no arg error")
     @MainActor
-    func keeperManifestConsistency() async throws {
+    func manifestServiceConsistency() async throws {
         let world = try makeParityWorld()
         let registry = buildBridgeRegistry(world.state)
         let argCodes: Set<String> = ["bad_arg", "bad_args", "missing_arg"]
 
-        for method in keeperManifest().methods {
-            let required = (method.inputSchema["required"] as? [String]) ?? []
-            var input: [String: Any] = [:]
-            for key in required { input[key] = "x" }   // Keeper's required props are all strings
-            guard let impl = registry[method.canonical] else {
-                Issue.record("keeper method '\(method.canonical)' not in the registry"); continue
-            }
-            do {
-                _ = try await impl.run(world.principal, BridgeArgs(input))
-            } catch let e as BridgeError where argCodes.contains(e.code) {
-                Issue.record("\(method.canonical): arg error on manifest-required input \(input): \(e.code) — \(e.message)")
-            } catch {
-                // A non-arg error (not_found on a dummy id, etc.) means the args parsed fine. Acceptable.
+        for service in appManifestServices() {
+            for method in service.methods {
+                let required = (method.inputSchema["required"] as? [String]) ?? []
+                var input: [String: Any] = [:]
+                for key in required { input[key] = "x" }   // required props here are all strings
+                guard let impl = registry[method.canonical] else {
+                    Issue.record("\(service.service): method '\(method.canonical)' not in the registry"); continue
+                }
+                do {
+                    _ = try await impl.run(world.principal, BridgeArgs(input))
+                } catch let e as BridgeError where argCodes.contains(e.code) {
+                    Issue.record("\(method.canonical): arg error on manifest-required input \(input): \(e.code) — \(e.message)")
+                } catch {
+                    // A non-arg error (not_found on a dummy id, etc.) means the args parsed fine. Acceptable.
+                }
             }
         }
 

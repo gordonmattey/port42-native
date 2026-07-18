@@ -65,6 +65,13 @@ public struct ServiceManifest {
     }
 }
 
+/// The in-app services declared as manifests. Their name-maps merge into `AppState.bridgeAliases`, and
+/// the manifest-consistency runtime probe iterates this list. A new manifest service is added here.
+@MainActor
+func appManifestServices() -> [ServiceManifest] {
+    [keeperManifest(), storageManifest()]
+}
+
 /// Register a manifest's methods into the registry. Each method becomes a `BridgeMethod` carrying the
 /// manifest's schema + permission, its body a GENERIC proxy that forwards `(canonical, principal, args)`
 /// to `body`. Returns the derived surface->canonical name-map for the alias resolver.

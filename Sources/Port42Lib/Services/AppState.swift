@@ -830,7 +830,9 @@ public final class AppState: ObservableObject {
     /// service, not in a central list. `runBridgeMethod` resolves through this before registry lookup.
     public lazy var bridgeAliases: [String: String] = {
         var m = ToolNaming.aliases
-        for (surface, canonical) in keeperManifest().nameMap { m[surface] = canonical }
+        for service in appManifestServices() {
+            for (surface, canonical) in service.nameMap { m[surface] = canonical }
+        }
         return m
     }()
 
