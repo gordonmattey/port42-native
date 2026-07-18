@@ -24,6 +24,13 @@ public struct BridgeMethod {
     /// reconciled in Phase 3 (picked-path grant on the principal). `bridgeHandles` excludes unwired
     /// methods, so they keep running on the old path until then.
     public let wired: Bool
+    /// Self-describing metadata (the big-bang's single source): a human/model description and a
+    /// JSON-Schema for the method's input, mirroring `BridgeStreamMethod`. `anthropicToolSchema`
+    /// generates the tool-use schema from these, so `ToolDefinitions` can be flipped to generated and
+    /// deleted. Defaulted empty so the field is additive; a method in the tool-parity set with empty
+    /// metadata fails `BridgeSchemaParityTests`, which is how coverage is enforced (test, not compiler).
+    public let description: String
+    public let inputSchema: [String: Any]
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
     /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
     /// two executors do today.
@@ -32,10 +39,14 @@ public struct BridgeMethod {
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
                 wired: Bool = true,
+                description: String = "",
+                inputSchema: [String: Any] = [:],
                 run: @escaping @MainActor (Principal, BridgeArgs) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
         self.wired = wired
+        self.description = description
+        self.inputSchema = inputSchema
         self.run = run
     }
 }
@@ -76,16 +87,29 @@ public struct BridgeStreamMethod {
     }
 }
 
-/// Generate an Anthropic tool-use schema from a stream method's self-describing metadata. This is the
-/// item-8 spike's proof of the big-bang's generation step: one place (the registration) produces the
-/// tool schema, instead of a hand-written `ToolDefinitions` entry maintained in parallel.
+/// Generate an Anthropic tool-use schema from a method's self-describing metadata. One place (the
+/// registration) produces the tool schema, instead of a hand-written `ToolDefinitions` entry
+/// maintained in parallel. Snake tool name comes from `ToolNaming` (so the override table is proven
+/// complete by parity). Overloaded for one-shot and streaming methods; both share this core.
 @MainActor
-public func anthropicToolSchema(canonical: String, method: BridgeStreamMethod) -> [String: Any] {
+public func anthropicToolSchema(canonical: String,
+                                description: String,
+                                inputSchema: [String: Any]) -> [String: Any] {
     [
         "name": ToolNaming.tool(fromCanonical: canonical),
-        "description": method.description,
-        "input_schema": method.inputSchema
+        "description": description,
+        "input_schema": inputSchema
     ]
+}
+
+@MainActor
+public func anthropicToolSchema(canonical: String, method: BridgeMethod) -> [String: Any] {
+    anthropicToolSchema(canonical: canonical, description: method.description, inputSchema: method.inputSchema)
+}
+
+@MainActor
+public func anthropicToolSchema(canonical: String, method: BridgeStreamMethod) -> [String: Any] {
+    anthropicToolSchema(canonical: canonical, description: method.description, inputSchema: method.inputSchema)
 }
 
 /// Canonical method name → its streaming implementation (separate from the one-shot registry).

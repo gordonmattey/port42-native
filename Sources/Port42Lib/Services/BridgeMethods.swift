@@ -168,7 +168,23 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         appState.portWindows.webViews[id] ?? appState.findInlineBridge(by: id)?.webView
     }
 
-    r["port.create"] = BridgeMethod(permission: nil, paramNames: ["options"]) { p, args in
+    r["port.create"] = BridgeMethod(permission: nil, paramNames: ["options"],
+        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), and env. Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "type": ["type": "string", "enum": ["web", "terminal"], "description": "The port type to create."],
+                "title": ["type": "string", "description": "Port title (default: derived from html <title>, or the command)."],
+                "html": ["type": "string", "description": "type:\"web\" — full port HTML body (include a <title> and <meta name=\"version\">)."],
+                "command": ["type": "string", "description": "type:\"terminal\" — executable/CLI to run (e.g. \"bash\", \"htop\", \"claude\")."],
+                "args": ["type": "array", "items": ["type": "string"], "description": "type:\"terminal\" — arguments for the command."],
+                "cwd": ["type": "string", "description": "type:\"terminal\" — working directory (default: home)."],
+                "systemPrompt": ["type": "string", "description": "type:\"terminal\" — companion personality/role appended to the CLI's system prompt."],
+                "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
+                "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."]
+            ],
+            "required": ["type"]
+        ] as [String: Any]) { p, args in
         let o = args.object("options") ?? args.dictionary
         let sid = (o["space_id"] as? String) ?? p.spaceId ?? appState.currentSpace?.id ?? ""
         let result = appState.createPort(
@@ -181,7 +197,16 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         return .fromJSONObject(result)   // { id, title }
     }
 
-    r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"]) { _, args in
+    r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"],
+        description: "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. \"ls\\n\", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list), or a terminal's name."],
+                "data": ["description": "For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."]
+            ],
+            "required": ["id", "data"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let data = args.any("data") ?? NSNull()
         let controller = appState.resolveTerminalController(idOrName: id)
@@ -203,7 +228,16 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         }
     }
 
-    r["port.exec"] = BridgeMethod(permission: nil, paramNames: ["id", "js"]) { _, args in
+    r["port.exec"] = BridgeMethod(permission: nil, paramNames: ["id", "js"],
+        description: "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "js": ["type": "string", "description": "JavaScript code to execute in the port's context. Return a value to get it back in the response."]
+            ],
+            "required": ["id", "js"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let js = try args.requireString("js")
         guard let wv = webView(id) else { throw BridgeError.notFound("port '\(id)'") }
@@ -212,7 +246,16 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         return .fromJSONObject(result)
     }
 
-    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"]) { _, args in
+    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"],
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close, minimize/dock (off the desktop but still running), restore/undock (bring a docked/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID or title"],
+                "action": ["type": "string", "description": "One of: focus, close, minimize, dock, restore, undock"]
+            ],
+            "required": ["id", "action"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let action = try args.requireString("action")
         guard let panel = appState.portWindows.findPort(by: id) else { throw BridgeError.notFound("port '\(id)'") }
@@ -241,7 +284,17 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
 
     // terminal.exec — the one gated terminal method (headless run-and-capture). Shared ShellExec, in
     // both old paths. Returns { output }.
-    r["terminal.exec"] = BridgeMethod(permission: .terminal, paramNames: ["command", "options"]) { _, args in
+    r["terminal.exec"] = BridgeMethod(permission: .terminal, paramNames: ["command", "options"],
+        description: "Execute a shell command and return the output. Runs in /bin/zsh.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "command": ["type": "string", "description": "The shell command to execute"],
+                "cwd": ["type": "string", "description": "Working directory (default: home)"],
+                "timeout": ["type": "integer", "description": "Timeout in seconds (default: 30, max: 120)"]
+            ],
+            "required": ["command"]
+        ]) { _, args in
         let command = try args.requireString("command")
         guard !command.isEmpty else { throw BridgeError.badArg("terminal.exec requires a command string") }
         let opts = args.object("options") ?? args.dictionary
@@ -269,40 +322,87 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     let automation = AutomationBridge()
     let audio = AudioBridge()
 
-    r["screen.capture"] = BridgeMethod(permission: .screen, paramNames: ["scale"]) { _, args in
+    r["screen.capture"] = BridgeMethod(permission: .screen, paramNames: ["scale"],
+        description: "Capture a screenshot of the screen. Returns a base64 PNG image.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "scale": ["type": "number", "description": "Image scale factor 0.1-2.0 (default 1.0)"]
+            ]
+        ]) { _, args in
         let scale = args.double("scale") ?? 1.0
         let result = await screen.capture(opts: ["scale": scale, "includeSelf": false])
         if let base64 = result["image"] as? String { return .data(base64: base64, mime: "image/png") }
         return .fromJSONObject(result)
     }
 
-    r["screen.windows"] = BridgeMethod(permission: .screen) { _, _ in
+    r["screen.windows"] = BridgeMethod(permission: .screen,
+        description: "List all visible windows with their titles, apps, and positions",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
         .fromJSONObject(await screen.windows())
     }
 
-    r["camera.capture"] = BridgeMethod(permission: .camera, paramNames: ["scale"]) { _, args in
+    r["camera.capture"] = BridgeMethod(permission: .camera, paramNames: ["scale"],
+        description: "Capture a photo from the device camera. Returns a base64 PNG image.",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { _, args in
         let result = await camera.capture(opts: args.double("scale").map { ["scale": $0] } ?? [:])
         if let base64 = result["image"] as? String { return .data(base64: base64, mime: "image/png") }
         return .fromJSONObject(result)
     }
 
-    r["notify.send"] = BridgeMethod(permission: .notification, paramNames: ["title", "body", "options"]) { _, args in
+    r["notify.send"] = BridgeMethod(permission: .notification, paramNames: ["title", "body", "options"],
+        description: "Send a macOS system notification",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "title": ["type": "string", "description": "Notification title"],
+                "body": ["type": "string", "description": "Notification body text"]
+            ],
+            "required": ["title", "body"]
+        ]) { _, args in
         let title = try args.requireString("title")
         let body = args.string("body") ?? ""
         return .fromJSONObject(await notifications.send(title: title, body: body, opts: args.object("options")))
     }
 
-    r["automation.runAppleScript"] = BridgeMethod(permission: .automation, paramNames: ["source", "timeout"]) { _, args in
+    r["automation.runAppleScript"] = BridgeMethod(permission: .automation, paramNames: ["source", "timeout"],
+        description: "Execute AppleScript code and return the result. Use this to control other applications on macOS.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "source": ["type": "string", "description": "AppleScript source code"],
+                "timeout": ["type": "integer", "description": "Timeout in seconds (default: 30, max: 120)"]
+            ],
+            "required": ["source"]
+        ]) { _, args in
         let source = try args.requireString("source")
         return .fromJSONObject(await automation.runAppleScript(source: source, opts: ["timeout": args.int("timeout") ?? 30]))
     }
 
-    r["automation.runJXA"] = BridgeMethod(permission: .automation, paramNames: ["source", "timeout"]) { _, args in
+    r["automation.runJXA"] = BridgeMethod(permission: .automation, paramNames: ["source", "timeout"],
+        description: "Execute JavaScript for Automation (JXA) code and return the result. Use this to control other applications on macOS.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "source": ["type": "string", "description": "JXA source code"],
+                "timeout": ["type": "integer", "description": "Timeout in seconds (default: 30, max: 120)"]
+            ],
+            "required": ["source"]
+        ]) { _, args in
         let source = try args.requireString("source")
         return .fromJSONObject(await automation.runJXA(source: source, opts: ["timeout": args.int("timeout") ?? 30]))
     }
 
-    r["audio.speak"] = BridgeMethod(permission: nil, paramNames: ["text", "options"]) { _, args in
+    r["audio.speak"] = BridgeMethod(permission: nil, paramNames: ["text", "options"],
+        description: "Speak text aloud using text-to-speech",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "text": ["type": "string", "description": "Text to speak"],
+                "rate": ["type": "number", "description": "Speech rate 0.1-1.0 (default 0.5)"]
+            ],
+            "required": ["text"]
+        ]) { _, args in
         let text = try args.requireString("text")
         return .fromJSONObject(await audio.speak(text: text, opts: args.object("options")))
     }
@@ -330,18 +430,34 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
 private func registerDeviceMethods(into r: inout BridgeRegistry, appState: AppState) {
     let clipboard = ClipboardBridge()
 
-    r["clipboard.read"] = BridgeMethod(permission: .clipboard) { _, _ in
+    r["clipboard.read"] = BridgeMethod(permission: .clipboard,
+        description: "Read the current clipboard contents. Returns text or base64 image data.",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
         .fromJSONObject(clipboard.read())
     }
 
-    r["clipboard.write"] = BridgeMethod(permission: .clipboard, paramNames: ["data"]) { _, args in
+    r["clipboard.write"] = BridgeMethod(permission: .clipboard, paramNames: ["data"],
+        description: "Write text to the system clipboard",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "text": ["type": "string", "description": "The text to copy to clipboard"]
+            ],
+            "required": ["text"]
+        ]) { _, args in
         guard let data = args.any("data") else { throw BridgeError.missingArg("data") }
         return .fromJSONObject(clipboard.write([data]))
     }
 
     // No permission (docs: "no permissions required"). NSScreen, structured array — the canonical
     // form of the old `screen_info` text blob.
-    r["screen.displays"] = BridgeMethod(permission: nil) { _, _ in
+    r["screen.displays"] = BridgeMethod(permission: nil,
+        description: "Get display information: size, position, and visible area (excluding dock/menubar) for all connected displays. No screen recording permission required. Use this to calculate port positions before calling port_move.",
+        inputSchema: [
+            "type": "object",
+            "properties": [String: Any](),
+            "required": [String]()
+        ]) { _, _ in
         .array(NSScreen.screens.map { screen in
             let f = screen.frame
             let v = screen.visibleFrame
@@ -392,7 +508,16 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         return standardized
     }
 
-    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"], wired: false) { _, args in
+    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"], wired: false,
+        description: "Read a file. Use a relative path (e.g. \"scopes/strategy/scope.md\") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "path": ["type": "string", "description": "Relative path within Port42 data directory (e.g. \"scopes/strategy/scope.md\") or absolute path for picker-approved files."],
+                "encoding": ["type": "string", "description": "utf8 (default) or base64"]
+            ],
+            "required": ["path"]
+        ]) { _, args in
         let path = try resolve(try args.requireString("path"))
         let encoding = args.string("encoding") ?? "utf8"
         do {
@@ -407,7 +532,17 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"], wired: false) { _, args in
+    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"], wired: false,
+        description: "Write a file. Use a relative path (e.g. \"scopes/strategy/facts.md\") to write to the Port42 data directory — parent directories are created automatically. Use an absolute path for picker-approved files.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "path": ["type": "string", "description": "Relative path within Port42 data directory (e.g. \"scopes/strategy/facts.md\") or absolute path for picker-approved files."],
+                "data": ["type": "string", "description": "Content to write"],
+                "encoding": ["type": "string", "description": "utf8 (default) or base64"]
+            ],
+            "required": ["path", "data"]
+        ]) { _, args in
         let path = try resolve(try args.requireString("path"))
         let data = try args.requireString("data")
         let encoding = args.string("encoding") ?? "utf8"
@@ -425,7 +560,15 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false) { _, args in
+    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false,
+        description: "List the contents of a directory in the Port42 data directory. Relative paths only (e.g. \"scopes/strategy\" or \"scopes/strategy/decisions\"). Returns a sorted list of filenames.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "path": ["type": "string", "description": "Relative path to the directory (e.g. \"scopes/strategy\")"]
+            ],
+            "required": ["path"]
+        ]) { _, args in
         let path = try resolve(try args.requireString("path"))
         do {
             let items = try FileManager.default.contentsOfDirectory(atPath: path)
@@ -435,7 +578,15 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false) { _, args in
+    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false,
+        description: "Create a directory (and any missing parent directories) in the Port42 data directory. Relative paths only (e.g. \"scopes/strategy/decisions\").",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "path": ["type": "string", "description": "Relative path to create (e.g. \"scopes/strategy/decisions\")"]
+            ],
+            "required": ["path"]
+        ]) { _, args in
         let path = try resolve(try args.requireString("path"))
         do {
             try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
@@ -465,12 +616,21 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         return appState.currentUser?.displayName ?? "agent"
     }
 
-    r["user.get"] = BridgeMethod(permission: nil) { _, _ in
+    r["user.get"] = BridgeMethod(permission: nil,
+        description: "Get the current user's identity (id and display name)",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
         guard let user = appState.currentUser else { throw BridgeError(code: "no_user", message: "no user signed in") }
         return .object(["id": .string(user.id), "displayName": .string(user.displayName)])
     }
 
-    r["space.current"] = BridgeMethod(permission: nil, paramNames: ["space_id"]) { _, args in
+    r["space.current"] = BridgeMethod(permission: nil, paramNames: ["space_id"],
+        description: "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "Optional space id to inspect. Defaults to the currently selected space."]
+            ]
+        ]) { _, args in
         let sid = args.string("space_id")
         guard let ch = (sid.flatMap { id in appState.spaces.first(where: { $0.id == id }) } ?? appState.currentSpace) else {
             throw BridgeError.notFound("space")
@@ -483,11 +643,20 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         ])
     }
 
-    r["space.list"] = BridgeMethod(permission: nil) { _, _ in
+    r["space.list"] = BridgeMethod(permission: nil,
+        description: "List all spaces the user belongs to",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
         .array(appState.spaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) })
     }
 
-    r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id"]) { _, args in
+    r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id"],
+        description: "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "Optional space id to filter companions to that space's members."]
+            ]
+        ]) { _, args in
         let companions = Port42Members.companions(appState: appState, spaceId: args.string("space_id"))
         return .array(companions.map { c in
             .object([
@@ -497,7 +666,15 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         })
     }
 
-    r["companions.get"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+    r["companions.get"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Get details about a specific companion by ID",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The companion's ID"]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         let id = try args.requireString("id")
         guard let c = appState.companions.first(where: { $0.id == id }) else {
             throw BridgeError.notFound("companion '\(id)'")
@@ -508,7 +685,15 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         ])
     }
 
-    r["messages.recent"] = BridgeMethod(permission: nil, paramNames: ["count", "space_id", "topic"]) { p, args in
+    r["messages.recent"] = BridgeMethod(permission: nil, paramNames: ["count", "space_id", "topic"],
+        description: "Get the most recent messages from the current space",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "count": ["type": "integer", "description": "Number of messages to retrieve (default 20, max 100)"],
+                "topic": ["type": "string", "description": "Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join/leave events."]
+            ]
+        ]) { p, args in
         let count = min(args.int("count") ?? 20, 100)
         let topic = args.string("topic") ?? "chat"
         let msgs = (try? appState.db.getMessages(spaceId: targetSpace(p, args), topic: topic)) ?? []
@@ -520,7 +705,17 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         })
     }
 
-    r["bus.read"] = BridgeMethod(permission: nil, paramNames: ["topic", "limit", "space_id"]) { p, args in
+    r["bus.read"] = BridgeMethod(permission: nil, paramNames: ["topic", "limit", "space_id"],
+        description: "Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join/leave/presence), 'port:{portId}' (port-scoped events).",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "topic": ["type": "string", "description": "Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')"],
+                "limit": ["type": "integer", "description": "Max messages to return (default 20)"],
+                "space_id": ["type": "string", "description": "Space ID. Omit for current space."]
+            ],
+            "required": ["topic"]
+        ]) { p, args in
         let topic = try args.requireString("topic")
         let limit = min(args.int("limit") ?? 20, 100)
         let msgs = (try? appState.db.getMessages(spaceId: targetSpace(p, args), topic: topic)) ?? []
@@ -532,14 +727,33 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         })
     }
 
-    r["bus.publish"] = BridgeMethod(permission: nil, paramNames: ["topic", "payload", "space_id"]) { p, args in
+    r["bus.publish"] = BridgeMethod(permission: nil, paramNames: ["topic", "payload", "space_id"],
+        description: "Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "topic": ["type": "string", "description": "Bus topic (e.g. 'bus', 'port:myPortId')"],
+                "payload": ["type": "string", "description": "Message payload — any string, typically JSON"],
+                "space_id": ["type": "string", "description": "Target space ID. Omit for current space."]
+            ],
+            "required": ["topic", "payload"]
+        ]) { p, args in
         let topic = try args.requireString("topic")
         let payload = try args.requireString("payload")
         appState.publishToBus(spaceId: targetSpace(p, args), topic: topic, payload: payload, senderName: senderName(p, args))
         return .object(["ok": .bool(true), "topic": .string(topic)])
     }
 
-    r["messages.send"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"]) { p, args in
+    r["messages.send"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"],
+        description: "Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "text": ["type": "string", "description": "The message text to send"],
+                "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."]
+            ],
+            "required": ["text"]
+        ]) { p, args in
         let text = try args.requireString("text")
         let target = args.string("space_id") ?? p.spaceId
         let override = args.string("senderName") ?? args.string("sender_name")
@@ -565,7 +779,18 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
 @MainActor
 private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
 
-    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities"]) { p, args in
+    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities"],
+        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "capabilities": [
+                    "type": "array",
+                    "items": ["type": "string"],
+                    "description": "Filter to ports that have all of these capabilities. Examples: \"terminal\", \"claude-code\", \"browser\". Omit to list all ports."
+                ] as [String: Any]
+            ]
+        ]) { p, args in
         let filterCaps = (args.array("capabilities") as? [String]) ?? []
         let registered = appState.portWindows.allPorts()
         let inline = appState.inlinePorts().filter { $0.spaceId == p.spaceId || p.spaceId == nil }.suffix(5)
@@ -597,7 +822,16 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .array(entries)
     }
 
-    r["port.getHtml"] = BridgeMethod(permission: nil, paramNames: ["id", "version"]) { _, args in
+    r["port.getHtml"] = BridgeMethod(permission: nil, paramNames: ["id", "version"],
+        description: "Read the HTML of a port. Omit 'version' to get the current HTML. Pass 'version' (from port_history) to read a specific historical snapshot.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "version": ["type": "integer", "description": "Optional version number (from port_history). Omit for current HTML."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         let id = try args.requireString("id")
         if let version = args.int("version") {
             guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
@@ -609,7 +843,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         throw BridgeError.notFound("port '\(id)'")
     }
 
-    r["port.history"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+    r["port.history"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "List all saved versions of a port by its UDID. Returns version number, createdBy, and createdAt for each snapshot. Use port_get_html with a version number to read a specific snapshot, or port_restore to roll back.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let versions = (try? appState.db.fetchPortVersions(portUdid: id)) ?? []
         let iso = ISO8601DateFormatter()
@@ -622,7 +864,16 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         })
     }
 
-    r["port.update"] = BridgeMethod(permission: nil, paramNames: ["id", "html"]) { _, args in
+    r["port.update"] = BridgeMethod(permission: nil, paramNames: ["id", "html"],
+        description: "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID or title to identify which port to update"],
+                "html": ["type": "string", "description": "The new HTML content for the port (full HTML, not a diff)"]
+            ],
+            "required": ["id", "html"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let html = try args.requireString("html")
         guard appState.portWindows.updatePort(idOrTitle: id, html: html) else {
@@ -631,7 +882,17 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.patch"] = BridgeMethod(permission: nil, paramNames: ["id", "search", "replace"]) { _, args in
+    r["port.patch"] = BridgeMethod(permission: nil, paramNames: ["id", "search", "replace"],
+        description: "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "search": ["type": "string", "description": "The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output."],
+                "replace": ["type": "string", "description": "The string to replace it with."]
+            ],
+            "required": ["id", "search", "replace"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let search = try args.requireString("search")
         let replace = try args.requireString("replace")
@@ -648,7 +909,16 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.restore"] = BridgeMethod(permission: nil, paramNames: ["id", "version"]) { _, args in
+    r["port.restore"] = BridgeMethod(permission: nil, paramNames: ["id", "version"],
+        description: "Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "version": ["type": "integer", "description": "The version number to restore to (from port_history)"]
+            ],
+            "required": ["id", "version"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let version = try args.requireInt("version")
         guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
@@ -660,7 +930,16 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.rename"] = BridgeMethod(permission: nil, paramNames: ["id", "title"]) { _, args in
+    r["port.rename"] = BridgeMethod(permission: nil, paramNames: ["id", "title"],
+        description: "Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "title": ["type": "string", "description": "The new title for the port"]
+            ],
+            "required": ["id", "title"]
+        ]) { _, args in
         let id = try args.requireString("id")
         let title = try args.requireString("title")
         guard !title.isEmpty else { throw BridgeError.badArg("port.rename requires a non-empty title") }
@@ -669,7 +948,17 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y"]) { _, args in
+    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y"],
+        description: "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "x": ["type": "number", "description": "Horizontal position in screen points"],
+                "y": ["type": "number", "description": "Vertical position in screen points"]
+            ],
+            "required": ["id", "x", "y"]
+        ]) { _, args in
         let id = try args.requireString("id")
         guard let x = args.double("x"), let y = args.double("y") else {
             throw BridgeError.badArg("port.move requires numeric x and y")
@@ -714,7 +1003,15 @@ private func registerStorageMethods(into r: inout BridgeRegistry, appState: AppS
         return (scope, shared ? "__shared__" : p.id)
     }
 
-    r["storage.get"] = BridgeMethod(permission: nil, paramNames: ["key", "options"]) { p, args in
+    r["storage.get"] = BridgeMethod(permission: nil, paramNames: ["key", "options"],
+        description: "Get a value from persistent key-value storage",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "key": ["type": "string", "description": "The storage key"]
+            ],
+            "required": ["key"]
+        ]) { p, args in
         let key = try args.requireString("key")
         let s = try scope(p, args)
         guard let value = try appState.db.getPortStorage(key: key, scope: s.scope, creatorId: s.creator) else {
@@ -727,7 +1024,16 @@ private func registerStorageMethods(into r: inout BridgeRegistry, appState: AppS
         return .object(["value": .string(value)])
     }
 
-    r["storage.set"] = BridgeMethod(permission: nil, paramNames: ["key", "value", "options"]) { p, args in
+    r["storage.set"] = BridgeMethod(permission: nil, paramNames: ["key", "value", "options"],
+        description: "Store a value in persistent key-value storage",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "key": ["type": "string", "description": "The storage key"],
+                "value": ["type": "string", "description": "The value to store"]
+            ],
+            "required": ["key", "value"]
+        ]) { p, args in
         let key = try args.requireString("key")
         guard let rawValue = args.any("value") else { throw BridgeError.badArg("storage.set requires a value") }
         let s = try scope(p, args)
@@ -744,14 +1050,24 @@ private func registerStorageMethods(into r: inout BridgeRegistry, appState: AppS
         return .object(["ok": .bool(true)])
     }
 
-    r["storage.delete"] = BridgeMethod(permission: nil, paramNames: ["key", "options"]) { p, args in
+    r["storage.delete"] = BridgeMethod(permission: nil, paramNames: ["key", "options"],
+        description: "Delete a value from persistent storage",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "key": ["type": "string", "description": "The storage key to delete"]
+            ],
+            "required": ["key"]
+        ]) { p, args in
         let key = try args.requireString("key")
         let s = try scope(p, args)
         try appState.db.deletePortStorage(key: key, scope: s.scope, creatorId: s.creator)
         return .object(["ok": .bool(true)])
     }
 
-    r["storage.list"] = BridgeMethod(permission: nil, paramNames: ["options"]) { p, args in
+    r["storage.list"] = BridgeMethod(permission: nil, paramNames: ["options"],
+        description: "List all keys in persistent storage",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { p, args in
         let s = try scope(p, args)
         let keys = try appState.db.listPortStorageKeys(scope: s.scope, creatorId: s.creator)
         return .object(["keys": .array(keys.map { .string($0) })])
@@ -782,7 +1098,14 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
 
     // MARK: creases
 
-    r["crease.read"] = BridgeMethod(permission: nil) { p, args in
+    r["crease.read"] = BridgeMethod(permission: nil,
+        description: "Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "limit": ["type": "integer", "description": "Max entries to return. Default 8."]
+            ]
+        ]) { p, args in
         let companionId = p.id
         let limit = args.int("limit") ?? 8
         let sid = readSpace(companionId, p.spaceId)
@@ -798,7 +1121,18 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
         return .string(lines.joined(separator: "\n"))
     }
 
-    r["crease.write"] = BridgeMethod(permission: nil, paramNames: ["content"]) { p, args in
+    r["crease.write"] = BridgeMethod(permission: nil, paramNames: ["content"],
+        description: "Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "content": ["type": "string", "description": "Your words about what reformed in the break."],
+                "prediction": ["type": "string", "description": "What you expected."],
+                "actual": ["type": "string", "description": "What happened instead."],
+                "spaceId": ["type": "string", "description": "Omit for a global crease that shapes all relationships."]
+            ],
+            "required": ["content"]
+        ]) { p, args in
         let companionId = p.id
         guard let content = args.string("content"), !content.isEmpty else {
             throw BridgeError.badArg("crease_write requires 'content'")
@@ -814,13 +1148,29 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
         return .object(["id": .string(crease.id), "ok": .bool(true)])
     }
 
-    r["crease.touch"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+    r["crease.touch"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Mark a crease as currently shaping this response. Updates its recency and increases its weight. Use when an existing crease is active — don't re-write it.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The crease id (from crease_read)."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         guard let id = args.string("id") else { throw BridgeError.badArg("crease_touch requires 'id'") }
         try appState.db.touchCrease(id: id)
         return .string("ok")
     }
 
-    r["crease.forget"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+    r["crease.forget"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Remove a crease. Use when your model has updated and the break no longer matters.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The crease id to remove."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         guard let id = args.string("id") else { throw BridgeError.badArg("crease_forget requires 'id'") }
         try appState.db.deleteCrease(id: id)
         return .string("ok")
@@ -828,7 +1178,14 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
 
     // MARK: engravings
 
-    r["engrave.read"] = BridgeMethod(permission: nil) { p, args in
+    r["engrave.read"] = BridgeMethod(permission: nil,
+        description: "Read your engravings — factual knowledge about the user's world. Context, preferences, constraints, goals, capabilities. Things learned about their situation, not breaks in your model. Read these alongside creases to understand who you're swimming with.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "limit": ["type": "integer", "description": "Max entries to return. Default 8."]
+            ]
+        ]) { p, args in
         let companionId = p.id
         let limit = args.int("limit") ?? 8
         let sid = readSpace(companionId, p.spaceId)
@@ -844,7 +1201,17 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
         return .string(lines.joined(separator: "\n"))
     }
 
-    r["engrave.write"] = BridgeMethod(permission: nil, paramNames: ["content"]) { p, args in
+    r["engrave.write"] = BridgeMethod(permission: nil, paramNames: ["content"],
+        description: "Carve an engraving — a fact about the user's world worth keeping. Not what changed in you (that's a crease) — what you learned about their situation. Use category to classify: context, preference, constraint, goal, capability.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "content": ["type": "string", "description": "The factual knowledge about their world."],
+                "category": ["type": "string", "description": "Optional: context, preference, constraint, goal, capability."],
+                "spaceId": ["type": "string", "description": "Omit for a global engraving that shapes all relationships."]
+            ],
+            "required": ["content"]
+        ]) { p, args in
         let companionId = p.id
         guard let content = args.string("content"), !content.isEmpty else {
             throw BridgeError.badArg("engrave_write requires 'content'")
@@ -859,13 +1226,29 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
         return .object(["id": .string(engraving.id), "ok": .bool(true)])
     }
 
-    r["engrave.touch"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+    r["engrave.touch"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Mark an engraving as currently relevant to this response. Updates recency and increases weight. Use when an existing engraving is shaping what you say.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The engraving id (from engrave_read)."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         guard let id = args.string("id") else { throw BridgeError.badArg("engrave_touch requires 'id'") }
         try appState.db.touchEngraving(id: id)
         return .string("ok")
     }
 
-    r["engrave.forget"] = BridgeMethod(permission: nil, paramNames: ["id"]) { _, args in
+    r["engrave.forget"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Remove an engraving. Use when the fact is no longer true or no longer matters.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The engraving id to remove."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
         guard let id = args.string("id") else { throw BridgeError.badArg("engrave_forget requires 'id'") }
         try appState.db.deleteEngraving(id: id)
         return .string("ok")
@@ -873,7 +1256,9 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
 
     // MARK: fold
 
-    r["fold.read"] = BridgeMethod(permission: nil) { p, args in
+    r["fold.read"] = BridgeMethod(permission: nil,
+        description: "Read the fold — your orientation in this relationship. Returns established understandings, tensions being held, what you're carrying, and relational depth. If no fold exists yet, returns empty state.",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { p, args in
         let companionId = args.string("companionId") ?? p.id
         let empty: BridgeValue = .object([
             "established": .array([]), "tensions": .array([]), "holding": .string(""), "depth": .int(0)
@@ -888,7 +1273,25 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
         ])
     }
 
-    r["fold.update"] = BridgeMethod(permission: nil) { p, args in
+    r["fold.update"] = BridgeMethod(permission: nil,
+        description: "Update the fold — your orientation in this relationship. Update specific fields: established (shared understandings), tensions (unresolved threads), holding (the one thing you're carrying). Use depthDelta: 1 only when a real fold happened — something new was compressed into the relationship, not just a message exchanged.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "established": [
+                    "type": "array",
+                    "items": ["type": "string"],
+                    "description": "Shared understandings that no longer need renegotiation."
+                ] as [String: Any],
+                "tensions": [
+                    "type": "array",
+                    "items": ["type": "string"],
+                    "description": "Unresolved things being held in productive suspension."
+                ] as [String: Any],
+                "holding": ["type": "string", "description": "The one thread you're carrying that hasn't found its place yet."],
+                "depthDelta": ["type": "integer", "description": "Pass 1 when a real fold happened. Never more than 1 per exchange."]
+            ]
+        ]) { p, args in
         let companionId = p.id
         guard let sid = writeSpace(companionId, p.spaceId) else {
             throw BridgeError.badArg("no space context for fold")
@@ -906,7 +1309,9 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
 
     // MARK: position
 
-    r["position.read"] = BridgeMethod(permission: nil) { p, args in
+    r["position.read"] = BridgeMethod(permission: nil,
+        description: "Read your current position in this space — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.",
+        inputSchema: ["type": "object", "properties": [String: Any]()]) { p, args in
         let companionId = args.string("companionId") ?? p.id
         let none: BridgeValue = .string("No position formed yet.")
         guard let sid = readSpace(companionId, p.spaceId) else { return none }
@@ -921,7 +1326,21 @@ private func registerMemoryMethods(into r: inout BridgeRegistry, appState: AppSt
         ])
     }
 
-    r["position.set"] = BridgeMethod(permission: nil, paramNames: ["read"]) { p, args in
+    r["position.set"] = BridgeMethod(permission: nil, paramNames: ["read"],
+        description: "Establish or update your position — where you stand independent of what was just asked. This is not what you say. It's what you see and what you believe. Call this when your read of the situation changes, not after every exchange. A position gives you somewhere to push back from.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "read": ["type": "string", "description": "What you think is actually happening beneath what's being said."],
+                "stance": ["type": "string", "description": "What you think needs to happen."],
+                "watching": [
+                    "type": "array",
+                    "items": ["type": "string"],
+                    "description": "Signals you're tracking that would confirm or change your read."
+                ] as [String: Any]
+            ],
+            "required": ["read"]
+        ]) { p, args in
         let companionId = p.id
         guard let read = args.string("read"), !read.isEmpty else {
             throw BridgeError.badArg("position_set requires 'read'")
