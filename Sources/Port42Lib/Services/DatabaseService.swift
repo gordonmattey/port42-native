@@ -1640,8 +1640,17 @@ public final class DatabaseService {
 
     public func fetchPortHtml(udid: String) throws -> String? {
         try dbQueue.read { db in
-            try String.fetchOne(db,
+            if let html = try String.fetchOne(db,
                 sql: "SELECT html FROM port_panels WHERE udid = ?",
+                arguments: [udid]) {
+                return html
+            }
+            // Fallback: a port with no live panel row still has its HTML in the version store — e.g. a
+            // background port whose tile was closed (so its port_panels row is gone), or a generative
+            // port. Return the latest version so port.getHtml and background restore both survive a
+            // missing panel row. Root fix for "background port vanishes on restart".
+            return try String.fetchOne(db,
+                sql: "SELECT html FROM port_versions WHERE portUdid = ? ORDER BY version DESC LIMIT 1",
                 arguments: [udid])
         }
     }

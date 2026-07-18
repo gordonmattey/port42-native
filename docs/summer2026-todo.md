@@ -35,6 +35,22 @@ loses its restore-time load stays blank forever with no recovery.
 
 ---
 
+## ~~BUG: background port vanishes on restart~~ — FIXED 2026-07-17 (core); optional hardening remains
+
+**Fixed (the core):** `fetchPortHtml` now falls back to the latest `port_versions` row when there is
+no `port_panels` row (`DatabaseService.swift`), so `resolveBackgroundHtml` → `fetchPortHtml` resolves
+the background HTML even after the tile was closed. **Verified live:** after a restart, the persisted
+background port's `port.getHtml` returns its HTML (was `not_found`) and the background renders with no
+manual recovery. Also fixes `port.getHtml` returning `not_found` for panel-less ports generally. Unit
+test: `FetchPortHtmlFallbackTests`.
+
+**Optional hardening still open (not required for survival):** stop *deleting* the panel row when a
+port becomes background — persist it with `isBackground=true` — so the background is also a live,
+listable, editable port (the chrome-is-ports v2 direction), not just a rendered HTML string. Original
+write-up below.
+
+---
+
 ## BUG: background port vanishes on restart — root cause found (2026-07-17)
 
 **Symptom:** a port set as the shell background (`ShellBackgroundPort` / `setBackgroundPort`, v1) is
