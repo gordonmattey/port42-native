@@ -97,6 +97,24 @@ public final class ToolExecutor {
             }
         }
 
+        // Streaming registry (item 8): tool-use is one-shot, so collect-into-final — ignore tokens,
+        // render the accumulated result as tool blocks.
+        if let appState, appState.bridgeStreamHandles(canonical) {
+            let principal = Principal(id: createdBy ?? "anonymous-tool-caller",
+                                      displayName: createdByName ?? createdBy ?? "a companion",
+                                      spaceId: spaceId, kind: .companion)
+            do {
+                let value = try await appState.runBridgeStream(canonical, principal: principal,
+                                                               args: BridgeArgs(input), pregrant: grantedPermissions,
+                                                               yield: { _ in })
+                return value.toToolBlocks()
+            } catch let e as BridgeError {
+                return e.toToolBlocks()
+            } catch {
+                return [["type": "text", "text": "Error: \(error.localizedDescription)"]]
+            }
+        }
+
         if let perm = ToolDefinitions.permission(for: name) {
             if !grantedPermissions.contains(perm) {
                 NSLog("[Port42] ToolExecutor: requesting %@ permission for %@", perm.rawValue, name)
@@ -1226,6 +1244,23 @@ public final class RemoteToolExecutor: ObservableObject {
             do {
                 let value = try await appState.runBridgeMethod(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: pregrant)
+                return value.toJSONObject()
+            } catch let e as BridgeError {
+                return e.toJSONObject()
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+        }
+
+        // Streaming registry (item 8): HTTP/RPC is one-shot, so collect-into-final — the tokens are
+        // ignored and the accumulated result is returned. A failed call returns {error} in the body
+        // (correct for a request/response transport; not the never-reject shim).
+        if let appState, appState.bridgeStreamHandles(canonical) {
+            let principal = Principal(id: senderId, displayName: senderName, spaceId: nil, kind: .peer)
+            do {
+                let value = try await appState.runBridgeStream(canonical, principal: principal,
+                                                               args: BridgeArgs(input), pregrant: pregrant,
+                                                               yield: { _ in })
                 return value.toJSONObject()
             } catch let e as BridgeError {
                 return e.toJSONObject()
