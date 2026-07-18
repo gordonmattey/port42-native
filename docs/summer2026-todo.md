@@ -110,6 +110,28 @@ env-only flake.
 
 ---
 
+## TODO: AppleScript / Automation enablement for the test env (2026-07-18)
+
+`AutomationBridgeTests` "timeout defaults to 30s when not specified" fails in the local `swift test`
+env: it runs a real AppleScript (`osascript`) that returns neither the expected `"hello"` nor an
+`error`, because the test process holds no Automation (Apple Events) TCC grant. A 7th env-only failure
+alongside the six above, not a logic regression (the `AutomationBridge` source is untouched, and it was
+green after the `ai` service migration on every other suite).
+
+**Enablement options (pick one, verify):**
+- Grant the test runner Automation permission (TCC) so the live `osascript` path runs in CI/local.
+- Stub `AutomationBridge` behind a protocol so dispatch + arg-parse + `BridgeValue` shaping are
+  unit-tested while the real `osascript` call is live-only (the Phase-2 hardware-stub pattern the plan
+  already uses for screen/camera/clipboard/audio).
+- Mark the live automation test as requiring an entitled/interactive run, so headless runs skip it
+  instead of red-failing.
+
+Until then the failure is expected headless.
+
+**Repro:** `swift test --filter "Automation Bridge"`.
+
+---
+
 ## BUG: permission prompt lost when a port pops in — re-request never fires (2026-07-17, UNCONFIRMED)
 
 **Symptom (reported by GM, not yet reproduced):** GM responded to a permission prompt, then the prompt
