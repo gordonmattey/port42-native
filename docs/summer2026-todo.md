@@ -6,6 +6,70 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG: ports.list ignores space_id — can't scope ports to a space (2026-07-18)
+
+**Severity:** High. Blocks any per-space port UI and silently misleads callers.
+
+**Environment:** dev gateway `127.0.0.1:4243`.
+
+**Summary:** `ports.list` returns the same set regardless of the `space_id` arg, and ports carry no
+space field. No way to know a port's space or list just the current space's ports.
+
+**Repro:**
+```
+curl -s http://127.0.0.1:4243/call -d '{"method":"ports.list","args":{"space_id":"79118500-3C0D-4C45-900D-306294EEE2C2"}}'   # fundemos
+curl -s http://127.0.0.1:4243/call -d '{"method":"ports.list","args":{"space_id":"1E45D87C-D954-4A8B-8AAC-38B8AE77B7D2"}}'   # general
+```
+
+**Expected:** each returns only that space's ports (or errors if `space_id` is unsupported).
+
+**Actual:** both return the identical 46-port set. `space_id` is a silent no-op. Port objects expose
+only `capabilities, createdBy, id, status, surfaceBound, title, x, y` — no space. `status` is only ever
+`tiled`/`parked`, so it doesn't distinguish spaces either.
+
+**Fix (either/both):** honor `space_id` server-side, or add a `space_id` field per port for client-side
+filtering.
+
+**Related (maybe split out):** `ports.list` membership is an unreliable liveness signal — a port can be
+absent from the list yet still alive and addressable by id, then later return `not_found` once actually
+closed.
+
+---
+
+## BUG: 6 pre-existing unit-test failures in the local test env (2026-07-18)
+
+**Found:** a full `swift test` run during item-8 streaming work. **Not caused by that work** — proven
+statically: the item-8 diff (C1+C2) touches only 6 bridge/AI source files; none of the source these
+tests exercise is in the diff (the one shared file, `AppState.swift`, changed only by two inert
+stored-property declarations). The failing test files were last modified by commits far predating this
+work. So these are pre-existing and were passing-or-failing independent of item 8.
+
+**The 6 failures (4 suites):**
+- `SenderOwnerTests.swift:48` — "ChatEntry displayName with different owner shows Name@Owner":
+  `displayName()` returns `"Echo"`, expected `"Echo@Gordon"`. (Suite: F-506/F-509 Sender Owner.)
+- `AgentRoutingTests.swift:97-98` — "All-messages agent receives everything": `targets.count` is 0,
+  expected 1; `targets.first?.displayName` is nil, expected "watcher".
+- `AgentRoutingTests.swift:110-111` — "Mixed trigger modes route correctly": same shape, 0 targets
+  where 1 expected, displayName nil where "watcher" expected. (Suite: Agent Message Routing.)
+- `AgentConfigTests.swift:324` — "Claude CLI preset resolves non-empty path and has expected args":
+  `preset.systemPrompt` is empty, expected non-empty.
+- `AgentConfigTests.swift:332` — "Gemini CLI preset has expected shape": `preset.systemPrompt` empty,
+  expected non-empty. (Suite: Agent Config.)
+- `AppStateTests.swift:129` — "Cannot delete last space": `db.getAllSpaces().count` != 1 after the
+  guard should have blocked deleting the last space. (Suite: AppState.)
+
+**Hypothesis (to verify, not diagnosed):** the two CLI-preset failures read an empty `systemPrompt`,
+which points at a bundled resource / CLI path that is absent in the local test bundle (env-dependent,
+not a logic regression). The routing failures (0 targets) and the Sender Owner / last-space failures
+need separate confirmation — could be test data assumptions that drifted with the Spaces / F-506 work,
+or genuine regressions from an earlier commit. **Attribute each before fixing:** run the four suites on
+successive earlier commits to find where each went red, so a real regression is not mistaken for an
+env-only flake.
+
+**Repro:** `swift test --filter "SenderOwnerTests|AgentRoutingTests|AgentConfigTests|AppStateTests"`.
+
+---
+
 ## BUG: permission prompt lost when a port pops in — re-request never fires (2026-07-17, UNCONFIRMED)
 
 **Symptom (reported by GM, not yet reproduced):** GM responded to a permission prompt, then the prompt

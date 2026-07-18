@@ -3,6 +3,35 @@
 Status: description of the tree as of branch `shell-s1` (item 8 streaming in flight). Sections 4 and 5
 are analysis and a proposed direction, not shipped.
 
+## 0. Framing: API vs transport (and where presence lives)
+
+Two nouns get conflated. Keep them apart and the rest of this document (and the MCP question) falls
+out cleanly.
+
+- **The API is the method namespace.** The ~54 named methods, their args, results, and permissions.
+  That is the `BridgeRegistry`. It is transport-independent: it does not know how a call reached it.
+- **A transport is how a call travels.** There are four: port JS (in-process), in-app tool use
+  (in-process), HTTP `/call` (local curl / Claude Code), and the WS `call` envelope (remote peers).
+  The last two are what people mean by "the port42 protocol."
+
+So "the port42 protocol" is neither the API nor a synonym for it. It is one transport among four, and
+it is also broader than the API: the same WS connection runs a messaging fabric (presence, sync,
+channel join, E2E encryption, store-and-forward) of which the bridge `call` envelope is one type.
+
+The convergence layer is the registry, `runBridgeMethod` / `runBridgeStream`, which lives in the host,
+*below* every transport. All four transports funnel to it. In-process paths call it directly; the
+gateway routes a remote call back into the host to reach it (the gateway routes and authenticates, it
+does not execute). Unification happens there, at the API, not at any transport.
+
+Presence is the clean proof that API and transport are different things. Presence is not a bridge
+method, you cannot call it, it arrives as a push (`onPresenceChanged`) because it is about who is on
+the wire right now. It belongs to the transport's messaging fabric, not the registry. If the API were
+the protocol, you would be bolting presence onto the in-process transports that have no peers at all.
+The API cannot be the protocol precisely because the protocol has to do presence and the API does not.
+
+MCP (section 6) is a fifth transport for the `call` slice only. It never carries presence, because
+presence was never part of the API.
+
 ## 1. The shape: one namespace, three surfaces, one core
 
 Every device / space / port capability is a named method (`clipboard.read`, `port.create`,
@@ -146,3 +175,34 @@ Then the big-bang (section 5) rolls the proven shape across all 54 methods in on
 `ToolNaming.canonicalMethods` / `llms.txt` to generated, replace the `window.port42` literal with a
 Proxy plus a shim carve-out for callback methods, delete the two old switches and the parallel lists.
 Guarded by the same parity + coverage tests.
+
+## 8. Considered and rejected: forcing a single transport
+
+A tempting simplification: force every call through the gateway / WS protocol so there is literally
+one transport, including a loopback for the two in-process paths. It is possible. It is the wrong
+convergence layer, and it is recorded here as considered, not overlooked.
+
+The gateway routes and authenticates; it does not execute. A remote call is forwarded back into the
+Swift host to run (`onCallReceived -> RemoteToolExecutor -> runBridgeMethod`). So routing an in-process
+call "through the gateway" would be:
+
+```
+port JS (in host) -> serialize -> WS/loopback -> gateway subprocess -> route ->
+back to the SAME host -> runBridgeMethod -> execute
+```
+
+Two process hops and a serialization boundary to reach a function already in the calling process. It
+buys no additional unification, because the convergence already exists at the registry (section 0),
+below the transport. What it costs:
+
+- **Latency**, worst for streaming (every `ai.complete` token round-tripping a subprocess).
+- **A process dependency**: the app's own ports and companions would break whenever the gateway
+  subprocess is down. Today the in-process paths work regardless.
+- **A serialization wall some methods cannot cross**: `port.exec` runs JS on a live `WKWebView`, the
+  suspend guard reads a live `PortBridge`, `findInlineBridge` returns an in-process object. These act
+  on live handles that do not survive JSON, which is exactly why the gateway forwards them back to the
+  host instead of executing them.
+
+Decision: converge at the API layer (the registry, done) and keep the transport layer plural. The
+in-process path is faster and more robust, and some methods only make sense in-process. Uniform
+transport is a different, more expensive design with no offsetting unification gain.
