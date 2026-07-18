@@ -1105,7 +1105,7 @@ public final class AppState: ObservableObject {
         }
         sync.onCallReceived = { [weak self] senderId, callId, method, input in
             guard let self = self else { return ["error": "app state deallocated"] }
-            let executor = self.remoteExecutors[senderId] ?? RemoteToolExecutor(appState: self, senderId: senderId, senderName: "remote-\(senderId.prefix(8))")
+            let executor = self.remoteExecutors[senderId] ?? RemoteToolExecutor(appState: self, senderId: senderId, senderName: Principal.gatewayDisplayName(for: senderId))
             self.remoteExecutors[senderId] = executor
             return await executor.execute(method: method, input: input)
         }

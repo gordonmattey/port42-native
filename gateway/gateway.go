@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -142,6 +143,10 @@ type Gateway struct {
 	messageStore *MessageStore
 	// httpCallbacks maps call_id -> reply channel for HandleHTTPCall
 	httpCallbacks map[string]chan Envelope
+	// httpCallSeq makes each HTTP call_id unique even when two calls land in the same nanosecond
+	// (a UnixNano-only id collides under concurrency, dropping one response — Phase 3 stabilized the
+	// SenderID to `local-http`, so the CallID is the only disambiguator left).
+	httpCallSeq uint64
 }
 
 func NewGateway() *Gateway {
@@ -829,7 +834,7 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	callID := fmt.Sprintf("http-%d", time.Now().UnixNano())
+	callID := fmt.Sprintf("http-%d-%d", time.Now().UnixNano(), atomic.AddUint64(&g.httpCallSeq, 1))
 	replyCh := make(chan Envelope, 1)
 
 	g.mu.Lock()
@@ -845,20 +850,24 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		g.mu.Unlock()
 	}()
 
-	// Use a synthetic peer ID so the host can route the response back
-	callerID := "http-caller-" + callID
-
 	args := req.Args
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
+
+	// A local HTTP caller has no authenticated identity, so it gets ONE stable principal id
+	// ("local-http") rather than a per-call synthetic id. Response routing keys on CallID
+	// (httpCallbacks), not SenderID, so a stable SenderID is safe and concurrent calls stay
+	// disambiguated by their unique CallID. This lets the host persist a permission grant for the
+	// local principal instead of re-prompting every call (Phase 3 — the real principal).
+	const localPrincipalID = "local-http"
 
 	call := Envelope{
 		Type:     "call",
 		Method:   req.Method,
 		Args:     args,
 		CallID:   callID,
-		SenderID: callerID,
+		SenderID: localPrincipalID,
 	}
 
 	ctx := r.Context()

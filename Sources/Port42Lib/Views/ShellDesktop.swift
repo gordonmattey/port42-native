@@ -1317,11 +1317,12 @@ struct PortVersionsPopover: View {
         .help("Restore this version")
     }
 
-    /// Translate the internal caller label into something a human recognises. Every gateway caller
-    /// currently flattens to "remote-http-cal" (the principal-not-label bug); until that's fixed,
-    /// call it what it is rather than showing the raw token.
+    /// Translate the internal caller identity into something a human recognises. A local gateway caller
+    /// is the stable `local-http` principal; `remote-http…` is the pre-Phase-3 flattened label, kept for
+    /// rows written before the fix. Otherwise show the id (a peer's own identity) rather than a raw token.
     private func who(_ raw: String?) -> String {
         guard let raw, !raw.isEmpty else { return "you" }
+        if raw == Principal.localGatewayID { return "Local (gateway)" }
         if raw.hasPrefix("remote-http") { return "API / agent" }
         return raw
     }

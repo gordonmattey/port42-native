@@ -6,6 +6,37 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG: permission prompt lost when a port pops in — re-request never fires (2026-07-17, UNCONFIRMED)
+
+**Symptom (reported by GM, not yet reproduced):** GM responded to a permission prompt, then the prompt
+**disappeared as a port popped in** (a peek or a newly-created port taking the overlay's place). GM then
+tried to use the port that needed the permission and it **did not prompt again** and the gated action did
+not proceed. Net effect: the caller is stuck in a state where the permission is neither granted nor
+re-requestable.
+
+**Hypothesis (to verify in code, NOT a diagnosed root cause):** the `PermissionCoordinator` request that
+was in flight got resolved/cancelled when the overlay was replaced by the port (focus/z-order or the
+overlay view being torn down), so `permissions.request(...)` returned `false` (denied) even though GM had
+answered. If a `false` result is then cached or persisted as a decision, the method sees "already
+decided" and never re-prompts. Places to look:
+- `PermissionCoordinator` queue lifecycle: does replacing the overlay (a port peeking/popping) cancel or
+  auto-resolve a pending request? Does a dismissed prompt resolve `false` silently?
+- `runBridgeMethod` (`BridgeDispatcher.swift:37`): on a `false` from `request(...)` it throws
+  `permissionDenied` but does **not** persist a denial, so a retry *should* re-ask. Confirm nothing
+  upstream (the port JS shim, or a per-call cache) is swallowing the retry or memoizing the deny.
+- Overlay vs port surface: whether a popping-in port and the permission overlay compete for the same
+  presentation slot / focus, so the prompt can be visually replaced mid-decision.
+
+**Repro to attempt:** trigger a gated call (e.g. `screen.capture`) so the prompt appears, then cause a
+port to peek/pop in before answering (or while answering), then retry the gated call and observe whether
+it re-prompts. Test in Port42Dev (:4243).
+
+**Relationship:** in the same blast radius as the Phase 3 principal work (permission keying). Whatever
+Phase 3 does to `Principal`/keying must not entrench this: a lost/denied prompt must always be
+re-requestable, never cached as a silent permanent deny.
+
+---
+
 ## BUG: ports restore blank — the "blanking bug", root cause found (2026-07-17)
 
 **Symptom:** after an app restart, some web ports come up **blank** (empty `document.body`, `port42`

@@ -1198,7 +1198,10 @@ public final class RemoteToolExecutor: ObservableObject {
         self.appState = appState
         self.senderId = senderId
         self.senderName = senderName
-        self.internalExecutor = ToolExecutor(appState: appState, spaceId: nil, createdBy: senderName)
+        // Key the old-path executor on the stable id (senderId), not the display label, so a gateway
+        // caller's permission grant persists under `portPerms.<senderId>.global` — matching the
+        // registry path. The friendly label rides along as `createdByName` for the permission card.
+        self.internalExecutor = ToolExecutor(appState: appState, spaceId: nil, createdBy: senderId, createdByName: senderName)
     }
 
     public func execute(method: String, input: [String: Any]) async -> Any {
