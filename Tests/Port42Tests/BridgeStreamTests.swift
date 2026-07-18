@@ -208,6 +208,30 @@ struct BridgeStreamTests {
         #expect(stub.cancelled == true)
         #expect(w.state.activeStreamCollectorCount == 0)
     }
+
+    @Test("cancel settles the call even when the engine emits NO terminal event (RCA regression)",
+          .timeLimit(.minutes(1)))
+    @MainActor
+    func aiCompleteCancelSilentEngine() async throws {
+        // Models the real LLMEngine, which swallows NSURLErrorCancelled and emits nothing on cancel.
+        // Pre-fix this hangs forever (settlement was delegated to the engine); the core must settle it.
+        let w = try makeParityWorld()
+        let stub = SilentCancelBackend()
+        w.state.streamBackendOverride = { _ in stub }
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let task = Task { @MainActor in
+            try await w.state.runBridgeStream(
+                "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
+        }
+        for _ in 0..<1000 where w.state.activeStreamCollectorCount == 0 { await Task.yield() }
+        #expect(w.state.activeStreamCollectorCount == 1)
+
+        task.cancel()
+        // Must settle (throw) despite the engine emitting no terminal event, and release the collector.
+        await #expect(throws: Error.self) { _ = try await task.value }
+        #expect(stub.cancelled == true)
+        #expect(w.state.activeStreamCollectorCount == 0)
+    }
 }
 
 // A hermetic LLM backend for streaming tests: yields the given tokens then finishes (or errors),
@@ -263,4 +287,26 @@ final class ManualStreamBackend: LLMBackend {
         struct Cancelled: Error {}
         delegate?.llmDidError(Cancelled())
     }
+}
+
+// Models the REAL LLMEngine on cancel: stops, and emits NO terminal delegate event (URLSession swallows
+// NSURLErrorCancelled at LLMEngine.swift:520). The core must settle the continuation itself; this is the
+// backend that reproduces the cancel-hang RCA.
+final class SilentCancelBackend: LLMBackend {
+    var trackingSource = ""
+    private(set) var cancelled = false
+    private var delegate: LLMStreamDelegate?
+
+    func send(messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int,
+              tools: [[String: Any]]?, thinkingEnabled: Bool, thinkingEffort: String,
+              delegate: LLMStreamDelegate) throws {
+        self.delegate = delegate   // never finishes on its own
+    }
+
+    func continueWithToolResults(results: [(toolUseId: String, content: [[String: Any]])],
+                                 messages: [[String: Any]], systemPrompt: String, model: String,
+                                 maxTokens: Int, tools: [[String: Any]]?, thinkingEnabled: Bool,
+                                 thinkingEffort: String) throws {}
+
+    func cancel() { cancelled = true }   // the crux: no delegate callback
 }

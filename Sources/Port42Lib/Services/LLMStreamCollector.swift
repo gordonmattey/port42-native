@@ -46,6 +46,13 @@ public final class LLMStreamCollector: NSObject, LLMStreamDelegate {
         onDone?(self)
     }
 
+    /// Settle the call as cancelled if it has not already settled. The core calls this from a stream's
+    /// cancellation handler so cancellation does not depend on the engine emitting a terminal callback
+    /// (the real `LLMEngine` swallows `NSURLErrorCancelled`). Idempotent: a later engine callback no-ops.
+    @MainActor public func cancelIfPending() {
+        finish(.failure(CancellationError()))
+    }
+
     // MARK: - LLMStreamDelegate
 
     nonisolated public func llmDidReceiveToken(_ token: String) {

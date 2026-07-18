@@ -31,6 +31,10 @@ public protocol LLMBackend: AnyObject {
         thinkingEffort: String
     ) throws
 
+    /// Stop the in-flight request. A backend need NOT emit a terminal delegate event in response to
+    /// cancel (the real `LLMEngine` swallows `NSURLErrorCancelled` and emits nothing) — cancellation
+    /// settlement is owned by the core (`runBridgeStream`'s cancel handler settles the continuation),
+    /// not by the plug. cancel() is "stop the network", not "please settle my continuation".
     func cancel()
 }
 

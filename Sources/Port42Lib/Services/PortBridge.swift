@@ -357,7 +357,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 } catch let e as BridgeError {
                     self.rejectCall(callId, e.message)
                 } catch is CancellationError {
-                    // The cancel already surfaced to JS via the engine's error path; nothing to send.
+                    // Core settles the stream as cancelled (the engine emits no terminal event on
+                    // cancel); reject the JS promise so it does not dangle. See the cancel-hang RCA.
+                    self.rejectCall(callId, "cancelled")
                 } catch {
                     self.rejectCall(callId, error.localizedDescription)
                 }
@@ -1697,7 +1699,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     opts = opts || {};
                     const id = _callId + 1;
                     if (opts.onToken) _tokenCallbacks[id] = opts.onToken;
-                    return call('ai.complete', [prompt, {
+                    const p = call('ai.complete', [prompt, {
                         model: opts.model,
                         systemPrompt: opts.systemPrompt,
                         maxTokens: opts.maxTokens,
@@ -1708,6 +1710,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                         if (opts.onDone) opts.onDone(r);
                         return r;
                     });
+                    // Expose the callId so a port can cancel its own in-flight call. The return is
+                    // still an awaitable promise; it just also carries .callId and a .cancel() helper:
+                    //   const job = port42.ai.complete(...); job.cancel();   // or ai.cancel(job.callId)
+                    p.callId = id;
+                    p.cancel = function() { return port42.ai.cancel(id); };
+                    return p;
                 },
                 cancel: function(callId) { return call('ai.cancel', [callId]); }
             },

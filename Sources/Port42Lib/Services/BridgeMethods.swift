@@ -93,27 +93,34 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         }
         let messages: [[String: Any]] = [["role": "user", "content": content]]
 
-        // withTaskCancellationHandler: `ai.cancel` cancels the adapter's Task, which trips onCancel →
-        // engine.cancel() → the engine reports an error → the collector rejects the continuation.
+        // Settlement is core-owned (see docs/rca-aicomplete-cancel-hang.md): on cancel we settle the
+        // continuation ourselves rather than depend on the engine emitting a terminal callback — the
+        // real LLMEngine deliberately swallows NSURLErrorCancelled, so relying on it dangles the promise.
+        // `collector` is hoisted so onCancel can settle it; `backend.cancel()` is only "stop the network".
+        var collector: LLMStreamCollector?
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<BridgeValue, Error>) in
-                let collector = LLMStreamCollector(
+                let c = LLMStreamCollector(
                     yield: yield, continuation: cont, engine: backend,
-                    onDone: { c in appState.releaseStreamCollector(c) })
-                appState.retainStreamCollector(collector)
+                    onDone: { done in appState.releaseStreamCollector(done) })
+                collector = c
+                appState.retainStreamCollector(c)
                 do {
                     try backend.send(
                         messages: messages, systemPrompt: systemPrompt, model: model,
                         maxTokens: maxTokens, tools: nil, thinkingEnabled: false,
-                        thinkingEffort: "low", delegate: collector)
+                        thinkingEffort: "low", delegate: c)
                 } catch {
-                    appState.releaseStreamCollector(collector)
+                    appState.releaseStreamCollector(c)
                     cont.resume(throwing: (error as? BridgeError)
                         ?? BridgeError(code: "ai_error", message: error.localizedDescription))
                 }
             }
         } onCancel: {
-            Task { @MainActor in backend.cancel() }
+            Task { @MainActor in
+                backend.cancel()
+                collector?.cancelIfPending()   // settle deterministically; a late engine callback no-ops
+            }
         }
     }
 
