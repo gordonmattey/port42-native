@@ -45,4 +45,50 @@ public extension AppState {
         }
         return "claude-sonnet-4-6"
     }
+
+    // MARK: - Streaming (ai.complete) support
+
+    /// Test seam: when set, `resolveStreamBackend` returns this instead of a real engine, so streaming
+    /// tests run hermetically (no network). Nil in production.
+    var streamBackendOverride: ((String?) -> LLMBackend)? {
+        get { _streamBackendOverride }
+        set { _streamBackendOverride = newValue }
+    }
+
+    /// Backend for a streaming `ai.complete` call, honoring the test override.
+    func resolveStreamBackend(createdBy: String?) -> LLMBackend {
+        _streamBackendOverride?(createdBy) ?? resolvePortAIBackend(createdBy: createdBy)
+    }
+
+    /// The port bridge behind a `.port` principal, for the suspend guard and `createdBy` resolution.
+    /// nil for non-port principals (gateway / companion callers are never suspendable).
+    func streamPortBridge(for principal: Principal) -> PortBridge? {
+        guard principal.kind == .port else { return nil }
+        if let inline = findInlineBridge(by: principal.id) { return inline }
+        return portWindows.panels.first(where: { $0.messageId == principal.id })?.bridge
+    }
+
+    /// The creating-companion id used to resolve backend/model, per principal kind: a port's is its
+    /// bridge's `createdBy`; a companion's IS its own id; a gateway peer has none.
+    func createdBy(for principal: Principal, bridge: PortBridge?) -> String? {
+        switch principal.kind {
+        case .port: return bridge?.createdBy
+        case .companion: return principal.id
+        case .peer: return nil
+        }
+    }
+
+    /// Retain a live stream collector for the call's lifetime (see `LLMStreamCollector`: the engine's
+    /// delegate is weak, so nothing else keeps it alive between `send` and finish).
+    func retainStreamCollector(_ c: LLMStreamCollector) {
+        _activeStreamCollectors.append(c)
+    }
+
+    /// Drop retention once the collector has finished or errored (idempotent).
+    func releaseStreamCollector(_ c: LLMStreamCollector) {
+        _activeStreamCollectors.removeAll { $0 === c }
+    }
+
+    /// In-flight collector count (for tests: 0 -> 1 -> 0 across a call).
+    var activeStreamCollectorCount: Int { _activeStreamCollectors.count }
 }

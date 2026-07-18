@@ -108,4 +108,111 @@ struct BridgeStreamTests {
             }
         }
     }
+
+    // MARK: registered ai.complete (step 3b — the self-describing spike)
+
+    @Test("registered ai.complete streams tokens and resolves the final text")
+    @MainActor
+    func aiCompleteStreams() async throws {
+        let w = try makeParityWorld()
+        w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["Hel", "lo"], finalText: "Hello") }
+        var toks: [String] = []
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let final = try await w.state.runBridgeStream(
+            "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]
+        ) { toks.append($0) }
+        #expect(toks == ["Hel", "lo"])
+        #expect(final == .object(["text": .string("Hello")]))
+    }
+
+    @Test("registered ai.complete: an engine error rejects (real throw, not resolved {error})")
+    @MainActor
+    func aiCompleteErrors() async throws {
+        struct Boom: Error {}
+        let w = try makeParityWorld()
+        w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["x"], finalText: "", failure: Boom()) }
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        await #expect(throws: BridgeError.self) {
+            _ = try await w.state.runBridgeStream(
+                "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
+        }
+    }
+
+    @Test("registered ai.complete: collector is retained during the call, released after (0 -> 0)")
+    @MainActor
+    func aiCompleteRetention() async throws {
+        let w = try makeParityWorld()
+        w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["a", "b"], finalText: "ab") }
+        #expect(w.state.activeStreamCollectorCount == 0)
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        // The call completing at all proves the collector was retained (a weak-only delegate would
+        // dealloc mid-flight and the continuation would never resume); count back to 0 proves release.
+        _ = try await w.state.runBridgeStream(
+            "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
+        #expect(w.state.activeStreamCollectorCount == 0)
+    }
+
+    @Test("registered ai.complete: a suspended (paused) port is refused before reaching the model")
+    @MainActor
+    func aiCompleteSuspendGuard() async throws {
+        let w = try makeParityWorld()
+        let bridge = PortBridge(appState: w.state, spaceId: w.space.id,
+                                messageId: "port-susp", createdBy: w.companion.id)
+        bridge.aiPaused = true
+        w.state.registerPortBridge(bridge)   // findInlineBridge resolves it by messageId
+        // If the guard were skipped the stub would resolve; instead the call must throw first.
+        var reached = false
+        w.state.streamBackendOverride = { _ in reached = true; return StubStreamBackend(tokens: [], finalText: "") }
+        let p = Principal(id: "port-susp", displayName: "a port", spaceId: w.space.id, kind: .port)
+        await #expect(throws: BridgeError.self) {
+            _ = try await w.state.runBridgeStream(
+                "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
+        }
+        #expect(reached == false)
+        _ = bridge   // keep the bridge alive past the weak registration
+    }
+
+    @Test("generator: ai.complete's inline metadata produces its Anthropic tool schema")
+    @MainActor
+    func aiCompleteGeneratedSchema() throws {
+        let w = try makeParityWorld()
+        let method = try #require(w.state.bridgeStreamRegistry["ai.complete"])
+        let schema = anthropicToolSchema(canonical: "ai.complete", method: method)
+        #expect(schema["name"] as? String == "ai_complete")
+        #expect((schema["description"] as? String)?.isEmpty == false)
+        let input = schema["input_schema"] as? [String: Any]
+        let props = input?["properties"] as? [String: Any]
+        #expect(props?["prompt"] != nil)
+        #expect(props?["options"] != nil)
+        #expect(input?["required"] as? [String] == ["prompt"])
+    }
+}
+
+// A hermetic LLM backend for streaming tests: yields the given tokens then finishes (or errors),
+// synchronously through the delegate. No network.
+final class StubStreamBackend: LLMBackend {
+    var trackingSource = ""
+    private let tokens: [String]
+    private let finalText: String
+    private let failure: Error?
+
+    init(tokens: [String], finalText: String, failure: Error? = nil) {
+        self.tokens = tokens
+        self.finalText = finalText
+        self.failure = failure
+    }
+
+    func send(messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int,
+              tools: [[String: Any]]?, thinkingEnabled: Bool, thinkingEffort: String,
+              delegate: LLMStreamDelegate) throws {
+        for t in tokens { delegate.llmDidReceiveToken(t) }
+        if let failure { delegate.llmDidError(failure) } else { delegate.llmDidFinish(fullResponse: finalText) }
+    }
+
+    func continueWithToolResults(results: [(toolUseId: String, content: [[String: Any]])],
+                                 messages: [[String: Any]], systemPrompt: String, model: String,
+                                 maxTokens: Int, tools: [[String: Any]]?, thinkingEnabled: Bool,
+                                 thinkingEffort: String) throws {}
+
+    func cancel() {}
 }

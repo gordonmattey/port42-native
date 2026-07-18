@@ -55,16 +55,37 @@ public typealias BridgeRegistry = [String: BridgeMethod]
 public struct BridgeStreamMethod {
     public let permission: PortPermission?
     public let paramNames: [String]
+    /// Self-describing metadata (item 8 spike): a human/model description and a JSON-Schema for the
+    /// method's input. `anthropicToolSchema` generates the tool-use schema from these instead of a
+    /// hand-maintained parallel list — the pattern the big-bang rolls across every method.
+    public let description: String
+    public let inputSchema: [String: Any]
     /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
     public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
 
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
+                description: String = "",
+                inputSchema: [String: Any] = [:],
                 run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
+        self.description = description
+        self.inputSchema = inputSchema
         self.run = run
     }
+}
+
+/// Generate an Anthropic tool-use schema from a stream method's self-describing metadata. This is the
+/// item-8 spike's proof of the big-bang's generation step: one place (the registration) produces the
+/// tool schema, instead of a hand-written `ToolDefinitions` entry maintained in parallel.
+@MainActor
+public func anthropicToolSchema(canonical: String, method: BridgeStreamMethod) -> [String: Any] {
+    [
+        "name": ToolNaming.tool(fromCanonical: canonical),
+        "description": method.description,
+        "input_schema": method.inputSchema
+    ]
 }
 
 /// Canonical method name → its streaming implementation (separate from the one-shot registry).

@@ -775,6 +775,11 @@ public final class AppState: ObservableObject {
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
 
+    /// Streaming (ai.complete) support — backing storage for `AppState+PortAI`. Extensions cannot store
+    /// properties, so these live here. Module-internal, not public API.
+    var _streamBackendOverride: ((String?) -> LLMBackend)?
+    var _activeStreamCollectors: [LLMStreamCollector] = []
+
     /// Cached port permissions by message ID. Survives LazyVStack view recycling.
     public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
 
