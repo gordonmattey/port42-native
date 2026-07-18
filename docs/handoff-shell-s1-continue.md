@@ -1,72 +1,69 @@
-# Continue — PORT42 shell-s1 (API/tool-use unification)
+# Shell-s1 — status & how to keep track
 
 Branch **shell-s1**, in `/Users/gordon/Dropbox/Work/Hacking/workspace/portal-42/port42-native`.
-Everything below is committed + pushed through **dd412bc** unless noted.
+This is the living status doc for the API/tool-use unification arc. Start here, then follow the links.
+Everything below is committed + pushed unless noted.
 
-## Read first
-- `docs/plan-api-unification.md` — the map. **Phase 2b (the tail)** has the 10-item test matrix; every
-  remaining method has a defined test that must exist before the method is touched.
-- `docs/plan-phase3-principal.md` — Phase 3 (done).
-- `docs/summer2026-todo.md` — roadmap (restore bugs, #5/#6, filesystem-service, publish, etc.).
+## How to keep track (which doc owns what)
+
+Four active docs, one job each. Update the one whose concern changed; keep this file as the index.
+
+| Doc | Owns | Update when |
+|---|---|---|
+| **this file** | current status + next step | end of each work session / milestone |
+| **`plan-api-unification.md`** | the build plan: invariant, tail matrix (items 1-7/9/10), no-compat policy, sequencing | a tail item lands, or the sequence changes |
+| **`bridge-architecture-and-mcp.md`** | architecture reference: API-vs-transport, adapter-honesty gap, big-bang self-describing (§5), MCP (§6), sequencing (§7) | an architecture decision changes |
+| **`summer2026-todo.md`** | backlog + bugs (ports.list, the 6 pre-existing test fails, the cancel-residual hardening) | a bug is found or fixed |
+
+Reference-only (done, do not update): `rca-aicomplete-cancel-hang.md`, `plan-phase3-principal.md`.
+Separate track (not this arc): `docs/membrane/*` — WIRE / port42:// / libp2p / cross-instance.
 
 ## Rules (hard)
 - **Test in Port42Dev ONLY** (`com.port42.dev`, gateway **:4243**). Never prod (`:4242`) without an
   explicit say-so. Live-check via `curl -s http://127.0.0.1:4243/call -d '{"method":...,"args":...}'`.
-- **Don't commit unless asked**; when asked, commit + push to `shell-s1`. **Commit incrementally** so
-  every green step is safe. **No em dashes** in prose. Fix root causes.
-- Build with `./build.sh` (dev) or `./build.sh --release --no-dmg` (a runnable prod app, no notarize).
-  Relaunch = `open .build/Port42Dev.app`. A **Keychain prompt** at startup is human-only — ask GM.
-- **Commit messages: use a heredoc, no backticks** (zsh runs backticked words as commands).
+- **We do NOT protect backward compatibility** (pre-WIRE). Compat shims are a bad smell — remove them,
+  do not add them. Policy is in `plan-api-unification.md` § "Policy".
+- **Don't commit unless asked**; when asked, commit + push to `shell-s1`, incrementally, every green
+  step. **Commit messages: heredoc, no backticks.** **No em dashes** in prose. Fix root causes; RCA
+  before fixing anything non-trivial.
+- Build with `./build.sh` (dev). Relaunch = `open .build/Port42Dev.app`. The **Keychain prompt** and a
+  per-caller **`.ai` permission prompt** at first model call are human-only — ask GM.
 
-## Shipped this arc (committed + pushed)
-- **Unification Phases 0-2**: one `BridgeValue`/`BridgeArgs`/`Principal`/`BridgeRegistry` contract;
-  ~40 methods in ONE registry (`BridgeMethods.swift`); all three paths (gateway `RemoteToolExecutor`,
-  in-app `ToolExecutor.execute`, port JS `PortBridge.handleMethod`) dispatch registry-first via
-  `AppState.runBridgeMethod` (`BridgeDispatcher.swift`) with old-path fallback. Live-verified.
-- **Phase 3 — the principal**: local gateway callers get a stable `local-http` id (was per-call); grants
-  key on identity, not a label. Fixed a CallID collision under concurrency (`gateway.go`). Verified live.
-- **#5 port.exec** (`PortExecJS`, awaits promises + marshals objects), **background-survives-restart**
-  (`fetchPortHtml` falls back to `port_versions`).
-- **Tail batch 1**: `port.create/push/exec/manage` + `terminal.exec` extracted, verified live.
-- **Item 8 (streaming) steps 1-3a**: `BridgeStreamMethod` contract, `runBridgeStream` dispatcher,
-  `LLMStreamCollector` (delegate → yield + final). 7 tests green.
+## Done this arc (committed + pushed, 7573fab..05477cc)
 
-## RESUME HERE — item 8, step 3b (register real ai.complete)
+**Item 8 (streaming) is complete end to end.** `ai.complete` and `companions.invoke` both flow through
+one `AppState.runLLMStream`, reachable identically from all three surfaces (port JS, gateway, in-app
+tool-use) via `runBridgeStream`. Self-describing (inline `description`+`inputSchema`, schema generator).
+Verified unit + live in Port42Dev.
 
-Goal: `ai.complete`/`ai.cancel` join the streaming registry so they leave `PortBridge`'s special case.
+- **68ae1f5** AI backend/model/token resolution moved off PortBridge onto AppState.
+- **bb2b915** registered `ai.complete` in the streaming registry (self-describing spike + generator).
+- **1f696c6** port-JS adapter streams via `runBridgeStream`.
+- **9727978** **RCA cancel fix** (`rca-aicomplete-cancel-hang.md`): settlement is core-owned, not
+  delegated to the engine (which swallows `NSURLErrorCancelled`). Exposed `.callId`/`.cancel()`.
+- **1635d93** **killed the compat shims**: real JS reject (no `resolve({error})` / `if(r.error) throw`),
+  structured `{text}` return (no bare-string unwrap). No-compat policy written into the plan.
+- **1a4e20d** C4: gateway + tool-use adapters stream (collect-into-final).
+- **05477cc** folded `companions.invoke` into the registry; deleted `PortAIHandler`/`activeStreams`;
+  fixed a `suspendAI` regression (park now cancels `streamTasks`, not the dead `activeStreams`).
 
-1. **Generalize backend/model resolution off PortBridge.** `resolvePortAIBackend(state:)`,
-   `resolvePortAIModel(state:)`, `makeLLMBackend(for:)`, and `portAIMaxTokens` (=16384) live on
-   `PortBridge` (`PortBridge.swift` ~1402 `handleAIComplete`). Move them to `AppState` (or a helper) so a
-   registry body can build the engine without a PortBridge. The `isSuspended` token-burn guard is
-   port-instance state: resolve the port from `principal.id` (`portWindows` / `findInlineBridge`) and skip
-   for non-port principals.
-2. **Register `ai.complete`** in `buildBridgeStreamRegistry(appState)` (`BridgeMethods.swift`, currently
-   empty). Body: guard suspended; build messages (multimodal if `images`); then
-   ```
-   return try await withCheckedThrowingContinuation { cont in
-       let collector = LLMStreamCollector(yield: yield, continuation: cont)
-       // retain collector for the call's lifetime; register for cancel (see 3)
-       try? engine.send(messages:..., systemPrompt:..., model:..., maxTokens:..., delegate: collector)
-   }
-   ```
-   `paramNames: ["prompt", "options"]`, `permission: .ai`.
-3. **`ai.cancel` via task cancellation.** Wrap the stream in a `withTaskCancellationHandler { engine.cancel() }`.
-   The ADAPTER owns callId→Task: `PortBridge` maps its JS `callId` to the running Task; `ai.cancel(callId)`
-   → `task.cancel()`. (callId is a port-JS-shim concept, so cancellation stays at the adapter.)
-4. **Wire the adapters** to `runBridgeStream`: port JS `yield` → `pushToken(callId, token)`, final →
-   `resolveCall`, thrown `BridgeError` → `rejectCall` (**this is the never-reject fix**); gateway → chunked
-   or collect; tool-use → collect into final text.
-5. **Tests:** unit stubs already green (`BridgeStreamTests`). Live in Port42Dev: a port `ai.complete`
-   streams tokens in and resolves; `ai.cancel` mid-stream stops further tokens; an error rejects (the
-   port's `catch` runs). Pattern to mirror: `PortAIHandler.swift` + `handleAIComplete`.
+## Next
 
-## Then — the rest of the tail (plan-api-unification.md Phase 2b matrix)
-Items 1-7, 9, 10 each have a defined test in the matrix; then **delete the two old switches** (the
-close-out gate: full bridge suite + live cross-path matrix green after deletion, grep for gone case
-labels). Sequence: finish item 8, then 1-7/9-10, then switch deletion.
+**Spike A — schema-generation parity (do this first).** Build the generator + a test asserting
+`generated schema == hand-written ToolDefinitions` for all 54 registered methods. Additive, zero
+behavior change. Green = generation proven, safe to flip `ToolDefinitions` to hybrid-generated. Any
+mismatch = we learn exactly which methods before touching production. This de-risks the big-bang and
+decides the sequence question. See `bridge-architecture-and-mcp.md` §5 and `plan-api-unification.md`.
+
+Then, order TBD by Spike A's result:
+- **The tail** — `plan-api-unification.md` Phase 2b matrix, items 1-7/9/10, each proven by
+  `BridgeParityHarness` (registry body == old path), then **delete the two old switches** (close-out).
+- **The big-bang** — self-describing registry deletes the four parallel lists (`ToolDefinitions`,
+  `ToolNaming.canonicalMethods`, `llms.txt`, the `window.port42` literal → generic Proxy). Full
+  deletion needs every method in the registry, so pulling it forward means **hybrid mode** first.
+  Spikes B (paramNames↔schema consistency) and C (Proxy-vs-literal dispatch) de-risk the Proxy.
 
 ## Uncommitted, not mine (left in the tree)
-The earlier CONTINUE session also touched `docs/membrane/membrane-architecture.md` + new
-`docs/membrane/plays-with-others.md` (a packs/plugs/canvas architecture edit) and added a
-"permission prompt lost when a port pops in" bug note to `summer2026-todo.md`. Review + commit or drop.
+`docs/membrane/membrane-architecture.md` edit + `docs/membrane/plays-with-others.md` (a packs/plugs/
+canvas edit from an earlier session), plus `VERSION`, `.factory/`, `docs/handoff-2026-07-17.md` (the
+older, superseded handoff), `test-engravings-preamble.sh`. Review + commit or drop.
