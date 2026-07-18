@@ -824,6 +824,19 @@ public final class AppState: ObservableObject {
     /// stub stream method.
     public lazy var bridgeStreamRegistry: BridgeStreamRegistry = buildBridgeStreamRegistry(self)
 
+    /// Surface-name aliases: a caller's DSL name resolved to its canonical method. Built from the base
+    /// `files.* -> fs.*` table plus each service's declared name-map (a service owns its surface, e.g.
+    /// Keeper's `creases.* -> crease.*` / `engravings.* -> engrave.*`), so the map lives with the
+    /// service, not in a central list. `runBridgeMethod` resolves through this before registry lookup.
+    public lazy var bridgeAliases: [String: String] = {
+        var m = ToolNaming.aliases
+        for (surface, canonical) in keeperManifest().nameMap { m[surface] = canonical }
+        return m
+    }()
+
+    /// Resolve a caller's dotted name (canonical or a service surface alias) to its canonical form.
+    public func resolveBridgeAlias(_ name: String) -> String { bridgeAliases[name] ?? name }
+
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?

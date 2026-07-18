@@ -15,7 +15,7 @@ extension AppState {
     /// uses this to decide whether to take the new path or fall back to its old switch (which still
     /// serves the live-only families not yet extracted).
     public func bridgeHandles(_ canonicalOrAlias: String) -> Bool {
-        bridgeRegistry[ToolNaming.resolveAlias(canonicalOrAlias)]?.wired == true
+        bridgeRegistry[resolveBridgeAlias(canonicalOrAlias)]?.wired == true
     }
 
     /// Run a bridge method by canonical name. Permission is checked against the principal's grants
@@ -26,7 +26,7 @@ extension AppState {
                                 principal: Principal,
                                 args: BridgeArgs,
                                 pregrant: Set<PortPermission> = []) async throws -> BridgeValue {
-        let canonical = ToolNaming.resolveAlias(canonicalOrAlias)
+        let canonical = resolveBridgeAlias(canonicalOrAlias)
         guard let method = bridgeRegistry[canonical] else {
             throw BridgeError(code: "unknown_method", message: "Unknown method: \(canonical)")
         }
@@ -47,7 +47,7 @@ extension AppState {
 
     /// True when the streaming registry can handle this name (item 8).
     public func bridgeStreamHandles(_ canonicalOrAlias: String) -> Bool {
-        bridgeStreamRegistry[ToolNaming.resolveAlias(canonicalOrAlias)] != nil
+        bridgeStreamRegistry[resolveBridgeAlias(canonicalOrAlias)] != nil
     }
 
     /// Run a streaming bridge method: same permission-gating as `runBridgeMethod`, but the body yields
@@ -58,7 +58,7 @@ extension AppState {
                                 args: BridgeArgs,
                                 pregrant: Set<PortPermission> = [],
                                 yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue {
-        let canonical = ToolNaming.resolveAlias(canonicalOrAlias)
+        let canonical = resolveBridgeAlias(canonicalOrAlias)
         guard let method = bridgeStreamRegistry[canonical] else {
             throw BridgeError(code: "unknown_method", message: "Unknown streaming method: \(canonical)")
         }
