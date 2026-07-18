@@ -474,6 +474,50 @@ and the native-ports/replication north star (a public HTTP renderer is a read-on
 
 ---
 
+## TODO: filesystem as a native system service — a permissioned local file route (2026-07-17)
+
+**GM:** make the filesystem a native system service, not a base64 pipe. A **permissioned local gateway
+route** (`http://127.0.0.1/files/<path>`), scoped to an **allowed root + a per-file token**, so any
+port loads a local asset directly: `<img src="http://127.0.0.1:PORT/files/<token>/photo.jpg">`.
+Cleaner than base64, and it **generalizes to every asset** (images, audio, video, fonts, downloads),
+not just the one-off `fs.read` → base64 → data-URI dance.
+
+**Why base64 is the wrong primitive:** today a port that wants to show a local image reads it via
+`fs.read({encoding:"base64"})` and inlines a `data:` URI. That is heavy (33% size blow-up, whole file
+in JS memory, no streaming, no range requests), and it is the *only* option because the port CSP is
+`img-src data:` (no file/http origins). A URL the browser fetches natively is streamable, cacheable,
+rangeable, and works for `<img>`/`<audio>`/`<video>`/`<link>` uniformly.
+
+**Why it is native/eng, not gateway-only:** the **route** lives on the local gateway, but the
+**permission decision cannot**. Which paths a caller may read is the app's FileBridge picked-path /
+TCC model (`allowedPaths`), and that authority lives in the Swift app, not the Go gateway. So the app
+must vet the path, mint a scoped token, and the gateway serves bytes only for a valid (token, path)
+pair under the allowed root. Same shape as the invite/`publish-a-port` routes (gateway serves, app
+authorizes), one more surface.
+
+**Design sketch:**
+- **Allowed root + per-file (or per-scope) token.** The app grants "this port may serve files under
+  <root>" and mints a token; the route rejects anything outside the root or without a live token.
+  Token is revocable and scoped to the granting port/principal (this is the **principal** work again:
+  a file grant is per-(principal, path-scope), not global).
+- **CSP must allow it.** The port document CSP has to add the route's origin to `img-src`/`media-src`/
+  `font-src` (e.g. `img-src data: http://127.0.0.1:PORT`), which is the **one shared wrapper** the
+  todo already wants deduped (`PortView.swift:245` / `PortWindowManager.swift:947`). Keep it tight:
+  only the loopback files origin, only the asset directives.
+- **Path safety:** the same sandbox/traversal rules as the unified `fs.*` (no `..` escape, resolve
+  under the allowed root) — reuse that resolver.
+- **Lifecycle:** a token dies with the port that holds it (ties to exhaustive teardown); a shared
+  port must serve files as the *viewer's* principal, never the author's (same rule as MCP-on-a-shared-
+  port).
+
+**Relationship:** revises the `fs.*` picture from the API-unification plan — `fs.read`/base64 stays for
+"give me the bytes in JS", but **serving an asset to the DOM becomes a URL, not a data-URI**. Sequence
+with the principal work (Phase 3): the per-file token *is* a capability grant. Pairs with
+"publish a port as a website" (both are app-authorized gateway routes) and the CSP-dedup /
+make-failure-visible items.
+
+---
+
 ## TODO: ports scoped to space
 
 Ports should belong to a **space**, not float globally. A port created in space X shows when you're
