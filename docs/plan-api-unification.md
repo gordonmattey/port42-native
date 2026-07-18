@@ -371,6 +371,42 @@ net; run them against the *adapters* now, not just the registry.
 - **Done:** both switches deleted; replay goldens green; the live matrix passes on all three paths;
   shipped ports still work.
 
+### Phase 2b — the unification tail (finish extraction, then delete the switches)
+
+**Goal.** Extract every remaining method so the two old switches can be deleted (single source of truth).
+GM's calls (2026-07-17): **`ai.complete`/`ai.cancel` are IN scope** (not a "documented exception" — the
+streaming case is the hard one and must be dealt with), and **every item needs a defined test before it
+is touched.**
+
+**Streaming contract extension (item 7).** `BridgeValue` is one-value-out; streaming needs a
+`BridgeStreamMethod` variant: `(Principal, BridgeArgs, yield: (String) -> Void) async throws ->
+BridgeValue`. Dispatch/principal/permission stay unified; each adapter wires `yield` to its surface
+(port JS → `_tokenCallback`, gateway → chunked, tool-use → collect). This also forces the
+never-rejecting-bridge fix — `ai.complete` is exactly where reject matters.
+
+**Batch 1 — DONE 2026-07-17 (verified live):** `port.create`, `port.push`, `port.exec` (via
+`PortExecJS`), `port.manage`, `terminal.exec`. The by-id/opts port methods that were duplicated across
+both switches, plus the one gated terminal method.
+
+**All 10 remaining items — each with its defined test/case (a method is not touched until its test exists):**
+
+| # | Item | Test unit / case (the gate for that item) |
+|---|---|---|
+| 1 | `messages.sendAsCreator` | Unit (`BridgeCommsTests`): call it → a message persists with the creator's senderName and the target space id. |
+| 2 | `space.switchTo` | Unit: call with a space id → `appState.currentSpace` flips to it; unknown id → `BridgeError.notFound`. |
+| 3 | `companions.invoke` | Unit: invoke an LLM companion with a stubbed engine → returns the stub text; a non-LLM (command) companion → `BridgeError`. Live: `companions.invoke(echo,"ping")` → non-empty text. |
+| 4 | `rest.call` | Unit: hit a local test HTTP server → `{status,headers,body}`; with a stored secret named in opts, assert the resolved header was injected. Live: one real GET returns 200 + body. |
+| 5 | `browser.*` (open/navigate/capture/text/html/execute/close) | Live (session continuity): `browser.open(url)` → id; `browser.text(id)` returns page text; `browser.close(id)` → ok. Proves the ONE shared `BrowserBridge` instance in the registry holds session state across separate calls. |
+| 6 | `audio.capture` + camera/screen streams (`stopCapture`/`stopStream`) | **Teardown test** (the mic-leak item, Tier-A): start capture → `stopCapture` → assert the `SFSpeechRecognizer`/`AVAudioEngine` is DOWN (AudioBridge state assert or thread sample). Camera/screen: start → stop → assert the session is torn down. Must *release*, not merely "work". |
+| 7 | `fs.*` picked-path (wire the currently `wired:false` family) | Live: `fs.pick` → an absolute path; `fs.read(that path)` succeeds; `fs.read(an un-picked absolute path)` → `access_denied`. Unit: a picked path is readable only under the granting port's principal, not another's (Phase-3 keying). The existing sandbox tests (`BridgeFilesTests`) stay green. |
+| 8 | `ai.complete` / `ai.cancel` (streaming) | Unit: a stub `BridgeStreamMethod` yields N tokens + a final value → assert the adapter delivered exactly N token callbacks then the final. Live: a port `ai.complete` streams tokens in and resolves; `ai.cancel` mid-stream stops further tokens. |
+| 9 | Self-referential port methods (`setTitle`/`setCapabilities`/`close`/`resize`/`info`/`position`) | Unit: extract keyed on the port's own principal (`principal.id` = port id resolves the panel) → a `setTitle` updates that panel's title; `setCapabilities` updates its capabilities; `info` returns the port's own id/space. (Required or the port-JS switch can't be deleted.) |
+| 10 | `ai.models` / `ai.status` + the never-rejecting-bridge fix | Unit (models/status): returns the configured provider's model list / current status. Unit+Live (reject): a failing bridge call now `_reject`s the port promise → a test port that `await`s a known-failing call asserts its `catch` runs (today the catch is dead). |
+| — | **Delete the old switches** (the close-out gate, not a method) | Gate: the full bridge suite + the live cross-path matrix green *after* the two switch bodies are removed, plus a grep asserting the old `case "…"` labels are gone. Nothing may fall through to a deleted switch. Can only run once items 1–10 are extracted. |
+
+**Sequencing:** item 8 (the streaming contract) first — it reshapes the contract, so prove it early
+rather than bolt it on last. Then 1–7 and 9–10, then the switch-deletion gate last.
+
 ### Phase 3 — the real principal (stop flattening the authenticated identity)
 
 **Goal.** Permissions and grants key on *who is calling*, not on a display label.
