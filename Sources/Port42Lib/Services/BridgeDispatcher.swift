@@ -44,4 +44,34 @@ extension AppState {
 
         return try await method.run(principal, args)
     }
+
+    /// True when the streaming registry can handle this name (item 8).
+    public func bridgeStreamHandles(_ canonicalOrAlias: String) -> Bool {
+        bridgeStreamRegistry[ToolNaming.resolveAlias(canonicalOrAlias)] != nil
+    }
+
+    /// Run a streaming bridge method: same permission-gating as `runBridgeMethod`, but the body yields
+    /// tokens via `yield` before returning the final value. A thrown `BridgeError` propagates (the
+    /// adapter renders it as a reject, not a resolved `{error}`).
+    public func runBridgeStream(_ canonicalOrAlias: String,
+                                principal: Principal,
+                                args: BridgeArgs,
+                                pregrant: Set<PortPermission> = [],
+                                yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue {
+        let canonical = ToolNaming.resolveAlias(canonicalOrAlias)
+        guard let method = bridgeStreamRegistry[canonical] else {
+            throw BridgeError(code: "unknown_method", message: "Unknown streaming method: \(canonical)")
+        }
+        if let perm = method.permission {
+            var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
+                .union(pregrant)
+            if !granted.contains(perm) {
+                let ok = await permissions.request(perm, from: principal.permissionRequester)
+                if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
+                granted.insert(perm)
+                saveCompanionPermissions(granted, createdBy: principal.id, spaceId: principal.spaceId)
+            }
+        }
+        return try await method.run(principal, args, yield)
+    }
 }

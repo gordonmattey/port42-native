@@ -47,4 +47,37 @@ struct BridgeStreamTests {
         #expect(m.permission == .ai)
         #expect(m.paramNames == ["prompt", "options"])
     }
+
+    // MARK: dispatcher (step 2)
+
+    @Test("runBridgeStream gates (pregrant), streams tokens, returns final")
+    @MainActor
+    func dispatchStreams() async throws {
+        let w = try makeParityWorld()
+        w.state.bridgeStreamRegistry = [
+            "ai.complete": BridgeStreamMethod(permission: .ai, paramNames: ["prompt"]) { _, args, yield in
+                let prompt = (try? args.requireString("prompt")) ?? ""
+                for t in prompt.split(separator: " ") { yield(String(t)) }
+                return .object(["text": .string(prompt)])
+            }
+        ]
+        var tokens: [String] = []
+        let p = Principal(id: "port-1", displayName: "port", spaceId: w.space.id, kind: .port)
+        let final = try await w.state.runBridgeStream(
+            "ai.complete", principal: p, args: BridgeArgs(["prompt": "a b c"]), pregrant: [.ai]
+        ) { tokens.append($0) }
+        #expect(tokens == ["a", "b", "c"])
+        #expect(final == .object(["text": .string("a b c")]))
+        #expect(w.state.bridgeStreamHandles("ai.complete"))
+    }
+
+    @Test("runBridgeStream throws unknown_method for an unregistered name")
+    @MainActor
+    func dispatchUnknown() async throws {
+        let w = try makeParityWorld()
+        let p = Principal(id: "x", displayName: "x", spaceId: nil, kind: .peer)
+        await #expect(throws: BridgeError.self) {
+            _ = try await w.state.runBridgeStream("nope.stream", principal: p, args: BridgeArgs([:])) { _ in }
+        }
+    }
 }

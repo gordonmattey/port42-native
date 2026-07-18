@@ -25,6 +25,17 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     return r
 }
 
+// MARK: Streaming registry (item 8)
+//
+// ai.complete / ai.cancel land here in item 8 step 3 (LLM engine → yield → final). Empty for now; the
+// contract (BridgeStreamMethod) and dispatcher (runBridgeStream) are proven first.
+@MainActor
+public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegistry {
+    var r: BridgeStreamRegistry = [:]
+    _ = appState
+    return r
+}
+
 // MARK: Ports (live — the by-id/opts methods duplicated across paths)
 //
 // port.create/push/exec/manage act on a target port (by id) or create one, and existed in BOTH the

@@ -814,6 +814,11 @@ public final class AppState: ObservableObject {
     /// is fine because AppState lives for the app's lifetime.
     public lazy var bridgeRegistry: BridgeRegistry = buildBridgeRegistry(self)
 
+    /// Streaming bridge methods (ai.complete / ai.cancel — item 8). Separate from the one-shot
+    /// registry because they yield tokens then return a final value. Settable so tests can inject a
+    /// stub stream method.
+    public lazy var bridgeStreamRegistry: BridgeStreamRegistry = buildBridgeStreamRegistry(self)
+
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?
