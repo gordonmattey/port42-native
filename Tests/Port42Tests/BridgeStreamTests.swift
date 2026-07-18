@@ -80,4 +80,32 @@ struct BridgeStreamTests {
             _ = try await w.state.runBridgeStream("nope.stream", principal: p, args: BridgeArgs([:])) { _ in }
         }
     }
+
+    // MARK: LLMStreamCollector (step 3 building block — delegate → yield + final)
+
+    @Test("collector: delegate tokens become yields, finish resolves the final value")
+    @MainActor
+    func collectorFinish() async throws {
+        var tokens: [String] = []
+        let final: BridgeValue = try await withCheckedThrowingContinuation { cont in
+            let c = LLMStreamCollector(yield: { tokens.append($0) }, continuation: cont)
+            c.llmDidReceiveToken("Hel")
+            c.llmDidReceiveToken("lo")
+            c.llmDidFinish(fullResponse: "Hello")
+        }
+        #expect(tokens == ["Hel", "lo"])
+        #expect(final == .object(["text": .string("Hello")]))
+    }
+
+    @Test("collector: an engine error becomes a thrown BridgeError")
+    @MainActor
+    func collectorError() async throws {
+        struct EngineFail: Error { let localizedDescription = "model down" }
+        await #expect(throws: BridgeError.self) {
+            _ = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<BridgeValue, Error>) in
+                let c = LLMStreamCollector(yield: { _ in }, continuation: cont)
+                c.llmDidError(EngineFail())
+            }
+        }
+    }
 }
