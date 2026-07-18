@@ -320,6 +320,63 @@ consistent. Look at the `ports_list` vs `terminal_list` handlers (`ToolExecutor.
 
 ---
 
+## TODO: port.exec async/object marshalling (2026-07-17)
+
+**Confirmed live this session** while verifying the bridge from inside a port: `port.exec` running
+`port42.ports.list()` returned *"unsupported type"* (it handed back the Promise), and a top-level
+`await`/`return` form threw *"A JavaScript exception occurred"*. Worked around by stashing the result
+to a `window` global and reading it in a second call — the workaround is the tell that the primitive
+is broken.
+
+**Root cause:** `port.exec` uses `evaluateJavaScript`, which (a) does **not await promises** (so any
+`port42.*` call, which returns a Promise, comes back unresolved) and (b) hands objects back as
+`NSDictionary`/`NSArray` that the result serializer rejects (*"unsupported type"*).
+
+**Fix:** swap to **`callAsyncJavaScript`** — it runs the JS as an async function body (so `await` and
+`return` work), and pass the **same `contentWorld`** where `port42.*` is injected (else the bridge is
+invisible to the exec'd code). Then **`JSONSerialization`** the result with `.fragmentsAllowed`, and
+catch non-serializable → `{error}`.
+
+**Edge cases to cover:** a thrown exception / rejected promise → `{error: message}`; `undefined` →
+`null`; a `timeout` option (long-running JS); `args` passed into the async body (callAsyncJavaScript
+takes an arguments dict). **Acceptance (4):** (1) `return await port42.ports.list()` yields the array
+directly; (2) returning a plain object yields JSON, not "unsupported type"; (3) a `throw` yields
+`{error}`, not a bare failure; (4) `undefined`/no-return yields `null`.
+
+**Note:** `port.exec` is a **live-only method still on the old path** in the API-unification (not yet
+extracted). Do this fix in the old `PortBridge`/`ToolExecutor` `port.exec` now, OR fold it in when
+`port.exec` is extracted during the Phase-2 live pass. It reuses the `BridgeValue` serializer (fragments
++ `{error}` on failure) either way.
+
+---
+
+## TODO: storage scope — one shared namespace (PARTLY DONE via the unification, 2026-07-17)
+
+**Original root cause:** the gateway's `storage_*` and a webview's `port42.storage` were **two
+non-shared stores** — the gateway used `scope:"tool"` + `creatorId: currentUser`, the webview used
+`scope: spaceId` + `creatorId: createdBy` — so a pipeline **written from a port read as untouched from
+the gateway** (the `scope.probe` / `review.state` proofs).
+
+**Status — the mechanism half is DONE.** The API-unification storage batch collapsed both into **one
+implementation and one scope model**: every surface (gateway / port JS / companion) now routes through
+the registry `storage.*` body → the same `db.setPortStorage`, keyed on
+`(scope = space|__global__, creator = principal.id | __shared__)`. The `"tool"`-scope fork is gone.
+See `plan-api-unification.md` (Phase 1 batch 2, Phase 2).
+
+**What's left — the keying decision.** The unified body keys on the **caller's principal id**, and a
+port's principal id ≠ its creator companion's id ≠ a gateway sender id. So cross-surface *sharing* (the
+"gateway reads a port's pipeline" behavior GM wants) only lands once the **principal** is settled
+(Phase 3): specifically, whether a port's principal resolves to its **creator companion**, giving the
+`(companionId, spaceId)` keying this item asks for. Until then storage is unified in mechanism but
+still partitioned per-caller.
+
+**Fix (the remainder):** resolve a port's principal to `(companionId, spaceId)` in Phase 3 so a
+companion, its ports, and its gateway session share one namespace + the `global` scope option.
+Mirror-not-replace if any code needs a synchronous `localStorage` view. **#5 above makes #6's pain
+*readable* (you can finally exec a probe and see the value), but #6 is the real fix.**
+
+---
+
 ## TODO: documented gateway APIs that return `Unknown tool`
 
 Several methods listed in the API reference (global `CLAUDE.md`) are **not implemented** in the
