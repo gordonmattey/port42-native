@@ -6,6 +6,31 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG: gateway up but "no host available" — recurring, unblocked by restart (2026-07-18)
+
+**Recurring** (GM: "an issue we have had"). Symptom: `:4242` `/call` returns
+`{"error":"no host available — is Port42 running?"}` while the app is running. Workaround that works:
+restart Port42. Root cause NOT yet diagnosed — logging observations only, GM has more history.
+
+**Observed this instance (facts, not a diagnosis):**
+- Installed prod app `/Applications/Port42.app` (PID 83444) running ~12h; its host was NOT reachable
+  via `:4242`.
+- The gateway bound to `:4242` (PID 42716) answered `/health` = ok but reported no host. Its **ppid was
+  1** (orphaned/reparented), uptime ~12h36m, and its path was
+  `/Users/gordon/port42-build/Port42.app/.../port42-gateway` — i.e. spawned by a **port42-build** copy,
+  not the installed `/Applications` app that is currently running.
+- For contrast the dev gateway `:4243` (PID 72844) had ppid 72812 = its Port42Dev app (correctly
+  parented), and its host WAS reachable.
+
+**Hypothesis to verify (NOT confirmed):** a prior port42-build Port42 exited without reaping its
+`port42-gateway` subprocess; the gateway orphaned (ppid 1) and kept `:4242` bound; a later app's
+gateway then can't bind the port, so its host never registers on `:4242`. Restart frees the port.
+If that holds, the fix is reaping the gateway subprocess on app exit (and/or the app detecting a
+foreign gateway on its port at startup and refusing/reclaiming). GM pushed back on the orphan theory,
+so treat this as one hypothesis among others until reproduced.
+
+---
+
 ## HARDENING: stream continuation can dangle on non-cancel silent engine death (2026-07-18)
 
 Follow-up from `docs/rca-aicomplete-cancel-hang.md` (§8 residual). The cancel-hang is fixed
