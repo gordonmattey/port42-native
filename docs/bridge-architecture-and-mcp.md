@@ -1,7 +1,9 @@
 # Bridge architecture, adapter honesty, and MCP mapping
 
-Status: description of the tree as of branch `shell-s1` (item 8 streaming in flight). Sections 4 and 5
-are analysis and a proposed direction, not shipped.
+Status: branch `shell-s1`. Item 8 (streaming) shipped; Spikes A (schema generation) and B (parameter
+consistency) shipped. Sections 4 and 5 are the self-describing registry (partly built, generation
+proven). Section 6 is the service / plug-in direction: the taxonomy and seam are the target, the `ai`
+migration is the first concrete step.
 
 ## 0. Framing: API vs transport (and where presence lives)
 
@@ -128,7 +130,54 @@ Make the registry carry its own metadata, then generate the four lists from it.
 After that a new method is exactly one `BridgeMethod` with its schema inline, and every surface picks
 it up for free because they all read the one registry.
 
-## 6. MCP mapped onto it
+## 6. Services and the plug-in seam
+
+The registry has two kinds of tenant, and conflating them is what made `window.port42` read as one
+undifferentiated coat over ~60 methods. (Visual map: the shell-s1 bridge-surface artifact.)
+
+- **Built-ins.** The platform's own object model (ports, spaces, messaging, identity) and the stateless
+  host calls (clipboard, screen, camera, audio, fs, notify, automation, browser, rest, terminal). These
+  are port42. They are not pluggable and own no domain state.
+- **Services.** A namespace that owns state and a domain contract and could just as well run outside the
+  app. Three ship built in today, and together they are an *agent substrate* with three faculties:
+  - **agent runtime** (`ai`, `companions.invoke`): run a model or an agent. `ai` already proxies to an
+    external provider (Anthropic, Gemini), so "could be external" is not hypothetical, it is the current
+    implementation.
+  - **epistemic memory** (Keeper: `crease`, `fold`, `position`): how the companion's model of the
+    relationship breaks and reforms.
+  - **knowledge** (Keeper `engrave`, plus `storage`): facts about the user's world, and scoped key-value
+    state.
+
+A service integrates by registering a namespaced, self-describing set of methods into the one registry,
+carrying its own names, schemas, permission, an optional declared DSL name-map, and a backend dependency.
+It is then reachable from every surface (port JS, tool-use, gateway, MCP) with one gate and one schema,
+no per-surface work. An external MCP server (`mcp.<server>.<tool>`) is the same shape as Keeper or `ai`.
+We build the seam for a third party and run our own services through it. Treat ourselves as a third party.
+
+**The DSL name-map is a first-class field, not a patch.** Keeper's JS surface is plural (`creases`,
+`engravings`) while its methods are singular (`crease`, `engrave`). The current literal papers over the
+gap inconsistently: `creases.read` dispatches `creases.read` (resolves nowhere), while `creases.write`
+is hand-corrected to `crease.write`. As a service, Keeper *declares* its surface-to-method map once, and
+every transport reads it. This subsumes the existing `files.* -> fs.*` alias table into the general
+mechanism.
+
+**`ai` is the reference migration.** It has every facet at once (a streaming method, plain reads, an
+external backend, and a transport-coupled control it deliberately excludes), so migrating it to a single
+service module is how we nail the pattern before generalizing. Concretely:
+
+1. Move `ai.models` and `ai.status` off the old `PortBridge` switch (`:561`, `:587`) into the registry
+   as self-describing methods (headless, ungated).
+2. Group the whole namespace in one `registerAIService` module: `complete` (stream), `models`, `status`,
+   co-locating methods, schemas, `.ai` gating, and the provider-backend wiring.
+3. Keep `ai.cancel` a stream-control shim. It cancels by JS `callId` (`streamTasks`), which is
+   transport-coupled, not a service method. A documented carve-out, same class as `port.resize`.
+4. The provider abstraction (`resolveStreamBackend` / `makeLLMBackend`) is the service's backend seam,
+   the part Keeper and `storage` each supply their own version of.
+
+No `BridgeService` protocol yet. The pattern emerges as a convention (one register-module per service)
+and is formalized only after a second service (Keeper) confirms it earns the abstraction.
+
+### 6a. MCP mapped onto the seam
 
 MCP is JSON-RPC over stdio or HTTP / SSE: a server advertises tools (name + JSON-Schema input +
 handler), clients call `tools/call`, results return as content with optional progress / partial for

@@ -67,7 +67,18 @@ Verified unit + live in Port42Dev.
 
 ## Next
 
-**Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Prove a generic
+**Migrate `ai` to a service module (defines the plug-in pattern).** The bridge surface resolves into
+platform / device / **service** tenants; the service region is an agent substrate with three faculties
+(agent runtime, epistemic memory, knowledge). See `bridge-architecture-and-mcp.md` §6 and the
+bridge-surface artifact. `ai` is the reference migration because it has every facet (streaming, plain
+reads, an external provider backend, a transport-coupled cancel it excludes): move `ai.models`/`ai.status`
+off the old `PortBridge` switch into the registry, group the namespace in one `registerAIService`
+(complete/models/status + `.ai` gating + backend wiring), keep `ai.cancel` a documented stream-control
+shim. Additive; live `ai.complete` untouched. This nails the service pattern before generalizing to
+Keeper + storage, and tells Spike C's Proxy what a service namespace looks like (declared DSL name-map
+for Keeper, plain dispatch for `ai`/`storage`).
+
+**Then Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Prove a generic
 `window.port42` Proxy dispatches `port42.a.b(...args)` → `call('a.b', args)` identically to the current
 hand-written object literal (`PortBridge.swift:1521`), and enumerate the carve-outs the Proxy cannot be
 generic over. From reading the literal, the non-generic behaviors are: result unwrapping
