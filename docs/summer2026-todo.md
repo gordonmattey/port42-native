@@ -639,6 +639,21 @@ port set when the active space changes, and decide cross-space behaviour (does a
 when you leave its space — backgrounded? hidden? follow you?). Pairs with the inline cards
 (Step 5b) which are already posted into a specific space.
 
+## TODO: port examples catalog → a live "examples gallery" port (2026-07-18)
+
+**GM:** track the types of things you can do with Port42 — the port-creation prompts — as examples,
+because these are what people can try and we need getting-started content. Started as
+`docs/port-examples.md` (a tracked catalog: each entry is a real port framed as "try asking for
+this" + its type + what you get, seeded from `~/.port42/journal/moments.md` and live sessions).
+
+**End state:** the catalog becomes a **live gallery port** that lists the examples and **spawns any of
+them in one click** (`port.create` from a card) — getting-started is itself a port you open, browse, and
+tap to materialize the example on your desktop. Pairs with "a different dock view of ports" and the
+onboarding/GTM content need. Keep the `.md` as the source until the gallery port exists; append an entry
+whenever a new port is built.
+
+---
+
 ## TODO: a different dock view of ports
 
 A dedicated **dock / gallery view** for browsing my ports — distinct from the current
