@@ -186,6 +186,28 @@ struct BridgeStreamTests {
         #expect(props?["options"] != nil)
         #expect(input?["required"] as? [String] == ["prompt"])
     }
+
+    @Test("registered ai.complete: cancelling the Task cancels the engine and rejects (release too)")
+    @MainActor
+    func aiCompleteCancel() async throws {
+        let w = try makeParityWorld()
+        let stub = ManualStreamBackend()
+        w.state.streamBackendOverride = { _ in stub }
+        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        // Run the stream in a Task (the same shape the port-JS adapter uses) so it can be cancelled.
+        let task = Task { @MainActor in
+            try await w.state.runBridgeStream(
+                "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
+        }
+        // Yield until the body reaches send() and registers the collector (manual stub never finishes).
+        for _ in 0..<1000 where w.state.activeStreamCollectorCount == 0 { await Task.yield() }
+        #expect(w.state.activeStreamCollectorCount == 1)
+
+        task.cancel()   // trips withTaskCancellationHandler -> engine.cancel() -> error -> reject
+        await #expect(throws: Error.self) { _ = try await task.value }
+        #expect(stub.cancelled == true)
+        #expect(w.state.activeStreamCollectorCount == 0)
+    }
 }
 
 // A hermetic LLM backend for streaming tests: yields the given tokens then finishes (or errors),
@@ -215,4 +237,30 @@ final class StubStreamBackend: LLMBackend {
                                  thinkingEffort: String) throws {}
 
     func cancel() {}
+}
+
+// A manual backend: captures the delegate on send() and never finishes on its own, so a test can
+// observe the in-flight state and drive cancel(). cancel() reports an error through the delegate, the
+// way LLMEngine does when its URLSession task is cancelled.
+final class ManualStreamBackend: LLMBackend {
+    var trackingSource = ""
+    private(set) var cancelled = false
+    private var delegate: LLMStreamDelegate?
+
+    func send(messages: [[String: Any]], systemPrompt: String, model: String, maxTokens: Int,
+              tools: [[String: Any]]?, thinkingEnabled: Bool, thinkingEffort: String,
+              delegate: LLMStreamDelegate) throws {
+        self.delegate = delegate   // hold it open; do not finish
+    }
+
+    func continueWithToolResults(results: [(toolUseId: String, content: [[String: Any]])],
+                                 messages: [[String: Any]], systemPrompt: String, model: String,
+                                 maxTokens: Int, tools: [[String: Any]]?, thinkingEnabled: Bool,
+                                 thinkingEffort: String) throws {}
+
+    func cancel() {
+        cancelled = true
+        struct Cancelled: Error {}
+        delegate?.llmDidError(Cancelled())
+    }
 }

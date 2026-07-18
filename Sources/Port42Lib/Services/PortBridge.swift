@@ -48,6 +48,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Active AI streams keyed by callId.
     public var activeStreams: [Int: PortAIHandler] = [:]
 
+    /// In-flight streaming-registry calls (ai.complete), keyed by the JS callId so `ai.cancel(callId)`
+    /// can cancel the running Task. Distinct from `activeStreams`, which serves the legacy
+    /// PortAIHandler path (companions.invoke).
+    public var streamTasks: [Int: Task<Void, Never>] = [:]
+
 
     /// Clipboard bridge. Created lazily on first clipboard call.
     private var clipboardBridge: ClipboardBridge?
@@ -232,6 +237,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         activeStreams.removeValue(forKey: callId)
     }
 
+    /// Render a streaming method's final `BridgeValue` to the string the port's JS `_resolve` expects.
+    /// ai.complete returns `{text: "..."}`; ports have always received the bare text, so unwrap it
+    /// (falling back to a JSON encoding for any other shape).
+    static func streamText(_ value: BridgeValue) -> String {
+        if case let .object(obj) = value, case let .string(s)? = obj["text"] { return s }
+        if case let .string(s) = value { return s }
+        if let data = try? JSONSerialization.data(withJSONObject: value.toJSONObject()),
+           let str = String(data: data, encoding: .utf8) { return str }
+        return ""
+    }
+
     /// Manual per-port AI pause (the pause.circle button in the port's chrome). Distinct from
     /// park/background: the port stays on the desktop and keeps animating (a shader's rAF loop is
     /// GPU, not AI) — only its model calls are blocked. GM: "pause the ai but keep the shader going."
@@ -316,6 +332,39 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             } catch {
                 return ["error": error.localizedDescription]
             }
+        }
+
+        // Streaming registry (item 8): ai.complete streams tokens, then resolves. Runs in a tracked
+        // Task so ai.cancel(callId) can cancel it. yield → _tokenCallback, final text → _resolve, a
+        // thrown BridgeError → _reject (the never-reject fix: the port's catch runs instead of the
+        // promise silently resolving a value). Permission is gated inside runBridgeStream.
+        if let state, state.bridgeStreamHandles(canonical) {
+            let principal = Principal(
+                id: messageId ?? ObjectIdentifier(self).debugDescription,
+                displayName: createdBy ?? title ?? "a port",
+                spaceId: spaceId, kind: .port)
+            let names = state.bridgeStreamRegistry[canonical]?.paramNames ?? []
+            let grants = grantedPermissions
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    let value = try await state.runBridgeStream(
+                        canonical, principal: principal,
+                        args: BridgeArgs(positional: args, names: names),
+                        pregrant: grants,
+                        yield: { [weak self] token in self?.pushToken(callId, token) })
+                    self.resolveCall(callId, PortBridge.streamText(value))
+                } catch let e as BridgeError {
+                    self.rejectCall(callId, e.message)
+                } catch is CancellationError {
+                    // The cancel already surfaced to JS via the engine's error path; nothing to send.
+                } catch {
+                    self.rejectCall(callId, error.localizedDescription)
+                }
+                self.streamTasks.removeValue(forKey: callId)
+            }
+            streamTasks[callId] = task
+            return ["__deferred__": true]
         }
 
         // Permission guard (old path — live-only / unwired methods)
@@ -539,14 +588,20 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "ai.status":
             return ["paused": LLMEngine.paused]
 
-        // port42.ai.complete(prompt, options?)
-        case "ai.complete":
-            return await handleAIComplete(args: args, callId: callId, state: state)
+        // port42.ai.complete moved to the streaming registry (item 8): handled by the stream branch
+        // above, before this switch. It is no longer a case here.
 
         // port42.ai.cancel(callId)
         case "ai.cancel":
             guard let targetId = args.first as? Int else {
                 return ["error": "ai.cancel requires a callId"]
+            }
+            // ai.complete now runs as a tracked Task (streaming registry); cancel that first. Fall back
+            // to the legacy PortAIHandler stream, which companions.invoke still uses.
+            if let task = streamTasks[targetId] {
+                task.cancel()
+                streamTasks.removeValue(forKey: targetId)
+                return ["ok": true]
             }
             if let handler = activeStreams[targetId] {
                 handler.engine.cancel()
@@ -1391,70 +1446,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
-    // MARK: - AI Complete
-
-    @MainActor
-    private func handleAIComplete(args: [Any], callId: Int, state: AppState) async -> Any {
-        guard let prompt = args.first as? String, !prompt.isEmpty else {
-            return ["error": "ai.complete requires a prompt"]
-        }
-        // A parked/backgrounded port must not reach the model — this is the token-burn guard.
-        if isSuspended {
-            return ["error": "port is paused (parked or backgrounded). Bring it to the desktop to use AI."]
-        }
-
-        let opts = args.count > 1 ? args[1] as? [String: Any] : nil
-        let model = opts?["model"] as? String ?? resolveDefaultModel(state: state)
-        let systemPrompt = opts?["systemPrompt"] as? String ?? "You are a helpful assistant."
-        let maxTokens = opts?["maxTokens"] as? Int ?? state.portAIMaxTokens
-        let images = opts?["images"] as? [String]
-
-        let backend = resolvePortAIBackend(state: state)
-        backend.trackingSource = "port:\(title ?? createdBy ?? "unknown")"
-        let handler = PortAIHandler(callId: callId, bridge: self, engine: backend)
-        activeStreams[callId] = handler
-
-        // Build user message content (multimodal if images provided)
-        let content: Any
-        if let images, !images.isEmpty {
-            var blocks: [[String: Any]] = images.map { base64 in
-                [
-                    "type": "image",
-                    "source": [
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": base64
-                    ] as [String: String]
-                ]
-            }
-            blocks.append(["type": "text", "text": prompt])
-            content = blocks
-        } else {
-            content = prompt
-        }
-
-        let messages: [[String: Any]] = [
-            ["role": "user", "content": content]
-        ]
-
-        do {
-            try handler.engine.send(
-                messages: messages,
-                systemPrompt: systemPrompt,
-                model: model,
-                maxTokens: maxTokens,
-                tools: nil,
-                thinkingEnabled: false,
-                thinkingEffort: "low",
-                delegate: handler
-            )
-        } catch {
-            removeStream(callId)
-            return ["error": error.localizedDescription]
-        }
-
-        return ["__deferred__": true]
-    }
+    // ai.complete moved to the streaming registry (item 8): its impl is `buildBridgeStreamRegistry`,
+    // dispatched by the stream branch in `handleMethod`. The old `handleAIComplete` is deleted;
+    // `companions.invoke` below still uses the PortAIHandler path.
 
     // MARK: - Companion Invoke
 
@@ -1560,20 +1554,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - Helpers
 
-    /// Resolve the LLM backend for port42.ai.complete() calls. Delegates to `AppState` (item 8: the
-    /// resolution is registry-owned now) with this port's creating companion id.
-    private func resolvePortAIBackend(state: AppState) -> LLMBackend {
-        state.resolvePortAIBackend(createdBy: createdBy)
-    }
-
-    /// Resolve the default model for port42.ai.complete() calls. Delegates to `AppState`.
-    private func resolvePortAIModel(state: AppState) -> String {
-        state.resolvePortAIModel(createdBy: createdBy)
-    }
-
-    /// Resolve the default model from the creating companion or system default.
+    /// Resolve the default model for companions.invoke (and any remaining port model needs). Delegates
+    /// to `AppState` (item 8: the resolution is registry-owned now) with this port's creating companion.
     private func resolveDefaultModel(state: AppState) -> String {
-        resolvePortAIModel(state: state)
+        state.resolvePortAIModel(createdBy: createdBy)
     }
 
     /// Ensure messages alternate user/assistant and start with user.
