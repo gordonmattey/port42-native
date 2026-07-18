@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import WebKit
 
 // MARK: - BridgeMethods (Phase 1 — one implementation per method)
 //
@@ -20,7 +21,107 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerFileMethods(into: &r, appState: appState)
     registerDeviceMethods(into: &r, appState: appState)
     registerLiveDeviceMethods(into: &r, appState: appState)
+    registerPortLiveMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Ports (live — the by-id/opts methods duplicated across paths)
+//
+// port.create/push/exec/manage act on a target port (by id) or create one, and existed in BOTH the
+// port-JS and tool-use switches — the real duplication the unification removes. (The self-referential
+// port-JS-only methods — setTitle/setCapabilities/close/resize/info — mutate the calling PortBridge
+// instance and have no tool-use twin, so they stay on the old port-JS path.) These touch live
+// webviews/terminals/shell, so they are verified live in Port42Dev, not headless.
+
+@MainActor
+private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: AppState) {
+
+    func webView(_ id: String) -> WKWebView? {
+        appState.portWindows.webViews[id] ?? appState.findInlineBridge(by: id)?.webView
+    }
+
+    r["port.create"] = BridgeMethod(permission: nil, paramNames: ["options"]) { p, args in
+        let o = args.object("options") ?? args.dictionary
+        let sid = (o["space_id"] as? String) ?? p.spaceId ?? appState.currentSpace?.id ?? ""
+        let result = appState.createPort(
+            type: o["type"] as? String, title: o["title"] as? String, html: o["html"] as? String,
+            command: o["command"] as? String, args: o["args"] as? [String] ?? [], cwd: o["cwd"] as? String,
+            systemPrompt: o["systemPrompt"] as? String, env: o["env"] as? [String: String] ?? [:],
+            spaceId: sid, createdBy: p.id, createdByName: p.displayName,
+            presentation: o["presentation"] as? String)
+        if let err = result["error"] as? String { throw BridgeError.badArg(err) }
+        return .fromJSONObject(result)   // { id, title }
+    }
+
+    r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"]) { _, args in
+        let id = try args.requireString("id")
+        let data = args.any("data") ?? NSNull()
+        let controller = appState.resolveTerminalController(idOrName: id)
+        let wv = webView(id)
+        switch PortPushRoute.classify(isTerminal: controller != nil, isWeb: wv != nil) {
+        case .terminal:
+            let str = (data as? String) ?? (String(data: (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
+            guard controller!.sendRaw(str) else { throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface") }
+            return .object(["ok": .bool(true)])
+        case .web:
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                throw BridgeError.badArg("could not serialize data to JSON")
+            }
+            _ = try? await wv!.evaluateJavaScript("window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))")
+            return .object(["ok": .bool(true)])
+        case .notFound:
+            throw BridgeError.notFound("port '\(id)'")
+        }
+    }
+
+    r["port.exec"] = BridgeMethod(permission: nil, paramNames: ["id", "js"]) { _, args in
+        let id = try args.requireString("id")
+        let js = try args.requireString("js")
+        guard let wv = webView(id) else { throw BridgeError.notFound("port '\(id)'") }
+        // #5: PortExecJS awaits promises + marshals objects; nil = undefined/no-return.
+        guard let result = try await PortExecJS.run(wv, js) else { return .object(["ok": .bool(true)]) }
+        return .fromJSONObject(result)
+    }
+
+    r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"]) { _, args in
+        let id = try args.requireString("id")
+        let action = try args.requireString("action")
+        guard let panel = appState.portWindows.findPort(by: id) else { throw BridgeError.notFound("port '\(id)'") }
+        switch action {
+        case "focus":
+            appState.portWindows.bringToFront(panel.id)
+        case "background":
+            await appState.shell?.setBackgroundPort(id: panel.udid)
+        case "unbackground":
+            await appState.shell?.setBackgroundPort(id: nil)
+        case "close":
+            appState.portWindows.close(panel.id)
+        case "minimize", "dock":
+            appState.portWindows.minimize(panel.id)
+        case "restore", "undock":
+            if panel.presentation == "inline" {
+                appState.portWindows.undockInline(id: panel.id, in: CGSize(width: 800, height: 600))
+            } else {
+                _ = appState.portWindows.restore(panel.id)
+            }
+        default:
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, dock, undock, background, unbackground")
+        }
+        return .object(["ok": .bool(true)])
+    }
+
+    // terminal.exec — the one gated terminal method (headless run-and-capture). Shared ShellExec, in
+    // both old paths. Returns { output }.
+    r["terminal.exec"] = BridgeMethod(permission: .terminal, paramNames: ["command", "options"]) { _, args in
+        let command = try args.requireString("command")
+        guard !command.isEmpty else { throw BridgeError.badArg("terminal.exec requires a command string") }
+        let opts = args.object("options") ?? args.dictionary
+        let cwd = opts["cwd"] as? String
+        let timeout = min((opts["timeout"] as? Int) ?? 30, 120)
+        let output = await ShellExec.run(command, cwd: cwd, timeout: timeout)
+        return .object(["output": .string(output)])
+    }
 }
 
 // MARK: Devices (request/response hardware — thin wrappers)
