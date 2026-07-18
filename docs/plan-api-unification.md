@@ -301,9 +301,20 @@ is extracted and verified, not up front.
 **All three adapters now route registry-first with old-path fallback** (77 bridge tests green). The old
 switches still serve the live-only + unwired families and are deleted last.
 
-**Next:** extract the live-only families (verified live), reconcile `fs.*` (Phase 3), then delete the
-switches. **This is the point to start live-testing in Port42Dev** — `ports.list` consistent across JS
-/ companion / gateway, `port.getHtml` reachable over the gateway, both name spellings working.
+**Live-verified in Port42Dev (:4243), 2026-07-17:** gateway `ports.list` → JSON array (capabilities
+correct), `port.getHtml` (dotted) → HTML not Unknown-tool, `port_get_html` (snake) → same,
+`space.list`/`space_list` → same method, `screen.displays`/`screen_info` → structured array,
+`user.get` → structured, unknown → clean error. Port JS: `port42.ports.list()` from inside a port →
+native array, same shape. In-app companion: "list ports" → works. All three paths confirmed on one impl.
+
+**Live-only device families extracted** (thin wrappers, 2026-07-17): `screen.capture` (top-level
+`.data` → image block for the model, base64 for JS), `screen.windows`, `camera.capture`, `notify.send`,
+`automation.runAppleScript`/`runJXA`, `audio.speak`/`play`/`stop`. One shared bridge instance each.
+**Still on the old path** (stateful/streaming or complex): `audio.capture`, camera/screen stream,
+browser sessions, live port `push`/`exec`/`manage`/`create`, `rest.call` (URLRequest + secret injection).
+
+**Next:** extract the remaining live-only/stateful methods, reconcile `fs.*` + do the principal
+(Phase 3), then delete the old switches.
 
 **Original goal.** Delete the two big switches; the three paths become adapters.
 

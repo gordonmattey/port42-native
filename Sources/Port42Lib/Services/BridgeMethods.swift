@@ -19,7 +19,73 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerCommsMethods(into: &r, appState: appState)
     registerFileMethods(into: &r, appState: appState)
     registerDeviceMethods(into: &r, appState: appState)
+    registerLiveDeviceMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Devices (request/response hardware — thin wrappers)
+//
+// Extracted during the Phase-2 live pass. Thin pass-throughs to the existing device bridges (one
+// shared instance each), converting the bridge's `[String: Any]` to a BridgeValue. The image methods
+// return a top-level `.data`, so tool-use renders a real Anthropic image block (the model sees the
+// pixels) while JS/gateway get the base64 string; width/height are dropped (use `screen.displays` for
+// geometry). Streaming/stateful methods (audio.capture, camera/screen stream, browser sessions, the
+// live port push/exec/manage) and rest.call (URLRequest + secret injection) stay on the old path.
+
+@MainActor
+private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: AppState) {
+    let screen = ScreenBridge()
+    let camera = CameraBridge()
+    let notifications = NotificationBridge()
+    let automation = AutomationBridge()
+    let audio = AudioBridge()
+
+    r["screen.capture"] = BridgeMethod(permission: .screen, paramNames: ["scale"]) { _, args in
+        let scale = args.double("scale") ?? 1.0
+        let result = await screen.capture(opts: ["scale": scale, "includeSelf": false])
+        if let base64 = result["image"] as? String { return .data(base64: base64, mime: "image/png") }
+        return .fromJSONObject(result)
+    }
+
+    r["screen.windows"] = BridgeMethod(permission: .screen) { _, _ in
+        .fromJSONObject(await screen.windows())
+    }
+
+    r["camera.capture"] = BridgeMethod(permission: .camera, paramNames: ["scale"]) { _, args in
+        let result = await camera.capture(opts: args.double("scale").map { ["scale": $0] } ?? [:])
+        if let base64 = result["image"] as? String { return .data(base64: base64, mime: "image/png") }
+        return .fromJSONObject(result)
+    }
+
+    r["notify.send"] = BridgeMethod(permission: .notification, paramNames: ["title", "body", "options"]) { _, args in
+        let title = try args.requireString("title")
+        let body = args.string("body") ?? ""
+        return .fromJSONObject(await notifications.send(title: title, body: body, opts: args.object("options")))
+    }
+
+    r["automation.runAppleScript"] = BridgeMethod(permission: .automation, paramNames: ["source", "timeout"]) { _, args in
+        let source = try args.requireString("source")
+        return .fromJSONObject(await automation.runAppleScript(source: source, opts: ["timeout": args.int("timeout") ?? 30]))
+    }
+
+    r["automation.runJXA"] = BridgeMethod(permission: .automation, paramNames: ["source", "timeout"]) { _, args in
+        let source = try args.requireString("source")
+        return .fromJSONObject(await automation.runJXA(source: source, opts: ["timeout": args.int("timeout") ?? 30]))
+    }
+
+    r["audio.speak"] = BridgeMethod(permission: nil, paramNames: ["text", "options"]) { _, args in
+        let text = try args.requireString("text")
+        return .fromJSONObject(await audio.speak(text: text, opts: args.object("options")))
+    }
+
+    r["audio.play"] = BridgeMethod(permission: nil, paramNames: ["data", "options"]) { _, args in
+        let data = try args.requireString("data")
+        return .fromJSONObject(audio.play(data: data, opts: args.object("options")))
+    }
+
+    r["audio.stop"] = BridgeMethod(permission: nil) { _, _ in
+        .fromJSONObject(audio.stop())
+    }
 }
 
 // MARK: Devices (headless-safe subset)
