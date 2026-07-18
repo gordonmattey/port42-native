@@ -6,6 +6,74 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG: ports restore blank — the "blanking bug", root cause found (2026-07-17)
+
+**Symptom:** after an app restart, some web ports come up **blank** (empty `document.body`, `port42`
+undefined), while others render fine. Surfaced hard this session by two rebuilds + a Keychain-stalled
+startup; recovered by hand with `port.getHtml` → `port.update` (reload the saved HTML into the
+webview). The HTML was never lost — `port_panels.html` held the full document for every blank port.
+
+**Root cause (diagnosed in code, not a guess):** `restoreFromDB` → `createPortWebView` calls
+`loadHTMLString(wrapHTML(panel.html))` **once, eagerly, on a webview that is not yet in the view
+hierarchy** (`PortWindowManager.swift:825`, load at `:884`). A WKWebView load on a detached view,
+scheduled while the main thread is stalled at startup (the Keychain block), can silently fail to
+complete: blank body, and the `atDocumentStart` bridge script never runs (hence `port42` undefined).
+There is **no load-completion check and no reload when the tile finally renders** — so a port that
+loses its restore-time load stays blank forever with no recovery.
+
+**Root fix (not the symptom):**
+- **Load on attach, not eagerly on restore.** Move the `loadHTMLString` to when the webview enters
+  the view hierarchy (`didMoveToWindow` / the representable's first `updateNSView`), so hydration is
+  deterministic regardless of startup timing.
+- **Verify + self-heal.** The `navigationDelegate` already exists — track `didFinish`/`didFail` and
+  reload `panel.html` once if a restored port's initial load didn't complete.
+- **Recovery affordance:** a "reload blank ports" command (the `getHtml`→`update` sweep, automated) so
+  a user is never recovering ports by hand (relates to the parked "reopen closed ports" item).
+
+**Test:** a restore test asserting every restored web panel ends with non-empty `document.body` and
+`typeof port42 === 'object'`. Lives in `PortWindowManager`; independent of the API-unification work.
+
+---
+
+## BUG: background port vanishes on restart — root cause found (2026-07-17)
+
+**Symptom:** a port set as the shell background (`ShellBackgroundPort` / `setBackgroundPort`, v1) is
+gone after a restart — not just un-backgrounded, but **removed from the port list entirely**. Hit this
+session: SHADER (the persisted background) disappeared; recovered by pulling its HTML from
+`port_versions` and re-creating it.
+
+**Root cause (a chain, confirmed against the DB):**
+1. `fetchPortHtml(udid)` reads **only** `port_panels`: `SELECT html FROM port_panels WHERE udid=?`
+   (`DatabaseService.swift:1641`).
+2. Setting a port as background **closes its tile**, which calls `unpersistPanel` →
+   `DELETE FROM port_panels` (`PortWindowManager.swift:296-299`); `port_versions` rows are kept.
+   (Confirmed: SHADER had **0** rows in `port_panels`, **17** in `port_versions`.)
+3. So a backgrounded port has no panel row → `fetchPortHtml` returns nil → `resolveBackgroundHtml`
+   (live-panel → `fetchPortHtml`, `ShellState.swift:86`) returns nil → `restoreBackgroundPort`
+   (`ShellView.swift:231`) silently gives up. With no panel row it also isn't restored as a panel, so
+   it's *gone*.
+
+**Root fix (not the symptom):**
+- **Stop deleting the panel when a port becomes background.** `PersistedPortPanel` already has an
+  `isBackground` field and `restoreFromDB` already honors it (`:215`). Set-as-background should
+  **persist the panel with `isBackground=true`**, not close+delete it. Then it restores like any panel
+  and the background slot re-adopts it by id — no fragile HTML re-resolution.
+- **Defense-in-depth:** `fetchPortHtml` should fall back to the latest version when the panel row is
+  absent — `... WHERE udid=?` → if nil → `SELECT html FROM port_versions WHERE portUdid=? ORDER BY
+  version DESC LIMIT 1`. Also fixes `port.getHtml` returning `not_found` for panel-less ports.
+- **Ordering:** ensure `restoreBackgroundPort` runs after `restoreFromDB` so the live panel is found.
+
+**Test:** set-as-background then assert the panel still persists (survives a restore round-trip) and the
+background slot re-adopts it. `fetchPortHtml` returns the latest version when no panel row exists.
+
+**Relationship:** both bugs are the same disease — **restore assumes an operation succeeded (webview
+loaded / panel persisted) and never verifies or recovers.** Neither is caused by the API-unification
+work (both predate it: the restore path and background-as-port v1 are untouched by it); the rebuilds
+just forced the restarts that surfaced them. Also connects to the parked "`port_versions` never evicts"
+item — the version store is what made recovery possible here.
+
+---
+
 ## Priority — ranked for impact on "a great space experience" (2026-06-27)
 
 The whole push is **a great space experience**: enter a space and see its world; companions feel
