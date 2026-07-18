@@ -320,7 +320,15 @@ consistent. Look at the `ports_list` vs `terminal_list` handlers (`ToolExecutor.
 
 ---
 
-## TODO: port.exec async/object marshalling (2026-07-17)
+## ~~TODO: port.exec async/object marshalling~~ — DONE 2026-07-17
+
+**Fixed.** `PortExecJS.run` swaps `evaluateJavaScript` → `callAsyncJavaScript` (async body,
+return-to-yield, `.page` content world), auto-awaits a returned promise, wraps a bare expression as
+`return (expr)`, and serializes with `.fragmentsAllowed`; a JS exception/reject → `{error}`, undefined
+→ "OK (no return value)". Both `port.exec` sites (`PortBridge`, `ToolExecutor`) route through it. Unit
+test on the wrap logic; verified live against the gateway — `port42.ports.list()` (bare, used to be
+"unsupported type") now yields the array, a plain object marshals as JSON, `throw` → error, multi-
+statement bodies with `return` work. Original write-up kept below.
 
 **Confirmed live this session** while verifying the bridge from inside a port: `port.exec` running
 `port42.ports.list()` returned *"unsupported type"* (it handed back the Promise), and a top-level

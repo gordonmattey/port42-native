@@ -814,9 +814,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return ["error": "port '\(id)' not found or not active"]
             }
             do {
-                let result = try await webView.evaluateJavaScript(js)
-                if result is NSNull || result == nil { return ["ok": true] }
-                return ["result": result!]
+                // #5: callAsyncJavaScript — awaits promises, yields JSON-serializable values (so an
+                // object result no longer marshals as "unsupported type").
+                guard let result = try await PortExecJS.run(webView, js) else { return ["ok": true] }
+                return ["result": result]
             } catch {
                 return ["error": error.localizedDescription]
             }

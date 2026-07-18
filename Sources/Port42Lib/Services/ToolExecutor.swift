@@ -649,17 +649,16 @@ public final class ToolExecutor {
                 return [textBlock("Error: port '\(id)' not found or not active")]
             }
             do {
-                let result = try await webView.evaluateJavaScript(js)
-                if result is NSNull || result == nil {
-                    return [textBlock("OK (no return value)")]
-                }
+                // #5: callAsyncJavaScript — awaits promises, yields JSON-serializable values.
+                let result = try await PortExecJS.run(webView, js)
+                guard let result else { return [textBlock("OK (no return value)")] }
                 if let str = result as? String { return [textBlock(str)] }
                 if let num = result as? NSNumber { return [textBlock("\(num)")] }
-                if let data = try? JSONSerialization.data(withJSONObject: result!),
+                if let data = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]),
                    let str = String(data: data, encoding: .utf8) {
                     return [textBlock(str)]
                 }
-                return [textBlock("\(result!)")]
+                return [textBlock("\(result)")]
             } catch {
                 return [textBlock("Error executing JS: \(error.localizedDescription)")]
             }
