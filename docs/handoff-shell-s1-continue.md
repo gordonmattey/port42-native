@@ -77,15 +77,36 @@ and the bridge-surface artifact.
   (`ai.models`/`ai.status` served via the gateway, dotted + snake). No `BridgeService` protocol yet.
 - **e2cdd27** todo: AppleScript / Automation test-env enablement (the 7th env-only test failure).
 
+**The manifest / plug-in architecture, proven across three services (committed + pushed).** A service is
+declared as DATA (`ServiceManifest`: methods with canonical + surface names, schema, permission,
+paramNames) plus a body; the name-map derives from per-method surface/canonical (never hand-written).
+Same manifest for external plugins (ship data + an endpoint) and in-process services (bind closures by
+canonical). The `BridgeService` question is answered: `ServiceManifest` **is** the descriptor.
+- **bc81ab4** **Spike D** — manifest-driven service, proven external-first with a hypothetical `weather`
+  plugin (`ServiceManifest.swift` + `registerManifest`): pure data + one generic backend → dispatchable,
+  gated, schema-generating methods, name-map derived, zero method-specific code.
+- **cbd0ba4** **Keeper** migrated (`BridgeServiceKeeper.swift`): the in-process case holds the same
+  shape. Declares plural surfaces (`creases.*`/`engravings.*`); the 8-entry name-map derives and wires
+  via `AppState.bridgeAliases` + `resolveBridgeAlias` (every adapter). Fixed a live bug (the literal
+  dispatched `creases.read`/`engravings.*` to names that resolved nowhere) — verified live: full
+  write/read/forget round-trip through the DSL surface.
+- **0a98974** **storage** migrated (`BridgeServiceStorage.swift`): the simplest tenant, empty name-map.
+- Spike B generalized: manifest services leave the source-scan (now 42 methods) and are checked by a
+  runtime probe (`appManifestServices()`). Spike A parity + memory/D4/storage suites green (168 tests).
+
 ## Next
 
-**Migrate Keeper as the second service (formalizes the pattern).** `ai` is one data point; Keeper
-(`crease`/`engrave`/`fold`/`position`) is the one that earns or refutes a `BridgeService` abstraction,
-because it brings the parts `ai` did not: a **declared DSL name-map** (plural `creases`/`engravings` JS
-surface → singular `crease`/`engrave` methods, replacing the literal's inconsistent per-call patching
-and subsuming the `files.* -> fs.*` alias table) and a **two-faculty span** (epistemic memory +
-knowledge) over a DB backend. Doing `ai` then Keeper is what tells us whether the service pattern wants
-a formal type or stays a convention. `storage` (knowledge/KV) follows as the third, simplest tenant.
+**Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Now with three real
+services to design against. Prove a generic `window.port42` Proxy dispatches `port42.a.b(...args)` →
+`call(resolveBridgeAlias('a.b'), args)` identically to the literal for platform + device, routes service
+surfaces through the derived name-map (Keeper's `creases.*`), and carves out the non-generic members
+(machinery `_*`, event `on`, client-only `port.resize`, streaming `ai.complete`/`companions.invoke`).
+JavaScriptCore harness: extract the literal from `PortBridge.swift:1521`, stub `call`, diff recorded
+`(method, args)` per method. Green + the carve-out list = the literal is safe to replace.
+
+**Then the big-bang** — flip `ToolDefinitions`/`ToolNaming.canonicalMethods`/`llms.txt` to generated,
+replace the literal with the Proxy + service seam + streaming shim, delete the old switches and parallel
+lists. Guarded by A/B/C/D.
 
 **Then Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Prove a generic
 `window.port42` Proxy dispatches `port42.a.b(...args)` → `call('a.b', args)` identically to the current
