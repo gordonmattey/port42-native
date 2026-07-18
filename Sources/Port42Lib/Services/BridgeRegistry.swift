@@ -19,11 +19,13 @@ public struct BridgeMethod {
     /// Empty for methods only ever called with named args.
     public let paramNames: [String]
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
-    public let run: (Principal, BridgeArgs) async throws -> BridgeValue
+    /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
+    /// two executors do today.
+    public let run: @MainActor (Principal, BridgeArgs) async throws -> BridgeValue
 
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
-                run: @escaping (Principal, BridgeArgs) async throws -> BridgeValue) {
+                run: @escaping @MainActor (Principal, BridgeArgs) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
         self.run = run

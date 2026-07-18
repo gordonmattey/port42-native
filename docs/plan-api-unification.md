@@ -161,9 +161,21 @@ target to move bodies into.
 - **Command:** `swift test --filter BridgeValue`, `--filter ToolNaming`, `--filter Principal`.
 - **Done:** all green; the name map covers 100% of `ToolDefinitions` names with zero collisions.
 
-### Phase 1 — the base registry (one implementation per method)
+### Phase 1 — the base registry (one implementation per method) — **IN PROGRESS**
 
 **Goal.** Every method body lives once, in `BridgeRegistry`, keyed by canonical name.
+
+**Batches landed:**
+- **Relationship memory** (crease / engrave / fold / position — 12 methods), 2026-07-17. Bodies in
+  `BridgeMethods.swift`; `BridgeParityHarness.swift` + `BridgeParityMemoryTests.swift` (12 tests,
+  green) prove each matches `ToolExecutor` on read shape, write side effect, and error text. These are
+  tool-only methods, so the extraction is behavior-preserving; the read-JSON cases (`fold.read`,
+  `position.read`) moved to structured `BridgeValue` and compare equal via the harness's semantic
+  (sorted-keys) canonicalization.
+
+**Batches remaining:** storage; ports (`port.*` + `ports.list`); messages/space/companions/bus; files;
+then the live-only device families (screen/camera/clipboard/audio/notify/browser/automation) via
+stubbed bridges.
 
 **Work.**
 - Move the body of each `case` from the two switches into a registry entry. Most already delegate to
