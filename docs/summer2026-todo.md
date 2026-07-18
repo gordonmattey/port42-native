@@ -357,6 +357,55 @@ calls work" step; the native port type is a separate, larger north star.
 
 ---
 
+## TODO: publish a port as a website (2026-07-17)
+
+**GM:** publish any port as a website easily. Two routes named, and the pieces for the second already
+exist: plug in an external host (Vercel/Netlify), **or serve it on the gateway through the reverse
+proxy, the way invite sharing already works.**
+
+**A port is already a publishable artifact.** The CSP blocks external loads (`default-src 'none'`,
+todo item "CDN loads are silently blocked"), so every port's HTML is **self-contained** with assets
+inlined. Its current HTML is one `port.getHtml` away, and versions are retained. So "publish" is
+mostly a serving problem, not a packaging one.
+
+**Route 1 (gateway reverse-proxy, the low-lift one, reuses the invite path):**
+- The gateway **already serves full HTML pages over the public tunnel**: `/invite` returns a themed
+  page with `Content-Type: text/html` (`gateway/main.go:88-152`), reachable at `TunnelService.publicURL`
+  (the ngrok origin). Adding `GET /p/<id>` that returns a port's HTML is directly analogous.
+- The gateway is a separate Go process and does not hold port HTML (it lives in the app's SQLite). It
+  already forwards `/call` RPCs to the app over WS, so `/p/<id>` fetches the HTML via the existing
+  `port.getHtml` bridge, wraps it in the port document shell (the CSP + theme wrapper, currently
+  **duplicated** in `PortView.swift:245` and `PortWindowManager.swift:947` — unify that as part of
+  this, one wrapper), and serves it.
+- **Live vs snapshot:** proxying `getHtml` on each request is **live** (the URL always shows the
+  current port). A published snapshot (copy at publish time, its own version) is the durable
+  alternative. Decide per-publish; live is the natural default for a machine that is online.
+- **Cost:** it is *your machine* serving the page, so it is up only while the app + tunnel are up.
+  Fine for share-a-thing, not for a durable site. That is what Route 2 is for.
+
+**Route 2 (external static host, durable, off your machine):** push the self-contained HTML to
+Vercel/Netlify/Cloudflare Pages via their deploy API, get a URL that lives without Port42 running.
+Snapshot by nature; re-push to update. Needs a host integration + a stored deploy token (fits the
+existing secrets/`rest.call` model).
+
+**The hard part is the same principal question as everywhere else.** A published port's `port42.*`
+bridge calls **do not work off-device** (no gateway on the viewer's side), and if they *did* route
+back, they would run with **the author's grants** — the credential-laundering risk the MCP item
+(`MCP as a port capability`) already flags, and Anthropic's own reason for forbidding public sharing
+of an MCP-declaring page. **Default: a published port is static/visual, zero bridge authority.** Any
+future "interactive published port" must execute as the **viewer's** principal, never the author's,
+which is exactly the [principal work in #2] (API/tool-use unification). Do not enable bridge-on-
+published before that lands.
+
+**Shape:** a `port.publish(id) -> url` / `port.unpublish(id)` verb (the new subscriber on the port's
+stream, `membrane/bus-architecture.md`: "rendering is just one subscriber" — a website is another),
+a published-state flag + URL surfaced in the port chrome, and a route (`/p/<id>`) or a host push
+behind it. Sequence Route 1 first (near-free, rides the invite/tunnel machinery); Route 2 and any
+interactivity ride later work. Relates to "a port has a URL" (named in the MCP item), port teleport,
+and the native-ports/replication north star (a public HTTP renderer is a read-only subscriber).
+
+---
+
 ## TODO: ports scoped to space
 
 Ports should belong to a **space**, not float globally. A port created in space X shows when you're
@@ -397,6 +446,74 @@ Design notes:
   (`@Published` on AppState, fed by observations) the rows read; the body stays DB-free.
 - Ties into: ambient awareness is the same goal as space-scoped ports + the dock view — together
   they make a space (and the set of spaces) legible at a glance.
+
+---
+
+## TODO: recency-sorted ⌘K — switch between recent spaces (2026-07-17)
+
+**GM:** a way to more easily switch between *recent* spaces. Today switching has two axes and both
+ignore recency:
+- **Positional** — `⌘1…9` indexes straight into `workingSpaces`, which is `Space.order(createdAt.asc)`
+  (`DatabaseService.swift:742`, `spaces.filter { !isResting }` at `AppState.swift:1776`). Slot 1 is
+  the oldest space you made, forever.
+- **Search** — `⌘K` empty-query returns `spaceItems` in that same creation order
+  (`QuickSwitcher.swift:186-207`).
+
+Neither surfaces "the space I was just in". The **recency signal already exists**: `selectSpace`
+stamps `lastReadDates[space.id] = Date()` on every switch (`AppState.swift:1702`), and `restingSpaces`
+already sorts by recency (`restedAt` desc, `AppState.swift:1781`) so the pattern is established.
+
+**The change (smallest fit, chosen over a ⌘Tab overlay or a recents rail):** when `⌘K` opens with an
+empty query, sort `spaceItems` by most-recently-used instead of creation order. Typing still fuzzy-
+searches exactly as today. One method touched (`QuickSwitcher.filteredItems` empty-query branch), the
+overlay and keys unchanged.
+
+**Decisions to make:**
+- **MRU source + persistence.** `lastReadDates` is in-memory and cleared on lock/sign-out
+  (`AppState.swift:2875`), so the order resets across launches. `lastSelectedSpaceId` is persisted but
+  is a single id, not a list. For recency to survive a relaunch, either persist `lastReadDates` to
+  UserDefaults, or add a `lastVisitedAt` column on `Space` (append migration, next is **v41**). Lean
+  toward a persisted timestamp so the first `⌘K` after launch already reads right.
+- **Current space placement.** Put the space you're in now first (natural, matches the preview GM
+  picked) or drop it from the list (you're already there). Lean first-with-a-"now"-marker.
+- **Interaction with drag-reorder (below).** Recency and manual order are two different axes: `⌘K`
+  empty-query = recency; the galaxy grid + `⌘1…9` = manual `sortIndex`. Keep them distinct on purpose.
+
+---
+
+## TODO: drag-reorder spaces in the galaxy (2026-07-17)
+
+**GM:** click and re-drag the order of a space in the galaxy. Today the order is creation order and
+**immutable** — the galaxy grid renders `ForEach(workingSpaces.enumerated())` in `createdAt.asc`
+order (`ShellView.swift:411`), and `⌘1…9` indexes the same array (`jumpToSpace(index:)`). There is
+**no manual sort field** on `Space` (`Models/Space.swift` — id/name/type/createdAt/accent/restedAt,
+nothing positional).
+
+**The missing thing:** a persistent **`sortIndex`** on `Space` (append migration **v41**, never edit
+an existing one). Once it exists it drives ordering everywhere the creation order is used today, so
+the reorder is real, not cosmetic:
+- `workingSpaces` sorts by `sortIndex` (fallback to `createdAt` for null/legacy rows so pre-migration
+  spaces keep a stable order).
+- **`⌘1…9` follows the manual order** — dragging a space to the front makes it `⌘1`. This is the
+  payoff: the positional shortcuts become *yours*.
+
+**The interaction:** a drag gesture on the galaxy `LazyVGrid` worlds (`ShellView.swift` `world(_:index:)`)
+that reorders the cards and writes the new `sortIndex` set. `LazyVGrid` has no built-in reorder, so
+either a manual drag (`DragGesture` + hit-test the drop slot + animate) or the `.draggable`/`onMove`
+route if it composes with the grid. Persist through `db.saveSpace` / a batch reindex; the grid reads
+reactively off `spaces`.
+
+**Watch-outs:**
+- **`newSpaceCard` is the last grid item** (`ShellView.swift:414`) — exclude it from the drag targets.
+- **The resting shelf is separate** and already recency-sorted (`restedAt` desc); manual `sortIndex`
+  is a working-set concept only. A space that rests then wakes should keep its `sortIndex`.
+- **Accent-by-position is decoupled already** — accents are assigned at creation and kept for life
+  (`Space.accent`, `AppState.swift:1737`), so reordering does not recolor anything. Good; leave it.
+- Migration backfill: set `sortIndex` from the current `createdAt` order so day-one ordering is
+  identical to today, then let drags diverge it.
+
+**Pairs with** recency-sorted `⌘K` above (the two switching axes) and the shell plan's space rail —
+if the rail lands, the same `sortIndex` orders it too.
 
 ---
 
