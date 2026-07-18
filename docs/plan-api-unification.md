@@ -161,7 +161,7 @@ target to move bodies into.
 - **Command:** `swift test --filter BridgeValue`, `--filter ToolNaming`, `--filter Principal`.
 - **Done:** all green; the name map covers 100% of `ToolDefinitions` names with zero collisions.
 
-### Phase 1 — the base registry (one implementation per method) — **IN PROGRESS**
+### Phase 1 — the base registry (one implementation per method) — **HEADLESS EXTRACTION DONE; live-only families extracted in Phase 2**
 
 **Goal.** Every method body lives once, in `BridgeRegistry`, keyed by canonical name.
 
@@ -201,9 +201,20 @@ target to move bodies into.
   the DB into `state.spaces`/`state.companions`, as the real app does via observations.) Deferred:
   `messages.sendAsCreator` and `space.switchTo` (JS-only / UI action) → Phase-2 live-only.
 
-**Batches remaining:** ports part 2 + the JS-only sends above (live-only); files (fs.read/write/pick/
-list/mkdir); then the device families (screen/camera/clipboard/audio/notify/browser/automation) via
-stubbed bridges. Running total: 58 bridge tests green across 9 suites.
+- **Files** (fs.read/write/list/mkdir — 4), 2026-07-17. Data-dir sandbox model (relative only,
+  traversal blocked, absolute → picker/live-only), `.filesystem`-gated, `BridgeFilePaths.dataDir` a
+  testable hook. `BridgeFilesTests`, 7 green.
+- **Devices, headless-safe** (clipboard.read/write, screen.displays — 3), 2026-07-17. Clipboard
+  round-trips via NSPasteboard; `screen.displays` is the canonical structured array that replaces the
+  `screen_info` text blob. `BridgeDeviceTests`, 4 green.
+
+**Phase 1 headless extraction: COMPLETE.** ~40 methods live once in the registry, 70 bridge tests green
+(no regressions in the existing `*BridgeTests`). **What is intentionally NOT extracted yet** — these
+touch real hardware, the network, or a live surface, so they cannot be verified without the running
+app and are extracted **during Phase 2 wiring**, where each is exercised live as its adapter switches
+in: `port.create/push/exec/manage/info/resize/setTitle/setCapabilities`, `messages.sendAsCreator`,
+`space.switchTo`, `screen.capture/windows/stream`, `camera.*`, `audio.*`, `notify.send`, `browser.*`,
+`automation.*`, `rest.call`, `ai.complete/cancel` (streaming, a documented exception), `fs.pick`.
 
 **Work.**
 - Move the body of each `case` from the two switches into a registry entry. Most already delegate to

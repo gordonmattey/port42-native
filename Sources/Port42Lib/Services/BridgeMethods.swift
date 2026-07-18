@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 // MARK: - BridgeMethods (Phase 1 — one implementation per method)
 //
@@ -17,7 +18,47 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerPortMethods(into: &r, appState: appState)
     registerCommsMethods(into: &r, appState: appState)
     registerFileMethods(into: &r, appState: appState)
+    registerDeviceMethods(into: &r, appState: appState)
     return r
+}
+
+// MARK: Devices (headless-safe subset)
+//
+// The last methods that can be verified without hardware or UI: clipboard (NSPasteboard) and
+// screen.displays (NSScreen). screen.displays is the canonical shape for what the tool surface called
+// `screen_info` — a structured array of display objects on every surface, not a text blob. The rest of
+// the device families (screen.capture / camera / audio / notify / browser / automation / rest) and the
+// live port methods (create / push / exec / manage) touch real hardware, the network, or a live
+// surface, so they are extracted during Phase-2 wiring where they can be exercised live.
+
+@MainActor
+private func registerDeviceMethods(into r: inout BridgeRegistry, appState: AppState) {
+    let clipboard = ClipboardBridge()
+
+    r["clipboard.read"] = BridgeMethod(permission: .clipboard) { _, _ in
+        .fromJSONObject(clipboard.read())
+    }
+
+    r["clipboard.write"] = BridgeMethod(permission: .clipboard, paramNames: ["data"]) { _, args in
+        guard let data = args.any("data") else { throw BridgeError.missingArg("data") }
+        return .fromJSONObject(clipboard.write([data]))
+    }
+
+    // No permission (docs: "no permissions required"). NSScreen, structured array — the canonical
+    // form of the old `screen_info` text blob.
+    r["screen.displays"] = BridgeMethod(permission: nil) { _, _ in
+        .array(NSScreen.screens.map { screen in
+            let f = screen.frame
+            let v = screen.visibleFrame
+            return .object([
+                "width": .double(Double(f.width)), "height": .double(Double(f.height)),
+                "x": .double(Double(f.origin.x)), "y": .double(Double(f.origin.y)),
+                "visibleWidth": .double(Double(v.width)), "visibleHeight": .double(Double(v.height)),
+                "visibleX": .double(Double(v.origin.x)), "visibleY": .double(Double(v.origin.y)),
+                "isMain": .bool(screen == NSScreen.main),
+            ])
+        })
+    }
 }
 
 // MARK: Files
