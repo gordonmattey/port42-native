@@ -4,9 +4,19 @@ import Foundation
 /// Each tool maps to an existing port42 bridge API method.
 enum ToolDefinitions {
 
-    /// All available tools grouped by permission requirement.
+    /// All available tools grouped by permission requirement. Retained as the parity oracle for the
+    /// generated list (`AppState.generatedToolDefinitions`), which is what production now uses. The
+    /// hand-written schemas here are frozen: adding a method touches only the registry.
     static var all: [[String: Any]] {
         infoTools + actionTools + deviceTools
+    }
+
+    /// The tools that are NOT yet in the registry (still live-only on the old switches): browser.* and
+    /// rest.call. The generated list folds these hand-written entries in until those families are
+    /// extracted (hybrid mode). Everything else generates from the registry.
+    static let hybridToolNames: Set<String> = ["browser_open", "browser_text", "browser_capture", "browser_close", "rest_call"]
+    static var hybridTools: [[String: Any]] {
+        all.filter { ($0["name"] as? String).map(hybridToolNames.contains) ?? false }
     }
 
     // MARK: - Info Tools (no permission needed)

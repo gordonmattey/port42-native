@@ -24,6 +24,11 @@ public struct BridgeMethod {
     /// reconciled in Phase 3 (picked-path grant on the principal). `bridgeHandles` excludes unwired
     /// methods, so they keep running on the old path until then.
     public let wired: Bool
+    /// Whether this method is exposed as an LLM tool (i.e. appears in the generated `ToolDefinitions`).
+    /// Default true. False for methods that are registry-reachable but not companion tools:
+    /// `audio.play`/`audio.stop` (no tool today) and the streaming `ai.complete`/`companions.invoke`
+    /// (a companion uses its own model, it does not call these as tools).
+    public let toolExposed: Bool
     /// Self-describing metadata (the big-bang's single source): a human/model description and a
     /// JSON-Schema for the method's input, mirroring `BridgeStreamMethod`. `anthropicToolSchema`
     /// generates the tool-use schema from these, so `ToolDefinitions` can be flipped to generated and
@@ -39,12 +44,14 @@ public struct BridgeMethod {
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
                 wired: Bool = true,
+                toolExposed: Bool = true,
                 description: String = "",
                 inputSchema: [String: Any] = [:],
                 run: @escaping @MainActor (Principal, BridgeArgs) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
         self.wired = wired
+        self.toolExposed = toolExposed
         self.description = description
         self.inputSchema = inputSchema
         self.run = run
@@ -71,16 +78,21 @@ public struct BridgeStreamMethod {
     /// hand-maintained parallel list — the pattern the big-bang rolls across every method.
     public let description: String
     public let inputSchema: [String: Any]
+    /// Whether this method is exposed as an LLM tool. False for `ai.complete`/`companions.invoke`
+    /// (a companion uses its own model, not these as tools). See `BridgeMethod.toolExposed`.
+    public let toolExposed: Bool
     /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
     public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
 
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
+                toolExposed: Bool = true,
                 description: String = "",
                 inputSchema: [String: Any] = [:],
                 run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
+        self.toolExposed = toolExposed
         self.description = description
         self.inputSchema = inputSchema
         self.run = run

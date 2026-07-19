@@ -33,6 +33,7 @@ func registerAIService(into r: inout BridgeRegistry, appState: AppState) {
 
     r["ai.models"] = BridgeMethod(
         permission: nil,
+        toolExposed: false,
         description: "List the available models for the current Port AI provider, each with id, name, and tier.",
         inputSchema: ["type": "object", "properties": [String: Any]()]
     ) { _, _ in
@@ -64,6 +65,7 @@ func registerAIService(into r: inout BridgeRegistry, appState: AppState) {
 
     r["ai.status"] = BridgeMethod(
         permission: nil,
+        toolExposed: false,
         description: "Whether AI calls are currently paused (the token-burn guard).",
         inputSchema: ["type": "object", "properties": [String: Any]()]
     ) { _, _ in
@@ -79,6 +81,7 @@ func registerAIServiceStream(into r: inout BridgeStreamRegistry, appState: AppSt
     r["ai.complete"] = BridgeStreamMethod(
         permission: .ai,
         paramNames: ["prompt", "options"],
+        toolExposed: false,
         description: "Complete a prompt with an LLM, streaming tokens back. Returns the full text.",
         inputSchema: [
             "type": "object",

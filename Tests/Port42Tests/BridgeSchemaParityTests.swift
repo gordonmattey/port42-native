@@ -94,6 +94,28 @@ struct BridgeSchemaParityTests {
         #expect(checked == 52, "expected 52 parity-set methods, checked \(checked)")
     }
 
+    @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")
+    func fullListParity() throws {
+        let world = try makeParityWorld()
+        let generated = world.state.generatedToolDefinitions()
+
+        var genByName: [String: [String: Any]] = [:]
+        for t in generated { if let n = t["name"] as? String { genByName[n] = t } }
+        let expected = Self.toolDefsByName()
+
+        // Same set of tool names (57: 52 generated + 5 hybrid).
+        #expect(Set(genByName.keys) == Set(expected.keys),
+                "tool name set differs (symmetric diff): \(Set(genByName.keys).symmetricDifference(Set(expected.keys)).sorted())")
+
+        // Each schema matches the hand-written oracle byte-for-byte (sorted-keys).
+        var mismatches: [String] = []
+        for (name, exp) in expected {
+            guard let gen = genByName[name] else { mismatches.append("missing:\(name)"); continue }
+            if Self.canon(gen) != Self.canon(exp) { mismatches.append(name) }
+        }
+        #expect(mismatches.isEmpty, "generated schema differs from ToolDefinitions.all for: \(mismatches.sorted())")
+    }
+
     @Test("Hybrid-only tools genuinely have no registry method (exclusion list has not rotted)")
     func hybridOnlyToolsAreNotYetInRegistry() throws {
         let world = try makeParityWorld()

@@ -43,6 +43,7 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
     r["companions.invoke"] = BridgeStreamMethod(
         permission: .ai,
         paramNames: ["identifier", "prompt"],
+        toolExposed: false,
         description: "Invoke a companion (by id or name) with a prompt; streams its reply. The companion sees recent space context and replies to the caller, not the chat.",
         inputSchema: [
             "type": "object",
@@ -349,12 +350,12 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         return .fromJSONObject(await audio.speak(text: text, opts: args.object("options")))
     }
 
-    r["audio.play"] = BridgeMethod(permission: nil, paramNames: ["data", "options"]) { _, args in
+    r["audio.play"] = BridgeMethod(permission: nil, paramNames: ["data", "options"], toolExposed: false) { _, args in
         let data = try args.requireString("data")
         return .fromJSONObject(audio.play(data: data, opts: args.object("options")))
     }
 
-    r["audio.stop"] = BridgeMethod(permission: nil) { _, _ in
+    r["audio.stop"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
         .fromJSONObject(audio.stop())
     }
 }

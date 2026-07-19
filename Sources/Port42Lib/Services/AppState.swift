@@ -424,7 +424,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
                 systemPrompt: spacePrompt,
                 model: savedModel,
                 maxTokens: 16384,
-                tools: ToolDefinitions.all,
+                tools: self.appState?.generatedToolDefinitions() ?? ToolDefinitions.all,
                 thinkingEnabled: savedThinkingEnabled,
                 thinkingEffort: savedThinkingEffort,
                 delegate: self
@@ -600,7 +600,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,
                     maxTokens: 8192,
-                    tools: ToolDefinitions.all,
+                    tools: self.appState?.generatedToolDefinitions() ?? ToolDefinitions.all,
                     thinkingEnabled: self.savedThinkingEnabled,
                     thinkingEffort: self.savedThinkingEffort
                 )
@@ -838,6 +838,22 @@ public final class AppState: ObservableObject {
 
     /// Resolve a caller's dotted name (canonical or a service surface alias) to its canonical form.
     public func resolveBridgeAlias(_ name: String) -> String { bridgeAliases[name] ?? name }
+
+    /// The LLM tool schemas, GENERATED from the registry (big-bang step 1). Every tool-exposed method
+    /// contributes its self-describing schema via `anthropicToolSchema`; the not-yet-extracted live-only
+    /// families (browser.*, rest.call) fold in as hand-written hybrid entries. Replaces the hand-written
+    /// `ToolDefinitions.all` at the call sites; `ToolDefinitions.all` remains as the parity oracle.
+    public func generatedToolDefinitions() -> [[String: Any]] {
+        var tools: [[String: Any]] = []
+        for (canonical, method) in bridgeRegistry where method.toolExposed {
+            tools.append(anthropicToolSchema(canonical: canonical, method: method))
+        }
+        for (canonical, method) in bridgeStreamRegistry where method.toolExposed {
+            tools.append(anthropicToolSchema(canonical: canonical, method: method))
+        }
+        tools += ToolDefinitions.hybridTools
+        return tools
+    }
 
     private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
