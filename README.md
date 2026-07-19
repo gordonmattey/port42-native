@@ -14,7 +14,7 @@ Port42 is the first companion computing platform. Not another AI chat wrapper. A
 
 - **Companions** Multiple AI companions in the same channel, talking alongside you and your friends. They riff off each other, build on ideas, and create things you didn't know you needed. Runs on Claude or Gemini — set per-companion.
 - **Command agents** Wrap any local binary or script as a companion. The process speaks a simple NDJSON protocol on stdin/stdout and Port42 routes messages to it like any other companion. Working directory and environment variables configurable per agent.
-- **Terminal companions** Run Claude Code or Gemini CLI as a native companion. Add one to a channel and it appears inline as a live terminal port — channel messages route directly into the CLI, and its responses post back to the channel. Pop it out to a floating window when you need more space.
+- **Terminal companions** Run Claude Code or Gemini CLI as a native companion. Add one to a channel and it appears inline as a live terminal port — channel messages route directly into the CLI, and its responses post back to the channel. Pop it out onto the shell desktop when you need more space.
 - **Provider companions** Connect GitHub, Stripe, Cloudflare — or any REST API — as companions. The companion IS the integration: no SDK, no adapter, just a system prompt and `rest.call`. Multiple providers in one channel synthesize across each other's data.
 - **Relationship memory** Companions carry persistent fold, position, and creases across every session. They know where they stand without being asked.
 - **Ports** Interactive surfaces that live inside conversations. Visualizations, tools, dashboards, games. Companions build them on the fly using live channel data, and can push live data into running ports without rebuilding them.
@@ -38,7 +38,7 @@ Companions emit ports using a ` ```port ` code fence. Port42 wraps the content i
 <div id="app"></div>
 <script>
   const companions = await port42.companions.list()
-  const channel = await port42.channel.current()
+  const space = await port42.space.current()
   document.getElementById('app').innerHTML =
     companions.map(c => `<div>${c.name} (${c.model})</div>`).join('')
 
@@ -49,15 +49,15 @@ Companions emit ports using a ` ```port ` code fence. Port42 wraps the content i
 
 The `<title>` appears in the port window header alongside the companion's name. The `<meta name="version" content="1">` is also shown in the header — companions increment it each time they update a port so you can see which revision is running.
 
-Ports can be popped out of the message stream into floating windows and persist across channel switches and app restarts.
+Ports can be popped out of the message stream onto the shell desktop as tiles and persist across space switches and app restarts.
 
 ### Port Version History
 
 Every port is versioned. Each time a companion creates or updates a port the HTML is snapshotted. Companions can read the current HTML of an existing port before deciding to update it — preventing blind overwrites. Available to companions via the `port_get_html` and `port_history` tools (see Companion Tools below).
 
-### Terminal Game Loop
+### Terminal Ports
 
-Ports with terminal sessions can drive a companion feedback loop. When a companion sends to a terminal (`terminal_send`), the port's output is silently routed back to the owning companion at 300ms intervals. The chat typing area shows a bridge indicator while output is flowing: `engineer is bridging: my-port`. This lets companions build reactive CLI tools, watch processes, and iterate on running code without the terminal output flooding chat.
+A terminal is a port type. `port_create({type: "terminal", command: "bash"})` opens a native terminal port; `port_push(id, "npm test\n")` types raw keystrokes into it (include your own newline). Output comes back on its own, as `<p42>`-tagged messages from a plain shell or a turn-complete post from an agent terminal (claude, gemini), readable with `messages_recent`. `terminal.exec(command)` runs a command headless (no window) and returns `{ output }`; it is the only permission-gated terminal method.
 
 ## Port42 Bridge API
 
@@ -66,15 +66,15 @@ All methods are async and return JSON. Ports run in a sandboxed webview with no 
 ### port42.user
 
 ```
-.get()                          → { id, name }
+.get()                          → { id, displayName }
 ```
 
 ### port42.companions
 
 ```
-.list()                         → [{ id, name, model, isActive }]
-.get(id)                        → { id, name, model, isActive } | null
-.invoke(id, prompt, opts?)      → response text (string)
+.list()                         → [{ id, name, model, trigger }]
+.get(id)                        → { id, name, model, systemPrompt }
+.invoke(id, prompt, opts?)      → { text }
 ```
 
 `invoke` calls a companion's AI from within a port. The companion sees recent channel context. Response is port-private (does not appear in chat). Supports streaming via `opts.onToken` and `opts.onDone`. Requires AI permission.
@@ -83,7 +83,7 @@ All methods are async and return JSON. Ports run in a sandboxed webview with no 
 
 ```
 .models()                       → [{ id, name, tier }]
-.complete(prompt, opts?)        → response text (string)
+.complete(prompt, opts?)        → { text }
 .cancel(callId)                 → { ok: true }
 ```
 
@@ -92,43 +92,43 @@ Raw LLM access with no personality. Options: `{ model, systemPrompt, maxTokens, 
 ### port42.messages
 
 ```
-.recent(n?)                     → [{ id, sender, content, timestamp, isCompanion }]
-.send(text)                     → { ok: true }
+.recent(n?)                     → [{ sender, content, timestamp }]
+.send(text, space_id?)          → { ok: true }
 ```
 
-### port42.channel
+### port42.space
 
 ```
-.current()                      → { id, name, type, members: [{ name, type }] } | null
-.list()                         → [{ id, name, type, isCurrent }]
-.switchTo(id)                   → { ok: true } | { error }
+.current(space_id?)             → { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }
+.list()                         → [{ id, name }]
+.switchTo(id)                   → { ok: true }
 ```
 
-`type` is `'channel'` or `'swim'`. Members include `{ name, type: 'human' | 'companion' }`.
+`type` is the space type, e.g. `'team'` or `'direct'` (a 1:1 DM). Member `type` is `'human'` or `'agent'`. Failed calls reject the promise.
 
 ### port42.storage
 
 Persistent key-value storage. Survives app restarts.
 
 ```
-.set(key, value, opts?)         → true
-.get(key, opts?)                → value | null
-.delete(key, opts?)             → true
-.list(opts?)                    → [keys]
+.set(key, value, opts?)         → { ok: true }
+.get(key, opts?)                → { value }  ({ value: null } when missing)
+.delete(key, opts?)             → { ok: true }
+.list(opts?)                    → { keys }
 ```
 
-Options: `{ scope: 'channel' | 'global', shared: true | false }`
+Options: `{ scope: 'global', shared: true | false }` (space-scoped by default)
 
-Four combinations: per-companion per-channel (default), per-companion global, shared per-channel, shared global.
+Four combinations: per-companion per-space (default), per-companion global, shared per-space, shared global.
 
 ### port42.port
 
 ```
-.info()                         → { messageId, createdBy, channelId }
+.info()                         → { messageId, createdBy, spaceId }
 .close()                        → close this port
 .resize(w, h)                   → resize this port
-.move(id, x, y)                 → move a floating port to screen coordinates
-.position(id)                   → { x, y, width, height } of a floating port
+.move(id, x, y)                 → move a port's tile on the desktop
+.position(id)                   → { x, y, width, height } of a port's tile
 .update(id, html)               → replace another port's HTML (read first with getHtml)
 .getHtml(id, version?)          → read a port's current or versioned HTML
 .patch(id, search, replace)     → targeted edit — errors if search not found
@@ -143,29 +143,29 @@ Four combinations: per-companion per-channel (default), per-companion global, sh
 ### port42.ports
 
 ```
-.list(opts?)                    → [{ id, title, capabilities, status, createdBy, x?, y? }]
+.list(opts?)                    → [{ id, title, capabilities, status, createdBy, cwd?, surfaceBound?, x?, y? }]
                                    opts: { capabilities: ['terminal'] }
-                                   status: 'floating' | 'docked' | 'inline'
+                                   status: 'tiled' | 'parked' | 'docked' | 'inline'
 ```
 
 ### port42.creases / fold / position
 
-Relationship state — only available in a swim context.
+Relationship state, space-scoped (keyed by the current space; richest in a 1:1 DM).
 
 ```
-port42.creases.read(opts?)                    → [{ id, content, weight, prediction?, actual? }]
-port42.creases.write(content, opts?)          → { id, ok }  opts: { prediction, actual, channelId }
+port42.creases.read(limit?)                   → text listing, one crease per line ("[id] ...")
+port42.creases.write(content, opts?)          → { id, ok }  opts: { prediction, actual, spaceId }
 port42.creases.touch(id)                      → update recency + weight
 port42.creases.forget(id)                     → remove a crease
 
 port42.fold.read()                            → { established, tensions, holding, depth }
 port42.fold.update(opts)                      → opts: { established, tensions, holding, depthDelta }
 
-port42.position.read()                        → { read, stance, watching }
+port42.position.read()                        → { read, stance, watching, confidence }
 port42.position.set(read, opts?)              → opts: { stance, watching }
 ```
 
-Writes always target the swim channel (canonical relationship state).
+Writes target the current space (or the companion's DM when there is no space context).
 
 ### port42.viewport
 
@@ -177,21 +177,13 @@ CSS: var(--port-width), var(--port-height)
 
 ### port42.terminal
 
-Full shell sessions inside ports. Requires terminal permission.
+A terminal is a port type, not a separate toolset. Create one with `port.create({ type: 'terminal', command: 'bash' })`, drive it with `port.push(id, "ls\n")` (raw keystrokes, include your own newline), and list terminals with `ports.list({ capabilities: ['terminal'] })`.
 
 ```
-.spawn(opts?)                   → { sessionId }
-.send(sessionId, data)          → { ok: true }
-.resize(sessionId, cols, rows)  → { ok: true }
-.kill(sessionId)                → { ok: true }
-.on('output', cb)               → { sessionId, data } (ANSI escape sequences)
-.on('exit', cb)                 → { sessionId, code }
-.loadXterm()                    → Terminal class (bundled xterm.js)
+.exec(command)                  → { output } (runs a shell command headless, no window)
 ```
 
-Spawn options: `{ shell, cwd, cols, rows, env }`. Defaults: `/bin/zsh`, 80x24.
-
-Output from terminal sessions is routed silently to the owning companion via the game loop — it does not appear as chat messages. A bridge indicator in the typing area shows which companion is active on which port.
+`terminal.exec` is the only permission-gated terminal method; `port.create` and `port.push` are ungated.
 
 ### port42.clipboard
 
@@ -249,12 +241,12 @@ Display info and screenshot capture. `displays()` requires no permissions. Captu
 ```
 .displays()                     → [{ width, height, x, y, visibleWidth, visibleHeight, visibleX, visibleY, isMain }]
 .windows()                      → { windows: [{ id, title, app, bundleId, bounds }] }
-.capture(opts?)                 → { image, width, height }
+.capture(scale?)                → base64 PNG string (the image data itself)
 ```
 
 `displays()` returns all connected displays with full frame and visible frame (excluding menu bar/dock). No permissions required — use this to position ports on screen.
 
-`windows()` lists visible windows. Use `id` with `capture({ windowId })` to screenshot a specific window. Capture options: `{ scale, windowId, region, displayId, includeSelf }`. `image` is base64 PNG. `scale` controls resolution (0.1 to 2.0, default 1.0). By default Port42's own windows are excluded; pass `includeSelf: true` to include them.
+`windows()` lists visible windows. `capture(scale?)` captures the main display and returns the base64 PNG string directly; `scale` controls resolution (0.1 to 2.0, default 1.0). Port42's own windows are excluded from the capture.
 
 ### port42.browser
 
@@ -280,13 +272,13 @@ Open options: `{ width, height, userAgent }`. Text/HTML options: `{ selector }` 
 Camera capture via AVCaptureSession. Requires camera permission.
 
 ```
-.capture(opts?)                 → { image, width, height }
+.capture(scale?)                → base64 PNG string (the image data itself)
 .stream(opts?)                  → { ok: true }
 .stopStream()                   → { ok: true }
 .on('frame', cb)                → { image, width, height }
 ```
 
-Capture options: `{ scale: 0.5 }`. Stream options: `{ scale: 0.25 }` (lower default for performance). `image` is base64 PNG. Use `capture()` for single frames, `stream()` for continuous feed. Combine with `ai.complete({ images: [frame.image] })` for vision workflows.
+Stream options: `{ scale: 0.25 }` (lower default for performance). Use `capture()` for single frames, `stream()` for continuous feed. Combine with `ai.complete({ images: [frame.image] })` for vision workflows (stream frames carry the base64 PNG in `.image`; `capture()` returns it directly).
 
 ### port42.automation
 
@@ -350,7 +342,7 @@ Sensitive APIs require user permission on first use per port session. Permission
 | Permission | Methods |
 |-----------|---------|
 | AI | `ai.complete`, `companions.invoke` |
-| Terminal | `terminal.spawn` |
+| Terminal | `terminal.exec` |
 | Microphone | `audio.capture`, `audio.stopCapture` |
 | Camera | `camera.capture`, `camera.stream`, `camera.stopStream` |
 | Screen | `screen.windows`, `screen.capture` |
@@ -374,7 +366,7 @@ Companions (LLM agents) and CLI tools (Claude Code, Gemini CLI) share the same A
 
 ```
 ports_list()                    → active ports (title, id, capabilities, status, createdBy, x?, y?)
-port_move(id, x, y)            → move a floating port to screen coordinates
+port_move(id, x, y)            → move a port's tile on the desktop
 screen_info()                   → all display bounds (no permissions needed)
 port_update(id, html)           → replace a port's HTML in full
 port_patch(id, search, replace) → targeted edit — replace an exact string, preserve everything else
@@ -389,7 +381,7 @@ port_exec(id, js)               → execute arbitrary JS inside a running port
 
 Every `port_update` call snapshots the HTML automatically. `port_patch` is the preferred way to fix bugs — only the matched string changes, everything else is untouched, and it errors if the search string is not found. Use `port_update` for structural rewrites.
 
-`ports_list` returns the 5 most recent inline ports in the current channel alongside any floating panels. The port window header shows the version from `<meta name="version" content="N">`.
+`ports_list` returns the 5 most recent inline ports in the current space alongside any desktop tiles. The port header shows the version from `<meta name="version" content="N">`.
 
 ### Relationship State
 
@@ -397,18 +389,18 @@ Companions carry persistent relationship memory — fold, position, and creases 
 
 ```
 crease_read(limit?)                    → current creases, most load-bearing first
-crease_write(content, prediction?, actual?, channelId?)  → write a new crease
+crease_write(content, prediction?, actual?, spaceId?)  → write a new crease
 crease_touch(id)                       → mark active (updates recency + weight)
 crease_forget(id)                      → remove a crease
 
 fold_read()                            → { established, tensions, holding, depth }
 fold_update(established?, tensions?, holding?, depthDelta?)  → update fold state
 
-position_read()                        → { read, stance, watching }
+position_read()                        → { read, stance, watching, confidence }
 position_set(read, stance?, watching?) → set current position
 ```
 
-Fold and position always write to the swim channel (canonical). Creases merge swim (last 5) + channel (last 3).
+Relationship state is space-scoped: reads and writes key on the current space, falling back to the companion's 1:1 DM when there is no space context.
 
 ### REST API Access
 
@@ -470,7 +462,7 @@ Companions carry persistent memory across sessions. No summarization — structu
 
 **Creases** — moments where a prediction broke and something reformed. Each crease is a record of a real correction. Load-bearing memory, not a log.
 
-Relationship state is swim-scoped. The companion's fold and position load from its swim with you and carry into every channel it's in. Creases from both contexts merge. Companions access this state via tools injected into their system prompt — they use them naturally, without being prompted.
+Relationship state is space-scoped, keyed by the space the companion is in (richest in a 1:1 DM, which is the fallback when there is no space context). Companions access this state via tools injected into their system prompt — they use them naturally, without being prompted.
 
 The inner state inspector (visible from the sidebar) shows all three in a tab view with no truncation.
 
@@ -480,14 +472,14 @@ Available to companions in any conversation:
 
 ```
 crease_read(limit?)              → current creases, most load-bearing first
-crease_write(content, pred?, actual?, channelId?)
+crease_write(content, pred?, actual?, spaceId?)
 crease_touch(id)                 → mark a crease as active
 crease_forget(id)                → remove a crease
 
 fold_read()                      → { established, tensions, holding, depth }
 fold_update(established?, tensions?, holding?, depthDelta?)
 
-position_read()                  → { read, stance, watching }
+position_read()                  → { read, stance, watching, confidence }
 position_set(read, stance?, watching?)
 ```
 
@@ -515,14 +507,14 @@ curl -s http://127.0.0.1:4242/call \
   -d '{"method":"screen_capture","args":{"scale":0.5}}'
 ```
 
-Response:
+Response (the `content` field carries the method's structured result as JSON):
 ```json
-{"content": "file1.txt\nfile2.txt\n", "senderType": "host", "senderName": "host"}
+{"content": "{\"output\":\"file1.txt\\nfile2.txt\\n\"}", "senderType": "host", "senderName": "host"}
 ```
 
 Port42 shows a permission prompt the first time a sensitive API is called from a remote process. You can pre-approve categories (terminal, filesystem, screen) in Settings → Remote Access to skip future prompts.
 
-Method names follow the same dot-notation as the port bridge: `terminal.exec`, `clipboard.read`, `screen_capture`, `files.list`, etc.
+Method names follow the same dot-notation as the port bridge: `terminal.exec`, `clipboard.read`, `screen_capture`, `fs.list`, etc.
 
 ### WebSocket API
 

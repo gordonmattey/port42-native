@@ -65,14 +65,14 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### User & Space
 
-  user.get                        → { id, name }
-  companions.list(space_id?)      → [{ id, name, model, isActive }]
+  user.get                        → { id, displayName }
+  companions.list(space_id?)      → [{ id, name, model, trigger }]
                                     space_id given → only that space's companions; omitted → global roster
-  companions.get(id)              → { id, name, model, isActive } | null
-  space.current(space_id?)        → { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] } | null
-                                    space_id given → that space; omitted → currently selected space
-  space.list                      → [{ id, name, type, isCurrent }]
-  messages.recent(count?)         → [{ id, sender, content, timestamp, isCompanion }]
+  companions.get(id)              → { id, name, model, systemPrompt } (errors if not found)
+  space.current(space_id?)        → { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }
+                                    space_id given → that space; omitted → currently selected space (errors if none)
+  space.list                      → [{ id, name }]
+  messages.recent(count?)         → [{ sender, content, timestamp }]
   messages.send(text, space_id?)  → sends message and triggers companions (default: current space)
 
 ### Ports
@@ -106,7 +106,7 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
     drive  → port.push(id, "ls\n")                                 (raw keystrokes)
     list   → ports.list({ capabilities: ["terminal"] })           (reports surfaceBound)
 
-  terminal.exec(command)          → run a shell command HEADLESS (no window), returns stdout.
+  terminal.exec(command)          → run a shell command HEADLESS (no window), returns { output }.
                                     The only permission-gated terminal method.
 
   Output from a port.create terminal returns via its own <p42> tags (bash) or
@@ -116,8 +116,8 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
   screen.displays                 → [{ width, height, x, y, visibleWidth, visibleHeight, isMain }]
                                     No permissions required. macOS bottom-left origin.
-  screen_capture(scale?)          → { image (base64 PNG), width, height }
-                                    Requires screen permission.
+  screen_capture(scale?)          → base64 PNG string (the image data itself).
+                                    Requires screen permission. Use screen.displays for geometry.
   screen.windows                  → { windows: [{ id, title, app, bundleId, bounds }] }
 
 ### Clipboard
@@ -156,7 +156,7 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Camera
 
-  camera.capture(scale?)          → { image (base64 PNG), width, height }
+  camera.capture(scale?)          → base64 PNG string (the image data itself)
 
 ### Notifications
 
@@ -165,13 +165,13 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Relationship State (space-scoped — creases/fold/position/engravings keyed by the current space)
 
-  creases.read(limit?)            → [{ id, content, weight, prediction?, actual? }]
+  creases.read(limit?)            → text listing, one crease per line ("[id] ...")
   creases.write(content, opts?)   → { id, ok }
   creases.touch(id)               → update recency + weight
   creases.forget(id)              → remove a crease
   fold.read                       → { established, tensions, holding, depth }
   fold.update(opts)               → update fold state
-  position.read                   → { read, stance, watching }
+  position.read                   → { read, stance, watching, confidence }, or a text notice when none set
   position.set(read, opts?)       → set position
 
 ### REST (HTTP with Secrets)
@@ -183,16 +183,17 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Storage
 
-  storage.get(key, opts?)         → read stored value (scoped per-companion per-space)
-  storage.set(key, value, opts?)  → write value (string, number, object, array)
-  storage.delete(key, opts?)      → remove a key
-  storage.list(opts?)             → list all keys
+  storage.get(key, opts?)         → { value }, the stored value ({ value: null } if missing;
+                                    scoped per-companion per-space)
+  storage.set(key, value, opts?)  → { ok } (value can be string, number, object, array)
+  storage.delete(key, opts?)      → { ok }
+  storage.list(opts?)             → { keys }
                                     opts: { scope: 'global' } for cross-space access
 
 ### AI
 
   ai.models                       → [{ id, name, tier }]
-  ai.complete(prompt, opts?)       → response text (streaming via onToken not available over HTTP)
+  ai.complete(prompt, opts?)       → { text } (streaming via onToken not available over HTTP)
 
 
 ## Permissions

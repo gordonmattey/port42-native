@@ -46,8 +46,10 @@ port42-native/
       ChannelInvite.swift    # Invite link generation and parsing (port42:// and HTTPS)
       ChannelCrypto.swift    # AES-256-GCM per-channel encryption
       LLMEngine.swift        # Claude API streaming with tool use support
-      ToolDefinitions.swift  # port42 bridge APIs as Anthropic tool schemas
-      ToolExecutor.swift     # Executes tool calls against bridge instances
+      BridgeRegistry.swift   # BridgeMethod/BridgeStreamMethod types (self-describing registry)
+      BridgeMethods.swift    # buildBridgeRegistry: one implementation per bridge method
+      ToolDefinitions.swift  # 5 hand-written holdout tool schemas (browser_*, rest_call); the rest are generated
+      ToolExecutor.swift     # Executes tool calls (registry-first; old switch serves the holdouts)
       AgentRouting.swift     # MentionParser + AgentRouter
       AgentAuth.swift        # Claude Code OAuth (Keychain) + API key resolver
       AgentInvite.swift      # port42://agent? invite link generate/parse
@@ -88,7 +90,7 @@ Port42.app/Contents/
 
 **Sync** uses WebSocket protocol: identify -> welcome -> join channels -> message routing. Messages are encrypted with per-channel AES-256-GCM keys before transmission.
 
-**Unified API** The port42 bridge API has two surfaces: JS in webviews (ports) and LLM tool use (chat/swim conversations). Same methods, same permissions. Companions can access clipboard, screenshots, terminal, files, automation, etc. from either surface. `ToolDefinitions.swift` maps bridge methods to Anthropic tool schemas. `ToolExecutor.swift` executes tool calls against bridge instances.
+**Unified API** The port42 bridge API is registry-first. Every method is declared once in the `BridgeRegistry` (`BridgeMethods.swift`, `BridgeRegistry.swift`) with a self-describing description, JSON input schema, permission, and body; all calling surfaces (port JS, LLM tool use, gateway RPC) dispatch through `AppState.runBridgeMethod`. The LLM tool schemas are generated from the registry (`AppState.generatedToolDefinitions()`); `ToolDefinitions.swift` holds only the 5 hand-written holdouts (browser_open, browser_text, browser_capture, browser_close, rest_call) still on the old switch path. The `window.port42` JS surface in port webviews is a generic Proxy over the registry (`PortBridge.swift`). Services (keeper, storage) are declared as data via `ServiceManifest.swift`; the `ai` service registers its own module (`BridgeServiceAI.swift`). Every surface returns the same structured BridgeValue JSON.
 
 ## Build Commands
 
