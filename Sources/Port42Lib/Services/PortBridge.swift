@@ -300,7 +300,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return
             }
 
-            let jsonData = try? JSONSerialization.data(withJSONObject: result)
+            // .fragmentsAllowed: registry methods can return a bare string/number (e.g. crease.read's
+            // "No creases yet" text). Without it, a fragment top level makes JSONSerialization raise an
+            // ObjC NSException that `try?` cannot catch; it unwinds through the main-queue drain and
+            // permanently wedges the main queue (no dispatch block or main-actor task runs again) while
+            // the run loop keeps pumping — the app looks alive but every queued action is dead. Same
+            // option as the streaming resolve path above.
+            let jsonData = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed])
             let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
             _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
         }
@@ -592,7 +598,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if args.count > 1 {
                 if let str = args[1] as? String {
                     value = str
-                } else if let data = try? JSONSerialization.data(withJSONObject: args[1]),
+                } else if let data = try? JSONSerialization.data(withJSONObject: args[1], options: [.fragmentsAllowed]),
                           let json = String(data: data, encoding: .utf8) {
                     value = json
                 } else {
@@ -785,14 +791,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             switch PortPushRoute.classify(isTerminal: controller != nil, isWeb: webView != nil) {
             case .terminal:
                 // Raw, non-arming: drives the terminal directly without arming the post gate.
-                let str = (data as? String) ?? (try? JSONSerialization.data(withJSONObject: data))
+                let str = (data as? String) ?? (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]))
                     .flatMap { String(data: $0, encoding: .utf8) } ?? ""
                 guard controller!.sendRaw(str) else {
                     return ["error": "terminal '\(id)' has no live surface"]
                 }
                 return ["ok": true]
             case .web:
-                guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
                       let jsonStr = String(data: jsonData, encoding: .utf8) else {
                     return ["error": "could not serialize data"]
                 }
@@ -1441,7 +1447,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Push an event to the port's JS context
     @MainActor
     public func pushEvent(_ event: String, data: Any) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }
     }

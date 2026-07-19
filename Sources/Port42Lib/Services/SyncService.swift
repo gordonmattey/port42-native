@@ -721,12 +721,13 @@ public final class SyncService: NSObject, ObservableObject {
             resp.callId = callId
             resp.targetId = senderId
 
-            // Wrap result as JSON — String must be boxed in an object since
-            // JSONSerialization requires a top-level Array or Dictionary.
+            // Wrap result as JSON. .fragmentsAllowed: a registry method can return a bare
+            // number/bool; without it JSONSerialization raises an ObjC NSException that `try?`
+            // cannot catch, which wedges the main queue permanently (see PortBridge resolve).
             let jsonContent: String
             if let str = result as? String {
                 jsonContent = str
-            } else if let data = try? JSONSerialization.data(withJSONObject: result),
+            } else if let data = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]),
                       let json = String(data: data, encoding: .utf8) {
                 jsonContent = json
             } else {

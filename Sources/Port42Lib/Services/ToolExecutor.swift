@@ -646,7 +646,7 @@ public final class ToolExecutor {
                 }
                 return [textBlock("Sent to \(controller!.config.companionName)")]
             case .web:
-                guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
                       let jsonStr = String(data: jsonData, encoding: .utf8) else {
                     return [textBlock("Error: could not serialize data to JSON")]
                 }
@@ -1190,7 +1190,7 @@ public final class ToolExecutor {
     }
 
     private func jsonString(_ value: Any) -> String {
-        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed]),
            let str = String(data: data, encoding: .utf8) {
             return str
         }
