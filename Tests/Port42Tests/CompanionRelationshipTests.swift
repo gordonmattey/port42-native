@@ -3,6 +3,7 @@ import Foundation
 @testable import Port42Lib
 
 @Suite("CompanionRelationship — Phase 1")
+@MainActor
 struct CompanionRelationshipTests {
 
     func makeDB() throws -> DatabaseService {
@@ -536,9 +537,9 @@ struct CompanionRelationshipTests {
 
     // MARK: - Tool definitions
 
-    @Test("All twelve relationship tools are present in ToolDefinitions.all")
-    func relationshipToolsPresent() {
-        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+    @Test("All twelve relationship tools are present in the generated tool list")
+    func relationshipToolsPresent() throws {
+        let names = try generatedToolList().compactMap { $0["name"] as? String }
         #expect(names.contains("crease_read"))
         #expect(names.contains("crease_write"))
         #expect(names.contains("crease_touch"))
@@ -554,8 +555,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("position_set requires 'read' field")
-    func positionSetRequiresRead() {
-        let defs = ToolDefinitions.all
+    func positionSetRequiresRead() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "position_set" }),
               let schema = tool["input_schema"] as? [String: Any],
               let required = schema["required"] as? [String] else {
@@ -566,8 +567,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("position_set description frames position as where you stand not what you say")
-    func positionSetDescriptionFraming() {
-        let defs = ToolDefinitions.all
+    func positionSetDescriptionFraming() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "position_set" }),
               let desc = tool["description"] as? String else {
             Issue.record("position_set not found")
@@ -577,8 +578,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("engrave_write requires 'content' field")
-    func engraveWriteRequiresContent() {
-        let defs = ToolDefinitions.all
+    func engraveWriteRequiresContent() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "engrave_write" }),
               let schema = tool["input_schema"] as? [String: Any],
               let required = schema["required"] as? [String] else {
@@ -589,8 +590,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("engrave_write description distinguishes engravings from creases")
-    func engraveWriteDescriptionFraming() {
-        let defs = ToolDefinitions.all
+    func engraveWriteDescriptionFraming() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "engrave_write" }),
               let desc = tool["description"] as? String else {
             Issue.record("engrave_write not found")
@@ -600,8 +601,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("crease_write requires 'content' field")
-    func creaseWriteRequiresContent() {
-        let defs = ToolDefinitions.all
+    func creaseWriteRequiresContent() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "crease_write" }),
               let schema = tool["input_schema"] as? [String: Any],
               let required = schema["required"] as? [String] else {
@@ -612,8 +613,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("crease_write description contains prediction-failure framing")
-    func creaseWriteDescriptionFraming() {
-        let defs = ToolDefinitions.all
+    func creaseWriteDescriptionFraming() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "crease_write" }),
               let desc = tool["description"] as? String else {
             Issue.record("crease_write not found")
@@ -624,8 +625,8 @@ struct CompanionRelationshipTests {
     }
 
     @Test("fold_update description warns against inflating depth")
-    func foldUpdateDepthConstraint() {
-        let defs = ToolDefinitions.all
+    func foldUpdateDepthConstraint() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "fold_update" }),
               let desc = tool["description"] as? String else {
             Issue.record("fold_update not found")
@@ -658,20 +659,20 @@ struct CompanionRelationshipTests {
     // MARK: - Space tool names (no "channel" in tool API)
 
     @Test("space_current tool is present in ToolDefinitions")
-    func spaceCurrentToolPresent() {
-        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+    func spaceCurrentToolPresent() throws {
+        let names = try generatedToolList().compactMap { $0["name"] as? String }
         #expect(names.contains("space_current"))
     }
 
     @Test("space_list tool is present in ToolDefinitions")
-    func spaceListToolPresent() {
-        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+    func spaceListToolPresent() throws {
+        let names = try generatedToolList().compactMap { $0["name"] as? String }
         #expect(names.contains("space_list"))
     }
 
     @Test("no tool in ToolDefinitions is named with 'channel'")
-    func noDeprecatedTermInToolNames() {
-        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+    func noDeprecatedTermInToolNames() throws {
+        let names = try generatedToolList().compactMap { $0["name"] as? String }
         let deprecated = names.filter { $0.contains("channel") }
         #expect(deprecated.isEmpty, "Found deprecated tool names: \(deprecated)")
     }

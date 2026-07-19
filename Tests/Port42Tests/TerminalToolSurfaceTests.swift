@@ -8,15 +8,16 @@ import Foundation
 /// gated — terminal tool. This is the tripwire against accidentally resurrecting the old family or
 /// dropping the wrong symbol.
 @Suite("TerminalToolSurface")
+@MainActor
 struct TerminalToolSurfaceTests {
 
-    private var toolNames: Set<String> {
-        Set(ToolDefinitions.all.compactMap { $0["name"] as? String })
+    private func toolNames() throws -> Set<String> {
+        Set(try generatedToolList().compactMap { $0["name"] as? String })
     }
 
     @Test("the parallel terminal tool family is deleted")
-    func legacyTerminalToolsRemoved() {
-        let names = toolNames
+    func legacyTerminalToolsRemoved() throws {
+        let names = try toolNames()
         #expect(!names.contains("terminal_spawn"))
         #expect(!names.contains("terminal_send"))
         #expect(!names.contains("terminal_list"))
@@ -26,8 +27,8 @@ struct TerminalToolSurfaceTests {
     }
 
     @Test("terminal_exec survives and stays the only gated terminal tool")
-    func terminalExecRemainsGated() {
-        #expect(toolNames.contains("terminal_exec"))
+    func terminalExecRemainsGated() throws {
+        #expect(try toolNames().contains("terminal_exec"))
         #expect(ToolDefinitions.permission(for: "terminal_exec") == .terminal)
         // the deleted tools resolve to no permission (not found in the switch)
         #expect(ToolDefinitions.permission(for: "terminal_spawn") == nil)
@@ -36,8 +37,8 @@ struct TerminalToolSurfaceTests {
     }
 
     @Test("the port verbs that replace them are present and ungated")
-    func replacementVerbsUngated() {
-        let names = toolNames
+    func replacementVerbsUngated() throws {
+        let names = try toolNames()
         #expect(names.contains("port_create"))
         #expect(names.contains("port_push"))
         #expect(names.contains("ports_list"))

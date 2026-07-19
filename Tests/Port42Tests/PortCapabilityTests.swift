@@ -3,13 +3,14 @@ import Foundation
 @testable import Port42Lib
 
 @Suite("Port Capabilities")
+@MainActor
 struct PortCapabilityTests {
 
-    // MARK: - ToolDefinitions schema
+    // MARK: - Tool schema (generated list — the hand-written ToolDefinitions.all is gone)
 
     @Test("ports_list schema includes capabilities filter property")
-    func portsListHasCapabilitiesProperty() {
-        let defs = ToolDefinitions.all
+    func portsListHasCapabilitiesProperty() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "ports_list" }),
               let schema = tool["input_schema"] as? [String: Any],
               let props = schema["properties"] as? [String: Any] else {
@@ -20,8 +21,8 @@ struct PortCapabilityTests {
     }
 
     @Test("ports_list description mentions capabilities")
-    func portsListDescriptionMentionsCapabilities() {
-        let defs = ToolDefinitions.all
+    func portsListDescriptionMentionsCapabilities() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "ports_list" }),
               let desc = tool["description"] as? String else {
             Issue.record("ports_list tool not found")
@@ -33,8 +34,8 @@ struct PortCapabilityTests {
     // terminal_send is gone (uniform port.create sweep); port_push is the verb that now drives
     // terminals, so it carries the routing-by-id guidance instead.
     @Test("port_push description mentions UDID or id")
-    func portPushMentionsUDID() {
-        let defs = ToolDefinitions.all
+    func portPushMentionsUDID() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "port_push" }),
               let desc = tool["description"] as? String else {
             Issue.record("port_push tool not found")
@@ -44,8 +45,8 @@ struct PortCapabilityTests {
     }
 
     @Test("port_push id parameter description mentions UDID")
-    func portPushIdParamMentionsUDID() {
-        let defs = ToolDefinitions.all
+    func portPushIdParamMentionsUDID() throws {
+        let defs = try generatedToolList()
         guard let tool = defs.first(where: { $0["name"] as? String == "port_push" }),
               let schema = tool["input_schema"] as? [String: Any],
               let props = schema["properties"] as? [String: Any],

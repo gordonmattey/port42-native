@@ -63,8 +63,9 @@ struct PortCreateTests {
     // MARK: - Tool surface
 
     @Test("port_create is registered as a tool")
-    func portCreateRegistered() {
-        let names = ToolDefinitions.all.compactMap { $0["name"] as? String }
+    @MainActor
+    func portCreateRegistered() throws {
+        let names = try generatedToolList().compactMap { $0["name"] as? String }
         #expect(names.contains("port_create"))
     }
 

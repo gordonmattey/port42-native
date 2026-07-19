@@ -56,6 +56,14 @@ func makeParityWorld(companionName: String = "Echo", spaceName: String = "projec
     return ParityWorld(state: state, companion: companion, space: space)
 }
 
+/// The production LLM tool list (generated registry schemas + the hybrid holdouts), built from a
+/// fresh world. This is what AppState serves to the engine since big-bang step 1; tests that used
+/// to assert on the deleted hand-written `ToolDefinitions.all` read this instead.
+@MainActor
+func generatedToolList() throws -> [[String: Any]] {
+    try makeParityWorld().state.generatedToolDefinitions()
+}
+
 // MARK: Canonicalization
 //
 // Reduce a tool-result block list to a comparable form: an image becomes "image:<mime>:<data>"; a text

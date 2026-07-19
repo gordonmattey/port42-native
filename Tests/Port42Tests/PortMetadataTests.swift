@@ -130,13 +130,15 @@ struct PortMetadataTests {
     // MARK: - port_rename tool definition
 
     @Test("port_rename tool is defined")
-    func portRenameToolExists() {
-        #expect(ToolDefinitions.all.contains(where: { $0["name"] as? String == "port_rename" }))
+    @MainActor
+    func portRenameToolExists() throws {
+        #expect(try generatedToolList().contains(where: { $0["name"] as? String == "port_rename" }))
     }
 
     @Test("port_rename requires id and title")
-    func portRenameRequiredParams() {
-        guard let tool = ToolDefinitions.all.first(where: { $0["name"] as? String == "port_rename" }),
+    @MainActor
+    func portRenameRequiredParams() throws {
+        guard let tool = try generatedToolList().first(where: { $0["name"] as? String == "port_rename" }),
               let schema = tool["input_schema"] as? [String: Any],
               let required = schema["required"] as? [String] else {
             Issue.record("port_rename tool not found")
