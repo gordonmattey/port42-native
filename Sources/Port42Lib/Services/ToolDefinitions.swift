@@ -13,33 +13,14 @@ import Foundation
 enum ToolDefinitions {
 
     /// The tools still hand-written here (not yet in the registry). Kept in sync with `all` below.
-    static let hybridToolNames: Set<String> = ["browser_open", "browser_text", "browser_capture", "browser_close", "rest_call"]
+    /// rest_call left with tail item 4; only the browser family remains.
+    static let hybridToolNames: Set<String> = ["browser_open", "browser_text", "browser_capture", "browser_close"]
 
     /// The hybrid tools the generated list folds in. Once browser.*/rest.call are extracted, this empties.
     static var hybridTools: [[String: Any]] { all }
 
     /// All hand-written tools (now only the hybrid set). Production reads `generatedToolDefinitions`.
     static let all: [[String: Any]] = [
-        [
-            "name": "rest_call",
-            "description": "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "url": ["type": "string", "description": "Full URL to call (https recommended)"],
-                    "method": ["type": "string", "description": "HTTP method: GET, POST, PUT, PATCH, DELETE. Default: GET."],
-                    "headers": [
-                        "type": "object",
-                        "description": "Additional HTTP headers as key-value pairs.",
-                        "additionalProperties": ["type": "string"]
-                    ] as [String: Any],
-                    "body": ["type": "string", "description": "Request body. Objects are JSON-serialized automatically."],
-                    "secret": ["type": "string", "description": "Named secret from the secrets store. The runtime injects the auth header — you never see the raw key."],
-                    "timeout": ["type": "integer", "description": "Timeout in milliseconds. Default: 30000, max: 120000."]
-                ],
-                "required": ["url"]
-            ] as [String: Any]
-        ],
         [
             "name": "browser_open",
             "description": "Open a URL in a headless browser and return the page title. Use browser_text to read page content after opening.",

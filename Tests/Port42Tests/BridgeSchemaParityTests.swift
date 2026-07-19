@@ -26,7 +26,6 @@ struct BridgeSchemaParityTests {
     // parity here; the guard test below asserts this list stays accurate (no method silently landed).
     static let hybridOnlyTools: Set<String> = [
         "browser_open", "browser_text", "browser_capture", "browser_close",
-        "rest_call",
     ]
 
     /// Sorted-keys JSON of a schema dict, for order-insensitive deep comparison (same canonicalization
@@ -96,7 +95,8 @@ struct BridgeSchemaParityTests {
         // Coverage: every ToolDefinitions tool is either checked or explicitly hybrid-only. No silent skip.
         #expect(checked == defs.count - Self.hybridOnlyTools.count,
                 "checked \(checked) but expected \(defs.count - Self.hybridOnlyTools.count) (defs \(defs.count) minus hybrid \(Self.hybridOnlyTools.count))")
-        #expect(checked == 52, "expected 52 parity-set methods, checked \(checked)")
+        // 53 = the original 52 + rest_call, which left the hybrid list with tail item 4.
+        #expect(checked == 53, "expected 53 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

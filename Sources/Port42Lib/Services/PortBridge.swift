@@ -1146,63 +1146,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
             return await automationBridge!.runJXA(source: source, opts: opts)
 
-        // MARK: - REST (HTTP requests with secret injection)
-
-        // port42.rest.call(url, opts?)
-        case "rest.call":
-            guard let url = args.first as? String,
-                  let parsed = URL(string: url) else {
-                return ["error": "rest.call requires a valid URL"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
-            let method = (opts["method"] as? String ?? "GET").uppercased()
-            let timeoutMs = min(opts["timeout"] as? Int ?? 30000, 120000)
-
-            var request = URLRequest(url: parsed)
-            request.httpMethod = method
-            request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
-
-            if let headers = opts["headers"] as? [String: String] {
-                for (key, value) in headers {
-                    request.setValue(value, forHTTPHeaderField: key)
-                }
-            }
-            if let body = opts["body"] as? String {
-                request.httpBody = body.data(using: .utf8)
-                if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-            } else if let bodyObj = opts["body"] as? [String: Any],
-                      let jsonData = try? JSONSerialization.data(withJSONObject: bodyObj) {
-                request.httpBody = jsonData
-                if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-            }
-
-            // Secret injection
-            if let secretName = opts["secret"] as? String {
-                if let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) {
-                    request.setValue(headerValue, forHTTPHeaderField: headerName)
-                } else {
-                    return ["error": "secret '\(secretName)' not found"]
-                }
-            }
-
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let httpResponse = response as? HTTPURLResponse
-                var result: [String: Any] = ["status": httpResponse?.statusCode ?? 0]
-                let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
-                if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
-                    result["body"] = json
-                } else if let text = String(data: data, encoding: .utf8) {
-                    result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
-                }
-                return result
-            } catch {
-                return ["error": error.localizedDescription]
-            }
+        // rest.call: extracted to the registry (tail item 4) — permission .rest, unified body with
+        // the per-companion secret grant and filtered response headers.
 
         // MARK: - Relationship state (space-scoped, companion = createdBy — D4)
 

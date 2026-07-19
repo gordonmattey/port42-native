@@ -358,6 +358,88 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     r["audio.stop"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
         .fromJSONObject(audio.stop())
     }
+
+    // Tail item 4 — rest.call. One body for all surfaces, carrying BOTH old paths' semantics: the
+    // port path's dict-body support and the tool path's per-companion secret grant + filtered
+    // response headers. JS calls (url, opts-bag); tool-use passes flat keys; reads fall through
+    // bag-then-flat. Schema text matches the frozen golden byte-for-byte (parity-checked).
+    r["rest.call"] = BridgeMethod(permission: .rest, paramNames: ["url", "options"],
+        description: "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "url": ["type": "string", "description": "Full URL to call (https recommended)"],
+                "method": ["type": "string", "description": "HTTP method: GET, POST, PUT, PATCH, DELETE. Default: GET."],
+                "headers": [
+                    "type": "object",
+                    "description": "Additional HTTP headers as key-value pairs.",
+                    "additionalProperties": ["type": "string"]
+                ] as [String: Any],
+                "body": ["type": "string", "description": "Request body. Objects are JSON-serialized automatically."],
+                "secret": ["type": "string", "description": "Named secret from the secrets store. The runtime injects the auth header — you never see the raw key."],
+                "timeout": ["type": "integer", "description": "Timeout in milliseconds. Default: 30000, max: 120000."]
+            ],
+            "required": ["url"]
+        ]) { p, args in
+        let bag = args.object("options") ?? [:]
+        func optString(_ key: String) -> String? { (bag[key] as? String) ?? args.string(key) }
+        func optInt(_ key: String) -> Int? { (bag[key] as? Int) ?? args.int(key) }
+        func optObject(_ key: String) -> [String: Any]? { (bag[key] as? [String: Any]) ?? args.object(key) }
+
+        let url = try args.requireString("url")
+        guard let parsed = URL(string: url), parsed.scheme != nil else {
+            throw BridgeError.badArg("rest.call requires a valid URL")
+        }
+
+        // Secret scoping: a companion may only use secrets granted to it in its settings.
+        let secretName = optString("secret")
+        if let secretName, p.kind == .companion {
+            let allowed = appState.companions.first(where: { $0.id == p.id })?.secretNames ?? []
+            guard allowed.contains(secretName) else {
+                throw BridgeError.permissionDenied("companion does not have access to secret '\(secretName)'")
+            }
+        }
+
+        var request = URLRequest(url: parsed)
+        request.httpMethod = (optString("method") ?? "GET").uppercased()
+        request.timeoutInterval = TimeInterval(min(optInt("timeout") ?? 30000, 120000)) / 1000.0
+        if let headers = optObject("headers") as? [String: String] {
+            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        }
+        if let body = optString("body") {
+            request.httpBody = body.data(using: .utf8)
+        } else if let bodyObj = optObject("body"),
+                  let jsonData = try? JSONSerialization.data(withJSONObject: bodyObj) {
+            request.httpBody = jsonData
+        }
+        if request.httpBody != nil, request.value(forHTTPHeaderField: "Content-Type") == nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if let secretName {
+            guard let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) else {
+                throw BridgeError.notFound("secret '\(secretName)'")
+            }
+            request.setValue(headerValue, forHTTPHeaderField: headerName)
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        var result: [String: Any] = ["status": httpResponse?.statusCode ?? 0]
+        if let headers = httpResponse?.allHeaderFields as? [String: String] {
+            var filtered: [String: String] = [:]
+            for key in ["content-type", "x-request-id", "x-ratelimit-remaining", "retry-after", "location"] {
+                if let v = headers.first(where: { $0.key.lowercased() == key })?.value { filtered[key] = v }
+            }
+            if !filtered.isEmpty { result["headers"] = filtered }
+        }
+        let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
+            result["body"] = json
+        } else if let text = String(data: data, encoding: .utf8) {
+            result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
+        }
+        return .fromJSONObject(result)
+    }
 }
 
 // MARK: Devices (headless-safe subset)

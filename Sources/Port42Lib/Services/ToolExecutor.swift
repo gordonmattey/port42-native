@@ -943,86 +943,8 @@ public final class ToolExecutor {
             return [textBlock(jsonString(result))]
 
         // MARK: REST
-        case "rest_call":
-            guard let url = input["url"] as? String,
-                  let parsed = URL(string: url) else {
-                return [textBlock("Error: rest_call requires a valid 'url'")]
-            }
-
-            // Secret scoping: check companion has access
-            if let secretName = input["secret"] as? String {
-                if let companionId = createdBy,
-                   let agent = appState.companions.first(where: { $0.id == companionId }) {
-                    let allowed = agent.secretNames ?? []
-                    if !allowed.contains(secretName) {
-                        return [textBlock("Error: companion does not have access to secret '\(secretName)'. Grant it in companion settings.")]
-                    }
-                }
-            }
-
-            let method = (input["method"] as? String ?? "GET").uppercased()
-            let timeoutMs = min(input["timeout"] as? Int ?? 30000, 120000)
-
-            var request = URLRequest(url: parsed)
-            request.httpMethod = method
-            request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
-
-            // Custom headers
-            if let headers = input["headers"] as? [String: String] {
-                for (key, value) in headers {
-                    request.setValue(value, forHTTPHeaderField: key)
-                }
-            }
-
-            // Body
-            if let body = input["body"] as? String {
-                request.httpBody = body.data(using: .utf8)
-                if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                }
-            }
-
-            // Secret injection — the companion never sees the raw credential
-            if let secretName = input["secret"] as? String {
-                if let (headerName, headerValue) = Port42AuthStore.shared.resolveSecretHeader(name: secretName) {
-                    request.setValue(headerValue, forHTTPHeaderField: headerName)
-                } else {
-                    return [textBlock("Error: secret '\(secretName)' not found. Add it in Settings > Secrets.")]
-                }
-            }
-
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let httpResponse = response as? HTTPURLResponse
-                let statusCode = httpResponse?.statusCode ?? 0
-
-                // Build response
-                var result: [String: Any] = ["status": statusCode]
-
-                // Response headers (selected useful ones)
-                if let headers = httpResponse?.allHeaderFields as? [String: String] {
-                    var filtered: [String: String] = [:]
-                    for key in ["content-type", "x-request-id", "x-ratelimit-remaining", "retry-after", "location"] {
-                        if let v = headers.first(where: { $0.key.lowercased() == key })?.value {
-                            filtered[key] = v
-                        }
-                    }
-                    if !filtered.isEmpty { result["headers"] = filtered }
-                }
-
-                // Body — auto-parse JSON
-                let contentType = httpResponse?.value(forHTTPHeaderField: "Content-Type") ?? ""
-                if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
-                    result["body"] = json
-                } else if let text = String(data: data, encoding: .utf8) {
-                    // Truncate very large text responses
-                    result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
-                }
-
-                return [textBlock(jsonString(result))]
-            } catch {
-                return [textBlock(jsonString(["status": 0, "error": error.localizedDescription]))]
-            }
+        // rest_call: extracted to the registry (tail item 4) — served registry-first with the
+        // per-companion secret grant preserved.
 
         // MARK: Browser
         case "browser_open":

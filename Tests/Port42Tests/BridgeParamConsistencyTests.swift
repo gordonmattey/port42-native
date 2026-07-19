@@ -134,10 +134,11 @@ struct BridgeParamConsistencyTests {
         let methods = try Self.parseMethods()
         // Source-scan covers the `r["..."] = BridgeMethod` form. Manifest-declared services (Keeper 12,
         // storage 4) leave the source-scan and are checked by the runtime probe below instead.
-        // BridgeMethods.swift: 45 one-shot (38 + tail items 1+2: messages.sendAsCreator,
+        // BridgeMethods.swift: 46 one-shot (38 + tail items 1+2: messages.sendAsCreator,
         // space.switchTo + tail item 9: port.info, port.setTitle, port.setCapabilities, port.close,
-        // port.position) + companions.invoke = 46. BridgeServiceAI.swift: 3. Total 49.
-        #expect(methods.count == 49, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // port.position + tail item 4: rest.call) + companions.invoke = 47. BridgeServiceAI.swift: 3.
+        // Total 50.
+        #expect(methods.count == 50, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")
