@@ -313,7 +313,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // Registry-first (Phase 2): port JS dispatches extracted+wired methods through the shared impl.
         // JS calls positionally, so the positional args map to named via the method's paramNames; the
         // native JSON value is returned (a BridgeError becomes {error}, the shape JS already handles).
-        let canonical = ToolNaming.resolveAlias(method)
+        // Resolve via the instance alias map (service name-maps like creases.* -> crease.* plus the
+        // files.* base), not the static ToolNaming.resolveAlias which only knows files.*.
+        let canonical = state?.resolveBridgeAlias(method) ?? ToolNaming.resolveAlias(method)
         if let state, let bridgeMethod = state.bridgeRegistry[canonical], bridgeMethod.wired {
             let principal = Principal(
                 id: messageId ?? ObjectIdentifier(self).debugDescription,
@@ -1490,246 +1492,140 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             });
         }
 
-        window.port42 = {
-            _resolve: function(callId, data) {
-                const p = _pending[callId];
-                if (p) {
-                    delete _pending[callId];
-                    delete _tokenCallbacks[callId];
-                    p.resolve(data);
-                }
-            },
-            // A failed call REJECTS the promise (no more resolve({error}) convention). Callers use
-            // try/catch or .catch; there is no r.error to check.
-            _reject: function(callId, error) {
-                const p = _pending[callId];
-                if (p) {
-                    delete _pending[callId];
-                    delete _tokenCallbacks[callId];
-                    p.reject(new Error(error));
-                }
-            },
-            _tokenCallback: function(callId, token) {
-                const cb = _tokenCallbacks[callId];
-                if (cb) try { cb(token); } catch(e) { console.error(e); }
-            },
-            _emit: function(event, data) {
-                const cbs = _listeners[event] || [];
-                cbs.forEach(cb => { try { cb(data); } catch(e) { console.error(e); } });
-            },
-            _heartbeat: function() {
-                _lastHeartbeat = Date.now();
-                const wasConnected = _connected;
-                _connected = true;
-                if (!wasConnected) {
-                    _statusCallbacks.forEach(cb => { try { cb('connected'); } catch(e) { console.error(e); } });
-                }
-            },
-
-            ai: {
-                status: () => call('ai.status'),
-                models: () => call('ai.models'),
-                complete: function(prompt, opts) {
-                    opts = opts || {};
-                    const id = _callId + 1;
-                    if (opts.onToken) _tokenCallbacks[id] = opts.onToken;
-                    // Resolves with the structured result {text: ...} (no bare-string unwrap); a failed
-                    // call rejects (no r.error to check). _resolve/_reject clear _tokenCallbacks.
-                    const p = call('ai.complete', [prompt, {
-                        model: opts.model,
-                        systemPrompt: opts.systemPrompt,
-                        maxTokens: opts.maxTokens,
-                        images: opts.images
-                    }]).then(function(r) {
-                        if (opts.onDone) opts.onDone(r);
-                        return r;
-                    });
-                    // Expose the callId so a port can cancel its own in-flight call. The return is
-                    // still an awaitable promise; it just also carries .callId and a .cancel() helper:
-                    //   const job = port42.ai.complete(...); job.cancel();   // or ai.cancel(job.callId)
-                    p.callId = id;
-                    p.cancel = function() { return port42.ai.cancel(id); };
-                    return p;
-                },
-                cancel: function(callId) { return call('ai.cancel', [callId]); }
-            },
-            companions: {
-                list: () => call('companions.list'),
-                get: (id) => call('companions.get', [id]),
-                invoke: function(id, prompt, opts) {
-                    opts = opts || {};
-                    const cid = _callId + 1;
-                    if (opts.onToken) _tokenCallbacks[cid] = opts.onToken;
-                    // A failed invoke rejects (no r.error to check); _resolve/_reject clear _tokenCallbacks.
-                    return call('companions.invoke', [id, prompt]).then(function(r) {
-                        if (opts.onDone) opts.onDone(r);
-                        return r;
-                    });
-                }
-            },
-            messages: {
-                recent: (n) => call('messages.recent', [n || 20]),
-                send: (text, spaceId) => call('messages.send', [text, spaceId]),
-                sendAsCreator: (text, spaceId) => call('messages.sendAsCreator', [text, spaceId])
-            },
-            user: {
-                get: () => call('user.get')
-            },
-            space: {
-                current: () => call('space.current'),
-                list: () => call('space.list'),
-                switchTo: (id) => call('space.switchTo', [id])
-            },
-            on: function(event, callback) {
-                if (!_listeners[event]) _listeners[event] = [];
-                _listeners[event].push(callback);
-            },
-            connection: {
-                status: () => _connected ? 'connected' : 'disconnected',
-                onStatusChange: (callback) => _statusCallbacks.push(callback)
-            },
-            storage: {
-                set: (key, value, opts) => call('storage.set', [key, value, opts || {}]).then(r => r && r.ok),
-                get: (key, opts) => call('storage.get', [key, opts || {}]).then(r => r ? r.value : null),
-                delete: (key, opts) => call('storage.delete', [key, opts || {}]).then(r => r && r.ok),
-                list: (opts) => call('storage.list', [opts || {}]).then(r => r ? r.keys : [])
-            },
-            port: {
-                info: () => call('port.info'),
-                close: () => call('port.close'),
-                setTitle: (title) => call('port.setTitle', [title]).then(r => r && r.ok),
-                setCapabilities: (caps) => call('port.setCapabilities', [caps]).then(r => r && r.ok),
-                rename: (id, title) => call('port.rename', [id, title]).then(r => r && r.ok),
-                resize: (w, h) => {
-                    document.body.style.width = w + 'px';
-                    document.body.style.height = h + 'px';
-                    window.webkit.messageHandlers.portHeight.postMessage(h);
-                },
-                update: (id, html) => call('port.update', [id, html]).then(r => r && r.ok),
-                getHtml: (id, version) => call('port.getHtml', version != null ? [id, version] : [id]).then(r => r ? r.html : null),
-                patch: (id, search, replace) => call('port.patch', [id, search, replace]).then(r => r && r.ok),
-                push: (id, data) => call('port.push', [id, data]).then(r => r && r.ok),
-                exec: (id, js) => call('port.exec', [id, js]).then(r => r ? r.result : null),
-                history: (id) => call('port.history', [id]),
-                manage: (id, action) => call('port.manage', [id, action]),
-                restore: (id, version) => call('port.restore', [id, version]).then(r => r && r.ok),
-                move: (id, x, y) => call('port.move', [id, x, y]).then(r => r && r.ok),
-                position: (id) => call('port.position', [id])
-            },
-            ports: {
-                list: (opts) => call('ports.list', opts ? [opts] : [])
-            },
-            terminal: {
-                exec: (command, opts) => call('terminal.exec', [command, opts || {}]).then(r => r ? r.output : null)
-            },
-            clipboard: {
-                read: () => call('clipboard.read'),
-                write: (data) => call('clipboard.write', [data])
-            },
-            fs: {
-                pick: (opts) => call('fs.pick', [opts || {}]),
-                read: (path, opts) => call('fs.read', [path, opts || {}]),
-                write: (path, data, opts) => call('fs.write', [path, data, opts || {}]),
-                onFileDrop: function(callback) {
-                    window.addEventListener('port42:filedrop', (e) => callback(e.detail));
-                }
-            },
-            // files.* — thin aliases of fs.* (D4), for ports written against the documented names.
-            files: {
-                pick: (opts) => call('fs.pick', [opts || {}]),
-                read: (path, opts) => call('fs.read', [path, opts || {}]),
-                write: (path, data, opts) => call('fs.write', [path, data, opts || {}])
-            },
-            notify: {
-                send: (title, body, opts) => call('notify.send', [title, body || '', opts || {}])
-            },
-            audio: {
-                capture: (opts) => call('audio.capture', [opts || {}]),
-                stopCapture: () => call('audio.stopCapture'),
-                speak: (text, opts) => call('audio.speak', [text, opts || {}]),
-                play: (data, opts) => call('audio.play', [data, opts || {}]),
-                stop: () => call('audio.stop'),
-                on: function(event, callback) {
-                    var fullEvent = 'audio.' + event;
-                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
-                    _listeners[fullEvent].push(callback);
-                }
-            },
-            screen: {
-                displays: () => call('screen.displays'),
-                windows: () => call('screen.windows'),
-                capture: (opts) => call('screen.capture', [opts || {}]),
-                stream: (opts) => call('screen.stream', [opts || {}]),
-                stopStream: () => call('screen.stopStream'),
-                on: function(event, callback) {
-                    if (event === 'frame') {
-                        window.__port42_listeners = window.__port42_listeners || {};
-                        window.__port42_listeners['screen.frame'] = callback;
-                    }
-                }
-            },
-            camera: {
-                capture: (opts) => call('camera.capture', [opts || {}]),
-                stream: (opts) => call('camera.stream', [opts || {}]),
-                stopStream: () => call('camera.stopStream'),
-                on: function(event, callback) {
-                    var fullEvent = 'camera.' + event;
-                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
-                    _listeners[fullEvent].push(callback);
-                }
-            },
-            browser: {
-                open: (url, opts) => call('browser.open', [url, opts || {}]),
-                navigate: (sessionId, url) => call('browser.navigate', [sessionId, url]),
-                capture: (sessionId, opts) => call('browser.capture', [sessionId, opts || {}]),
-                text: (sessionId, opts) => call('browser.text', [sessionId, opts || {}]),
-                html: (sessionId, opts) => call('browser.html', [sessionId, opts || {}]),
-                execute: (sessionId, js) => call('browser.execute', [sessionId, js]),
-                close: (sessionId) => call('browser.close', [sessionId]),
-                on: function(event, callback) {
-                    var fullEvent = 'browser.' + event;
-                    if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
-                    _listeners[fullEvent].push(callback);
-                }
-            },
-            automation: {
-                runAppleScript: (source, opts) => call('automation.runAppleScript', [source, opts || {}]),
-                runJXA: (source, opts) => call('automation.runJXA', [source, opts || {}])
-            },
-            rest: {
-                call: (url, opts) => call('rest.call', [url, opts || {}])
-            },
-            viewport: {
-                width: window.innerWidth || 600,
-                height: window.innerHeight || 400,
-                on: function(event, callback) {
-                    if (event === 'resize') {
-                        window.__port42_listeners = window.__port42_listeners || {};
-                        window.__port42_listeners['viewport.resize'] = callback;
-                    }
-                }
-            },
-            creases: {
-                read: (opts) => call('creases.read', opts ? [opts] : []),
-                write: (content, opts) => call('crease.write', opts ? [content, opts] : [content]),
-                touch: (id) => call('crease.touch', [id]).then(r => r && r.ok),
-                forget: (id) => call('crease.forget', [id]).then(r => r && r.ok)
-            },
-            engravings: {
-                read: (opts) => call('engravings.read', opts ? [opts] : []),
-                write: (content, opts) => call('engraving.write', opts ? [content, opts] : [content]),
-                touch: (id) => call('engraving.touch', [id]).then(r => r && r.ok),
-                forget: (id) => call('engraving.forget', [id]).then(r => r && r.ok)
-            },
-            fold: {
-                read: () => call('fold.read'),
-                update: (opts) => call('fold.update', [opts || {}]).then(r => r && r.ok)
-            },
-            position: {
-                read: () => call('position.read'),
-                set: (read, opts) => call('position.set', opts ? [read, opts] : [read]).then(r => r && r.ok)
+        window.port42 = (function() {
+            // GENERIC DISPATCH replaces ~240 lines of hand-written per-method bindings. Any
+            // port42.a.b(...args) posts call('a.b', args); the host resolves the name (canonical, or a
+            // service surface alias like creases.* -> crease.*) and the permission, and returns the
+            // structured BridgeValue. No per-method result unwrapping any more: read .value / .html /
+            // .ok / .result / .output off the result (same shape every surface now returns).
+            //
+            // The explicit members below are the only exceptions, because they are NOT request/response
+            // dispatch: bridge machinery, event listeners, the two streaming shims (ai.complete /
+            // companions.invoke, which wire a token callback), and the one client-only method
+            // (port.resize, which manipulates the DOM).
+            function __ns(namespace, carveouts) {
+                return new Proxy(carveouts || {}, { get: function(t, m) {
+                    if (typeof m !== 'string') return undefined;
+                    if (Object.prototype.hasOwnProperty.call(t, m)) return t[m];
+                    return function() { return call(namespace + '.' + m, Array.prototype.slice.call(arguments)); };
+                }});
             }
-        };
+            var impl = {
+                _resolve: function(callId, data) {
+                    const p = _pending[callId];
+                    if (p) { delete _pending[callId]; delete _tokenCallbacks[callId]; p.resolve(data); }
+                },
+                _reject: function(callId, error) {
+                    const p = _pending[callId];
+                    if (p) { delete _pending[callId]; delete _tokenCallbacks[callId]; p.reject(new Error(error)); }
+                },
+                _tokenCallback: function(callId, token) {
+                    const cb = _tokenCallbacks[callId];
+                    if (cb) try { cb(token); } catch(e) { console.error(e); }
+                },
+                _emit: function(event, data) {
+                    const cbs = _listeners[event] || [];
+                    cbs.forEach(cb => { try { cb(data); } catch(e) { console.error(e); } });
+                },
+                _heartbeat: function() {
+                    _lastHeartbeat = Date.now();
+                    const wasConnected = _connected;
+                    _connected = true;
+                    if (!wasConnected) { _statusCallbacks.forEach(cb => { try { cb('connected'); } catch(e) { console.error(e); } }); }
+                },
+                on: function(event, callback) {
+                    if (!_listeners[event]) _listeners[event] = [];
+                    _listeners[event].push(callback);
+                },
+                connection: {
+                    status: () => _connected ? 'connected' : 'disconnected',
+                    onStatusChange: (callback) => _statusCallbacks.push(callback)
+                },
+                viewport: {
+                    width: window.innerWidth || 600,
+                    height: window.innerHeight || 400,
+                    on: function(event, callback) {
+                        if (event === 'resize') {
+                            window.__port42_listeners = window.__port42_listeners || {};
+                            window.__port42_listeners['viewport.resize'] = callback;
+                        }
+                    }
+                },
+                ai: __ns('ai', {
+                    complete: function(prompt, opts) {
+                        opts = opts || {};
+                        const id = _callId + 1;
+                        if (opts.onToken) _tokenCallbacks[id] = opts.onToken;
+                        const p = call('ai.complete', [prompt, {
+                            model: opts.model,
+                            systemPrompt: opts.systemPrompt,
+                            maxTokens: opts.maxTokens,
+                            images: opts.images
+                        }]).then(function(r) { if (opts.onDone) opts.onDone(r); return r; });
+                        p.callId = id;
+                        p.cancel = function() { return port42.ai.cancel(id); };
+                        return p;
+                    },
+                    cancel: function(callId) { return call('ai.cancel', [callId]); }
+                }),
+                companions: __ns('companions', {
+                    invoke: function(id, prompt, opts) {
+                        opts = opts || {};
+                        const cid = _callId + 1;
+                        if (opts.onToken) _tokenCallbacks[cid] = opts.onToken;
+                        return call('companions.invoke', [id, prompt]).then(function(r) { if (opts.onDone) opts.onDone(r); return r; });
+                    }
+                }),
+                port: __ns('port', {
+                    resize: (w, h) => {
+                        document.body.style.width = w + 'px';
+                        document.body.style.height = h + 'px';
+                        window.webkit.messageHandlers.portHeight.postMessage(h);
+                    }
+                }),
+                fs: __ns('fs', {
+                    onFileDrop: function(callback) {
+                        window.addEventListener('port42:filedrop', (e) => callback(e.detail));
+                    }
+                }),
+                audio: __ns('audio', {
+                    on: function(event, callback) {
+                        var fullEvent = 'audio.' + event;
+                        if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                        _listeners[fullEvent].push(callback);
+                    }
+                }),
+                screen: __ns('screen', {
+                    on: function(event, callback) {
+                        if (event === 'frame') {
+                            window.__port42_listeners = window.__port42_listeners || {};
+                            window.__port42_listeners['screen.frame'] = callback;
+                        }
+                    }
+                }),
+                camera: __ns('camera', {
+                    on: function(event, callback) {
+                        var fullEvent = 'camera.' + event;
+                        if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                        _listeners[fullEvent].push(callback);
+                    }
+                }),
+                browser: __ns('browser', {
+                    on: function(event, callback) {
+                        var fullEvent = 'browser.' + event;
+                        if (!_listeners[fullEvent]) _listeners[fullEvent] = [];
+                        _listeners[fullEvent].push(callback);
+                    }
+                })
+            };
+            return new Proxy(impl, {
+                get: function(target, ns) {
+                    if (typeof ns !== 'string') return undefined;
+                    if (Object.prototype.hasOwnProperty.call(target, ns)) return target[ns];
+                    return __ns(ns, {});
+                }
+            });
+        })();
     })();
     """
 }

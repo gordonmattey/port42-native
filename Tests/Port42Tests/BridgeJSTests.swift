@@ -2,142 +2,37 @@ import Testing
 import Foundation
 @testable import Port42Lib
 
+// MARK: - Bridge JS Completeness
+//
+// The injected `window.port42` is a generic Proxy (big-bang step 2): any `port42.a.b(...args)` posts
+// `call('a.b', args)`, so EVERY method is exposed by construction. The old completeness bug ("a Swift
+// handler exists but port42.* never exposes it") is designed away — there is no per-method JS binding to
+// forget. So these tests assert the shape that guarantees it, plus that the non-generic carve-outs stay
+// explicit, and that the docs still describe the port methods.
+
 @Suite("Bridge JS Completeness")
 struct BridgeJSTests {
 
-    /// Every method handled in PortBridge.handleCall must be exposed in the JS bridge.
-    /// This test prevents the bug where a Swift handler exists but port42.* never exposes it.
-
-    // All methods that must appear as callable functions in bridgeJS.
-    // Grouped by namespace for readability.
-    static let requiredJSMethods: [(namespace: String, method: String)] = [
-        // port42.user
-        ("user", "get"),
-        // port42.companions
-        ("companions", "list"),
-        ("companions", "get"),
-        ("companions", "invoke"),
-        // port42.messages
-        ("messages", "recent"),
-        ("messages", "send"),
-        // port42.space
-        ("space", "current"),
-        ("space", "list"),
-        ("space", "switchTo"),
-        // port42.port
-        ("port", "info"),
-        ("port", "close"),
-        ("port", "setTitle"),
-        ("port", "setCapabilities"),
-        ("port", "rename"),
-        ("port", "resize"),
-        ("port", "update"),
-        ("port", "getHtml"),
-        ("port", "patch"),
-        ("port", "history"),
-        ("port", "manage"),
-        ("port", "restore"),
-        ("port", "move"),
-        ("port", "position"),
-        // port42.ports
-        ("ports", "list"),
-        // port42.storage
-        ("storage", "set"),
-        ("storage", "get"),
-        ("storage", "delete"),
-        ("storage", "list"),
-        // port42.ai
-        ("ai", "status"),
-        ("ai", "models"),
-        ("ai", "complete"),
-        ("ai", "cancel"),
-        // port42.terminal — removed (D1): native terminals are `terminal` ports, not a
-        // web-port JS API. Create with port.create({type:"terminal"}) and drive with port.push.
-        // port42.clipboard
-        ("clipboard", "read"),
-        ("clipboard", "write"),
-        // port42.fs
-        ("fs", "pick"),
-        ("fs", "read"),
-        ("fs", "write"),
-        // port42.notify
-        ("notify", "send"),
-        // port42.audio
-        ("audio", "capture"),
-        ("audio", "stopCapture"),
-        ("audio", "speak"),
-        ("audio", "play"),
-        ("audio", "stop"),
-        // port42.screen
-        ("screen", "displays"),
-        ("screen", "windows"),
-        ("screen", "capture"),
-        ("screen", "stream"),
-        ("screen", "stopStream"),
-        // port42.camera
-        ("camera", "capture"),
-        ("camera", "stream"),
-        ("camera", "stopStream"),
-        // port42.browser
-        ("browser", "open"),
-        ("browser", "navigate"),
-        ("browser", "capture"),
-        ("browser", "text"),
-        ("browser", "html"),
-        ("browser", "execute"),
-        ("browser", "close"),
-        // port42.automation
-        ("automation", "runAppleScript"),
-        ("automation", "runJXA"),
-        // port42.creases
-        ("creases", "read"),
-        // port42.fold
-        ("fold", "read"),
-        // port42.position
-        ("position", "read"),
-    ]
-
-    @Test("bridgeJS contains all required method definitions")
-    func bridgeJSExposesAllMethods() {
+    @Test("bridgeJS exposes every method via a generic Proxy (completeness by construction)")
+    func genericProxyExposesEverything() {
         let js = PortBridge.bridgeJS
-
-        var missing: [String] = []
-        for (namespace, method) in Self.requiredJSMethods {
-            // Check the JS defines this method in the namespace.
-            // Methods appear as either `method:` or `method =` in the JS object literal.
-            let patterns = [
-                "\(method):",        // object literal style: setTitle: (title) =>
-                "\(method) =",       // assignment style
-                "\(method)()",       // function call in definition
-            ]
-            let found = patterns.contains { js.contains($0) }
-            if !found {
-                missing.append("port42.\(namespace).\(method)")
-            }
-        }
-
-        if !missing.isEmpty {
-            Issue.record("Missing from bridgeJS: \(missing.joined(separator: ", "))")
-        }
-        #expect(missing.isEmpty, "All documented methods must be exposed in bridgeJS")
+        // The Proxy + the per-namespace helper are what make any a.b reachable without a hand binding.
+        #expect(js.contains("new Proxy"))
+        #expect(js.contains("function __ns"))
+        #expect(js.contains("Array.prototype.slice.call(arguments)"))
     }
 
-    @Test("bridgeJS exposes port.setTitle")
-    func setTitleExposed() {
+    @Test("bridgeJS keeps the non-generic members explicit (machinery, streaming, client-only, events)")
+    func carveOutsStayExplicit() {
         let js = PortBridge.bridgeJS
-        #expect(js.contains("setTitle:") || js.contains("setTitle ="))
-    }
-
-    @Test("bridgeJS exposes port.setCapabilities")
-    func setCapabilitiesExposed() {
-        let js = PortBridge.bridgeJS
-        #expect(js.contains("setCapabilities:") || js.contains("setCapabilities ="))
-    }
-
-    @Test("bridgeJS exposes port.rename")
-    func renameExposed() {
-        let js = PortBridge.bridgeJS
-        #expect(js.contains("rename:") || js.contains("rename ="))
+        // Bridge machinery the host calls into.
+        #expect(js.contains("_resolve") && js.contains("_reject") && js.contains("_tokenCallback"))
+        // Streaming shims (token callback wiring) — not request/response, so not generic.
+        #expect(js.contains("ai.complete") && js.contains("companions.invoke"))
+        // Client-only DOM method.
+        #expect(js.contains("messageHandlers.portHeight.postMessage"))
+        // Event-listener registration.
+        #expect(js.contains("port42:filedrop"))
     }
 
     @Test("ports-context.txt documents setTitle")

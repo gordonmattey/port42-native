@@ -139,12 +139,15 @@ struct ProxyDispatchSpikeTests {
         #expect(Self.record(prox, "port42.files.read('relx')").first == "fs.read [\"relx\"]")
     }
 
-    @Test("the literal dispatched creases.read to a non-canonical name — the bug the Proxy fixes")
-    func literalCreasesBug() throws {
+    @Test("the shipped bridge dispatches DSL surface names uniformly; the host resolves them")
+    func shippedBridgeUniformSurface() throws {
+        // The window.port42 literal is now the generic Proxy. It posts the DSL surface name for BOTH
+        // creases.read and creases.write (no per-method hand-correction any more); the host resolves
+        // creases.* -> crease.* via resolveBridgeAlias. Before, the literal sent 'creases.read'
+        // (resolved nowhere) but hand-corrected 'creases.write' -> 'crease.write' inconsistently.
         let lit = Self.makeContext(); lit.evaluateScript(try Self.literalObjectJS())
-        // creases.read resolved nowhere (not a canonical method); creases.write was hand-corrected.
         #expect(Self.record(lit, "port42.creases.read()").first == "creases.read []")
-        #expect(Self.record(lit, "port42.creases.write('x')").first == "crease.write [\"x\"]")
+        #expect(Self.record(lit, "port42.creases.write('x')").first == "creases.write [\"x\"]")
     }
 
     @Test("the Proxy carves out machinery, events, client-only, and streaming — no generic call()")
