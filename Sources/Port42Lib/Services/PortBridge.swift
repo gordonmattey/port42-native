@@ -488,16 +488,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 ]
             }
 
-        // port42.space.switchTo(id)
-        case "space.switchTo":
-            guard let id = args.first as? String else {
-                return ["error": "space.switchTo requires a space id"]
-            }
-            if let space = state.spaces.first(where: { $0.id == id }) {
-                state.selectSpace(space)
-                return ["ok": true]
-            }
-            return ["error": "space not found"]
+        // space.switchTo: extracted to the registry (tail item 2).
 
         // port42.messages.send(text)
         // Sends as current user, UNLESS called from a companion terminal port (createdBy set),
@@ -520,29 +511,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             return ["ok": true]
 
-        // port42.messages.sendAsCreator(text, spaceId?)
-        // Sends attributed to this port's createdBy identity (companion name).
-        // Used by CLI terminal ports to post agent output to the space.
-        case "messages.sendAsCreator":
-            guard let text = args.first as? String, !text.isEmpty else {
-                NSLog("[p42-bridge] sendAsCreator REJECTED: empty text, createdBy=%@", createdBy ?? "nil")
-                return ["error": "messages.sendAsCreator requires a non-empty text argument"]
-            }
-            guard let senderName = createdBy, !senderName.isEmpty else {
-                NSLog("[p42-bridge] sendAsCreator REJECTED: no createdBy on this port")
-                return ["error": "messages.sendAsCreator requires a port with createdBy set"]
-            }
-            let targetSpaceId = (args.count > 1 ? args[1] as? String : nil) ?? spaceId
-            NSLog("[p42-bridge] sendAsCreator: sender=%@ space=%@ len=%d preview=\"%@\"",
-                  senderName, targetSpaceId ?? "nil", text.count,
-                  String(text.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
-            state.sendMessageAsNamedAgent(content: text, senderName: senderName, toSpaceId: targetSpaceId)
-            // Clear typing indicator — terminal companions set it at routing time but have no stream delegate to clear it
-            if let sid = targetSpaceId {
-                state.typingAgentNamesBySpace[sid, default: []].remove(senderName)
-                state.sync.sendTyping(spaceId: sid, senderName: senderName, isTyping: false, senderOwner: state.currentUser?.displayName)
-            }
-            return ["ok": true]
+        // messages.sendAsCreator: extracted to the registry (tail item 1). The principal's
+        // displayName carries this port's createdBy (falling back to title).
 
         // port42.terminal.exec(command, {cwd?, timeout?}) — headless run-and-capture.
         // The ONLY terminal bridge method: spawn/send/list moved to port.create / port.push /

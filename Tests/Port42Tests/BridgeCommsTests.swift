@@ -100,4 +100,52 @@ struct BridgeCommsTests {
         let msgs = try w.state.db.getMessages(spaceId: w.space.id, topic: "chat")
         #expect(msgs.contains { $0.content == "hello there" })
     }
+
+    // MARK: - Tail item 1: messages.sendAsCreator
+
+    @Test("messages.sendAsCreator persists a message attributed to the calling principal")
+    @MainActor
+    func sendAsCreatorPersistsWithPrincipalName() async throws {
+        let w = try makeParityWorld()
+        w.state.currentSpace = w.space
+        let sent = try await call(w, "messages.sendAsCreator", ["text": "creator says hi", "space_id": w.space.id])
+        #expect(sent == .object(["ok": .bool(true)]))
+        let msgs = try w.state.db.getMessages(spaceId: w.space.id, topic: "chat")
+        #expect(msgs.contains { $0.content == "creator says hi" && $0.senderName == w.companion.displayName })
+    }
+
+    @Test("messages.sendAsCreator rejects empty text")
+    @MainActor
+    func sendAsCreatorRejectsEmptyText() async throws {
+        let w = try makeParityWorld()
+        await #expect(throws: BridgeError.self) {
+            _ = try await call(w, "messages.sendAsCreator", ["text": "", "space_id": w.space.id])
+        }
+    }
+
+    // MARK: - Tail item 2: space.switchTo
+
+    @Test("space.switchTo flips the current space")
+    @MainActor
+    func spaceSwitchToFlips() async throws {
+        let w = try makeParityWorld()
+        let second = Space.create(name: "second")
+        try w.state.db.saveSpace(second)
+        w.state.spaces.append(second)
+        w.state.currentSpace = w.space
+        let r = try await call(w, "space.switchTo", ["space_id": second.id])
+        #expect(r == .object(["ok": .bool(true)]))
+        #expect(w.state.currentSpace?.id == second.id)
+    }
+
+    @Test("space.switchTo with an unknown id throws not_found")
+    @MainActor
+    func spaceSwitchToUnknown() async throws {
+        let w = try makeParityWorld()
+        w.state.currentSpace = w.space
+        await #expect(throws: BridgeError.self) {
+            _ = try await call(w, "space.switchTo", ["space_id": "definitely-not-a-space"])
+        }
+        #expect(w.state.currentSpace?.id == w.space.id)
+    }
 }

@@ -592,6 +592,17 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         .array(appState.spaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) })
     }
 
+    // Tail item 2. Not an LLM tool (companions navigate by talking; switching the visible space is a
+    // surface affordance), so toolExposed: false — same class as the audio playback methods.
+    r["space.switchTo"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false) { _, args in
+        let id = try args.requireString("space_id")
+        guard let space = appState.spaces.first(where: { $0.id == id }) else {
+            throw BridgeError.notFound("space '\(id)'")
+        }
+        appState.selectSpace(space)
+        return .object(["ok": .bool(true)])
+    }
+
     r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id"],
         description: "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
         inputSchema: [
@@ -704,6 +715,32 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             appState.sendMessageAsNamedAgent(content: text, senderName: name, toSpaceId: target)
         } else {
             appState.sendMessage(content: text, toSpaceId: target)
+        }
+        return .object(["ok": .bool(true)])
+    }
+
+    // Tail item 1. Sends attributed to the CALLING principal's display identity (companion name on
+    // the gateway/tool-use surfaces; the port's createdBy, falling back to its title, on port JS).
+    // Replaces the old port-only switch case, whose createdBy-required guard becomes "requires a
+    // caller identity" under the unified principal. Not an LLM tool (companions' replies are already
+    // attributed; this is the identity path for CLI/terminal callers), so toolExposed: false.
+    r["messages.sendAsCreator"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"], toolExposed: false) { p, args in
+        let text = try args.requireString("text")
+        guard !text.isEmpty else {
+            throw BridgeError.badArg("messages.sendAsCreator requires a non-empty text argument")
+        }
+        let senderName = p.displayName
+        guard !senderName.isEmpty else {
+            throw BridgeError.badArg("messages.sendAsCreator requires a caller identity")
+        }
+        let target = args.string("space_id") ?? p.spaceId
+        appState.sendMessageAsNamedAgent(content: text, senderName: senderName, toSpaceId: target)
+        // Clear the typing indicator: terminal companions set it at routing time but have no stream
+        // delegate to clear it (moved verbatim from the old port switch case).
+        if let sid = target {
+            appState.typingAgentNamesBySpace[sid, default: []].remove(senderName)
+            appState.sync.sendTyping(spaceId: sid, senderName: senderName, isTyping: false,
+                                     senderOwner: appState.currentUser?.displayName)
         }
         return .object(["ok": .bool(true)])
     }
