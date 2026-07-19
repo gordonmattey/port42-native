@@ -24,9 +24,7 @@ struct BridgeSchemaParityTests {
     // Tools that are still live-only on the old path — no registry method exists yet, so the generator
     // cannot produce them and they stay hand-written in `ToolDefinitions` (hybrid mode). Excluded from
     // parity here; the guard test below asserts this list stays accurate (no method silently landed).
-    static let hybridOnlyTools: Set<String> = [
-        "browser_open", "browser_text", "browser_capture", "browser_close",
-    ]
+    static let hybridOnlyTools: Set<String> = []
 
     /// Sorted-keys JSON of a schema dict, for order-insensitive deep comparison (same canonicalization
     /// the parity harness uses on tool blocks).
@@ -95,8 +93,9 @@ struct BridgeSchemaParityTests {
         // Coverage: every ToolDefinitions tool is either checked or explicitly hybrid-only. No silent skip.
         #expect(checked == defs.count - Self.hybridOnlyTools.count,
                 "checked \(checked) but expected \(defs.count - Self.hybridOnlyTools.count) (defs \(defs.count) minus hybrid \(Self.hybridOnlyTools.count))")
-        // 53 = the original 52 + rest_call, which left the hybrid list with tail item 4.
-        #expect(checked == 53, "expected 53 parity-set methods, checked \(checked)")
+        // 57 = the full golden: 52 original + rest_call (item 4) + the 4 browser tools (item 5).
+        // The hybrid list is empty; every golden schema is parity-checked against the generator.
+        #expect(checked == 57, "expected 57 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

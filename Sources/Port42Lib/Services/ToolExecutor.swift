@@ -31,7 +31,6 @@ public final class ToolExecutor {
     private lazy var fileBridge = FileBridge()
     private lazy var automationBridge = AutomationBridge()
     private lazy var notificationBridge = NotificationBridge()
-    private lazy var browserBridge = BrowserBridge()
     private lazy var audioBridge = AudioBridge()
     private lazy var cameraBridge = CameraBridge()
 
@@ -946,39 +945,8 @@ public final class ToolExecutor {
         // rest_call: extracted to the registry (tail item 4) — served registry-first with the
         // per-companion secret grant preserved.
 
-        // MARK: Browser
-        case "browser_open":
-            guard let url = input["url"] as? String else {
-                return [textBlock("Error: missing 'url' parameter")]
-            }
-            let result = await browserBridge.open(url: url, opts: [:])
-            return [textBlock(jsonString(result))]
-
-        case "browser_text":
-            guard let sessionId = input["sessionId"] as? String else {
-                return [textBlock("Error: missing 'sessionId' parameter")]
-            }
-            let selector = input["selector"] as? String
-            let opts: [String: Any] = selector.map { ["selector": $0] } ?? [:]
-            let result = await browserBridge.text(sessionId: sessionId, opts: opts)
-            return [textBlock(jsonString(result))]
-
-        case "browser_capture":
-            guard let sessionId = input["sessionId"] as? String else {
-                return [textBlock("Error: missing 'sessionId' parameter")]
-            }
-            let result = await browserBridge.capture(sessionId: sessionId, opts: [:])
-            if let base64 = result["image"] as? String {
-                return [imageBlock(base64: base64, mediaType: "image/png")]
-            }
-            return [textBlock(jsonString(result))]
-
-        case "browser_close":
-            guard let sessionId = input["sessionId"] as? String else {
-                return [textBlock("Error: missing 'sessionId' parameter")]
-            }
-            let result = browserBridge.close(sessionId: sessionId)
-            return [textBlock(jsonString(result))]
+        // browser_*: extracted to the registry (tail item 5) — one shared session store across all
+        // surfaces; captures return image blocks via the registry's .data convention.
 
         // MARK: Notifications
         case "notify_send":

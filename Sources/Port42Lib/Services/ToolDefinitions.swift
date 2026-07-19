@@ -12,61 +12,15 @@ import Foundation
 /// until those families move into the registry (the tail), at which point this list empties entirely.
 enum ToolDefinitions {
 
-    /// The tools still hand-written here (not yet in the registry). Kept in sync with `all` below.
-    /// rest_call left with tail item 4; only the browser family remains.
-    static let hybridToolNames: Set<String> = ["browser_open", "browser_text", "browser_capture", "browser_close"]
+    /// EMPTY since tail items 4+5: every tool is generated from the registry. These stay only until
+    /// the close-out deletes this type entirely (with the old switches).
+    static let hybridToolNames: Set<String> = []
 
-    /// The hybrid tools the generated list folds in. Once browser.*/rest.call are extracted, this empties.
+    /// The hybrid tools the generated list folds in. Empty — the tail extracted the last holdouts.
     static var hybridTools: [[String: Any]] { all }
 
-    /// All hand-written tools (now only the hybrid set). Production reads `generatedToolDefinitions`.
-    static let all: [[String: Any]] = [
-        [
-            "name": "browser_open",
-            "description": "Open a URL in a headless browser and return the page title. Use browser_text to read page content after opening.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "url": ["type": "string", "description": "The URL to open (http or https)"]
-                ],
-                "required": ["url"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "browser_text",
-            "description": "Extract text content from an open browser session",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "sessionId": ["type": "string", "description": "Browser session ID from browser_open"],
-                    "selector": ["type": "string", "description": "CSS selector to extract from (default: body)"]
-                ],
-                "required": ["sessionId"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "browser_capture",
-            "description": "Take a screenshot of an open browser session. Returns base64 PNG.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "sessionId": ["type": "string", "description": "Browser session ID from browser_open"]
-                ],
-                "required": ["sessionId"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "browser_close",
-            "description": "Close a browser session",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "sessionId": ["type": "string", "description": "Browser session ID to close"]
-                ],
-                "required": ["sessionId"]
-            ] as [String: Any]
-        ],
-    ]
+    /// All hand-written tools: none remain. Production reads `generatedToolDefinitions`.
+    static let all: [[String: Any]] = []
 
     /// Permission required for a tool, or nil if no permission needed. Still used by the old
     /// `ToolExecutor` path for the not-yet-extracted families; registry methods gate via

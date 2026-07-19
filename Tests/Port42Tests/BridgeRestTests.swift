@@ -57,6 +57,7 @@ struct BridgeRestTests {
                 self.end_headers()
                 self.wfile.write(body)
             def log_message(self, *a): pass
+        socketserver.TCPServer.allow_reuse_address = True
         with socketserver.TCPServer(("127.0.0.1", \(port)), H) as srv:
             srv.serve_forever()
         """

@@ -67,9 +67,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Screen capture bridge. Created lazily on first screen call.
     private var screenBridge: ScreenBridge?
 
-    /// Browser bridge. Created lazily on first browser call.
-    private var browserBridge: BrowserBridge?
-
     /// Automation bridge. Created lazily on first automation call.
     private var automationBridge: AutomationBridge?
 
@@ -112,10 +109,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         let ab = audioBridge
         if let ab {
             Task { @MainActor in ab.cleanup() }
-        }
-        let bb = browserBridge
-        if let bb {
-            Task { @MainActor in bb.cleanup() }
         }
         let cb = cameraBridge
         if let cb {
@@ -1071,62 +1064,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         case "camera.stopStream":
             return cameraBridge?.stopStream() ?? ["error": "no active camera"]
 
-        // MARK: Browser
-
-        case "browser.open":
-            guard let url = args.first as? String, !url.isEmpty else {
-                return ["error": "browser.open requires a URL"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
-            if browserBridge == nil { browserBridge = BrowserBridge(bridge: self) }
-            return await browserBridge!.open(url: url, opts: opts)
-
-        case "browser.navigate":
-            guard let sessionId = args.first as? String,
-                  let url = args.count > 1 ? args[1] as? String : nil else {
-                return ["error": "browser.navigate requires sessionId and url"]
-            }
-            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
-            return await bb.navigate(sessionId: sessionId, url: url)
-
-        case "browser.capture":
-            guard let sessionId = args.first as? String else {
-                return ["error": "browser.capture requires sessionId"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
-            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
-            return await bb.capture(sessionId: sessionId, opts: opts)
-
-        case "browser.text":
-            guard let sessionId = args.first as? String else {
-                return ["error": "browser.text requires sessionId"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
-            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
-            return await bb.text(sessionId: sessionId, opts: opts)
-
-        case "browser.html":
-            guard let sessionId = args.first as? String else {
-                return ["error": "browser.html requires sessionId"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
-            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
-            return await bb.html(sessionId: sessionId, opts: opts)
-
-        case "browser.execute":
-            guard let sessionId = args.first as? String,
-                  let js = args.count > 1 ? args[1] as? String : nil else {
-                return ["error": "browser.execute requires sessionId and JavaScript code"]
-            }
-            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
-            return await bb.execute(sessionId: sessionId, js: js)
-
-        case "browser.close":
-            guard let sessionId = args.first as? String else {
-                return ["error": "browser.close requires sessionId"]
-            }
-            guard let bb = browserBridge else { return ["error": "no browser sessions"] }
-            return bb.close(sessionId: sessionId)
+        // browser.*: extracted to the registry (tail item 5) — one shared session store, sessions
+        // remember their creating port for event routing.
 
         // MARK: Automation
 

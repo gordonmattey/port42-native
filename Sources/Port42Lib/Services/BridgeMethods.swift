@@ -359,6 +359,104 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         .fromJSONObject(audio.stop())
     }
 
+    // Tail item 5 — browser.*. ONE shared BrowserBridge instance: sessions are shared across all
+    // surfaces (the old design was one instance per PortBridge plus one per ToolExecutor, so a
+    // session opened from a port was invisible to a companion). A session opened by a port still
+    // routes its load/redirect/error events to that port via `owner`. Errors throw (clean break
+    // from the {error} dicts the old switches returned).
+    let browser = BrowserBridge()
+    func browserResult(_ r: [String: Any]) throws -> BridgeValue {
+        if let err = r["error"] as? String { throw BridgeError(code: "browser_error", message: err) }
+        return .fromJSONObject(r)
+    }
+    func owningPortBridge(_ p: Principal) -> PortBridge? {
+        guard p.kind == .port else { return nil }
+        return appState.portWindows.panels.first(where: { $0.udid == p.id || $0.messageId == p.id })?.bridge
+            ?? appState.findInlineBridge(by: p.id)
+    }
+
+    r["browser.open"] = BridgeMethod(permission: .browser, paramNames: ["url", "options"],
+        description: "Open a URL in a headless browser and return the page title. Use browser_text to read page content after opening.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "url": ["type": "string", "description": "The URL to open (http or https)"]
+            ],
+            "required": ["url"]
+        ]) { p, args in
+        let url = try args.requireString("url")
+        guard !url.isEmpty else { throw BridgeError.badArg("browser.open requires a URL") }
+        let opts = args.object("options") ?? [:]
+        return try browserResult(await browser.open(url: url, opts: opts, owner: owningPortBridge(p)))
+    }
+
+    r["browser.navigate"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "url"], toolExposed: false) { _, args in
+        let sessionId = try args.requireString("sessionId")
+        let url = try args.requireString("url")
+        return try browserResult(await browser.navigate(sessionId: sessionId, url: url))
+    }
+
+    r["browser.capture"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"],
+        description: "Take a screenshot of an open browser session. Returns base64 PNG.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "sessionId": ["type": "string", "description": "Browser session ID from browser_open"]
+            ],
+            "required": ["sessionId"]
+        ]) { _, args in
+        let sessionId = try args.requireString("sessionId")
+        let result = try browserResult(await browser.capture(sessionId: sessionId, opts: args.object("options") ?? [:]))
+        // Same convention as screen.capture: a captured image is .data, so the tool surface renders a
+        // real image block and JS/gateway get the bare base64 string.
+        if case let .object(o) = result, case let .string(base64)? = o["image"] {
+            return .data(base64: base64, mime: "image/png")
+        }
+        return result
+    }
+
+    r["browser.text"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"],
+        description: "Extract text content from an open browser session",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "sessionId": ["type": "string", "description": "Browser session ID from browser_open"],
+                "selector": ["type": "string", "description": "CSS selector to extract from (default: body)"]
+            ],
+            "required": ["sessionId"]
+        ]) { _, args in
+        let sessionId = try args.requireString("sessionId")
+        var opts = args.object("options") ?? [:]
+        if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
+        return try browserResult(await browser.text(sessionId: sessionId, opts: opts))
+    }
+
+    r["browser.html"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"], toolExposed: false) { _, args in
+        let sessionId = try args.requireString("sessionId")
+        var opts = args.object("options") ?? [:]
+        if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
+        return try browserResult(await browser.html(sessionId: sessionId, opts: opts))
+    }
+
+    r["browser.execute"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "js"], toolExposed: false) { _, args in
+        let sessionId = try args.requireString("sessionId")
+        let js = try args.requireString("js")
+        return try browserResult(await browser.execute(sessionId: sessionId, js: js))
+    }
+
+    r["browser.close"] = BridgeMethod(permission: .browser, paramNames: ["sessionId"],
+        description: "Close a browser session",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "sessionId": ["type": "string", "description": "Browser session ID to close"]
+            ],
+            "required": ["sessionId"]
+        ]) { _, args in
+        let sessionId = try args.requireString("sessionId")
+        return try browserResult(browser.close(sessionId: sessionId))
+    }
+
     // Tail item 4 — rest.call. One body for all surfaces, carrying BOTH old paths' semantics: the
     // port path's dict-body support and the tool path's per-companion secret grant + filtered
     // response headers. JS calls (url, opts-bag); tool-use passes flat keys; reads fall through

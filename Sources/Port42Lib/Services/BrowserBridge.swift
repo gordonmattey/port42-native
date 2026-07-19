@@ -31,8 +31,10 @@ public final class BrowserBridge {
 
     // MARK: - Public API
 
-    /// Open a URL in a new browser session.
-    func open(url urlString: String, opts: [String: Any]) async -> [String: Any] {
+    /// Open a URL in a new browser session. `owner` is the PortBridge whose port made the call (when
+    /// the caller is a port): the session remembers it so browser.load/redirect/error events reach the
+    /// creating port even though the session store itself is shared across all surfaces (registry).
+    func open(url urlString: String, opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
         guard sessions.count < maxSessions else {
             return ["error": "maximum browser sessions reached (\(maxSessions)). Close a session first."]
         }
@@ -51,7 +53,7 @@ public final class BrowserBridge {
             width: width,
             height: height,
             userAgent: userAgent,
-            bridge: bridge
+            bridge: owner ?? bridge
         )
 
         sessions[String(sessionId)] = session
