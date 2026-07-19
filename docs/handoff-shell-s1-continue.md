@@ -29,7 +29,7 @@ Separate track (not this arc): `docs/membrane/*` — WIRE / port42:// / libp2p /
 - Build with `./build.sh` (dev). Relaunch = `open .build/Port42Dev.app`. The **Keychain prompt** and a
   per-caller **`.ai` permission prompt** at first model call are human-only — ask GM.
 
-## Done this arc (committed + pushed, 7573fab..e1d655d)
+## Done this arc (committed + pushed, 7573fab..b2d76fd)
 
 **Item 8 (streaming) is complete end to end.** `ai.complete` and `companions.invoke` both flow through
 one `AppState.runLLMStream`, reachable identically from all three surfaces (port JS, gateway, in-app
@@ -94,39 +94,39 @@ canonical). The `BridgeService` question is answered: `ServiceManifest` **is** t
 - Spike B generalized: manifest services leave the source-scan (now 42 methods) and are checked by a
   runtime probe (`appManifestServices()`). Spike A parity + memory/D4/storage suites green (168 tests).
 
+**Spikes C + D done, big-bang steps 1 + 2 done (committed + pushed, ..b2d76fd).**
+- **8d1e001 Spike C** — JavaScriptCore harness proves the generic Proxy dispatches identically to the
+  literal for platform+device, routes service surfaces via the name-map, carves out machinery/events/
+  `port.resize`/streaming. (`ProxyDispatchSpikeTests`.)
+- **bc81ab4 Spike D** — manifest-driven service proven external-first (`ServiceManifest` + `registerManifest`).
+- **49e3160 + da033e0 Step 1** — the LLM tool list is GENERATED from the registry
+  (`AppState.generatedToolDefinitions`); the 52 hand-written schemas deleted (700→108 lines), frozen as
+  `Tests/Fixtures/tool-definitions-golden.json` which guards generation. `toolExposed` flag marks the 6
+  non-tool registry methods. Hybrid: browser.\*/rest.call stay hand-written until extracted.
+- **b2d76fd Step 2** — the ~240-line `window.port42` literal replaced by a generic Proxy + explicit
+  carve-outs (machinery, event listeners, `ai.complete`/`companions.invoke` streaming shims,
+  `port.resize`). **Clean break** (GM): per-method result unwrapping is gone; all surfaces return the
+  structured `BridgeValue` (ports read `.value`/`.html`/`.ok`/`.result`/`.output`). Also fixed
+  `handleMethod` to resolve aliases via `state.resolveBridgeAlias` (was static `ToolNaming.resolveAlias`,
+  files-only), so service name-maps (`creases.* -> crease.*`) now resolve on the port-JS surface too.
+
 ## Next
 
-**Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Now with three real
-services to design against. Prove a generic `window.port42` Proxy dispatches `port42.a.b(...args)` →
-`call(resolveBridgeAlias('a.b'), args)` identically to the literal for platform + device, routes service
-surfaces through the derived name-map (Keeper's `creases.*`), and carves out the non-generic members
-(machinery `_*`, event `on`, client-only `port.resize`, streaming `ai.complete`/`companions.invoke`).
-JavaScriptCore harness: extract the literal from `PortBridge.swift:1521`, stub `call`, diff recorded
-`(method, args)` per method. Green + the carve-out list = the literal is safe to replace.
+**FIRST: confirm `creases.read` live on a stable app.** Step 2's core is live-proven (a port's own
+script round-trips `storage` with clean-break returns `{ok}`/`{value}`, `user.get`, `ai.complete`
+carve-out). The one thing NOT re-verified live is the port-JS `creases.read` fix (returns `[]` before,
+should return the "No creases yet" string now) — blocked only by the recurring "gateway up, no host"
+startup race (`summer2026-todo.md`), which needs a clean boot. One command: create a web port whose
+onload script does `port42.creases.read()` and read its DOM (NOT `port.exec` with nested bridge calls —
+that reentrancy-deadlocks the main actor). Unit-covered green regardless; this is belt-and-suspenders.
 
-**Then the big-bang** — flip `ToolDefinitions`/`ToolNaming.canonicalMethods`/`llms.txt` to generated,
-replace the literal with the Proxy + service seam + streaming shim, delete the old switches and parallel
-lists. Guarded by A/B/C/D.
-
-**Then Spike C — Proxy-vs-literal dispatch (the last de-risk before the big-bang).** Prove a generic
-`window.port42` Proxy dispatches `port42.a.b(...args)` → `call('a.b', args)` identically to the current
-hand-written object literal (`PortBridge.swift:1521`), and enumerate the carve-outs the Proxy cannot be
-generic over. From reading the literal, the non-generic behaviors are: result unwrapping
-(`.then(r => r.ok)` / `r.value` / `r.html` / `r.output` / `r.result`) — **deliberately dropped** under
-the no-compat policy (the Proxy returns the structured `BridgeValue`); arg defaulting (`opts || {}`,
-`n || 20`) — moves into the body, which already defaults; and the streaming/callback methods
-(`ai.complete`, `ai.cancel`) — the **one genuine carve-out** the plain `call()` Proxy can't cover.
-Approach: a JavaScriptCore (`JSContext`) harness that stubs `call`, evaluates the extracted literal and
-a candidate Proxy, invokes each method with sample args, and asserts the recorded `(method, argsArray)`
-match for every non-streaming method. Green + the carve-out list = safe to replace the literal.
-
-**Then the big-bang** (`bridge-architecture-and-mcp.md` §5), now a mechanical flip-and-delete guarded by
-the three spikes: flip `ToolDefinitions` / `ToolNaming.canonicalMethods` / `llms.txt` to generated
-(hybrid: keep hand-written only for browser.\*/rest.call until extracted), replace the `window.port42`
-literal with the Proxy + the streaming carve-out, delete the parallel lists.
-
-**The tail** (`plan-api-unification.md` Phase 2b, items 1-7/9/10) — the still-live-only methods, each
-proven by `BridgeParityHarness`, then **delete the two old switches** (close-out).
+**The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
+old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential
+port methods (`info`/`close`/`setTitle`/`setCapabilities`/`resize`), `messages.sendAsCreator`,
+`space.switchTo`. Each into the registry (or a service module). THEN the close-out: delete the two old
+switches (`PortBridge.handleMethod` tail, `ToolExecutor.executeImpl`), and flip
+`ToolNaming.canonicalMethods` + `llms.txt` to generated (both need the full name inventory, so they ride
+with the tail). Then the four parallel lists and both switches are gone: unification complete.
 
 ## Uncommitted, not mine (left in the tree)
 `docs/membrane/membrane-architecture.md` edit + `docs/membrane/plays-with-others.md` (a packs/plugs/
