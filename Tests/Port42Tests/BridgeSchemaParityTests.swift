@@ -37,12 +37,17 @@ struct BridgeSchemaParityTests {
         return s
     }
 
-    /// `ToolDefinitions.all` indexed by tool name.
+    /// The frozen golden (the 57 hand-written tool schemas, snapshotted before deletion) indexed by
+    /// tool name. This is what the generator is checked against now that the hand-written schemas are
+    /// gone from production. Regenerate the fixture only on a deliberate, reviewed schema change.
     static func toolDefsByName() -> [String: [String: Any]] {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let url = root.appendingPathComponent("Tests/Fixtures/tool-definitions-golden.json")
+        guard let data = try? Data(contentsOf: url),
+              let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return [:] }
         var m: [String: [String: Any]] = [:]
-        for t in ToolDefinitions.all where t["name"] is String {
-            m[t["name"] as! String] = t
-        }
+        for t in arr { if let n = t["name"] as? String { m[n] = t } }
         return m
     }
 

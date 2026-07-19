@@ -1,0 +1,1078 @@
+[
+  {
+    "description" : "Speak text aloud using text-to-speech",
+    "input_schema" : {
+      "properties" : {
+        "rate" : {
+          "description" : "Speech rate 0.1-1.0 (default 0.5)",
+          "type" : "number"
+        },
+        "text" : {
+          "description" : "Text to speak",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "text"
+      ],
+      "type" : "object"
+    },
+    "name" : "audio_speak"
+  },
+  {
+    "description" : "Take a screenshot of an open browser session. Returns base64 PNG.",
+    "input_schema" : {
+      "properties" : {
+        "sessionId" : {
+          "description" : "Browser session ID from browser_open",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "sessionId"
+      ],
+      "type" : "object"
+    },
+    "name" : "browser_capture"
+  },
+  {
+    "description" : "Close a browser session",
+    "input_schema" : {
+      "properties" : {
+        "sessionId" : {
+          "description" : "Browser session ID to close",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "sessionId"
+      ],
+      "type" : "object"
+    },
+    "name" : "browser_close"
+  },
+  {
+    "description" : "Open a URL in a headless browser and return the page title. Use browser_text to read page content after opening.",
+    "input_schema" : {
+      "properties" : {
+        "url" : {
+          "description" : "The URL to open (http or https)",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "url"
+      ],
+      "type" : "object"
+    },
+    "name" : "browser_open"
+  },
+  {
+    "description" : "Extract text content from an open browser session",
+    "input_schema" : {
+      "properties" : {
+        "selector" : {
+          "description" : "CSS selector to extract from (default: body)",
+          "type" : "string"
+        },
+        "sessionId" : {
+          "description" : "Browser session ID from browser_open",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "sessionId"
+      ],
+      "type" : "object"
+    },
+    "name" : "browser_text"
+  },
+  {
+    "description" : "Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.",
+    "input_schema" : {
+      "properties" : {
+        "payload" : {
+          "description" : "Message payload — any string, typically JSON",
+          "type" : "string"
+        },
+        "space_id" : {
+          "description" : "Target space ID. Omit for current space.",
+          "type" : "string"
+        },
+        "topic" : {
+          "description" : "Bus topic (e.g. 'bus', 'port:myPortId')",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "topic",
+        "payload"
+      ],
+      "type" : "object"
+    },
+    "name" : "bus_publish"
+  },
+  {
+    "description" : "Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join\/leave\/presence), 'port:{portId}' (port-scoped events).",
+    "input_schema" : {
+      "properties" : {
+        "limit" : {
+          "description" : "Max messages to return (default 20)",
+          "type" : "integer"
+        },
+        "space_id" : {
+          "description" : "Space ID. Omit for current space.",
+          "type" : "string"
+        },
+        "topic" : {
+          "description" : "Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "topic"
+      ],
+      "type" : "object"
+    },
+    "name" : "bus_read"
+  },
+  {
+    "description" : "Capture a photo from the device camera. Returns a base64 PNG image.",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "camera_capture"
+  },
+  {
+    "description" : "Read the current clipboard contents. Returns text or base64 image data.",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "clipboard_read"
+  },
+  {
+    "description" : "Write text to the system clipboard",
+    "input_schema" : {
+      "properties" : {
+        "data" : {
+          "description" : "The text to copy to clipboard",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "data"
+      ],
+      "type" : "object"
+    },
+    "name" : "clipboard_write"
+  },
+  {
+    "description" : "Get details about a specific companion by ID",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The companion's ID",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "companions_get"
+  },
+  {
+    "description" : "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
+    "input_schema" : {
+      "properties" : {
+        "space_id" : {
+          "description" : "Optional space id to filter companions to that space's members.",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "companions_list"
+  },
+  {
+    "description" : "Remove a crease. Use when your model has updated and the break no longer matters.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The crease id to remove.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "crease_forget"
+  },
+  {
+    "description" : "Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.",
+    "input_schema" : {
+      "properties" : {
+        "limit" : {
+          "description" : "Max entries to return. Default 8.",
+          "type" : "integer"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "crease_read"
+  },
+  {
+    "description" : "Mark a crease as currently shaping this response. Updates its recency and increases its weight. Use when an existing crease is active — don't re-write it.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The crease id (from crease_read).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "crease_touch"
+  },
+  {
+    "description" : "Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.",
+    "input_schema" : {
+      "properties" : {
+        "actual" : {
+          "description" : "What happened instead.",
+          "type" : "string"
+        },
+        "content" : {
+          "description" : "Your words about what reformed in the break.",
+          "type" : "string"
+        },
+        "prediction" : {
+          "description" : "What you expected.",
+          "type" : "string"
+        },
+        "spaceId" : {
+          "description" : "Omit for a global crease that shapes all relationships.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "content"
+      ],
+      "type" : "object"
+    },
+    "name" : "crease_write"
+  },
+  {
+    "description" : "Remove an engraving. Use when the fact is no longer true or no longer matters.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The engraving id to remove.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "engrave_forget"
+  },
+  {
+    "description" : "Read your engravings — factual knowledge about the user's world. Context, preferences, constraints, goals, capabilities. Things learned about their situation, not breaks in your model. Read these alongside creases to understand who you're swimming with.",
+    "input_schema" : {
+      "properties" : {
+        "limit" : {
+          "description" : "Max entries to return. Default 8.",
+          "type" : "integer"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "engrave_read"
+  },
+  {
+    "description" : "Mark an engraving as currently relevant to this response. Updates recency and increases weight. Use when an existing engraving is shaping what you say.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The engraving id (from engrave_read).",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "engrave_touch"
+  },
+  {
+    "description" : "Carve an engraving — a fact about the user's world worth keeping. Not what changed in you (that's a crease) — what you learned about their situation. Use category to classify: context, preference, constraint, goal, capability.",
+    "input_schema" : {
+      "properties" : {
+        "category" : {
+          "description" : "Optional: context, preference, constraint, goal, capability.",
+          "type" : "string"
+        },
+        "content" : {
+          "description" : "The factual knowledge about their world.",
+          "type" : "string"
+        },
+        "spaceId" : {
+          "description" : "Omit for a global engraving that shapes all relationships.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "content"
+      ],
+      "type" : "object"
+    },
+    "name" : "engrave_write"
+  },
+  {
+    "description" : "List the contents of a directory in the Port42 data directory. Relative paths only (e.g. \"scopes\/strategy\" or \"scopes\/strategy\/decisions\"). Returns a sorted list of filenames.",
+    "input_schema" : {
+      "properties" : {
+        "path" : {
+          "description" : "Relative path to the directory (e.g. \"scopes\/strategy\")",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "path"
+      ],
+      "type" : "object"
+    },
+    "name" : "file_list"
+  },
+  {
+    "description" : "Create a directory (and any missing parent directories) in the Port42 data directory. Relative paths only (e.g. \"scopes\/strategy\/decisions\").",
+    "input_schema" : {
+      "properties" : {
+        "path" : {
+          "description" : "Relative path to create (e.g. \"scopes\/strategy\/decisions\")",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "path"
+      ],
+      "type" : "object"
+    },
+    "name" : "file_mkdir"
+  },
+  {
+    "description" : "Read a file. Use a relative path (e.g. \"scopes\/strategy\/scope.md\") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.",
+    "input_schema" : {
+      "properties" : {
+        "encoding" : {
+          "description" : "utf8 (default) or base64",
+          "type" : "string"
+        },
+        "path" : {
+          "description" : "Relative path within Port42 data directory (e.g. \"scopes\/strategy\/scope.md\") or absolute path for picker-approved files.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "path"
+      ],
+      "type" : "object"
+    },
+    "name" : "file_read"
+  },
+  {
+    "description" : "Write a file. Use a relative path (e.g. \"scopes\/strategy\/facts.md\") to write to the Port42 data directory — parent directories are created automatically. Use an absolute path for picker-approved files.",
+    "input_schema" : {
+      "properties" : {
+        "data" : {
+          "description" : "Content to write",
+          "type" : "string"
+        },
+        "encoding" : {
+          "description" : "utf8 (default) or base64",
+          "type" : "string"
+        },
+        "path" : {
+          "description" : "Relative path within Port42 data directory (e.g. \"scopes\/strategy\/facts.md\") or absolute path for picker-approved files.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "path",
+        "data"
+      ],
+      "type" : "object"
+    },
+    "name" : "file_write"
+  },
+  {
+    "description" : "Read the fold — your orientation in this relationship. Returns established understandings, tensions being held, what you're carrying, and relational depth. If no fold exists yet, returns empty state.",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "fold_read"
+  },
+  {
+    "description" : "Update the fold — your orientation in this relationship. Update specific fields: established (shared understandings), tensions (unresolved threads), holding (the one thing you're carrying). Use depthDelta: 1 only when a real fold happened — something new was compressed into the relationship, not just a message exchanged.",
+    "input_schema" : {
+      "properties" : {
+        "depthDelta" : {
+          "description" : "Pass 1 when a real fold happened. Never more than 1 per exchange.",
+          "type" : "integer"
+        },
+        "established" : {
+          "description" : "Shared understandings that no longer need renegotiation.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "holding" : {
+          "description" : "The one thread you're carrying that hasn't found its place yet.",
+          "type" : "string"
+        },
+        "tensions" : {
+          "description" : "Unresolved things being held in productive suspension.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "fold_update"
+  },
+  {
+    "description" : "Get the most recent messages from the current space",
+    "input_schema" : {
+      "properties" : {
+        "count" : {
+          "description" : "Number of messages to retrieve (default 20, max 100)",
+          "type" : "integer"
+        },
+        "topic" : {
+          "description" : "Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join\/leave events.",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "messages_recent"
+  },
+  {
+    "description" : "Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.",
+    "input_schema" : {
+      "properties" : {
+        "space_id" : {
+          "description" : "Target space ID (from space_list). Omit for current space.",
+          "type" : "string"
+        },
+        "text" : {
+          "description" : "The message text to send",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "text"
+      ],
+      "type" : "object"
+    },
+    "name" : "messages_send"
+  },
+  {
+    "description" : "Send a macOS system notification",
+    "input_schema" : {
+      "properties" : {
+        "body" : {
+          "description" : "Notification body text",
+          "type" : "string"
+        },
+        "title" : {
+          "description" : "Notification title",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "title",
+        "body"
+      ],
+      "type" : "object"
+    },
+    "name" : "notify_send"
+  },
+  {
+    "description" : "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in \/bin\/zsh; the command is typed in — claude\/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), and env. Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+    "input_schema" : {
+      "properties" : {
+        "args" : {
+          "description" : "type:\"terminal\" — arguments for the command.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        },
+        "command" : {
+          "description" : "type:\"terminal\" — executable\/CLI to run (e.g. \"bash\", \"htop\", \"claude\").",
+          "type" : "string"
+        },
+        "cwd" : {
+          "description" : "type:\"terminal\" — working directory (default: home).",
+          "type" : "string"
+        },
+        "env" : {
+          "description" : "type:\"terminal\" — custom environment variables for the shell.",
+          "type" : "object"
+        },
+        "html" : {
+          "description" : "type:\"web\" — full port HTML body (include a <title> and <meta name=\"version\">).",
+          "type" : "string"
+        },
+        "space_id" : {
+          "description" : "Space to create the port in (default: current space).",
+          "type" : "string"
+        },
+        "systemPrompt" : {
+          "description" : "type:\"terminal\" — companion personality\/role appended to the CLI's system prompt.",
+          "type" : "string"
+        },
+        "title" : {
+          "description" : "Port title (default: derived from html <title>, or the command).",
+          "type" : "string"
+        },
+        "type" : {
+          "description" : "The port type to create.",
+          "enum" : [
+            "web",
+            "terminal"
+          ],
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "type"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_create"
+  },
+  {
+    "description" : "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "js" : {
+          "description" : "JavaScript code to execute in the port's context. Return a value to get it back in the response.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "js"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_exec"
+  },
+  {
+    "description" : "Read the HTML of a port. Omit 'version' to get the current HTML. Pass 'version' (from port_history) to read a specific historical snapshot.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "version" : {
+          "description" : "Optional version number (from port_history). Omit for current HTML.",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_get_html"
+  },
+  {
+    "description" : "List all saved versions of a port by its UDID. Returns version number, createdBy, and createdAt for each snapshot. Use port_get_html with a version number to read a specific snapshot, or port_restore to roll back.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_history"
+  },
+  {
+    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close, minimize\/dock (off the desktop but still running), restore\/undock (bring a docked\/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.",
+    "input_schema" : {
+      "properties" : {
+        "action" : {
+          "description" : "One of: focus, close, minimize, dock, restore, undock",
+          "type" : "string"
+        },
+        "id" : {
+          "description" : "The port's UDID or title",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "action"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_manage"
+  },
+  {
+    "description" : "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "x" : {
+          "description" : "Horizontal position in screen points",
+          "type" : "number"
+        },
+        "y" : {
+          "description" : "Vertical position in screen points",
+          "type" : "number"
+        }
+      },
+      "required" : [
+        "id",
+        "x",
+        "y"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_move"
+  },
+  {
+    "description" : "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "replace" : {
+          "description" : "The string to replace it with.",
+          "type" : "string"
+        },
+        "search" : {
+          "description" : "The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "search",
+        "replace"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_patch"
+  },
+  {
+    "description" : "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. \"ls\\n\", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.",
+    "input_schema" : {
+      "properties" : {
+        "data" : {
+          "description" : "For web ports: any JSON value (object\/array\/string\/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."
+        },
+        "id" : {
+          "description" : "The port's UDID (from ports_list), or a terminal's name.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "data"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_push"
+  },
+  {
+    "description" : "Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "title" : {
+          "description" : "The new title for the port",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "title"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_rename"
+  },
+  {
+    "description" : "Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "version" : {
+          "description" : "The version number to restore to (from port_history)",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "id",
+        "version"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_restore"
+  },
+  {
+    "description" : "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
+    "input_schema" : {
+      "properties" : {
+        "html" : {
+          "description" : "The new HTML content for the port (full HTML, not a diff)",
+          "type" : "string"
+        },
+        "id" : {
+          "description" : "The port's UDID or title to identify which port to update",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id",
+        "html"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_update"
+  },
+  {
+    "description" : "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+    "input_schema" : {
+      "properties" : {
+        "capabilities" : {
+          "description" : "Filter to ports that have all of these capabilities. Examples: \"terminal\", \"claude-code\", \"browser\". Omit to list all ports.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "ports_list"
+  },
+  {
+    "description" : "Read your current position in this space — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "position_read"
+  },
+  {
+    "description" : "Establish or update your position — where you stand independent of what was just asked. This is not what you say. It's what you see and what you believe. Call this when your read of the situation changes, not after every exchange. A position gives you somewhere to push back from.",
+    "input_schema" : {
+      "properties" : {
+        "read" : {
+          "description" : "What you think is actually happening beneath what's being said.",
+          "type" : "string"
+        },
+        "stance" : {
+          "description" : "What you think needs to happen.",
+          "type" : "string"
+        },
+        "watching" : {
+          "description" : "Signals you're tracking that would confirm or change your read.",
+          "items" : {
+            "type" : "string"
+          },
+          "type" : "array"
+        }
+      },
+      "required" : [
+        "read"
+      ],
+      "type" : "object"
+    },
+    "name" : "position_set"
+  },
+  {
+    "description" : "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
+    "input_schema" : {
+      "properties" : {
+        "body" : {
+          "description" : "Request body. Objects are JSON-serialized automatically.",
+          "type" : "string"
+        },
+        "headers" : {
+          "additionalProperties" : {
+            "type" : "string"
+          },
+          "description" : "Additional HTTP headers as key-value pairs.",
+          "type" : "object"
+        },
+        "method" : {
+          "description" : "HTTP method: GET, POST, PUT, PATCH, DELETE. Default: GET.",
+          "type" : "string"
+        },
+        "secret" : {
+          "description" : "Named secret from the secrets store. The runtime injects the auth header — you never see the raw key.",
+          "type" : "string"
+        },
+        "timeout" : {
+          "description" : "Timeout in milliseconds. Default: 30000, max: 120000.",
+          "type" : "integer"
+        },
+        "url" : {
+          "description" : "Full URL to call (https recommended)",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "url"
+      ],
+      "type" : "object"
+    },
+    "name" : "rest_call"
+  },
+  {
+    "description" : "Execute AppleScript code and return the result. Use this to control other applications on macOS.",
+    "input_schema" : {
+      "properties" : {
+        "source" : {
+          "description" : "AppleScript source code",
+          "type" : "string"
+        },
+        "timeout" : {
+          "description" : "Timeout in seconds (default: 30, max: 120)",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "source"
+      ],
+      "type" : "object"
+    },
+    "name" : "run_applescript"
+  },
+  {
+    "description" : "Execute JavaScript for Automation (JXA) code and return the result. Use this to control other applications on macOS.",
+    "input_schema" : {
+      "properties" : {
+        "source" : {
+          "description" : "JXA source code",
+          "type" : "string"
+        },
+        "timeout" : {
+          "description" : "Timeout in seconds (default: 30, max: 120)",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "source"
+      ],
+      "type" : "object"
+    },
+    "name" : "run_jxa"
+  },
+  {
+    "description" : "Capture a screenshot of the screen. Returns a base64 PNG image.",
+    "input_schema" : {
+      "properties" : {
+        "scale" : {
+          "description" : "Image scale factor 0.1-2.0 (default 1.0)",
+          "type" : "number"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "screen_capture"
+  },
+  {
+    "description" : "Get display information: size, position, and visible area (excluding dock\/menubar) for all connected displays. No screen recording permission required. Use this to calculate port positions before calling port_move.",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "required" : [
+
+      ],
+      "type" : "object"
+    },
+    "name" : "screen_info"
+  },
+  {
+    "description" : "List all visible windows with their titles, apps, and positions",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "screen_windows"
+  },
+  {
+    "description" : "Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.",
+    "input_schema" : {
+      "properties" : {
+        "space_id" : {
+          "description" : "Optional space id to inspect. Defaults to the currently selected space.",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "space_current"
+  },
+  {
+    "description" : "List all spaces the user belongs to",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "space_list"
+  },
+  {
+    "description" : "Delete a value from persistent storage",
+    "input_schema" : {
+      "properties" : {
+        "key" : {
+          "description" : "The storage key to delete",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "key"
+      ],
+      "type" : "object"
+    },
+    "name" : "storage_delete"
+  },
+  {
+    "description" : "Get a value from persistent key-value storage",
+    "input_schema" : {
+      "properties" : {
+        "key" : {
+          "description" : "The storage key",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "key"
+      ],
+      "type" : "object"
+    },
+    "name" : "storage_get"
+  },
+  {
+    "description" : "List all keys in persistent storage",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "storage_list"
+  },
+  {
+    "description" : "Store a value in persistent key-value storage",
+    "input_schema" : {
+      "properties" : {
+        "key" : {
+          "description" : "The storage key",
+          "type" : "string"
+        },
+        "value" : {
+          "description" : "The value to store",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "key",
+        "value"
+      ],
+      "type" : "object"
+    },
+    "name" : "storage_set"
+  },
+  {
+    "description" : "Execute a shell command and return the output. Runs in \/bin\/zsh.",
+    "input_schema" : {
+      "properties" : {
+        "command" : {
+          "description" : "The shell command to execute",
+          "type" : "string"
+        },
+        "cwd" : {
+          "description" : "Working directory (default: home)",
+          "type" : "string"
+        },
+        "timeout" : {
+          "description" : "Timeout in seconds (default: 30, max: 120)",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "command"
+      ],
+      "type" : "object"
+    },
+    "name" : "terminal_exec"
+  },
+  {
+    "description" : "Get the current user's identity (id and display name)",
+    "input_schema" : {
+      "properties" : {
+
+      },
+      "type" : "object"
+    },
+    "name" : "user_get"
+  }
+]

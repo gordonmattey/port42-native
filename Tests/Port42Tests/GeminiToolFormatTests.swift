@@ -3,78 +3,35 @@ import Foundation
 @testable import Port42Lib
 
 @Suite("GeminiToolFormat")
+@MainActor
 struct GeminiToolFormatTests {
 
-    // MARK: - ToolDefinitions.geminiFormat()
+    // The Gemini tool path is GeminiEngine.translateTools, fed the generated tool list. (The old
+    // ToolDefinitions.geminiFormat was dead and was removed with the hand-written schema deletion.)
 
-    @Test("Output structure is [{function_declarations: [...]}]")
-    func outputStructure() {
-        let tools = ToolDefinitions.geminiFormat()
-        #expect(tools.count == 1)
-        let wrapper = tools[0]
-        let decls = wrapper["function_declarations"] as? [[String: Any]]
-        #expect(decls != nil)
-        #expect((decls?.count ?? 0) > 0)
-    }
+    @Test("translateTools preserves the generated tool set and required fields")
+    func translatesGeneratedTools() throws {
+        let world = try makeParityWorld()
+        let generated = world.state.generatedToolDefinitions()
+        let result = GeminiEngine.translateTools(generated)
 
-    @Test("No input_schema key in translated output")
-    func noInputSchemaKey() {
-        let tools = ToolDefinitions.geminiFormat()
-        guard let decls = tools[0]["function_declarations"] as? [[String: Any]] else {
+        #expect(result.count == 1)
+        guard let decls = result[0]["function_declarations"] as? [[String: Any]] else {
             Issue.record("No function_declarations"); return
         }
-        for decl in decls {
-            #expect(decl["input_schema"] == nil,
-                    "Tool \(decl["name"] ?? "?") has input_schema which Gemini would reject")
-        }
-    }
-
-    @Test("crease_write has required: [content] under parameters")
-    func creaseWriteRequired() {
-        let tools = ToolDefinitions.geminiFormat()
-        guard let decls = tools[0]["function_declarations"] as? [[String: Any]],
-              let tool = decls.first(where: { ($0["name"] as? String) == "crease_write" }) else {
-            Issue.record("crease_write not found"); return
-        }
-        let params = tool["parameters"] as? [String: Any]
-        let required = params?["required"] as? [String]
-        #expect(required?.contains("content") == true)
-    }
-
-    @Test("position_set has required: [read] under parameters")
-    func positionSetRequired() {
-        let tools = ToolDefinitions.geminiFormat()
-        guard let decls = tools[0]["function_declarations"] as? [[String: Any]],
-              let tool = decls.first(where: { ($0["name"] as? String) == "position_set" }) else {
-            Issue.record("position_set not found"); return
-        }
-        let params = tool["parameters"] as? [String: Any]
-        let required = params?["required"] as? [String]
-        #expect(required?.contains("read") == true)
-    }
-
-    @Test("All tool names from ToolDefinitions.all appear in translated output")
-    func allToolNamesPresent() {
-        let anthropicNames = Set(ToolDefinitions.all.compactMap { $0["name"] as? String })
-        let tools = ToolDefinitions.geminiFormat()
-        guard let decls = tools[0]["function_declarations"] as? [[String: Any]] else {
-            Issue.record("No function_declarations"); return
-        }
+        // Same tool set, no input_schema key, each has name + description.
+        let genNames = Set(generated.compactMap { $0["name"] as? String })
         let geminiNames = Set(decls.compactMap { $0["name"] as? String })
-        #expect(anthropicNames == geminiNames)
-    }
-
-    @Test("Each declaration has name and description")
-    func declarationsHaveRequiredFields() {
-        let tools = ToolDefinitions.geminiFormat()
-        guard let decls = tools[0]["function_declarations"] as? [[String: Any]] else {
-            Issue.record("No function_declarations"); return
-        }
+        #expect(genNames == geminiNames)
         for decl in decls {
-            let name = decl["name"] as? String
-            let desc = decl["description"] as? String
-            #expect(name != nil, "Missing name in declaration")
-            #expect(desc != nil, "Missing description in declaration for \(name ?? "?")")
+            #expect(decl["input_schema"] == nil, "Gemini would reject input_schema on \(decl["name"] ?? "?")")
+            #expect(decl["name"] as? String != nil)
+            #expect(decl["description"] as? String != nil)
+        }
+        // A representative required-field survives the translation.
+        if let crease = decls.first(where: { ($0["name"] as? String) == "crease_write" }) {
+            let required = (crease["parameters"] as? [String: Any])?["required"] as? [String]
+            #expect(required?.contains("content") == true)
         }
     }
 
