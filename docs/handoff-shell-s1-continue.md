@@ -126,7 +126,57 @@ does not exist (macOS has `/usr/sbin/lsof`), so stale-gateway reclaim is dead co
 "No creases yet. Creases form when a prediction breaks." — the alias fix works end to end. The
 step-2 live checklist is complete.
 
+## Done 2026-07-19 (second half): tail items 1, 2, 4, 5, 9 — the hybrid tool list is EMPTY
+
+Commits ded1301..8519a3a, all pushed. Each item followed the matrix discipline: gate test written
+and recorded failing, then implementation, then green (suite names below).
+
+- **ded1301** the boot-wedge root fix + fragment-serialization sweep (7 sites; see the RCA above).
+- **4904165** gateway lifecycle pair, both live-verified fail-then-pass: quit-time reap made
+  synchronous (the Task hop never ran, orphaning the gateway on every Cmd+Q) and
+  `killProcessOnPort` pointed at the real `/usr/sbin/lsof` (reclaim was dead code).
+- **98bebd9** the five stale step-1 suites repointed at `generatedToolList()` (a new shared test
+  helper); 80 tests green.
+- **d9f606f** docs accuracy pass (README, CLAUDE.md, llms.txt contradiction fixes,
+  ports-context.txt clean-break shapes, bridge-architecture status). llms.txt inventory left for
+  the generated flip.
+- **4eb0262 items 1+2**: `messages.sendAsCreator` (attributes to the calling principal's display
+  identity; typing-indicator clear moved verbatim) and `space.switchTo` (not_found on unknown id).
+  Both toolExposed false. `BridgeCommsTests`.
+- **a21cd13 item 9**: `port.info`/`setTitle`/`setCapabilities`/`close`/`position` keyed on the
+  caller's own principal (panel by udid-or-messageId; PortPanel carries its bridge so caches stay
+  fresh). `port.close` is now a REAL self-close (old case was a no-op); `port.resize` needs no
+  native case (pure JS carve-out). `BridgePortsTests`.
+- **fb834d6 item 4**: `rest.call` (.rest permission, tool-exposed) with the per-companion secret
+  grant and dict-body support unified; {status, headers?, body}. Local-HTTP round-trip gate in
+  `BridgeRestTests` (python echo server, allow_reuse_address).
+- **8519a3a item 5**: all 7 `browser.*` methods, ONE shared BrowserBridge session store across all
+  surfaces (old: per-PortBridge + per-ToolExecutor instances); sessions remember their creating
+  port (`owner` param) for event routing; errors throw; capture returns `.data` like
+  screen.capture. `BridgeBrowserTests`.
+
+**State**: `ToolDefinitions.hybridToolNames`/`.all` are EMPTY; all 57 golden schemas parity-checked
+with no exclusions (`BridgeSchemaParityTests`); Spike B scans 58 methods. Old-switch cases for the
+extracted families are deleted; what remains on the switches is exactly items 6+7 plus the
+close-out.
+
 ## Next
+
+**Item 6** — `audio.capture` + camera/screen streams (`stopCapture`/`stopStream`). Tier-A teardown
+gates from the matrix: start capture, stop, assert the engine/session is actually DOWN (release,
+not merely "work"). Hardware + permission prompts = GM in the loop, live runs in Port42Dev.
+
+**Item 7** — `fs.*` picked-path family (currently `wired: false`). Gate: `fs.pick` → path;
+`fs.read(picked)` ok; un-picked absolute → access_denied; `BridgeFilesTests` stay green.
+
+**Close-out** — delete the two old switches (`PortBridge.handleMethod` tail,
+`ToolExecutor.executeImpl`), flip `ToolNaming.canonicalMethods` + `llms.txt` to generated (full
+name inventory now exists in the registry). Gate: full bridge suite + live cross-path matrix green
+after removal, plus a grep asserting the old case labels are gone.
+
+**Deferred live checks** (need a rebuild + one-time permission prompts): browser session
+continuity (open → text → close through the gateway), one real `rest.call` GET. Note: full-suite
+`swift test` runs live-API companion tests (real Anthropic calls) — filter or budget accordingly.
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential
