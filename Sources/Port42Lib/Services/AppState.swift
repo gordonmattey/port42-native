@@ -1198,10 +1198,12 @@ public final class AppState: ObservableObject {
         return result == 0
     }
 
-    /// Kill any process listening on the given port (used to clear stale gateway processes)
+    /// Kill any process listening on the given port (used to clear stale gateway processes).
+    /// lsof lives in /usr/sbin on macOS; the old /usr/bin path threw "file doesn't exist" on every
+    /// call, so stale-gateway reclaim was dead code and an orphaned gateway kept the port forever.
     private func killProcessOnPort(_ port: Int) {
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         proc.arguments = ["-ti", "tcp:\(port)"]
         let pipe = Pipe()
         proc.standardOutput = pipe

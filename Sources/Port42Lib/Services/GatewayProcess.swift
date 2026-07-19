@@ -76,14 +76,17 @@ public final class GatewayProcess: ObservableObject {
             isRunning = true
             print("[gateway] started on port \(port), pid \(proc.processIdentifier)")
 
-            // Kill the gateway when the app terminates (singleton never deinits)
+            // Kill the gateway when the app terminates (singleton never deinits).
+            // Terminate SYNCHRONOUSLY: the observer already runs on the main queue, and a
+            // Task { @MainActor } hop enqueues work the dying app never drains, so the gateway
+            // survived every normal quit as an orphan holding the port (the "no host" loop).
             if terminationObserver == nil {
                 terminationObserver = NotificationCenter.default.addObserver(
                     forName: NSApplication.willTerminateNotification,
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
-                    Task { @MainActor [weak self] in self?.process?.terminate() }
+                    MainActor.assumeIsolated { self?.process?.terminate() }
                 }
             }
         } catch {
