@@ -135,4 +135,78 @@ struct BridgePortsTests {
         _ = try await update.run(w.principal, BridgeArgs(positional: [id, "<div>pos</div>"], names: update.paramNames))
         #expect(try await call(w, "port.getHtml", ["id": id]) == .string("<div>pos</div>"))
     }
+
+    // MARK: - Tail item 9: self-referential port methods (keyed on the caller's own principal)
+
+    /// A principal AS the port itself: id is the port's udid, kind .port — what the port-JS adapter
+    /// constructs for a call originating inside the port's own webview.
+    func selfPrincipal(_ w: ParityWorld, portId: String) -> Principal {
+        Principal(id: portId, displayName: "selftest", spaceId: w.space.id, kind: .port)
+    }
+
+    @MainActor
+    func callAsPort(_ w: ParityWorld, _ canonical: String, portId: String, _ input: [String: Any]) async throws -> BridgeValue {
+        let method = try #require(w.registry[canonical])
+        return try await method.run(selfPrincipal(w, portId: portId), BridgeArgs(input))
+    }
+
+    @Test("port.info returns the caller's own identity")
+    @MainActor
+    func selfInfo() async throws {
+        let w = try makeParityWorld()
+        let id = try makePort(w)
+        let r = try await callAsPort(w, "port.info", portId: id, [:])
+        guard case let .object(o) = r else { Issue.record("expected object"); return }
+        #expect(o["id"] == .string(id))
+        #expect(o["createdBy"] == .string("selftest"))
+        #expect(o["spaceId"] == .string(w.space.id))
+    }
+
+    @Test("port.setTitle renames the caller's own panel")
+    @MainActor
+    func selfSetTitle() async throws {
+        let w = try makeParityWorld()
+        let id = try makePort(w, title: "Before")
+        #expect(try await callAsPort(w, "port.setTitle", portId: id, ["title": "Renamed"]) == .object(["ok": .bool(true)]))
+        let listed = try await call(w, "ports.list", [:])
+        guard case let .array(items) = listed, case let .object(o) = items[0] else { Issue.record("expected list"); return }
+        #expect(o["title"] == .string("Renamed"))
+        await #expect(throws: BridgeError.self) {
+            _ = try await callAsPort(w, "port.setTitle", portId: id, ["title": ""])
+        }
+    }
+
+    @Test("port.setCapabilities updates the caller's own capabilities")
+    @MainActor
+    func selfSetCapabilities() async throws {
+        let w = try makeParityWorld()
+        let id = try makePort(w)
+        #expect(try await callAsPort(w, "port.setCapabilities", portId: id, ["capabilities": ["camera", "demo"]]) == .object(["ok": .bool(true)]))
+        let listed = try await call(w, "ports.list", ["capabilities": ["camera"]])
+        guard case let .array(items) = listed else { Issue.record("expected array"); return }
+        #expect(items.count == 1)
+    }
+
+    @Test("port.close closes the caller's own panel")
+    @MainActor
+    func selfClose() async throws {
+        let w = try makeParityWorld()
+        let id = try makePort(w)
+        #expect(try await callAsPort(w, "port.close", portId: id, [:]) == .object(["ok": .bool(true)]))
+        let listed = try await call(w, "ports.list", [:])
+        #expect(listed == .array([]))
+        // a second close: the panel is gone, so the caller's panel resolves to nothing
+        await #expect(throws: BridgeError.self) {
+            _ = try await callAsPort(w, "port.close", portId: id, [:])
+        }
+    }
+
+    @Test("port.position with an unknown id throws not_found")
+    @MainActor
+    func positionUnknown() async throws {
+        let w = try makeParityWorld()
+        await #expect(throws: BridgeError.self) {
+            _ = try await call(w, "port.position", ["id": "definitely-not-a-port"])
+        }
+    }
 }

@@ -527,13 +527,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let execOutput = await ShellExec.run(command, cwd: execCwd, timeout: execTimeout)
             return ["output": execOutput]
 
-        // port42.port.info()
-        case "port.info":
-            var info: [String: Any] = [:]
-            if let mid = messageId { info["messageId"] = mid }
-            if let creator = createdBy { info["createdBy"] = creator }
-            if let cid = spaceId { info["spaceId"] = cid }
-            return info
+        // port.info: extracted to the registry (tail item 9) — served from the caller's principal.
 
         // port42.ai.models / ai.status / ai.complete are all served by the registry now: models and
         // status are the `ai` service module (BridgeServiceAI.swift, registry-first), complete streams
@@ -635,31 +629,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 return ["error": error.localizedDescription]
             }
 
-        // port42.port.close() — handled by JS side for now
-        case "port.close":
-            return ["ok": true]
-
-        // port42.port.setTitle(title) — set explicit title on self, overrides HTML <title> extraction
-        case "port.setTitle":
-            guard let newTitle = args.first as? String, !newTitle.isEmpty else {
-                return ["error": "title required"]
-            }
-            self.title = newTitle
-            if let mid = messageId {
-                state.portWindows.renamePort(byMessageId: mid, title: newTitle)
-            }
-            return ["ok": true]
-
-        // port42.port.setCapabilities(caps) — declare this port's capabilities
-        case "port.setCapabilities":
-            guard let caps = args.first as? [String] else {
-                return ["error": "setCapabilities requires an array of strings"]
-            }
-            self.storedCapabilities = caps
-            if let udid = messageId.flatMap({ mid in state.portWindows.panels.first(where: { $0.messageId == mid })?.udid }) {
-                state.portWindows.setCapabilities(id: udid, capabilities: caps)
-            }
-            return ["ok": true]
+        // port.close / port.setTitle / port.setCapabilities: extracted to the registry (tail item 9),
+        // keyed on the caller's own principal. close is now a REAL self-close (the old case was a
+        // no-op returning ok).
 
         // port42.port.rename(id, title) — rename another port by UDID
         case "port.rename":
@@ -675,9 +647,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             }
             return ["ok": true]
 
-        // port42.port.resize(w, h) — height change handled by JS postMessage
-        case "port.resize":
-            return ["ok": true]
+        // port.resize: a pure JS carve-out (manipulates the DOM + postMessage); it never dispatches
+        // to native, so no case is needed here or in the registry.
 
         // port42.ports.list(opts?) — list all active ports
         case "ports.list":
@@ -879,15 +850,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             state.portWindows.movePort(id: id, x: x, y: y)
             return ["ok": true]
 
-        // port42.port.position(id) — get current position and size of a port window
-        case "port.position":
-            guard let id = args.first as? String else {
-                return ["error": "port.position requires id"]
-            }
-            if let frame = state.portWindows.portFrame(by: id) {
-                return ["x": frame.origin.x, "y": frame.origin.y, "width": frame.size.width, "height": frame.size.height]
-            }
-            return ["error": "port not found or not floating: '\(id)'"]
+        // port.position: extracted to the registry (tail item 9).
 
         // port42.screen.displays() — list all displays with bounds (no permissions needed)
         case "screen.displays":

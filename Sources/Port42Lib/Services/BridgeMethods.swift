@@ -946,4 +946,61 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         appState.portWindows.movePort(id: id, x: CGFloat(x), y: CGFloat(y))
         return .object(["ok": .bool(true)])
     }
+
+    // MARK: Tail item 9 — self-referential port methods
+    //
+    // Keyed on the CALLER's own principal: for a call from inside a port's webview the adapter sets
+    // principal.id to the port's identity, so the body resolves the caller's own panel (by udid or,
+    // for inline fence ports, the anchoring messageId). None are LLM tools: a companion acts on
+    // OTHER ports by id (port.rename / port.manage); these are the port acting on itself.
+
+    /// The calling port's own panel, or not_found if the principal isn't a live panel.
+    @MainActor func ownPanel(_ p: Principal) throws -> PortPanel {
+        guard let panel = appState.portWindows.panels.first(where: { $0.udid == p.id || $0.messageId == p.id }) else {
+            throw BridgeError.notFound("calling port's panel")
+        }
+        return panel
+    }
+
+    r["port.info"] = BridgeMethod(permission: nil, toolExposed: false) { p, _ in
+        var info: [String: BridgeValue] = ["id": .string(p.id), "createdBy": .string(p.displayName)]
+        if let sid = p.spaceId { info["spaceId"] = .string(sid) }
+        return .object(info)
+    }
+
+    r["port.setTitle"] = BridgeMethod(permission: nil, paramNames: ["title"], toolExposed: false) { p, args in
+        let title = try args.requireString("title")
+        guard !title.isEmpty else { throw BridgeError.badArg("port.setTitle requires a non-empty title") }
+        let panel = try ownPanel(p)
+        panel.bridge.title = title
+        appState.portWindows.renamePort(id: panel.udid, title: title)
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.setCapabilities"] = BridgeMethod(permission: nil, paramNames: ["capabilities"], toolExposed: false) { p, args in
+        guard let caps = args.array("capabilities") as? [String] else {
+            throw BridgeError.badArg("port.setCapabilities requires an array of strings")
+        }
+        let panel = try ownPanel(p)
+        panel.bridge.storedCapabilities = caps
+        appState.portWindows.setCapabilities(id: panel.udid, capabilities: caps)
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.close"] = BridgeMethod(permission: nil, toolExposed: false) { p, _ in
+        let panel = try ownPanel(p)
+        appState.portWindows.close(panel.id)
+        return .object(["ok": .bool(true)])
+    }
+
+    r["port.position"] = BridgeMethod(permission: nil, paramNames: ["id"], toolExposed: false) { _, args in
+        let id = try args.requireString("id")
+        guard let frame = appState.portWindows.portFrame(by: id) else {
+            throw BridgeError.notFound("port '\(id)' (no positioned tile)")
+        }
+        return .object([
+            "x": .double(frame.origin.x), "y": .double(frame.origin.y),
+            "width": .double(frame.size.width), "height": .double(frame.size.height),
+        ])
+    }
 }
