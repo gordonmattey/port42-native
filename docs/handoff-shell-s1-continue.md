@@ -110,15 +110,23 @@ canonical). The `BridgeService` question is answered: `ServiceManifest` **is** t
   `handleMethod` to resolve aliases via `state.resolveBridgeAlias` (was static `ToolNaming.resolveAlias`,
   files-only), so service name-maps (`creases.* -> crease.*`) now resolve on the port-JS surface too.
 
-## Next
+## Done 2026-07-19: creases.read live-verified + the boot-wedge RCA that was blocking it
 
-**FIRST: confirm `creases.read` live on a stable app.** Step 2's core is live-proven (a port's own
-script round-trips `storage` with clean-break returns `{ok}`/`{value}`, `user.get`, `ai.complete`
-carve-out). The one thing NOT re-verified live is the port-JS `creases.read` fix (returns `[]` before,
-should return the "No creases yet" string now) — blocked only by the recurring "gateway up, no host"
-startup race (`summer2026-todo.md`), which needs a clean boot. One command: create a web port whose
-onload script does `port42.creases.read()` and read its DOM (NOT `port.exec` with nested bridge calls —
-that reentrancy-deadlocks the main actor). Unit-covered green regardless; this is belt-and-suspenders.
+The "gateway up, no host" startup race is RESOLVED (full RCA in `summer2026-todo.md`). Primary
+cause: the port-JS resolve path serialized bare-string results without `.fragmentsAllowed`;
+Foundation raised an ObjC NSException `try?` cannot catch, which permanently corrupted the
+main-queue drain (app alive, every queued action dead). The step-2 verification port `proxycheck`
+persisted in the dev workspace and re-triggered `creases.read` on every boot, so the dev app had
+been unbootable since step 2. Fixed in `PortBridge` + swept the sibling fragment-capable sites
+(PortBridge push/pushEvent/storage-old-path, SyncService RPC response, ToolExecutor push +
+jsonString). Secondary cause (identified, unfixed): `killProcessOnPort` uses `/usr/bin/lsof`, which
+does not exist (macOS has `/usr/sbin/lsof`), so stale-gateway reclaim is dead code.
+
+**`creases.read` is now live-verified on the port surface**: the restored port's DOM contains
+"No creases yet. Creases form when a prediction breaks." — the alias fix works end to end. The
+step-2 live checklist is complete.
+
+## Next
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential

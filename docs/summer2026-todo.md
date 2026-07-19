@@ -6,11 +6,34 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
-## BUG: gateway up but "no host available" — recurring, unblocked by restart (2026-07-18)
+## BUG: gateway up but "no host available" — RESOLVED 2026-07-19 (two distinct causes)
 
-**Recurring** (GM: "an issue we have had"). Symptom: `:4242` `/call` returns
-`{"error":"no host available — is Port42 running?"}` while the app is running. Workaround that works:
-restart Port42. Root cause NOT yet diagnosed — logging observations only, GM has more history.
+**RCA complete (2026-07-19, live-reproduced and bisected).** The recurring symptom had two
+independent causes, one primary and fixed, one secondary with a fix identified but not yet applied.
+
+**Cause 1 (primary, FIXED): fragment NSException wedges the main queue.** `PortBridge`'s port-JS
+resolve path serialized results with `JSONSerialization.data(withJSONObject:)` and no
+`.fragmentsAllowed`. A registry method returning a bare string (`crease.read`'s "No creases yet")
+raised an ObjC NSException that `try?` cannot catch; it unwound through the main-queue drain and
+permanently corrupted it: no dispatch block or main-actor task ever ran again, while the run loop
+kept pumping (timers/events fine, app looks alive, TCP fine). Every queued action was dead: RPC
+replies (hence "no host" style timeouts), clicks, video loop re-enqueue. Trigger in the wild: the
+step-2 live-verification port `proxycheck` persisted in the dev workspace; its onload script called
+`creases.read` on every boot, wedging the app before unlock. Proven by data bisection (poison port
+alone reproduces; without it 14 ms RPC) and a main-queue watchdog that stopped ticking at exactly
+the serialization line. Fixed with `.fragmentsAllowed` (matching the streaming resolve path) and
+swept across the other fragment-capable sites (PortBridge push/pushEvent/storage-old-path,
+SyncService RPC response, ToolExecutor push + jsonString). Regression test still TODO: a
+port-surface resolve of every registry method's return shape must not throw.
+
+**Cause 2 (secondary, fix identified, NOT yet applied): stale-gateway reclaim is dead code.**
+`AppState.killProcessOnPort` (AppState.swift:1204) invokes `/usr/bin/lsof`, which does not exist on
+this macOS (`lsof` lives at `/usr/sbin/lsof`), so it throws "file doesn't exist" every time. An
+orphaned gateway from a prior run keeps the port bound; the new app's own gateway exits
+("process terminated") and the app attaches to the stale hostless gateway, giving the literal
+`no host available` error. Live-reproduced by planting an orphan on :4243 and watching the reclaim
+fail. Fix: point at `/usr/sbin/lsof` (or probe both paths). The earlier orphan observations below
+were this cause.
 
 **Observed this instance (facts, not a diagnosis):**
 - Installed prod app `/Applications/Port42.app` (PID 83444) running ~12h; its host was NOT reachable
