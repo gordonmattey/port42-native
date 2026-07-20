@@ -51,14 +51,48 @@ never breaks the chain.
 
 ### How it fits together
 
-*What the parts **are** and how they relate — not a build order. The membrane sits between the **human
-loop** and the **agent loops**. Arrows are the load-bearing relationships, not every call.*
+*The outer view first — what's **core** and what **plugs in**. Port42 is the **canvas** (the one
+invariant layer); the two swappable ends sandwich it — **packs** (a domain, as configuration) above,
+**plugs** (agents, memory, knowledge) below. This is the boundary from
+[`plays-with-others.md`](plays-with-others.md).*
+
+```
+                              P E R S O N
+                    sees · drives · is reached
+                                 │
+
+   ┌───────────────────────────────────────────────────────────────┐
+   │ PACKS — the domain, as configuration            (swappable)   │
+   │ tool · skill · command · port packs:  dev · research · ops    │
+   │ policy & logic, tuned per domain — never in the core          │
+   └───────────────────────────────────────────────────────────────┘
+                                 │  run on the canvas's hooks
+   ┌───────────────────────────────────────────────────────────────┐
+   │ PORT42 — THE CANVAS   (the UX layer = the bus)   ★ THE CORE   │
+   │ surface · addressing (port42://) · presence · co-hold &       │
+   │ right-of-way · render/modality · persistence · the hooks      │
+   │ domain-agnostic · local-first · the one invariant layer       │
+   └───────────────────────────────────────────────────────────────┘
+                                 │  consumes
+   ┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
+   │ AGENTS  (seats)   │ │ MEMORY  (store)   │ │ KNOWLEDGE (store) │
+   │ Claude · Codex    │ │ AtomicMemory /    │ │ vaults · docs     │
+   │ GLM · Pi · any    │ │ port42-companion  │ │ · RAG             │
+   └───────────────────┘ └───────────────────┘ └───────────────────┘
+                    plugs — not Port42's job    (swappable)
+                                 │
+  ═══════════════════════════ WIRE ══════════════════════════════
+        UERP (port42://)   ·   libp2p (cross-instance)
+```
+
+**Zooming into the canvas layer** — the roles *inside* Port42 (the Face + Crew) and the Substrate they
+plug into. Arrows are the load-bearing relationships, not every call:
 
 ```
                               P E R S O N
         ▲ surfaced: screen · voice · ambient       │ intention: type · speak · point
         │                                           ▼
-  ═══════════════════════════ THE MEMBRANE ═══════════════════════════════════════
+  ══════════════════════ THE CANVAS (Port42) — roles inside ═══════════════════════
 
    THE FACE — how it meets you (two-way)
    ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐

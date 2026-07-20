@@ -43,3 +43,7 @@ GhosttyKit.xcframework/
 *.key
 *.csr
 *.certSigningRequest
+
+# Local tool config + stashed release artifacts (never committed)
+.factory/
+dist/old_updates/
