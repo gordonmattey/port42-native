@@ -133,6 +133,39 @@ env-only flake.
 
 ---
 
+## RESOLVED: a test run SIGTERMed the running production app (2026-07-19)
+
+**Incident.** A `swift test --filter "Port"` run killed the production Port42 app mid-session (no
+crash report: SIGTERM, not a segfault). The filter matches full test identifiers, which include the
+module name `Port42Tests`, so "Port" selected the ENTIRE suite, including the live-API companion
+tests and every suite that calls `completeSetup`.
+
+**RCA (two causes, both fixed, gated in `GatewayReclaimSafetyTests`):**
+1. `completeSetup` → `configureSyncIfNeeded`: in a test process `GatewayProcess.shared` is never
+   running while the real app's gateway holds :4242, so the "stale gateway" reclaim fired
+   `killProcessOnPort(4242)` from inside the test run.
+2. `killProcessOnPort` ran `lsof -ti tcp:4242` with no state filter — that lists every process
+   with ANY socket on the port, so the SIGTERM hit the listener AND its clients: the production
+   app itself, its companion processes, and ngrok. The path had been dead code until the
+   2026-07-19 lsof-path fix (4904165) armed it; the first full-suite run after that pulled the
+   trigger. The kill also tore down the Claude Code session driving the run (exit 137).
+
+**Fixes:**
+- `killProcessOnPort` now filters to the listener: `lsof -ti tcp:<port> -sTCP:LISTEN`. Gated
+  fail-then-pass with scratch child processes (a listener dies, a connected client survives).
+- `AppState.isTestProcess` (process-identity detection: `swiftpm-testing-helper` / `xctest` /
+  `.xctest` bundle / XCTest-linked; the SPM helper carries NO test env vars, verified) guards
+  `configureSyncIfNeeded` entirely: a test process never spawns a gateway, reclaims a port,
+  connects sync, or autostarts ngrok. The gate #requires detection BEFORE touching the dangerous
+  path, then proves `completeSetup` leaves sync/gateway untouched. End-to-end: the incident suites
+  (`AppStateTests`, `SwimTests`, `CLIIdentityTests`, `SwimUnificationTests`) re-run green with the
+  production app up and untouched.
+
+**Process rule going forward:** test filters use exact suite/type names, never substrings that can
+match the module name (`Port42Tests` makes bare "Port" a full-suite run).
+
+---
+
 ## TODO: AppleScript / Automation enablement for the test env (2026-07-18)
 
 `AutomationBridgeTests` "timeout defaults to 30s when not specified" fails in the local `swift test`

@@ -1115,6 +1115,12 @@ public final class AppState: ObservableObject {
     }
 
     private func configureSyncIfNeeded(userId: String) {
+        // A test process must never manage real infrastructure: no gateway spawn, no stale-port
+        // reclaim, no sync connect, no ngrok autostart. The failing state of this guard was
+        // recorded live on 2026-07-19: a full-suite run walked completeSetup into
+        // killProcessOnPort(4242) and killed the running production app.
+        guard !AppState.isTestProcess else { return }
+
         // Always ensure the local gateway is running (ngrok and other proxies connect to it)
         let gp = GatewayProcess.shared
         var didStartGateway = false
@@ -1206,13 +1212,38 @@ public final class AppState: ObservableObject {
         return result == 0
     }
 
+    /// True when running inside a test harness (swift test / xctest). A test process must never
+    /// manage real infrastructure — no gateway spawn, no stale-port reclaim, no sync connect, no
+    /// ngrok autostart. Belt and braces across harness signals: XCTest linked into the process,
+    /// the XCTest env vars, or the swift-testing env flag.
+    nonisolated static let isTestProcess: Bool = {
+        // SPM runners: `swift test` executes tests inside swiftpm-testing-helper (swift-testing)
+        // or xctest (XCTest). Verified empirically: the helper carries NO test-specific env vars,
+        // so the process identity is the signal.
+        let pi = ProcessInfo.processInfo
+        if pi.processName == "swiftpm-testing-helper" || pi.processName == "xctest" { return true }
+        if let arg0 = pi.arguments.first, arg0.contains("swiftpm-testing-helper") { return true }
+        if Bundle.main.bundlePath.hasSuffix(".xctest") { return true }
+        // Xcode test hosts: XCTest linked into the process, or the XCTest env vars.
+        if NSClassFromString("XCTestCase") != nil { return true }
+        return pi.environment["XCTestConfigurationFilePath"] != nil
+            || pi.environment["XCTestSessionIdentifier"] != nil
+            || pi.environment["XCTestBundlePath"] != nil
+            || pi.environment["SWIFT_TESTING_ENABLED"] != nil
+    }()
+
     /// Kill any process listening on the given port (used to clear stale gateway processes).
     /// lsof lives in /usr/sbin on macOS; the old /usr/bin path threw "file doesn't exist" on every
     /// call, so stale-gateway reclaim was dead code and an orphaned gateway kept the port forever.
-    private func killProcessOnPort(_ port: Int) {
+    /// (Internal, not private, so the reclaim-safety gate can exercise it on a scratch port.)
+    func killProcessOnPort(_ port: Int) {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        proc.arguments = ["-ti", "tcp:\(port)"]
+        // -sTCP:LISTEN: reclaim means the LISTENer only. Without it, lsof lists every process
+        // with ANY socket on the port — including the port's clients — and the 2026-07-19
+        // incident SIGTERMed the running production app, its companions, and ngrok through
+        // exactly this call.
+        proc.arguments = ["-ti", "tcp:\(port)", "-sTCP:LISTEN"]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = Pipe()
