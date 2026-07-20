@@ -6,7 +6,32 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
-## BUG: chat-driven CLI companion replies on screen but never posts (2026-07-19, INSTRUMENTED)
+## ~~BUG: chat-driven CLI companion replies on screen but never posts~~ — FIXED 2026-07-20
+
+**Fixed on shell-s1** (`docs/plan-companion-cwd.md`, commits a9c6834..40e4a76). Two root causes,
+both closed:
+1. **Shared transcript from a shared cwd + `--continue`.** Command companions all defaulted to cwd
+   `/Users/gordon` and resumed the most-recent session there, colliding on one transcript. Fixed:
+   per-space working directory (`Space.workingDirectory`, migration v41, Settings picker); command
+   cwd defaults to the space dir; each command port pins a deterministic UUIDv5 `--session-id`
+   (per-(space,companion), ad-hoc keys on panel id) via the shim, so companions can share a dir yet
+   keep separate transcripts; `--continue` dropped (the shim owns resume via `--session-id`/`--resume`).
+2. **Inherited Claude Code session env (found during live validation).** A Port42 app launched from
+   inside a Claude Code session leaks `CLAUDE_CODE_SESSION_ID` / `_CHILD_SESSION` / `_BRIDGE_SESSION_ID`
+   into every spawned claude, making it a NESTED CHILD that replies on screen but never persists its
+   transcript at the path its Stop hook reports — so every reply read empty, masking the fix
+   entirely. The shim now scrubs those three before exec (`sanitizeEnv`).
+
+**Live-validated in Port42Dev:** Maker + Critic, both in `/Users/gordon` (the original collision dir),
+driven from chat, each wrote its own distinct transcript and POSTED its own reply ("Maker here" /
+"Critic here") — previously both `NOT posted (skip=empty)`. Two companions in a shared
+`workingDirectory` likewise wrote distinct transcripts with correct content.
+
+Historical diagnosis below (kept for the record).
+
+---
+
+## BUG (original diagnosis): chat-driven CLI companion replies on screen but never posts (2026-07-19, INSTRUMENTED)
 
 **Symptom:** a claude/gemini terminal companion driven from space chat receives the injected
 message and replies IN ITS TERMINAL, but the reply never reaches the space. Confirmed live in Dev:
