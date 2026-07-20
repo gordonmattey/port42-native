@@ -256,11 +256,10 @@ public final class PortWindowManager: ObservableObject {
         if let liveCwd = TerminalSessionBootstrap.savedLiveCwd(portId: panel.id) {
             config.cwd = liveCwd
         }
-        // A claude terminal resumes its most recent conversation in that cwd instead of
-        // starting cold (falls back to a fresh session when there's nothing to continue).
-        if config.startupCommand == "claude" {
-            config.startupCommand = "claude --continue || claude"
-        }
+        // Resume is handled by the shim: it injects --resume <id> when this port's deterministic
+        // session transcript already exists (else --session-id <id>), so the restored terminal
+        // reconnects to its own conversation without --continue (which would conflict with the
+        // pinned id and could resume a sibling session). See docs/plan-companion-cwd.md.
         guard let controller = appState.makeTerminalController(for: panel) else { return }
         let built = GhosttyTerminalView.makeDetached(
             config: config, env: controller.env,

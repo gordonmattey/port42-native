@@ -319,8 +319,10 @@ struct AgentConfigTests {
     @Test("Claude CLI preset resolves non-empty path and has expected args")
     func claudePreset() {
         let preset = AgentConfig.CLIPreset.claude
-        // Path may not be resolvable in CI, but the preset must at least have known args and a non-empty system prompt
-        #expect(preset.args == ["--continue"])
+        // No --continue: the shim now injects --session-id / --resume per port (deterministic,
+        // per-(space,companion)), so --continue would both duplicate that and conflict with a
+        // pinned session id (docs/plan-companion-cwd.md).
+        #expect(preset.args == [])
         #expect(!preset.systemPrompt.isEmpty)
         #expect(preset.displayName == "claude")
     }
@@ -349,7 +351,7 @@ struct AgentConfigTests {
         #expect(agent.mode == .command)
         #expect(agent.command == path)
         #expect(agent.command?.hasSuffix("claude") == true)
-        #expect(agent.args == ["--continue"])
+        #expect(agent.args == [])
         #expect(agent.systemPrompt != nil)
         #expect(agent.openInTerminal == true)
     }

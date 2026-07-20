@@ -217,7 +217,10 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
 
         public var args: [String] {
             switch self {
-            case .claude: return ["--continue"]
+            // No --continue: the shim injects --session-id / --resume per port (deterministic,
+            // per-(space,companion)), which both supersedes --continue and would conflict with a
+            // pinned session id (docs/plan-companion-cwd.md).
+            case .claude: return []
             case .gemini: return []
             }
         }
