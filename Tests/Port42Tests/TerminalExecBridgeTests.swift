@@ -8,17 +8,17 @@ import Foundation
 struct TerminalExecBridgeTests {
 
     @Test("terminal.exec bridge method is gated behind .terminal")
-    func bridgeMethodGated() {
-        #expect(PortPermission.permissionForMethod("terminal.exec") == .terminal)
+    @MainActor func bridgeMethodGated() throws {
+        #expect(try registryPermission("terminal.exec") == .terminal)
     }
 
     @Test("spawn/send/resize/kill stay removed from the bridge permission map")
-    func legacyTerminalMethodsUngated() {
+    @MainActor func legacyTerminalMethodsUngated() throws {
         // These bridge methods were deleted in the xterm sweep and must not reappear.
-        #expect(PortPermission.permissionForMethod("terminal.spawn") == nil)
-        #expect(PortPermission.permissionForMethod("terminal.send") == nil)
-        #expect(PortPermission.permissionForMethod("terminal.resize") == nil)
-        #expect(PortPermission.permissionForMethod("terminal.kill") == nil)
+        #expect(try registryPermission("terminal.spawn") == nil)
+        #expect(try registryPermission("terminal.send") == nil)
+        #expect(try registryPermission("terminal.resize") == nil)
+        #expect(try registryPermission("terminal.kill") == nil)
     }
 
     @Test("ShellExec.run captures stdout")

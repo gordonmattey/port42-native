@@ -126,6 +126,45 @@ struct BridgePrincipalTests {
         #expect(offenders.isEmpty, "PermissionRequester still declared in: \(offenders)")
     }
 
+    // MARK: - the registry is the ONLY permission table
+
+    @Test("permissionForMethod is gone — the registry declares every method's permission")
+    func permissionTableCollapsed() throws {
+        // The last parallel permission table. Its only production caller gated fs.drop, which maps
+        // to nil, so it guarded nothing; the registry's method.permission is what actually gates.
+        let offenders = try Self.libSources()
+            .filter { $0.source.contains("permissionForMethod") }
+            .map(\.file)
+        #expect(offenders.isEmpty, "permissionForMethod still referenced in: \(offenders)")
+    }
+
+    @Test("the registry permission map matches the gated families")
+    @MainActor
+    func registryPermissionMap() throws {
+        let w = try makeParityWorld()
+        let stream = buildBridgeStreamRegistry(w.state)
+        let expected: [(String, PortPermission?)] = [
+            ("terminal.exec", .terminal), ("clipboard.read", .clipboard), ("clipboard.write", .clipboard),
+            ("fs.read", .filesystem), ("fs.write", .filesystem), ("fs.pick", .filesystem),
+            ("screen.capture", .screen), ("screen.windows", .screen), ("screen.stream", .screen),
+            ("camera.capture", .camera), ("camera.stream", .camera),
+            ("audio.capture", .microphone),
+            ("notify.send", .notification),
+            ("automation.runAppleScript", .automation), ("automation.runJXA", .automation),
+            ("rest.call", .rest),
+            ("browser.open", .browser), ("browser.text", .browser), ("browser.close", .browser),
+            ("user.get", nil), ("ports.list", nil), ("messages.recent", nil), ("storage.set", nil),
+            ("audio.speak", nil), ("camera.stopStream", nil), ("screen.stopStream", nil),
+            ("audio.stopCapture", .microphone),
+        ]
+        for (name, perm) in expected {
+            let m = try #require(w.registry[name], "\(name) missing from registry")
+            #expect(m.permission == perm, "\(name) permission should be \(String(describing: perm))")
+        }
+        let ai = try #require(stream["ai.complete"], "ai.complete missing from stream registry")
+        #expect(ai.permission == .ai)
+    }
+
     // MARK: - port principal resolution (GM decision 2026-07-19: a port acts as its creator)
 
     // A companion-created port IS its companion for authorization: one grant bucket per author per
@@ -155,6 +194,29 @@ struct BridgePrincipalTests {
         let constructions = src.components(separatedBy: "Principal(").count - 1
         #expect(constructions == 1,
                 "PortBridge constructs Principal \(constructions) times; portPrincipal must be the only one")
+    }
+
+    @Test("a dropped file is granted to the port's PRINCIPAL, so its fs.read actually succeeds")
+    @MainActor
+    func dropGrantFollowsThePrincipal() async throws {
+        let w = try makeParityWorld()
+        let bridge = PortBridge(appState: w.state, spaceId: "space-1",
+                                messageId: "msg-drop-1", createdBy: "echo", title: "dropzone")
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p3-drop-\(UUID().uuidString).txt")
+        try "dropped".write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        await bridge.handleFileDrop([tmp.path])
+
+        // The port dispatches fs.read as portPrincipal (id = createdBy since the resolution), so
+        // the grant must be recorded under THAT id — a messageId-keyed grant is invisible to it.
+        let read = try await w.state.runBridgeMethod(
+            "fs.read", principal: bridge.portPrincipal,
+            args: BridgeArgs(["path": tmp.path]), pregrant: [.filesystem])
+        let dict = read.toJSONObject() as? [String: Any]
+        #expect(dict?["content"] as? String == "dropped" || (dict?["data"] as? String)?.isEmpty == false,
+                "the dropped path must be readable by the dropping port's principal")
     }
 
     @Test("a companion and its port share one storage namespace")

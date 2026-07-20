@@ -77,8 +77,8 @@ struct PortCreateTests {
     }
 
     @Test("port.create bridge method needs no permission (ungated)")
-    func portCreateBridgeUngated() {
-        #expect(PortPermission.permissionForMethod("port.create") == nil)
+    @MainActor func portCreateBridgeUngated() throws {
+        #expect(try registryPermission("port.create") == nil)
     }
 
     // MARK: - Web ports render inline + auto-play (any caller)

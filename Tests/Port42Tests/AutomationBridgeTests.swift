@@ -8,13 +8,13 @@ struct AutomationBridgeTests {
     // MARK: - Permission Mapping
 
     @Test("automation.runAppleScript requires .automation permission")
-    func runAppleScriptPermission() {
-        #expect(PortPermission.permissionForMethod("automation.runAppleScript") == .automation)
+    @MainActor func runAppleScriptPermission() throws {
+        #expect(try registryPermission("automation.runAppleScript") == .automation)
     }
 
     @Test("automation.runJXA requires .automation permission")
-    func runJXAPermission() {
-        #expect(PortPermission.permissionForMethod("automation.runJXA") == .automation)
+    @MainActor func runJXAPermission() throws {
+        #expect(try registryPermission("automation.runJXA") == .automation)
     }
 
     // MARK: - Permission Description

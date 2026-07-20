@@ -8,13 +8,13 @@ struct ScreenBridgeTests {
     // MARK: - Permission Mapping
 
     @Test("screen.capture requires .screen permission")
-    func capturePermission() {
-        #expect(PortPermission.permissionForMethod("screen.capture") == .screen)
+    @MainActor func capturePermission() throws {
+        #expect(try registryPermission("screen.capture") == .screen)
     }
 
     @Test("screen.windows requires .screen permission")
-    func windowsPermission() {
-        #expect(PortPermission.permissionForMethod("screen.windows") == .screen)
+    @MainActor func windowsPermission() throws {
+        #expect(try registryPermission("screen.windows") == .screen)
     }
 
     // MARK: - Permission descriptions

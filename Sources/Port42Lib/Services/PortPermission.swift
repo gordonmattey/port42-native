@@ -16,46 +16,12 @@ public enum PortPermission: String, Hashable {
     case automation    // automation.runAppleScript, automation.runJXA
     case rest          // rest.call — HTTP requests to external APIs
 
-    /// Map a bridge method name to the permission it requires, or nil if no permission needed.
-    public static func permissionForMethod(_ method: String) -> PortPermission? {
-        switch method {
-        case "ai.complete", "ai.cancel", "companions.invoke":
-            return .ai
-        case "audio.capture", "audio.stopCapture":
-            return .microphone
-        case "audio.speak", "audio.play", "audio.stop":
-            return nil // audio output doesn't need mic permission
-        case "camera.capture", "camera.stream":
-            return .camera
-        case "camera.stopStream":
-            return nil // stopping already-permitted stream
-        case "screen.capture", "screen.windows", "screen.stream":
-            return .screen
-        case "screen.stopStream":
-            return nil // stopping already-permitted stream
-        case "browser.open", "browser.navigate", "browser.capture", "browser.text", "browser.html", "browser.execute", "browser.close":
-            return .browser
-        case "clipboard.read", "clipboard.write":
-            return .clipboard
-        case "fs.pick", "fs.read", "fs.write",
-             "files.pick", "files.read", "files.write": // files.* are thin aliases of fs.* (D4)
-            return .filesystem
-        case "fs.drop":
-            return nil // explicit user gesture (drag) scoped to the dropped file; reading its
-                       // contents still goes through fs.read (.filesystem). Gating the drop itself
-                       // made drops silently fail for ports without filesystem permission.
-        case "notify.send":
-            return .notification
-        case "automation.runAppleScript", "automation.runJXA":
-            return .automation
-        case "rest.call":
-            return .rest
-        case "terminal.exec":
-            return .terminal // headless run-and-capture; the only permission-gated terminal method
-        default:
-            return nil
-        }
-    }
+    // The method-to-permission mapping lives on each method's registry declaration
+    // (`BridgeMethod.permission`) — the registry is the ONLY permission table. The per-method
+    // switch that used to live here was the last parallel copy; it died in the Phase 3 sweep
+    // (its sole production caller gated fs.drop, which maps to no permission — a drop is an
+    // explicit user gesture scoped to the dropped file; reading contents still goes through
+    // fs.read, which the registry gates with .filesystem).
 
     /// SF Symbol icon name for the permission type.
     public var iconName: String {

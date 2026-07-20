@@ -106,23 +106,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     }
 
     // MARK: - Permission Management
-
-    /// Record a granted permission: in-memory, view-recycling cache, DB, and the companion-level
-    /// grant. Called by the coordinator's answer path, never by a view.
-    @MainActor
-    private func recordGrant(_ perm: PortPermission) {
-        grantedPermissions.insert(perm)
-        // Cache on AppState so permission survives LazyVStack view recycling
-        if let mid = messageId {
-            state?.cachePortPermissions(messageId: mid, permissions: grantedPermissions)
-        }
-        // Persist to DB so permissions survive app restart
-        state?.portWindows.persistPermissions(for: self)
-        // Companion-level persistence (P-260): save so future ports by same companion auto-grant
-        if let by = createdBy {
-            state?.saveCompanionPermissions(grantedPermissions, createdBy: by, spaceId: spaceId)
-        }
-    }
+    //
+    // There is no per-bridge permission machinery any more: the dispatcher gates every method
+    // against the registry's declared permission, keyed on portPrincipal, and persists grants
+    // itself. The old checkPermission/recordGrant pair died in the Phase 3 sweep — its only
+    // caller gated fs.drop, which needs no permission (an explicit user gesture).
 
     /// WHO this port is, for authorization: the ONE identity every dispatch and permission ask uses.
     /// A companion-created port acts as its creator (GM decision 2026-07-19) — one grant bucket per
@@ -136,21 +124,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             spaceId: spaceId, kind: .port)
     }
 
-    /// Check and request permission for a method. Returns true if allowed.
-    ///
-    /// The ask now goes to `AppState.permissions` — one queue, rendered once by the shell. This
-    /// bridge owns no continuation, so a second concurrent ask can't clobber the first (it
-    /// coalesces), and there is no render site here to go missing.
-    @MainActor
-    private func checkPermission(for method: String) async -> Bool {
-        guard let perm = PortPermission.permissionForMethod(method) else { return true }
-        if grantedPermissions.contains(perm) { return true }
-        guard let state = self.state else { return false }
-        let granted = await state.permissions.request(perm, from: portPrincipal)
-        if granted { recordGrant(perm) }
-        return granted
-    }
-
     // MARK: - File Drop
 
     /// Handle files dropped onto the port window.
@@ -160,13 +133,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// strings). Reading a file's contents still goes through `fs.read` (.filesystem permission).
     public func handleFileDrop(_ paths: [String]) async {
         guard !paths.isEmpty else { return }
-        guard await checkPermission(for: "fs.drop") else { return }
         // A drop is user consent, same as a pick: grant the dropped paths to THIS port's principal
         // so the fs.read the JS is about to make actually succeeds. (Pre-close-out this grant was
         // never recorded anywhere — registerDroppedPath had no callers — so dropped paths were
-        // announced to JS but unreadable.)
+        // announced to JS but unreadable.) Keyed on portPrincipal.id, the SAME identity the read
+        // will dispatch as — a messageId-keyed grant is invisible to a companion-created port
+        // since the creator resolution.
         if let state {
-            let principalId = messageId ?? ObjectIdentifier(self).debugDescription
+            let principalId = portPrincipal.id
             for path in paths { state.grantPickedPath(path, to: principalId) }
         }
         guard let json = try? JSONSerialization.data(withJSONObject: paths),

@@ -56,6 +56,18 @@ func makeParityWorld(companionName: String = "Echo", spaceName: String = "projec
     return ParityWorld(state: state, companion: companion, space: space)
 }
 
+/// The registry's declared permission for a canonical (or aliased) method name, from a fresh
+/// world. Checks both registries (one-shot + streaming). Tests that used to assert on the deleted
+/// `PortPermission.permissionForMethod` table read THE permission table (the registry) instead.
+@MainActor
+func registryPermission(_ name: String) throws -> PortPermission? {
+    let w = try makeParityWorld()
+    let canonical = w.state.resolveBridgeAlias(name)
+    if let m = w.registry[canonical] { return m.permission }
+    if let sm = buildBridgeStreamRegistry(w.state)[canonical] { return sm.permission }
+    return nil
+}
+
 /// The production LLM tool list (generated registry schemas + the hybrid holdouts), built from a
 /// fresh world. This is what AppState serves to the engine since big-bang step 1; tests that used
 /// to assert on the deleted hand-written `ToolDefinitions.all` read this instead.

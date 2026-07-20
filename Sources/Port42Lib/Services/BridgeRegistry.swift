@@ -12,8 +12,9 @@ import Foundation
 // the type here lets Phase 0 compile and be tested with no app dependency.
 
 public struct BridgeMethod {
-    /// The permission this method requires, or nil if it needs none. Replaces the two divergent
-    /// tables (`PortPermission.permissionForMethod` and `ToolDefinitions.permission(for:)`).
+    /// The permission this method requires, or nil if it needs none. THE permission table — the
+    /// two old parallel copies (the PortPermission method switch and the ToolDefinitions table)
+    /// are both dead; nothing else may map methods to permissions.
     public let permission: PortPermission?
     /// Positional parameter names, in call order, for the port-JS surface (which calls positionally).
     /// Empty for methods only ever called with named args.

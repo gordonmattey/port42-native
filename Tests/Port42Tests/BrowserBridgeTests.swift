@@ -8,38 +8,38 @@ struct BrowserBridgeTests {
     // MARK: - Permission Mapping
 
     @Test("browser.open requires .browser permission")
-    func openPermission() {
-        #expect(PortPermission.permissionForMethod("browser.open") == .browser)
+    @MainActor func openPermission() throws {
+        #expect(try registryPermission("browser.open") == .browser)
     }
 
     @Test("browser.navigate requires .browser permission")
-    func navigatePermission() {
-        #expect(PortPermission.permissionForMethod("browser.navigate") == .browser)
+    @MainActor func navigatePermission() throws {
+        #expect(try registryPermission("browser.navigate") == .browser)
     }
 
     @Test("browser.capture requires .browser permission")
-    func capturePermission() {
-        #expect(PortPermission.permissionForMethod("browser.capture") == .browser)
+    @MainActor func capturePermission() throws {
+        #expect(try registryPermission("browser.capture") == .browser)
     }
 
     @Test("browser.text requires .browser permission")
-    func textPermission() {
-        #expect(PortPermission.permissionForMethod("browser.text") == .browser)
+    @MainActor func textPermission() throws {
+        #expect(try registryPermission("browser.text") == .browser)
     }
 
     @Test("browser.html requires .browser permission")
-    func htmlPermission() {
-        #expect(PortPermission.permissionForMethod("browser.html") == .browser)
+    @MainActor func htmlPermission() throws {
+        #expect(try registryPermission("browser.html") == .browser)
     }
 
     @Test("browser.execute requires .browser permission")
-    func executePermission() {
-        #expect(PortPermission.permissionForMethod("browser.execute") == .browser)
+    @MainActor func executePermission() throws {
+        #expect(try registryPermission("browser.execute") == .browser)
     }
 
     @Test("browser.close requires .browser permission")
-    func closePermission() {
-        #expect(PortPermission.permissionForMethod("browser.close") == .browser)
+    @MainActor func closePermission() throws {
+        #expect(try registryPermission("browser.close") == .browser)
     }
 
     // MARK: - Permission descriptions

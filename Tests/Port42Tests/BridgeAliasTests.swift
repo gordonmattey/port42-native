@@ -9,15 +9,18 @@ import Testing
 struct BridgeAliasTests {
 
     @Test("files.* permission matches fs.* (filesystem)")
-    func filesAliasesMatchFs() {
-        #expect(PortPermission.permissionForMethod("files.read") == PortPermission.permissionForMethod("fs.read"))
-        #expect(PortPermission.permissionForMethod("files.write") == PortPermission.permissionForMethod("fs.write"))
-        #expect(PortPermission.permissionForMethod("files.pick") == PortPermission.permissionForMethod("fs.pick"))
+    @MainActor func filesAliasesMatchFs() throws {
+        let pairs = [("files.read", "fs.read"), ("files.write", "fs.write"), ("files.pick", "fs.pick")]
+        for (alias, canonical) in pairs {
+            let a = try registryPermission(alias)
+            let c = try registryPermission(canonical)
+            #expect(a == c, "\(alias) and \(canonical) must share one permission")
+        }
     }
 
     @Test("both fs.* and files.* are gated behind .filesystem")
-    func bothGatedFilesystem() {
-        #expect(PortPermission.permissionForMethod("fs.read") == .filesystem)
-        #expect(PortPermission.permissionForMethod("files.read") == .filesystem)
+    @MainActor func bothGatedFilesystem() throws {
+        #expect(try registryPermission("fs.read") == .filesystem)
+        #expect(try registryPermission("files.read") == .filesystem)
     }
 }

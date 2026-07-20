@@ -8,28 +8,28 @@ struct AudioBridgeTests {
     // MARK: - Permission Mapping
 
     @Test("audio.capture requires .microphone permission")
-    func capturePermission() {
-        #expect(PortPermission.permissionForMethod("audio.capture") == .microphone)
+    @MainActor func capturePermission() throws {
+        #expect(try registryPermission("audio.capture") == .microphone)
     }
 
     @Test("audio.stopCapture requires .microphone permission")
-    func stopCapturePermission() {
-        #expect(PortPermission.permissionForMethod("audio.stopCapture") == .microphone)
+    @MainActor func stopCapturePermission() throws {
+        #expect(try registryPermission("audio.stopCapture") == .microphone)
     }
 
     @Test("audio.speak requires no permission")
-    func speakNoPermission() {
-        #expect(PortPermission.permissionForMethod("audio.speak") == nil)
+    @MainActor func speakNoPermission() throws {
+        #expect(try registryPermission("audio.speak") == nil)
     }
 
     @Test("audio.play requires no permission")
-    func playNoPermission() {
-        #expect(PortPermission.permissionForMethod("audio.play") == nil)
+    @MainActor func playNoPermission() throws {
+        #expect(try registryPermission("audio.play") == nil)
     }
 
     @Test("audio.stop requires no permission")
-    func stopNoPermission() {
-        #expect(PortPermission.permissionForMethod("audio.stop") == nil)
+    @MainActor func stopNoPermission() throws {
+        #expect(try registryPermission("audio.stop") == nil)
     }
 
     // MARK: - AudioBridge State

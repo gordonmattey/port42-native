@@ -5,135 +5,138 @@ import Foundation
 @Suite("Port Permission")
 struct PortPermissionTests {
 
-    // MARK: - permissionForMethod
+    // MARK: - the registry permission map (the old parallel table is gone)
 
     @Test("ai.complete requires .ai permission")
-    func aiCompletePermission() {
-        #expect(PortPermission.permissionForMethod("ai.complete") == .ai)
+    @MainActor func aiCompletePermission() throws {
+        #expect(try registryPermission("ai.complete") == .ai)
     }
 
-    @Test("ai.cancel requires .ai permission")
-    func aiCancelPermission() {
-        #expect(PortPermission.permissionForMethod("ai.cancel") == .ai)
+    @Test("ai.cancel is bridge machinery, not a registry method — no separate permission")
+    @MainActor func aiCancelPermission() throws {
+        // Cancelling a stream you were allowed to start needs no second grant; ai.cancel lives as
+        // an explicit PortBridge machinery branch (the documented transport shim), not in the
+        // registry. The old table gated it .ai, which double-charged a permission for stopping.
+        #expect(try registryPermission("ai.cancel") == nil)
     }
 
     @Test("companions.invoke requires .ai permission")
-    func companionsInvokePermission() {
-        #expect(PortPermission.permissionForMethod("companions.invoke") == .ai)
+    @MainActor func companionsInvokePermission() throws {
+        #expect(try registryPermission("companions.invoke") == .ai)
     }
 
     @Test("user.get requires no permission")
-    func userGetNoPermission() {
-        #expect(PortPermission.permissionForMethod("user.get") == nil)
+    @MainActor func userGetNoPermission() throws {
+        #expect(try registryPermission("user.get") == nil)
     }
 
     @Test("companions.list requires no permission")
-    func companionsListNoPermission() {
-        #expect(PortPermission.permissionForMethod("companions.list") == nil)
+    @MainActor func companionsListNoPermission() throws {
+        #expect(try registryPermission("companions.list") == nil)
     }
 
     @Test("companions.get requires no permission")
-    func companionsGetNoPermission() {
-        #expect(PortPermission.permissionForMethod("companions.get") == nil)
+    @MainActor func companionsGetNoPermission() throws {
+        #expect(try registryPermission("companions.get") == nil)
     }
 
     @Test("messages.recent requires no permission")
-    func messagesRecentNoPermission() {
-        #expect(PortPermission.permissionForMethod("messages.recent") == nil)
+    @MainActor func messagesRecentNoPermission() throws {
+        #expect(try registryPermission("messages.recent") == nil)
     }
 
     @Test("messages.send requires no permission")
-    func messagesSendNoPermission() {
-        #expect(PortPermission.permissionForMethod("messages.send") == nil)
+    @MainActor func messagesSendNoPermission() throws {
+        #expect(try registryPermission("messages.send") == nil)
     }
 
     @Test("space.current requires no permission")
-    func spaceCurrentNoPermission() {
-        #expect(PortPermission.permissionForMethod("space.current") == nil)
+    @MainActor func spaceCurrentNoPermission() throws {
+        #expect(try registryPermission("space.current") == nil)
     }
 
     @Test("storage.set requires no permission")
-    func storageSetNoPermission() {
-        #expect(PortPermission.permissionForMethod("storage.set") == nil)
+    @MainActor func storageSetNoPermission() throws {
+        #expect(try registryPermission("storage.set") == nil)
     }
 
     @Test("unknown method requires no permission")
-    func unknownMethodNoPermission() {
-        #expect(PortPermission.permissionForMethod("some.unknown.method") == nil)
+    @MainActor func unknownMethodNoPermission() throws {
+        #expect(try registryPermission("some.unknown.method") == nil)
     }
 
     // MARK: - Device Permission Mapping
 
     @Test("terminal.exec is the only gated terminal method; spawn is ungated")
-    func terminalExecPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.exec") == .terminal)
+    @MainActor func terminalExecPermission() throws {
+        #expect(try registryPermission("terminal.exec") == .terminal)
         // spawn/send/list were removed from the bridge during the uniform-port.create sweep.
-        #expect(PortPermission.permissionForMethod("terminal.spawn") == nil)
+        #expect(try registryPermission("terminal.spawn") == nil)
     }
 
     @Test("terminal.send requires no permission (session already permitted via spawn)")
-    func terminalSendNoPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.send") == nil)
+    @MainActor func terminalSendNoPermission() throws {
+        #expect(try registryPermission("terminal.send") == nil)
     }
 
     @Test("terminal.resize requires no permission (session already permitted via spawn)")
-    func terminalResizeNoPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.resize") == nil)
+    @MainActor func terminalResizeNoPermission() throws {
+        #expect(try registryPermission("terminal.resize") == nil)
     }
 
     @Test("terminal.kill requires no permission (session already permitted via spawn)")
-    func terminalKillNoPermission() {
-        #expect(PortPermission.permissionForMethod("terminal.kill") == nil)
+    @MainActor func terminalKillNoPermission() throws {
+        #expect(try registryPermission("terminal.kill") == nil)
     }
 
     @Test("audio.capture requires .microphone permission")
-    func audioCapturePermission() {
-        #expect(PortPermission.permissionForMethod("audio.capture") == .microphone)
+    @MainActor func audioCapturePermission() throws {
+        #expect(try registryPermission("audio.capture") == .microphone)
     }
 
     @Test("audio.speak requires no permission (output only)")
-    func audioSpeakNoPermission() {
-        #expect(PortPermission.permissionForMethod("audio.speak") == nil)
+    @MainActor func audioSpeakNoPermission() throws {
+        #expect(try registryPermission("audio.speak") == nil)
     }
 
     @Test("camera.capture requires .camera permission")
-    func cameraCapturePermission() {
-        #expect(PortPermission.permissionForMethod("camera.capture") == .camera)
+    @MainActor func cameraCapturePermission() throws {
+        #expect(try registryPermission("camera.capture") == .camera)
     }
 
     @Test("camera.stream requires .camera permission")
-    func cameraStreamPermission() {
-        #expect(PortPermission.permissionForMethod("camera.stream") == .camera)
+    @MainActor func cameraStreamPermission() throws {
+        #expect(try registryPermission("camera.stream") == .camera)
     }
 
     @Test("screen.capture requires .screen permission")
-    func screenCapturePermission() {
-        #expect(PortPermission.permissionForMethod("screen.capture") == .screen)
+    @MainActor func screenCapturePermission() throws {
+        #expect(try registryPermission("screen.capture") == .screen)
     }
 
     @Test("clipboard.read requires .clipboard permission")
-    func clipboardReadPermission() {
-        #expect(PortPermission.permissionForMethod("clipboard.read") == .clipboard)
+    @MainActor func clipboardReadPermission() throws {
+        #expect(try registryPermission("clipboard.read") == .clipboard)
     }
 
     @Test("clipboard.write requires .clipboard permission")
-    func clipboardWritePermission() {
-        #expect(PortPermission.permissionForMethod("clipboard.write") == .clipboard)
+    @MainActor func clipboardWritePermission() throws {
+        #expect(try registryPermission("clipboard.write") == .clipboard)
     }
 
     @Test("fs.pick requires .filesystem permission")
-    func fsPickPermission() {
-        #expect(PortPermission.permissionForMethod("fs.pick") == .filesystem)
+    @MainActor func fsPickPermission() throws {
+        #expect(try registryPermission("fs.pick") == .filesystem)
     }
 
     @Test("fs.read requires .filesystem permission")
-    func fsReadPermission() {
-        #expect(PortPermission.permissionForMethod("fs.read") == .filesystem)
+    @MainActor func fsReadPermission() throws {
+        #expect(try registryPermission("fs.read") == .filesystem)
     }
 
     @Test("fs.write requires .filesystem permission")
-    func fsWritePermission() {
-        #expect(PortPermission.permissionForMethod("fs.write") == .filesystem)
+    @MainActor func fsWritePermission() throws {
+        #expect(try registryPermission("fs.write") == .filesystem)
     }
 
     // MARK: - Separate Grants
