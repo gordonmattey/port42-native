@@ -166,6 +166,42 @@ match the module name (`Port42Tests` makes bare "Port" a full-suite run).
 
 ---
 
+## BUG: script tags in port.create HTML never execute (2026-07-19)
+
+Found building the item-6 live rig: a `port.create({type:"web", html:...})` port renders the markup
+and inline `onclick` handlers fire, but the `<script>` element never executes (`document.scripts`
+shows the tag; `window.port42` is alive; the script's globals are undefined). The signature of
+element insertion via innerHTML, which parses but does not run script tags. Generative ports depend
+on scripts running, so RCA which render path port.create HTML takes vs the ```port fence path.
+Workaround used by the rig: install the JS after render via `port.exec` (re-inject after every
+reload or app restart).
+
+---
+
+## NOTE: dev-build Screen Recording TCC clash (two bundles, one id) (2026-07-19)
+
+Two Port42Dev bundles exist with the same bundle id `com.port42.dev` (`~/port42-build/Port42Dev.app`
+and the repo's `.build/Port42Dev.app`). The Screen Recording grant binds to one static code path, so
+a toggle granted against one bundle leaves the other blocked, and unlike mic/camera there is no
+per-request prompt to recover with. Unblock: `tccutil reset ScreenCapture com.port42.dev`, launch
+the bundle you want, request once (fails), toggle the fresh System Settings entry, restart the app.
+Longer term: keep ONE dev bundle path, or give the two paths distinct dev bundle ids.
+
+---
+
+## PERF: camera/screen streaming causes visible input lag (2026-07-19)
+
+Live item-6 run: with `screen.stream` at scale 0.3 / 2 fps the mouse visibly stutters. Two costs,
+both pre-existing (untouched by the item-6 extraction):
+- Both stream delegates (`ScreenStreamDelegate.stream(_:didOutputSampleBuffer:)`,
+  `CameraBridge.FrameHandler.captureOutput`) allocate a fresh `CIContext` PER FRAME. A CIContext is
+  a GPU context meant to be created once; hoist to a stored property. Cheap, obvious win.
+- Every frame ships as a base64 JPEG/PNG string through `pushEvent` →
+  `evaluateJavaScript` on the MAIN thread; at retina sizes that is megabytes of JS string per
+  second on the UI thread. Real fix is off-main delivery or a binary transport; design item.
+
+---
+
 ## TODO: AppleScript / Automation enablement for the test env (2026-07-18)
 
 `AutomationBridgeTests` "timeout defaults to 30s when not specified" fails in the local `swift test`

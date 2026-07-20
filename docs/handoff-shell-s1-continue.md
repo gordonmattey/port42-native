@@ -160,11 +160,37 @@ with no exclusions (`BridgeSchemaParityTests`); Spike B scans 58 methods. Old-sw
 extracted families are deleted; what remains on the switches is exactly items 6+7 plus the
 close-out.
 
-## Next
+## Done 2026-07-19 (evening): tail item 6 + the reclaim-safety incident (d73c4f4..f73ce36)
 
-**Item 6** — `audio.capture` + camera/screen streams (`stopCapture`/`stopStream`). Tier-A teardown
-gates from the matrix: start capture, stop, assert the engine/session is actually DOWN (release,
-not merely "work"). Hardware + permission prompts = GM in the loop, live runs in Port42Dev.
+**Item 6 is DONE, headless + live.** `audio.capture`/`audio.stopCapture` + `camera.stream`/
+`camera.stopStream` + `screen.stream`/`screen.stopStream` extracted (d73c4f4). ONE shared stateful
+instance per family on AppState (`audioDevice`/`cameraDevice`/`screenDevice`); a session remembers
+the PortBridge that started it (owner) for event routing; a dying owner's deinit stops any session
+it still holds, keyed on identity (the mic-leak teardown). Tier-A gates in `BridgeAVStreamTests`
+(recorded failing first): stop must RELEASE, asserted via weak refs — which surfaced and fixed a
+real leak (camera stopStream kept the AVCaptureSession allocated). All six toolExposed false;
+golden untouched; Spike B scans 64. Old PortBridge audio/screen/camera cases, per-port device
+bridges, and postCapture deleted. **Live-verified in Port42Dev** via a rig port: mic (transcription
+events + indicator off on stop), camera (frames + LED off), screen (frames after the TCC dance),
+double-stop shows the real JS reject. **The deferred live checks are also done**: browser session
+continuity through the gateway (open → text → close, one session) and a real `rest.call` GET (200).
+
+**The reclaim-safety incident (f73ce36).** A `--filter "Port"` test run killed the RUNNING
+production app: "Port" matches the module name `Port42Tests` (full-suite run), completeSetup walked
+into `configureSyncIfNeeded`, and `killProcessOnPort(4242)` SIGTERMed the listener AND its clients
+(`lsof -ti` has no state filter) — the app, companions, ngrok. Fixed at both roots, gated in
+`GatewayReclaimSafetyTests`: `-sTCP:LISTEN` on the reclaim (fail-then-pass: client survives), and
+`AppState.isTestProcess` guards `configureSyncIfNeeded` entirely (process-identity detection; the
+SPM helper carries NO test env vars). Full RCA in `summer2026-todo.md`. **Rule: test filters use
+exact suite names, never substrings** (bare "Port" = full suite = live Anthropic calls too).
+Also repointed the stale ToolDefinitions coverage gate at the generated list (f189806).
+
+**Found while live-testing (logged in `summer2026-todo.md`):** script tags in `port.create` HTML
+never execute (innerHTML-style render; rig worked around via `port.exec`); dev Screen Recording
+TCC clash (two dev bundles, one id — `tccutil reset ScreenCapture com.port42.dev` unblocks);
+camera/screen streaming causes input lag (per-frame `CIContext` + main-thread base64 pushes).
+
+## Next
 
 **Item 7** — `fs.*` picked-path family (currently `wired: false`). Gate: `fs.pick` → path;
 `fs.read(picked)` ok; un-picked absolute → access_denied; `BridgeFilesTests` stay green.
@@ -173,10 +199,6 @@ not merely "work"). Hardware + permission prompts = GM in the loop, live runs in
 `ToolExecutor.executeImpl`), flip `ToolNaming.canonicalMethods` + `llms.txt` to generated (full
 name inventory now exists in the registry). Gate: full bridge suite + live cross-path matrix green
 after removal, plus a grep asserting the old case labels are gone.
-
-**Deferred live checks** (need a rebuild + one-time permission prompts): browser session
-continuity (open → text → close through the gateway), one real `rest.call` GET. Note: full-suite
-`swift test` runs live-API companion tests (real Anthropic calls) — filter or budget accordingly.
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential
