@@ -142,12 +142,21 @@ public actor TerminalHooksService {
         var output: String?
         var prompt: String?
         var sessionId: String?
+        var transcript: String?
+        var transcriptBytes: Int64?
     }
 
     private nonisolated static func decode(_ data: Data) -> TerminalHookEvent? {
         guard !data.isEmpty, let w = try? JSONDecoder().decode(Wire.self, from: data) else { return nil }
         switch w.event {
-        case "turnComplete":   return .turnComplete(text: w.text ?? "", exitCode: w.exitCode ?? 0)
+        case "turnComplete":
+            // Diagnostic for the reply-post bug. Two failure modes, both from the transcript
+            // the Stop hook hands over: EMPTY (no post) and STALE (a previous turn's text,
+            // posted wrongly). Log the file + size + length on EVERY turn so both are visible.
+            NSLog("[hooks] turnComplete: transcript=%@ bytes=%lld len=%d sid=%@",
+                  w.transcript ?? "nil", w.transcriptBytes ?? -1, (w.text ?? "").count,
+                  w.sessionId ?? "nil")
+            return .turnComplete(text: w.text ?? "", exitCode: w.exitCode ?? 0)
         case "toolStarting":   return .toolStarting(tool: w.tool ?? "", input: w.input ?? "")
         case "toolFinished":   return .toolFinished(tool: w.tool ?? "", output: w.output ?? "")
         case "approvalRequired": return .approvalRequired(tool: w.tool ?? "", input: w.input ?? "", sessionId: w.sessionId ?? "")

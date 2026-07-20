@@ -130,6 +130,11 @@ type normalizedEvent struct {
 	Output    string `json:"output,omitempty"`
 	Prompt    string `json:"prompt,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
+	// Diagnostics for the "reply on screen but never posts" bug: the transcript the Stop
+	// hook handed us and its size on disk, carried to the app log over the same socket the
+	// event uses (the shim's own stderr does not reach the app).
+	Transcript      string `json:"transcript,omitempty"`
+	TranscriptBytes int64  `json:"transcriptBytes,omitempty"`
 }
 
 // runNotify reads Claude's raw hook payload from stdin, translates it to a normalized event,
@@ -153,8 +158,15 @@ func runNotify(event string) {
 		// The Stop payload carries no response text — read the transcript for it.
 		// The final assistant message can lag the Stop hook by a few ms (the
 		// transcript is flushed asynchronously), so poll briefly until non-empty.
-		if tp, ok := payload["transcript_path"].(string); ok && tp != "" {
+		tp, _ := payload["transcript_path"].(string)
+		if tp != "" {
 			out.Text = lastAssistantTextWithRetry(tp)
+		}
+		// Carry the transcript path + size to the app log (see struct note): an empty post
+		// is then one line naming the file the hook pointed at and whether it had bytes.
+		out.Transcript = tp
+		if fi, statErr := os.Stat(tp); statErr == nil {
+			out.TranscriptBytes = fi.Size()
 		}
 	case "toolStarting", "toolFinished":
 		if tn, ok := payload["tool_name"].(string); ok {

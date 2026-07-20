@@ -6,6 +6,49 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG: chat-driven CLI companion replies on screen but never posts (2026-07-19, INSTRUMENTED)
+
+**Symptom:** a claude/gemini terminal companion driven from space chat receives the injected
+message and replies IN ITS TERMINAL, but the reply never reaches the space. Confirmed live in Dev:
+the gate logs `event=turnComplete armed=true exit=0 len=0 ... NOT posted (skip=empty)`. So the
+whole chain works except the shim read an EMPTY reply out of the transcript.
+
+**Where it breaks (verified):** on the Stop hook, the shim reads `transcript_path` from the hook
+payload and pulls the last assistant turn (`shim/main.go` `lastAssistantText`). It came back empty.
+The gate then correctly refuses to post nothing.
+
+**What is NOT the cause (earlier guess retracted):** I first blamed `--fork-session`. Port42 does
+NOT pass fork-session or --resume — it types the bare word `claude` and the ZDOTDIR shell-function
+adds only `--settings` (AppState.swift:2636-2643). The `--fork-session --resume` processes seen in
+`ps` were unrelated claude daemon sessions in other cwds, not the companions. Root cause of the
+empty transcript is still OPEN.
+
+**Instrumentation added (2026-07-19, uncommitted until GM says commit):** the shim now carries the
+transcript path + on-disk size to the app log over the hooks socket (its own stderr does not reach
+the app), and `TerminalHooksService.decode` logs `turnComplete EMPTY: transcript=… bytes=… sid=…`
+whenever the reply is empty. Next occurrence names the file the hook pointed at and whether it had
+bytes — is it the wrong path, an unflushed path, or a real empty turn. Test: drive a companion from
+chat in Dev, read `~/port42-build/Port42Dev.log`.
+
+---
+
+## TODO: any `claude` in any terminal port auto-registers as a space companion (2026-07-19, GM)
+
+**Want:** when a user opens `claude` (or another hooks-capable CLI) in ANY terminal port — not just
+one spawned as a named companion — that live session should appear as a companion in the space and
+be addressable from chat. Today only ports spawned via the companion path get the identity + the
+inject/turnComplete loop; an ad-hoc `claude` typed into a plain terminal port has the hooks shim
+(so turnComplete fires) but no space-membership registration and no display identity.
+
+**Shape (to design):** the shim already emits `sessionStarted`; on that event, if the port has no
+companion identity yet, mint an ephemeral companion (name from the session or a default), add it to
+the space roster, and wire the same post gate. Ties to the membership work and to the
+principal/identity model — an ad-hoc CLI is a peer principal that should surface as an agent member.
+Depends on the reply-post bug above being fixed first (no point registering a companion whose
+replies don't post).
+
+---
+
 ## RESOLVED: coalescing test raced its own registration and hung the suite (2026-07-19)
 
 Found during Phase 3 item B (the PermissionRequester collapse), fixed same session.
