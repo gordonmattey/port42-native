@@ -258,6 +258,23 @@ binary transport. Design item.
 
 ---
 
+## BUG: stale label-identity member row + qualified-name collisions in space membership (2026-07-19)
+
+Found while verifying `space.current` scoping (which is CORRECT — each space returns its own
+roster). Two data-level issues in the general space's members:
+- **A `remote-http-cal` member row** (type agent, empty owner, the label as id AND name): the
+  pre-Phase-3 flattened gateway label persisted as a space member. The constructor class is dead
+  (scan-gated), but the fossil row survives in the DB and renders in every member list. Fix: a
+  one-time cleanup deleting member/agent rows whose id matches the old label shape; decide whether
+  the CURRENT gateway principal (`local-http`) should ever appear as a space member at all.
+- **Qualified-name collisions**: the LLM companion `echo` (UUID id) and the CLI agent
+  `cli-agent-echo` are distinct members that both resolve to `echo@gordontest`; same for the human
+  `gordontest` vs `cli-agent-gordontest`. Distinct rows, legitimate, but `@echo` is ambiguous for
+  mention routing. Needs a decision: unique names per space, or disambiguation in qualifiedName.
+  Adjacent to the "disallow whitespace in space + companion names" todo.
+
+---
+
 ## TODO: publish the generated API reference as a static llms.txt (2026-07-19)
 
 Since close-out step 4c the reference renders at RUNTIME (`BridgeReference.swift`, served via
