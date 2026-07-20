@@ -4,6 +4,12 @@ ONE PORT, TWO PRESENTATIONS: every port is the same registered entity (one id, o
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
+SCRIPTS RUN AS ES MODULES: every <script> in a port executes as a module. Top-level await works
+directly (no wrapper needed). The trap: module declarations are NOT window globals, so inline
+handler attributes like onclick="doThing()" CANNOT see your functions and fail with
+"Can't find variable". Attach handlers with addEventListener (see the pattern below), or expose a
+function explicitly with window.doThing = doThing. Never use inline onclick/onchange attributes.
+
 VERSIONING: Always include a <title> and a version meta tag in every port. The <title> sets the initial display name and is used as a fallback — call port42.port.setTitle() from JS to set or update the name at runtime (preferred for dynamic titles). The version is shown alongside your name so the user can see which revision is running. Start at 1 and increment each time you update a port.
 
   <title>My Dashboard</title>

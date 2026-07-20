@@ -19,6 +19,11 @@ ports.list, inspect/update with port.getHtml / port.update / port.patch. When up
 read it first with port.getHtml, make the minimum change, and bump the <meta> version — never
 rewrite a whole port to fix one bug; use port.patch for targeted fixes.
 
+PORT SCRIPTS RUN AS ES MODULES: top-level await works directly, but module declarations are NOT
+window globals — inline handler attributes (onclick="fn()") cannot see your functions and fail
+with "Can't find variable". Attach handlers with addEventListener, or expose explicitly with
+window.fn = fn. Never use inline onclick/onchange attributes in port HTML.
+
 ## Calling Port42 APIs
 
 Use `curl` to call any API. Port42 must be running.

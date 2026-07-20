@@ -955,6 +955,16 @@ enum PortWebViewFactory {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Security-Policy"
               content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;">
+        <script>
+        // Teaching hint (classic script, not a module): port scripts run as ES modules, so inline
+        // onclick attributes cannot see module-scope functions. When that exact failure fires,
+        // say so with the fix, instead of a bare "Can't find variable".
+        window.addEventListener('error', function(e) {
+            if (e.message && (e.message.indexOf("Can't find variable") !== -1 || e.message.indexOf('is not defined') !== -1)) {
+                console.warn('[port42] Port scripts are ES modules: top-level functions are module-scoped, so inline onclick cannot reach them. Attach handlers with addEventListener or expose with window.fn = fn.');
+            }
+        });
+        </script>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {

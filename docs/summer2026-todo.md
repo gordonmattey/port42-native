@@ -166,15 +166,21 @@ match the module name (`Port42Tests` makes bare "Port" a full-suite run).
 
 ---
 
-## BUG: script tags in port.create HTML never execute (2026-07-19)
+## RESOLVED: the port script "never executes" trap is module scope, not a dead script (2026-07-19)
 
-Found building the item-6 live rig: a `port.create({type:"web", html:...})` port renders the markup
-and inline `onclick` handlers fire, but the `<script>` element never executes (`document.scripts`
-shows the tag; `window.port42` is alive; the script's globals are undefined). The signature of
-element insertion via innerHTML, which parses but does not run script tags. Generative ports depend
-on scripts running, so RCA which render path port.create HTML takes vs the ```port fence path.
-Workaround used by the rig: install the JS after render via `port.exec` (re-inject after every
-reload or app restart).
+RCA (probe-verified): both render paths (fence and port.create, `wrapHTML` in PortView +
+PortWindowManager) rewrite `<script>` to `<script type="module">` for top-level await — the
+documented platform pattern (ports-context's canonical example uses bare top-level `await` +
+`addEventListener`). Module scripts DO execute; their top-level declarations are module-scoped, so
+inline `onclick="fn()"` attributes resolve against window, find nothing, and fail with "Can't find
+variable" — which reads exactly like a script that never ran. This trips any LLM that writes
+demo-style inline handlers (the item-6/7 rigs did).
+
+Resolution (behavior unchanged — existing ports depend on module semantics):
+- The constraint is now EXPLICIT in ports-context.txt and llms-preamble.txt: never inline
+  onclick; use addEventListener or `window.fn = fn`.
+- Both wrappers inject a classic-script teaching hint: when the exact failure fires, the console
+  explains module scope and the fix instead of a bare ReferenceError.
 
 ---
 
