@@ -75,4 +75,16 @@ struct BridgeHelpTests {
         #expect(w.registry["help"]?.toolExposed == true,
                 "help must be tool-exposed (GM decision 2026-07-19) — the one mechanism for craft on every surface")
     }
+
+    @Test("the companion prompt carries the resident CORE, not the 1,100-line manual")
+    func promptInjectsCoreNotManual() throws {
+        // The manual is lazy (help topic "ports"); only ports-core.txt rides resident. Source scan
+        // because the prompt is assembled inside SpaceAgentHandler.start on the live call path.
+        let src = try #require(BridgePrincipalTests.libSources()
+            .first { $0.file == "AppState.swift" }).source
+        #expect(src.contains(#"\(AppState.portsCore)"#),
+                "the companion prompt must inject the resident core")
+        #expect(!src.contains(#"\(AppState.portsContext)"#),
+                "the full manual must NOT be interpolated into the companion prompt")
+    }
 }

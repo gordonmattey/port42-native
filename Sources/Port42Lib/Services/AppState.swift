@@ -348,9 +348,9 @@ final class SpaceAgentHandler: LLMStreamDelegate {
             </pattern>
             </port_construction>
 
-            <api_reference>
-            \(AppState.portsContext)
-            </api_reference>
+            <port_authoring_core>
+            \(AppState.portsCore)
+            </port_authoring_core>
 
             <relationship>
             You carry memory across conversations. It is already loaded into this context above — \
@@ -645,13 +645,24 @@ private struct WeakBridge {
 
 @MainActor
 public final class AppState: ObservableObject {
-    /// Port context loaded from bundled resource file
+    /// The port-authoring MANUAL (bundled). Not injected into prompts since knowledge item B2 —
+    /// served lazily by `help(topic: "ports")` so any agent on any surface loads it on demand.
     static let portsContext: String = {
         if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
             return text
         }
         return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
+    }()
+
+    /// The resident CORE (bundled): what a port is, the non-negotiables, and the pointer to the
+    /// manual. This is the ONLY port knowledge that rides in every companion system prompt.
+    static let portsCore: String = {
+        if let url = Bundle.port42.url(forResource: "ports-core", withExtension: "txt"),
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            return text
+        }
+        return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Call the help tool with topic \"ports\" before building one."
     }()
 
     @Published public var spaces: [Space] = []
