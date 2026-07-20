@@ -24,8 +24,9 @@ struct BridgeDocsExportTests {
     func deterministic() throws {
         // Two separately built worlds must render byte-equal: the renderer sorts namespaces,
         // entries, and aliases, so dictionary seeding can never flap the freshness gate.
-        let a = generateAPIReference(try makeParityWorld().state)
-        let b = generateAPIReference(try makeParityWorld().state)
+        // Canonical port so the PUBLISHED artifact never depends on the generating instance.
+        let a = generateAPIReference(try makeParityWorld().state, gatewayPort: GatewayProcess.defaultPort)
+        let b = generateAPIReference(try makeParityWorld().state, gatewayPort: GatewayProcess.defaultPort)
         #expect(a == b)
         #expect(a.contains("## Available Methods"))
         #expect(a.contains("user.get"))
@@ -39,7 +40,7 @@ struct BridgeDocsExportTests {
     @Test("committed llms.txt equals the generated reference (the freshness gate)")
     @MainActor
     func freshness() throws {
-        let generated = generateAPIReference(try makeParityWorld().state)
+        let generated = generateAPIReference(try makeParityWorld().state, gatewayPort: GatewayProcess.defaultPort)
         let url = Self.repoRoot().appendingPathComponent("llms.txt")
         if ProcessInfo.processInfo.environment["PORT42_REGEN_DOCS"] == "1" {
             try generated.write(to: url, atomically: true, encoding: .utf8)

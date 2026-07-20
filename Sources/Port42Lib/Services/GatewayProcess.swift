@@ -6,12 +6,15 @@ import AppKit
 @MainActor
 public final class GatewayProcess: ObservableObject {
     @Published public var isRunning = false
+    /// The prod default port — also the canonical port baked into the PUBLISHED llms.txt (so the
+    /// committed artifact is stable regardless of which instance regenerates it).
+    public static let defaultPort = 4242
     @Published public var port: Int = {
         if let envPort = ProcessInfo.processInfo.environment["PORT42_GATEWAY_PORT"],
            let p = Int(envPort) {
             return p
         }
-        return 4242
+        return GatewayProcess.defaultPort
     }()
 
     private var process: Process?

@@ -8,15 +8,20 @@ import Foundation
 // from the live registries, so a method that exists is documented and one that does not is not.
 // Served by the `help` bridge method and by InstructionService (the CLI instruction docs).
 
+// `gatewayPort` defaults to the LIVE port so `help` / the on-disk instruction docs match the
+// running instance; the published llms.txt export passes the canonical `GatewayProcess.defaultPort`
+// so the committed artifact is stable regardless of which instance regenerates it.
 @MainActor
-public func generateAPIReference(_ state: AppState) -> String {
+public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> String {
+    // Default to the LIVE port (resolved here, in the MainActor body — a default-arg expression
+    // can't touch MainActor state). The published llms.txt export passes defaultPort explicitly.
+    let port = gatewayPort ?? GatewayProcess.shared.port
     var out = ""
     if let url = Bundle.port42.url(forResource: "llms-preamble", withExtension: "txt"),
        let preamble = try? String(contentsOf: url, encoding: .utf8) {
-        // The preamble's curl examples hardcode :4242; rewrite to the LIVE gateway port so a dev
-        // instance (or any non-default port) documents the port callers must actually hit.
+        // The preamble's curl examples hardcode :4242; rewrite to the target gateway port.
         let live = preamble.replacingOccurrences(of: "127.0.0.1:4242",
-                                                 with: "127.0.0.1:\(GatewayProcess.shared.port)")
+                                                 with: "127.0.0.1:\(port)")
         out += live.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
     }
 

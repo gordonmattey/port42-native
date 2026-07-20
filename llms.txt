@@ -280,6 +280,8 @@ Generated from the live method registry: every entry below is served exactly as 
       Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.
   space.list()
       List all spaces the user belongs to
+  space.setWorkingDirectory(space_id, path)
+      Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Empty path clears it (falls back to home). Defaults to the current space.
   space.switchTo(space_id)
       Switch the app's current space by id.
 
