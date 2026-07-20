@@ -423,6 +423,21 @@ roster). Two data-level issues in the general space's members:
 
 ---
 
+## BUG: a new port created in the CURRENT space peeks instead of just showing up (2026-07-20, GM)
+
+**Symptom:** when a port is created in the space you're currently viewing, it comes in as a
+*peek* (the transient preview overlay) rather than simply appearing as a tile on the desktop.
+
+**Want:** a peek is for a port that lands in ANOTHER space (a glance at activity elsewhere). A port
+created in the space you're in is just yours — it should show up directly (tiled/inline per its
+presentation), no peek. So the peek path should be gated on `port.spaceId != currentSpace`.
+
+**Where to look:** the peek trigger on port creation/arrival (ShellState peek logic +
+`ShellDesktop`/`AppState.createPort` presentation path). Confirm the space-scoping check exists and
+is correct; today it appears to peek regardless of whether the port is in the current space.
+
+---
+
 ## TODO: publish the generated API reference as a static llms.txt (2026-07-19)
 
 Since close-out step 4c the reference renders at RUNTIME (`BridgeReference.swift`, served via
