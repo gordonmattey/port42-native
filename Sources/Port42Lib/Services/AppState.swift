@@ -1370,10 +1370,7 @@ public final class AppState: ObservableObject {
         do {
             try db.saveAgent(agent)
             companions = try db.getAllAgents()
-            try db.assignAgentToSpace(agentId: agent.id, spaceId: space.id)
-            if currentSpace?.id == space.id {
-                spaceCompanions = try db.getAgentsForSpace(spaceId: space.id)
-            }
+            joinCompanionToSpace(agent, spaceId: space.id)
             print("[Port42] Auto-registered remote agent '\(senderName)' (owner: \(ownerName))")
         } catch {
             print("[Port42] Failed to auto-register remote agent: \(error)")
@@ -2631,13 +2628,14 @@ public final class AppState: ObservableObject {
         do {
             try db.saveAgent(agent)
             companions = try db.getAllAgents()
-            try db.assignAgentToSpace(agentId: agent.id, spaceId: config.spaceId)
-            if currentSpace?.id == config.spaceId { spaceCompanions = try db.getAgentsForSpace(spaceId: config.spaceId) }
             autoRegisteredCompanions[panelId] = agent.id
             NSLog("[Port42] auto-registered CLI companion '%@' (id=%@) in space %@", name, agent.id, config.spaceId)
         } catch {
             NSLog("[Port42] auto-register failed for '%@': %@", name, error.localizedDescription)
+            return
         }
+        // Membership + the "joined" announcement (once) via the shared seam.
+        joinCompanionToSpace(agent, spaceId: config.spaceId)
     }
 
     /// Remove an auto-registered CLI companion when its terminal goes away (it exists only while
@@ -2933,36 +2931,41 @@ public final class AppState: ObservableObject {
             return
         }
 
-        // Post a plain-text join announcement so the space records the companion's arrival.
-        if !spaceId.isEmpty {
-            let now = Date()
-            let joinMsg = Message(
-                id: UUID().uuidString,
-                spaceId: spaceId,
-                senderId: "cli-agent-\(name.lowercased())",
-                senderName: name,
-                senderType: "system",
-                content: "\(name) joined the space",
-                timestamp: now,
-                replyToId: nil,
-                syncStatus: "sent",
-                createdAt: now
-            )
-            try? db.saveMessage(joinMsg)
-            sync.sendMessage(joinMsg)
+        // The join announcement is NOT posted here: this path also runs on respawn (a closed
+        // terminal reopened), which is not a fresh join. Arrival is announced once at the
+        // membership seam (joinCompanionToSpace), on the real not-member -> member transition.
+    }
+
+    /// The single seam for "a companion joins a space": assign membership, refresh the space's crew,
+    /// and announce the arrival ONCE — only on the real not-member -> member transition, so a
+    /// respawn or a repeat mention never re-announces. Named adds, mention auto-adds, remote-peer
+    /// registration, and auto-registered CLI terminals all go through here, so the "joined" message
+    /// is declared in exactly one place.
+    func joinCompanionToSpace(_ companion: AgentConfig, spaceId: String) {
+        guard !spaceId.isEmpty else { return }
+        let wasMember = ((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).contains { $0.id == companion.id }
+        do {
+            try db.assignAgentToSpace(agentId: companion.id, spaceId: spaceId)
+            if currentSpace?.id == spaceId { spaceCompanions = try db.getAgentsForSpace(spaceId: spaceId) }
+        } catch {
+            print("[Port42] joinCompanionToSpace failed: \(error)")
+            return
         }
+        guard !wasMember else { return }
+        let now = Date()
+        let joinMsg = Message(
+            id: UUID().uuidString, spaceId: spaceId,
+            senderId: "cli-agent-\(companion.displayName.lowercased())",
+            senderName: companion.displayName, senderType: "system",
+            content: "\(companion.displayName) joined the space",
+            timestamp: now, replyToId: nil, syncStatus: "sent", createdAt: now)
+        try? db.saveMessage(joinMsg)
+        sync.sendMessage(joinMsg)
     }
 
     public func addCompanionToSpace(_ companion: AgentConfig, space: Space) {
-        do {
-            try db.assignAgentToSpace(agentId: companion.id, spaceId: space.id)
-            if currentSpace?.id == space.id {
-                spaceCompanions = try db.getAgentsForSpace(spaceId: space.id)
-            }
-            Analytics.shared.companionAddedToSpace()
-        } catch {
-            print("[Port42] Failed to add companion to space: \(error)")
-        }
+        joinCompanionToSpace(companion, spaceId: space.id)
+        Analytics.shared.companionAddedToSpace()
         if companion.openInTerminal {
             // Idempotent: routeMentionsToTerminals may have already spawned the port for the
             // triggering @mention (it runs before this). ensureTerminalLive no-ops if a panel
