@@ -190,15 +190,27 @@ never execute (innerHTML-style render; rig worked around via `port.exec`); dev S
 TCC clash (two dev bundles, one id — `tccutil reset ScreenCapture com.port42.dev` unblocks);
 camera/screen streaming causes input lag (per-frame `CIContext` + main-thread base64 pushes).
 
+## Done 2026-07-19 (late): tail item 7 — ALL TEN TAIL ITEMS ARE DONE (bc477fb)
+
+`fs.pick` joined the registry (not an LLM tool); picked-path grants moved to an AppState store
+KEYED BY PRINCIPAL id (`pickedFilePaths`/`grantPickedPath` — the Phase-3 seam), off the per-port
+FileBridge. `fs.read`/`fs.write` accept an absolute path only when THIS principal picked it;
+un-picked absolutes are `access_denied` on every surface. Sandbox (relative) semantics untouched.
+Family flipped `wired: true`; old PortBridge `fs.*`/`files.*` cases + the per-port FileBridge
+deleted (FileBridge itself slims at the close-out — ToolExecutor's dead cases still reference it).
+Gates `BridgeFilesPickedTests` (recorded failing first): wiring, round-trip, denial, isolation.
+Live: gateway denial verified; NSOpenPanel pick → read → write round-trip through a port in Dev.
+Found: `fs.drop` only notifies JS — dropped paths were never actually readable (registerDroppedPath
+has no callers); decide at the close-out whether drops should grant reads.
+
 ## Next
 
-**Item 7** — `fs.*` picked-path family (currently `wired: false`). Gate: `fs.pick` → path;
-`fs.read(picked)` ok; un-picked absolute → access_denied; `BridgeFilesTests` stay green.
-
-**Close-out** — delete the two old switches (`PortBridge.handleMethod` tail,
-`ToolExecutor.executeImpl`), flip `ToolNaming.canonicalMethods` + `llms.txt` to generated (full
-name inventory now exists in the registry). Gate: full bridge suite + live cross-path matrix green
-after removal, plus a grep asserting the old case labels are gone.
+**Close-out (the only remaining step)** — delete the two old switches (`PortBridge.handleMethod`
+tail, `ToolExecutor.executeImpl`), slim FileBridge to the panels, flip
+`ToolNaming.canonicalMethods` + `llms.txt` to generated (full name inventory now exists in the
+registry). Gate: full bridge suite + live cross-path matrix green after removal, plus a grep
+asserting the old case labels are gone. Then the four parallel lists and both switches are gone:
+unification complete.
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential

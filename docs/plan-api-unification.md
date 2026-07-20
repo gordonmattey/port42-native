@@ -433,10 +433,12 @@ both switches, plus the one gated terminal method.
 **Sequencing:** item 8 (the streaming contract) first — it reshapes the contract, so prove it early
 rather than bolt it on last. Then 1–7 and 9–10, then the switch-deletion gate last.
 
-**Status (2026-07-19):** items 1–6 and 8–10 DONE (item 6: `BridgeAVStreamTests` Tier-A release
-gates + owner-death teardown, live-verified mic/camera/screen in Port42Dev; the browser
-session-continuity and rest.call live gates also verified through the gateway). Remaining: item 7,
-then the close-out.
+**Status (2026-07-19): ALL TEN ITEMS DONE.** Item 6: `BridgeAVStreamTests` Tier-A release gates +
+owner-death teardown, live-verified mic/camera/screen in Port42Dev; browser session-continuity and
+rest.call live gates verified through the gateway. Item 7: `BridgeFilesPickedTests` — fs.pick in
+the registry, picked-path grants keyed by principal id on AppState (the Phase-3 seam), un-picked
+absolutes access_denied, per-principal isolation; live NSOpenPanel pick → read → write round-trip
+in Port42Dev. Remaining: the close-out only.
 
 ### Phase 3 — the real principal (stop flattening the authenticated identity)
 
