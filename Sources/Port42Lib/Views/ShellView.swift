@@ -792,6 +792,31 @@ struct ShellSettingsView: View {
                 }
             }
             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            // Working directory (docs/plan-companion-cwd.md): command companions in this space run
+            // here so they share one workspace (each keeps its own claude session). Unset = home,
+            // with a nudge to pick one.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("WORKING DIRECTORY").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
+                HStack(spacing: 8) {
+                    Text(space.workingDirectory ?? "~ — pick one for command companions")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(space.workingDirectory == nil ? Port42Theme.textSecondary : Port42Theme.textPrimary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button { pickWorkingDirectory(for: space) } label: {
+                        Text("Choose…").font(Port42Theme.mono(11)).foregroundStyle(acc)
+                    }.buttonStyle(.plain).help("Pick the directory command companions run in")
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(acc.opacity(0.35), lineWidth: 1))
+                if space.workingDirectory != nil {
+                    Button { appState.setSpaceWorkingDirectory(nil, spaceId: space.id) } label: {
+                        Text("Clear (use home)").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                    }.buttonStyle(.plain)
+                }
+            }
+            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             // Rest / Wake (plan-working-set §A): one slot, two states. Any working space may
             // rest — even the last one (GM call: an all-rested galaxy is an empty front).
             if space.isResting {
@@ -858,6 +883,21 @@ struct ShellSettingsView: View {
             if !n.isEmpty, n != c.displayName { c.displayName = n; changed = true }
             if promptDraft != (c.systemPrompt ?? "") { c.systemPrompt = promptDraft.isEmpty ? nil : promptDraft; changed = true }
             if changed { appState.updateCompanion(c) }
+        }
+    }
+
+    /// Present a directory picker for the space's working directory and persist the choice.
+    private func pickWorkingDirectory(for space: Space) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Working directory for command companions in #\(space.name)"
+        if let cur = space.workingDirectory { panel.directoryURL = URL(fileURLWithPath: cur) }
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in appState.setSpaceWorkingDirectory(url.path, spaceId: space.id) }
         }
     }
 
