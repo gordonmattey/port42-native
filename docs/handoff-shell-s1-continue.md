@@ -217,16 +217,38 @@ never recorded the grant, so announced paths were unreadable). 192 bridge tests 
 live-smoked in Dev (gateway user.get/help/ports.list/unknown-error; a fresh port's JS round-trips
 user.get + the creases.read alias). Net −1853/+117.
 
-## Next
+## Done 2026-07-19 (close): steps 4+5 — THE UNIFICATION ARC IS COMPLETE (d3ab402, 24b5c79)
 
-**Close-out steps 4–5 (the arc's last work):**
-- **Step 4, the generated flip**: `ToolNaming.canonicalMethods` derived from the registry instead
-  of hand-listed, and `llms.txt` generated from the registry's self-describing schemas.
-  `ToolDefinitions` (the empty hybrid skeleton + `permission(for:)`) deleted; the two tests still
-  asserting on `ToolDefinitions.permission` repoint at the registry's permissions.
-- **Step 5, the arc's final gate**: full bridge suite + the live cross-path matrix in Dev (same
-  method through port JS, tool use, gateway) + `BridgeCloseOutTests` green. Then the four parallel
-  lists and both switches are gone: unification complete.
+**Step 4a**: the tool-name inventory derives from the registry (`AppState.toolNameMap`);
+`ToolNaming.canonicalMethods` (90 hand-listed entries) deleted — ToolNaming owns only spelling
+rules + the 7 rename overrides + aliases. Gate `BridgeNamingTests`, recorded failing both ways
+(help missing from the list; port_resize/ai_cancel listed but not methods).
+**Step 4b**: `ToolDefinitions` deleted entirely (the last permission table on the tool side).
+**Step 4c**: llms.txt is dead. Conceptual prose → `llms-preamble.txt`; the inventory renders at
+runtime from the registries (`BridgeReference.swift`) and serves through `help` AND
+InstructionService's CLI docs. Gate `BridgeHelpTests`: every method documented + every method
+self-describing, which forced backfilling descriptions for the 20 live-only methods that had none.
+Rode along: the port-JS namespace proxy is now callable, so `port42.help()` works (silently broken
+since the step-2 Proxy).
+**Step 5**: 214 tests / 38 suites green including `BridgeCloseOutTests`; live matrix in Dev — the
+same generated reference through gateway and port JS, user.get + creases.read alias on both.
+
+**End state**: ONE registry declares, serves, documents, and permission-gates every method. No
+switches, no hand-written tool schemas, no hand-listed name inventory, no hand-written API
+reference, no parallel permission tables (the port-side `permissionForMethod` survives only for
+the fs.drop gesture). The invariant the arc promised holds by construction.
+
+## Next (the arc is done — these are the follow-on tracks)
+
+- **Phase 3, the real principal** (`plan-api-unification.md` Phase 3): thread the authenticated
+  PeerID into the Principal; grants re-key on principal id (the picked-paths store is already
+  keyed that way and waiting).
+- **Bugs** (`summer2026-todo.md`): the screen.stream pointer glitch (ours, undiagnosed, feature
+  flagged not stable; next diagnostic is a drop-every-frame handler); script tags in port.create
+  HTML never execute; ports.list space_id; the 6 pre-existing env test failures.
+- **Deferred cleanups**: `PortPermission.permissionForMethod` (fs.drop only), the streaming frame
+  delivery cost (main-thread base64), llms-preamble prose accuracy pass against the generated
+  inventory.
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential

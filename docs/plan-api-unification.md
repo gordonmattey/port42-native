@@ -433,12 +433,13 @@ both switches, plus the one gated terminal method.
 **Sequencing:** item 8 (the streaming contract) first — it reshapes the contract, so prove it early
 rather than bolt it on last. Then 1–7 and 9–10, then the switch-deletion gate last.
 
-**Status (2026-07-19): ALL TEN ITEMS DONE.** Item 6: `BridgeAVStreamTests` Tier-A release gates +
-owner-death teardown, live-verified mic/camera/screen in Port42Dev; browser session-continuity and
-rest.call live gates verified through the gateway. Item 7: `BridgeFilesPickedTests` — fs.pick in
-the registry, picked-path grants keyed by principal id on AppState (the Phase-3 seam), un-picked
-absolutes access_denied, per-principal isolation; live NSOpenPanel pick → read → write round-trip
-in Port42Dev. Remaining: the close-out only.
+**Status (2026-07-19): THE ARC IS COMPLETE.** All ten items done, the close-out done: both old
+switches deleted (gated by `BridgeCloseOutTests` source scans), `ToolDefinitions` and
+`ToolNaming.canonicalMethods` deleted (name inventory derives from the registry —
+`BridgeNamingTests`), llms.txt replaced by a generated reference (`BridgeReference.swift`, gated
+by `BridgeHelpTests`: full coverage + every method self-describing). Live cross-path matrix
+verified in Port42Dev. One registry declares, serves, documents, and gates every method. Follow-on
+work: Phase 3 (the real principal) below.
 
 ### Phase 3 — the real principal (stop flattening the authenticated identity)
 
