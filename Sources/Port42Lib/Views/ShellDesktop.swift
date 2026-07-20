@@ -1039,9 +1039,10 @@ struct ShellDock: View {
     /// Dock "Terminal" → a real plain-shell terminal port. In the shell it's a tile (hoisted Ghostty
     /// surface, re-parents like any tile); "" startup means it just drops into an interactive shell.
     private func spawnTerminal() {
-        guard let sid = appState.currentSpace?.id else { return }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if let id = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: home, spaceId: sid,
+        guard let space = appState.currentSpace else { return }
+        // Open in the space working directory (docs/plan-companion-cwd.md), else home.
+        let cwd = TerminalCwd.resolve(override: nil, spaceDir: space.workingDirectory)
+        if let id = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: cwd, spaceId: space.id,
                                                      title: "terminal", companionName: "terminal",
                                                      postCard: false, startupCommandOverride: "") {
             shell.noteUserSpawn(id)                       // your own spawn shouldn't peek at you
