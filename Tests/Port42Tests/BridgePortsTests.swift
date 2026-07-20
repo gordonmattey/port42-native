@@ -124,6 +124,37 @@ struct BridgePortsTests {
         let id = try makePort(w)
         #expect(try await call(w, "port.move", ["id": id, "x": 100, "y": 200]) == .object(["ok": .bool(true)]))
         await #expect(throws: BridgeError.self) { _ = try await call(w, "port.move", ["id": id]) }  // missing coords
+        // An unknown id must be not_found, not a silent {ok} no-op (found in the Phase 3 sweep).
+        await #expect(throws: BridgeError.self) {
+            _ = try await call(w, "port.move", ["id": "no-such-port", "x": 10, "y": 10])
+        }
+    }
+
+    @Test("ports.list honors space_id and each entry names its space")
+    @MainActor
+    func listScopedToSpace() async throws {
+        let w = try makeParityWorld()
+        let here = try makePort(w, title: "here")
+        let awayCreated = w.state.createPort(
+            type: "web", title: "away", html: "<title>away</title><div>x</div>", command: nil,
+            cwd: nil, systemPrompt: nil, spaceId: "another-space", createdBy: w.companion.id,
+            createdByName: w.companion.displayName, presentation: "tiled")
+        let away = try #require(awayCreated["id"] as? String)
+
+        let scoped = try await call(w, "ports.list", ["space_id": w.space.id])
+        guard case let .array(entries) = scoped else { Issue.record("expected array"); return }
+        let ids = entries.compactMap { e -> String? in
+            guard case let .object(o) = e, case let .string(id)? = o["id"] else { return nil }
+            return id
+        }
+        #expect(ids.contains(here), "the requested space's port must be listed")
+        #expect(!ids.contains(away), "another space's port must be filtered out (space_id was a silent no-op)")
+
+        // Every entry says which space it lives in, so clients can also filter for themselves.
+        for e in entries {
+            guard case let .object(o) = e else { continue }
+            #expect(o["spaceId"] != nil, "each port entry must carry its spaceId")
+        }
     }
 
     @Test("positional args map through paramNames for a port method")

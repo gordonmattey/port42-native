@@ -788,7 +788,7 @@
     "name" : "port_update"
   },
   {
-    "description" : "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+    "description" : "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
     "input_schema" : {
       "properties" : {
         "capabilities" : {
@@ -797,6 +797,10 @@
             "type" : "string"
           },
           "type" : "array"
+        },
+        "space_id" : {
+          "description" : "List only this space's ports. Omit to list every space's.",
+          "type" : "string"
         }
       },
       "type" : "object"

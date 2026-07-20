@@ -793,14 +793,14 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// List all ports (for ports_list tool).
-    public func allPorts() -> [(udid: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, isBackground: Bool, presentation: String, x: CGFloat?, y: CGFloat?)] {
+    public func allPorts() -> [(udid: String, title: String, createdBy: String?, capabilities: [String], cwd: String?, isBackground: Bool, presentation: String, spaceId: String?, x: CGFloat?, y: CGFloat?)] {
         panels.map { panel in
             // A native `terminal` port advertises the "terminal" capability. (cwd has no native
             // equivalent yet — see summer2026-todo "native terminal output-streaming bridge".)
             let caps = PortPanel.mergeCapabilities(panel.storedCapabilities,
                                                    isTerminal: panel.portType == "terminal")
             let origin = panel.position
-            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: nil, isBackground: panel.isBackground, presentation: panel.presentation, x: origin?.x, y: origin?.y)
+            return (udid: panel.udid, title: panel.title, createdBy: panel.createdBy, capabilities: caps, cwd: nil, isBackground: panel.isBackground, presentation: panel.presentation, spaceId: panel.spaceId, x: origin?.x, y: origin?.y)
         }
     }
 

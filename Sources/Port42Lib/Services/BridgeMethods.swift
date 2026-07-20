@@ -1017,8 +1017,8 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
 @MainActor
 private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
 
-    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities"],
-        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities", "space_id"],
+        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1026,22 +1026,27 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                     "type": "array",
                     "items": ["type": "string"],
                     "description": "Filter to ports that have all of these capabilities. Examples: \"terminal\", \"claude-code\", \"browser\". Omit to list all ports."
-                ] as [String: Any]
+                ] as [String: Any],
+                "space_id": ["type": "string", "description": "List only this space's ports. Omit to list every space's."]
             ]
         ]) { p, args in
         let filterCaps = (args.array("capabilities") as? [String]) ?? []
+        let filterSpace = args.string("space_id")
         let registered = appState.portWindows.allPorts()
         let inline = appState.inlinePorts().filter { $0.spaceId == p.spaceId || p.spaceId == nil }.suffix(5)
 
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
-                   cwd: String?, status: String, x: CGFloat?, y: CGFloat?, surfaceBound: Bool?) {
+                   cwd: String?, status: String, spaceId: String?, x: CGFloat?, y: CGFloat?,
+                   surfaceBound: Bool?) {
             if !filterCaps.isEmpty && !filterCaps.allSatisfy({ capabilities.contains($0) }) { return }
+            if let filterSpace, spaceId != filterSpace { return }
             var o: [String: BridgeValue] = [
                 "id": .string(id), "title": .string(title),
                 "capabilities": .array(capabilities.map { .string($0) }),
                 "status": .string(status),
             ]
+            if let spaceId { o["spaceId"] = .string(spaceId) }
             if let createdBy { o["createdBy"] = .string(createdBy) }
             if let cwd { o["cwd"] = .string(cwd) }
             if let surfaceBound { o["surfaceBound"] = .bool(surfaceBound) }
@@ -1050,12 +1055,13 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         }
         for pt in registered {
             entry(id: pt.udid, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
-                  cwd: pt.cwd, status: pt.isBackground ? "docked" : pt.presentation, x: pt.x, y: pt.y,
+                  cwd: pt.cwd, status: pt.isBackground ? "docked" : pt.presentation, spaceId: pt.spaceId,
+                  x: pt.x, y: pt.y,
                   surfaceBound: appState.terminalControllers[pt.udid]?.isSurfaceBound)
         }
         for pt in inline {
             entry(id: pt.id, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
-                  cwd: pt.cwd, status: "inline", x: nil, y: nil, surfaceBound: nil)
+                  cwd: pt.cwd, status: "inline", spaceId: pt.spaceId, x: nil, y: nil, surfaceBound: nil)
         }
         return .array(entries)
     }
@@ -1200,6 +1206,9 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         guard let x = args.double("x"), let y = args.double("y") else {
             throw BridgeError.badArg("port.move requires numeric x and y")
+        }
+        guard appState.portWindows.findPort(by: id) != nil else {
+            throw BridgeError.notFound("port '\(id)'")
         }
         appState.portWindows.movePort(id: id, x: CGFloat(x), y: CGFloat(y))
         return .object(["ok": .bool(true)])
