@@ -23,12 +23,28 @@ adds only `--settings` (AppState.swift:2636-2643). The `--fork-session --resume`
 `ps` were unrelated claude daemon sessions in other cwds, not the companions. Root cause of the
 empty transcript is still OPEN.
 
-**Instrumentation added (2026-07-19, uncommitted until GM says commit):** the shim now carries the
-transcript path + on-disk size to the app log over the hooks socket (its own stderr does not reach
-the app), and `TerminalHooksService.decode` logs `turnComplete EMPTY: transcript=… bytes=… sid=…`
-whenever the reply is empty. Next occurrence names the file the hook pointed at and whether it had
-bytes — is it the wrong path, an unflushed path, or a real empty turn. Test: drive a companion from
-chat in Dev, read `~/port42-build/Port42Dev.log`.
+**Instrumentation added + committed (214cbd1):** the shim carries transcript path + on-disk size to
+the app over the hooks socket; `TerminalHooksService` logs `turnComplete: transcript=… bytes=… len=…`
+on every turn.
+
+**ROOT CAUSE FOUND (2026-07-20, via that instrument).** Companions collide on ONE shared transcript
+because they all launch with **cwd = /Users/gordon** (the home dir — no cwd was specified at spawn,
+so it defaulted to home; verified: Maker, Critic, clitest, logtest all `cwd=/Users/gordon`). Claude
+2.x keys its session/transcript on the project = cwd, so every companion in that dir maps to the
+SAME project transcript `~/.claude/projects/-Users-gordon/7aacc5af….jsonl`. The instrument showed
+three consecutive turnCompletes ALL reporting that one path, `bytes=628212` FROZEN, `len=205`
+identical — and the value was a STALE reply ("You're in /Users/gordon. Nothing pending…") from an
+earlier unrelated turn. The live reply the user saw on screen ("acknowledged") is NOT in that file
+(`grep -c` = 0). So the hook hands the shim a shared/stale project transcript; `lastAssistantText`
+returns either nothing (→ empty, no post) or a previous turn (→ stale text, wrong post, then
+dedup). Both observed failure modes are this one cause.
+
+**Fix direction (design in a fresh session — touches the launch path + claude 2.x daemon behavior,
+do NOT do blind):** each companion (and each ad-hoc `claude` terminal port) needs its OWN session,
+not a shared per-cwd one. Options: a unique per-port cwd (e.g. a scratch dir keyed by panel id),
+or forcing a unique claude session id per port so the daemon does not collapse them. Verify against
+claude 2.x's daemon session-keying before choosing. This is also the prerequisite for the
+auto-register-companion feature below (an ad-hoc claude needs its own session to be addressable).
 
 ---
 
