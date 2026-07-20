@@ -267,7 +267,16 @@ closed.
 
 ---
 
-## BUG: 6 pre-existing unit-test failures in the local test env (2026-07-18)
+## ~~BUG: 6 pre-existing unit-test failures in the local test env~~ — RESOLVED 2026-07-20 (a218660, 4c40b17)
+
+All six attributed and cleared; **none were logic regressions** (as suspected). SenderOwner:
+stale test hit the local @owner-strip path (now uses a synced entry). AgentRouting x2: trigger
+gating moved out of findTargetAgents into the AppState pipeline (tests rewritten to the
+membership/mention contract). AgentConfig x2: CLIPreset.systemPrompt is empty by design (framing
+baked at spawn; tests assert empty). Last-space: the code is right (DMs aren't galaxy spaces so a
+fresh general is recreated; test corrected). Historical diagnosis below.
+
+### (historical) 6 pre-existing unit-test failures in the local test env (2026-07-18)
 
 **Found:** a full `swift test` run during item-8 streaming work. **Not caused by that work** — proven
 statically: the item-8 diff (C1+C2) touches only 6 bridge/AI source files; none of the source these
@@ -426,7 +435,14 @@ tool-definitions golden). Publish = the committed file (raw GitHub URL, like the
 
 ---
 
-## TODO: AppleScript / Automation enablement for the test env (2026-07-18)
+## ~~TODO: AppleScript / Automation enablement for the test env~~ — RESOLVED 2026-07-20 (a218660)
+
+Took the stub-the-logic option: `resolveTimeout` is now internal and unit-tested directly (default
+30s, clamp [1,120]), so the timeout logic is covered without the live NSAppleScript/osascript call.
+The real automation path stays live-only; the invalid-script error path still runs live (a compile
+error needs no TCC, so it passes headless). The bridge feature itself always worked. Original below.
+
+### (historical) AppleScript / Automation enablement for the test env (2026-07-18)
 
 `AutomationBridgeTests` "timeout defaults to 30s when not specified" fails in the local `swift test`
 env: it runs a real AppleScript (`osascript`) that returns neither the expected `"hello"` nor an
