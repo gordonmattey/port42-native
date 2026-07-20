@@ -47,7 +47,9 @@ struct BridgeCloseOutTests {
     func helpInRegistry() async throws {
         let w = try makeParityWorld()
         let help = try #require(w.registry["help"], "help must join the registry")
-        #expect(!help.toolExposed, "help is a surface affordance, not an LLM tool")
+        // Flipped tool-exposed with topics (GM decision 2026-07-19, knowledge item B): help is the
+        // one lazy-load mechanism for platform knowledge, for companions too.
+        #expect(help.toolExposed, "help is an LLM tool since the knowledge-distribution arc")
         let value = try await help.run(w.principal, BridgeArgs([:]))
         guard case let .string(text) = value else {
             Issue.record("help should return the API reference text")

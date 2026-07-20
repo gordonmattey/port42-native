@@ -810,9 +810,25 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     // help: the API reference, GENERATED from the registry (close-out step 4c) — the conceptual
     // preamble is the llms-preamble.txt resource, the inventory renders from the live registries.
     // A surface affordance for port JS and the gateway, not an LLM tool.
-    r["help"] = BridgeMethod(permission: nil, toolExposed: false,
-        description: "Return this API reference.") { _, _ in
-        .string(appState.apiReference)
+    // Tool-exposed (GM decision 2026-07-19): help with topics is the ONE lazy-load mechanism for
+    // platform knowledge on every surface — an in-app companion pulls the port-craft manual the
+    // same way Claude Code, Codex, or a curl caller would, instead of carrying it resident.
+    r["help"] = BridgeMethod(permission: nil, paramNames: ["topic"],
+        description: "Return the Port42 API reference. Pass topic:\"ports\" for the port-authoring manual (read it BEFORE building or editing a port: sizing, module-scope, patterns, the design system). No topic returns the full method reference.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "topic": ["type": "string", "description": "Optional. \"ports\" = the port-authoring manual. Omit for the API reference."]
+            ]
+        ]) { _, args in
+        switch args.string("topic") {
+        case nil, "":
+            return .string(appState.apiReference)
+        case "ports":
+            return .string(AppState.portsContext)
+        case let other?:
+            throw BridgeError(code: "not_found", message: "unknown help topic '\(other)' — known topics: ports")
+        }
     }
 
     r["user.get"] = BridgeMethod(permission: nil,

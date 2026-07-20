@@ -93,9 +93,10 @@ struct BridgeSchemaParityTests {
         // Coverage: every ToolDefinitions tool is either checked or explicitly hybrid-only. No silent skip.
         #expect(checked == defs.count - Self.hybridOnlyTools.count,
                 "checked \(checked) but expected \(defs.count - Self.hybridOnlyTools.count) (defs \(defs.count) minus hybrid \(Self.hybridOnlyTools.count))")
-        // 57 = the full golden: 52 original + rest_call (item 4) + the 4 browser tools (item 5).
+        // 58 = the full golden: 52 original + rest_call (item 4) + the 4 browser tools (item 5)
+        // + help (knowledge item B: tool-exposed with topics, GM decision 2026-07-19).
         // The hybrid list is empty; every golden schema is parity-checked against the generator.
-        #expect(checked == 57, "expected 57 parity-set methods, checked \(checked)")
+        #expect(checked == 58, "expected 58 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

@@ -42,4 +42,37 @@ struct BridgeHelpTests {
         }
         #expect(undescribed.isEmpty, "methods with no description: \(undescribed.sorted())")
     }
+
+    // MARK: - topics (knowledge item B: craft is lazy-loaded through help, on every surface)
+
+    @Test("help('ports') serves the port-craft manual, not the API inventory")
+    @MainActor
+    func helpPortsTopic() async throws {
+        let w = try makeParityWorld()
+        let help = try #require(w.registry["help"])
+        guard case let .string(text) = try await help.run(w.principal, BridgeArgs(["topic": "ports"])) else {
+            Issue.record("help(ports) should return the manual text")
+            return
+        }
+        #expect(text.contains("ONE PORT, TWO PRESENTATIONS"), "the craft manual should lead")
+        #expect(!text.contains("## Available Methods"), "the manual is not the API inventory")
+    }
+
+    @Test("an unknown help topic fails cleanly with the known topics named")
+    @MainActor
+    func unknownTopicFails() async throws {
+        let w = try makeParityWorld()
+        let help = try #require(w.registry["help"])
+        await #expect(throws: BridgeError.self) {
+            _ = try await help.run(w.principal, BridgeArgs(["topic": "definitely-not-a-topic"]))
+        }
+    }
+
+    @Test("help is an LLM tool, so a companion lazy-loads knowledge like any other agent")
+    @MainActor
+    func helpIsATool() throws {
+        let w = try makeParityWorld()
+        #expect(w.registry["help"]?.toolExposed == true,
+                "help must be tool-exposed (GM decision 2026-07-19) — the one mechanism for craft on every surface")
+    }
 }
