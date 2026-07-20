@@ -798,7 +798,8 @@ struct ShellSettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("WORKING DIRECTORY").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary).tracking(2)
                 HStack(spacing: 8) {
-                    Text(space.workingDirectory ?? "~ — pick one for command companions")
+                    // Unset shows the default (home) path, dimmed; an explicit pick shows in full.
+                    Text(space.workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path)
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(space.workingDirectory == nil ? Port42Theme.textSecondary : Port42Theme.textPrimary)
                         .lineLimit(1).truncationMode(.middle)
@@ -891,6 +892,7 @@ struct ShellSettingsView: View {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true   // show the "New Folder" button
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
         panel.message = "Working directory for command companions in #\(space.name)"
