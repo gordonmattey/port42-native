@@ -230,7 +230,10 @@ if $DEV_ISO; then
 D="\$(cd "\$(dirname "\$0")" && pwd)"
 export PORT42_DATA_DIR="$DATA_DIR"
 export PORT42_GATEWAY_PORT="$GW_PORT"
-exec "\$D/$EXEC"
+# Dev observability: NSLog lands in unified logging as <private> (unqueryable), so tee stderr to
+# a real file. tail -f ~/port42-build/$EXEC.log is the dev app's console.
+mkdir -p "\$HOME/port42-build"
+exec "\$D/$EXEC" >> "\$HOME/port42-build/$EXEC.log" 2>&1
 EOF
     chmod +x "$MACOS/$EXEC-Launcher"
     /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $EXEC-Launcher" "$APP/Contents/Info.plist"

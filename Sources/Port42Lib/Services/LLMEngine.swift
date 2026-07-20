@@ -535,6 +535,13 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
                         model: self.currentModel
                     )
                 }
+                // Diagnosis line for the "companion stops mid-thought" reports: a natural end is
+                // stop=end_turn; stop=max_tokens means the reply was TRUNCATED at the cap and the
+                // turn silently finished anyway (no continuation exists yet); tool_use with zero
+                // parsed calls means the stream cut during tool-JSON assembly.
+                NSLog("[Port42:llm] turn finished: stop=%@ toolCalls=%d out=%d in=%d",
+                      self.stopReason ?? "nil", self.pendingToolCalls.count,
+                      self.pendingOutputTokens, self.pendingInputTokens)
                 if self.stopReason == "tool_use", !self.pendingToolCalls.isEmpty {
                     let calls = self.pendingToolCalls.map { (id: $0.id, name: $0.name, input: $0.input) }
                     self.delegate?.llmDidRequestToolUse(calls: calls)
