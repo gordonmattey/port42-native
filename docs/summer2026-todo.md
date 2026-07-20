@@ -90,12 +90,34 @@ be addressable from chat. Today only ports spawned via the companion path get th
 inject/turnComplete loop; an ad-hoc `claude` typed into a plain terminal port has the hooks shim
 (so turnComplete fires) but no space-membership registration and no display identity.
 
-**Shape (to design):** the shim already emits `sessionStarted`; on that event, if the port has no
-companion identity yet, mint an ephemeral companion (name from the session or a default), add it to
-the space roster, and wire the same post gate. Ties to the membership work and to the
-principal/identity model — an ad-hoc CLI is a peer principal that should surface as an agent member.
-Depends on the reply-post bug above being fixed first (no point registering a companion whose
-replies don't post).
+**Unblocked 2026-07-20:** the reply-post bug is fixed, and a plain terminal already passes every
+hook/session/env parameter (hooks socket, space id, per-panel `--session-id`, env-scrub, even the
+baked framing prompt), so `claude` in a dock terminal hooks up mechanically identical to a companion.
+The only gap is identity + registration + arming policy.
+
+**Design (agreed with GM 2026-07-20):**
+
+- **Detection hook:** `sessionStarted` (shim → `GhosttyTerminalController.swift:162`, currently just
+  logs/flushes). On it, if the port has no companion identity, register.
+- **Register =** mint a command `AgentConfig` for the panel, `saveAgent` + `assignAgentToSpace` +
+  `addCompanionToSpace` → roster member, `@`-mentionable.
+- **Arming follows INTENT, not global.** The gate waits for an inject on purpose: a claude terminal
+  fires `turnComplete` on every turn (private commands, exploratory questions, each intermediate
+  tool round), so arm-always would flood chat with the user's private work. Two safe shapes, pick
+  one: (a) **addressable + turns-as-status** — member + mention-gated chat posts, turns surface as
+  lightweight member-strip activity; or (b) **explicit join** — on `sessionStarted` surface a
+  one-click "claude joined #space, add as companion?" affordance (explicit intent, no surprise
+  broadcast). Prefer starting with (b).
+- **Name:** deterministic + stable from the panel/session id (a friendly adjective-animal codename,
+  e.g. "claude · quiet-otter"), so a respawn keeps the name. `basename $PWD` is a fine *label* now
+  that spaces have working dirs, but two terminals in one dir collide, so it is not the identity.
+  **Rename constraint (GM):** a CLI companion's name is baked into `PORT42_COMPANION_PROMPT` at spawn,
+  so renaming the display name later does NOT re-bake the prompt until the terminal restarts. So pick
+  a good name at spawn; a later rename needs a respawn to fully take.
+- **Self-post loop:** a registered companion that posts MUST skip its own messages. The routing-side
+  `isCompanion:true` skip already covers this; keep it watertight when arming is flipped on.
+
+Status: design agreed, not built. First cut = the explicit-join shape.
 
 ---
 
