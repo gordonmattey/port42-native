@@ -82,7 +82,31 @@ agent's own sends come back isCompanion:true, so two CLI agents correctly skip e
 
 ---
 
-## TODO: any `claude` in any terminal port auto-registers as a space companion (2026-07-19, GM)
+## ~~TODO: any `claude` in any terminal port auto-registers as a space companion~~ — FIRST CUT DONE 2026-07-20
+
+**Shipped** (shell-s1, commits 33118f2 + 9d6fb65). The shim emits `sessionStarted` (SessionStart
+hook); on it, a terminal whose name isn't already a named companion auto-registers as a mention-gated
+space companion (roster member + `@`-addressable, but its post gate still arms on inject so private
+turns aren't broadcast), and is removed when the terminal tears down. Names are deterministic
+adjective-animal codenames (`CompanionCodename`, seeded by panel id, stable across respawn); dock
+terminals get one at spawn (a CLI companion's name is baked at spawn, can't re-bake without respawn).
+Live-validated: a claude terminal auto-registered ("witty-lynx"), replied + POSTED when `@`-mentioned,
+and left the roster on close.
+
+**Follow-ups (not done):**
+- **Routing is over-broad:** during the live test the auto-registered companion was injected with a
+  message that mentioned a DIFFERENT companion (`@Maker`), so it replied unbidden. `mentionOnly`
+  should mean "only when I'm named." Tighten `routeMentionsToTerminals` mention matching.
+- **Surfaced-status mode:** option (a) from the design (turns surface as member-strip activity)
+  is not built; only the mention-gated roster membership is.
+- **Explicit-join affordance:** option (b) (a one-click join prompt) is not built; registration is
+  silent-but-mention-gated. Revisit if silent roster entries feel surprising.
+- Boot-time re-register: persisted ad-hoc terminals (clitest/logtest) re-fire SessionStart on restart
+  and re-register; harmless (they clean up on close) but worth confirming it's the desired behavior.
+
+---
+
+## TODO (superseded): any `claude` in any terminal port auto-registers as a space companion (2026-07-19, GM)
 
 **Want:** when a user opens `claude` (or another hooks-capable CLI) in ANY terminal port — not just
 one spawned as a named companion — that live session should appear as a companion in the space and
