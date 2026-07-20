@@ -41,9 +41,11 @@ struct SenderOwnerTests {
 
     @Test("ChatEntry displayName with different owner shows Name@Owner")
     func displayNameWithOwner() {
+        // syncStatus "sent" = a synced/remote entry; the namespace is stripped only for LOCAL
+        // messages (our own companions, syncStatus local/nil), so a remote entry keeps Name@Owner.
         let entry = ChatEntry(
             id: "1", senderName: "Echo", content: "hi",
-            isAgent: true, senderOwner: "Gordon"
+            isAgent: true, senderOwner: "Gordon", syncStatus: "sent"
         )
         #expect(entry.displayName() == "Echo@Gordon")
     }

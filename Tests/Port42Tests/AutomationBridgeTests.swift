@@ -28,24 +28,22 @@ struct AutomationBridgeTests {
 
     // MARK: - Timeout Clamping
 
+    // The timeout LOGIC is tested directly (resolveTimeout), not through a live NSAppleScript run:
+    // a headless test process has no Automation TCC grant, so the live path returns neither a value
+    // nor an error and can't gate this. The real osascript/NSAppleScript path stays live-only.
     @Test("timeout defaults to 30s when not specified")
     @MainActor
-    func defaultTimeout() async {
-        let bridge = AutomationBridge()
-        // Run a trivial AppleScript that returns quickly to verify it works
-        let result = await bridge.runAppleScript(source: "return \"hello\"", opts: [:])
-        // If we get here without timing out at 30s, the default timeout is working
-        #expect(result["result"] as? String == "hello" || result["error"] != nil)
+    func defaultTimeout() {
+        #expect(AutomationBridge().resolveTimeout([:]) == AutomationBridge.defaultTimeout)
     }
 
-    @Test("timeout clamps to max 120s")
+    @Test("timeout clamps to [1, 120]")
     @MainActor
-    func timeoutClamp() async {
+    func timeoutClamp() {
         let bridge = AutomationBridge()
-        // Pass a timeout of 999 which should be clamped to 120
-        // Just verify it doesn't crash; the actual timeout value is internal
-        let result = await bridge.runAppleScript(source: "return \"ok\"", opts: ["timeout": 999])
-        #expect(result["result"] as? String == "ok" || result["error"] != nil)
+        #expect(bridge.resolveTimeout(["timeout": 999]) == AutomationBridge.maxTimeout)  // clamp high
+        #expect(bridge.resolveTimeout(["timeout": 0]) == 1)                               // clamp low
+        #expect(bridge.resolveTimeout(["timeout": 45]) == 45)                             // in range
     }
 
     // MARK: - Error Handling

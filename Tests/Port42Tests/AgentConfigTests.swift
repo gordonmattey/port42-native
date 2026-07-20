@@ -323,7 +323,9 @@ struct AgentConfigTests {
         // per-(space,companion)), so --continue would both duplicate that and conflict with a
         // pinned session id (docs/plan-companion-cwd.md).
         #expect(preset.args == [])
-        #expect(!preset.systemPrompt.isEmpty)
+        // systemPrompt is empty BY DESIGN — the operational space framing is baked at spawn
+        // (bakeCompanionPrompt), not carried by the preset. The user only adds extra personality.
+        #expect(preset.systemPrompt.isEmpty)
         #expect(preset.displayName == "claude")
     }
 
@@ -331,7 +333,7 @@ struct AgentConfigTests {
     func geminiPreset() {
         let preset = AgentConfig.CLIPreset.gemini
         #expect(preset.args == [])
-        #expect(!preset.systemPrompt.isEmpty)
+        #expect(preset.systemPrompt.isEmpty)   // empty by design (framing baked at spawn)
         #expect(preset.displayName == "gemini")
     }
 

@@ -7,11 +7,13 @@ import Foundation
 @MainActor
 public final class AutomationBridge {
 
-    private static let defaultTimeout: TimeInterval = 30
-    private static let maxTimeout: TimeInterval = 120
+    static let defaultTimeout: TimeInterval = 30
+    static let maxTimeout: TimeInterval = 120
 
-    /// Clamp timeout from opts dict to [1...maxTimeout], defaulting to defaultTimeout.
-    private func resolveTimeout(_ opts: [String: Any]) -> TimeInterval {
+    /// Clamp timeout from opts dict to [1...maxTimeout], defaulting to defaultTimeout. Internal so
+    /// the timeout logic is unit-testable directly, without the live NSAppleScript/osascript path
+    /// (which returns nothing useful in a headless test process with no Automation TCC grant).
+    func resolveTimeout(_ opts: [String: Any]) -> TimeInterval {
         guard let raw = opts["timeout"] as? Int else { return Self.defaultTimeout }
         return min(max(TimeInterval(raw), 1), Self.maxTimeout)
     }

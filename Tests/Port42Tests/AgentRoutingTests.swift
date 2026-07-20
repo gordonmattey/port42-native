@@ -85,37 +85,36 @@ struct AgentRoutingTests {
         #expect(targets.isEmpty)
     }
 
-    @Test("All-messages agent receives everything")
-    func allMessagesAgent() {
-        let agents = [
-            makeAgent(name: "watcher", trigger: .allMessages),
-        ]
+    // findTargetAgents is now membership/mention-based: a no-mention message targets the space's
+    // MEMBERS (spaceAgentIds), and the .mentionOnly/.allMessages trigger no longer gates it here —
+    // trigger selection moved up into the AppState pipeline (initiative exclusion + the LLM router).
+    @Test("A no-mention message targets the space's members")
+    func noMentionTargetsSpaceMembers() {
+        let watcher = makeAgent(name: "watcher", trigger: .allMessages)
         let targets = AgentRouter.findTargetAgents(
             content: "hello everyone",
-            agents: agents
+            agents: [watcher],
+            spaceAgentIds: [watcher.id]
         )
         #expect(targets.count == 1)
         #expect(targets.first?.displayName == "watcher")
     }
 
-    @Test("Mixed trigger modes route correctly")
-    func mixedTriggerModes() {
-        let agents = [
-            makeAgent(name: "ai-engineer", trigger: .mentionOnly),
-            makeAgent(name: "watcher", trigger: .allMessages),
-        ]
+    @Test("Mentions match by name; a no-mention message falls back to all space members")
+    func mentionAndMembershipRouting() {
+        let engineer = makeAgent(name: "ai-engineer", trigger: .mentionOnly)
+        let watcher = makeAgent(name: "watcher", trigger: .allMessages)
+        let agents = [engineer, watcher]
+        let members: Set<String> = [engineer.id, watcher.id]
 
-        // Message without mention: only watcher (allMessages trigger)
-        let targets1 = AgentRouter.findTargetAgents(content: "hello", agents: agents)
-        #expect(targets1.count == 1)
-        #expect(targets1.first?.displayName == "watcher")
+        // No mention → every space member is a candidate (who actually speaks is decided upstream).
+        let noMention = AgentRouter.findTargetAgents(content: "hello", agents: agents, spaceAgentIds: members)
+        #expect(Set(noMention.map { $0.displayName }) == ["ai-engineer", "watcher"])
 
-        // Message with explicit mention: only the mentioned agent responds
-        let targets2 = AgentRouter.findTargetAgents(
-            content: "@ai-engineer hello", agents: agents
-        )
-        #expect(targets2.count == 1)
-        #expect(targets2.first?.displayName == "ai-engineer")
+        // Explicit mention → only the mentioned agent, regardless of membership or trigger.
+        let mentioned = AgentRouter.findTargetAgents(content: "@ai-engineer hello", agents: agents, spaceAgentIds: members)
+        #expect(mentioned.count == 1)
+        #expect(mentioned.first?.displayName == "ai-engineer")
     }
 
     @Test("Multiple agents mentioned")
