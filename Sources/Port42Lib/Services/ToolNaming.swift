@@ -120,6 +120,7 @@ public enum ToolNaming {
         "files.read": "fs.read",
         "files.write": "fs.write",
         "files.pick": "fs.pick",
+        "-h": "help",
     ]
 
     /// Resolve any incoming dotted name (canonical or alias) to its canonical form.

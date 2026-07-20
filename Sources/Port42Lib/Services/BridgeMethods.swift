@@ -784,6 +784,8 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
 @MainActor
 private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppState) {
 
+    // (Shared helpers stay ABOVE the first method entry: the Spike B source scan attributes
+    // preamble reads to every method in the segment.)
     func targetSpace(_ p: Principal, _ args: BridgeArgs) -> String {
         args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
     }
@@ -791,6 +793,16 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         if let override = args.string("senderName") ?? args.string("sender_name"), !override.isEmpty { return override }
         if p.kind == .companion, let c = appState.companions.first(where: { $0.id == p.id }) { return c.displayName }
         return appState.currentUser?.displayName ?? "agent"
+    }
+
+    // help: the full API reference from the bundled llms.txt (becomes a generated artifact with
+    // the ToolNaming flip). A surface affordance for port JS and the gateway, not an LLM tool.
+    r["help"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
+        if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            return .string(text)
+        }
+        return .string("API reference unavailable")
     }
 
     r["user.get"] = BridgeMethod(permission: nil,
