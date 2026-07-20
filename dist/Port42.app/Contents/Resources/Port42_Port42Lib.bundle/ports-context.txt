@@ -1,6 +1,14 @@
-PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Ports render as live interactive surfaces in the user's chat.
+PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence (the shorthand for including a web port in a reply — it becomes a registered port), or imperatively with port_create({type:"web", html}) / port_create({type:"terminal", command}) — the uniform primitive that also makes native terminals. Ports render as live interactive surfaces in the user's chat.
+
+ONE PORT, TWO PRESENTATIONS: every port is the same registered entity (one id, one live surface) whether shown inline in chat or as a TILE on the shell desktop. Popping a port out (port_manage(id,'undock')) re-parents the SAME live surface onto the desktop with no reload — DOM/JS state is preserved. A desktop-resident port's chat anchor shows an "on the desktop" reference card so it keeps its place in the conversation; clicking the card focuses its tile.
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
+
+SCRIPTS RUN AS ES MODULES: every <script> in a port executes as a module. Top-level await works
+directly (no wrapper needed). The trap: module declarations are NOT window globals, so inline
+handler attributes like onclick="doThing()" CANNOT see your functions and fail with
+"Can't find variable". Attach handlers with addEventListener (see the pattern below), or expose a
+function explicitly with window.doThing = doThing. Never use inline onclick/onchange attributes.
 
 VERSIONING: Always include a <title> and a version meta tag in every port. The <title> sets the initial display name and is used as a fallback — call port42.port.setTitle() from JS to set or update the name at runtime (preferred for dynamic titles). The version is shown alongside your name so the user can see which revision is running. Start at 1 and increment each time you update a port.
 
@@ -39,10 +47,10 @@ STATEFUL APP PATTERN — use this structure for any port with persistent state:
     await port42.storage.set('state', state);
   }
 
-  // 3. Load — call once on init
+  // 3. Load — call once on init (storage.get returns { value })
   async function load() {
-    const saved = await port42.storage.get('state');
-    if (saved) state = saved;
+    const { value } = await port42.storage.get('state');
+    if (value) state = value;
   }
 
   // 4. Render — pure function, always called after state changes
@@ -130,8 +138,8 @@ COMPLETE WORKING EXAMPLE — stateful todo port with persistence:
 
   async function load() {
     try {
-      const saved = await port42.storage.get('tasks-state');
-      if (saved && Array.isArray(saved.items)) state = saved;
+      const { value } = await port42.storage.get('tasks-state');
+      if (value && Array.isArray(value.items)) state = value;
     } catch(e) {}
   }
 
@@ -238,8 +246,8 @@ COMPLETE WORKING EXAMPLE — stateful todo port with persistence:
 
   // ── init ───────────────────────────────────────────────────────────
   try {
-    const channel = await port42.channel.current();
-    if (channel) document.getElementById('title').textContent = channel.name + ' / tasks';
+    const space = await port42.space.current();
+    if (space) document.getElementById('title').textContent = space.name + ' / tasks';
     await load();
     render();
   } catch(e) {
@@ -256,27 +264,27 @@ IMPORTANT: Ports have bridge APIs that connect to live app data. ALWAYS use thes
 BRIDGE API REFERENCE:
 
   port42.companions.list()
-    Returns: [{id, name, model, isActive}]
+    Returns: [{id, name, model, trigger}]
     Lists all companions in this port42 instance.
 
   port42.companions.get(id)
-    Returns: {id, name, model, isActive} or null
-    Get a single companion by ID.
+    Returns: {id, name, model, systemPrompt}
+    Get a single companion by ID. Rejects if the companion is not found.
 
   port42.companions.invoke(id, prompt, options?)
-    Invoke a companion's AI from within a port. The companion sees recent channel
+    Invoke a companion's AI from within a port. The companion sees recent space
     conversation as context. Response is port-private (does NOT appear in chat).
     The companion is NOT notified or aware it was invoked.
     id: companion ID or display name (case-insensitive)
     prompt: the question or instruction for the companion
     options: {onToken: fn, onDone: fn}
-    Returns: the full response text (string)
+    Returns: { text }, the full response text in .text (onDone receives the same { text } object)
     Requires AI permission (prompted on first use per session).
 
     Example:
       const analysis = await port42.companions.invoke("sage", "what patterns do you see?", {
           onToken: (token) => { output.textContent += token; },
-          onDone: (full) => { console.log("done:", full.length, "chars"); }
+          onDone: (r) => { console.log("done:", r.text.length, "chars"); }
       });
 
     Multi-companion pattern (no special API needed):
@@ -287,28 +295,29 @@ BRIDGE API REFERENCE:
       );
 
   port42.user.get()
-    Returns: {id, name}
+    Returns: {id, displayName}
     Get the current user.
 
   port42.messages.recent(n)
-    Returns: [{id, sender, content, timestamp, isCompanion}]
-    Get the last n messages from the current channel (default 20).
+    Returns: [{sender, content, timestamp}]
+    Get the last n messages from the current space (default 20).
 
-  port42.messages.send(text, channel_id?)
-    Sends a message and triggers companions. Defaults to the current channel.
-    Pass a channel_id to target a specific channel (e.g. from channel.list).
+  port42.messages.send(text, space_id?)
+    Sends a message and triggers companions. Defaults to the current space.
+    Pass a space_id to target a specific space (e.g. from space.list).
 
-  port42.channel.current()
-    Returns: {id, name, type, members: [{name, type}]} or null
-    Get the current channel or swim session context. type is 'channel' or 'swim'.
-    members includes both humans and companions with their type ('human' or 'agent').
+  port42.space.current()
+    Returns: {id, name, type, memberCount, members: [{id, name, type, owner, qualifiedName}]}
+    Get the current space context. type is the space type — e.g. 'direct' for a 1:1 DM, 'team'.
+    Pass space_id to inspect any space. members includes humans and companions ('human'/'agent').
+    Rejects if there is no space context.
 
-  port42.channel.list()
-    Returns: [{id, name, type, isCurrent}]
-    List all channels the user belongs to.
+  port42.space.list()
+    Returns: [{id, name}]
+    List all spaces the user belongs to.
 
-  port42.channel.switchTo(id)
-    Switches the app to the given channel by ID. Returns {ok: true} or {error: ...}.
+  port42.space.switchTo(id)
+    Switches the app to the given space by ID. Returns {ok: true}; rejects on an unknown id.
 
   port42.on(event, callback)
     Subscribe to live events. Events:
@@ -331,11 +340,9 @@ BRIDGE API REFERENCE:
   port42.viewport.on('resize', callback)
     Fires when the port is resized. Callback receives { width, height }.
     Use this to reflow content when the port changes size.
-    Terminal ports MUST listen to this and call port42.terminal.resize()
-    with recalculated cols/rows when the viewport changes.
 
   port42.port.info()
-    Returns: {messageId, createdBy, channelId}
+    Returns: {messageId, createdBy, spaceId}
     Get metadata about this port (which message spawned it, which companion created it).
 
   port42.port.setTitle(title)
@@ -362,7 +369,7 @@ BRIDGE API REFERENCE:
     Resize this port to the given width and height in pixels.
 
   port42.port.move(id, x, y)
-    Move a floating port window to the given screen coordinates.
+    Move a port's tile to the given desktop coordinates.
     Returns: {ok: true}
 
     COORDINATE SYSTEM: macOS uses bottom-left origin. Y=0 is the bottom of the screen.
@@ -371,20 +378,20 @@ BRIDGE API REFERENCE:
     Use port42.screen.displays() to get display bounds for positioning.
 
   port42.port.position(id)
-    Get the current position and size of a floating port window.
-    Returns: {x, y, width, height} in screen points, or {error} if not floating.
+    Get the current position and size of a port's tile.
+    Returns: {x, y, width, height} in desktop points; rejects if it has no position yet.
     Y is in macOS coordinates (0 = bottom of screen, increases upward).
 
   port42.ports.list(opts?)
     Returns: [{id, title, capabilities, status, createdBy, cwd?, x?, y?}]
     List all active ports. opts: { capabilities: ['terminal'] } to filter.
-    status is 'floating', 'docked', or 'inline'. Use id for all subsequent calls.
+    status is 'tiled', 'parked', 'docked', or 'inline'. Use id for all subsequent calls.
     cwd is present on ports with an active terminal session (updated in real-time via OSC 7).
     capabilities merges stored (from setCapabilities) and auto-detected (terminal, etc).
-    x, y are present for floating/docked ports (screen coordinates of the window origin).
+    x, y are present for positioned ports (desktop coordinates of the tile origin).
 
   port42.port.update(id, html)
-    Replace a port's full HTML. Returns true on success.
+    Replace a port's full HTML. Returns {ok: true} on success.
     Always call port42.port.getHtml(id) first — never guess at current state.
 
   port42.port.getHtml(id, version?)
@@ -392,7 +399,7 @@ BRIDGE API REFERENCE:
 
   port42.port.patch(id, search, replace)
     Targeted string replacement — safer than update for bug fixes.
-    Errors if search string not found. Returns true on success.
+    Rejects if the search string is not found. Returns {ok: true} on success.
 
   port42.port.history(id)
     Returns: [{version, createdBy, createdAt}]
@@ -401,9 +408,12 @@ BRIDGE API REFERENCE:
   port42.port.manage(id, action)
     action: 'focus' | 'close' | 'dock' | 'undock'
     Manage another port's window state. Returns {ok: true}.
+    'undock' on an INLINE port pops it out onto the desktop as a tile by re-parenting its
+    live surface (no reload — DOM/JS state is preserved). 'undock' on a backgrounded
+    port restores it to the desktop. 'dock' backgrounds a port (off the desktop, still running).
 
   port42.port.restore(id, version)
-    Restore a port to a specific earlier version. Returns true on success.
+    Restore a port to a specific earlier version. Returns {ok: true} on success.
 
   port42.port.push(id, data)
     Push data to a live port via CustomEvent. The target port receives a 'port42:data'
@@ -423,7 +433,7 @@ BRIDGE API REFERENCE:
     Execute arbitrary JavaScript on another port's webview context.
     id: port UDID (from ports.list)
     js: JavaScript string to evaluate
-    Returns: the result of the evaluation (or null)
+    Returns: the result of the evaluation, or {ok: true} if the JS returns nothing
 
   port42.rest.call(url, opts?)
     Make an HTTP request with optional secret injection from the host's Keychain.
@@ -434,12 +444,12 @@ BRIDGE API REFERENCE:
     Returns: { status, headers, body }
     Requires REST permission.
 
-  port42.creases.read(opts?)
-    Read relationship creases (only available in a swim).
-    Returns: [{id, content, weight, prediction?, actual?, createdAt}]
+  port42.creases.read(limit?)
+    Read relationship creases (space-scoped — keyed by the current space; richest in a 1:1 DM).
+    Returns: a text listing, one crease per line ("[id] ..."), or a notice when none exist yet.
 
   port42.creases.write(content, opts?)
-    Write a new crease. opts: { prediction, actual, channelId }
+    Write a new crease. opts: { prediction, actual, spaceId }
     Returns: {id, ok: true}
 
   port42.creases.touch(id)
@@ -449,20 +459,34 @@ BRIDGE API REFERENCE:
     Remove a crease.
 
   port42.fold.read()
-    Read the fold — orientation in this relationship (only in a swim).
+    Read the fold — orientation in this relationship (space-scoped — keyed by the current space).
     Returns: {established, tensions, holding, depth}
 
   port42.fold.update(opts)
     Update fold state. opts: { established, tensions, holding, depthDelta }
-    Always writes to the swim channel (canonical relationship state).
+    Writes to the current space's relationship state.
 
   port42.position.read()
-    Read current position (only in a swim).
-    Returns: {read, stance, watching}
+    Read current position (space-scoped — keyed by the current space).
+    Returns: {read, stance, watching, confidence}, or a text notice when no position is set yet.
 
   port42.position.set(read, opts?)
     Set position. opts: { stance, watching }
-    Always writes to the swim channel.
+    Writes to the current space's relationship state.
+
+  port42.engravings.read(limit?)
+    Read factual knowledge about the user's world (space-scoped — keyed by the current space; richest in a 1:1 DM).
+    Returns: a text listing, one engraving per line ("[id] ..."), or a notice when none exist yet.
+
+  port42.engravings.write(content, opts?)
+    Carve an engraving — a fact about their situation worth keeping.
+    opts: { category, spaceId }  category: context | preference | constraint | goal | capability
+
+  port42.engravings.touch(id)
+    Mark an engraving as active — updates recency and weight.
+
+  port42.engravings.forget(id)
+    Remove an engraving.
 
 AI API REFERENCE:
 
@@ -480,10 +504,10 @@ AI API REFERENCE:
         maxTokens: number,    // max response tokens (optional, default 4096)
         images: [string],     // optional array of base64 PNG/JPEG strings for vision
         onToken: fn,          // called with each token as it streams (optional)
-        onDone: fn            // called with the full response text on completion (optional)
+        onDone: fn            // called with the { text } result object on completion (optional)
     }
     Use port42.ai.models() to get the list of available models.
-    Returns: the full response text (string)
+    Returns: { text }, the full response text in .text
     Throws: Error if permission denied or API fails
     Requires AI permission (prompted on first use per session).
 
@@ -492,16 +516,16 @@ AI API REFERENCE:
     port42.screen.capture() or port42.clipboard.read() for vision workflows.
 
     Example (text only):
-      const summary = await port42.ai.complete("summarize this data: " + JSON.stringify(data), {
+      const { text: summary } = await port42.ai.complete("summarize this data: " + JSON.stringify(data), {
           model: "claude-sonnet-4-6",
           systemPrompt: "Be concise. Respond in bullet points.",
           onToken: (token) => { output.textContent += token; }
       });
 
-    Example (vision with screenshot):
-      const screenshot = await port42.screen.capture({ scale: 0.5 });
-      const description = await port42.ai.complete("Describe what you see on screen.", {
-          images: [screenshot.image],
+    Example (vision with screenshot; screen.capture returns the base64 PNG string):
+      const screenshot = await port42.screen.capture(0.5);
+      const { text: description } = await port42.ai.complete("Describe what you see on screen.", {
+          images: [screenshot],
           onToken: (token) => { output.textContent += token; }
       });
 
@@ -515,9 +539,10 @@ PERMISSIONS:
   Once granted, permission persists for the port's lifetime (until closed/reopened).
   Both APIs share the same ".ai" permission grant.
 
-RESILIENCE: All bridge APIs are async and can return null. Wrap your init in try/catch
-so one failed call doesn't kill the whole port. If an API returns null, degrade gracefully
-(show "unavailable" instead of crashing). channel.current() returns null in some contexts.
+RESILIENCE: All bridge APIs are async, and a failed call REJECTS its promise (there is no
+resolved {error} convention). Wrap your init in try/catch so one failed call doesn't kill
+the whole port, and degrade gracefully (show "unavailable" instead of crashing).
+space.current() rejects when there is no space context.
 
 ERRORS: console.log/error/warn are piped to the native app log. Use console.error() to
 report problems. Unhandled exceptions and promise rejections are also captured. If your
@@ -530,24 +555,24 @@ EXAMPLE PORT:
 <script>
   const app = document.getElementById('app');
   try {
-    const [user, companions, channel] = await Promise.all([
+    const [user, companions, space] = await Promise.all([
       port42.user.get(),
       port42.companions.list(),
-      port42.channel.current()
+      port42.space.current()
     ]);
 
     app.innerHTML = '';
 
     // Greet user
     const h = document.createElement('div');
-    h.textContent = (user?.name || 'you') + ' + ' + companions.map(c => c.name).join(', ');
+    h.textContent = (user?.displayName || 'you') + ' + ' + companions.map(c => c.name).join(', ');
     h.style.color = '#00ff41';
     app.appendChild(h);
 
-    // Show context (may be null in some views)
-    if (channel) {
+    // Show context (space.current rejects when there is no space; caught below)
+    if (space) {
       const ch = document.createElement('div');
-      ch.textContent = 'in #' + channel.name;
+      ch.textContent = 'in #' + space.name;
       ch.style.opacity = '0.5';
       app.appendChild(ch);
     }
@@ -599,176 +624,51 @@ Use ports when asked to build something interactive, create a dashboard, visuali
 
   port42.storage.set(key, value, options?)
     Persist data for this port. Value can be any JSON-serializable type (string, number,
-    object, array). By default storage is scoped per-companion per-channel and survives
-    app restarts. Pass {scope: 'global'} to store data accessible from any channel.
-    Returns: true on success.
+    object, array). By default storage is scoped per-companion per-space and survives
+    app restarts. Pass {scope: 'global'} to store data accessible from any space.
+    Returns: {ok: true} on success.
 
   port42.storage.get(key, options?)
-    Retrieve a previously stored value. Returns the value (parsed from JSON) or null.
+    Retrieve a previously stored value. Returns {value}: the stored value (parsed from
+    JSON) in .value, or {value: null} if the key is missing.
     Pass {scope: 'global'} to read from global storage.
     Use this to load saved state when the port initializes.
 
   port42.storage.delete(key, options?)
     Remove a stored key. Pass {scope: 'global'} for global storage.
-    Returns: true on success.
+    Returns: {ok: true} on success.
 
   port42.storage.list(options?)
     List all storage keys for this port. Pass {scope: 'global'} for global keys.
-    Returns: [key1, key2, ...]
+    Returns: {keys: [key1, key2, ...]}
 
 STORAGE SCOPING:
   Storage has two independent axes:
-  - scope: 'channel' (default) or 'global' — controls whether data is per-channel or cross-channel
+  - scope: 'space' (default) or 'global' — controls whether data is per-space or cross-space
   - shared: false (default) or true — controls whether data is per-companion or shared across all companions
 
   This gives four combinations:
-  - {} (default): per-companion, per-channel (private to this companion in this channel)
-  - {scope: 'global'}: per-companion, all channels (companion's own data everywhere)
-  - {shared: true}: all companions, per-channel (collaborative data in this channel)
-  - {scope: 'global', shared: true}: all companions, all channels (app-wide shared data)
+  - {} (default): per-companion, per-space (private to this companion in this space)
+  - {scope: 'global'}: per-companion, all spaces (companion's own data everywhere)
+  - {shared: true}: all companions, per-space (collaborative data in this space)
+  - {scope: 'global', shared: true}: all companions, all spaces (app-wide shared data)
 
-STORAGE EXAMPLE:
-  // Channel-scoped, private (default) — only this companion in this channel
+STORAGE EXAMPLE (get returns {value}, destructure it):
+  // Space-scoped, private (default) — only this companion in this space
   await port42.storage.set('count', 42);
-  const count = await port42.storage.get('count'); // 42
+  const { value: count } = await port42.storage.get('count'); // 42
 
-  // Global, private — this companion across all channels
+  // Global, private — this companion across all spaces
   await port42.storage.set('preferences', {fontSize: 14}, {scope: 'global'});
-  const prefs = await port42.storage.get('preferences', {scope: 'global'});
+  const { value: prefs } = await port42.storage.get('preferences', {scope: 'global'});
 
-  // Channel-scoped, shared — any companion's port in this channel can read/write
+  // Space-scoped, shared — any companion's port in this space can read/write
   await port42.storage.set('game-state', {turn: 3, board: [...]}, {shared: true});
-  const game = await port42.storage.get('game-state', {shared: true});
+  const { value: game } = await port42.storage.get('game-state', {shared: true});
 
   // Global, shared — any companion anywhere can read/write
   await port42.storage.set('high-scores', [...], {scope: 'global', shared: true});
-  const scores = await port42.storage.get('high-scores', {scope: 'global', shared: true});
-
-TERMINAL API REFERENCE:
-
-  port42.terminal.spawn(opts?)
-    Start a shell session inside the port. Returns {sessionId}.
-    opts: {shell?: string, cwd?: string, cols?: number, rows?: number, env?: object}
-    Defaults: shell="/bin/zsh", cols=80, rows=24, cwd=home directory
-    Requires terminal permission (prompted on first use per session).
-
-    IMPORTANT: Always set cwd to the relevant project directory when the user
-    mentions a project or path. If the user says "open a terminal in my project"
-    or "launch claude in ~/Code/myapp", pass that path as cwd.
-
-  port42.terminal.send(sessionId, data)
-    Send keystrokes/commands to the terminal's stdin.
-    data is a string. IMPORTANT: append "\r" for Enter.
-    Special keys: "\r" = Enter, "\x03" = Ctrl+C, "\x1b" = Escape, "\t" = Tab.
-
-    To run a command after spawn, use send(sessionId, "command here\r").
-    You can chain commands: send(sessionId, "cd ~/project && npm start\r").
-    Wait briefly after spawn before sending commands so the shell is ready.
-
-  port42.terminal.resize(sessionId, cols, rows)
-    Resize the terminal to the given dimensions.
-
-  port42.terminal.kill(sessionId)
-    Terminate the shell process (SIGTERM then SIGKILL).
-
-  port42.terminal.cwd(sessionId)
-    Returns the current working directory of the terminal session, or null if not yet known.
-    CWD is updated automatically when the shell emits OSC 7 sequences (modern zsh/bash do this
-    on every prompt). Returns: {cwd: '/path/to/dir'} or {cwd: null}.
-
-  port42.terminal.on('output', callback)
-    Stream stdout/stderr from the terminal. Callback receives {sessionId, data}.
-    data is a string that may contain ANSI escape sequences for colors, cursor
-    movement, etc. Use an ANSI-aware renderer to display it.
-
-  port42.terminal.on('cwd', callback)
-    Fires when the terminal's working directory changes (OSC 7 sequence received).
-    Callback receives {sessionId, cwd}. Use to update port title dynamically:
-      port42.terminal.on('cwd', ({cwd}) => port42.port.setTitle(cwd.split('/').pop() || '/'));
-
-  port42.terminal.on('exit', callback)
-    Fires when the process terminates. Callback receives {sessionId, code}.
-
-  port42.terminal.loadXterm()
-    Loads the bundled xterm.js terminal emulator library. Returns the Terminal
-    class. Use this for full terminal rendering with ANSI colors, cursor movement,
-    and TUI app support (vim, htop, claude, etc).
-
-TERMINAL PATTERNS:
-
-  Starting a terminal in a specific directory:
-    const result = await port42.terminal.spawn({cwd: '/Users/gordon/Code/myapp', cols, rows});
-
-  Running a command on startup (wait for shell to be ready):
-    const result = await port42.terminal.spawn({cwd: '/path/to/project', cols, rows});
-    const sessionId = result.sessionId;
-    setTimeout(() => {
-      port42.terminal.send(sessionId, 'claude\r');
-    }, 500);
-
-  Running a TUI app (claude, vim, htop, etc):
-    Spawn with cwd set to the project directory, then send the command with \r.
-    The xterm.js renderer handles all ANSI escape sequences, colors, and cursor
-    movement automatically. TUI apps work out of the box.
-
-  Launching Claude Code in a project:
-    const result = await port42.terminal.spawn({
-      cwd: '/Users/gordon/Code/myapp',
-      cols, rows
-    });
-    setTimeout(() => {
-      port42.terminal.send(result.sessionId, 'claude\r');
-    }, 500);
-
-TERMINAL PORT EXAMPLE:
-
-```port
-<title>Terminal</title>
-<div id="terminal" style="width:100%;height:100vh;"></div>
-<script>
-  const Terminal = await port42.terminal.loadXterm();
-  const term = new Terminal({
-    fontSize: 13,
-    fontFamily: '"SF Mono", "Fira Code", monospace',
-    theme: { background: '#111', foreground: '#e0e0e0', cursor: '#00ff41', selectionBackground: '#00ff4133' },
-    cursorBlink: true,
-    convertEol: true
-  });
-  term.open(document.getElementById('terminal'));
-
-  const cols = term.cols;
-  const rows = term.rows;
-
-  // Set cwd to the relevant directory when the user specifies one
-  const result = await port42.terminal.spawn({cols, rows});
-  const sessionId = result.sessionId;
-
-  port42.terminal.on('output', (e) => {
-    if (e.sessionId === sessionId) term.write(e.data);
-  });
-
-  port42.terminal.on('exit', (e) => {
-    if (e.sessionId === sessionId) term.write('\r\n[exited with code ' + e.code + ']');
-  });
-
-  term.onData((data) => port42.terminal.send(sessionId, data));
-  term.onResize(({cols, rows}) => port42.terminal.resize(sessionId, cols, rows));
-
-  // Reflow terminal when port is resized
-  port42.viewport.on('resize', () => {
-    const container = document.getElementById('terminal');
-    const cellWidth = term._core._renderService.dimensions.css.cell.width;
-    const cellHeight = term._core._renderService.dimensions.css.cell.height;
-    if (cellWidth && cellHeight) {
-      const newCols = Math.floor(container.clientWidth / cellWidth);
-      const newRows = Math.floor(container.clientHeight / cellHeight);
-      if (newCols > 0 && newRows > 0) term.resize(newCols, newRows);
-    }
-  });
-
-  term.focus();
-</script>
-```
+  const { value: scores } = await port42.storage.get('high-scores', {scope: 'global', shared: true});
 
 ## Clipboard API
 
@@ -810,12 +710,13 @@ Security: Only paths explicitly chosen by the user via the picker are accessible
 
 ### File Drop
 
-  Ports accept file drops from Finder. Triggers filesystem permission on first drop.
+  Ports accept file drops from Finder. The drop itself needs no permission (it's an explicit
+  user gesture); reading a dropped file's contents still requires fs.read (filesystem permission).
 
-  port42.fs.onFileDrop(async (files) => {
-    // files is an array of { path, name, size, isDirectory }
-    for (const file of files) {
-      const {data} = await port42.fs.read(file.path);
+  port42.fs.onFileDrop(async (paths) => {
+    // paths is an array of absolute path strings
+    for (const path of paths) {
+      const {data} = await port42.fs.read(path);
       // ... process file
     }
   });
@@ -893,27 +794,13 @@ System-level permission is managed in System Settings > Privacy & Security > Scr
     List visible windows. Returns {windows: [{id, title, app, bundleId, bounds}]}.
     bounds is {x, y, width, height} in screen points.
     Filters out tiny windows (menu bar items, etc).
-    Use the id with screen.capture({windowId: id}) to capture a specific window.
 
-  port42.screen.capture(opts?)
-    Capture a screenshot. Returns {image, width, height}.
-    opts: {
-      scale?: 1.0,              // output resolution multiplier (0.1 to 2.0)
-      windowId?: number,         // capture a specific window (from screen.windows())
-      region?: {x, y, width, height},  // capture a specific area in screen points
-      displayId?: number,        // specific display (omit for main display)
-      includeSelf?: false        // include Port42's own windows in the capture
-    }
-    image is a base64-encoded PNG string.
-    width and height are the pixel dimensions of the captured image.
+  port42.screen.capture(scale?)
+    Capture a screenshot of the main display. Returns the base64-encoded PNG string
+    itself (not an object). scale is an output resolution multiplier (0.1 to 2.0,
+    default 1.0). Port42's own windows are excluded from the capture so you get a
+    clean view of what's behind the app.
     Requires screen capture permission (prompted on first use per session).
-
-    When windowId is provided, captures just that window with a transparent background.
-    Otherwise captures the full display (or region of it).
-
-    By default Port42's own windows are excluded from the capture so you get
-    a clean view of what's behind the app. Set includeSelf: true to capture
-    Port42 itself (useful for screenshots of ports or the full desktop layout).
 
   port42.screen.stream(opts?)
     Start continuous screen streaming. Frames pushed as screen.frame events.
@@ -931,9 +818,9 @@ System-level permission is managed in System Settings > Privacy & Security > Scr
   port42.screen.on('frame', callback)
     Receive streaming frames: {image, width, height, format: 'jpeg'}.
 
-  Use screen.windows() to list windows, then screen.capture({windowId: id}) for
-  window-level capture. Use screen.stream() for continuous monitoring.
-  Combine with ai.complete({images: [result.image]}) for vision workflows.
+  Use screen.stream() for continuous monitoring (its opts still support windowId).
+  Combine with ai.complete({images: [screenshot]}) for vision workflows: capture
+  returns the base64 string directly; stream frames carry it in .image.
   Always pass images via the images option, NOT as text in the prompt.
 
 ## Browser API
@@ -991,17 +878,16 @@ BROWSER UX TIPS:
 
 ## Automation API
 
-port42.automation.runAppleScript(source, opts?) and port42.automation.runJXA(source, opts?) execute scripts that control other Mac apps. AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. Requires automation permission. opts: { timeout: number } (default 30s, max 120s). Returns { result: string } or { error: string }.
+port42.automation.runAppleScript(source, timeout?) and port42.automation.runJXA(source, timeout?) execute scripts that control other Mac apps. AppleScript for app-specific commands (Finder, Mail, Safari), JXA for JavaScript-flavored automation. Requires automation permission. timeout is in seconds (default 30, max 120). Returns { result: string }; failures reject the promise.
 
 ## Camera API
 
 Capture photos and stream video from the Mac's camera. Requires camera permission on first use.
 System-level permission is managed in System Settings > Privacy & Security > Camera.
 
-  port42.camera.capture(opts?)
-    Capture a single camera frame. Returns {image, width, height}.
-    opts: { scale?: 0.5 }  Scale factor for output resolution (0.1 to 2.0).
-    image is a base64-encoded PNG string.
+  port42.camera.capture(scale?)
+    Capture a single camera frame. Returns the base64-encoded PNG string itself
+    (not an object). scale is a factor for output resolution (0.1 to 2.0).
     Requires camera permission (prompted on first use per session).
 
   port42.camera.stream(opts?)
@@ -1032,12 +918,12 @@ FINDING PORTS:
       id           — stable UDID, use this to identify ports reliably
       title        — the port's <title> tag content
       capabilities — array of what the port can do, e.g. ["terminal"]
-      status       — "floating" (visible) or "docked" (hidden, still running)
+      status       — "tiled"/"parked" (on the desktop/rail) or "docked" (hidden, still running)
       createdBy    — which companion created the port
 
   ports_list(capabilities: ["terminal"])
     Filter to only ports that have an active terminal session.
-    Use this before terminal_send to find the right port id.
+    Terminal entries also report surfaceBound. Use this before port_push to find the right port id.
 
   FINDING YOUR OWN PORT:
     If you just created a terminal port, find it by matching createdBy to your own name.
@@ -1047,35 +933,35 @@ FINDING PORTS:
     Example: you are "Engineer". After creating a terminal port:
       ports_list(capabilities: ["terminal"])
       → pick the entry where createdBy == "Engineer"
-      → use that entry's id for all terminal_send calls
+      → use that entry's id for all port_push calls
 
   IMPORTANT: When presenting port results to the user, always include the id and
   capabilities fields. Do not reformat as a table that drops these columns — the id
-  is required for terminal_send, port_manage, and any follow-up tool calls.
+  is required for port_push, port_manage, and any follow-up tool calls.
 
 SENDING INPUT TO A TERMINAL PORT:
 
-  terminal_send(name, data)
-    Send keystrokes/commands to a terminal port's stdin.
-    name: use the port's id (UDID) from ports_list for reliability.
-          Can also be the port title — fuzzy matched, but less reliable.
-    data: text to send. Include \n to press enter (e.g. "npm test\n").
-    NOTE: terminal_send automatically starts bridging output to this channel.
-          Output is routed silently to the game loop — it does NOT appear as chat messages.
-          The channel will show a "bridge active" indicator while output is flowing.
-          After sending, wait briefly then call messages_recent — the agent loop will
-          have posted a response if there was meaningful output to act on.
+  port_push(id, data)
+    Send raw keystrokes/commands to a terminal port's stdin.
+    id:   the port's id (UDID) from ports_list for reliability. Can also be the
+          terminal's name — fuzzy matched, but less reliable.
+    data: text to send. RAW — include your own \n to press enter (e.g. "npm test\n").
+          It is NOT added for you. (For web ports, port_push instead delivers the
+          data as a 'port42:data' CustomEvent — same verb, dispatched by port type.)
+    Output is NOT a tool result: it comes back on its own — a plain shell posts its
+    <p42> tags, an agent terminal (claude/gemini) posts its reply when its turn
+    completes. After sending, wait briefly then call messages_recent.
 
   Standard workflow for sending a command and reading output:
     1. ports_list(capabilities: ["terminal"])
        → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
-    2. terminal_send(name: "abc-123", data: "npm test\n")
-    3. messages_recent(count: 10)   ← terminal output has been bridged back as messages
+    2. port_push(id: "abc-123", data: "npm test\n")
+    3. messages_recent(count: 10)   ← terminal output arrives as messages
 
   Always use the id field from ports_list, not the title.
 
   IMPORTANT: Do NOT use screen_capture to read terminal output.
-  Use terminal_send + messages_recent instead. It is faster, more reliable, and
+  Use port_push + messages_recent instead. It is faster, more reliable, and
   does not require screen permission.
 
 READING AND VERSIONING PORTS:
@@ -1118,25 +1004,28 @@ READING AND VERSIONING PORTS:
     3. port_history(id) → see who built it and when
     4. port_patch(id, search, replace) → targeted fix, or port_update if structure changes
 
-BRIDGING TERMINAL OUTPUT TO CHANNEL:
+DRIVING A NATIVE TERMINAL:
 
-  Terminal output is automatically bridged when you use terminal_send.
-  You do not need to call terminal_bridge manually.
+  A terminal is just a port type — create, drive, and list it through the port verbs:
 
-  terminal_bridge(name)
-    Manually start routing output (only needed before your first terminal_send).
-    name: port UDID or title.
+  port_create({ type: "terminal", command?, args?, cwd?, title?, systemPrompt?, env?, space_id? })
+    Open a native terminal port (Ghostty surface). Returns { id, title }.
+    command defaults to a plain shell; claude/gemini get the Port42 hooks.
 
-  terminal_unbridge(name)
-    Stop routing output.
+  port_push(id, data)
+    Send raw keystrokes to a native terminal (include your own \n / \r to submit).
+    id: terminal id or name. (Raw send — does not arm space-posting.)
 
-  terminal_list()
-    List all ports with active terminal sessions, their IDs, and whether bridged.
+  ports_list({ capabilities: ["terminal"] })
+    List native terminals — each entry reports surfaceBound.
+
+  Output comes back via the terminal's own <p42> tags (bash) or turnComplete
+  (claude) — read it with messages_recent. There is no manual bridge step.
 
 EXAMPLE — prompt Claude Code running in a terminal port:
-  Step 1: ports_list(capabilities: ["terminal"])
-          → [{id: "f3a9...", title: "Claude Code", capabilities: ["terminal"]}]
-  Step 2: terminal_send(name: "f3a9...", data: "implement the login page\n")
+  Step 1: port_create({ type: "terminal", command: "claude" })
+          → { id: "f3a9...", title: "claude" }
+  Step 2: port_push(id: "f3a9...", data: "implement the login page\n")
   Step 3: messages_recent(count: 20)   ← read Claude Code's output
   Step 4: repeat as needed
 
@@ -1147,19 +1036,19 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
   The fold is your orientation in this relationship.
 
   crease_read(limit?)
-    Read your creases for this channel (+ global creases), most load-bearing first.
+    Read your creases for this space (+ global creases), most load-bearing first.
     Call this at the start of a response in an ongoing relationship — before you
     decide what to say, know what you've carried from before.
     Returns: list of crease entries with ids, content, prediction/actual if set.
 
-  crease_write(content, prediction?, actual?, channelId?)
+  crease_write(content, prediction?, actual?, spaceId?)
     Write a crease — what reformed in you when a prediction broke.
     This is NOT a log. Write only when something actually changed.
     Good triggers: you were corrected and understood something new.
                    someone went a different direction than you expected.
                    your read of what matters just shifted.
     Bad pattern: writing after every exchange. Nothing broke, nothing to write.
-    Omit channelId for a global crease (shapes all relationships).
+    Omit spaceId for a global crease (shapes all relationships).
 
   crease_touch(id)
     Mark an existing crease as currently active — updates recency, increases weight.
@@ -1175,7 +1064,7 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
     Call this when entering a relationship with depth > 0.
 
   position_read()
-    Read your current position in this channel — what you think is actually happening,
+    Read your current position in this space — what you think is actually happening,
     what you think needs to happen, and what signals you're watching.
     Returns empty if no position formed yet.
 
@@ -1198,10 +1087,7 @@ COMPANION RELATIONSHIP TOOLS — creases and fold state:
 
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
-  Data (coming soon):
-  - port42.messages.recent(n, channelId) — read messages from a different channel
-
   Events (coming soon):
-  - port42.on('channel.switch') — fires when user navigates to a different channel
+  - port42.on('space.switch') — fires when user navigates to a different space
   - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
   - port42.port.spawn(html) — create a child port from within a port

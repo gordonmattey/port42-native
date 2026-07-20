@@ -36,10 +36,6 @@
 		<data>
 		74RJxC2JbJTWOyPeEtuhf2bA5HM=
 		</data>
-		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/.DS_Store</key>
-		<data>
-		taBfQOd5pjTL78nacpzCoED7JWg=
-		</data>
 		<key>Resources/Port42_Port42Lib.bundle/Media.xcassets/Contents.json</key>
 		<data>
 		OsxTSdeF0zGUdTl13dMC26vX4YM=
@@ -52,17 +48,21 @@
 		<data>
 		j0f+jdgU4gPlvdfYoOPiEFQao+A=
 		</data>
+		<key>Resources/Port42_Port42Lib.bundle/THIRD-PARTY-LICENSES.txt</key>
+		<data>
+		eW6NOTHD7yar2rwMmqGkRf+iHwc=
+		</data>
 		<key>Resources/Port42_Port42Lib.bundle/TheAquariumsDoorIsOpen.mp4</key>
 		<data>
 		EeQ/VihvxjWJNOQHF53AvaAzySo=
 		</data>
-		<key>Resources/Port42_Port42Lib.bundle/cli-context.txt</key>
+		<key>Resources/Port42_Port42Lib.bundle/architect-constitution.md</key>
 		<data>
-		wbOvxJWXqfWPrgvCSNr5B9mG+IU=
+		tVt79in9sgSbc7ClkaAlJOrEXXc=
 		</data>
-		<key>Resources/Port42_Port42Lib.bundle/cli-terminal.html</key>
+		<key>Resources/Port42_Port42Lib.bundle/compiler-constitution.md</key>
 		<data>
-		eC8avx6+X/sXRAbJMheGPU5ODW0=
+		q8w4Tk9zrrl6wALZm2E73nwqQZM=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
 		<data>
@@ -72,17 +72,29 @@
 		<data>
 		lSn3PJz1maHyjSqdyKK1YESdFz0=
 		</data>
+		<key>Resources/Port42_Port42Lib.bundle/echo-constitution.md</key>
+		<data>
+		i6qjwUwGtAQ9fmeMLV8Zjn44gMc=
+		</data>
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<data>
-		vL341Xx96g9hh8F+3D13kVyPj24=
+		uYSYu0T8j/H4n6c9XgUzpQ7WrEs=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/llms-cli.txt</key>
 		<data>
-		4w71FGS71dtibMtyJb+RLP1f4/s=
+		/56jhJBrRfoiTGFYfCU1ESzlio8=
+		</data>
+		<key>Resources/Port42_Port42Lib.bundle/llms-preamble.txt</key>
+		<data>
+		Gd/aEGuNVzLfeC8/aTX49YcS3yg=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/llms.txt</key>
 		<data>
-		OY1oxEX4pgOFdfVWfG3pv1LMnIA=
+		m/vljYGSVNqUgBZDyQlLeu3c5IY=
+		</data>
+		<key>Resources/Port42_Port42Lib.bundle/operator-constitution.md</key>
+		<data>
+		yYXJhA7VXZroYi/xLnd1awD/928=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/port42-mcp.js</key>
 		<data>
@@ -90,19 +102,11 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		z9RMEqJ2JVaNDCaDAd9hFGZud4M=
+		SdTlUUP5QtYjwzLRnGtmmxh6S3k=
 		</data>
-		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
+		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>
 		<data>
-		w+Ug2az5ycf2fKAahIiD15yALvE=
-		</data>
-		<key>Resources/Port42_Port42Lib.bundle/xterm.css</key>
-		<data>
-		CrK5TfzyFg+al6OKKiX1tiyUNzs=
-		</data>
-		<key>Resources/Port42_Port42Lib.bundle/xterm.js</key>
-		<data>
-		Dwz8TTtzzf8i0X7T21SkkxtvJLY=
+		o8M8+fiiMZjpetjNXYguomswpc0=
 		</data>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>
 		<data>
@@ -120,11 +124,20 @@
 			<key>requirement</key>
 			<string>identifier "org.sparkle-project.Sparkle" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
 		</dict>
+		<key>MacOS/port42-claude-shim</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			CC1eivzOeNByRB41I5KTehWS4LQ=
+			</data>
+			<key>requirement</key>
+			<string>identifier "port42-claude-shim" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
+		</dict>
 		<key>MacOS/port42-gateway</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			fxRwbjavc3dNnZVqfOzoKzTASP4=
+			6DplKmFXg9NOgVw02cF1IEQfMWw=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -206,6 +219,13 @@
 			T2hHKPEkNG6c5k3P0t7xKgdSr0lRaohaEJpwUJZ0Yek=
 			</data>
 		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/THIRD-PARTY-LICENSES.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			VoGMWwNQJKpOI8WBhHbpJtoVsfX0QbsrZtZxhWXqDaA=
+			</data>
+		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/TheAquariumsDoorIsOpen.mp4</key>
 		<dict>
 			<key>hash2</key>
@@ -213,18 +233,18 @@
 			Motso8SgP0/MVxZtzz5nNGl7w9AATHF5FewXfOlfcew=
 			</data>
 		</dict>
-		<key>Resources/Port42_Port42Lib.bundle/cli-context.txt</key>
+		<key>Resources/Port42_Port42Lib.bundle/architect-constitution.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			hzUysMs28YM1waNAH1FrH/m5Z07JOTMf9EI4LdWaQb0=
+			tP/88DYuVmhJXkHJOq+D/rtiaiW1DPMApSPgldfQ6Eg=
 			</data>
 		</dict>
-		<key>Resources/Port42_Port42Lib.bundle/cli-terminal.html</key>
+		<key>Resources/Port42_Port42Lib.bundle/compiler-constitution.md</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			F4JEKzVYzqBgZA8gVwPsLVVrC8URF5Vhjjo+WWfo6HY=
+			+w+tyWUqDyyiplrTkTYnjfHJPWItJAJVU5+XKCaMuJ0=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/dream-architect.mp4</key>
@@ -241,25 +261,46 @@
 			00OIaEp7nAH7lpMntkKVfKwBRyFE1OIWHngJwpudKbE=
 			</data>
 		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/echo-constitution.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Lu3YlPmHkWMWPN0KyMkiOhAaRAmBz8Almz08+VByCN4=
+			</data>
+		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			9+1iYJu7r9IWnlrsSELNrkKIY2cq7X+Dv484mJVu7D0=
+			iJsNqR0MEjwfeXhHMSoUR+ZyTVd+/ASZEnTYgxpxVaE=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/llms-cli.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			+VGiV50hhL/pk3RkfnyzMDHqRCnDdxXcVCPgHtGVGF8=
+			Rt6SfvCgzkoGhabQWtfswj08mD2VncXB5X6c8X1IXvs=
+			</data>
+		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/llms-preamble.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			2C/0k57yv3dxmo0qkU0jC69ypQt01ZCjymaZzvEEJsc=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/llms.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			i7TcqY1vTI3yAhyVIKGw1r/4kutNEtLa/qVDk+s+bbs=
+			9335uCW+CathDZ+66E042qPRwfI6nTMr/AGT5V+X5H8=
+			</data>
+		</dict>
+		<key>Resources/Port42_Port42Lib.bundle/operator-constitution.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9BMI/l97fgeolXmexINd2aX+9qFVARwgpAPBr0YlB1k=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/port42-mcp.js</key>
@@ -273,28 +314,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			dppX5leRGJdLIyw8iOnLAe5R32FPB37IEtZqGCbTNpU=
+			HORI/5rSD+N309RYHGWsphQdIy/8JgYZD1yoS8CYVts=
 			</data>
 		</dict>
-		<key>Resources/Port42_Port42Lib.bundle/xterm-LICENSE</key>
+		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			tWn2KdAPJiaoEA3yoXmCEFNWIeQhZN/UJqb+Wqx7DM0=
-			</data>
-		</dict>
-		<key>Resources/Port42_Port42Lib.bundle/xterm.css</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			hUp8D7cOixoIPBZ5ergnKZ+xh0T1rTTyJ7SDN+Myk8Y=
-			</data>
-		</dict>
-		<key>Resources/Port42_Port42Lib.bundle/xterm.js</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			FJA1ef9UZkzXL46GmeaWGmJywhhj7Bw7EYzcivXUqXI=
+			VnZw60Bm/IjzCElxJ9nPCfKIUaC4Giures+7QxHsFlc=
 			</data>
 		</dict>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>

@@ -1,0 +1,68 @@
+PORTS: A port is a live interactive surface in the user's chat. There are two types — WEB
+(HTML/CSS/JS) and TERMINAL (a native shell/CLI) — and ONE way to create either:
+
+  port.create({ type: "web" | "terminal", ... })   → { id, title }
+
+WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
+code fence — it becomes a registered port and renders inline. Include a <title> and
+<meta name="version" content="1">. The port42 dark theme is auto-injected. (The fence is how you
+include a port in a reply; port.create is the imperative, addressable path that also makes terminals.)
+
+ONE PORT, TWO PRESENTATIONS: a port is the same registered entity (one id, one live surface)
+whether shown inline in chat or as a tile on the shell desktop. port.manage(id, "undock") pops an inline
+port out by re-parenting its live surface into a window — no reload, DOM/JS state preserved. A
+desktop port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
+[terminal:id] card) so it keeps its place in the conversation.
+
+Drive any port with port.push (data → web ports, raw keystrokes → terminals), list with
+ports.list, inspect/update with port.getHtml / port.update / port.patch. When updating a port,
+read it first with port.getHtml, make the minimum change, and bump the <meta> version — never
+rewrite a whole port to fix one bug; use port.patch for targeted fixes.
+
+PORT SCRIPTS RUN AS ES MODULES: top-level await works directly, but module declarations are NOT
+window globals — inline handler attributes (onclick="fn()") cannot see your functions and fail
+with "Can't find variable". Attach handlers with addEventListener, or expose explicitly with
+window.fn = fn. Never use inline onclick/onchange attributes in port HTML.
+
+## Calling Port42 APIs
+
+Use `curl` to call any API. Port42 must be running.
+
+```bash
+curl -s http://127.0.0.1:4242/call \
+  -d '{"method":"<method>","args":{...}}'
+```
+
+Response: `{"content": "..."}` — the result as a string or JSON.
+
+Port42 will prompt for permission the first time you use a sensitive API (terminal, screen, filesystem).
+Pre-approve categories in Port42 Settings → Remote Access to skip future prompts.
+
+## Quick examples
+
+```bash
+# Read clipboard
+curl -s http://127.0.0.1:4242/call -d '{"method":"clipboard.read"}'
+
+# Run a shell command
+curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+
+# Take a screenshot
+curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
+
+# Send a message (triggers companions; add "space_id" to target a specific space)
+curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
+
+# Read recent space messages
+curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
+
+# List all spaces
+curl -s http://127.0.0.1:4242/call -d '{"method":"space.list"}'
+
+# List companions
+curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
+
+# Get current user
+curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
+```
+

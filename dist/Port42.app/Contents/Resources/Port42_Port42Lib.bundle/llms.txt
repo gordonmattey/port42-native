@@ -1,9 +1,23 @@
-PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence.
-Ports render as live interactive surfaces in the user's chat. Include a <title> and
-<meta name="version" content="1"> in every port. The port42 dark theme is auto-injected.
+PORTS: A port is a live interactive surface in the user's chat. There are two types — WEB
+(HTML/CSS/JS) and TERMINAL (a native shell/CLI) — and ONE way to create either:
 
-When updating a port, always call port_get_html first, make the minimum change, and bump
-the version. Never rewrite a whole port to fix one bug. Use port_patch for targeted fixes.
+  port.create({ type: "web" | "terminal", ... })   → { id, title }
+
+WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
+code fence — it becomes a registered port and renders inline. Include a <title> and
+<meta name="version" content="1">. The port42 dark theme is auto-injected. (The fence is how you
+include a port in a reply; port.create is the imperative, addressable path that also makes terminals.)
+
+ONE PORT, TWO PRESENTATIONS: a port is the same registered entity (one id, one live surface)
+whether shown inline in chat or as a tile on the shell desktop. port.manage(id, "undock") pops an inline
+port out by re-parenting its live surface into a window — no reload, DOM/JS state preserved. A
+desktop port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
+[terminal:id] card) so it keeps its place in the conversation.
+
+Drive any port with port.push (data → web ports, raw keystrokes → terminals), list with
+ports.list, inspect/update with port.getHtml / port.update / port.patch. When updating a port,
+read it first with port.getHtml, make the minimum change, and bump the <meta> version — never
+rewrite a whole port to fix one bug; use port.patch for targeted fixes.
 
 ## Calling Port42 APIs
 
@@ -31,14 +45,14 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"comman
 # Take a screenshot
 curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
 
-# Send a message (triggers companions; add "channel_id" to target a specific channel)
+# Send a message (triggers companions; add "space_id" to target a specific space)
 curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
 
-# Read recent channel messages
+# Read recent space messages
 curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
 
-# List all channels
-curl -s http://127.0.0.1:4242/call -d '{"method":"channel.list"}'
+# List all spaces
+curl -s http://127.0.0.1:4242/call -d '{"method":"space.list"}'
 
 # List companions
 curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
@@ -49,47 +63,61 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ## Available Methods
 
-### User & Channel
+### User & Space
 
-  user.get                        → { id, name }
-  companions.list                 → [{ id, name, model, isActive }]
-  companions.get(id)              → { id, name, model, isActive } | null
-  channel.current                 → { id, name, type, members } | null
-  channel.list                    → [{ id, name, type, isCurrent }]
-  messages.recent(count?)         → [{ id, sender, content, timestamp, isCompanion }]
-  messages.send(text, channel_id?) → sends message and triggers companions (default: current channel)
+  user.get                        → { id, displayName }
+  companions.list(space_id?)      → [{ id, name, model, trigger }]
+                                    space_id given → only that space's companions; omitted → global roster
+  companions.get(id)              → { id, name, model, systemPrompt } (errors if not found)
+  space.current(space_id?)        → { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }
+                                    space_id given → that space; omitted → currently selected space (errors if none)
+  space.list                      → [{ id, name }]
+  messages.recent(count?)         → [{ sender, content, timestamp }]
+  messages.send(text, space_id?)  → sends message and triggers companions (default: current space)
 
 ### Ports
 
-  ports.list(capabilities?)       → [{ id, title, capabilities, status, createdBy, cwd?, x?, y? }]
-                                    status: 'floating' | 'docked' | 'inline'
+  port.create(opts)               → create a port, returns { id, title }. The uniform primitive.
+                                    opts.type: "web" | "terminal". opts.title?, opts.space_id?
+                                    type "web":      opts.html (a full port HTML body)
+                                    type "terminal": opts.command (e.g. "bash"|"htop"|"claude"),
+                                                     opts.args?, opts.cwd?, opts.systemPrompt?, opts.env?
+  ports.list(capabilities?)       → [{ id, title, capabilities, status, createdBy, cwd?, surfaceBound?, x?, y? }]
+                                    status: 'tiled' | 'parked' | 'docked' | 'inline'. Terminal ports report
+                                    surfaceBound. Filter terminals with capabilities: ["terminal"].
+  port.push(id, data)            → send input to a port (type-dispatched): a WEB port receives a
+                                    'port42:data' CustomEvent (event.detail); a TERMINAL port receives
+                                    raw keystrokes (include your own newline, e.g. "ls\n", to run).
   port.update(id, html)           → replace a port's full HTML (read first with port.getHtml)
   port.getHtml(id, version?)      → read a port's current or versioned HTML
   port.patch(id, search, replace) → targeted string replacement (errors if not found)
   port.history(id)                → [{ version, createdBy, createdAt }]
   port.manage(id, action)         → focus | close | dock | undock
   port.restore(id, version)       → roll back to a previous version
-  port.move(id, x, y)            → move a floating port (macOS coords: Y=0 is bottom)
-  port.position(id)              → { x, y, width, height } of a floating port
-  port.push(id, data)            → push data to a live port via CustomEvent ('port42:data')
+  port.move(id, x, y)            → move a port's tile on the desktop
+  port.position(id)              → { x, y, width, height } of a port's tile
   port.exec(id, js)              → execute JS on a port's webview, returns result
   port.rename(id, title)         → rename a port by ID
 
 ### Terminal
 
-  terminal.exec(command)          → run a shell command, returns stdout
-  terminal.send(id, data)         → send keystrokes to a terminal port (append \r for Enter)
+  A terminal is just a port type — there is no separate terminal toolset:
+    open   → port.create({ type: "terminal", command: "bash" })   (see Ports)
+    drive  → port.push(id, "ls\n")                                 (raw keystrokes)
+    list   → ports.list({ capabilities: ["terminal"] })           (reports surfaceBound)
 
-  terminal_list                   → ports with active terminal sessions
-  terminal_bridge(name)           → start routing terminal output to channel
-  terminal_unbridge(name)         → stop routing
+  terminal.exec(command)          → run a shell command HEADLESS (no window), returns { output }.
+                                    The only permission-gated terminal method.
+
+  Output from a port.create terminal returns via its own <p42> tags (bash) or
+  turnComplete (claude); read it with messages.recent.
 
 ### Screen & Display
 
   screen.displays                 → [{ width, height, x, y, visibleWidth, visibleHeight, isMain }]
                                     No permissions required. macOS bottom-left origin.
-  screen_capture(scale?)          → { image (base64 PNG), width, height }
-                                    Requires screen permission.
+  screen_capture(scale?)          → base64 PNG string (the image data itself).
+                                    Requires screen permission. Use screen.displays for geometry.
   screen.windows                  → { windows: [{ id, title, app, bundleId, bounds }] }
 
 ### Clipboard
@@ -99,9 +127,10 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Files
 
-  files.list(path)                → list directory contents
-  files.read(path, encoding?)     → read file contents (utf8 or base64)
-  files.write(path, data, encoding?) → write file
+  fs.read(path, encoding?)        → read file contents (utf8 or base64)
+  fs.write(path, data, encoding?) → write file
+  fs.pick(opts?)                  → open a native file picker; returns the chosen path
+                                    files.read / files.write / files.pick are thin aliases of fs.*
 
 ### Audio
 
@@ -127,22 +156,22 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Camera
 
-  camera.capture(scale?)          → { image (base64 PNG), width, height }
+  camera.capture(scale?)          → base64 PNG string (the image data itself)
 
 ### Notifications
 
   notify.send(title, body?, opts?) → { ok: true, id }
   opts: { sound: true, subtitle: 'text' }
 
-### Relationship State (Swim Context)
+### Relationship State (space-scoped — creases/fold/position/engravings keyed by the current space)
 
-  creases.read(limit?)            → [{ id, content, weight, prediction?, actual? }]
+  creases.read(limit?)            → text listing, one crease per line ("[id] ...")
   creases.write(content, opts?)   → { id, ok }
   creases.touch(id)               → update recency + weight
   creases.forget(id)              → remove a crease
   fold.read                       → { established, tensions, holding, depth }
   fold.update(opts)               → update fold state
-  position.read                   → { read, stance, watching }
+  position.read                   → { read, stance, watching, confidence }, or a text notice when none set
   position.set(read, opts?)       → set position
 
 ### REST (HTTP with Secrets)
@@ -154,16 +183,17 @@ curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
 
 ### Storage
 
-  storage.get(key, opts?)         → read stored value (scoped per-companion per-channel)
-  storage.set(key, value, opts?)  → write value (string, number, object, array)
-  storage.delete(key, opts?)      → remove a key
-  storage.list(opts?)             → list all keys
-                                    opts: { scope: 'global' } for cross-channel access
+  storage.get(key, opts?)         → { value }, the stored value ({ value: null } if missing;
+                                    scoped per-companion per-space)
+  storage.set(key, value, opts?)  → { ok } (value can be string, number, object, array)
+  storage.delete(key, opts?)      → { ok }
+  storage.list(opts?)             → { keys }
+                                    opts: { scope: 'global' } for cross-space access
 
 ### AI
 
   ai.models                       → [{ id, name, tier }]
-  ai.complete(prompt, opts?)       → response text (streaming via onToken not available over HTTP)
+  ai.complete(prompt, opts?)       → { text } (streaming via onToken not available over HTTP)
 
 
 ## Permissions
@@ -173,10 +203,10 @@ process. Pre-approve categories in Settings → Remote Access to skip future pro
 
 | Permission | Methods |
 |-----------|---------|
-| Terminal | terminal.exec, terminal.send |
+| Terminal | terminal.exec (the only gated terminal method; port.create/port.push are ungated) |
 | Screen | screen_capture, screen.windows |
 | Clipboard | clipboard.read, clipboard.write |
-| Filesystem | files.list, files.read, files.write |
+| Filesystem | fs.read, fs.write, fs.pick (and their files.* aliases) |
 | Browser | browser.* |
 | Camera | camera.capture |
 | Automation | automation.runAppleScript, automation.runJXA |
@@ -184,5 +214,5 @@ process. Pre-approve categories in Settings → Remote Access to skip future pro
 | AI | ai.complete |
 | REST | rest.call |
 
-No permission required: user.get, companions.list, channel.*, messages.*, ports.list,
+No permission required: user.get, companions.list, space.*, messages.*, ports.list,
 port.*, storage.*, screen.displays, audio.speak, audio.play, audio.stop.
