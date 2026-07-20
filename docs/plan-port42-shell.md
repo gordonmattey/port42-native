@@ -1,13 +1,26 @@
 # PORT42 // SHELL — the GUI shell that replaces the desktop, not the OS
 
-**Status:** **S1 + S2 shipped in-app** (2026-06-30, w/ gordon) on branch `shell-s1`, behind
-`PORT42_SHELL`. The takeover (borderless kiosk fullscreen), the zoom spine (galaxy ↔ space ↔ focus),
-the real shell desktop (Chrome + tiled ports + chat-as-tile + focus-dive), the prototype ambient
-background + per-space accent themes all run on the real `AppState`/`PortWindowManager`. The kiosk
-shell (`prototypes/p42shell`) remains the interaction reference; the production design is captured in
-**`spec-shell-reimplementation.md`**. **Adoption is decided: the shell replaces the app surface for
-everyone (Plan D, §8a)** — build behind `PORT42_SHELL`, then flip and delete `ContentView`. **Next:
-S3** (movable tiles + park + tile↔floating + real arrange/exposé). See §8 for the shipped-vs-planned
+**Status (audited against the code, 2026-07-19).** The shell IS the app (classic ContentView
+retired 2026-07-14; `ShellMode` hardcodes it). Audit verdicts:
+- **S1 + S2 SHIPPED** (takeover, zoom spine, shell desktop, chat-as-tile, ambient background).
+- **S3 SHIPPED, as the port-units model**: draggable/resizable tiles, park rail, z-order. The
+  tile↔floating half was deliberately RETIRED — no NSWindow ports; `popOut` lands a tile
+  (`PortWindowManager` presentation is tiled/parked/inline only).
+- **S4 PARTIAL**: chat renders as a shell tile + peek miniature; companion status is two-state
+  (thinking/idle). The planned `porting` (tool-use) state was never built — open decision.
+- **S4.x SHIPPED**: chrome status cluster (gateway bolt via `sync.isConnected`, tunnel, auth) +
+  settings panel.
+- **S5 ABSENT**: no idle-out/ambient-return loop; the boot cinematic exists only as onboarding —
+  open decision.
+- **8a OBSOLETE**: overtaken by retire-classic (nothing to adopt); only the optional first-run
+  poetic caption never happened. "Adoption" in code now means peek-adoption (8b), a different thing.
+- **8b SHIPPED**: peeks fully built (surface, 10s countdown, hover-pause, preview/keep/adopt).
+
+The section headers below predate this audit; where they disagree, THIS block is current.
+
+*Original status (2026-06-30):* S1 + S2 shipped in-app behind `PORT42_SHELL`; kiosk prototype
+(`prototypes/p42shell`) the interaction reference; production design in
+`spec-shell-reimplementation.md`; adoption decided (Plan D, §8a). See §8 for the shipped-vs-planned
 deltas.
 
 **One line:** Port42 boots into a fullscreen surface with **no macOS Dock and no menu bar**, and the

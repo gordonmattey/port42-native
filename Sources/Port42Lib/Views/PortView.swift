@@ -229,73 +229,11 @@ public struct PortView: NSViewRepresentable {
         webView.loadHTMLString(document, baseURL: URL(string: "http://port42.local/"))
     }
 
-    /// Wrap port content in a full HTML document with port42 theme and CSP
+    /// Wrap port content in the ONE shared port document (CSP + theme + module scripts).
+    /// Inline ports self-size, so they suppress body scrolling; that overflow choice is the only
+    /// difference from a desktop tile's document.
     private func wrapHTML(_ body: String) -> String {
-        // Convert <script> tags to <script type="module"> for top-level await support.
-        // Module scripts also report full error details (line numbers) to error handlers.
-        let moduleBody = body
-            .replacingOccurrences(of: "<script>", with: "<script type=\"module\">")
-
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta http-equiv="Content-Security-Policy"
-              content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;">
-        <script>
-        // Teaching hint (classic script, not a module): port scripts run as ES modules, so inline
-        // onclick attributes cannot see module-scope functions. When that exact failure fires,
-        // say so with the fix, instead of a bare "Can't find variable".
-        window.addEventListener('error', function(e) {
-            if (e.message && (e.message.indexOf("Can't find variable") !== -1 || e.message.indexOf('is not defined') !== -1)) {
-                console.warn('[port42] Port scripts are ES modules: top-level functions are module-scoped, so inline onclick cannot reach them. Attach handlers with addEventListener or expose with window.fn = fn.');
-            }
-        });
-        </script>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-                background: #111;
-                color: #e0e0e0;
-                font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-                font-size: 13px;
-                line-height: 1.5;
-                padding: 12px;
-                overflow: hidden;
-            }
-            a { color: #00ff41; }
-            button, input, select, textarea {
-                font-family: inherit;
-                font-size: inherit;
-                color: #e0e0e0;
-                background: #1a1a1a;
-                border: 1px solid #333;
-                border-radius: 4px;
-                padding: 6px 10px;
-                outline: none;
-            }
-            button {
-                cursor: pointer;
-                background: #00ff41;
-                color: #0a0a0a;
-                border: none;
-                font-weight: 600;
-                padding: 6px 14px;
-            }
-            button:hover { opacity: 0.85; }
-            input:focus, textarea:focus { border-color: #00ff41; }
-            ::-webkit-scrollbar { width: 6px; }
-            ::-webkit-scrollbar-track { background: transparent; }
-            ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        </style>
-        </head>
-        <body>
-        \(moduleBody)
-        </body>
-        </html>
-        """
+        PortWebViewFactory.wrapHTML(body, overflow: "hidden")
     }
 
     // MARK: - Coordinator

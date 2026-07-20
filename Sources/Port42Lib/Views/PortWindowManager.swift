@@ -942,8 +942,11 @@ public final class PortWindowManager: ObservableObject {
 /// Shared utilities for creating port WKWebViews.
 enum PortWebViewFactory {
 
-    /// Wrap port HTML in a full document with theme and CSP.
-    static func wrapHTML(_ body: String) -> String {
+    /// Wrap port HTML in a full document with theme and CSP. THE one wrapper — both the inline
+    /// port view and the desktop tile factory load this document, so the CSP and theme can never
+    /// drift between presentations (they once lived as two hand-synced copies). `overflow` is the
+    /// single deliberate difference: tiles scroll ("auto"), inline ports self-size ("hidden").
+    static func wrapHTML(_ body: String, overflow: String = "auto") -> String {
         let moduleBody = body
             .replacingOccurrences(of: "<script>", with: "<script type=\"module\">")
 
@@ -974,7 +977,7 @@ enum PortWebViewFactory {
                 font-size: 13px;
                 line-height: 1.5;
                 padding: 12px;
-                overflow: auto;
+                overflow: \(overflow);
             }
             a { color: #00ff41; }
             button, input, select, textarea {
