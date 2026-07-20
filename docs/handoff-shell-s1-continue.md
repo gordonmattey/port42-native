@@ -238,11 +238,25 @@ switches, no hand-written tool schemas, no hand-listed name inventory, no hand-w
 reference, no parallel permission tables (the port-side `permissionForMethod` survives only for
 the fs.drop gesture). The invariant the arc promised holds by construction.
 
-## Next (the arc is done — these are the follow-on tracks)
+## Done 2026-07-19 (later): PHASE 3 IS COMPLETE (uncommitted — awaiting the commit ask)
 
-- **Phase 3, the real principal** (`plan-api-unification.md` Phase 3): thread the authenticated
-  PeerID into the Principal; grants re-key on principal id (the picked-paths store is already
-  keyed that way and waiting).
+The status line "Phase 3 designed but UNSTARTED" was wrong: 157439c (Jul 17) had already shipped
+the stable `local-http` gateway principal, the `senderId` keying, and grant persistence under
+`portPerms.<principalId>`. The remainder shipped this session per `plan-phase3-gate-matrix.md`
+(GM-signed decisions: no migration; a companion-created port acts as its creator, space-scoped):
+- **A** negative gates pinned in `BridgePrincipalTests` (label-constructor scan + `remote-http`
+  consumer allowlist), acid-tested.
+- **B** `PermissionRequester` deleted; the coordinator, overlay, dispatcher, and fs.drop path take
+  `Principal` directly; `PermissionRequest.principal` + `awaiterCount`. Found + fixed en route:
+  `coalescesAndResumesAll` raced its own registration and hung the suite (see `summer2026-todo.md`).
+- **C** `portPrincipal` is PortBridge's ONE identity: id = `createdBy ?? messageId` — a
+  companion and its ports share one grant bucket and one storage namespace per space (todo #6's
+  companion half). Deinit cancels pending asks by principal id.
+- **D** live two-caller proof in Dev: local-http granted `clipboard.read`; `peer-test-B` (WS,
+  own identity) still prompted, own bucket; grant survived relaunch without a prompt; gateway +
+  port-JS reads unregressed. Gates recorded failing first throughout; 289 tests / 43 suites green.
+
+## Next (follow-on tracks)
 - **Bugs** (`summer2026-todo.md`): the screen.stream pointer glitch (ours, undiagnosed, feature
   flagged not stable; next diagnostic is a drop-every-frame handler); script tags in port.create
   HTML never execute; ports.list space_id; the 6 pre-existing env test failures.

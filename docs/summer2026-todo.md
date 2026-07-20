@@ -6,6 +6,22 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## RESOLVED: coalescing test raced its own registration and hung the suite (2026-07-19)
+
+Found during Phase 3 item B (the PermissionRequester collapse), fixed same session.
+`PermissionCoordinatorTests/coalescesAndResumesAll` settled on `current != nil`, which was already
+true from its FIRST ask, so `resolveCurrent` could run before asks two and three registered on the
+main actor. Those asks then coalesced onto a fresh card nobody answers, and their `await`s hung the
+whole test process forever (0% CPU, no output — looks exactly like the SwiftPM lock wedge, but
+`ps` shows the helper running and no lock holder). Latent since the suite was written; the item-B
+type swap only perturbed scheduling enough to make it deterministic. Fix: `PermissionRequest` grew
+a public read-only `awaiterCount` (continuations stay private) and the test settles on
+`awaiterCount == 3` — registration, not card presence. Lesson for async coordinator tests: settle
+conditions must assert the thing the next step consumes, not a proxy that an earlier step already
+satisfied.
+
+---
+
 ## BUG: gateway up but "no host available" — RESOLVED 2026-07-19 (two distinct causes)
 
 **RCA complete (2026-07-19, live-reproduced and bisected).** The recurring symptom had two
@@ -674,6 +690,13 @@ still partitioned per-caller.
 companion, its ports, and its gateway session share one namespace + the `global` scope option.
 Mirror-not-replace if any code needs a synchronous `localStorage` view. **#5 above makes #6's pain
 *readable* (you can finally exec a probe and see the value), but #6 is the real fix.**
+
+**Update 2026-07-19 — the companion half landed (Phase 3 item C).** A companion-created port's
+principal now resolves to its creator (`PortBridge.portPrincipal`, id = `createdBy ?? messageId`),
+so a companion and its ports share one storage namespace per space — gated by
+`BridgePrincipalTests/portAndCompanionShareStorage`. Still open: the gateway session is a
+DIFFERENT principal (`local-http` / the peer id), so companion-to-gateway sharing needs either the
+`shared` opt-in or a future principal-linking decision. Scope shrunk, not closed.
 
 ---
 

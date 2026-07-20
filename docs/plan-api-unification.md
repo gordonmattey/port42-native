@@ -441,7 +441,20 @@ by `BridgeHelpTests`: full coverage + every method self-describing). Live cross-
 verified in Port42Dev. One registry declares, serves, documents, and gates every method. Follow-on
 work: Phase 3 (the real principal) below.
 
-### Phase 3 — the real principal (stop flattening the authenticated identity)
+### Phase 3 — the real principal — DONE 2026-07-19
+
+Shipped across two arcs; this section is a pointer. The design is `plan-phase3-principal.md`; the
+remainder matrix, decisions, and live proof are `plan-phase3-gate-matrix.md`. Result: the gateway
+gives local HTTP one stable principal (`local-http`) and a WS peer keeps its authenticated
+`senderId`; grants key and persist on `principal.id` (`portPerms.<principalId>.<space|global>`);
+`PermissionRequester` collapsed into `Principal` (one identity type end to end); a
+companion-created port acts as its creator (one grant bucket + one storage namespace per author
+per space, GM decision 2026-07-19); no migration (label-keyed grants dropped, GM decision).
+Live-proven with two callers in Port42Dev: distinct decisions, per-principal persistence across
+relaunch. The original section below is superseded — kept out of the doc to avoid contradicting
+the shipped shape.
+
+<details><summary>Original (superseded) plan text</summary>
 
 **Goal.** Permissions and grants key on *who is calling*, not on a display label.
 
@@ -486,6 +499,8 @@ caller is still granted after upgrade.
 - **Command:** `swift test --filter Principal --filter PermissionMigration` + the two-identity live check.
 - **Done:** distinct callers get distinct decisions; grants persist under principal id across relaunch;
   the migration keeps old grants working; no authz path builds a label identity.
+
+</details>
 
 ### Phase 4 — the consistency wins that now fall out (small, opt-in)
 

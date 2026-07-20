@@ -1,9 +1,10 @@
 # Plan: Phase 3 — the real principal (stop flattening the authenticated identity)
 
-*2026-07-17, branch shell-s1. Status: **PLANNED**, no code. Supersedes the now-stale "Phase 3" section in
-`plan-api-unification.md` (that section predates Phase 2, which already threaded `senderId` into the
-registry path). Test only in Port42Dev (:4243). Every step below has a build + test gate; no step
-advances until its gate is green.*
+*2026-07-17, branch shell-s1. Status: **SHIPPED** — steps 2-4 landed in 157439c (2026-07-17); the
+remainder (the PermissionRequester collapse, the port-principal resolution to its creator, the live
+two-caller proof, docs) landed 2026-07-19 per `plan-phase3-gate-matrix.md`, which records the GM
+decisions and the acceptance results. This file stays as the design rationale. Test only in
+Port42Dev (:4243).*
 
 ---
 
