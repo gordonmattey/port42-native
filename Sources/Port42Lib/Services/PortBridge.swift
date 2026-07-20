@@ -222,6 +222,26 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - WKScriptMessageHandler
 
+    /// What to do with a handled call's result. ONE triage (pinned by PortCallDispositionTests) so
+    /// the never-rejecting-bridge fix (1635d93) cannot silently regress: an {error: String}
+    /// envelope REJECTS the JS promise — the caller's catch runs — everything else resolves, and a
+    /// streaming handler's deferred marker means the stream settles the promise itself.
+    enum CallDisposition {
+        case deferred
+        case reject(String)
+        case resolve(Any)
+    }
+
+    static func disposition(for result: Any) -> CallDisposition {
+        if let dict = result as? [String: Any] {
+            if dict["__deferred__"] as? Bool == true { return .deferred }
+            // Only the adapter's own {error: String} envelope rejects; a payload whose "error"
+            // happens to hold data (non-string) is a success value the caller must receive.
+            if let errMsg = dict["error"] as? String { return .reject(errMsg) }
+        }
+        return .resolve(result)
+    }
+
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "port42",
               let body = message.body as? [String: Any],
@@ -233,27 +253,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         Task { @MainActor in
             let result = await handleMethod(method, args: args, callId: callId)
 
-            // Deferred results (streaming) are resolved by the handler, not here
-            if let dict = result as? [String: Any], dict["__deferred__"] as? Bool == true {
+            switch Self.disposition(for: result) {
+            case .deferred:
                 return
-            }
-
-            // A failed call rejects the JS promise (no resolve({error}) convention). One place, so every
-            // method's error is a real rejection the caller catches, not a value it must inspect.
-            if let dict = result as? [String: Any], let errMsg = dict["error"] as? String {
+            case .reject(let errMsg):
                 rejectCall(callId, errMsg)
-                return
+            case .resolve(let value):
+                // .fragmentsAllowed: registry methods can return a bare string/number (e.g.
+                // crease.read's "No creases yet" text). Without it, a fragment top level makes
+                // JSONSerialization raise an ObjC NSException that `try?` cannot catch; it unwinds
+                // through the main-queue drain and permanently wedges the main queue (no dispatch
+                // block or main-actor task runs again) while the run loop keeps pumping — the app
+                // looks alive but every queued action is dead. Same option as the streaming
+                // resolve path above.
+                let jsonData = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
+                let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+                _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
             }
-
-            // .fragmentsAllowed: registry methods can return a bare string/number (e.g. crease.read's
-            // "No creases yet" text). Without it, a fragment top level makes JSONSerialization raise an
-            // ObjC NSException that `try?` cannot catch; it unwinds through the main-queue drain and
-            // permanently wedges the main queue (no dispatch block or main-actor task runs again) while
-            // the run loop keeps pumping — the app looks alive but every queued action is dead. Same
-            // option as the streaming resolve path above.
-            let jsonData = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed])
-            let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
-            _ = try? await webView?.evaluateJavaScript("port42._resolve(\(callId), \(jsonString))")
         }
     }
 

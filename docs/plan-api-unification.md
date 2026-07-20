@@ -502,10 +502,23 @@ caller is still granted after upgrade.
 
 </details>
 
-### Phase 4 — the consistency wins that now fall out (small, opt-in)
+### Phase 4 — the consistency wins that now fall out — DONE 2026-07-19
 
-These are cheap once §1-3 exist and close several open todo items; do them as small follow-ups, each
-its own commit and its own test so a regression is bisectable:
+All four landed (the 2026-07-19 sweep + arc 2; several had already fallen out of earlier phases and
+only needed verification or a pin):
+- **ports.list JSON + capabilities**: one BridgeValue body since Phase 2; the sweep added the
+  `space_id` filter + per-entry `spaceId` (`BridgePortsTests/listScopedToSpace`).
+- **Missing gateway APIs**: `port.position` / `screen.displays` / `port.move` verified serving from
+  the registry live; `port.move` also gained target validation (unknown id throws not_found).
+- **Make the bridge reject**: shipped back in 1635d93 (every {error} envelope rejects the JS
+  promise at the ONE message-handler seam); arc 2 extracted the triage into
+  `PortBridge.disposition(for:)` and pinned it (`PortCallDispositionTests`), and re-proved it live
+  (a failing call's catch runs; a successful call still resolves).
+- **One port-document wrapper**: `PortWebViewFactory.wrapHTML` is the only document source; the CSP
+  exists in exactly one file, overflow is the single per-presentation difference
+  (`PortDocumentWrapperTests`).
+
+The original items, for reference:
 - **`ports.list` JSON + capabilities** (todo #9): satisfied by the single `BridgeValue` for the method;
   ensure `capabilities` is computed in the one body so terminal ports report `["terminal"]` everywhere.
   *Test:* unit parity case already covers the JSON shape; add a case asserting a terminal port yields
