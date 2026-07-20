@@ -1,5 +1,17 @@
 # Shell-s1 — status & how to keep track
 
+> **CLOSED 2026-07-20. This arc is DONE and MERGED TO MAIN; `shell-s1` is retired — we work on `main` now.**
+> Shipped since this doc was written: the command-companion cwd fix + env-scrub (the reply-post bug),
+> per-space working directory + picker, **auto-register CLI companions** (join/leave lifecycle,
+> `@`-mentionable, post replies), `@`-mention framing, dynamic gateway port, `companions.list`
+> space-scoping, `spaceCompanions` derived from one seam (dock never stale), and **all pre-existing
+> test failures cleared** (all stale/env-only, no regressions). HEAD at close: `f2f33e1`.
+>
+> **Current focus is forward-looking: review + rank the backlog.** The source-of-truth backlog is
+> `docs/summer2026-todo.md`. Everything below is the historical record of the shell-s1 arc.
+
+
+
 Branch **shell-s1**, in `/Users/gordon/Dropbox/Work/Hacking/workspace/portal-42/port42-native`.
 This is the living status doc for the API/tool-use unification arc. Start here, then follow the links.
 Everything below is committed + pushed unless noted.
