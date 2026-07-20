@@ -105,7 +105,7 @@ Port42 exposes its device and space APIs to you via a local HTTP gateway.
 ## Calling Port42 APIs
 
 ```bash
-curl -s http://127.0.0.1:4242/call -d '{"method":"<method>","args":{...}}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"<method>","args":{...}}'
 ```
 
 Response: `{"content": "..."}` — the result as a string or JSON. A port is a live interactive \
@@ -115,10 +115,10 @@ surface in the user's chat (web HTML/CSS/JS, or a native terminal), created with
 
 ```bash
 # The full API reference — every method, params, permissions (generated from the live registry)
-curl -s http://127.0.0.1:4242/call -d '{"method":"help"}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"help"}'
 
 # The port-authoring manual — REQUIRED READING before building or updating any port
-curl -s http://127.0.0.1:4242/call -d '{"method":"help","args":{"topic":"ports"}}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"help","args":{"topic":"ports"}}'
 ```
 
 If Port42 is not running, the same reference is published at:

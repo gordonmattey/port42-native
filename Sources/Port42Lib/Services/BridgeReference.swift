@@ -13,7 +13,11 @@ public func generateAPIReference(_ state: AppState) -> String {
     var out = ""
     if let url = Bundle.port42.url(forResource: "llms-preamble", withExtension: "txt"),
        let preamble = try? String(contentsOf: url, encoding: .utf8) {
-        out += preamble.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
+        // The preamble's curl examples hardcode :4242; rewrite to the LIVE gateway port so a dev
+        // instance (or any non-default port) documents the port callers must actually hit.
+        let live = preamble.replacingOccurrences(of: "127.0.0.1:4242",
+                                                 with: "127.0.0.1:\(GatewayProcess.shared.port)")
+        out += live.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
     }
 
     struct Entry {
