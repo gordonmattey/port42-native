@@ -256,13 +256,52 @@ the stable `local-http` gateway principal, the `senderId` keying, and grant pers
   own identity) still prompted, own bucket; grant survived relaunch without a prompt; gateway +
   port-JS reads unregressed. Gates recorded failing first throughout; 289 tests / 43 suites green.
 
-## Next (follow-on tracks)
-- **Bugs** (`summer2026-todo.md`): the screen.stream pointer glitch (ours, undiagnosed, feature
-  flagged not stable; next diagnostic is a drop-every-frame handler); script tags in port.create
-  HTML never execute; ports.list space_id; the 6 pre-existing env test failures.
-- **Deferred cleanups**: `PortPermission.permissionForMethod` (fs.drop only), the streaming frame
-  delivery cost (main-thread base64), llms-preamble prose accuracy pass against the generated
-  inventory.
+## Done 2026-07-19/20: sweep, arc 2, knowledge distribution A-C, RELEASE v0.5.47
+
+Continuing past Phase 3, all committed + pushed (shell-s1 AND main), HEAD d71d8d8:
+- **Sweep** (d14be2a, 84274ee, d462672, 220b940): ports.list honors space_id + carries spaceId;
+  port.move validates its target; the last parallel permission table (`permissionForMethod`)
+  DELETED — the registry is the ONLY permission table; ONE port-document wrapper (CSP dedup);
+  found+fixed a real drop-grant bug (dropped paths keyed on messageId, unreadable by a
+  creator-resolved port). Shell plan audited to reality. Stray tree files adopted.
+- **Arc 2** (a898317): the never-rejecting bridge fix (shipped in 1635d93) PINNED —
+  `PortBridge.disposition(for:)` triage + `PortCallDispositionTests`; re-proven live. Phase 4 of
+  `plan-api-unification.md` closed. The unification plan is DONE end to end (Phases 0-4).
+- **Knowledge distribution A-C** (`plan-knowledge-distribution.md`): **A** (4496d40) llms.txt is a
+  committed, generated, freshness-gated artifact at the repo root, served identically by live
+  `help`; **B** (0baccad, 7e641ca) `help(topic:)` is an LLM tool — `help("ports")` serves the
+  craft manual; the 1,100-line ports-context injection replaced by an 18-line resident core
+  (`ports-core.txt`), manual lazy-loaded; cold-build eval passed live; **C** (c14c2ce, 792be7e)
+  instruction blocks (CLAUDE.md/GEMINI.md/AGENTS.md) are slim pointers, rewritten at every boot
+  (kills install-time drift), guarded so a TEST run never rewrites the user's real files.
+  Remaining arc items: **D** (generated MCP server) and **E** (the port42-ports skill) — NOT started.
+- **Release** (4b44de3, 7c8d6b0): v0.5.47 built, notarized, stapled, appcast pushed. This is what
+  makes the instruction-block pointers TRUE in prod: `help`/`help("ports")` now answer on :4242.
+
+## NEXT SESSION STARTS HERE: the command-companion cwd fix (`plan-companion-cwd.md`)
+
+**The bug (root cause found + evidenced tonight, `summer2026-todo.md`):** `.command` companions
+(a real `claude` CLI in a terminal — NOT `.llm` API companions, which are unaffected) all default
+to cwd `/Users/gordon`. Claude 2.x keys its transcript on project=cwd, so every command companion
+SHARES one stale transcript; the shim reads the wrong file and posts empty or stale text. Proven
+with the shim instrument committed tonight (214cbd1): three turns all reported the same frozen
+transcript with stale content; the real reply was in no file. Distinct dirs → distinct transcripts
+(also proven).
+
+**Decisions are LOCKED (GM) in `plan-companion-cwd.md`** — read it in full. Gate matrix opens with
+**step 0, a BLOCKER SPIKE (no code):** verify that a pinned `--session-id` isolates two `claude`
+terminals in the SAME cwd. Everything downstream (shared space-dir + per-port session id vs per-port
+subdir) depends on that answer. Use the shim instrument (`[hooks] turnComplete: transcript=… sid=…`
+in `~/port42-build/Port42Dev.log`) and `port.create` with a `cwd` override + `port.push` to drive.
+
+## Other open tracks (`summer2026-todo.md`)
+- Knowledge arc **D** (MCP server) + **E** (skill) — the cross-vendor adoption pieces.
+- Auto-register an ad-hoc `claude` terminal port as a space companion (depends on the cwd fix).
+- **Bugs**: the screen.stream pointer glitch (undiagnosed); script tags in port.create HTML never
+  execute; the 6 pre-existing env test failures; the `remote-http-cal` fossil member row +
+  qualified-name collisions.
+- **Deferred cleanups**: streaming frame delivery cost (main-thread base64), llms-preamble prose
+  accuracy pass.
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential

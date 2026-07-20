@@ -47,3 +47,6 @@ GhosttyKit.xcframework/
 # Local tool config + stashed release artifacts (never committed)
 .factory/
 dist/old_updates/
+
+# Go build artifact (shim binary; the bundled one is built by build.sh)
+shim/shim
