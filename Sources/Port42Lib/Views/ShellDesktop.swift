@@ -1042,8 +1042,13 @@ struct ShellDock: View {
         guard let space = appState.currentSpace else { return }
         // Open in the space working directory (docs/plan-companion-cwd.md), else home.
         let cwd = TerminalCwd.resolve(override: nil, spaceDir: space.workingDirectory)
+        // Give the terminal a friendly codename up front. If the user runs `claude` in it, it
+        // auto-registers as that companion (docs/summer2026-todo.md); the name must be baked at
+        // spawn since a CLI companion's name can't be re-baked without a respawn. Seeded by a fresh
+        // id so distinct terminals get distinct, stable names.
+        let name = CompanionCodename.generate(seed: UUID().uuidString)
         if let id = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: cwd, spaceId: space.id,
-                                                     title: "terminal", companionName: "terminal",
+                                                     title: name, companionName: name,
                                                      postCard: false, startupCommandOverride: "") {
             shell.noteUserSpawn(id)                       // your own spawn shouldn't peek at you
         }

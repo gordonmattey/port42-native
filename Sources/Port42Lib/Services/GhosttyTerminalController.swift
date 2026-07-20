@@ -76,6 +76,11 @@ final class GhosttyTerminalController {
     /// (re)spawning, so they can be injected once the CLI is ready. Injected by the caller
     /// (AppState) so the queue stays decoupled and testable. Defaults to no-op for tests.
     private let drainPending: () -> [String]
+    /// Fired the first time the CLI signals it has started (SessionStart). AppState uses it to
+    /// auto-register an ad-hoc `claude` terminal as a space companion (docs/summer2026-todo.md).
+    /// Fires at most once per controller. No-op by default (tests / non-companion terminals).
+    private let onSessionStarted: () -> Void
+    private var didNotifySessionStart = false
     private var injectToSurface: ((String) -> Void)?
     private var gate: CompanionPostGate
     private let hooksCapable: Bool
@@ -91,11 +96,13 @@ final class GhosttyTerminalController {
 
     init(panelId: String, config: TerminalPortConfig,
          post: @escaping (String) -> Void,
-         drainPending: @escaping () -> [String] = { [] }) {
+         drainPending: @escaping () -> [String] = { [] },
+         onSessionStarted: @escaping () -> Void = {}) {
         self.panelId = panelId
         self.config = config
         self.post = post
         self.drainPending = drainPending
+        self.onSessionStarted = onSessionStarted
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
 
@@ -163,6 +170,11 @@ final class GhosttyTerminalController {
             log("event=sessionStarted")
             // CLI is up → deliver any messages queued while it was (re)spawning.
             flushPending(reason: "sessionStarted")
+            // First launch → let AppState auto-register this terminal as a companion (once).
+            if !didNotifySessionStart {
+                didNotifySessionStart = true
+                onSessionStarted()
+            }
         case .sessionEnded:
             log("event=sessionEnded")
         }

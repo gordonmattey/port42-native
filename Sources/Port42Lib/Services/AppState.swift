@@ -771,6 +771,10 @@ public final class AppState: ObservableObject {
     /// Space messages waiting for a (re)spawning native terminal companion to become ready,
     /// keyed by lowercased companion name. Drained by the controller on CLI readiness.
     var pendingTerminalInjections: [String: [String]] = [:]
+    /// panelId → auto-registered companion id. A live `claude` in a plain terminal is registered
+    /// as a space companion on SessionStart (docs/summer2026-todo.md); the entry is removed when
+    /// the terminal tears down, so the roster reflects only terminals that are actually live.
+    private var autoRegisteredCompanions: [String: String] = [:]
     /// Safety timers that auto-clear a native terminal companion's "typing…" indicator if no
     /// reply arrives (e.g. a (re)spawn that never reaches turnComplete). Keyed by "spaceId:name".
     private var terminalTypingTimers: [String: Timer] = [:]
@@ -2579,7 +2583,13 @@ public final class AppState: ObservableObject {
             self.pendingTerminalInjections[drainKey] = nil
             return lines
         }
-        let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post, drainPending: drainPending)
+        // On CLI launch, register an ad-hoc claude terminal as a space companion (no-op for
+        // named companions and for non-claude terminals that never fire SessionStart).
+        let onSessionStarted: () -> Void = { [weak self] in
+            self?.autoRegisterTerminalCompanion(config: config, panelId: panel.id)
+        }
+        let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
+                                                   drainPending: drainPending, onSessionStarted: onSessionStarted)
         terminalControllers[panel.id] = controller
         return controller
     }
@@ -2587,6 +2597,53 @@ public final class AppState: ObservableObject {
     /// Tear down and drop a native terminal controller (window closed/minimized).
     func teardownTerminalController(panelId: String) {
         terminalControllers.removeValue(forKey: panelId)?.teardown()
+        removeAutoRegisteredCompanion(panelId: panelId)
+    }
+
+    /// A terminal whose CLI just launched should auto-register only if its name isn't already a
+    /// roster companion (a named companion like Maker owns its identity). Pure so it's unit-testable.
+    nonisolated static func shouldAutoRegisterTerminal(name: String, existingCompanionNames: [String]) -> Bool {
+        !name.isEmpty && !existingCompanionNames.contains(name)
+    }
+
+    /// Register a live `claude` terminal that isn't already a named companion as a space companion
+    /// (docs/summer2026-todo.md). Mention-gated: it appears in the roster and is @-addressable, but
+    /// the post gate still arms on inject, so the user's own private turns are not broadcast.
+    /// Idempotent per (name, port). No terminal is spawned — this one is already live.
+    func autoRegisterTerminalCompanion(config: TerminalPortConfig, panelId: String) {
+        let name = config.companionName
+        guard Self.shouldAutoRegisterTerminal(name: name, existingCompanionNames: companions.map(\.displayName)),
+              autoRegisteredCompanions[panelId] == nil,
+              let ownerId = currentUser?.id else { return }
+        let claudePath = AgentConfig.CLIPreset.claude.resolvedPath ?? "claude"
+        let agent = AgentConfig.createCommand(
+            ownerId: ownerId, displayName: name, command: claudePath,
+            openInTerminal: true, trigger: .mentionOnly)
+        do {
+            try db.saveAgent(agent)
+            companions = try db.getAllAgents()
+            try db.assignAgentToSpace(agentId: agent.id, spaceId: config.spaceId)
+            if currentSpace?.id == config.spaceId { spaceCompanions = try db.getAgentsForSpace(spaceId: config.spaceId) }
+            autoRegisteredCompanions[panelId] = agent.id
+            NSLog("[Port42] auto-registered CLI companion '%@' (id=%@) in space %@", name, agent.id, config.spaceId)
+        } catch {
+            NSLog("[Port42] auto-register failed for '%@': %@", name, error.localizedDescription)
+        }
+    }
+
+    /// Remove an auto-registered CLI companion when its terminal goes away (it exists only while
+    /// the CLI is live). No-op for named companions (never in the map).
+    private func removeAutoRegisteredCompanion(panelId: String) {
+        guard let agentId = autoRegisteredCompanions.removeValue(forKey: panelId) else { return }
+        do {
+            try db.removeAllSpacesForAgent(agentId)
+            try db.deleteAgent(id: agentId)
+            companions = try db.getAllAgents()
+            if let sid = currentSpace?.id { spaceCompanions = try db.getAgentsForSpace(spaceId: sid) }
+            NSLog("[Port42] removed auto-registered CLI companion id=%@", agentId)
+        } catch {
+            NSLog("[Port42] remove auto-registered companion failed: %@", error.localizedDescription)
+        }
     }
 
     /// Pure resolver from an id-or-name to a terminal controller's port id. Split out so it can
