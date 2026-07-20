@@ -1546,6 +1546,15 @@ public final class AppState: ObservableObject {
     /// auto-reopen path: @mentioning an `openInTerminal` companion whose port was closed or
     /// minimized rebuilds it. Safe to call repeatedly — it no-ops when a terminal already
     /// exists or is mid-build (popOut appends the panel synchronously, so a second call sees it).
+    /// Surface a CLI companion's terminal tile: restore it if minimized, else bring it to the front.
+    /// Used by the dock-avatar click so clicking a CLI companion always opens/switches to its window
+    /// (ensureTerminalLive alone no-ops when the terminal is already live).
+    func focusTerminal(companionName: String) {
+        let key = companionName.lowercased()
+        guard let panel = portWindows.panels.first(where: { $0.terminalConfig?.companionName.lowercased() == key }) else { return }
+        if panel.isBackground { _ = portWindows.restore(panel.id) } else { portWindows.bringToFront(panel.id) }
+    }
+
     func ensureTerminalLive(companion: AgentConfig, spaceId: String) {
         let key = companion.displayName.lowercased()
         // Already has a live controller → nothing to do.

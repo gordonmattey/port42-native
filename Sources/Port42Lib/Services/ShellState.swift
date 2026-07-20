@@ -729,7 +729,11 @@ public final class ShellState: ObservableObject {
     public func activateCompanion(_ companion: AgentConfig) {
         if companion.openInTerminal {
             guard let sid = appState.currentSpace?.id else { return }
+            // Spawn/restore the terminal if needed, then bring it to the front so clicking the dock
+            // avatar always switches to the companion's window (not a no-op when already live).
             appState.ensureTerminalLive(companion: companion, spaceId: sid)
+            zoom = .space
+            appState.focusTerminal(companionName: companion.displayName)
         } else {
             openDM(companion)
         }
