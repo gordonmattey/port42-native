@@ -680,7 +680,7 @@ public final class AppState: ObservableObject {
     }()
 
     @Published public var spaces: [Space] = []
-    @Published public var currentSpace: Space?
+    @Published public var currentSpace: Space? { didSet { refreshSpaceCompanions() } }
     @Published public var messages: [Message] = []
     /// Message ID of a port that should auto-activate when it appears in the chat.
     @Published public var pendingPortActivationId: String? = nil
@@ -703,8 +703,13 @@ public final class AppState: ObservableObject {
     @Published public var spaceAgentIds: [String: Set<String>] = [:]
     /// spaceId -> distinct non-system sender count (online-count badges).
     @Published public var spaceSenderCounts: [String: Int] = [:]
-    @Published public var companions: [AgentConfig] = []
-    @Published public var spaceCompanions: [AgentConfig] = []
+    @Published public var companions: [AgentConfig] = [] { didSet { refreshSpaceCompanions() } }
+    /// The current space's companions. NEVER assigned directly — it is recomputed from the DB by the
+    /// single seam `refreshSpaceCompanions()`, triggered whenever an input changes: the roster
+    /// (`companions` didSet), the space (`currentSpace` didSet), or membership (the join/leave seams
+    /// and the agentSpaces observation). That is why no mutation path can leave the dock/member list
+    /// stale (the bug that motivated this: a team-space delete never refreshed the old manual cache).
+    @Published public private(set) var spaceCompanions: [AgentConfig] = []
     @Published public var friends: [SpaceMember] = []
     @Published public var showDreamscape = true
     @Published public var showNgrokSetup = false
@@ -1882,9 +1887,9 @@ public final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
             guard !Task.isCancelled, self.currentSpace?.id == space.id else { return }
 
-            // Now commit: clear stale content and load the real space.
+            // Now commit: clear stale content and load the real space. spaceCompanions is derived
+            // (companions ∩ spaceAgentIds[currentSpace]) and updates reactively — no refresh here.
             self.messages = []
-            self.spaceCompanions = (try? self.db.getAgentsForSpace(spaceId: space.id)) ?? []
 
             // ValueObservation fires immediately from a background reader thread —
             // no blocking main-thread DB read needed.
@@ -2657,7 +2662,6 @@ public final class AppState: ObservableObject {
             try db.removeAllSpacesForAgent(agentId)
             try db.deleteAgent(id: agentId)
             companions = try db.getAllAgents()
-            if let sid = currentSpace?.id { spaceCompanions = try db.getAgentsForSpace(spaceId: sid) }
             NSLog("[Port42] removed auto-registered CLI companion id=%@", agentId)
         } catch {
             NSLog("[Port42] remove auto-registered companion failed: %@", error.localizedDescription)
@@ -2952,12 +2956,19 @@ public final class AppState: ObservableObject {
     /// respawn or a repeat mention never re-announces. Named adds, mention auto-adds, remote-peer
     /// registration, and auto-registered CLI terminals all go through here, so the "joined" message
     /// is declared in exactly one place.
+    /// Recompute `spaceCompanions` from the authoritative DB for the current space. The ONE seam
+    /// that derives it; called on every input change so it is never hand-maintained and never stale.
+    func refreshSpaceCompanions() {
+        guard let sid = currentSpace?.id else { spaceCompanions = []; return }
+        spaceCompanions = (try? db.getAgentsForSpace(spaceId: sid)) ?? []
+    }
+
     func joinCompanionToSpace(_ companion: AgentConfig, spaceId: String) {
         guard !spaceId.isEmpty else { return }
         let wasMember = ((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).contains { $0.id == companion.id }
         do {
             try db.assignAgentToSpace(agentId: companion.id, spaceId: spaceId)
-            if currentSpace?.id == spaceId { spaceCompanions = try db.getAgentsForSpace(spaceId: spaceId) }
+            refreshSpaceCompanions()
         } catch {
             print("[Port42] joinCompanionToSpace failed: \(error)")
             return
@@ -2974,7 +2985,7 @@ public final class AppState: ObservableObject {
         let wasMember = ((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).contains { $0.id == companion.id }
         do {
             try db.removeAgentFromSpace(agentId: companion.id, spaceId: spaceId)
-            if currentSpace?.id == spaceId { spaceCompanions = try db.getAgentsForSpace(spaceId: spaceId) }
+            refreshSpaceCompanions()
         } catch {
             print("[Port42] leaveCompanionFromSpace failed: \(error)")
             return
@@ -3014,9 +3025,7 @@ public final class AppState: ObservableObject {
     public func updateCompanion(_ companion: AgentConfig) {
         do {
             try db.saveAgent(companion)
-            companions = try db.getAllAgents()
-            // Refresh the current space's crew too, so a rename/edit reflects on its dock chip.
-            if let sid = currentSpace?.id { spaceCompanions = try db.getAgentsForSpace(spaceId: sid) }
+            companions = try db.getAllAgents()   // spaceCompanions (derived) reflects the rename/edit
         } catch {
             print("[Port42] Failed to update companion: \(error)")
         }
@@ -3041,8 +3050,7 @@ public final class AppState: ObservableObject {
             try db.deleteAgent(id: companion.id)
             companions = try db.getAllAgents()
             if wasViewingThisDM {
-                currentSpace = nil
-                spaceCompanions = []
+                currentSpace = nil   // spaceCompanions (derived) becomes empty with no current space
             }
         } catch {
             print("[Port42] Failed to delete companion: \(error)")
@@ -3092,9 +3100,7 @@ public final class AppState: ObservableObject {
             return
         }
         spaces = (try? db.getRegularSpaces()) ?? spaces
-        // Set synchronously so the sidebar DM row highlights immediately; selectSpace's
-        // observation refreshes spaceCompanions from the DB shortly after.
-        spaceCompanions = [companion]
+        // spaceCompanions is derived from spaceAgentIds (the DM's sole agent member) once selected.
         selectSpace(directSpace)
 
         Analytics.shared.swimStarted()
@@ -3138,8 +3144,7 @@ public final class AppState: ObservableObject {
         currentUser = nil
         spaces = []
         messages = []
-        companions = []
-        spaceCompanions = []
+        companions = []   // spaceCompanions (derived) empties with it
         friends = []
         drafts = [:]
         unreadCounts = [:]
@@ -3190,6 +3195,7 @@ public final class AppState: ObservableObject {
         agentSpacesObservation = db.observeAgentSpaces { [weak self] map in
             Task { @MainActor in
                 self?.spaceAgentIds = map
+                self?.refreshSpaceCompanions()   // membership changed (incl. remote) → keep crew fresh
             }
         }
         senderCountsObservation = db.observeSenderCounts { [weak self] counts in
