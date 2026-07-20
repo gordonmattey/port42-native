@@ -126,9 +126,13 @@ struct ToolNamingTests {
         #expect(toolToCanonical.count == ToolNaming.canonicalMethods.count)
     }
 
-    @Test("COVERAGE: every ToolDefinitions tool name maps to a canonical method")
-    func coversAllToolDefinitions() {
-        let toolNames = ToolDefinitions.all.compactMap { $0["name"] as? String }
+    @Test("COVERAGE: every generated tool name maps to a canonical method")
+    @MainActor
+    func coversAllToolDefinitions() throws {
+        // Was ToolDefinitions.all until the hybrid list emptied (tail items 4+5) — the hand-written
+        // list is [] by design now, so the coverage subject is the GENERATED tool list, same repoint
+        // as the step-1 suites.
+        let toolNames = try generatedToolList().compactMap { $0["name"] as? String }
         #expect(!toolNames.isEmpty)
         var unmapped: [String] = []
         for name in toolNames where ToolNaming.canonical(fromTool: name) == nil {
