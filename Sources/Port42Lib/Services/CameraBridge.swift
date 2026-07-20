@@ -162,6 +162,9 @@ private final class FrameHandler: NSObject, AVCaptureVideoDataOutputSampleBuffer
     weak var bridge: PortBridge?
     var captureContinuation: CheckedContinuation<[String: Any], Never>?
     private var lastFrameTime: CFAbsoluteTime = 0
+    /// One CIContext for the handler's lifetime (a GPU context; per-frame allocation, the old
+    /// code, stutters the pointer). Safe: frames arrive on the single delegateQueue.
+    private let context = CIContext()
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         // Throttle streaming frames to target FPS
@@ -175,7 +178,6 @@ private final class FrameHandler: NSObject, AVCaptureVideoDataOutputSampleBuffer
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)

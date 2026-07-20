@@ -178,27 +178,45 @@ reload or app restart).
 
 ---
 
-## NOTE: dev-build Screen Recording TCC clash (two bundles, one id) (2026-07-19)
+## NOTE: dev-build Screen Recording TCC recovery (2026-07-19)
 
-Two Port42Dev bundles exist with the same bundle id `com.port42.dev` (`~/port42-build/Port42Dev.app`
-and the repo's `.build/Port42Dev.app`). The Screen Recording grant binds to one static code path, so
-a toggle granted against one bundle leaves the other blocked, and unlike mic/camera there is no
-per-request prompt to recover with. Unblock: `tccutil reset ScreenCapture com.port42.dev`, launch
-the bundle you want, request once (fails), toggle the fresh System Settings entry, restart the app.
-Longer term: keep ONE dev bundle path, or give the two paths distinct dev bundle ids.
+The Screen Recording grant for `com.port42.dev` can wedge (toggle on, still denied) with no
+per-request prompt to recover with, unlike mic/camera. Recovery that worked live:
+`tccutil reset ScreenCapture com.port42.dev`, launch, request once (fails), toggle the fresh
+System Settings entry, restart the app, request again. (Not a two-bundle clash as first suspected:
+`.build` is a SYMLINK to `~/port42-build`, one bundle. Likely a stale grant against an older
+signature.) Related build gotcha, hit the same evening: build.sh's kill-before-sign step matches
+instances launched via `~/port42-build/...` but not via the repo's `.build/...` symlink path, so a
+running app launched through the symlink makes codesign fail with "internal error in Code Signing
+subsystem". Quit the dev app before ./build.sh, or widen the kill match to both paths.
 
 ---
 
-## PERF: camera/screen streaming causes visible input lag (2026-07-19)
+## BUG: screen.stream glitches the pointer — UNDIAGNOSED, feature NOT stable (2026-07-19)
 
-Live item-6 run: with `screen.stream` at scale 0.3 / 2 fps the mouse visibly stutters. Two costs,
-both pre-existing (untouched by the item-6 extraction):
-- Both stream delegates (`ScreenStreamDelegate.stream(_:didOutputSampleBuffer:)`,
-  `CameraBridge.FrameHandler.captureOutput`) allocate a fresh `CIContext` PER FRAME. A CIContext is
-  a GPU context meant to be created once; hoist to a stored property. Cheap, obvious win.
-- Every frame ships as a base64 JPEG/PNG string through `pushEvent` →
-  `evaluateJavaScript` on the MAIN thread; at retina sizes that is megabytes of JS string per
-  second on the UI thread. Real fix is off-main delivery or a binary transport; design item.
+Live item-6 run: while `screen.stream` is active the mouse pointer JUMPS erratically (not load
+stutter — teleporting), recovering the moment the stream stops. Pre-existing behavior of the
+streaming pipeline (the item-6 extraction changed ownership/teardown, not capture); the extraction
+gates all passed, but the FEATURE cannot be called stable until this is diagnosed.
+
+**Bisect trail (all reproduce the glitch, so all these are exonerated as causes):**
+- Headless stream via the gateway, owner nil → no webview delivery at all → still glitches
+  (rules out the base64 `evaluateJavaScript` main-thread path).
+- fps 2 and fps 10 → same. scale 0.3 and native 1.0 → same.
+- Single-WINDOW capture (`desktopIndependentWindow`, no display filter, no cursor compositing)
+  → same. (Rules out `showsCursor` and the display content filter.)
+- Hoisting the per-frame `CIContext` in both stream delegates (landed) → no perceptible change.
+  Kept anyway: a per-frame GPU context was real waste.
+
+**The one decisive test not yet run:** record with macOS's own recorder (Cmd+Shift+5) and wiggle.
+Glitches too → OS/driver interaction (pointer utilities and capture indicators are a known bad
+mix), not our bug. Calm → something about OUR SCStream usage (candidates: `delegate: nil` on
+SCStream, default queueDepth, the synchronous work inside the output handler backing up
+WindowServer's frame delivery).
+
+Secondary (still real, now decoupled): per-frame base64 through `evaluateJavaScript` on the main
+thread is the delivery cost item for when frames actually flow to a port; off-main serialize or a
+binary transport. Design item.
 
 ---
 

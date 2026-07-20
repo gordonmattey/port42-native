@@ -319,6 +319,10 @@ public final class ScreenBridge {
 final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
     weak var bridge: PortBridge?
     let scale: Double
+    /// One CIContext for the stream's lifetime. A CIContext is a GPU context; allocating one per
+    /// frame (the old code) is constant Metal setup churn that visibly stutters the pointer.
+    /// Safe as a stored property: frames arrive on the stream's single sampleHandlerQueue.
+    private let context = CIContext()
 
     init(bridge: PortBridge?, scale: Double) {
         self.bridge = bridge
@@ -333,7 +337,6 @@ final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable 
         let height = CVPixelBufferGetHeight(pixelBuffer)
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
 
         guard let cgImage = context.createCGImage(ciImage, from: CGRect(x: 0, y: 0, width: width, height: height)) else { return }
 
