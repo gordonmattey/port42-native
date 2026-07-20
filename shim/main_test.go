@@ -159,6 +159,30 @@ func TestBuildSettingsShape(t *testing.T) {
 	}
 }
 
+// SessionStart -> sessionStarted lets the app detect a claude launch in any terminal (the
+// auto-register-CLI-companion hook, docs/summer2026-todo.md).
+func TestBuildSettingsSessionStart(t *testing.T) {
+	s := buildSettings("/x/port42-claude-shim")
+	var parsed struct {
+		Hooks struct {
+			SessionStart []struct {
+				Hooks []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"SessionStart"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		t.Fatalf("settings not valid JSON: %v\n%s", err, s)
+	}
+	if len(parsed.Hooks.SessionStart) != 1 || len(parsed.Hooks.SessionStart[0].Hooks) != 1 {
+		t.Fatalf("SessionStart not wired: %s", s)
+	}
+	if got := parsed.Hooks.SessionStart[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionStarted` {
+		t.Fatalf("SessionStart command = %q", got)
+	}
+}
+
 func TestNotifyRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "h.sock")

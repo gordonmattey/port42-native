@@ -133,8 +133,8 @@ func runClaude() {
 	}
 }
 
-// buildSettings produces the Claude Code `--settings` JSON registering Port42's hooks.
-// Step 7 wires only Stop -> turnComplete; other events are added in later steps.
+// buildSettings produces the Claude Code `--settings` JSON registering Port42's hooks:
+// Stop -> turnComplete (reply delivery) and SessionStart -> sessionStarted (launch detection).
 // Note the nested matcher-block shape required by Claude Code:
 //   {"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"..."}]}]}}
 func buildSettings(selfPath string) string {
@@ -154,6 +154,12 @@ func buildSettings(selfPath string) string {
 			"Stop": []matcherBlock{{
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("turnComplete")}},
+			}},
+			// SessionStart lets the app notice a claude launch in ANY terminal (auto-register a
+			// CLI companion, docs/summer2026-todo.md), not just ports spawned as named companions.
+			"SessionStart": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("sessionStarted")}},
 			}},
 		},
 	}
