@@ -80,6 +80,10 @@ final class GhosttyTerminalController {
     /// auto-register an ad-hoc `claude` terminal as a space companion (docs/summer2026-todo.md).
     /// Fires at most once per controller. No-op by default (tests / non-companion terminals).
     private let onSessionStarted: () -> Void
+    /// Fired when the CLI signals it has exited (SessionEnd). AppState uses it to remove an
+    /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
+    /// shell stays open). No-op by default.
+    private let onSessionEnded: () -> Void
     private var didNotifySessionStart = false
     private var injectToSurface: ((String) -> Void)?
     private var gate: CompanionPostGate
@@ -97,12 +101,14 @@ final class GhosttyTerminalController {
     init(panelId: String, config: TerminalPortConfig,
          post: @escaping (String) -> Void,
          drainPending: @escaping () -> [String] = { [] },
-         onSessionStarted: @escaping () -> Void = {}) {
+         onSessionStarted: @escaping () -> Void = {},
+         onSessionEnded: @escaping () -> Void = {}) {
         self.panelId = panelId
         self.config = config
         self.post = post
         self.drainPending = drainPending
         self.onSessionStarted = onSessionStarted
+        self.onSessionEnded = onSessionEnded
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
 
@@ -177,6 +183,9 @@ final class GhosttyTerminalController {
             }
         case .sessionEnded:
             log("event=sessionEnded")
+            // Allow re-registration if the user runs claude again in this same terminal.
+            didNotifySessionStart = false
+            onSessionEnded()
         }
     }
 

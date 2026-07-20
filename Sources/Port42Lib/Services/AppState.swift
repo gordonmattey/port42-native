@@ -2590,12 +2590,17 @@ public final class AppState: ObservableObject {
             return lines
         }
         // On CLI launch, register an ad-hoc claude terminal as a space companion (no-op for
-        // named companions and for non-claude terminals that never fire SessionStart).
+        // named companions and for non-claude terminals that never fire SessionStart); on exit,
+        // remove it (it leaves the space and announces "left", even if the shell stays open).
         let onSessionStarted: () -> Void = { [weak self] in
             self?.autoRegisterTerminalCompanion(config: config, panelId: panel.id)
         }
+        let onSessionEnded: () -> Void = { [weak self] in
+            self?.removeAutoRegisteredCompanion(panelId: panel.id)
+        }
         let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
-                                                   drainPending: drainPending, onSessionStarted: onSessionStarted)
+                                                   drainPending: drainPending,
+                                                   onSessionStarted: onSessionStarted, onSessionEnded: onSessionEnded)
         terminalControllers[panel.id] = controller
         return controller
     }
@@ -2642,6 +2647,12 @@ public final class AppState: ObservableObject {
     /// the CLI is live). No-op for named companions (never in the map).
     private func removeAutoRegisteredCompanion(panelId: String) {
         guard let agentId = autoRegisteredCompanions.removeValue(forKey: panelId) else { return }
+        // Announce "left" and drop membership via the shared seam (only its space(s)); then delete
+        // the ephemeral agent record entirely — it existed only while the CLI was live.
+        let agent = companions.first(where: { $0.id == agentId })
+        for sid in (try? db.getSpaceIdsForAgent(agentId: agentId)) ?? [] {
+            if let agent { leaveCompanionFromSpace(agent, spaceId: sid) }
+        }
         do {
             try db.removeAllSpacesForAgent(agentId)
             try db.deleteAgent(id: agentId)
@@ -2952,15 +2963,37 @@ public final class AppState: ObservableObject {
             return
         }
         guard !wasMember else { return }
+        postCompanionMembershipMessage(name: companion.displayName, spaceId: spaceId, content: "\(companion.displayName) joined the space")
+    }
+
+    /// The mirror of joinCompanionToSpace: drop a companion's membership, refresh the crew, and
+    /// announce "<name> left the space" ONCE — only on the real member -> not-member transition.
+    /// Named removals and auto-registered CLI companions (claude exited / terminal closed) share it.
+    func leaveCompanionFromSpace(_ companion: AgentConfig, spaceId: String) {
+        guard !spaceId.isEmpty else { return }
+        let wasMember = ((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).contains { $0.id == companion.id }
+        do {
+            try db.removeAgentFromSpace(agentId: companion.id, spaceId: spaceId)
+            if currentSpace?.id == spaceId { spaceCompanions = try db.getAgentsForSpace(spaceId: spaceId) }
+        } catch {
+            print("[Port42] leaveCompanionFromSpace failed: \(error)")
+            return
+        }
+        guard wasMember else { return }
+        postCompanionMembershipMessage(name: companion.displayName, spaceId: spaceId, content: "\(companion.displayName) left the space")
+    }
+
+    /// Post a `system` membership message (joined/left) into a space.
+    private func postCompanionMembershipMessage(name: String, spaceId: String, content: String) {
         let now = Date()
-        let joinMsg = Message(
+        let msg = Message(
             id: UUID().uuidString, spaceId: spaceId,
-            senderId: "cli-agent-\(companion.displayName.lowercased())",
-            senderName: companion.displayName, senderType: "system",
-            content: "\(companion.displayName) joined the space",
+            senderId: "cli-agent-\(name.lowercased())",
+            senderName: name, senderType: "system",
+            content: content,
             timestamp: now, replyToId: nil, syncStatus: "sent", createdAt: now)
-        try? db.saveMessage(joinMsg)
-        sync.sendMessage(joinMsg)
+        try? db.saveMessage(msg)
+        sync.sendMessage(msg)
     }
 
     public func addCompanionToSpace(_ companion: AgentConfig, space: Space) {
@@ -2975,14 +3008,7 @@ public final class AppState: ObservableObject {
     }
 
     public func removeCompanionFromSpace(_ companion: AgentConfig, space: Space) {
-        do {
-            try db.removeAgentFromSpace(agentId: companion.id, spaceId: space.id)
-            if currentSpace?.id == space.id {
-                spaceCompanions = try db.getAgentsForSpace(spaceId: space.id)
-            }
-        } catch {
-            print("[Port42] Failed to remove companion from space: \(error)")
-        }
+        leaveCompanionFromSpace(companion, spaceId: space.id)
     }
 
     public func updateCompanion(_ companion: AgentConfig) {
