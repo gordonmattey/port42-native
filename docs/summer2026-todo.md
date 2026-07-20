@@ -245,6 +245,18 @@ binary transport. Design item.
 
 ---
 
+## TODO: publish the generated API reference as a static llms.txt (2026-07-19)
+
+Since close-out step 4c the reference renders at RUNTIME (`BridgeReference.swift`, served via
+`help` + InstructionService); no static llms.txt exists to publish. Wanted (GM): a publishable
+artifact. Plan: a small exporter that builds the registry in memory (the parity-world pattern),
+renders `generateAPIReference`, and writes `llms.txt` into the repo, plus a freshness gate test
+asserting committed == generated so the published file cannot drift (same discipline as the
+tool-definitions golden). Publish = the committed file (raw GitHub URL, like the DMG).
+`ports-context.txt` stays hand-authored prose; its method claims are already pinned by tests.
+
+---
+
 ## TODO: AppleScript / Automation enablement for the test env (2026-07-18)
 
 `AutomationBridgeTests` "timeout defaults to 30s when not specified" fails in the local `swift test`
