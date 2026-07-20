@@ -96,3 +96,89 @@ struct BridgeFilesTests {
         }
     }
 }
+
+// Tail item 7: the picked-path family wired. fs.pick joins the registry (panels are port UX, not an
+// LLM tool) and grants land on an AppState store KEYED BY PRINCIPAL id (the Phase-3 seam), not on a
+// per-port FileBridge instance. fs.read/fs.write accept an absolute path only when THIS principal
+// picked it; anyone else gets access_denied. The sandbox (relative-path) semantics above are
+// untouched. The live half (a real NSOpenPanel through a port) runs in Port42Dev with GM.
+
+@Suite("Bridge — files (picked paths)", .serialized)
+struct BridgeFilesPickedTests {
+
+    @MainActor
+    func call(_ w: ParityWorld, _ canonical: String, _ input: [String: Any]) async throws -> BridgeValue {
+        let method = try #require(w.registry[canonical], "missing \(canonical)")
+        return try await method.run(w.principal, BridgeArgs(input))
+    }
+
+    @MainActor
+    func errorCode(_ w: ParityWorld, _ canonical: String, _ input: [String: Any]) async throws -> String {
+        do {
+            _ = try await call(w, canonical, input)
+            return "NO_ERROR"
+        } catch let e as BridgeError {
+            return e.code
+        }
+    }
+
+    /// A real temp file OUTSIDE the sandbox, to stand in for a picker-chosen path.
+    func makeTempFile(_ content: String) throws -> String {
+        let path = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("p42-picked-\(UUID().uuidString).txt")
+        try content.write(toFile: path, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    @Test("the family is wired and fs.pick is registered, gated, and not a tool")
+    @MainActor
+    func wiring() throws {
+        let w = try makeParityWorld()
+        let pick = try #require(w.registry["fs.pick"], "fs.pick must join the registry")
+        #expect(pick.permission == .filesystem)
+        #expect(!pick.toolExposed, "the picker is port UX, not an LLM tool")
+        for m in ["fs.pick", "fs.read", "fs.write", "fs.list", "fs.mkdir"] {
+            #expect(try #require(w.registry[m]).wired, "\(m) must be wired")
+        }
+    }
+
+    @Test("a picked absolute path is readable and writable by the granting principal")
+    @MainActor
+    func pickedRoundTrip() async throws {
+        let w = try makeParityWorld()
+        let path = try makeTempFile("picked contents")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        w.state.grantPickedPath(path, to: w.principal.id)
+
+        let read = try await call(w, "fs.read", ["path": path])
+        guard case let .object(o) = read, case let .string(data)? = o["data"] else {
+            Issue.record("fs.read of a picked path should return {data}")
+            return
+        }
+        #expect(data == "picked contents")
+
+        _ = try await call(w, "fs.write", ["path": path, "data": "rewritten"])
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "rewritten")
+    }
+
+    @Test("an un-picked absolute path is access_denied")
+    @MainActor
+    func unpickedDenied() async throws {
+        let w = try makeParityWorld()
+        let path = try makeTempFile("secret")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(try await errorCode(w, "fs.read", ["path": path]) == "access_denied")
+        #expect(try await errorCode(w, "fs.write", ["path": path, "data": "x"]) == "access_denied")
+    }
+
+    @Test("a grant belongs to ONE principal — another caller is denied")
+    @MainActor
+    func principalIsolation() async throws {
+        let w = try makeParityWorld()
+        let path = try makeTempFile("mine")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        w.state.grantPickedPath(path, to: "some-other-principal")
+        #expect(try await errorCode(w, "fs.read", ["path": path]) == "access_denied")
+        #expect(try await errorCode(w, "fs.write", ["path": path, "data": "x"]) == "access_denied")
+    }
+}

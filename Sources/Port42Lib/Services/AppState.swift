@@ -821,6 +821,20 @@ public final class AppState: ObservableObject {
     public let cameraDevice = CameraBridge()
     public let screenDevice = ScreenBridge()
 
+    /// Picked-file grants keyed by principal id (tail item 7). fs.pick (or a save panel) grants the
+    /// CALLING principal absolute-path access; fs.read/fs.write honor exactly that principal's
+    /// grants. This is the Phase-3 seam: when the authenticated principal lands, the key tightens
+    /// with it. Paths are stored standardized so lookups cannot be dodged with "/./" tricks.
+    public var pickedFilePaths: [String: Set<String>] = [:]
+
+    public func grantPickedPath(_ path: String, to principalId: String) {
+        pickedFilePaths[principalId, default: []].insert((path as NSString).standardizingPath)
+    }
+
+    public func principalHasPickedPath(_ path: String, principalId: String) -> Bool {
+        pickedFilePaths[principalId]?.contains((path as NSString).standardizingPath) ?? false
+    }
+
     /// The unified bridge method registry (API/tool-use unification, Phase 2). One implementation per
     /// method; the three calling paths (port JS, companion tool-use, gateway) dispatch through it via
     /// `runBridgeMethod`. Built once and stored: the bodies capture `self`, an intentional retain that

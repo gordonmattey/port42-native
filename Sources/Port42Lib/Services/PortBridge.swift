@@ -55,9 +55,6 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Clipboard bridge. Created lazily on first clipboard call.
     private var clipboardBridge: ClipboardBridge?
 
-    /// File bridge. Created lazily on first fs call.
-    private var fileBridge: FileBridge?
-
     /// Notification bridge. Created lazily on first notify call.
     private var notificationBridge: NotificationBridge?
 
@@ -933,32 +930,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if clipboardBridge == nil { clipboardBridge = ClipboardBridge() }
             return clipboardBridge!.write(args)
 
-        // MARK: File System
-
-        // fs.* is the canonical file surface; files.* are thin aliases (D4) so ports written against
-        // the documented files.* names work too. Same handlers, same .filesystem permission.
-        case "fs.pick", "files.pick":
-            if fileBridge == nil { fileBridge = FileBridge() }
-            let opts = args.first as? [String: Any] ?? [:]
-            let pickResult = await fileBridge!.pick(opts: opts)
-            return pickResult
-
-        case "fs.read", "files.read":
-            guard let path = args.first as? String else {
-                return ["error": "fs.read requires a path"]
-            }
-            if fileBridge == nil { return ["error": "no file has been picked yet"] }
-            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
-            return fileBridge!.read(path: path, opts: opts)
-
-        case "fs.write", "files.write":
-            guard let path = args.first as? String,
-                  let data = args.count > 1 ? args[1] as? String : nil else {
-                return ["error": "fs.write requires path and data"]
-            }
-            if fileBridge == nil { return ["error": "no file has been picked yet"] }
-            let opts = args.count > 2 ? args[2] as? [String: Any] : nil
-            return fileBridge!.write(path: path, data: data, opts: opts)
+        // fs.* / files.* (aliases): extracted to the registry (tail item 7) — picked-path grants
+        // live on AppState keyed by the calling principal, not on a per-port FileBridge.
 
         // MARK: Notifications
 

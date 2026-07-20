@@ -653,11 +653,16 @@ public enum BridgeFilePaths {
 @MainActor
 private func registerFileMethods(into r: inout BridgeRegistry, appState: AppState) {
 
-    // Resolve a caller path to an absolute filesystem path INSIDE the data-dir sandbox, or throw.
-    // A leading "/" (absolute) is rejected here: it is the picker's job (fs.pick), not free reach.
-    func resolve(_ path: String) throws -> String {
-        guard !path.hasPrefix("/") else {
-            throw BridgeError(code: "absolute_path", message: "absolute paths require a user-picked file — use fs.pick")
+    // Resolve a caller path. Relative → inside the data-dir sandbox (traversal blocked). Absolute →
+    // only if THIS principal picked it (tail item 7: grants live on AppState keyed by principal id,
+    // the Phase-3 seam); anything else is access_denied.
+    func resolve(_ path: String, for p: Principal) throws -> String {
+        if path.hasPrefix("/") {
+            let standardized = (path as NSString).standardizingPath
+            guard appState.principalHasPickedPath(standardized, principalId: p.id) else {
+                throw BridgeError(code: "access_denied", message: "absolute paths require a file picked by this caller — use fs.pick")
+            }
+            return standardized
         }
         // Block traversal out of the sandbox.
         let joined = (BridgeFilePaths.dataDir as NSString).appendingPathComponent(path)
@@ -668,7 +673,19 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         return standardized
     }
 
-    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"], wired: false,
+    // fs.pick: the user-consent path to absolute file access. Presents the native panel and grants
+    // every chosen path to the CALLING principal. Not an LLM tool (a companion cannot pop panels).
+    let picker = FileBridge()
+    r["fs.pick"] = BridgeMethod(permission: .filesystem, paramNames: ["options"], toolExposed: false) { p, args in
+        let result = await picker.pick(opts: args.object("options") ?? [:])
+        if let one = result["path"] as? String { appState.grantPickedPath(one, to: p.id) }
+        if let many = result["paths"] as? [String] {
+            for path in many { appState.grantPickedPath(path, to: p.id) }
+        }
+        return .fromJSONObject(result)
+    }
+
+    r["fs.read"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "encoding"],
         description: "Read a file. Use a relative path (e.g. \"scopes/strategy/scope.md\") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.",
         inputSchema: [
             "type": "object",
@@ -677,8 +694,8 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
                 "encoding": ["type": "string", "description": "utf8 (default) or base64"]
             ],
             "required": ["path"]
-        ]) { _, args in
-        let path = try resolve(try args.requireString("path"))
+        ]) { p, args in
+        let path = try resolve(try args.requireString("path"), for: p)
         let encoding = args.string("encoding") ?? "utf8"
         do {
             if encoding == "base64" {
@@ -692,7 +709,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"], wired: false,
+    r["fs.write"] = BridgeMethod(permission: .filesystem, paramNames: ["path", "data", "encoding"],
         description: "Write a file. Use a relative path (e.g. \"scopes/strategy/facts.md\") to write to the Port42 data directory — parent directories are created automatically. Use an absolute path for picker-approved files.",
         inputSchema: [
             "type": "object",
@@ -702,8 +719,8 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
                 "encoding": ["type": "string", "description": "utf8 (default) or base64"]
             ],
             "required": ["path", "data"]
-        ]) { _, args in
-        let path = try resolve(try args.requireString("path"))
+        ]) { p, args in
+        let path = try resolve(try args.requireString("path"), for: p)
         let data = try args.requireString("data")
         let encoding = args.string("encoding") ?? "utf8"
         do {
@@ -720,7 +737,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false,
+    r["fs.list"] = BridgeMethod(permission: .filesystem, paramNames: ["path"],
         description: "List the contents of a directory in the Port42 data directory. Relative paths only (e.g. \"scopes/strategy\" or \"scopes/strategy/decisions\"). Returns a sorted list of filenames.",
         inputSchema: [
             "type": "object",
@@ -728,8 +745,8 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
                 "path": ["type": "string", "description": "Relative path to the directory (e.g. \"scopes/strategy\")"]
             ],
             "required": ["path"]
-        ]) { _, args in
-        let path = try resolve(try args.requireString("path"))
+        ]) { p, args in
+        let path = try resolve(try args.requireString("path"), for: p)
         do {
             let items = try FileManager.default.contentsOfDirectory(atPath: path)
             return .object(["items": .array(items.sorted().map { .string($0) })])
@@ -738,7 +755,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         }
     }
 
-    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"], wired: false,
+    r["fs.mkdir"] = BridgeMethod(permission: .filesystem, paramNames: ["path"],
         description: "Create a directory (and any missing parent directories) in the Port42 data directory. Relative paths only (e.g. \"scopes/strategy/decisions\").",
         inputSchema: [
             "type": "object",
@@ -746,8 +763,8 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
                 "path": ["type": "string", "description": "Relative path to create (e.g. \"scopes/strategy/decisions\")"]
             ],
             "required": ["path"]
-        ]) { _, args in
-        let path = try resolve(try args.requireString("path"))
+        ]) { p, args in
+        let path = try resolve(try args.requireString("path"), for: p)
         do {
             try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
             return .object(["ok": .bool(true)])
