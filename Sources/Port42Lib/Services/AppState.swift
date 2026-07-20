@@ -1144,7 +1144,12 @@ public final class AppState: ObservableObject {
             // GEMINI.md / AGENTS.md) is rewritten from the live template, so install-time
             // artifacts are always as fresh as the running app. The block is a slim pointer;
             // the inventory itself lives behind `help` and llms.txt.
-            InstructionService.shared.refreshInstalled()
+            // NEVER from a test process: this boot path runs in test worlds too, and unguarded it
+            // rewrote the user's REAL instruction files during a test run (same escape class as
+            // the gateway-reclaim incident; canaried in GatewayReclaimSafetyTests).
+            if !AppState.isTestProcess {
+                InstructionService.shared.refreshInstalled()
+            }
 
             // Migrate old auth format
             Port42AuthStore.shared.migrateIfNeeded()

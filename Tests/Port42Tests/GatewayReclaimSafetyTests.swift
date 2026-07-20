@@ -112,6 +112,16 @@ struct GatewayReclaimSafetyTests {
         // completeSetup reclaim the real gateway port (the incident).
         try #require(AppState.isTestProcess, "test-harness detection must hold in this process")
 
+        // Second canary (found 2026-07-19): the boot path also rewrites the USER'S REAL
+        // instruction files (~/.claude/CLAUDE.md etc.) via InstructionService.refreshInstalled —
+        // a test run must never touch them. Snapshot mtimes before, compare after.
+        let realFiles = [".claude/CLAUDE.md", ".gemini/GEMINI.md", ".codex/AGENTS.md"]
+            .map { (NSHomeDirectory() as NSString).appendingPathComponent($0) }
+        func mtimes() -> [Date?] {
+            realFiles.map { try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate] as? Date }
+        }
+        let before = mtimes()
+
         let db = try DatabaseService(inMemory: true)
         let state = AppState(db: db)
         let user = AppUser.createForTesting(displayName: "Guard")
@@ -122,5 +132,6 @@ struct GatewayReclaimSafetyTests {
         #expect(state.sync.gatewayURL == nil, "a test process must not configure sync")
         #expect(!state.sync.isConnected, "a test process must not connect to a gateway")
         #expect(!GatewayProcess.shared.isRunning, "a test process must not spawn a gateway")
+        #expect(mtimes() == before, "a test process must never rewrite the user's real instruction files")
     }
 }
