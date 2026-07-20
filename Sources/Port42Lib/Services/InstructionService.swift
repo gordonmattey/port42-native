@@ -11,6 +11,10 @@ public final class InstructionService: ObservableObject {
     @Published public var hasClaudeInstructions = false
     @Published public var hasGeminiInstructions = false
 
+    /// Supplies the generated API reference for the instruction docs. Wired by AppState at boot
+    /// (the reference is generated from its registries).
+    public var apiDocsProvider: (() -> String)?
+
     private init() { refresh() }
 
     public func refresh() {
@@ -61,13 +65,9 @@ public final class InstructionService: ObservableObject {
     private func buildMarkdown(for tool: String) -> String {
         let toolName = tool.lowercased() == "claude" ? "Claude Code" : "Gemini CLI"
 
-        let docs: String
-        if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
-           let text = try? String(contentsOf: url, encoding: .utf8) {
-            docs = text.replacingOccurrences(of: "{{TOOL_NAME}}", with: toolName)
-        } else {
-            docs = ""
-        }
+        // The generated reference (close-out step 4c): AppState wires the provider at boot so these
+        // docs track the live registry instead of a hand-maintained file.
+        let docs = (apiDocsProvider?() ?? "").replacingOccurrences(of: "{{TOOL_NAME}}", with: toolName)
 
         return """
 # Port42 Instructions

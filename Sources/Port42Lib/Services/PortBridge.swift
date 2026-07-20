@@ -439,7 +439,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             // companions.invoke, which wire a token callback), and the one client-only method
             // (port.resize, which manipulates the DOM).
             function __ns(namespace, carveouts) {
-                return new Proxy(carveouts || {}, { get: function(t, m) {
+                // The proxy target is a FUNCTION so a dotless method is callable directly:
+                // port42.help() dispatches call('help'). Namespaced calls are unchanged.
+                var f = function() { return call(namespace, Array.prototype.slice.call(arguments)); };
+                if (carveouts) { for (var k in carveouts) { f[k] = carveouts[k]; } }
+                return new Proxy(f, { get: function(t, m) {
                     if (typeof m !== 'string') return undefined;
                     if (Object.prototype.hasOwnProperty.call(t, m)) return t[m];
                     return function() { return call(namespace + '.' + m, Array.prototype.slice.call(arguments)); };

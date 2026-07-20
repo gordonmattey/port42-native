@@ -875,6 +875,10 @@ public final class AppState: ObservableObject {
         toolNameMap[tool]
     }
 
+    /// The API reference: preamble resource + inventory generated from the registries (close-out
+    /// step 4c). Served by `help` and by InstructionService's CLI instruction docs.
+    public lazy var apiReference: String = generateAPIReference(self)
+
     /// The LLM tool schemas, GENERATED from the registry (big-bang step 1; the hand-written
     /// ToolDefinitions type is deleted as of close-out step 4). Every tool-exposed method
     /// contributes its self-describing schema via `anthropicToolSchema`; the frozen golden fixture
@@ -1124,6 +1128,9 @@ public final class AppState: ObservableObject {
             if openClawAvailable {
                 print("[Port42] OpenClaw detected")
             }
+
+            // The CLI instruction docs render the generated API reference (close-out step 4c).
+            InstructionService.shared.apiDocsProvider = { [weak self] in self?.apiReference ?? "" }
 
             // Migrate old auth format
             Port42AuthStore.shared.migrateIfNeeded()

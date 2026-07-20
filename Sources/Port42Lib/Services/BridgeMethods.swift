@@ -352,12 +352,14 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         return .fromJSONObject(await audio.speak(text: text, opts: args.object("options")))
     }
 
-    r["audio.play"] = BridgeMethod(permission: nil, paramNames: ["data", "options"], toolExposed: false) { _, args in
+    r["audio.play"] = BridgeMethod(permission: nil, paramNames: ["data", "options"], toolExposed: false,
+        description: "Play base64-encoded audio data (WAV, MP3, AAC).") { _, args in
         let data = try args.requireString("data")
         return .fromJSONObject(audio.play(data: data, opts: args.object("options")))
     }
 
-    r["audio.stop"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
+    r["audio.stop"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "Stop any active speech synthesis or audio playback.") { _, _ in
         .fromJSONObject(audio.stop())
     }
 
@@ -392,7 +394,8 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         return try browserResult(await browser.open(url: url, opts: opts, owner: owningPortBridge(p)))
     }
 
-    r["browser.navigate"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "url"], toolExposed: false) { _, args in
+    r["browser.navigate"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "url"], toolExposed: false,
+        description: "Navigate an open browser session to a new URL.") { _, args in
         let sessionId = try args.requireString("sessionId")
         let url = try args.requireString("url")
         return try browserResult(await browser.navigate(sessionId: sessionId, url: url))
@@ -433,14 +436,16 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         return try browserResult(await browser.text(sessionId: sessionId, opts: opts))
     }
 
-    r["browser.html"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"], toolExposed: false) { _, args in
+    r["browser.html"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"], toolExposed: false,
+        description: "Read the HTML of an open browser session, optionally scoped to a CSS selector.") { _, args in
         let sessionId = try args.requireString("sessionId")
         var opts = args.object("options") ?? [:]
         if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
         return try browserResult(await browser.html(sessionId: sessionId, opts: opts))
     }
 
-    r["browser.execute"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "js"], toolExposed: false) { _, args in
+    r["browser.execute"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "js"], toolExposed: false,
+        description: "Run JavaScript in an open browser session and return the result.") { _, args in
         let sessionId = try args.requireString("sessionId")
         let js = try args.requireString("js")
         return try browserResult(await browser.execute(sessionId: sessionId, js: js))
@@ -470,27 +475,33 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         return .fromJSONObject(result)
     }
 
-    r["audio.capture"] = BridgeMethod(permission: .microphone, paramNames: ["options"], toolExposed: false) { p, args in
+    r["audio.capture"] = BridgeMethod(permission: .microphone, paramNames: ["options"], toolExposed: false,
+        description: "Start microphone capture. Streams audio.transcription events (and audio.data when rawAudio is set) to the calling port until audio.stopCapture.") { p, args in
         try avResult(await audio.capture(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
     }
 
-    r["audio.stopCapture"] = BridgeMethod(permission: .microphone, toolExposed: false) { _, _ in
+    r["audio.stopCapture"] = BridgeMethod(permission: .microphone, toolExposed: false,
+        description: "Stop the microphone capture and release the audio engine.") { _, _ in
         try avResult(audio.stopCapture())
     }
 
-    r["camera.stream"] = BridgeMethod(permission: .camera, paramNames: ["options"], toolExposed: false) { p, args in
+    r["camera.stream"] = BridgeMethod(permission: .camera, paramNames: ["options"], toolExposed: false,
+        description: "Start continuous camera streaming. Pushes camera.frame events to the calling port until camera.stopStream.") { p, args in
         try avResult(await camera.stream(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
     }
 
-    r["camera.stopStream"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
+    r["camera.stopStream"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "Stop the camera stream and release the capture session.") { _, _ in
         try avResult(camera.stopStream())
     }
 
-    r["screen.stream"] = BridgeMethod(permission: .screen, paramNames: ["options"], toolExposed: false) { p, args in
+    r["screen.stream"] = BridgeMethod(permission: .screen, paramNames: ["options"], toolExposed: false,
+        description: "Start continuous screen streaming. Pushes screen.frame events to the calling port until screen.stopStream.") { p, args in
         try avResult(await screen.stream(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
     }
 
-    r["screen.stopStream"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
+    r["screen.stopStream"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "Stop the screen stream and release the capture stream.") { _, _ in
         try avResult(await screen.stopStream())
     }
 
@@ -676,7 +687,8 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
     // fs.pick: the user-consent path to absolute file access. Presents the native panel and grants
     // every chosen path to the CALLING principal. Not an LLM tool (a companion cannot pop panels).
     let picker = FileBridge()
-    r["fs.pick"] = BridgeMethod(permission: .filesystem, paramNames: ["options"], toolExposed: false) { p, args in
+    r["fs.pick"] = BridgeMethod(permission: .filesystem, paramNames: ["options"], toolExposed: false,
+        description: "Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write.") { p, args in
         let result = await picker.pick(opts: args.object("options") ?? [:])
         if let one = result["path"] as? String { appState.grantPickedPath(one, to: p.id) }
         if let many = result["paths"] as? [String] {
@@ -795,14 +807,12 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         return appState.currentUser?.displayName ?? "agent"
     }
 
-    // help: the full API reference from the bundled llms.txt (becomes a generated artifact with
-    // the ToolNaming flip). A surface affordance for port JS and the gateway, not an LLM tool.
-    r["help"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
-        if let url = Bundle.port42.url(forResource: "llms", withExtension: "txt"),
-           let text = try? String(contentsOf: url, encoding: .utf8) {
-            return .string(text)
-        }
-        return .string("API reference unavailable")
+    // help: the API reference, GENERATED from the registry (close-out step 4c) — the conceptual
+    // preamble is the llms-preamble.txt resource, the inventory renders from the live registries.
+    // A surface affordance for port JS and the gateway, not an LLM tool.
+    r["help"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "Return this API reference.") { _, _ in
+        .string(appState.apiReference)
     }
 
     r["user.get"] = BridgeMethod(permission: nil,
@@ -840,7 +850,8 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
 
     // Tail item 2. Not an LLM tool (companions navigate by talking; switching the visible space is a
     // surface affordance), so toolExposed: false — same class as the audio playback methods.
-    r["space.switchTo"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false) { _, args in
+    r["space.switchTo"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
+        description: "Switch the app's current space by id.") { _, args in
         let id = try args.requireString("space_id")
         guard let space = appState.spaces.first(where: { $0.id == id }) else {
             throw BridgeError.notFound("space '\(id)'")
@@ -970,7 +981,8 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     // Replaces the old port-only switch case, whose createdBy-required guard becomes "requires a
     // caller identity" under the unified principal. Not an LLM tool (companions' replies are already
     // attributed; this is the identity path for CLI/terminal callers), so toolExposed: false.
-    r["messages.sendAsCreator"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"], toolExposed: false) { p, args in
+    r["messages.sendAsCreator"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"], toolExposed: false,
+        description: "Send a message to a space attributed to the calling principal's display identity.") { p, args in
         let text = try args.requireString("text")
         guard !text.isEmpty else {
             throw BridgeError.badArg("messages.sendAsCreator requires a non-empty text argument")
@@ -1208,13 +1220,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return panel
     }
 
-    r["port.info"] = BridgeMethod(permission: nil, toolExposed: false) { p, _ in
+    r["port.info"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "Return the calling port's own id, title, space, and capabilities.") { p, _ in
         var info: [String: BridgeValue] = ["id": .string(p.id), "createdBy": .string(p.displayName)]
         if let sid = p.spaceId { info["spaceId"] = .string(sid) }
         return .object(info)
     }
 
-    r["port.setTitle"] = BridgeMethod(permission: nil, paramNames: ["title"], toolExposed: false) { p, args in
+    r["port.setTitle"] = BridgeMethod(permission: nil, paramNames: ["title"], toolExposed: false,
+        description: "Set the calling port's own title.") { p, args in
         let title = try args.requireString("title")
         guard !title.isEmpty else { throw BridgeError.badArg("port.setTitle requires a non-empty title") }
         let panel = try ownPanel(p)
@@ -1223,7 +1237,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.setCapabilities"] = BridgeMethod(permission: nil, paramNames: ["capabilities"], toolExposed: false) { p, args in
+    r["port.setCapabilities"] = BridgeMethod(permission: nil, paramNames: ["capabilities"], toolExposed: false,
+        description: "Set the calling port's own capabilities list.") { p, args in
         guard let caps = args.array("capabilities") as? [String] else {
             throw BridgeError.badArg("port.setCapabilities requires an array of strings")
         }
@@ -1233,13 +1248,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.close"] = BridgeMethod(permission: nil, toolExposed: false) { p, _ in
+    r["port.close"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "Close the calling port.") { p, _ in
         let panel = try ownPanel(p)
         appState.portWindows.close(panel.id)
         return .object(["ok": .bool(true)])
     }
 
-    r["port.position"] = BridgeMethod(permission: nil, paramNames: ["id"], toolExposed: false) { _, args in
+    r["port.position"] = BridgeMethod(permission: nil, paramNames: ["id"], toolExposed: false,
+        description: "Return a port's position and size.") { _, args in
         let id = try args.requireString("id")
         guard let frame = appState.portWindows.portFrame(by: id) else {
             throw BridgeError.notFound("port '\(id)' (no positioned tile)")
