@@ -20,6 +20,11 @@ struct TerminalPortConfig: Codable {
     let spaceId: String
     let spaceName: String
     let companionName: String
+    /// Saved-companion id (AgentConfig.id) for a command companion, used to derive a STABLE
+    /// per-(space,companion) claude session id (docs/plan-companion-cwd.md). Nil for ad-hoc
+    /// `port.create` terminals, which key their session id on the panel id instead. Persisted so a
+    /// restore recomputes the same id and `--resume`s the companion's thread.
+    var companionId: String? = nil
     let createdBy: String
     /// Companion identity/behaviour, injected into the CLI via the shim's
     /// `--append-system-prompt` (env `PORT42_COMPANION_PROMPT`). No file mutation; empty =
@@ -33,11 +38,11 @@ struct TerminalPortConfig: Codable {
     var env: [String: String] = [:]
 
     init(command: String, args: [String], startupCommand: String = "", cwd: String,
-         spaceId: String, spaceName: String, companionName: String, createdBy: String,
-         companionPrompt: String = "", env: [String: String] = [:]) {
+         spaceId: String, spaceName: String, companionName: String, companionId: String? = nil,
+         createdBy: String, companionPrompt: String = "", env: [String: String] = [:]) {
         self.command = command; self.args = args; self.startupCommand = startupCommand
         self.cwd = cwd; self.spaceId = spaceId; self.spaceName = spaceName
-        self.companionName = companionName; self.createdBy = createdBy
+        self.companionName = companionName; self.companionId = companionId; self.createdBy = createdBy
         self.companionPrompt = companionPrompt; self.env = env
     }
 
@@ -53,6 +58,7 @@ struct TerminalPortConfig: Codable {
         spaceId = try c.decode(String.self, forKey: .spaceId)
         spaceName = try c.decode(String.self, forKey: .spaceName)
         companionName = try c.decode(String.self, forKey: .companionName)
+        companionId = try c.decodeIfPresent(String.self, forKey: .companionId)
         createdBy = try c.decode(String.self, forKey: .createdBy)
         companionPrompt = try c.decodeIfPresent(String.self, forKey: .companionPrompt) ?? ""
         env = try c.decodeIfPresent([String: String].self, forKey: .env) ?? [:]

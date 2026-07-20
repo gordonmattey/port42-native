@@ -876,6 +876,25 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         return .object(["ok": .bool(true)])
     }
 
+    r["space.setWorkingDirectory"] = BridgeMethod(permission: nil, paramNames: ["space_id", "path"], toolExposed: false,
+        description: "Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Empty path clears it (falls back to home). Defaults to the current space.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "space_id": ["type": "string", "description": "Space id (default: current space)."],
+                "path": ["type": "string", "description": "Absolute directory path. Empty clears the setting."]
+            ],
+            "required": ["path"]
+        ]) { p, args in
+        let id = args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
+        let path = args.string("path")
+        guard appState.setSpaceWorkingDirectory(path, spaceId: id) else {
+            throw BridgeError.notFound("space '\(id)'")
+        }
+        let resolved = appState.spaces.first(where: { $0.id == id })?.workingDirectory
+        return .object(["ok": .bool(true), "workingDirectory": resolved.map { .string($0) } ?? .null])
+    }
+
     r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id"],
         description: "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
         inputSchema: [

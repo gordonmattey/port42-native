@@ -103,6 +103,7 @@ final class GhosttyTerminalController {
             sessionId: panelId,
             spaceId: config.spaceId,
             spaceName: config.spaceName,
+            companionId: config.companionId,
             companionPrompt: config.companionPrompt.isEmpty ? nil : config.companionPrompt,
             customEnv: config.env
         )

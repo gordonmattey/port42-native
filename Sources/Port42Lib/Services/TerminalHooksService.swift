@@ -199,6 +199,7 @@ public enum TerminalSessionBootstrap {
     public static func make(sessionId: String,
                             spaceId: String,
                             spaceName: String,
+                            companionId: String? = nil,
                             companionPrompt: String? = nil,
                             customEnv: [String: String] = [:],
                             shimPath: String? = bundledShimPath(),
@@ -223,6 +224,13 @@ public enum TerminalSessionBootstrap {
         if let companionPrompt, !companionPrompt.isEmpty {
             env["PORT42_COMPANION_PROMPT"] = companionPrompt
         }
+
+        // Per-port claude session id (docs/plan-companion-cwd.md): a deterministic UUIDv5 of
+        // space:companion (ad-hoc terminals key on the panel id, which is `sessionId` here). The
+        // shim reads this and pins --session-id / --resume, so command companions sharing one space
+        // working dir land on DISTINCT transcripts instead of colliding on the shared cwd's.
+        env["PORT42_CLAUDE_SESSION_ID"] = ClaudeSessionId.derive(
+            spaceId: spaceId, companionId: companionId, panelId: sessionId)
 
         // Real claude path so the shim execs it directly and can never find itself.
         if let real = claudePath ?? ClaudeCodeSetup.findBinary("claude") {

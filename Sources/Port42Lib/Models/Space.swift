@@ -25,8 +25,13 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// at rest (off the front, no index, fully silent — sync continues underneath). A timestamp
     /// rather than a bool so the galaxy shelf can sort by recency of resting.
     public var restedAt: Date?
+    /// User-picked working directory for command companions (docs/plan-companion-cwd.md). A
+    /// `.command` companion spawned in this space defaults its cwd here so companions share one
+    /// workspace (and each gets its own claude session id for isolation). Nil = fall back to home
+    /// (the resolver in `resolveTerminalCwd`); nil for spaces predating this field / remote spaces.
+    public var workingDirectory: String?
 
-    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil) {
+    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -37,10 +42,18 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.heartbeatPrompt = heartbeatPrompt
         self.accent = accent
         self.restedAt = restedAt
+        self.workingDirectory = workingDirectory
     }
 
     /// A rested space is alive-but-dormant: nothing is lost, it just can't reach for attention.
     public var isResting: Bool { restedAt != nil }
+
+    /// Normalize a user-entered working directory: trim whitespace; empty/blank → nil (unset), so
+    /// clearing the picker clears the field rather than storing "".
+    public static func normalizeWorkingDirectory(_ path: String?) -> String? {
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false) ? trimmed : nil
+    }
 
     public static func create(name: String, type: String = "team") -> Space {
         Space(

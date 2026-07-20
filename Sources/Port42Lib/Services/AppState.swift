@@ -2,6 +2,20 @@ import Foundation
 import GRDB
 import Combine
 
+// MARK: - Terminal working directory
+
+/// Resolves the cwd for a command-companion terminal (docs/plan-companion-cwd.md, step 2).
+/// Precedence: an explicit per-port/per-companion override, else the space working directory,
+/// else home. Empty strings count as unset. Pure so the precedence is unit-tested without a spawn.
+enum TerminalCwd {
+    static func resolve(override: String?, spaceDir: String?,
+                        home: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String {
+        if let override, !override.isEmpty { return override }
+        if let spaceDir, !spaceDir.isEmpty { return spaceDir }
+        return home
+    }
+}
+
 // MARK: - File Content Resolution
 
 /// Resolves file paths in messages and manages per-space directory allowlists.
@@ -1907,6 +1921,17 @@ public final class AppState: ObservableObject {
         }
     }
 
+    /// Set (or clear) a space's user-picked working directory (docs/plan-companion-cwd.md). Command
+    /// companions spawned in the space default their cwd here. Empty/blank clears it (home fallback).
+    /// Returns false if the space is unknown.
+    @discardableResult
+    public func setSpaceWorkingDirectory(_ path: String?, spaceId: String) -> Bool {
+        guard var s = spaces.first(where: { $0.id == spaceId }) else { return false }
+        s.workingDirectory = Space.normalizeWorkingDirectory(path)
+        updateSpace(s)
+        return true
+    }
+
     // MARK: - Rest / Wake (the working set — docs/plan-working-set.md §A)
     //
     // Every space is either in the WORKING SET (galaxy front, ⌘1–9, peeks live) or AT REST
@@ -2623,6 +2648,7 @@ public final class AppState: ObservableObject {
     @discardableResult
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
                                  spaceId: String, title: String, companionName: String,
+                                 companionId: String? = nil,
                                  systemPrompt: String? = nil, env: [String: String] = [:],
                                  recordKey: String? = nil, postCard: Bool = true,
                                  startupCommandOverride: String? = nil) -> String? {
@@ -2656,6 +2682,7 @@ public final class AppState: ObservableObject {
             spaceId: spaceId,
             spaceName: spaceName,
             companionName: companionName,
+            companionId: companionId,
             createdBy: currentUser?.id ?? "",
             companionPrompt: companionPrompt,
             env: env
@@ -2725,7 +2752,9 @@ public final class AppState: ObservableObject {
 
         case .ok(.terminal(let command)):
             let resolvedTitle = (title?.isEmpty == false ? title! : (command as NSString).lastPathComponent)
-            let resolvedCwd = cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+            // cwd: explicit port.create override ?? space working dir ?? home (plan-companion-cwd.md).
+            let spaceDir = spaces.first(where: { $0.id == spaceId })?.workingDirectory
+            let resolvedCwd = TerminalCwd.resolve(override: cwd, spaceDir: spaceDir)
             guard let portId = spawnNativeTerminalPort(
                 command: command, args: args, cwd: resolvedCwd, spaceId: spaceId,
                 title: resolvedTitle, companionName: resolvedTitle,
@@ -2822,13 +2851,16 @@ public final class AppState: ObservableObject {
     private func spawnTerminalAgentPort(companion: AgentConfig, command: String, spaceId: String) {
         let name = companion.displayName
         let args = companion.args ?? []
-        let cwd = companion.workingDir ?? FileManager.default.homeDirectoryForCurrentUser.path
+        // cwd: per-companion workingDir override ?? space working dir ?? home (plan-companion-cwd.md).
+        let spaceDir = spaces.first(where: { $0.id == spaceId })?.workingDirectory
+        let cwd = TerminalCwd.resolve(override: companion.workingDir, spaceDir: spaceDir)
 
         // Companion identity is baked by spawnNativeTerminalPort (bakeCompanionPrompt): the
         // Port42 operational framing wrapped around this companion's RAW systemPrompt template.
         guard spawnNativeTerminalPort(command: command, args: args, cwd: cwd,
                                       spaceId: spaceId, title: name,
-                                      companionName: name, systemPrompt: companion.systemPrompt) != nil else {
+                                      companionName: name, companionId: companion.id,
+                                      systemPrompt: companion.systemPrompt) != nil else {
             return
         }
 

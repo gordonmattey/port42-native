@@ -630,6 +630,15 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v41-space-working-dir") { db in
+            // Command-companion cwd fix (docs/plan-companion-cwd.md): a space carries a user-picked
+            // working directory. Nullable; nil = home fallback in `resolveTerminalCwd`. Append-only,
+            // so existing rows read back nil (no data loss).
+            try db.alter(table: "spaces") { t in
+                t.add(column: "workingDirectory", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
