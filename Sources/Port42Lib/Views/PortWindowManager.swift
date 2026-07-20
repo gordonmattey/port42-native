@@ -966,6 +966,13 @@ enum PortWebViewFactory {
                 console.warn('[port42] Port scripts are ES modules: top-level functions are module-scoped, so inline onclick cannot reach them. Attach handlers with addEventListener or expose with window.fn = fn.');
             }
         });
+        // The port CSP is strict (default-src 'none'): a CDN script, a remote image, or any
+        // fetch/XHR/WebSocket is blocked — and otherwise SILENTLY, so the author sees a blank
+        // rectangle with no cause. Surface every violation, so the platform holds itself to the
+        // rule it gives authors.
+        document.addEventListener('securitypolicyviolation', function(e) {
+            console.warn('[port42] Blocked by content security policy: ' + (e.effectiveDirective || e.violatedDirective) + ' -> ' + (e.blockedURI || '(inline)') + '. Ports are self-contained: inline your scripts/styles/assets (no CDN, no remote images), and use port42.rest.call for network. See ports-context.');
+        });
         </script>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }

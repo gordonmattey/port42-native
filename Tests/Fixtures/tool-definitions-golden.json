@@ -202,11 +202,11 @@
     "name" : "companions_get"
   },
   {
-    "description" : "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
+    "description" : "List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:\"*\" for the full global roster across every space in the Port42 instance (rarely what you want).",
     "input_schema" : {
       "properties" : {
         "space_id" : {
-          "description" : "Optional space id to filter companions to that space's members.",
+          "description" : "Omit for your own space (the default). A space id targets that space. \"*\" returns the whole-instance roster.",
           "type" : "string"
         }
       },
@@ -858,7 +858,7 @@
     "name" : "position_set"
   },
   {
-    "description" : "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
+    "description" : "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed. A non-JSON response body over 50KB is truncated (marked '...(truncated)').",
     "input_schema" : {
       "properties" : {
         "body" : {
@@ -1059,7 +1059,7 @@
     "name" : "storage_set"
   },
   {
-    "description" : "Execute a shell command and return the output. Runs in \/bin\/zsh.",
+    "description" : "Execute a shell command and return the output. Runs in \/bin\/zsh. Output over 50KB is truncated (the tail is dropped and marked '... (truncated)'); for larger output, gzip in the command and inflate in the port.",
     "input_schema" : {
       "properties" : {
         "command" : {
