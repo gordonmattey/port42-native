@@ -423,7 +423,21 @@ roster). Two data-level issues in the general space's members:
 
 ---
 
-## BUG: a new port created in the CURRENT space peeks instead of just showing up (2026-07-20, GM)
+## ~~BUG: a new port created in the CURRENT space peeks instead of just showing up~~ — FIXED 2026-07-20
+
+**Fixed at the peek-decision seam.** `ShellState.handlePortCreated` now gates the peek on
+`spaceId != currentSpace` — a port born in the space you're viewing settles straight into the grid
+as a tile (via `desktopTilePanels → contextItems`), and the peek is reserved for a port in another
+space. The tile already existed the instant the panel was appended (`presentation:"tiled"`); the
+peek was only *shadowing* it (peek-wins dedup in `contextItems`), so gating the peek makes it render
+as a tile with no new path. This replaced the leaky `userSpawnedPortIds`/`noteUserSpawn` whitelist,
+which only suppressed the two dock buttons and missed every other creation path — which is why a CLI
+companion spawned from the dock still peeked. The space gate covers all paths (dock, CLI companion,
+gateway, JS) with no per-spawn bookkeeping. **Verified:** `PortUnitPeekTests` green (rewritten
+`currentSpaceBirthDoesNotPeek`); live in Dev a gateway-created port in the current space tiled while
+one created in another space peeked in. Historical write-up below.
+
+## BUG (historical): a new port created in the CURRENT space peeks instead of just showing up (2026-07-20, GM)
 
 **Symptom:** when a port is created in the space you're currently viewing, it comes in as a
 *peek* (the transient preview overlay) rather than simply appearing as a tile on the desktop.

@@ -155,7 +155,7 @@ struct PortUnitPeekTests {
         _ = state.portWindows.registerTiledPort(id: "b", html: "<title>b</title>", spaceId: "s1",
                                                 createdBy: nil, title: "b", position: nil)
         let panels = state.portWindows.panels
-        // "b" is BOTH tiled here and peeking (the same-space case) → one item, peek state.
+        // "b" is BOTH tiled here and peeking (e.g. an adopted foreign port) → one item, peek state.
         let peeks = [ShellState.PeekPort(id: "b", spaceId: "s1", spaceName: "s1", isChat: false, title: "b"),
                      ShellState.PeekPort(id: "chatX", spaceId: "chatX", spaceName: "other", isChat: true, title: "other")]
         let items = ShellState.contextItems(tiled: panels, peeks: peeks, allPanels: panels)
@@ -210,22 +210,26 @@ struct PortUnitPeekTests {
         #expect(shell.peekRemaining["s2"] == nil)            // never previewed — no countdown
     }
 
-    @Test("same-space birth peeks (self-suppression fixed); the user's own spawn does not")
+    @Test("a current-space birth is a tile (no peek); a foreign-space birth peeks, deduped by id")
     @MainActor
-    func sameSpacePeeks() throws {
+    func currentSpaceBirthDoesNotPeek() throws {
         let (shell, state) = try makeState()
-        let space = Space.create(name: "main")
-        state.spaces = [space]; state.currentSpace = space
+        let space = Space.create(name: "main"); let other = Space.create(name: "b")
+        state.spaces = [space, other]; state.currentSpace = space
 
-        shell.handlePortCreated(id: "remote1", spaceId: space.id, title: "from a companion")
-        #expect(shell.peekingPorts.map(\.id) == ["remote1"])   // same space, still surfaces
+        // Born in the space you're viewing → straight to the grid as a tile, never a peek. This
+        // holds for EVERY creation path (companion, gateway, dock) — the gate is the space, not a
+        // per-spawn self-suppression tag, so a CLI-companion spawn no longer wrongly peeks.
+        shell.handlePortCreated(id: "here1", spaceId: space.id, title: "from a companion")
+        #expect(shell.peekingPorts.isEmpty)
 
-        shell.noteUserSpawn("mine1")
-        shell.handlePortCreated(id: "mine1", spaceId: space.id, title: "dock spawn")
-        #expect(!shell.peekingPorts.contains { $0.id == "mine1" })   // you made it — no peek
+        // Born in ANOTHER space → peeks here (a glance at activity elsewhere).
+        shell.handlePortCreated(id: "there1", spaceId: other.id, title: "elsewhere")
+        #expect(shell.peekingPorts.map(\.id) == ["there1"])
 
-        shell.handlePortCreated(id: "remote1", spaceId: space.id, title: "dup")
-        #expect(shell.peekingPorts.count == 1)                 // deduped by id
+        // Deduped by id.
+        shell.handlePortCreated(id: "there1", spaceId: other.id, title: "dup")
+        #expect(shell.peekingPorts.count == 1)
     }
 
     @Test("keepPeek adopts: entry cleared, port surfaced; arrange only when asked")

@@ -1047,20 +1047,20 @@ struct ShellDock: View {
         // spawn since a CLI companion's name can't be re-baked without a respawn. Seeded by a fresh
         // id so distinct terminals get distinct, stable names.
         let name = CompanionCodename.generate(seed: UUID().uuidString)
-        if let id = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: cwd, spaceId: space.id,
-                                                     title: name, companionName: name,
-                                                     postCard: false, startupCommandOverride: "") {
-            shell.noteUserSpawn(id)                       // your own spawn shouldn't peek at you
-        }
+        // Spawns into the current space → a desktop tile, not a peek (handlePortCreated gates
+        // same-space births), so no self-suppression tag is needed.
+        _ = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: cwd, spaceId: space.id,
+                                             title: name, companionName: name,
+                                             postCard: false, startupCommandOverride: "")
         shell.arrangeBump += 1
     }
 
     /// Dock "Browser" → an embedded WebKit browser tile (address bar + real navigation) at a start page.
     private func spawnBrowser() {
         guard let sid = appState.currentSpace?.id else { return }
-        let id = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
-                                                           createdBy: nil, title: "browser")
-        shell.noteUserSpawn(id)                           // your own spawn shouldn't peek at you
+        // Current-space birth → a tile, not a peek (gated in handlePortCreated).
+        _ = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
+                                                       createdBy: nil, title: "browser")
         shell.arrangeBump += 1
     }
 }

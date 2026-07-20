@@ -132,9 +132,9 @@ public final class ShellState: ObservableObject {
         notifSink = appState.$unreadCounts
             .receive(on: RunLoop.main)
             .sink { [weak self] counts in self?.refreshNotifications(from: counts) }
-        // …and a TILED port's birth raises a peeking port notification — the live port,
-        // clickable to surface here (§8b). Phase 1: same-space births peek too (the
-        // self-suppression fix); only the user's own shell-UI spawns are exempt.
+        // …and a TILED port's birth in ANOTHER space raises a peeking port notification — the
+        // live port, clickable to surface here (§8b). A port born in the CURRENT space is just a
+        // tile on this desktop (gated in handlePortCreated), never a peek.
         portSink = appState.portWindows.portCreated
             .receive(on: RunLoop.main)
             .sink { [weak self] p in self?.handlePortCreated(id: p.id, spaceId: p.spaceId, title: p.title) }
@@ -196,18 +196,14 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// Port ids the USER just spawned from the shell UI (dock/⌘K) — their birth shouldn't
-    /// peek at the person who made them. One-shot; consumed by `handlePortCreated`.
-    private var userSpawnedPortIds: Set<String> = []
-    public func noteUserSpawn(_ id: String) { userSpawnedPortIds.insert(id) }
-
-    /// A tiled port's birth → it peeks here, deduped by port id (Phase 1: same-space births
-    /// included — a peek is a live surface with an attention beat, not just an unread badge.
-    /// A same-space port renders in PEEK state until its entry clears, then settles into the
-    /// grid — it can't evaporate from its own home space). Internal so tests drive it directly.
+    /// A tiled port's birth raises a peek here ONLY if it landed in another space — a glance at
+    /// activity elsewhere, deduped by port id. A port born in the space you're currently viewing
+    /// is just yours: it settles straight into the grid as a tile (desktopTilePanels →
+    /// contextItems), never a peek. Gating on the current space covers every creation path (dock,
+    /// CLI companion, gateway, JS) with no per-path bookkeeping. Internal so tests drive it directly.
     func handlePortCreated(id: String, spaceId: String?, title: String) {
         guard let sid = spaceId, !isRested(sid) else { return }        // a rested space is fully silent
-        if userSpawnedPortIds.remove(id) != nil { return }              // you made it; it's right there
+        guard sid != appState.currentSpace?.id else { return }         // your space → a tile, not a peek
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
@@ -253,8 +249,8 @@ public final class ShellState: ObservableObject {
     }
 
     /// Zoom returned to the desktop → every *seen*, still-peeking port starts its countdown
-    /// (evaporate-by-default for a foreign port; a same-space port settles into the grid when
-    /// its entry clears). Pure bookkeeping — no peek add/remove, no view moves (Phase 1).
+    /// (evaporate-by-default: a foreign port lives on in its home space). Pure bookkeeping — no
+    /// peek add/remove, no view moves (Phase 1).
     public func settleAfterPreview() {
         for p in peekingPorts where p.seen && !p.isChat && peekRemaining[p.id] == nil {
             startPeekCountdown(p.id)
