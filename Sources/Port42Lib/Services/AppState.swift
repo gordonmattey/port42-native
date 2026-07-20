@@ -424,7 +424,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
                 systemPrompt: spacePrompt,
                 model: savedModel,
                 maxTokens: 16384,
-                tools: self.appState?.generatedToolDefinitions() ?? ToolDefinitions.all,
+                tools: self.appState?.generatedToolDefinitions() ?? [],
                 thinkingEnabled: savedThinkingEnabled,
                 thinkingEffort: savedThinkingEffort,
                 delegate: self
@@ -600,7 +600,7 @@ final class SpaceAgentHandler: LLMStreamDelegate {
                     systemPrompt: self.savedSystemPrompt,
                     model: self.savedModel,
                     maxTokens: 8192,
-                    tools: self.appState?.generatedToolDefinitions() ?? ToolDefinitions.all,
+                    tools: self.appState?.generatedToolDefinitions() ?? [],
                     thinkingEnabled: self.savedThinkingEnabled,
                     thinkingEffort: self.savedThinkingEffort
                 )
@@ -861,10 +861,24 @@ public final class AppState: ObservableObject {
     /// Resolve a caller's dotted name (canonical or a service surface alias) to its canonical form.
     public func resolveBridgeAlias(_ name: String) -> String { bridgeAliases[name] ?? name }
 
-    /// The LLM tool schemas, GENERATED from the registry (big-bang step 1). Every tool-exposed method
-    /// contributes its self-describing schema via `anthropicToolSchema`; the not-yet-extracted live-only
-    /// families (browser.*, rest.call) fold in as hand-written hybrid entries. Replaces the hand-written
-    /// `ToolDefinitions.all` at the call sites; `ToolDefinitions.all` remains as the parity oracle.
+    /// Tool (snake) name → canonical method name, DERIVED from the registry (close-out step 4a).
+    /// The registry's keys are the method inventory; ToolNaming contributes only the spelling rules
+    /// (snakeify + the override table). A method that exists is nameable; one that does not is not.
+    public lazy var toolNameMap: [String: String] = {
+        var m: [String: String] = [:]
+        for canonical in bridgeRegistry.keys { m[ToolNaming.tool(fromCanonical: canonical)] = canonical }
+        for canonical in bridgeStreamRegistry.keys { m[ToolNaming.tool(fromCanonical: canonical)] = canonical }
+        return m
+    }()
+
+    public func canonicalFromTool(_ tool: String) -> String? {
+        toolNameMap[tool]
+    }
+
+    /// The LLM tool schemas, GENERATED from the registry (big-bang step 1; the hand-written
+    /// ToolDefinitions type is deleted as of close-out step 4). Every tool-exposed method
+    /// contributes its self-describing schema via `anthropicToolSchema`; the frozen golden fixture
+    /// guards generation against drift.
     public func generatedToolDefinitions() -> [[String: Any]] {
         var tools: [[String: Any]] = []
         for (canonical, method) in bridgeRegistry where method.toolExposed {
@@ -873,7 +887,6 @@ public final class AppState: ObservableObject {
         for (canonical, method) in bridgeStreamRegistry where method.toolExposed {
             tools.append(anthropicToolSchema(canonical: canonical, method: method))
         }
-        tools += ToolDefinitions.hybridTools
         return tools
     }
 

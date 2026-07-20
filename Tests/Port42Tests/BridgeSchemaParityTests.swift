@@ -70,8 +70,8 @@ struct BridgeSchemaParityTests {
 
         for (toolName, expected) in defs {
             if Self.hybridOnlyTools.contains(toolName) { continue }
-            guard let canonical = ToolNaming.canonical(fromTool: toolName) else {
-                Issue.record("no canonical mapping for tool '\(toolName)' — ToolNaming inventory gap")
+            guard let canonical = world.state.canonicalFromTool(toolName) else {
+                Issue.record("no canonical mapping for tool '\(toolName)' — registry inventory gap")
                 mismatches.append(toolName)
                 continue
             }
@@ -129,7 +129,7 @@ struct BridgeSchemaParityTests {
 
         for tool in Self.hybridOnlyTools {
             #expect(defsByName[tool] != nil, "hybridOnlyTools names '\(tool)' but ToolDefinitions has no such tool")
-            guard let canonical = ToolNaming.canonical(fromTool: tool) else { continue }
+            guard let canonical = world.state.canonicalFromTool(tool) else { continue }
             let inRegistry = registry[canonical] != nil || stream[canonical] != nil
             #expect(!inRegistry, "'\(tool)' (canonical '\(canonical)') is now in the registry — remove it from hybridOnlyTools so it gets parity-checked")
         }

@@ -33,12 +33,6 @@ public enum ToolNaming {
         return snakeify(canonical)
     }
 
-    /// Tool (snake) name → canonical dotted name, or nil if unknown. Built as the exact reverse of
-    /// `tool(fromCanonical:)` over the inventory, so the two can never silently disagree.
-    public static func canonical(fromTool tool: String) -> String? {
-        reverseMap[tool]
-    }
-
     /// dots → underscores, camelCase → snake_case, lowercased.
     /// `port.getHtml` → `port_get_html`; `ports.list` → `ports_list`.
     public static func snakeify(_ dotted: String) -> String {
@@ -56,62 +50,9 @@ public enum ToolNaming {
         return out
     }
 
-    private static let reverseMap: [String: String] = {
-        var m: [String: String] = [:]
-        for c in canonicalMethods {
-            m[tool(fromCanonical: c)] = c
-        }
-        return m
-    }()
-
-    // MARK: The canonical inventory
-    //
-    // The union of the port-JS surface (`PortBridge.handleMethod`) and the tool-use surface
-    // (`ToolExecutor.executeImpl` / `ToolDefinitions`) as of Phase 0. Phase 1 populates the registry
-    // from exactly this list; the coverage test asserts every `ToolDefinitions` tool name maps back
-    // into it. Streaming (`ai.complete` / `ai.cancel`) stays a documented exception on its own path
-    // but is listed here for completeness of the surface.
-
-    public static let canonicalMethods: [String] = [
-        // identity / spaces / companions / messages / bus
-        "user.get",
-        "space.current", "space.list", "space.switchTo",
-        "companions.list", "companions.get", "companions.invoke",
-        "messages.recent", "messages.send", "messages.sendAsCreator",
-        "bus.read", "bus.publish",
-
-        // ports
-        "ports.list",
-        "port.create", "port.getHtml", "port.update", "port.patch", "port.push",
-        "port.exec", "port.history", "port.restore", "port.manage", "port.move",
-        "port.rename", "port.position", "port.info", "port.close", "port.resize",
-        "port.setTitle", "port.setCapabilities",
-
-        // storage
-        "storage.get", "storage.set", "storage.delete", "storage.list",
-
-        // relationship memory
-        "crease.read", "crease.write", "crease.touch", "crease.forget",
-        "engrave.read", "engrave.write", "engrave.touch", "engrave.forget",
-        "fold.read", "fold.update",
-        "position.read", "position.set",
-
-        // ai
-        "ai.models", "ai.status", "ai.complete", "ai.cancel",
-
-        // devices
-        "clipboard.read", "clipboard.write",
-        "screen.capture", "screen.windows", "screen.displays", "screen.stream", "screen.stopStream",
-        "camera.capture", "camera.stream", "camera.stopStream",
-        "audio.speak", "audio.play", "audio.stop", "audio.capture", "audio.stopCapture",
-        "notify.send",
-        "fs.read", "fs.write", "fs.pick", "fs.list", "fs.mkdir",
-        "browser.open", "browser.navigate", "browser.capture", "browser.text",
-        "browser.html", "browser.execute", "browser.close",
-        "automation.runAppleScript", "automation.runJXA",
-        "rest.call",
-        "terminal.exec",
-    ]
+    // The canonical inventory is NOT declared here (close-out step 4a): the registry's keys are the
+    // inventory, and `AppState.toolNameMap` derives tool → canonical from them. This file owns only
+    // the spelling rules above.
 
     /// The `files.*` aliases (`files.read` / `files.write` / `files.pick`) resolve to their `fs.*`
     /// canonical. Kept separate from the inventory so the canonical set stays a clean union; the

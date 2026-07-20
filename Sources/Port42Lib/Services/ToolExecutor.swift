@@ -48,7 +48,7 @@ public final class ToolExecutor {
         // one shared impl, then renders the BridgeValue as tool-use content blocks. Unextracted
         // (live-only) methods fall through to the old switch below. The dispatcher reads the persisted
         // grants fresh, so `grantedPermissions` is passed only as a same-call pregrant.
-        let canonical = name.contains(".") ? name : (ToolNaming.canonical(fromTool: name) ?? name)
+        let canonical = name.contains(".") ? name : (appState?.canonicalFromTool(name) ?? name)
         if let appState, appState.bridgeHandles(canonical) {
             let principal = Principal(id: createdBy ?? "anonymous-tool-caller",
                                       displayName: createdByName ?? createdBy ?? "a companion",
@@ -109,7 +109,7 @@ public final class RemoteToolExecutor: ObservableObject {
         // Resolve the incoming name to canonical: a dotted name IS canonical (`port.getHtml`,
         // `ports.list`); a snake tool name maps through ToolNaming. This is what makes both spellings
         // reach the same method and kills the `port.getHtml` → Unknown-tool class.
-        let canonical = method.contains(".") ? method : (ToolNaming.canonical(fromTool: method) ?? method)
+        let canonical = method.contains(".") ? method : (appState?.canonicalFromTool(method) ?? method)
 
         // "Always Allow" settings become pre-grants for the registry path (and the old path below).
         var pregrant: Set<PortPermission> = []

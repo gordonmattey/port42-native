@@ -70,8 +70,10 @@ struct PortCreateTests {
     }
 
     @Test("port_create needs no permission (ungated)")
-    func portCreateUngated() {
-        #expect(ToolDefinitions.permission(for: "port_create") == nil)
+    @MainActor
+    func portCreateUngated() throws {
+        let w = try makeParityWorld()
+        #expect(try #require(w.registry["port.create"]).permission == nil)
     }
 
     @Test("port.create bridge method needs no permission (ungated)")

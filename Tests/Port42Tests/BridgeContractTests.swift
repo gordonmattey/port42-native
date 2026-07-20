@@ -92,19 +92,23 @@ struct ToolNamingTests {
     }
 
     @Test("the camelCase methods that used to 404 now round-trip")
-    func camelCaseRoundTrip() {
+    @MainActor
+    func camelCaseRoundTrip() throws {
         // These are the exact names the `.`→`_` munge broke.
+        let w = try makeParityWorld()
         #expect(ToolNaming.tool(fromCanonical: "port.getHtml") == "port_get_html")
-        #expect(ToolNaming.canonical(fromTool: "port_get_html") == "port.getHtml")
+        #expect(w.state.canonicalFromTool("port_get_html") == "port.getHtml")
     }
 
     @Test("the genuine renames map through the override table")
-    func overrides() {
+    @MainActor
+    func overrides() throws {
+        let w = try makeParityWorld()
         #expect(ToolNaming.tool(fromCanonical: "automation.runAppleScript") == "run_applescript")
-        #expect(ToolNaming.canonical(fromTool: "run_applescript") == "automation.runAppleScript")
-        #expect(ToolNaming.canonical(fromTool: "screen_info") == "screen.displays")
-        #expect(ToolNaming.canonical(fromTool: "file_read") == "fs.read")
-        #expect(ToolNaming.canonical(fromTool: "file_write") == "fs.write")
+        #expect(w.state.canonicalFromTool("run_applescript") == "automation.runAppleScript")
+        #expect(w.state.canonicalFromTool("screen_info") == "screen.displays")
+        #expect(w.state.canonicalFromTool("file_read") == "fs.read")
+        #expect(w.state.canonicalFromTool("file_write") == "fs.write")
     }
 
     @Test("files.* aliases resolve to their fs.* canonical")
@@ -113,18 +117,8 @@ struct ToolNamingTests {
         #expect(ToolNaming.resolveAlias("port.getHtml") == "port.getHtml")   // non-alias passes through
     }
 
-    @Test("the map is a collision-free bijection over the inventory")
-    func bijection() {
-        var toolToCanonical: [String: String] = [:]
-        for c in ToolNaming.canonicalMethods {
-            let t = ToolNaming.tool(fromCanonical: c)
-            #expect(toolToCanonical[t] == nil, "two canonicals map to tool name '\(t)'")
-            toolToCanonical[t] = c
-            // and it round-trips
-            #expect(ToolNaming.canonical(fromTool: t) == c)
-        }
-        #expect(toolToCanonical.count == ToolNaming.canonicalMethods.count)
-    }
+    // The bijection gate moved to BridgeNamingTests.roundTripAndUnique: the inventory it iterates
+    // is the registry itself now, not a hand list (close-out step 4a).
 
     @Test("COVERAGE: every generated tool name maps to a canonical method")
     @MainActor
@@ -135,7 +129,8 @@ struct ToolNamingTests {
         let toolNames = try generatedToolList().compactMap { $0["name"] as? String }
         #expect(!toolNames.isEmpty)
         var unmapped: [String] = []
-        for name in toolNames where ToolNaming.canonical(fromTool: name) == nil {
+        let w = try makeParityWorld()
+        for name in toolNames where w.state.canonicalFromTool(name) == nil {
             unmapped.append(name)
         }
         #expect(unmapped.isEmpty, "tool names with no canonical mapping: \(unmapped)")

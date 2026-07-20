@@ -27,22 +27,26 @@ struct TerminalToolSurfaceTests {
     }
 
     @Test("terminal_exec survives and stays the only gated terminal tool")
+    @MainActor
     func terminalExecRemainsGated() throws {
         #expect(try toolNames().contains("terminal_exec"))
-        #expect(ToolDefinitions.permission(for: "terminal_exec") == .terminal)
-        // the deleted tools resolve to no permission (not found in the switch)
-        #expect(ToolDefinitions.permission(for: "terminal_spawn") == nil)
-        #expect(ToolDefinitions.permission(for: "terminal_send") == nil)
-        #expect(ToolDefinitions.permission(for: "terminal_list") == nil)
+        let w = try makeParityWorld()
+        #expect(try #require(w.registry["terminal.exec"]).permission == .terminal)
+        // the deleted tools have no method behind them at all
+        #expect(w.state.canonicalFromTool("terminal_spawn") == nil)
+        #expect(w.state.canonicalFromTool("terminal_send") == nil)
+        #expect(w.state.canonicalFromTool("terminal_list") == nil)
     }
 
     @Test("the port verbs that replace them are present and ungated")
+    @MainActor
     func replacementVerbsUngated() throws {
         let names = try toolNames()
         #expect(names.contains("port_create"))
         #expect(names.contains("port_push"))
         #expect(names.contains("ports_list"))
-        #expect(ToolDefinitions.permission(for: "port_create") == nil)
-        #expect(ToolDefinitions.permission(for: "port_push") == nil)
+        let w = try makeParityWorld()
+        #expect(try #require(w.registry["port.create"]).permission == nil)
+        #expect(try #require(w.registry["port.push"]).permission == nil)
     }
 }
