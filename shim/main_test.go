@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -56,6 +57,73 @@ func TestLastAssistantTextWaitsForCurrentTurn(t *testing.T) {
 	}
 	if got := lastAssistantText(tp); got != "" {
 		t.Fatalf("lastAssistantText = %q, want empty (current turn not flushed → must not return prior reply)", got)
+	}
+}
+
+// Command-companion cwd fix (docs/plan-companion-cwd.md, step 3): the shim pins Port42's
+// per-port claude session id. First launch (no transcript yet) → --session-id; a later launch
+// (transcript exists) → --resume; no id set → no flags. The transcript filename IS the id, so
+// the existence check globs across all project dirs and is independent of claude's cwd-slug rule.
+func TestSessionIDArgs(t *testing.T) {
+	home := t.TempDir()
+	id := "c1e275f0-629f-596e-9c45-72e34a8b0289"
+
+	eq := func(got, want []string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("sessionIDArgs = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("sessionIDArgs = %v, want %v", got, want)
+			}
+		}
+	}
+
+	// No id → no flags.
+	if got := sessionIDArgs(home, ""); got != nil {
+		t.Fatalf("sessionIDArgs(empty) = %v, want nil", got)
+	}
+
+	// No transcript yet → --session-id.
+	eq(sessionIDArgs(home, id), []string{"--session-id", id})
+
+	// Transcript exists under some project slug → --resume (slug-independent glob).
+	proj := filepath.Join(home, ".claude", "projects", "-private-tmp-somewhere")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, id+".jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eq(sessionIDArgs(home, id), []string{"--resume", id})
+}
+
+// A Port42 app launched from inside a Claude Code session inherits CLAUDE_CODE_SESSION_ID /
+// _CHILD_SESSION / _BRIDGE_SESSION_ID and passes them to every claude it spawns, which then
+// behaves as a NESTED CHILD of that session and does not persist its own transcript at the path
+// its Stop hook reports (so companion replies read empty). The shim must scrub those before exec
+// so each companion is an independent session. It must NOT drop the OAuth token or other vars.
+func TestSanitizeEnv(t *testing.T) {
+	in := []string{
+		"HOME=/Users/gordon",
+		"CLAUDE_CODE_SESSION_ID=0f398fb8-c202-4775-98d7-a9632f44b244",
+		"CLAUDE_CODE_CHILD_SESSION=1",
+		"CLAUDE_CODE_BRIDGE_SESSION_ID=session_015x",
+		"CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-keep-me",
+		"PATH=/usr/bin",
+	}
+	out := sanitizeEnv(in)
+	joined := strings.Join(out, "\n")
+	for _, bad := range []string{"CLAUDE_CODE_SESSION_ID=", "CLAUDE_CODE_CHILD_SESSION=", "CLAUDE_CODE_BRIDGE_SESSION_ID="} {
+		if strings.Contains(joined, bad) {
+			t.Fatalf("sanitizeEnv kept %q; want it dropped:\n%s", bad, joined)
+		}
+	}
+	for _, keep := range []string{"HOME=/Users/gordon", "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-keep-me", "PATH=/usr/bin"} {
+		if !strings.Contains(joined, keep) {
+			t.Fatalf("sanitizeEnv dropped %q; want it kept:\n%s", keep, joined)
+		}
 	}
 }
 

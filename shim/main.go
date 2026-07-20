@@ -30,6 +30,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -47,6 +48,48 @@ func main() {
 	// binary directly (argv[0] basename == "port42-claude-shim"). Both mean: inject
 	// Port42 hooks and exec the real claude.
 	runClaude()
+}
+
+// sanitizeEnv drops the Claude Code session-identity vars that leak in when a Port42 app is
+// launched from inside a Claude Code session (docs/plan-companion-cwd.md). Left in place they make
+// the spawned companion claude behave as a NESTED CHILD of the launching session, so it replies on
+// screen but never persists its transcript at the path its Stop hook reports — every companion
+// reply then reads empty. Port42 pins its own session via --session-id, so these must not survive.
+// Everything else (OAuth token, PATH, HOME, PORT42_*) is preserved.
+func sanitizeEnv(environ []string) []string {
+	drop := map[string]bool{
+		"CLAUDE_CODE_SESSION_ID":        true,
+		"CLAUDE_CODE_CHILD_SESSION":     true,
+		"CLAUDE_CODE_BRIDGE_SESSION_ID": true,
+	}
+	out := environ[:0:0]
+	for _, kv := range environ {
+		key := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			key = kv[:i]
+		}
+		if drop[key] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// sessionIDArgs returns the claude flags that pin Port42's per-port session id. Empty id → no
+// flags. If a transcript for this id already exists, the session has run before → --resume;
+// otherwise it is the first launch → --session-id (which errors if the id already exists). The
+// transcript FILENAME is the session id, so a glob across all project dirs decides new-vs-resume
+// without reproducing claude's cwd-to-project-slug rule.
+func sessionIDArgs(home, id string) []string {
+	if id == "" {
+		return nil
+	}
+	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", id+".jsonl"))
+	if len(matches) > 0 {
+		return []string{"--resume", id}
+	}
+	return []string{"--session-id", id}
 }
 
 // runClaude execs the real claude, injecting Port42 hooks via --settings when a hook socket
@@ -74,9 +117,17 @@ func runClaude() {
 	if prompt := os.Getenv("PORT42_COMPANION_PROMPT"); prompt != "" {
 		argv = append(argv, "--append-system-prompt", prompt)
 	}
+	// Per-port session id (docs/plan-companion-cwd.md): pin --session-id / --resume so command
+	// companions sharing one space working dir land on DISTINCT transcripts. The app derives the
+	// id (UUIDv5 of space:companion) and passes it via env; the shim decides new-vs-resume here
+	// because it runs with the terminal's real cwd.
+	if sid := os.Getenv("PORT42_CLAUDE_SESSION_ID"); sid != "" {
+		home, _ := os.UserHomeDir()
+		argv = append(argv, sessionIDArgs(home, sid)...)
+	}
 	argv = append(argv, os.Args[1:]...)
 
-	if err := syscall.Exec(real, argv, os.Environ()); err != nil {
+	if err := syscall.Exec(real, argv, sanitizeEnv(os.Environ())); err != nil {
 		fmt.Fprintf(os.Stderr, "port42-claude-shim: exec %s failed: %v\n", real, err)
 		os.Exit(127)
 	}
