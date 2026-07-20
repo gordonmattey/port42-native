@@ -118,15 +118,21 @@ struct AppStateTests {
         #expect(state.currentSpace?.name == "general")
     }
 
-    @Test("Cannot delete last space")
+    @Test("Deleting the last team space recreates a home general (DMs don't count)")
     @MainActor
-    func cannotDeleteLastSpace() throws {
+    func deletingLastTeamSpaceRecreatesGeneral() throws {
         let state = try makeStateReady()
 
-        // Delete general; swim space remains
+        // Delete the only team space. A direct/DM (swim) space still exists, but DMs aren't shown
+        // in the galaxy (getRegularSpaces excludes type "direct"), so deleteSpace recreates a fresh
+        // "general" to keep a home world. Result: swim + fresh general, and we land on the general.
         let general = state.spaces.first { $0.type != "direct" }!
         state.deleteSpace(general)
-        #expect(try state.db.getAllSpaces().count == 1)
+
+        let all = try state.db.getAllSpaces()
+        #expect(all.count == 2)                        // the swim DM + a freshly created general
+        #expect(all.contains { $0.type != "direct" })  // a regular/home space exists again
+        #expect(state.currentSpace?.type != "direct")  // landed on the home space, not the DM
     }
 
     // MARK: - Messages
