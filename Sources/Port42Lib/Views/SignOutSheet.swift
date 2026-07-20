@@ -158,6 +158,8 @@ public struct SignOutSheet: View {
                                          action: { instructionsSvc.installInstructions(for: "claude") })
                     cliInstructionButton(label: "GEMINI.md", installed: instructionsSvc.hasGeminiInstructions,
                                          action: { instructionsSvc.installInstructions(for: "gemini") })
+                    cliInstructionButton(label: "AGENTS.md", installed: instructionsSvc.hasCodexInstructions,
+                                         action: { instructionsSvc.installInstructions(for: "codex") })
                 }
             }
             VStack(alignment: .leading, spacing: 6) {

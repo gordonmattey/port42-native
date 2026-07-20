@@ -1140,8 +1140,11 @@ public final class AppState: ObservableObject {
                 print("[Port42] OpenClaw detected")
             }
 
-            // The CLI instruction docs render the generated API reference (close-out step 4c).
-            InstructionService.shared.apiDocsProvider = { [weak self] in self?.apiReference ?? "" }
+            // Boot refresh (knowledge item C): any installed instruction block (CLAUDE.md /
+            // GEMINI.md / AGENTS.md) is rewritten from the live template, so install-time
+            // artifacts are always as fresh as the running app. The block is a slim pointer;
+            // the inventory itself lives behind `help` and llms.txt.
+            InstructionService.shared.refreshInstalled()
 
             // Migrate old auth format
             Port42AuthStore.shared.migrateIfNeeded()
