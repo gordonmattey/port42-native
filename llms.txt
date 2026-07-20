@@ -146,7 +146,7 @@ Generated from the live method registry: every entry below is served exactly as 
   companions.invoke(identifier, prompt)  [permission: ai, streaming]
       Invoke a companion (by id or name) with a prompt; streams its reply. The companion sees recent space context and replies to the caller, not the chat.
   companions.list(space_id)
-      List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.
+      List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want).
 
 ### crease
 

@@ -27,4 +27,14 @@ enum Port42Members {
         let assigned = Set(((try? appState.db.getAgentsForSpace(spaceId: spaceId)) ?? []).map { $0.id })
         return appState.companions.filter { assigned.contains($0.id) }
     }
+
+    /// Resolve the space filter for `companions.list`. A companion acts within its space, so an
+    /// unscoped call is SPACE-SCOPED by default (the caller's principal space, else the current
+    /// space). An explicit "*" opts into the whole-instance roster (nil filter). Returns the
+    /// spaceId to filter by, or nil for global. Pure so the defaulting is unit-tested.
+    static func resolveScope(requested: String?, principalSpace: String?, currentSpace: String?) -> String? {
+        if requested == "*" { return nil }                       // explicit global
+        if let requested, !requested.isEmpty { return requested } // explicit space
+        return principalSpace ?? currentSpace                     // default: the caller's space
+    }
 }

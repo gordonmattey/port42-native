@@ -896,14 +896,16 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["companions.list"] = BridgeMethod(permission: nil, paramNames: ["space_id"],
-        description: "List companions with their names, models, and trigger modes. Pass space_id to list only the companions assigned to that space; omit it for the full global roster.",
+        description: "List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:\"*\" for the full global roster across every space in the Port42 instance (rarely what you want).",
         inputSchema: [
             "type": "object",
             "properties": [
-                "space_id": ["type": "string", "description": "Optional space id to filter companions to that space's members."]
+                "space_id": ["type": "string", "description": "Omit for your own space (the default). A space id targets that space. \"*\" returns the whole-instance roster."]
             ]
-        ]) { _, args in
-        let companions = Port42Members.companions(appState: appState, spaceId: args.string("space_id"))
+        ]) { p, args in
+        let sid = Port42Members.resolveScope(requested: args.string("space_id"),
+                                             principalSpace: p.spaceId, currentSpace: appState.currentSpace?.id)
+        let companions = Port42Members.companions(appState: appState, spaceId: sid)
         return .array(companions.map { c in
             .object([
                 "id": .string(c.id), "name": .string(c.displayName),
