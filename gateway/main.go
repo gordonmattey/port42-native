@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"html"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -19,6 +20,7 @@ var posthogAPIKey string
 
 func main() {
 	addr := flag.String("addr", ":4242", "listen address")
+	watchParent := flag.Bool("watch-parent", false, "exit when stdin (held by the parent app) closes at EOF")
 	flag.Parse()
 
 	// Log to file for debugging
@@ -69,6 +71,21 @@ func main() {
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
+
+	// Parent-death watch. The app holds the write end of our stdin and never writes to it. If
+	// the app dies by ANY means (normal quit, crash, force-quit / SIGKILL), the kernel closes
+	// that end and we hit EOF here. The two cooperative stop paths (the app's willTerminate
+	// observer and our own SIGTERM handler) both run cleanup code, so a SIGKILL runs neither and
+	// the gateway would orphan on ppid 1 holding the port. This survives SIGKILL because it needs
+	// no cleanup on either side — the FD close is the kernel's job. Gated so a manually-run
+	// gateway (no pipe) is unaffected.
+	if *watchParent {
+		go func() {
+			io.Copy(io.Discard, os.Stdin)
+			log.Println("[gateway] parent pipe closed (EOF) — shutting down")
+			done <- syscall.SIGTERM
+		}()
+	}
 
 	go func() {
 		log.Printf("[gateway] listening on %s", *addr)

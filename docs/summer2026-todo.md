@@ -1785,7 +1785,21 @@ freeze is never again unrecoverable evidence.
 
 ---
 
-## BUG: the gateway outlives the app (2026-07-16)
+## ~~BUG: the gateway outlives the app~~ — FIXED 2026-07-20
+
+**Fixed with the pipe-EOF option (the doc's "preferred" fix).** The app now gives the gateway a
+stdin pipe and holds the write end for its whole lifetime (`GatewayProcess.swift`, `parentPipe`),
+and the gateway runs a `-watch-parent` goroutine that `io.Copy(io.Discard, os.Stdin)` and exits on
+EOF (`main.go`). When the app dies **by any means** the kernel closes the write end, so the gateway
+can never orphan on `ppid 1` holding the port. **Live-validated in Port42Dev:** SIGKILL'd the app
+(the force-quit path that runs no cleanup on either side) → the gateway exited on its own and `:4243`
+freed; the happy path is unchanged (`/health` = ok, bridge calls serve normally with the stdin pipe
+present). Gated behind the flag so a manually-run gateway (no pipe) is unaffected. Follow-ups NOT
+done (belt-and-braces, lower value now the orphan can't form): reap-on-launch (kill a stale gateway
+before binding) and gateway-side fail-fast (a `/call` with no app should error, not hang). Historical
+write-up below.
+
+## BUG (historical): the gateway outlives the app (2026-07-16)
 
 **Found while diagnosing the freeze.** After the app is killed, its gateway subprocess **keeps
 running and keeps listening**: `Port42Dev.app/Contents/MacOS/port42-gateway -addr :4243`, `ppid 1`,
@@ -1824,7 +1838,20 @@ standing-intent direction (`plan-standing-intent.md`): unattended work makes eve
 
 ---
 
-## BUG: parked/backgrounded ports keep running their AI — burning the subscription (2026-07-17)
+## ~~BUG: parked/backgrounded ports keep running their AI~~ — DONE IN CODE 2026-07-20 (verify with a token-count gate)
+
+**The fix GM remembered is real and wired; the SHADER write-up below predates it.** Both halves
+exist: `PortBridge.isSuspended` (`PortBridge.swift:197`) is true when the port is `aiPaused` OR
+`panel.isBackground` OR `panel.presentation == "parked"`, and it **gates new** `ai.complete` calls at
+both AI stream entry points (`BridgeMethods.swift:73`, `BridgeServiceAI.swift:107`), while
+`suspendAI()` (`PortBridge.swift:209`) **cancels the in-flight** stream. Both are called from
+`park(id:)` (`PortWindowManager.swift:566`) and the background path (`:669`). So a parked or
+backgrounded port can neither start nor continue a generation. Landed as the shell-s1 `suspendAI`
+regression fix (05477cc); the SHADER burst (2026-07-17) was captured before it. **Remaining: a live
+token-count gate** — park a self-generating port (e.g. SHADER), watch its `port_versions`, assert
+zero new saves while parked. Not yet run this session. Historical write-up below.
+
+## BUG (historical): parked/backgrounded ports keep running their AI — burning the subscription (2026-07-17)
 
 **GM, live: subscription limit hit two days running, and this is the likely cause.** A port that
 self-generates (SHADER: `ai.complete` → new GLSL → `port.update`, in a loop) **keeps running its loop

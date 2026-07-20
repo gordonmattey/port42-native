@@ -19,6 +19,10 @@ public final class GatewayProcess: ObservableObject {
 
     private var process: Process?
     private var outputPipe: Pipe?
+    /// Write end held open for the app's lifetime; the gateway reads the read end as stdin and
+    /// exits on EOF. When the app dies by ANY means (including SIGKILL), the OS closes this FD,
+    /// so the gateway can never orphan and hold the port. See the "-watch-parent" flag in main.go.
+    private var parentPipe: Pipe?
 
     public static let shared = GatewayProcess()
 
@@ -51,12 +55,20 @@ public final class GatewayProcess: ObservableObject {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)
-        proc.arguments = ["-addr", ":\(port)"]
+        proc.arguments = ["-addr", ":\(port)", "-watch-parent"]
 
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = pipe
         self.outputPipe = pipe
+
+        // Give the gateway a stdin pipe we hold the write end of. We never write to it; its only
+        // purpose is EOF-on-death. The gateway's -watch-parent goroutine reads to EOF and exits,
+        // so a force-quit / SIGKILL of the app (which runs no cleanup on either side) can't leave
+        // an orphaned gateway holding the port — the FD close is the kernel's job, not ours.
+        let stdinPipe = Pipe()
+        proc.standardInput = stdinPipe
+        self.parentPipe = stdinPipe
 
         // Log gateway output
         pipe.fileHandleForReading.readabilityHandler = { handle in
