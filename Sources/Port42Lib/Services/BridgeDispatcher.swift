@@ -35,7 +35,7 @@ extension AppState {
             var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
                 .union(pregrant)
             if !granted.contains(perm) {
-                let ok = await permissions.request(perm, from: principal.permissionRequester)
+                let ok = await permissions.request(perm, from: principal)
                 if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
                 granted.insert(perm)
                 saveCompanionPermissions(granted, createdBy: principal.id, spaceId: principal.spaceId)
@@ -66,7 +66,7 @@ extension AppState {
             var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
                 .union(pregrant)
             if !granted.contains(perm) {
-                let ok = await permissions.request(perm, from: principal.permissionRequester)
+                let ok = await permissions.request(perm, from: principal)
                 if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
                 granted.insert(perm)
                 saveCompanionPermissions(granted, createdBy: principal.id, spaceId: principal.spaceId)

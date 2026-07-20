@@ -140,27 +140,25 @@ struct ToolNamingTests {
 @Suite("Principal")
 struct PrincipalTests {
 
-    @Test("a principal produces a permission requester keyed on its stable id")
-    func requester() {
+    @Test("a principal is the permission identity: stable id, display label, space scope")
+    func identity() {
         let p = Principal(id: "peer-abc", displayName: "Claude Code", spaceId: nil, kind: .peer)
-        let r = p.permissionRequester
-        #expect(r.id == "peer-abc")
-        #expect(r.displayName == "Claude Code")
-        #expect(r.createdBy == "peer-abc")   // grant keys on identity, not a label
-        #expect(r.spaceId == nil)
+        #expect(p.id == "peer-abc")          // grant keys on identity, not a label
+        #expect(p.displayName == "Claude Code")
+        #expect(p.spaceId == nil)
     }
 
     @Test("a spaceless principal scopes its grant globally, not unpersistably")
     func spacelessScope() {
         let p = Principal(id: "peer-abc", displayName: "Claude Code", spaceId: nil, kind: .peer)
-        // nil spaceId + non-nil createdBy = the coordinator's "everywhere" wording, not "ask every time".
-        #expect(p.permissionRequester.scopeDescription.contains("globally"))
+        // nil spaceId = the coordinator's "everywhere" wording, not "ask every time".
+        #expect(p.scopeDescription.contains("globally"))
     }
 
     @Test("a port principal in a space scopes its grant to that space")
     func portScope() {
         let p = Principal(id: "port-1", displayName: "shader", spaceId: "space-9", kind: .port)
-        #expect(p.permissionRequester.scopeDescription.contains("in this space"))
+        #expect(p.scopeDescription.contains("in this space"))
     }
 }
 

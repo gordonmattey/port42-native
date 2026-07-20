@@ -26,7 +26,7 @@ struct ShellPermissionOverlay: View {
 
             VStack(spacing: 14) {
                 // Who's asking — the first thing you need, and what scope keys off.
-                Text(request.requester.displayName.uppercased())
+                Text(request.principal.displayName.uppercased())
                     .font(Port42Theme.monoBold(11))
                     .foregroundStyle(accent)
                     .tracking(1.2)
@@ -66,7 +66,7 @@ struct ShellPermissionOverlay: View {
 
                 // Say what "Allow" actually does. The old code silently wrote a per-(companion,
                 // space) grant the human was never shown.
-                Text(request.requester.scopeDescription)
+                Text(request.principal.scopeDescription)
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.75))
                     .multilineTextAlignment(.center)

@@ -23,51 +23,26 @@ import Combine
 // and ShellView renders it once — so a render site can never again go missing without the compiler
 // noticing.
 
-/// Who is asking. Identity drives coalescing (same asker + same permission = one card) and the
-/// grant's scope, so the card can state what "Allow" actually does.
-public struct PermissionRequester: Equatable {
-    /// Stable identity for coalescing + scope persistence. A port's id, a companion's id, or a
-    /// gateway caller's sender name.
-    public let id: String
-    /// What the human sees on the card ("echo", "Claude Code").
-    public let displayName: String
-    /// The space the grant persists under. **nil = the caller isn't in a space** (the gateway):
-    /// its grant is global to that caller. Before this type existed, nil silently meant "never
-    /// restore, never persist" — see `AppState.companionPermKey`.
-    public let spaceId: String?
-    /// Name the grant is keyed under. nil = ask every time (no identity to remember).
-    public let createdBy: String?
-
-    public init(id: String, displayName: String, spaceId: String?, createdBy: String?) {
-        self.id = id
-        self.displayName = displayName
-        self.spaceId = spaceId
-        self.createdBy = createdBy
-    }
-
-    /// What "Allow" will actually do, in the human's words. The old code silently wrote a
-    /// per-(companion, space) grant the user was never shown; the card says it now.
-    public var scopeDescription: String {
-        guard createdBy != nil else { return "Allow once — this asker isn't remembered." }
-        if let spaceId, !spaceId.isEmpty {
-            _ = spaceId
-            return "Allow for \(displayName) in this space — future ports it makes won't ask again."
-        }
-        return "Allow for \(displayName) everywhere — it isn't in a space, so this applies globally."
-    }
-}
+// Who is asking is a `Principal` (Principal.swift) — the same identity the dispatcher keys grants
+// on. Identity drives coalescing (same asker + same permission = one card) and the grant's scope,
+// so the card can state what "Allow" actually does. `PermissionRequester`, the coordinator's own
+// first draft of that identity, collapsed into Principal in Phase 3.
 
 /// One pending ask. Many awaiters can ride a single request (coalescing), so a port that fires
 /// three `ai.complete` calls at once shows one card and resumes all three.
 public final class PermissionRequest: Identifiable, ObservableObject {
     public let id = UUID()
     public let permission: PortPermission
-    public let requester: PermissionRequester
+    public let principal: Principal
     fileprivate var continuations: [CheckedContinuation<Bool, Never>] = []
 
-    fileprivate init(permission: PortPermission, requester: PermissionRequester) {
+    /// How many awaiters ride this request. Continuations stay private; the count is observable so
+    /// a caller (or a test settling on registration) can see coalescing without touching them.
+    public var awaiterCount: Int { continuations.count }
+
+    fileprivate init(permission: PortPermission, principal: Principal) {
         self.permission = permission
-        self.requester = requester
+        self.principal = principal
     }
 
     /// Resume every awaiter exactly once. The list is cleared first so a double-answer (Esc racing
@@ -119,15 +94,15 @@ public final class PermissionCoordinator: ObservableObject {
     /// Ask for a permission. Suspends until the human answers. Never returns without resolving —
     /// that's the whole point of routing every caller through one queue.
     ///
-    /// Coalesces on (requester.id, permission): a repeat ask for something already pending joins
+    /// Coalesces on (principal.id, permission): a repeat ask for something already pending joins
     /// the existing request instead of clobbering its continuation.
-    public func request(_ permission: PortPermission, from requester: PermissionRequester) async -> Bool {
+    public func request(_ permission: PortPermission, from principal: Principal) async -> Bool {
         await withCheckedContinuation { continuation in
-            if let existing = find(permission, requester) {
+            if let existing = find(permission, principal) {
                 existing.continuations.append(continuation)
                 return
             }
-            let req = PermissionRequest(permission: permission, requester: requester)
+            let req = PermissionRequest(permission: permission, principal: principal)
             req.continuations.append(continuation)
             if current == nil {
                 current = req
@@ -137,9 +112,9 @@ public final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func find(_ permission: PortPermission, _ requester: PermissionRequester) -> PermissionRequest? {
-        if let c = current, c.permission == permission, c.requester.id == requester.id { return c }
-        return queued.first { $0.permission == permission && $0.requester.id == requester.id }
+    private func find(_ permission: PortPermission, _ principal: Principal) -> PermissionRequest? {
+        if let c = current, c.permission == permission, c.principal.id == principal.id { return c }
+        return queued.first { $0.permission == permission && $0.principal.id == principal.id }
     }
 
     /// Answer the current card and advance the queue.
@@ -159,15 +134,15 @@ public final class PermissionCoordinator: ObservableObject {
         for req in all { req.resolve(false) }
     }
 
-    /// Drop any pending asks from a requester that no longer exists — a port closed while its card
+    /// Drop any pending asks from a principal that no longer exists — a port closed while its card
     /// was queued. Denies rather than leaks, so the caller's `await` always returns.
-    public func cancelRequests(from requesterId: String) {
+    public func cancelRequests(from principalId: String) {
         queued.removeAll { req in
-            guard req.requester.id == requesterId else { return false }
+            guard req.principal.id == principalId else { return false }
             req.resolve(false)
             return true
         }
-        if let c = current, c.requester.id == requesterId {
+        if let c = current, c.principal.id == principalId {
             current = nil
             c.resolve(false)
             advance()

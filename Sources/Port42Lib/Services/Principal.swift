@@ -8,9 +8,9 @@ import Foundation
 // throws it away"). A Principal carries a stable identity, so a permission becomes a statement about
 // WHO, not about what a caller is called.
 //
-// Phase 0 defines the type and its bridge to the existing permission queue. `PermissionRequester`
-// (added with the permission coordinator) is the accidental first draft of this; Phase 3 backs the
-// `.peer` case with the gateway's authenticated `peer.ID` and makes `id` the permission key.
+// Phase 3 finished the promotion: `PermissionRequester` (the accidental first draft that rode the
+// permission coordinator) is gone, and the coordinator takes a Principal directly. One caller
+// identity, one type; `id` is the coalescing key AND the grant key, display never is.
 
 public struct Principal: Equatable {
     public enum Kind: String, Equatable {
@@ -52,11 +52,14 @@ public struct Principal: Equatable {
         senderId == localGatewayID ? "Local (gateway)" : senderId
     }
 
-    /// Bridge to the existing permission queue (`PermissionCoordinator`). Until Phase 3 promotes
-    /// `PermissionRequester` into this type, a Principal produces one: the stable `id` is both the
-    /// coalescing id and the grant key (`createdBy`), so the identity — not a display label — is what
-    /// a grant is remembered against.
-    public var permissionRequester: PermissionRequester {
-        PermissionRequester(id: id, displayName: displayName, spaceId: spaceId, createdBy: id)
+    /// What "Allow" will actually do, in the human's words, on the permission card. A grant is a
+    /// statement about this principal in this space (nil space = global to this principal), and the
+    /// card says so — the old code silently wrote a grant the human was never shown the scope of.
+    public var scopeDescription: String {
+        if let spaceId, !spaceId.isEmpty {
+            _ = spaceId
+            return "Allow for \(displayName) in this space — future ports it makes won't ask again."
+        }
+        return "Allow for \(displayName) everywhere — it isn't in a space, so this applies globally."
     }
 }

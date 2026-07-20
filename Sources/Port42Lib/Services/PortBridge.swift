@@ -65,9 +65,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     deinit {
         // A port can die with a card still queued (closed while waiting). Deny it rather than leak
-        // the awaiter — the caller's `await` must always return.
-        if let mid = messageId, let state = appState as? AppState {
-            Task { @MainActor in state.permissions.cancelRequests(from: mid) }
+        // the awaiter — the caller's `await` must always return. Cancels by the PRINCIPAL id (the
+        // companion for a companion-created port), so the ask this port queued is actually found.
+        // Trade-off, accepted: if a sibling port of the same companion is riding the same coalesced
+        // card, its await resolves false too — it re-asks on the next call (a deny is never
+        // persisted), which beats a zombie card for a dead port.
+        if let state = appState as? AppState, messageId != nil || createdBy != nil {
+            let pid = createdBy ?? messageId ?? ""
+            Task { @MainActor in state.permissions.cancelRequests(from: pid) }
         }
         // The mic-leak teardown (tail item 6): the shared device bridges live on AppState, so this
         // port's death must stop any capture/stream it started — keyed on identity, so another
@@ -119,14 +124,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
-    /// How this port identifies itself on the permission card.
-    private var requester: PermissionRequester {
-        PermissionRequester(
-            id: messageId ?? ObjectIdentifier(self).debugDescription,
+    /// WHO this port is, for authorization: the ONE identity every dispatch and permission ask uses.
+    /// A companion-created port acts as its creator (GM decision 2026-07-19) — one grant bucket per
+    /// author per space (P-260 in both directions) and one storage namespace with its companion
+    /// (todo #6). A human-created port keys on its own message id. The space scope rides in
+    /// `spaceId`, so a grant never leaks across spaces.
+    var portPrincipal: Principal {
+        Principal(
+            id: createdBy ?? messageId ?? ObjectIdentifier(self).debugDescription,
             displayName: createdBy ?? title ?? "a port",
-            spaceId: spaceId,
-            createdBy: createdBy
-        )
+            spaceId: spaceId, kind: .port)
     }
 
     /// Check and request permission for a method. Returns true if allowed.
@@ -139,7 +146,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let perm = PortPermission.permissionForMethod(method) else { return true }
         if grantedPermissions.contains(perm) { return true }
         guard let state = self.state else { return false }
-        let granted = await state.permissions.request(perm, from: requester)
+        let granted = await state.permissions.request(perm, from: portPrincipal)
         if granted { recordGrant(perm) }
         return granted
     }
@@ -287,10 +294,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // files.* base), not the static ToolNaming.resolveAlias which only knows files.*.
         let canonical = state?.resolveBridgeAlias(method) ?? ToolNaming.resolveAlias(method)
         if let state, let bridgeMethod = state.bridgeRegistry[canonical], bridgeMethod.wired {
-            let principal = Principal(
-                id: messageId ?? ObjectIdentifier(self).debugDescription,
-                displayName: createdBy ?? title ?? "a port",
-                spaceId: spaceId, kind: .port)
+            let principal = portPrincipal
             do {
                 let value = try await state.runBridgeMethod(
                     canonical, principal: principal,
@@ -309,10 +313,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // thrown BridgeError → _reject (the never-reject fix: the port's catch runs instead of the
         // promise silently resolving a value). Permission is gated inside runBridgeStream.
         if let state, state.bridgeStreamHandles(canonical) {
-            let principal = Principal(
-                id: messageId ?? ObjectIdentifier(self).debugDescription,
-                displayName: createdBy ?? title ?? "a port",
-                spaceId: spaceId, kind: .port)
+            let principal = portPrincipal
             let names = state.bridgeStreamRegistry[canonical]?.paramNames ?? []
             let grants = grantedPermissions
             let task = Task { @MainActor [weak self] in

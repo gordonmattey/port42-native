@@ -10,8 +10,8 @@ import Testing
 @MainActor
 struct PermissionCoordinatorTests {
 
-    private func requester(_ id: String, space: String? = "space-1") -> PermissionRequester {
-        PermissionRequester(id: id, displayName: id, spaceId: space, createdBy: id)
+    private func requester(_ id: String, space: String? = "space-1") -> Principal {
+        Principal(id: id, displayName: id, spaceId: space, kind: .port)
     }
 
     /// Spin the main actor until `condition` holds, so a child task's `request(...)` has registered.
@@ -71,7 +71,10 @@ struct PermissionCoordinatorTests {
         await settle { c.current != nil }
         async let two = c.request(.ai, from: r)
         async let three = c.request(.ai, from: r)
-        await settle { c.current != nil }
+        // Settle on REGISTRATION, not on `current != nil` (already true from `one`): resolving
+        // before two/three have joined would answer only `one` and leave them riding a card nobody
+        // ever answers — the exact leak this suite exists to forbid, as a test bug.
+        await settle { c.current?.awaiterCount == 3 }
 
         // Three asks, one card — a port firing three ai.complete calls doesn't stack three prompts.
         #expect(c.pendingCount == 1)
@@ -160,16 +163,13 @@ struct PermissionCoordinatorTests {
     /// space) grant the human was never shown, and for spaceless callers wrote nothing at all.
     @Test("scope description distinguishes a space grant from a global one")
     func scopeDescriptionIsHonest() {
-        let inSpace = PermissionRequester(id: "echo", displayName: "echo",
-                                          spaceId: "space-1", createdBy: "echo")
-        let gateway = PermissionRequester(id: "claude-code", displayName: "Claude Code",
-                                          spaceId: nil, createdBy: "claude-code")
-        let anonymous = PermissionRequester(id: "x", displayName: "a port",
-                                            spaceId: "space-1", createdBy: nil)
+        let inSpace = Principal(id: "echo", displayName: "echo",
+                                spaceId: "space-1", kind: .companion)
+        let gateway = Principal(id: "local-http", displayName: "Claude Code",
+                                spaceId: nil, kind: .peer)
 
         #expect(inSpace.scopeDescription.contains("in this space"))
         #expect(gateway.scopeDescription.contains("everywhere"))
-        #expect(anonymous.scopeDescription.contains("once"))
     }
 
     /// Found live 2026-07-16: a mic port fires three dialogs — ours, then macOS Microphone, then
