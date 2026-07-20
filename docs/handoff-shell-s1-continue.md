@@ -203,14 +203,30 @@ Live: gateway denial verified; NSOpenPanel pick → read → write round-trip th
 Found: `fs.drop` only notifies JS — dropped paths were never actually readable (registerDroppedPath
 has no callers); decide at the close-out whether drops should grant reads.
 
+## Done 2026-07-19 (night): close-out steps 1–3 — BOTH OLD SWITCHES ARE GONE (f05e109)
+
+The audit found every remaining case dead behind registry-first dispatch, with three handled
+exceptions: `help` extracted to the registry ("-h" alias), `ai.cancel` kept as an explicit
+machinery branch in PortBridge (transport shim, per-bridge Task state), the singular `engraving.*`
+name variant dropped (no-compat). Gates in `BridgeCloseOutTests` (recorded failing with the full
+92-label inventory): source-scan asserts no old-switch method cases in either file; help serves
+from the registry; unknown methods fail cleanly. The deletions: PortBridge −700 lines,
+ToolExecutor 1172 → ~180 (RemoteToolExecutor lost its internal old-path executor), FileBridge =
+panels only. `fs.drop` now grants dropped paths to the dropping port's principal (the old path
+never recorded the grant, so announced paths were unreadable). 192 bridge tests in 34 suites green;
+live-smoked in Dev (gateway user.get/help/ports.list/unknown-error; a fresh port's JS round-trips
+user.get + the creases.read alias). Net −1853/+117.
+
 ## Next
 
-**Close-out (the only remaining step)** — delete the two old switches (`PortBridge.handleMethod`
-tail, `ToolExecutor.executeImpl`), slim FileBridge to the panels, flip
-`ToolNaming.canonicalMethods` + `llms.txt` to generated (full name inventory now exists in the
-registry). Gate: full bridge suite + live cross-path matrix green after removal, plus a grep
-asserting the old case labels are gone. Then the four parallel lists and both switches are gone:
-unification complete.
+**Close-out steps 4–5 (the arc's last work):**
+- **Step 4, the generated flip**: `ToolNaming.canonicalMethods` derived from the registry instead
+  of hand-listed, and `llms.txt` generated from the registry's self-describing schemas.
+  `ToolDefinitions` (the empty hybrid skeleton + `permission(for:)`) deleted; the two tests still
+  asserting on `ToolDefinitions.permission` repoint at the registry's permissions.
+- **Step 5, the arc's final gate**: full bridge suite + the live cross-path matrix in Dev (same
+  method through port JS, tool use, gateway) + `BridgeCloseOutTests` green. Then the four parallel
+  lists and both switches are gone: unification complete.
 
 **The tail** (`plan-api-unification.md` Phase 2b) — extract the still-live-only families still on the two
 old switches: browser.\*, `rest.call`, audio/screen/camera streams + `audio.capture`, the self-referential
