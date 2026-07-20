@@ -161,6 +161,12 @@ func buildSettings(selfPath string) string {
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("sessionStarted")}},
 			}},
+			// SessionEnd is the mirror: when claude exits, the auto-registered CLI companion leaves
+			// the space (even if the terminal shell stays open).
+			"SessionEnd": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("sessionEnded")}},
+			}},
 		},
 	}
 	b, err := json.Marshal(settings)

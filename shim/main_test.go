@@ -183,6 +183,30 @@ func TestBuildSettingsSessionStart(t *testing.T) {
 	}
 }
 
+// SessionEnd -> sessionEnded is the mirror of SessionStart: the app removes the auto-registered
+// CLI companion when claude exits.
+func TestBuildSettingsSessionEnd(t *testing.T) {
+	s := buildSettings("/x/port42-claude-shim")
+	var parsed struct {
+		Hooks struct {
+			SessionEnd []struct {
+				Hooks []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"SessionEnd"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		t.Fatalf("settings not valid JSON: %v\n%s", err, s)
+	}
+	if len(parsed.Hooks.SessionEnd) != 1 || len(parsed.Hooks.SessionEnd[0].Hooks) != 1 {
+		t.Fatalf("SessionEnd not wired: %s", s)
+	}
+	if got := parsed.Hooks.SessionEnd[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionEnded` {
+		t.Fatalf("SessionEnd command = %q", got)
+	}
+}
+
 func TestNotifyRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "h.sock")
