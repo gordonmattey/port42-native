@@ -208,11 +208,14 @@ gates all passed, but the FEATURE cannot be called stable until this is diagnose
 - Hoisting the per-frame `CIContext` in both stream delegates (landed) → no perceptible change.
   Kept anyway: a per-frame GPU context was real waste.
 
-**The one decisive test not yet run:** record with macOS's own recorder (Cmd+Shift+5) and wiggle.
-Glitches too → OS/driver interaction (pointer utilities and capture indicators are a known bad
-mix), not our bug. Calm → something about OUR SCStream usage (candidates: `delegate: nil` on
-SCStream, default queueDepth, the synchronous work inside the output handler backing up
-WindowServer's frame delivery).
+**Verdict (2026-07-19, GM):** macOS's own recorder (Cmd+Shift+5) is glitch-free on this machine,
+used all the time. So the bug is OURS: something about our SCStream usage. Remaining suspects, in
+order: the synchronous heavy work inside the SCStreamOutput handler (CIContext.createCGImage +
+NSBitmapImageRep + JPEG + base64 on the sampleHandlerQueue, holding IOSurface-backed buffers and
+back-pressuring WindowServer's delivery), default `queueDepth`, `delegate: nil` on the SCStream
+(errors invisible). Next diagnostic: a handler that drops every frame immediately (no processing) —
+if the pointer is calm, it is the buffer-holding work; move processing off the handler queue and
+copy out of the IOSurface fast.
 
 Secondary (still real, now decoupled): per-frame base64 through `evaluateJavaScript` on the main
 thread is the delivery cost item for when frames actually flow to a port; off-main serialize or a
