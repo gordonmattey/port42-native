@@ -85,7 +85,20 @@ settles (errors) rather than hangs.
 
 ---
 
-## BUG: ports.list ignores space_id — can't scope ports to a space (2026-07-18)
+## ~~BUG: ports.list ignores space_id~~ — FIXED 2026-07-19 (sweep part 1)
+
+`ports.list` honors `space_id` server-side AND every entry carries its `spaceId` for client-side
+filtering; gated in `BridgePortsTests/listScopedToSpace`. Rode along: `port.move` on an unknown id
+threw a silent `{ok}` no-op, now `not_found`. The once-missing gateway methods (`screen.displays`,
+`port.position`, `port.move`) were verified serving from the registry. Same sweep, parts 2-3: the
+last parallel permission table (`permissionForMethod`) is dead — the registry is the ONLY
+permission table (scan-gated); the port document wrapper (CSP + theme) is ONE function with
+overflow as the only per-presentation difference (scan-gated); a real drop-grant bug fell out
+(dropped paths were granted to the messageId while a companion-created port reads as its creator —
+dropped files were unreadable; grant now keys on the principal). The "liveness signal" remainder
+below stays open. Original report:
+
+## Original: BUG: ports.list ignores space_id — can't scope ports to a space (2026-07-18)
 
 **Severity:** High. Blocks any per-space port UI and silently misleads callers.
 
