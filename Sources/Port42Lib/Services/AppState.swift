@@ -813,6 +813,14 @@ public final class AppState: ObservableObject {
     /// forever with no prompt.
     public let permissions = PermissionCoordinator()
 
+    /// The shared stateful device bridges (tail item 6): ONE instance per family, sessions shared
+    /// across every calling surface. A capture or stream remembers the PortBridge that started it
+    /// (owner) for event routing, and `PortBridge.deinit` stops any session its port still owns —
+    /// the mic-leak teardown the old per-port instances got from their own deinit.
+    public let audioDevice = AudioBridge()
+    public let cameraDevice = CameraBridge()
+    public let screenDevice = ScreenBridge()
+
     /// The unified bridge method registry (API/tool-use unification, Phase 2). One implementation per
     /// method; the three calling paths (port JS, companion tool-use, gateway) dispatch through it via
     /// `runBridgeMethod`. Built once and stored: the bodies capture `self`, an intentional retain that

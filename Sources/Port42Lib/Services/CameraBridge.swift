@@ -5,24 +5,26 @@ import AppKit
 // MARK: - Camera Bridge (P-503)
 
 /// Bridges port42.camera.* calls to AVCaptureSession.
-/// Supports single frame capture and continuous streaming with frame events.
+/// Supports single frame capture and continuous streaming with frame events. ONE shared instance
+/// lives on AppState (tail item 6); a stream remembers the PortBridge that started it (owner) and
+/// pushes its camera.frame events to that port.
 @MainActor
 public final class CameraBridge: NSObject {
 
-    private weak var bridge: PortBridge?
-
-    private var captureSession: AVCaptureSession?
-    private var videoOutput: AVCaptureVideoDataOutput?
-    private var isStreaming = false
+    // Session state (internal so the Tier-A teardown gates can prime and assert release)
+    var captureSession: AVCaptureSession?
+    var videoOutput: AVCaptureVideoDataOutput?
+    var isStreaming = false
+    /// Identity of the PortBridge that started the active stream (survives the frame handler's weak
+    /// ref nilling out, so a dying owner's deinit can still match and stop its stream).
+    var ownerId: ObjectIdentifier?
     private var streamScale: CGFloat = 0.5
     private let delegateQueue = DispatchQueue(label: "com.port42.camera", qos: .userInitiated)
 
     /// Thread-safe state shared with the delegate callback.
     private let frameHandler = FrameHandler()
 
-    public init(bridge: PortBridge? = nil) {
-        self.bridge = bridge
-    }
+    public override init() {}
 
     // MARK: - Setup
 
@@ -89,31 +91,49 @@ public final class CameraBridge: NSObject {
 
     // MARK: - Stream
 
-    /// Start continuous camera streaming. Frames pushed as camera.frame events.
-    func stream(opts: [String: Any]) async -> [String: Any] {
+    /// Start continuous camera streaming. Frames pushed as camera.frame events to `owner`, the
+    /// PortBridge whose port made the call (nil for a headless caller).
+    func stream(opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
         if isStreaming { return ["error": "Already streaming"] }
 
         let scale = opts["scale"] as? Double ?? 0.25
         let clampedScale = CGFloat(min(max(scale, 0.1), 2.0))
         frameHandler.scale = clampedScale
-        frameHandler.bridge = bridge
+        frameHandler.bridge = owner
         frameHandler.isStreaming = true
 
-        if let err = await setupSession() { return err }
+        if let err = await setupSession() {
+            frameHandler.isStreaming = false
+            frameHandler.bridge = nil
+            return err
+        }
 
         isStreaming = true
+        ownerId = owner.map(ObjectIdentifier.init)
         captureSession?.startRunning()
 
         return ["ok": true]
     }
 
-    /// Stop camera streaming.
+    /// Stop camera streaming. Tears the session DOWN (released, not merely stopped) — the Tier-A
+    /// teardown gate; the old stopRunning-only stop kept the AVCaptureSession allocated.
     func stopStream() -> [String: Any] {
         guard isStreaming else { return ["error": "Not streaming"] }
         isStreaming = false
         frameHandler.isStreaming = false
+        frameHandler.bridge = nil
+        ownerId = nil
         captureSession?.stopRunning()
+        captureSession = nil
+        videoOutput = nil
         return ["ok": true]
+    }
+
+    /// Stop the active stream only if `id` identifies the PortBridge that started it. Called from a
+    /// dying owner's deinit — the camera must not keep running after its port is gone.
+    public func stopStream(ifOwner id: ObjectIdentifier) {
+        guard isStreaming, ownerId == id else { return }
+        _ = stopStream()
     }
 
     // MARK: - Cleanup
@@ -121,7 +141,9 @@ public final class CameraBridge: NSObject {
     public func cleanup() {
         isStreaming = false
         frameHandler.isStreaming = false
+        frameHandler.bridge = nil
         frameHandler.captureContinuation = nil
+        ownerId = nil
         captureSession?.stopRunning()
         captureSession = nil
         videoOutput = nil

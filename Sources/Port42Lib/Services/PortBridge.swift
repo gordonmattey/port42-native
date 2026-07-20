@@ -61,17 +61,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Notification bridge. Created lazily on first notify call.
     private var notificationBridge: NotificationBridge?
 
-    /// Audio bridge. Created lazily on first audio call.
-    private var audioBridge: AudioBridge?
-
-    /// Screen capture bridge. Created lazily on first screen call.
-    private var screenBridge: ScreenBridge?
-
     /// Automation bridge. Created lazily on first automation call.
     private var automationBridge: AutomationBridge?
-
-    /// Camera bridge. Created lazily on first camera call.
-    private var cameraBridge: CameraBridge?
 
     public init(appState: AnyObject, spaceId: String?, messageId: String? = nil, createdBy: String? = nil, title: String? = nil) {
         self.appState = appState
@@ -106,17 +97,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         if let mid = messageId, let state = appState as? AppState {
             Task { @MainActor in state.permissions.cancelRequests(from: mid) }
         }
-        let ab = audioBridge
-        if let ab {
-            Task { @MainActor in ab.cleanup() }
-        }
-        let cb = cameraBridge
-        if let cb {
-            Task { @MainActor in cb.cleanup() }
-        }
-        let sb = screenBridge
-        if let sb {
-            Task { @MainActor in sb.cleanup() }
+        // The mic-leak teardown (tail item 6): the shared device bridges live on AppState, so this
+        // port's death must stop any capture/stream it started — keyed on identity, so another
+        // port's session is never collateral damage. ObjectIdentifier(self) is safe in deinit (no
+        // retain); the bridges match it against the ownerId they recorded at start.
+        if let state = appState as? AppState {
+            let me = ObjectIdentifier(self)
+            Task { @MainActor in
+                state.audioDevice.stopCapture(ifOwner: me)
+                state.cameraDevice.stopStream(ifOwner: me)
+                await state.screenDevice.stopStream(ifOwner: me)
+            }
         }
     }
 
@@ -845,19 +836,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
         // port.position: extracted to the registry (tail item 9).
 
-        // port42.screen.displays() — list all displays with bounds (no permissions needed)
-        case "screen.displays":
-            return NSScreen.screens.map { screen -> [String: Any] in
-                let f = screen.frame
-                let v = screen.visibleFrame
-                return [
-                    "width": f.width, "height": f.height,
-                    "x": f.origin.x, "y": f.origin.y,
-                    "visibleWidth": v.width, "visibleHeight": v.height,
-                    "visibleX": v.origin.x, "visibleY": v.origin.y,
-                    "isMain": screen == NSScreen.main
-                ]
-            }
+        // screen.displays: extracted to the registry (Phase-2 live pass).
 
         // port42.port.restore(id, version) — restore a port to a previous version
         case "port.restore":
@@ -992,77 +971,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if notificationBridge == nil { notificationBridge = NotificationBridge() }
             return await notificationBridge!.send(title: title, body: body, opts: opts)
 
-        // MARK: Audio
-
-        case "audio.capture":
-            let opts = args.first as? [String: Any] ?? [:]
-            if audioBridge == nil { audioBridge = AudioBridge(bridge: self) }
-            return await audioBridge!.capture(opts: opts)
-
-        case "audio.stopCapture":
-            return audioBridge?.stopCapture() ?? ["error": "no active capture"]
-
-        case "audio.speak":
-            guard let text = args.first as? String, !text.isEmpty else {
-                return ["error": "audio.speak requires non-empty text"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
-            if audioBridge == nil { audioBridge = AudioBridge(bridge: self) }
-            return await audioBridge!.speak(text: text, opts: opts)
-
-        case "audio.play":
-            guard let data = args.first as? String, !data.isEmpty else {
-                return ["error": "audio.play requires base64 audio data"]
-            }
-            let opts = args.count > 1 ? args[1] as? [String: Any] : nil
-            if audioBridge == nil { audioBridge = AudioBridge(bridge: self) }
-            return audioBridge!.play(data: data, opts: opts)
-
-        case "audio.stop":
-            return audioBridge?.stop() ?? ["ok": true]
-
-        // MARK: Screen Capture
-
-        case "screen.windows":
-            if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
-            return await screenBridge!.windows()
-
-        case "screen.capture":
-            let opts = args.first as? [String: Any] ?? [:]
-            if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
-            let screenResult = await screenBridge!.capture(opts: opts)
-            if let b64 = screenResult["image"] as? String {
-                postCapture(base64PNG: b64, type: "screen")
-            }
-            return screenResult
-
-        case "screen.stream":
-            let opts = args.first as? [String: Any] ?? [:]
-            if screenBridge == nil { screenBridge = ScreenBridge(bridge: self) }
-            return await screenBridge!.stream(opts: opts)
-
-        case "screen.stopStream":
-            if screenBridge == nil { return ["error": "Not streaming"] }
-            return await screenBridge!.stopStream()
-
-        // MARK: Camera
-
-        case "camera.capture":
-            let opts = args.first as? [String: Any] ?? [:]
-            if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
-            let cameraResult = await cameraBridge!.capture(opts: opts)
-            if let b64 = cameraResult["image"] as? String {
-                postCapture(base64PNG: b64, type: "camera")
-            }
-            return cameraResult
-
-        case "camera.stream":
-            let opts = args.first as? [String: Any] ?? [:]
-            if cameraBridge == nil { cameraBridge = CameraBridge(bridge: self) }
-            return await cameraBridge!.stream(opts: opts)
-
-        case "camera.stopStream":
-            return cameraBridge?.stopStream() ?? ["error": "no active camera"]
+        // audio.*, screen.*, camera.*: extracted to the registry — the request/response methods in
+        // the Phase-2 live pass, the stateful capture/stream family in tail item 6 (ONE shared
+        // instance per family on AppState; a session remembers its creating port for event routing
+        // and is stopped by the owner's deinit).
 
         // browser.*: extracted to the registry (tail item 5) — one shared session store, sessions
         // remember their creating port for event routing.
@@ -1198,44 +1110,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
-    // MARK: - Capture Persistence
-
-    /// Save a captured PNG to disk and post an inline system message to the space.
-    @MainActor
-    private func postCapture(base64PNG: String, type: String) {
-        guard let state = state, let spaceId = spaceId else { return }
-
-        // Resolve captures directory
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let capturesDir = appSupport.appendingPathComponent("Port42/captures", isDirectory: true)
-        try? FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
-
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        let stamp = fmt.string(from: Date())
-        let companion = (createdBy ?? "port")
-            .replacingOccurrences(of: " ", with: "-")
-            .lowercased()
-        let filename = "\(stamp)-\(companion)-\(type).png"
-        let fileURL = capturesDir.appendingPathComponent(filename)
-
-        if let data = Data(base64Encoded: base64PNG) {
-            try? data.write(to: fileURL)
-        }
-
-        let msg = Message.create(
-            spaceId: spaceId,
-            senderId: createdBy ?? "system",
-            senderName: createdBy ?? "system",
-            content: "[capture:\(type):\(fileURL.path)]",
-            senderType: "system"
-        )
-        do {
-            try state.db.saveMessage(msg)
-        } catch {
-            NSLog("[Port42] Failed to save capture message: %@", error.localizedDescription)
-        }
-    }
+    // postCapture (capture-to-disk + inline system message) left with the deleted screen/camera
+    // cases — the registry image path returns `.data` directly. ToolExecutor still carries its own
+    // copy on the old switch until the close-out.
 
     // ai.complete and companions.invoke moved to the streaming registry (item 8):
     // buildBridgeStreamRegistry, dispatched by the stream branch in handleMethod. The old

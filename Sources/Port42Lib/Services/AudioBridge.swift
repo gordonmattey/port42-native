@@ -4,19 +4,23 @@ import Speech
 
 // MARK: - Audio Bridge (P-501, P-502)
 
-/// Manages microphone capture with live transcription and audio output (TTS + buffer playback)
-/// for ports. Events stream through the PortBridge event system.
+/// Manages microphone capture with live transcription and audio output (TTS + buffer playback).
+/// ONE shared instance lives on AppState (tail item 6); a capture remembers the PortBridge that
+/// started it (owner) and streams its transcription/data events to that port.
 @MainActor
 public final class AudioBridge {
 
-    private weak var bridge: PortBridge?
-
-    // Capture state
-    private var audioEngine: AVAudioEngine?
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var isCapturing = false
+    // Capture state (internal so the Tier-A teardown gates can prime and assert release)
+    var audioEngine: AVAudioEngine?
+    var speechRecognizer: SFSpeechRecognizer?
+    var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    var recognitionTask: SFSpeechRecognitionTask?
+    var isCapturing = false
+    /// The port that started the active capture: events route here. Weak — a dead port drops events.
+    weak var owner: PortBridge?
+    /// Identity of the owning PortBridge (survives the weak ref nilling out, so a dying owner's
+    /// deinit can still match and stop the capture it started). Nil when idle or ownerless.
+    var ownerId: ObjectIdentifier?
 
     // TTS state
     private var synthesizer: AVSpeechSynthesizer?
@@ -25,14 +29,13 @@ public final class AudioBridge {
     // Playback state
     private var audioPlayer: AVAudioPlayer?
 
-    public init(bridge: PortBridge? = nil) {
-        self.bridge = bridge
-    }
+    public init() {}
 
     // MARK: - Capture (P-501)
 
-    /// Start microphone capture with optional speech transcription.
-    public func capture(opts: [String: Any]) async -> [String: Any] {
+    /// Start microphone capture with optional speech transcription. `owner` is the PortBridge whose
+    /// port made the call (nil for a headless caller): transcription/data events route to it.
+    public func capture(opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
         guard !isCapturing else {
             return ["error": "capture already in progress"]
         }
@@ -92,7 +95,7 @@ public final class AudioBridge {
                 request!.requiresOnDeviceRecognition = false
             }
 
-            let bridgeRef = self.bridge
+            let bridgeRef = owner
 
             task = recognizer.recognitionTask(with: request!) { result, error in
                 if let result {
@@ -123,7 +126,7 @@ public final class AudioBridge {
         }
 
         // Install audio tap on input node
-        let bridgeRef = self.bridge
+        let bridgeRef = owner
         let sampleRate = recordingFormat.sampleRate
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
@@ -162,6 +165,8 @@ public final class AudioBridge {
         self.recognitionRequest = request
         self.recognitionTask = task
         self.isCapturing = true
+        self.owner = owner
+        self.ownerId = owner.map(ObjectIdentifier.init)
 
         NSLog("[Port42] audio.capture started (transcribe=%d, language=%@, rawAudio=%d, sampleRate=%.0f)",
               transcribe, language, rawAudio, sampleRate)
@@ -184,9 +189,19 @@ public final class AudioBridge {
         recognitionRequest = nil
         recognitionTask = nil
         isCapturing = false
+        owner = nil
+        ownerId = nil
 
         NSLog("[Port42] audio.capture stopped")
         return ["ok": true]
+    }
+
+    /// Stop the active capture only if `id` identifies the PortBridge that started it. Called from
+    /// a dying owner's deinit — the mic must not keep running after its port is gone, and another
+    /// port's capture must not be collateral damage.
+    public func stopCapture(ifOwner id: ObjectIdentifier) {
+        guard isCapturing, ownerId == id else { return }
+        _ = stopCapture()
     }
 
     // MARK: - Speech Output (P-502)

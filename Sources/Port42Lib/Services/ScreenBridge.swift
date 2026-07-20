@@ -5,20 +5,21 @@ import CoreMedia
 
 // MARK: - Screen Bridge (P-504)
 
-/// Captures screenshots and streams screen content via ScreenCaptureKit for ports.
+/// Captures screenshots and streams screen content via ScreenCaptureKit. ONE shared instance lives
+/// on AppState (tail item 6); a stream remembers the PortBridge that started it (owner) and pushes
+/// its screen.frame events to that port.
 @MainActor
 public final class ScreenBridge {
 
-    private weak var bridge: PortBridge?
-    private var stream: SCStream?
-    private var streamDelegate: ScreenStreamDelegate?
-    private var isStreaming = false
+    // Stream state (internal so the Tier-A teardown gates can prime and assert release)
+    var stream: SCStream?
+    var streamDelegate: ScreenStreamDelegate?
+    var isStreaming = false
+    /// Identity of the PortBridge that started the active stream (survives the delegate's weak ref
+    /// nilling out, so a dying owner's deinit can still match and stop its stream).
+    var ownerId: ObjectIdentifier?
 
     public init() {}
-
-    public init(bridge: PortBridge) {
-        self.bridge = bridge
-    }
 
     /// List visible windows with metadata.
     func windows() async -> [String: Any] {
@@ -183,8 +184,9 @@ public final class ScreenBridge {
 
     // MARK: - Stream
 
-    /// Start continuous screen streaming. Frames pushed as screen.frame events.
-    func stream(opts: [String: Any]) async -> [String: Any] {
+    /// Start continuous screen streaming. Frames pushed as screen.frame events to `owner`, the
+    /// PortBridge whose port made the call (nil for a headless caller).
+    func stream(opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
         if isStreaming { return ["error": "Already streaming"] }
 
         let scale = min(2.0, max(0.1, opts["scale"] as? Double ?? 0.5))
@@ -233,7 +235,7 @@ public final class ScreenBridge {
         config.showsCursor = true
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
 
-        let delegate = ScreenStreamDelegate(bridge: bridge, scale: scale)
+        let delegate = ScreenStreamDelegate(bridge: owner, scale: scale)
         let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
 
         do {
@@ -247,29 +249,40 @@ public final class ScreenBridge {
         self.stream = scStream
         self.streamDelegate = delegate
         self.isStreaming = true
+        self.ownerId = owner.map(ObjectIdentifier.init)
 
         NSLog("[Port42] screen.stream: started %dx%d @ %.0f fps", captureWidth, captureHeight, fps)
         return ["ok": true, "width": captureWidth, "height": captureHeight]
     }
 
-    /// Stop screen streaming.
+    /// Stop screen streaming. Releases the SCStream and its delegate (the Tier-A teardown gate).
     func stopStream() async -> [String: Any] {
-        guard isStreaming, let scStream = stream else {
+        guard isStreaming else {
             return ["error": "Not streaming"]
         }
 
-        do {
-            try await scStream.stopCapture()
-        } catch {
-            NSLog("[Port42] screen.stopStream: error: %@", error.localizedDescription)
+        if let scStream = stream {
+            do {
+                try await scStream.stopCapture()
+            } catch {
+                NSLog("[Port42] screen.stopStream: error: %@", error.localizedDescription)
+            }
         }
 
         self.stream = nil
         self.streamDelegate = nil
         self.isStreaming = false
+        self.ownerId = nil
 
         NSLog("[Port42] screen.stream: stopped")
         return ["ok": true]
+    }
+
+    /// Stop the active stream only if `id` identifies the PortBridge that started it. Called from a
+    /// dying owner's deinit — the screen must not keep being captured after its port is gone.
+    public func stopStream(ifOwner id: ObjectIdentifier) async {
+        guard isStreaming, ownerId == id else { return }
+        _ = await stopStream()
     }
 
     // MARK: - Cleanup
@@ -283,6 +296,7 @@ public final class ScreenBridge {
         stream = nil
         streamDelegate = nil
         isStreaming = false
+        ownerId = nil
     }
 
     // MARK: - Private
@@ -302,7 +316,7 @@ public final class ScreenBridge {
 
 // MARK: - Screen Stream Delegate
 
-private final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
+final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
     weak var bridge: PortBridge?
     let scale: Double
 

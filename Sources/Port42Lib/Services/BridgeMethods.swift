@@ -250,20 +250,22 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
 
 // MARK: Devices (request/response hardware — thin wrappers)
 //
-// Extracted during the Phase-2 live pass. Thin pass-throughs to the existing device bridges (one
-// shared instance each), converting the bridge's `[String: Any]` to a BridgeValue. The image methods
-// return a top-level `.data`, so tool-use renders a real Anthropic image block (the model sees the
-// pixels) while JS/gateway get the base64 string; width/height are dropped (use `screen.displays` for
-// geometry). Streaming/stateful methods (audio.capture, camera/screen stream, browser sessions, the
-// live port push/exec/manage) and rest.call (URLRequest + secret injection) stay on the old path.
+// Extracted during the Phase-2 live pass (request/response) + tail item 6 (the stateful capture and
+// stream family). Thin pass-throughs to the device bridges, converting the bridge's `[String: Any]`
+// to a BridgeValue; an `{error}` dict throws (clean break). The image methods return a top-level
+// `.data`, so tool-use renders a real Anthropic image block (the model sees the pixels) while
+// JS/gateway get the base64 string; width/height are dropped (use `screen.displays` for geometry).
+// The stateful families (audio capture, camera/screen streams) run on the ONE shared instance per
+// family held by AppState: sessions are shared across all surfaces, remember the port that started
+// them (owner) for event routing, and are stopped by a dying owner's deinit (the mic-leak teardown).
 
 @MainActor
 private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: AppState) {
-    let screen = ScreenBridge()
-    let camera = CameraBridge()
+    let screen = appState.screenDevice
+    let camera = appState.cameraDevice
+    let audio = appState.audioDevice
     let notifications = NotificationBridge()
     let automation = AutomationBridge()
-    let audio = AudioBridge()
 
     r["screen.capture"] = BridgeMethod(permission: .screen, paramNames: ["scale"],
         description: "Capture a screenshot of the screen. Returns a base64 PNG image.",
@@ -455,6 +457,41 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         ]) { _, args in
         let sessionId = try args.requireString("sessionId")
         return try browserResult(browser.close(sessionId: sessionId))
+    }
+
+    // Tail item 6 — the stateful capture/stream family, on the shared AppState instances (audio /
+    // camera / screen). All six are port-event-driven (audio.transcription / audio.data /
+    // camera.frame / screen.frame events push to the owning port), so none are LLM tools. Errors
+    // throw, including stop on an idle device (clean break from the {error} dicts). The stop
+    // methods keep the old permission split: audio.stopCapture rides the .microphone grant its
+    // start acquired; the two stopStreams are ungated (stopping an already-permitted stream).
+    func avResult(_ result: [String: Any]) throws -> BridgeValue {
+        if let err = result["error"] as? String { throw BridgeError(code: "device_error", message: err) }
+        return .fromJSONObject(result)
+    }
+
+    r["audio.capture"] = BridgeMethod(permission: .microphone, paramNames: ["options"], toolExposed: false) { p, args in
+        try avResult(await audio.capture(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
+    }
+
+    r["audio.stopCapture"] = BridgeMethod(permission: .microphone, toolExposed: false) { _, _ in
+        try avResult(audio.stopCapture())
+    }
+
+    r["camera.stream"] = BridgeMethod(permission: .camera, paramNames: ["options"], toolExposed: false) { p, args in
+        try avResult(await camera.stream(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
+    }
+
+    r["camera.stopStream"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
+        try avResult(camera.stopStream())
+    }
+
+    r["screen.stream"] = BridgeMethod(permission: .screen, paramNames: ["options"], toolExposed: false) { p, args in
+        try avResult(await screen.stream(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
+    }
+
+    r["screen.stopStream"] = BridgeMethod(permission: nil, toolExposed: false) { _, _ in
+        try avResult(await screen.stopStream())
     }
 
     // Tail item 4 — rest.call. One body for all surfaces, carrying BOTH old paths' semantics: the
