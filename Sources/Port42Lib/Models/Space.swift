@@ -30,8 +30,12 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// workspace (and each gets its own claude session id for isolation). Nil = fall back to home
     /// (the resolver in `resolveTerminalCwd`); nil for spaces predating this field / remote spaces.
     public var workingDirectory: String?
+    /// Drag-reorder position (backlog 3.6): this space's persistent slot in the galaxy front and
+    /// ⌘1–9, distinct from the ⌘K recency axis (0.6). Backfilled from creation order by migration v42;
+    /// a new space lands at the end (`nextSortIndex`, assigned in `AppState.createSpace`).
+    public var sortIndex: Int = 0
 
-    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil) {
+    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil, sortIndex: Int = 0) {
         self.id = id
         self.name = name
         self.type = type
@@ -43,6 +47,13 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         self.accent = accent
         self.restedAt = restedAt
         self.workingDirectory = workingDirectory
+        self.sortIndex = sortIndex
+    }
+
+    /// The sortIndex a newly created space should get: one past the current maximum, so it lands at
+    /// the end of the galaxy front. `0` for the first space. Pure, so it is unit-tested (backlog 3.6).
+    public static func nextSortIndex(after spaces: [Space]) -> Int {
+        (spaces.map(\.sortIndex).max() ?? -1) + 1
     }
 
     /// A rested space is alive-but-dormant: nothing is lost, it just can't reach for attention.

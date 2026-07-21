@@ -639,6 +639,20 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v42-space-sort-index") { db in
+            // Drag-reorder spaces (backlog 3.6): a persistent order for the galaxy front + ⌘1–9,
+            // distinct from the ⌘K recency axis (0.6). Append-only; backfill from the current
+            // createdAt order so nothing visibly reshuffles on upgrade.
+            try db.alter(table: "spaces") { t in
+                t.add(column: "sortIndex", .integer).notNull().defaults(to: 0)
+            }
+            let ids = try String.fetchAll(
+                db, sql: "SELECT id FROM spaces WHERE type != 'direct' ORDER BY createdAt ASC")
+            for (i, id) in ids.enumerated() {
+                try db.execute(sql: "UPDATE spaces SET sortIndex = ? WHERE id = ?", arguments: [i, id])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -759,7 +773,7 @@ public final class DatabaseService {
     public func getRegularSpaces() throws -> [Space] {
         try dbQueue.read { db in
             try Space.filter(Column("type") != "direct")
-                .order(Column("createdAt").asc)
+                .order(Column("sortIndex").asc, Column("createdAt").asc)   // 3.6: sortIndex, createdAt tiebreak
                 .fetchAll(db)
         }
     }

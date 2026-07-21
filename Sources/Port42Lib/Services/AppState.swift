@@ -1971,6 +1971,7 @@ public final class AppState: ObservableObject {
         // SHELL S3 — assign an accent for life by creation position (spec decision #1); the space
         // keeps this color even as others are added/deleted. Stored on the row via saveSpace.
         space.accent = ShellState.accentHex(forNewSpaceAt: spaces.count)
+        space.sortIndex = Space.nextSortIndex(after: spaces)   // land at the end of the galaxy front (3.6)
         do {
             try db.saveSpace(space)
             spaces = try db.getRegularSpaces()
