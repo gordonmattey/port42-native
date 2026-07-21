@@ -32,4 +32,37 @@ struct CameraBridgeTests {
         #expect(!desc.title.isEmpty)
         #expect(!desc.message.isEmpty)
     }
+
+    // MARK: - Ownership guard (backlog 0.5, Step 1) — keyed on the stable port id
+
+    @Test("releaseIfOwned ignores a non-owner port id")
+    @MainActor
+    func releaseIgnoresNonOwner() {
+        let cb = CameraBridge()
+        cb.isStreaming = true
+        cb.ownerPortId = "A"
+        cb.releaseIfOwned(byPortId: "other")
+        #expect(cb.isStreaming, "another port's id must not stop this stream")
+    }
+
+    @Test("releaseIfOwned stops the stream for the owning port id")
+    @MainActor
+    func releaseStopsForOwner() {
+        let cb = CameraBridge()
+        cb.isStreaming = true
+        cb.ownerPortId = "A"
+        cb.releaseIfOwned(byPortId: "A")
+        #expect(!cb.isStreaming, "the owning port id must stop the stream")
+    }
+
+    @Test("releaseIfOwned is idempotent")
+    @MainActor
+    func releaseIdempotent() {
+        let cb = CameraBridge()
+        cb.isStreaming = true
+        cb.ownerPortId = "A"
+        cb.releaseIfOwned(byPortId: "A")
+        cb.releaseIfOwned(byPortId: "A")  // second call is a safe no-op
+        #expect(!cb.isStreaming)
+    }
 }

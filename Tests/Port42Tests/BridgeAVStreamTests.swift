@@ -32,12 +32,12 @@ struct BridgeAVStreamTests {
     /// Simulate an active audio capture on the shared instance: a real (never-started) engine and
     /// recognition request, exactly the references stopCapture must release.
     @MainActor
-    private func primeAudio(_ audio: AudioBridge, ownerId: ObjectIdentifier? = nil) -> WeakBox<AVAudioEngine> {
+    private func primeAudio(_ audio: AudioBridge, ownerPortId: String? = nil) -> WeakBox<AVAudioEngine> {
         let engine = AVAudioEngine()
         audio.audioEngine = engine
         audio.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         audio.isCapturing = true
-        audio.ownerId = ownerId
+        audio.ownerPortId = ownerPortId
         return WeakBox(engine)
     }
 
@@ -140,8 +140,10 @@ struct BridgeAVStreamTests {
     func ownerDeathStopsCapture() async throws {
         let w = try makeParityWorld()
         let audio = w.state.audioDevice
-        var bridge: PortBridge? = PortBridge(appState: w.state, spaceId: nil)
-        let engineBox = primeAudio(audio, ownerId: ObjectIdentifier(bridge!))
+        // A capture-capable port always has a non-nil messageId (the teardown key). The dying
+        // owner's deinit releases by that id.
+        var bridge: PortBridge? = PortBridge(appState: w.state, spaceId: nil, messageId: "owner-port")
+        let engineBox = primeAudio(audio, ownerPortId: "owner-port")
         bridge = nil  // deinit fires; its teardown hops to the main actor
         for _ in 0..<50 {
             await Task.yield()
@@ -157,9 +159,9 @@ struct BridgeAVStreamTests {
     func nonOwnerDeathLeavesCapture() async throws {
         let w = try makeParityWorld()
         let audio = w.state.audioDevice
-        let owner = PortBridge(appState: w.state, spaceId: nil)
-        var other: PortBridge? = PortBridge(appState: w.state, spaceId: nil)
-        _ = primeAudio(audio, ownerId: ObjectIdentifier(owner))
+        let owner = PortBridge(appState: w.state, spaceId: nil, messageId: "owner-port")
+        var other: PortBridge? = PortBridge(appState: w.state, spaceId: nil, messageId: "other-port")
+        _ = primeAudio(audio, ownerPortId: owner.messageId)
         other = nil
         for _ in 0..<20 { await Task.yield() }
         #expect(audio.capturing, "another port dying must not stop the owner's capture")

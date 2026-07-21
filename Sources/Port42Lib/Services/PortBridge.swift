@@ -74,16 +74,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let pid = createdBy ?? messageId ?? ""
             Task { @MainActor in state.permissions.cancelRequests(from: pid) }
         }
-        // The mic-leak teardown (tail item 6): the shared device bridges live on AppState, so this
-        // port's death must stop any capture/stream it started — keyed on identity, so another
-        // port's session is never collateral damage. ObjectIdentifier(self) is safe in deinit (no
-        // retain); the bridges match it against the ownerId they recorded at start.
-        if let state = appState as? AppState {
-            let me = ObjectIdentifier(self)
+        // The mic-leak teardown (backlog 0.5): the shared device bridges live on AppState, so this
+        // port's death must release any capture/stream it started — keyed on the port's stable id
+        // (messageId), so another port's session is never collateral damage. Captured as a plain
+        // value; deinit adds no retain. A port with no messageId started no captures, so there is
+        // nothing to release. Step 4 funnels this through AppState.releaseAcquisitions + suspendAI.
+        if let state = appState as? AppState, let mid = messageId {
             Task { @MainActor in
-                state.audioDevice.stopCapture(ifOwner: me)
-                state.cameraDevice.stopStream(ifOwner: me)
-                await state.screenDevice.stopStream(ifOwner: me)
+                state.audioDevice.releaseIfOwned(byPortId: mid)
+                state.cameraDevice.releaseIfOwned(byPortId: mid)
+                state.screenDevice.releaseIfOwned(byPortId: mid)
             }
         }
     }

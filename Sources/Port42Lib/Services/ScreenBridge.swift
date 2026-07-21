@@ -9,15 +9,16 @@ import CoreMedia
 /// on AppState (tail item 6); a stream remembers the PortBridge that started it (owner) and pushes
 /// its screen.frame events to that port.
 @MainActor
-public final class ScreenBridge {
+public final class ScreenBridge: PortOwnedResource {
 
     // Stream state (internal so the Tier-A teardown gates can prime and assert release)
     var stream: SCStream?
     var streamDelegate: ScreenStreamDelegate?
     var isStreaming = false
-    /// Identity of the PortBridge that started the active stream (survives the delegate's weak ref
-    /// nilling out, so a dying owner's deinit can still match and stop its stream).
-    var ownerId: ObjectIdentifier?
+    /// Stable id of the port that started the active stream (PortBridge.messageId). Survives the
+    /// delegate's weak ref nilling out, so a dying owner's teardown can still match and stop the
+    /// stream it started, keyed on the port id rather than the instance.
+    var ownerPortId: String?
 
     public init() {}
 
@@ -249,7 +250,7 @@ public final class ScreenBridge {
         self.stream = scStream
         self.streamDelegate = delegate
         self.isStreaming = true
-        self.ownerId = owner.map(ObjectIdentifier.init)
+        self.ownerPortId = owner?.messageId
 
         NSLog("[Port42] screen.stream: started %dx%d @ %.0f fps", captureWidth, captureHeight, fps)
         return ["ok": true, "width": captureWidth, "height": captureHeight]
@@ -272,17 +273,24 @@ public final class ScreenBridge {
         self.stream = nil
         self.streamDelegate = nil
         self.isStreaming = false
-        self.ownerId = nil
+        self.ownerPortId = nil
 
         NSLog("[Port42] screen.stream: stopped")
         return ["ok": true]
     }
 
-    /// Stop the active stream only if `id` identifies the PortBridge that started it. Called from a
-    /// dying owner's deinit — the screen must not keep being captured after its port is gone.
-    public func stopStream(ifOwner id: ObjectIdentifier) async {
-        guard isStreaming, ownerId == id else { return }
-        _ = await stopStream()
+    /// Release the stream this port started (PortOwnedResource). The SCStream stop is async, so it
+    /// is fire-and-forget in a Task; the tracking state is cleared synchronously, so the guard is
+    /// correct immediately and a second call is a no-op. Keyed on the owning port id — the screen
+    /// must not keep being captured after its port is gone.
+    public func releaseIfOwned(byPortId id: String) {
+        guard isStreaming, ownerPortId == id else { return }
+        let toStop = stream
+        stream = nil
+        streamDelegate = nil
+        isStreaming = false
+        ownerPortId = nil
+        if let toStop { Task { try? await toStop.stopCapture() } }
     }
 
     // MARK: - Cleanup
@@ -296,7 +304,7 @@ public final class ScreenBridge {
         stream = nil
         streamDelegate = nil
         isStreaming = false
-        ownerId = nil
+        ownerPortId = nil
     }
 
     // MARK: - Private

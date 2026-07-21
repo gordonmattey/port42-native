@@ -9,15 +9,16 @@ import AppKit
 /// lives on AppState (tail item 6); a stream remembers the PortBridge that started it (owner) and
 /// pushes its camera.frame events to that port.
 @MainActor
-public final class CameraBridge: NSObject {
+public final class CameraBridge: NSObject, PortOwnedResource {
 
     // Session state (internal so the Tier-A teardown gates can prime and assert release)
     var captureSession: AVCaptureSession?
     var videoOutput: AVCaptureVideoDataOutput?
     var isStreaming = false
-    /// Identity of the PortBridge that started the active stream (survives the frame handler's weak
-    /// ref nilling out, so a dying owner's deinit can still match and stop its stream).
-    var ownerId: ObjectIdentifier?
+    /// Stable id of the port that started the active stream (PortBridge.messageId). Survives the
+    /// frame handler's weak ref nilling out, so a dying owner's teardown can still match and stop
+    /// the stream it started, keyed on the port id rather than the instance.
+    var ownerPortId: String?
     private var streamScale: CGFloat = 0.5
     private let delegateQueue = DispatchQueue(label: "com.port42.camera", qos: .userInitiated)
 
@@ -109,7 +110,7 @@ public final class CameraBridge: NSObject {
         }
 
         isStreaming = true
-        ownerId = owner.map(ObjectIdentifier.init)
+        ownerPortId = owner?.messageId
         captureSession?.startRunning()
 
         return ["ok": true]
@@ -122,17 +123,18 @@ public final class CameraBridge: NSObject {
         isStreaming = false
         frameHandler.isStreaming = false
         frameHandler.bridge = nil
-        ownerId = nil
+        ownerPortId = nil
         captureSession?.stopRunning()
         captureSession = nil
         videoOutput = nil
         return ["ok": true]
     }
 
-    /// Stop the active stream only if `id` identifies the PortBridge that started it. Called from a
-    /// dying owner's deinit — the camera must not keep running after its port is gone.
-    public func stopStream(ifOwner id: ObjectIdentifier) {
-        guard isStreaming, ownerId == id else { return }
+    /// Release the stream this port started (PortOwnedResource). Keyed on the owning port id, so
+    /// another port's stream is never collateral damage; idempotent. The camera must not keep
+    /// running after its port is gone.
+    public func releaseIfOwned(byPortId id: String) {
+        guard isStreaming, ownerPortId == id else { return }
         _ = stopStream()
     }
 
@@ -143,7 +145,7 @@ public final class CameraBridge: NSObject {
         frameHandler.isStreaming = false
         frameHandler.bridge = nil
         frameHandler.captureContinuation = nil
-        ownerId = nil
+        ownerPortId = nil
         captureSession?.stopRunning()
         captureSession = nil
         videoOutput = nil

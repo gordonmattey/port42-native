@@ -8,7 +8,7 @@ import Speech
 /// ONE shared instance lives on AppState (tail item 6); a capture remembers the PortBridge that
 /// started it (owner) and streams its transcription/data events to that port.
 @MainActor
-public final class AudioBridge {
+public final class AudioBridge: PortOwnedResource {
 
     // Capture state (internal so the Tier-A teardown gates can prime and assert release)
     var audioEngine: AVAudioEngine?
@@ -18,9 +18,11 @@ public final class AudioBridge {
     var isCapturing = false
     /// The port that started the active capture: events route here. Weak — a dead port drops events.
     weak var owner: PortBridge?
-    /// Identity of the owning PortBridge (survives the weak ref nilling out, so a dying owner's
-    /// deinit can still match and stop the capture it started). Nil when idle or ownerless.
-    var ownerId: ObjectIdentifier?
+    /// Stable id of the port that started the active capture (PortBridge.messageId). Survives the
+    /// weak owner nilling out, so a dying owner's teardown can still match and stop the capture it
+    /// started. Nil when idle or ownerless. Keyed on the port id, not the instance, so teardown is
+    /// reachable by id from anywhere and a re-created port maps to the same logical owner.
+    var ownerPortId: String?
 
     // TTS state
     private var synthesizer: AVSpeechSynthesizer?
@@ -166,7 +168,7 @@ public final class AudioBridge {
         self.recognitionTask = task
         self.isCapturing = true
         self.owner = owner
-        self.ownerId = owner.map(ObjectIdentifier.init)
+        self.ownerPortId = owner?.messageId
 
         NSLog("[Port42] audio.capture started (transcribe=%d, language=%@, rawAudio=%d, sampleRate=%.0f)",
               transcribe, language, rawAudio, sampleRate)
@@ -190,18 +192,19 @@ public final class AudioBridge {
         recognitionTask = nil
         isCapturing = false
         owner = nil
-        ownerId = nil
+        ownerPortId = nil
 
         NSLog("[Port42] audio.capture stopped")
         return ["ok": true]
     }
 
-    /// Stop the active capture only if `id` identifies the PortBridge that started it. Called from
-    /// a dying owner's deinit — the mic must not keep running after its port is gone, and another
-    /// port's capture must not be collateral damage.
-    public func stopCapture(ifOwner id: ObjectIdentifier) {
-        guard isCapturing, ownerId == id else { return }
-        _ = stopCapture()
+    /// Release the capture this port started (PortOwnedResource). Keyed on the owning port id, so
+    /// another port's capture is never collateral damage; idempotent, so calling it from both the
+    /// close path and the deinit backstop is safe. The mic must not keep running after its port is
+    /// gone. (Step 2 extends this to stop the synthesizer and player this port started.)
+    public func releaseIfOwned(byPortId id: String) {
+        guard ownerPortId == id else { return }
+        if isCapturing { _ = stopCapture() }
     }
 
     // MARK: - Speech Output (P-502)

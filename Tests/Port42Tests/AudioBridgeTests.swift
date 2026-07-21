@@ -81,6 +81,39 @@ struct AudioBridgeTests {
         #expect(!ab.capturing)
     }
 
+    // MARK: - Ownership guard (backlog 0.5, Step 1) — keyed on the stable port id
+
+    @Test("releaseIfOwned ignores a non-owner port id")
+    @MainActor
+    func releaseIgnoresNonOwner() {
+        let ab = AudioBridge()
+        ab.isCapturing = true
+        ab.ownerPortId = "A"
+        ab.releaseIfOwned(byPortId: "other")
+        #expect(ab.capturing, "another port's id must not stop this capture")
+    }
+
+    @Test("releaseIfOwned stops the capture for the owning port id")
+    @MainActor
+    func releaseStopsForOwner() {
+        let ab = AudioBridge()
+        ab.isCapturing = true
+        ab.ownerPortId = "A"
+        ab.releaseIfOwned(byPortId: "A")
+        #expect(!ab.capturing, "the owning port id must stop the capture")
+    }
+
+    @Test("releaseIfOwned is idempotent")
+    @MainActor
+    func releaseIdempotent() {
+        let ab = AudioBridge()
+        ab.isCapturing = true
+        ab.ownerPortId = "A"
+        ab.releaseIfOwned(byPortId: "A")
+        ab.releaseIfOwned(byPortId: "A")  // second call is a safe no-op
+        #expect(!ab.capturing)
+    }
+
     // MARK: - Permission descriptions
 
     @Test(".microphone permission has descriptive text")
