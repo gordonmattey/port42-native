@@ -1776,7 +1776,7 @@ HTML/terminal port over a data channel (state replication), not a video call.
 
 ---
 
-## BUG: closing a port leaks its mic / speech recognition — forever, unstoppably (2026-07-16)
+## BUG: closing a port leaks its mic / speech recognition — forever, unstoppably (2026-07-16) (DONE 2026-07-21)
 
 **Found by sampling a 90%-CPU app at 3am.** The hot stacks were not webviews and not SwiftUI:
 ```
@@ -1813,6 +1813,31 @@ methods only reachable from the dead port's JS).
 
 **Severity: high.** Silent, permanent, burns a core, and it's a *privacy* issue as much as a perf one
 — **the microphone stays live after the thing that asked for it is gone.**
+
+**RESOLVED 2026-07-21 (commits d009839..8cc4acc), verified live.** Two root causes, both fixed. Spec:
+`docs/plan-exhaustive-port-teardown.md`.
+- **Root cause A, the retain cycle.** `PortBridge.attach` registered the bridge as the `"port42"`
+  `WKScriptMessageHandler`, which `WKUserContentController` retains strongly, and nothing removed it. So
+  after `close()` the bridge stayed pinned, its `deinit` never fired, and the deinit-driven stops never
+  ran. `destroyWebView` now calls `removeScriptMessageHandler(forName:"port42")` + `removeAllUserScripts`,
+  so the bridge deallocs (proven by a weak-ref dealloc test).
+- **Root cause B, owner resolution (found in the live pass).** A gateway/companion-created port has
+  `createdBy != messageId`, so `portPrincipal.id` is the creator, and owner resolution matched that
+  against panel udid/messageId and recorded a **nil owner** — the id-keyed release could never match.
+  Fix: `Principal.portId` carries the port's own id (excluded from identity, so P-260 grants are
+  unchanged); `owningPortBridge` and `streamPortBridge` resolve on it. Also silently repaired
+  transcription/frame/browser event routing to those ports.
+- **The exhaustive seam.** `PortOwnedResource` + `AppState.deviceBridges` + `releaseAcquisitions(portId:)`,
+  keyed on the stable port id. `close()`/`stop()`/`deinit` funnel through it and it releases audio
+  capture, `audio.speak`, `audio.play`, camera stream, screen stream, browser sessions, and the AI loop.
+  A fixed-inventory enforcement test fails red if a new start-with-owner bridge skips teardown (item 1).
+- **Verified live** on a `createdBy`-set port: close logs `audio.capture stopped` and the sample shows
+  `AVAudioEngine` / `com.apple.audio.IOThread.client` / `HALC_ProxyIOContext` / `SFLocalSpeechRecognitionClient`
+  all gone; `audio.speak` cuts off instantly on close (by ear).
+- **Still open (item 3):** the app/gateway kill switch + always-visible live-capture indicator. The
+  `portId` keying is the enabler; the UI is a separate change. Backgrounded-port capture policy is a
+  separate follow-up too (background keeps `suspendAI` today; whether it should also idle the mic is a
+  policy call).
 
 ---
 
