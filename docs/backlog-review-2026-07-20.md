@@ -13,9 +13,31 @@ discipline, and a live pass in Port42Dev (rAF freezes when hidden, one event per
 it waits until live-webview count / idle CPU actually bites. It is not abandoned: the full plan and all
 four signed-off decisions (flat ~50-webview cap, lazy create-on-mount, web/browser-only, remount
 self-heal) are captured in `docs/plan-webview-eviction.md`, so it is a clean pickup when the accumulation
-returns. **Next active pickup is GM's call.** (2.1 permission overlay was found already RESOLVED — commit
-`00053d7`; the backlog list is stale in places and worth a freshness sweep before picking. Remaining
-candidates: 1.3 ports-scoped-to-space; 3.4 terminal-stream / 3.5 llms.txt as cheap standalone wins.)
+returns. **Now building: 3.6 (drag-reorder spaces in the galaxy).**
+
+## Freshness sweep (2026-07-21) — corrected statuses
+
+The 07-20 list was substantially stale. A six-cluster audit verified every open item against code + git:
+
+- **RESOLVED (were listed open):** 2.1 permission overlay (`00053d7`), 1.3 ports-scoped-to-space,
+  3.2 ports.list JSON parity (`7167377`), 3.5 llms.txt publish (`24b5c79`), 3.7 port.position /
+  screen.displays, and the whole **Principal / tool-use unification** (shipped v0.5.47) — which unblocks
+  the Tier-4 cluster.
+- **PARTIAL:** 1.4 (unread count already cached; the *waiting-for-input* signal remains), 3.1 (space
+  names normalize to dashes; *companion* names still accept internal whitespace), Tier-4 AI-edit-a-port
+  (companions.invoke base landed, chrome affordance open), sync CLI invoke (LLM sync done, command-
+  companion over turnComplete remains), port parking / never-close (version store done, UI missing).
+- **DROPPED:** 2.6 mention routing — GM: not a bug. 1.5 dock/gallery of ports — GM: not needed, removed.
+- **Genuinely OPEN:** 2.2 blanking (the deferred 1.2 lazy-load would fix it), 2.3 freeze watchdog,
+  2.4 screen.stream pointer, 2.5 fossil member row + name collisions, 2.7 stream-continuation dangle,
+  3.3 port_versions retention, 3.4 terminal streaming (onFlush), 3.6 drag-reorder spaces (IN PROGRESS),
+  Tier-4 port URL / teleport.
+
+**Recover a port from history (refined, GM 2026-07-21):** per-space, keyword-**searchable LIST** (not a
+gallery) of that space's port history. Substrate exists (`port_versions` keeps everything;
+`port.history` / `port.restore` work); missing = the searchable-list UI + making close archive-not-
+destroy. Space-specific, so **not the galaxy** — placement candidates: the View Menu, or a dropdown on
+the space pill at the top of the space. Supersedes the old 1.5 framing.
 
 Source: `docs/summer2026-todo.md`, every OPEN item. Ranked against the north star: **improve the
 experience and remove friction.** Not raw feature value.
@@ -76,7 +98,7 @@ always-on port depend on.
 | 1.2 | **Webview registry never evicts** — DEFERRED (GM 2026-07-21) | M | CPU scales with ports-ever-created (measured: 88 live WebContent procs at 101 ports, ~90% CPU idle). Keep the working set mounted, evict the rest, re-mount on return. **Deferred until it is a problem** (fine at current counts). Plan + signed-off decisions ready in `docs/plan-webview-eviction.md`; trigger to revisit = live-webview count or idle CPU actually bites. Pairs with 1.1: evict what isn't needed, idle what's kept. |
 | 1.3 | **Ports scoped to space** | M | Keystone for the space-as-place story. Persist `spaceId` as the scoping key for what's shown; switch the visible set on space change; decide cross-space behavior. The dock view and richer rows both need this data model. |
 | 1.4 | **Richer space rows / ambient activity** | M | "Where am I needed?" across spaces; `waiting-for-input` is the highest-value signal. Best impact-per-effort of the space-experience items per the 06-27 ranking. Must derive from cached/observed state, not per-render DB queries (the SidebarView render-storm pattern). |
-| 1.5 | **A different dock / gallery view of ports** | M | *See* the space's world. Depends on 1.3. Grid of ports with previews, grouped by space/type/recency. |
+| ~~1.5~~ | ~~A different dock / gallery view of ports~~ — REMOVED (GM: not needed) | — | Superseded by "recover a port from history" (a per-space searchable list), see the freshness-sweep note above. |
 
 ---
 
@@ -91,7 +113,7 @@ Higher uncertainty; each needs an RCA or a repro before it's a clean build. Rank
 | 2.3 | **App froze mid-demo, every port grey** | ? | Undiagnosed, ship-blocking, no diagnostic captured. Do NOT build a fix; first ship a DEBUG watchdog that samples on a >2s main-thread stall so the next freeze names its blocker. Likely the permission hang (2.1) or accumulation (1.2) — so 2.1 + 1.2 may retire it. |
 | 2.4 | **screen.stream glitches the pointer** | M | Undiagnosed after a full bisect; feature can't be called stable. Next diagnostic named in the doc: a handler that drops every frame (no processing) to isolate buffer-holding on the sample queue. |
 | 2.5 | **Stale label-identity member row + qualified-name collisions** | S–M | A fossil `remote-http-cal` member row renders in every member list; `@echo` is ambiguous across an LLM and a CLI companion. One-time cleanup + a naming decision. Adjacent to the whitespace-in-names item. |
-| 2.6 | **Auto-register companion: tighten mention routing (`mentionOnly` = only when named)** | S | Follow-up to the shipped auto-register: an auto-registered companion replied when a *different* companion was @-mentioned. `routeMentionsToTerminals` matching is over-broad. |
+| ~~2.6~~ | ~~Auto-register companion: tighten mention routing~~ — NOT A BUG (GM 2026-07-21) | — | GM: the routing behavior is not a bug. Dropped. |
 | 2.7 | **Stream continuation dangles on silent engine death** | S | Hardening residual from the cancel-hang RCA. Collector-level deinit guard / max-duration timeout so no engine misbehavior leaks a pending JS promise. |
 
 ---
@@ -132,8 +154,10 @@ another inconsistent calling path.
   `turnComplete` signal already wired.
 - **Chrome is ports too** (L, wedge = background-as-port v2 at M) — background-always-a-port removes
   the native/port fork. Load-bearing prereqs are 1.1 + 1.2 (an always-on port must not burn CPU).
-- **Port parking: exact placement + never truly close** (M) — closing = archive + a reopen gallery;
-  the version store already keeps everything, only the UI is missing.
+- **Port parking: exact placement + never truly close** (M) — closing = archive, not destroy. The
+  reopen surface is the **per-space searchable port-history LIST** (refined 2026-07-21, see the
+  freshness-sweep note); the version store already keeps everything, only the list UI + close=archive
+  are missing. Placement: View Menu or a space-pill dropdown, not the galaxy.
 - **A port has a URL** / **port teleport** / **publish a port as a website** (M–L each) — all ride
   the principal work + the browser-as-third-caller shim. Route 1 (gateway reverse-proxy) is the
   low-lift proof.
