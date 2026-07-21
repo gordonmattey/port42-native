@@ -13,8 +13,9 @@ discipline, and a live pass in Port42Dev (rAF freezes when hidden, one event per
 it waits until live-webview count / idle CPU actually bites. It is not abandoned: the full plan and all
 four signed-off decisions (flat ~50-webview cap, lazy create-on-mount, web/browser-only, remount
 self-heal) are captured in `docs/plan-webview-eviction.md`, so it is a clean pickup when the accumulation
-returns. **Next active pickup is GM's call** (candidates: 2.1 permission overlay — a ship-blocker; 1.3
-ports-scoped-to-space; 3.4 terminal-stream / 3.5 llms.txt as cheap standalone wins).
+returns. **Next active pickup is GM's call.** (2.1 permission overlay was found already RESOLVED — commit
+`00053d7`; the backlog list is stale in places and worth a freshness sweep before picking. Remaining
+candidates: 1.3 ports-scoped-to-space; 3.4 terminal-stream / 3.5 llms.txt as cheap standalone wins.)
 
 Source: `docs/summer2026-todo.md`, every OPEN item. Ranked against the north star: **improve the
 experience and remove friction.** Not raw feature value.
@@ -85,7 +86,7 @@ Higher uncertainty; each needs an RCA or a repro before it's a clean build. Rank
 
 | # | Item | Size | Note |
 |---|------|------|------|
-| 2.1 | **Permission prompt lost when a port pops in + one guided permission flow** | M | Ship-blocker family. The card renders inside the chat tile so a focused-on-a-port user never sees it and the call silently hangs. Fix = a shell-level overlay (scrim + zIndex like ⌘K/Settings). Fold in the "one guided flow, not a dialog avalanche" first-run narration. A lost/denied prompt must always be re-requestable, never cached as a permanent deny. |
+| 2.1 | ~~**Permission prompt lost when a port pops in + one guided permission flow**~~ — RESOLVED | M | **Already fixed (commit `00053d7`), verified by GM in daily use.** `PermissionCoordinator` + a single shell-level `ShellPermissionOverlay` (ShellView zIndex ~220, above every tile/overlay) replaced the per-caller render sites, so the card can no longer render inside a chat tile. Re-requestable: a deny resolves one call as false with no permanent grant=false cache, so the next call re-asks. Guided flow: `systemFollowUp` narrates the macOS dialog chain (mic → speech, etc.). The RCA of the original bug lives in `PermissionCoordinator.swift`. Item was stale on this list. |
 | 2.2 | **Ports restore blank (the blanking bug)** | M | Root cause diagnosed: eager `loadHTMLString` on a detached webview during a stalled startup. Fix = load-on-attach + verify/self-heal via the nav delegate + a recovery command. Same disease as background-vanish (assume-success-never-verify). |
 | 2.3 | **App froze mid-demo, every port grey** | ? | Undiagnosed, ship-blocking, no diagnostic captured. Do NOT build a fix; first ship a DEBUG watchdog that samples on a >2s main-thread stall so the next freeze names its blocker. Likely the permission hang (2.1) or accumulation (1.2) — so 2.1 + 1.2 may retire it. |
 | 2.4 | **screen.stream glitches the pointer** | M | Undiagnosed after a full bisect; feature can't be called stable. Next diagnostic named in the doc: a handler that drops every frame (no processing) to isolate buffer-holding on the sample queue. |
