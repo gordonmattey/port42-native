@@ -13,7 +13,15 @@ discipline, and a live pass in Port42Dev (rAF freezes when hidden, one event per
 it waits until live-webview count / idle CPU actually bites. It is not abandoned: the full plan and all
 four signed-off decisions (flat ~50-webview cap, lazy create-on-mount, web/browser-only, remount
 self-heal) are captured in `docs/plan-webview-eviction.md`, so it is a clean pickup when the accumulation
-returns. **Now building: 3.6 (drag-reorder spaces in the galaxy).**
+returns. **3.6 (drag-reorder spaces in the galaxy) DONE (verified live):** persistent `sortIndex` drives the
+galaxy front + ⌘1-9; drag a world onto a gap (consistent leading insertion bar, New Space owns the
+trailing gap) and it lands + persists (commits `7f612fa`, `3e29ad0`, `06efac0`). Two RCAs on the way:
+`observeSpaces` ordered by `createdAt` was reverting the reorder in the UI (fixed → order by
+`sortIndex`); and live-mutating the grid mid-drag oscillated and killed `performDrop` (fixed → record
+the gap only, commit on drop). **Next pickup is GM's call.** Fully-planned and ready: `screen.record`
+(native demo capture) — spec `port42-growth/specs/screen-record-api.md`, eng plan
+`docs/plan-screen-record.md`, start at Step 0 (three de-risking spikes). Other open items in the
+freshness-sweep list below.
 
 ## Freshness sweep (2026-07-21) — corrected statuses
 
