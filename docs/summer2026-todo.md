@@ -1570,6 +1570,38 @@ near-term proof; the rest rides the principal work.
 
 ---
 
+## TODO: multi-display support — place spaces on multiple monitors (2026-07-20, GM)
+
+**Want:** put different spaces on different monitors — space A on monitor 1, space B on monitor 2,
+both live at once — so a multi-monitor setup is a multi-space workspace, not one space at a time.
+
+**Current state:** the shell is a **single window on one screen**. Geometry assumes `NSScreen.main`
+(e.g. `PortWindowManager` sizes tiles off `NSScreen.main?.visibleFrame`), and the takeover
+(`presentationOptions = [.hideDock,.hideMenuBar]` + borderless fullscreen) grabs that one screen.
+Port positions (`x/y`) are screen-relative with no notion of *which* screen. The enumeration half
+already exists: `screen.displays` / `NSScreen.screens` returns every display's bounds (and the
+port-positioning-gap note already flags missing position/display-resolution APIs).
+
+**Design questions to settle before building:**
+- **Mapping:** a space is *assigned* to a display (persisted `displayId`/index on `Space`?), or the
+  active space fills the focused display while others park on the rest? Lean: a space can be pinned
+  to a display, with a sensible default when a display is added/removed.
+- **Window model:** one shell window per screen (each a fullscreen takeover on its display), each
+  rendering its own space + chrome, sharing the one `AppState`/registry. The port-units contract
+  (mount-once) has to span screens without re-mounting on move.
+- **Chrome placement:** where do the app bar / dock / space rail live with N screens — per-screen, or
+  one primary? Ties into chrome-is-ports.
+- **Port geometry across screens:** `x/y` needs a display anchor so a port restores onto the right
+  monitor; positions must survive a display being unplugged (clamp back on-screen — related to the
+  off-screen-port rescue case in the positioning-gap note).
+- **Hotplug:** displays added/removed at runtime (`NSApplication.didChangeScreenParametersNotification`)
+  must reflow, not strand a space on a gone monitor.
+
+**Relationship:** a natural extension of the GUI-shell plan below (the shell already owns the screen;
+this makes it own *every* screen) and the port-positioning gap (per-display coordinates). Sequence
+after the single-screen shell is solid; the enumeration API (`screen.displays`) is the one piece
+already in hand.
+
 ## TODO: GUI shell — replace the desktop, not the OS (→ `docs/plan-port42-shell.md`)
 
 Port42 boots into a **fullscreen surface with no macOS Dock and no menu bar**, and the desktop is
