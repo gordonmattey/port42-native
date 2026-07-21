@@ -1133,11 +1133,49 @@ public final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Space recency (⌘K MRU, backlog 0.6)
+
+    private static let lastReadDatesKey = "spaceLastReadDates"
+
+    /// Record that a space was just visited: updates the recency signal AND persists it, so the ⌘K
+    /// most-recently-used order (empty-query switcher) and unread-since-last-visit survive a restart.
+    /// The ONE write path — selectSpace, enterSpace, and peek-surface all funnel here.
+    func markSpaceRead(_ spaceId: String) {
+        lastReadDates[spaceId] = Date()
+        persistLastReadDates()
+    }
+
+    private func persistLastReadDates() {
+        UserDefaults.standard.set(lastReadDates.mapValues { $0.timeIntervalSince1970 }, forKey: Self.lastReadDatesKey)
+    }
+
+    private func loadLastReadDates() {
+        guard let stored = UserDefaults.standard.dictionary(forKey: Self.lastReadDatesKey) else { return }
+        var loaded: [String: Date] = [:]
+        for (id, value) in stored {
+            if let epoch = value as? Double { loaded[id] = Date(timeIntervalSince1970: epoch) }
+        }
+        lastReadDates = loaded
+    }
+
+    /// Spaces ordered most-recently-visited first (the ⌘K empty-query list, backlog 0.6). Unvisited
+    /// spaces keep their incoming (createdAt) order as a stable tiebreaker. Pure, so it is unit-tested.
+    public static func spacesByRecency(_ spaces: [Space], lastRead: [String: Date]) -> [Space] {
+        spaces.enumerated().sorted { lhs, rhs in
+            let ld = lastRead[lhs.element.id], rd = lastRead[rhs.element.id]
+            if let ld, let rd { return ld > rd }   // both visited: newer first
+            if ld != nil { return true }           // visited sorts before unvisited
+            if rd != nil { return false }
+            return lhs.offset < rhs.offset         // both unvisited: keep original order
+        }.map { $0.element }
+    }
+
     private func loadInitialState() {
         do {
             currentUser = try db.getLocalUser()
             isSetupComplete = currentUser != nil
             spaces = try db.getRegularSpaces()
+            loadLastReadDates()   // restore ⌘K recency + unread-since-last-visit across restart (0.6)
             companions = try db.getAllAgents()
             refreshActivityTimes()
             if let userId = currentUser?.id {
@@ -1882,10 +1920,10 @@ public final class AppState: ObservableObject {
         // Persist immediately (cheap)
         UserDefaults.standard.set(space.id, forKey: "lastSelectedSpaceId")
         UserDefaults.standard.removeObject(forKey: "lastActiveSwimCompanionId")
-        if let current = currentSpace { lastReadDates[current.id] = Date() }
+        if let current = currentSpace { markSpaceRead(current.id) }
 
         currentSpace = space
-        lastReadDates[space.id] = Date()
+        markSpaceRead(space.id)
         if portPanelsRestored && isSetupComplete {
             portWindows.switchToSpace(space.id, spaceName: space.name)
         }
@@ -3165,6 +3203,7 @@ public final class AppState: ObservableObject {
         drafts = [:]
         unreadCounts = [:]
         lastReadDates = [:]
+        UserDefaults.standard.removeObject(forKey: Self.lastReadDatesKey)   // recency is per-user (0.6)
         spaceAgentIds = [:]
         spaceSenderCounts = [:]
         isSetupComplete = false

@@ -184,7 +184,11 @@ public struct QuickSwitcher: View {
     // MARK: - Data
 
     private var spaceItems: [QuickSwitcherItem] {
-        appState.spaces.filter { $0.type != "dm" }.map { ch in
+        // Most-recently-visited first (backlog 0.6): the empty-query list opens on where you were,
+        // not the oldest space. Unvisited spaces keep their createdAt order behind the visited ones.
+        let ordered = AppState.spacesByRecency(
+            appState.spaces.filter { $0.type != "dm" }, lastRead: appState.lastReadDates)
+        return ordered.map { ch in
             QuickSwitcherItem(id: "ch-\(ch.id)", icon: "#", name: ch.name, kind: .space(ch))
         }
     }

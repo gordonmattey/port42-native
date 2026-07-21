@@ -1234,7 +1234,7 @@ Design notes:
 
 ---
 
-## TODO: recency-sorted ⌘K — switch between recent spaces (2026-07-17)
+## TODO: recency-sorted ⌘K — switch between recent spaces (2026-07-17) (DONE 2026-07-21)
 
 **GM:** a way to more easily switch between *recent* spaces. Today switching has two axes and both
 ignore recency:
@@ -1263,6 +1263,20 @@ overlay and keys unchanged.
   picked) or drop it from the list (you're already there). Lean first-with-a-"now"-marker.
 - **Interaction with drag-reorder (below).** Recency and manual order are two different axes: `⌘K`
   empty-query = recency; the galaxy grid + `⌘1…9` = manual `sortIndex`. Keep them distinct on purpose.
+
+**RESOLVED 2026-07-21 (backlog 0.6), decisions as leaned:**
+- **Sort.** `QuickSwitcher.spaceItems` now orders by `AppState.spacesByRecency` (pure, unit-tested):
+  most-recently-visited first, unvisited spaces keep their `createdAt` order as a stable tiebreaker.
+  The empty-query and `#` branches read right; typing still fuzzy-searches (now over the MRU order).
+- **Persistence.** `lastReadDates` persisted to UserDefaults (chosen over a `Space` column + migration,
+  since recency is device-local): `markSpaceRead(_:)` is the one write path (selectSpace, enterSpace,
+  peek-surface funnel through it), it saves on every visit, `loadInitialState` restores on launch, and
+  sign-out clears it. So the first `⌘K` after a relaunch already reads right. Bonus: unread now reads as
+  "since last visit" across restart instead of marking everything unread on a cold start.
+- **Current-space placement.** It sorts to the top naturally (it is the most recent visit); no separate
+  "now" marker glyph added (kept minimal).
+- **Left distinct on purpose:** `⌘1…9` and the galaxy grid still use the manual/creation axis, untouched
+  (the drag-reorder `sortIndex` item below owns that axis).
 
 ---
 

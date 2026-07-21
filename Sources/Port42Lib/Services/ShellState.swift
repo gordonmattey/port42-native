@@ -234,7 +234,7 @@ public final class ShellState: ObservableObject {
             peekingPorts.removeAll { $0.id == peek.id }
             peekRemaining[peek.id] = nil
             surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
-            appState.lastReadDates[peek.spaceId] = Date()
+            appState.markSpaceRead(peek.spaceId)
             if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == peek.spaceId }) {
                 withAnimation(.spring(response: 0.4)) { zoom = .focus(panel.id) }
             }
