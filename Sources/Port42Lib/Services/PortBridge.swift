@@ -392,6 +392,16 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         webView?.evaluateJavaScript("port42._heartbeat()") { _, _ in }
     }
 
+    /// Push this port's CURRENT presentation once its webview finishes loading (backlog 1.1, Step 3):
+    /// covers a port that only uses `on('presentation')` and would otherwise miss the state at birth.
+    /// The getter `port42.presentation()` is the robust initial-read path; this is the belt-and-braces
+    /// for on-only ports. No-ops for a port with no id or before the shell exists.
+    @MainActor
+    public func emitCurrentPresentation() {
+        guard let mid = messageId, let snap = state?.shell?.presentation(forPortId: mid) else { return }
+        pushEvent("presentation", data: snap.jsonObject)
+    }
+
     // MARK: - Injected JavaScript
 
     /// The port42.* namespace injected into every port webview

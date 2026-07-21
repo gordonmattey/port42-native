@@ -112,6 +112,7 @@ public final class ShellState: ObservableObject {
     private let appState: AppState
     private var notifSink: AnyCancellable?
     private var portSink: AnyCancellable?
+    private var presentationSink: AnyCancellable?
 
     #if DEBUG
     /// The live shell instance, for DEBUG harnesses only (the render-probe cycle drives
@@ -138,6 +139,20 @@ public final class ShellState: ObservableObject {
         portSink = appState.portWindows.portCreated
             .receive(on: RunLoop.main)
             .sink { [weak self] p in self?.handlePortCreated(id: p.id, spaceId: p.spaceId, title: p.title) }
+
+        // Presentation (backlog 1.1, Step 3): every input that can change a port's presentation feeds ONE
+        // debounced funnel. Merged + debounced so a burst (arrange, cycle, the space-switch cascade)
+        // coalesces into one settled emit per port. This is the sole trigger — no per-call-site sync.
+        let inputs: [AnyPublisher<Void, Never>] = [
+            $zoom.map { _ in () }.eraseToAnyPublisher(),                       // focus / galaxy / space
+            $peekingPorts.map { _ in () }.eraseToAnyPublisher(),              // peek in / out
+            $openDMSpaceIds.map { _ in () }.eraseToAnyPublisher(),           // a surfaced foreign desktop
+            appState.portWindows.$panels.map { _ in () }.eraseToAnyPublisher(), // park/bg/adopt/move/new/close/size
+            appState.$currentSpace.map { _ in () }.eraseToAnyPublisher()      // desktop switch
+        ]
+        presentationSink = Publishers.MergeMany(inputs)
+            .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
+            .sink { [weak self] in self?.syncPresentation() }
     }
 
     // MARK: - Notifications (§8b) — a notification IS the live port, PEEKING as a small tile here.
@@ -412,6 +427,37 @@ public final class ShellState: ObservableObject {
         else { return nil }
         let item = contextItems.first { $0.id == panel.id }
         return Self.presentation(for: panel, zoom: zoom, item: item, area: lastDesktopArea)
+    }
+
+    /// The last presentation pushed to each port, keyed by `panel.id` — the diff baseline for
+    /// `syncPresentation` (Step 3). Reason-nil (the mapping never sets reason) so the diff compares only
+    /// state/visible/w/h. `private(set)` so tests can read it; nothing outside writes it.
+    private(set) var lastPresentation: [String: PortPresentation] = [:]
+
+    /// Build the current presentation for every port that owns a live web bridge (Step 3). Terminal
+    /// (Ghostty) and SwiftUI chat ports carry no rAF and no JS listener, so they are excluded — as they
+    /// are from the desktop's web-unit predicate. Reads live shell/app state; mutates nothing observed.
+    func presentationSnapshot() -> [String: PortPresentation] {
+        let itemById = Dictionary(contextItems.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [String: PortPresentation] = [:]
+        for panel in appState.portWindows.panels where panel.portType == "web" && !panel.isChatPort {
+            out[panel.id] = Self.presentation(for: panel, zoom: zoom,
+                                              item: itemById[panel.id], area: lastDesktopArea)
+        }
+        return out
+    }
+
+    /// THE one emit funnel (Step 3): snapshot → pure diff → push the changed ports → store the snapshot.
+    /// Read-only over observed state and it stores only the non-`@Published` `lastPresentation`, so it can
+    /// never feed back into its own trigger (invariant #3). Driven solely by the debounced pipeline in
+    /// `init`; never call it per-transition (that is the fragility the teardown work removed).
+    func syncPresentation() {
+        let next = presentationSnapshot()
+        for delta in Self.presentationDeltas(prev: lastPresentation, next: next) {
+            appState.portWindows.panels.first(where: { $0.id == delta.id })?
+                .bridge.pushEvent("presentation", data: delta.presentation.jsonObject)
+        }
+        lastPresentation = next
     }
 
     /// Is this id a unit on the current desktop (tile OR peek)? Focus on a desktop unit is a

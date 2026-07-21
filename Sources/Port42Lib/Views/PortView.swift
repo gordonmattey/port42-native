@@ -247,6 +247,14 @@ public struct PortView: NSViewRepresentable {
             self.lastHTML = parent.html
         }
 
+        // Emit the port's current presentation once it finishes loading, so an on('presentation')
+        // listener registered during load gets the initial state (backlog 1.1, Step 3). Nav delegate
+        // callbacks land on the main thread; hop to the main actor for the @MainActor push.
+        public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            let bridge = parent.bridge
+            Task { @MainActor in bridge?.emitCurrentPresentation() }
+        }
+
         // Block all navigation (sandbox)
         public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if navigationAction.navigationType == .other {

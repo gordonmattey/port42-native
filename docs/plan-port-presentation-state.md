@@ -401,15 +401,20 @@ returnable value** tested directly, following the repo's own precedent (`PortPus
   added, comment corrected) and the `llms.txt` freshness gate (regenerated; `presentation()` now
   documented in the public reference).
 
-### Step 3: the emit seam (pure diff + push)
-- `lastPresentation` snapshot; a **pure** `presentationDeltas(prev:next:) -> [(id, PortPresentation)]`;
-  `syncPresentation()` = build snapshot → `presentationDeltas` → loop `pushEvent` over the deltas; and
-  the merged debounced Combine pipeline over `$zoom`, `$peekingPorts`, `$openDMSpaceIds`,
-  `portWindows.$panels`, `appState.$currentSpace`. Emit on nav `didFinish` for a fresh port.
-- **Test (`PortPresentationTests`):** assert `presentationDeltas` directly (the pure value, not a
-  push) — a park transition yields exactly one delta `{state:"parked",visible:false}` for the parked
-  port and none for neighbors; an unchanged snapshot yields `[]` (idempotent). Pins invariants #1, #3.
-  The debounced trigger and the `pushEvent` delivery are verified live in Step 5, not here.
+### Step 3: the emit seam (pure diff + push) — DONE (`Port Presentation — funnel (Step 3)` green; 34 presentation tests, 75 shell/port regression tests green)
+- Pure (`PortPresentation.swift`): `presentationDeltas(prev:next:)` (diff, sorted-by-id, drops closed
+  ports) and `transitionReason(from:to:)` (coarse cause: appear / the new state / shown-hidden / resize).
+- `ShellState` (`lastPresentation` `private(set)`, reason-nil baseline): `presentationSnapshot()` builds
+  the map for web ports only (terminal + chat excluded); `syncPresentation()` = snapshot → deltas →
+  `pushEvent` → store. Reads observed state, writes only the non-`@Published` snapshot, so no feedback.
+- The trigger: a merged, 50ms-debounced Combine pipeline in `init` over `$zoom`, `$peekingPorts`,
+  `$openDMSpaceIds`, `portWindows.$panels`, `appState.$currentSpace` — the sole trigger, no per-site sync.
+- Initial-read belt-and-braces: `PortBridge.emitCurrentPresentation()` fired from the webview's nav
+  `didFinish` (new `PortView` delegate method), for on-only ports; the getter remains the robust path.
+- **Tests:** `presentationDeltas` (park = one delta, unchanged = [], appear/shown/hidden/resize reasons,
+  closed = none, deterministic order) pins invariants #1, #3; snapshot web-only scope; `syncPresentation`
+  idempotency; a live park = one delta. The debounced trigger and real `pushEvent` are live-verified in
+  Step 5.
 
 ### Step 4: shell-side defense
 - Skip not-visible ports in `pushHeartbeatToBridges` (via a pure `shouldHeartbeat(_:)` predicate).

@@ -123,4 +123,33 @@ extension ShellState {
                      isPeeking: item?.peek != nil,
                      area: area)
     }
+
+    /// The pure diff (Step 3): the ports whose presentation changed, each carrying a coarse transition
+    /// `reason`. `prev`/`next` are reason-nil snapshots (the mapping never sets reason), so `!=` compares
+    /// only state/visible/w/h. A port absent from `next` (closed) is simply dropped — no push needed.
+    /// Sorted by id so the result is deterministic for tests. This is the tested unit of the funnel:
+    /// the debounced trigger and the real `pushEvent` delivery are verified live (Step 5).
+    nonisolated public static func presentationDeltas(
+        prev: [String: PortPresentation],
+        next: [String: PortPresentation]) -> [(id: String, presentation: PortPresentation)] {
+        var out: [(id: String, presentation: PortPresentation)] = []
+        for id in next.keys.sorted() {
+            let n = next[id]!
+            let p = prev[id]
+            if p != n {
+                out.append((id: id, presentation: n.with(reason: transitionReason(from: p, to: n))))
+            }
+        }
+        return out
+    }
+
+    /// A coarse cause for a transition, derived purely from the delta (the merged pipeline erases the
+    /// specific trigger, so this describes the change, not what caused it). Only called when `prev != next`.
+    nonisolated public static func transitionReason(from prev: PortPresentation?,
+                                                    to next: PortPresentation) -> String? {
+        guard let prev else { return "appear" }
+        if prev.state != next.state { return next.state.rawValue }        // e.g. "focused", "parked"
+        if prev.visible != next.visible { return next.visible ? "shown" : "hidden" }
+        return "resize"                                                    // state+visible equal ⇒ size changed
+    }
 }

@@ -284,3 +284,127 @@ struct PortPresentationGetterTests {
         #expect(v == .fromJSONObject(fallback.jsonObject))
     }
 }
+
+/// Step 3: the emit funnel. The pure `presentationDeltas` (diff + coarse reason) is the tested unit;
+/// the debounced Combine trigger and the real `pushEvent` delivery are verified live (Step 5). Also
+/// the snapshot builder's web-only scope and the funnel's idempotency.
+@Suite("Port Presentation — funnel (Step 3)")
+struct PortPresentationFunnelTests {
+
+    private let tile = PortPresentation(state: .tiled, visible: true, size: CGSize(width: 460, height: 400))
+
+    // MARK: - presentationDeltas (pure diff + reason)
+
+    @Test("park: exactly one delta for the parked port, neighbors untouched")
+    func parkOneDelta() {
+        let prev = ["p1": tile, "p2": tile]
+        let next = ["p1": PortPresentation(state: .parked, visible: false), "p2": tile]
+        let d = ShellState.presentationDeltas(prev: prev, next: next)
+        #expect(d.count == 1)
+        #expect(d[0].id == "p1")
+        #expect(d[0].presentation.state == .parked)
+        #expect(d[0].presentation.visible == false)
+        #expect(d[0].presentation.reason == "parked")
+    }
+
+    @Test("an unchanged snapshot yields no deltas (idempotent diff)")
+    func unchangedNoDeltas() {
+        let snap = ["p1": tile, "p2": tile]
+        #expect(ShellState.presentationDeltas(prev: snap, next: snap).isEmpty)
+    }
+
+    @Test("a newly appeared port carries reason 'appear'")
+    func appearReason() {
+        let d = ShellState.presentationDeltas(prev: [:], next: ["p1": tile])
+        #expect(d.count == 1 && d[0].presentation.reason == "appear")
+    }
+
+    @Test("a same-state visibility flip carries reason 'hidden' / 'shown'")
+    func visibilityReason() {
+        let hidden = PortPresentation(state: .tiled, visible: false)
+        #expect(ShellState.presentationDeltas(prev: ["p1": tile], next: ["p1": hidden])[0]
+                    .presentation.reason == "hidden")
+        #expect(ShellState.presentationDeltas(prev: ["p1": hidden], next: ["p1": tile])[0]
+                    .presentation.reason == "shown")
+    }
+
+    @Test("a size-only change carries reason 'resize'")
+    func resizeReason() {
+        let small = PortPresentation(state: .tiled, visible: true, size: CGSize(width: 200, height: 200))
+        let d = ShellState.presentationDeltas(prev: ["p1": tile], next: ["p1": small])
+        #expect(d.count == 1 && d[0].presentation.reason == "resize")
+    }
+
+    @Test("a closed port (absent from next) produces no delta")
+    func closedNoDelta() {
+        #expect(ShellState.presentationDeltas(prev: ["p1": tile], next: [:]).isEmpty)
+    }
+
+    @Test("deltas are sorted by id (deterministic)")
+    func deterministicOrder() {
+        let parked = PortPresentation(state: .parked, visible: false)
+        let d = ShellState.presentationDeltas(prev: [:], next: ["z": parked, "a": parked, "m": parked])
+        #expect(d.map(\.id) == ["a", "m", "z"])
+    }
+
+    // MARK: - the snapshot builder + funnel (live shell)
+
+    @MainActor
+    private func world() throws -> (ShellState, AppState, String) {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let shell = ShellState(appState: state)
+        let space = Space.create(name: "s")
+        state.spaces = [space]; state.currentSpace = space
+        let bridge = PortBridge(appState: state, spaceId: space.id, messageId: "p1")
+        let panel = PortPanel(id: "p1", udid: "p1", html: "<div/>", bridge: bridge,
+                              spaceId: space.id, createdBy: nil, messageId: "p1",
+                              size: CGSize(width: 460, height: 400))
+        state.portWindows.panels.append(panel)
+        return (shell, state, space.id)
+    }
+
+    @Test("presentationSnapshot includes web ports and excludes terminal + chat ports")
+    @MainActor
+    func snapshotWebOnly() throws {
+        let (shell, state, sid) = try world()
+        let tb = PortBridge(appState: state, spaceId: sid, messageId: "term")
+        var term = PortPanel(id: "term", udid: "term", html: "{}", bridge: tb, spaceId: sid,
+                             createdBy: nil, messageId: "term", size: CGSize(width: 400, height: 300))
+        term.portType = "terminal"
+        state.portWindows.panels.append(term)
+        let cb = PortBridge(appState: state, spaceId: sid, messageId: nil)
+        var chat = PortPanel(id: "chat", udid: "chat", html: "", bridge: cb, spaceId: sid,
+                             createdBy: nil, messageId: nil, size: CGSize(width: 480, height: 680))
+        chat.isChatPort = true; chat.portType = "chat"
+        state.portWindows.panels.append(chat)
+
+        let snap = shell.presentationSnapshot()
+        #expect(snap["p1"] != nil)
+        #expect(snap["term"] == nil)
+        #expect(snap["chat"] == nil)
+    }
+
+    @Test("syncPresentation records the snapshot; a second pass produces no deltas (idempotent)")
+    @MainActor
+    func syncIdempotent() throws {
+        let (shell, _, _) = try world()
+        shell.syncPresentation()
+        #expect(shell.lastPresentation["p1"] != nil)
+        let again = shell.presentationSnapshot()
+        #expect(ShellState.presentationDeltas(prev: shell.lastPresentation, next: again).isEmpty)
+    }
+
+    @Test("a park after a baseline sync is a single delta from the live snapshot")
+    @MainActor
+    func parkFromLiveSnapshot() throws {
+        let (shell, state, _) = try world()
+        shell.syncPresentation()                                   // baseline: p1 tiled/visible
+        let i = try #require(state.portWindows.panels.firstIndex { $0.id == "p1" })
+        state.portWindows.panels[i].presentation = "parked"
+        let d = ShellState.presentationDeltas(prev: shell.lastPresentation, next: shell.presentationSnapshot())
+        #expect(d.count == 1)
+        #expect(d[0].id == "p1")
+        #expect(d[0].presentation.state == .parked && d[0].presentation.visible == false)
+    }
+}
