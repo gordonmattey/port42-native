@@ -854,6 +854,22 @@ public final class AppState: ObservableObject {
     public let audioDevice = AudioBridge()
     public let cameraDevice = CameraBridge()
     public let screenDevice = ScreenBridge()
+    /// The shared browser sessions (backlog 0.5): moved onto AppState so buildBridgeRegistry uses
+    /// this instance and it joins deviceBridges like the other three, so a closing port's sessions
+    /// are torn down with the rest of what it acquired.
+    public let browserDevice = BrowserBridge()
+
+    /// Every port-owned device bridge, iterated by releaseAcquisitions on port teardown (backlog
+    /// 0.5). A settable lazy var so a teardown test can swap in spies; production always holds the
+    /// real four. New capability = add its bridge here and to the Step 6 inventory check.
+    public lazy var deviceBridges: [PortOwnedResource] = [audioDevice, cameraDevice, screenDevice, browserDevice]
+
+    /// Release every ongoing resource the given port acquired, across every device bridge. The one
+    /// funnel both the close path and the deinit backstop call (backlog 0.5). Keyed on the port's
+    /// stable id, so releaseIfOwned leaves another port's sessions untouched.
+    public func releaseAcquisitions(portId: String) {
+        for bridge in deviceBridges { bridge.releaseIfOwned(byPortId: portId) }
+    }
 
     /// Picked-file grants keyed by principal id (tail item 7). fs.pick (or a save panel) grants the
     /// CALLING principal absolute-path access; fs.read/fs.write honor exactly that principal's

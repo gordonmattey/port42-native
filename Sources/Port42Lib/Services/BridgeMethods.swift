@@ -363,12 +363,13 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         .fromJSONObject(audio.stop())
     }
 
-    // Tail item 5 — browser.*. ONE shared BrowserBridge instance: sessions are shared across all
-    // surfaces (the old design was one instance per PortBridge plus one per ToolExecutor, so a
-    // session opened from a port was invisible to a companion). A session opened by a port still
-    // routes its load/redirect/error events to that port via `owner`. Errors throw (clean break
-    // from the {error} dicts the old switches returned).
-    let browser = BrowserBridge()
+    // Tail item 5 — browser.*. ONE shared BrowserBridge instance (appState.browserDevice, backlog
+    // 0.5): sessions are shared across all surfaces (the old design was one instance per PortBridge
+    // plus one per ToolExecutor, so a session opened from a port was invisible to a companion). A
+    // session opened by a port routes its load/redirect/error events to that port via `owner` and is
+    // torn down when that port closes (deviceBridges). Errors throw (clean break from the {error}
+    // dicts the old switches returned).
+    let browser = appState.browserDevice
     func browserResult(_ r: [String: Any]) throws -> BridgeValue {
         if let err = r["error"] as? String { throw BridgeError(code: "browser_error", message: err) }
         return .fromJSONObject(r)
