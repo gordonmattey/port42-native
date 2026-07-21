@@ -39,6 +39,28 @@ public final class ToolExecutor {
         }
     }
 
+    /// A single tool result over this many UTF-8 bytes is truncated before it reaches the model — a
+    /// safety valve so one pathological result (a huge file cat, a giant API dump) can't blow the
+    /// request's context. The FULL result still reaches ports and the gateway (uncapped); only this
+    /// path, the in-app LLM tool-result, is bounded — it is the only caller that pays tokens per byte —
+    /// and it is told in-band that truncation happened so it can narrow and retry. ~200KB ≈ ~50K tokens.
+    static let maxToolResultBytes = 200_000
+
+    /// Cap oversized text blocks for the model, in-band. Non-text blocks (images) and small blocks
+    /// pass through untouched. Pure, so it is unit-testable without an AppState.
+    nonisolated static func capForModel(_ blocks: [[String: Any]],
+                                        max: Int = ToolExecutor.maxToolResultBytes) -> [[String: Any]] {
+        blocks.map { block in
+            guard (block["type"] as? String) == "text", let text = block["text"] as? String else { return block }
+            let bytes = text.utf8.count
+            guard bytes > max else { return block }
+            let kept = String(decoding: Array(text.utf8.prefix(max)), as: UTF8.self)
+            var out = block
+            out["text"] = kept + "\n… (truncated: showing \(max) of \(bytes) bytes — narrow the command/query or fetch in ranges)"
+            return out
+        }
+    }
+
     /// Execute a tool and return the result as content blocks for the Anthropic API.
     /// Returns an array of content blocks (text or image).
     func execute(name: String, input: [String: Any]) async -> [[String: Any]] {
@@ -56,7 +78,7 @@ public final class ToolExecutor {
             do {
                 let value = try await appState.runBridgeMethod(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: grantedPermissions)
-                return value.toToolBlocks()
+                return Self.capForModel(value.toToolBlocks())
             } catch let e as BridgeError {
                 return e.toToolBlocks()
             } catch {
@@ -74,7 +96,7 @@ public final class ToolExecutor {
                 let value = try await appState.runBridgeStream(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: grantedPermissions,
                                                                yield: { _ in })
-                return value.toToolBlocks()
+                return Self.capForModel(value.toToolBlocks())
             } catch let e as BridgeError {
                 return e.toToolBlocks()
             } catch {

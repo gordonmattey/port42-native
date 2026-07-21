@@ -858,7 +858,7 @@
     "name" : "position_set"
   },
   {
-    "description" : "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed. A non-JSON response body over 50KB is truncated (marked '...(truncated)').",
+    "description" : "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
     "input_schema" : {
       "properties" : {
         "body" : {
@@ -1059,7 +1059,7 @@
     "name" : "storage_set"
   },
   {
-    "description" : "Execute a shell command and return the output. Runs in \/bin\/zsh. Output over 50KB is truncated (the tail is dropped and marked '... (truncated)'); for larger output, gzip in the command and inflate in the port.",
+    "description" : "Execute a shell command and return the output. Runs in \/bin\/zsh.",
     "input_schema" : {
       "properties" : {
         "command" : {

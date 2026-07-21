@@ -228,7 +228,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     // terminal.exec — the one gated terminal method (headless run-and-capture). Shared ShellExec, in
     // both old paths. Returns { output }.
     r["terminal.exec"] = BridgeMethod(permission: .terminal, paramNames: ["command", "options"],
-        description: "Execute a shell command and return the output. Runs in /bin/zsh. Output over 50KB is truncated (the tail is dropped and marked '... (truncated)'); for larger output, gzip in the command and inflate in the port.",
+        description: "Execute a shell command and return the output. Runs in /bin/zsh.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -510,7 +510,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     // response headers. JS calls (url, opts-bag); tool-use passes flat keys; reads fall through
     // bag-then-flat. Schema text matches the frozen golden byte-for-byte (parity-checked).
     r["rest.call"] = BridgeMethod(permission: .rest, paramNames: ["url", "options"],
-        description: "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed. A non-JSON response body over 50KB is truncated (marked '...(truncated)').",
+        description: "Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -582,7 +582,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         if contentType.contains("json"), let json = try? JSONSerialization.jsonObject(with: data) {
             result["body"] = json
         } else if let text = String(data: data, encoding: .utf8) {
-            result["body"] = text.count > 50000 ? String(text.prefix(50000)) + "\n...(truncated)" : text
+            result["body"] = text   // full body to every caller; the model path bounds it in ToolExecutor
         }
         return .fromJSONObject(result)
     }

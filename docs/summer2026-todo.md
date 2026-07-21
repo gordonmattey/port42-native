@@ -452,7 +452,28 @@ is correct; today it appears to peek regardless of whether the port is in the cu
 
 ---
 
-## TODO (NEXT, GM 2026-07-20): output caps live on the shared base — move them to the LLM tool-result path
+## ~~TODO (NEXT): output caps live on the shared base — move them to the LLM tool-result path~~ — DONE 2026-07-20
+
+**Done.** The cap moved off the base and onto the LLM tool-result adapter — one generic knob, not two
+ad-hoc per-method caps.
+- **Removed** the base caps: `ShellExec.maxOutputBytes` (terminal.exec) and the `rest.call` non-JSON
+  50KB truncation. Both now return the full body to every caller. Reverted the two description
+  truncation notes + the golden + regenerated `llms.txt`.
+- **Added** `ToolExecutor.maxToolResultBytes = 200_000` (~50K tokens) and `capForModel(_:max:)`, a pure,
+  method-agnostic cap applied only on the in-app LLM tool-result path (`toToolBlocks`). It truncates any
+  oversized text block **in-band** ("… (truncated: showing N of M bytes — narrow …)"), leaves small and
+  non-text (image) blocks alone, and covers every large result (fs.read, ports.list, getHtml), not just
+  the two that had ad-hoc caps. Gateway + port callers are uncapped.
+- **Fixed a pre-existing pipe-buffer deadlock in `ShellExec` that the removal exposed:** it drained the
+  pipes only after `waitUntilExit`, so any command over ~64KB (the OS pipe buffer) blocked the child on
+  write, hung until the timeout, and salvaged a truncated 64KB. Now both pipes drain concurrently with
+  the process. Without this the "ports get full output" goal was a lie.
+- Verified: `TerminalExecBridgeTests` green — a 300KB command returns whole in 0.055s (was a 30s
+  deadlock); `capForModel` caps at 200KB with the marker. Parity / rest / llms.txt gates green.
+
+Historical write-up below.
+
+## TODO (historical): output caps live on the shared base — move them to the LLM tool-result path
 
 **Found while documenting the truncation (0.4).** Two bridge methods truncate their output at 50KB
 in the **shared base**, so the cap hits **every** caller identically:
