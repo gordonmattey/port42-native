@@ -323,6 +323,7 @@ BRIDGE API REFERENCE:
     Subscribe to live events. Events:
     - 'message': fires when a new message arrives. Payload: {id, sender, content, timestamp, isCompanion}
     - 'companion.activity': fires when companion typing state changes. Payload: {activeNames: [...]}
+    - 'presentation': fires when this port's presentation changes. Payload: {state, visible, w, h} (see port42.presentation() below)
 
   port42.connection.status()
     Returns: 'connected' or 'disconnected'
@@ -340,6 +341,21 @@ BRIDGE API REFERENCE:
   port42.viewport.on('resize', callback)
     Fires when the port is resized. Callback receives { width, height }.
     Use this to reflow content when the port changes size.
+
+  port42.presentation()  /  port42.on('presentation', callback)
+    This port's presentation state: { state, visible, w, h }.
+    - state: "focused" | "tiled" | "peek" | "parked" | "background" | "inline" — your placement/mode.
+    - visible: true only when your pixels are actually on screen right now. False when off-desktop
+      (another space is showing), in the galaxy overview, parked, backgrounded, or behind another
+      port's focus. This is the one authoritative "render now" flag.
+    - w, h: your on-screen content size in points (0 when not visible).
+    Call presentation() for the current value at startup (no race). Use on('presentation', cb) for
+    updates; the same value also arrives as a window CustomEvent 'port42:presentation' (e.detail).
+    DISCIPLINE (do this if you animate): gate your requestAnimationFrame loop on visible — cancel it on
+    visible:false, resume on visible:true — so a hidden port burns no CPU. Scale fidelity to state and
+    size: full when focused; reduced (cap fps, cap devicePixelRatio, fewer particles) when tiled/peek
+    or small, sizing from w,h. On 'background', persist any state you need (port42.storage / port_update)
+    before your webview is dropped, so you re-mount clean rather than blank.
 
   port42.port.info()
     Returns: {messageId, createdBy, spaceId}

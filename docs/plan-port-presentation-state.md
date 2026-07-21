@@ -423,22 +423,29 @@ returnable value** tested directly, following the repo's own precedent (`PortPus
   wired (headless/tests), which is why the AI suites (no `ShellState`) are unaffected.
 - `PortPresentation.shouldHeartbeat(_:)` pure predicate + `pushHeartbeatToBridges` skips not-visible
   ports (resolved via `shell?.presentation(forPortId:)`).
-- **Scope note (behavior):** the re-key gates NEW model calls only. In-flight streams are still
-  cancelled solely on the park/background transition (`suspendAI`), so glancing at the galaxy or
-  focusing a sibling does not kill a running generation — it only blocks starting a new one while hidden.
+- **Scope note (behavior, GM confirmed option A on 2026-07-21):** the re-key gates NEW model calls only.
+  In-flight streams are still cancelled solely at the four `suspendAI` sites (park, background, manual
+  AI-pause, close/teardown), so glancing at the galaxy, switching spaces, or focusing a sibling does not
+  kill a running generation — it only blocks a hidden port from STARTING a new one. You never pay for a
+  new generation nobody is watching; you never lose one already in flight the user may return to read.
 - **Tests:** `isSuspended` false for a visible tile; true for galaxy-hidden, off-desktop, parked, and
   `aiPaused`; `shouldHeartbeat` false when not visible, true when visible or unknown. A test-lifetime
   note: `state.shell` is weak (the app's `ShellView` owns it), so tests hold the `ShellState` with
   `withExtendedLifetime`. Re-ran `Bridge — streaming contract` + `Bridge — ai service` for regression.
 
-### Step 5: port-side discipline and reference ports
-- Update the first-party animated templates (three.js / shader) to gate rAF on `visible` and scale to
-  `w,h`; add the discipline section to the port-authoring skill.
-- **Test:** live in Port42Dev — an animated port logging its rAF tick and listening for
-  `presentation`. Park → the tick stops and `{state:"parked",visible:false}` arrives; background →
-  same; focus → `{state:"focused",visible:true,w,h}`; switch space → the off-desktop port receives
-  visible:false. Confirm no emit storm (a bounded log count across a space-switch). For the shader,
-  the 0.3 gate still holds: zero new `port_versions` while parked.
+### Step 5: port-side discipline and reference ports — DOCS DONE; live pass pending
+- Port-authoring manual updated (there are no stored HTML templates — ports are generated from this
+  context): `ports-core.txt` gains a terse non-negotiable (gate rAF on `port42.on('presentation')`,
+  pause on `!visible`, drop fidelity when small, size from `w,h`); `ports-context.txt` documents
+  `port42.presentation()` / the `presentation` event / the `port42:presentation` DOM alias and the full
+  discipline including persist-before-`background`. Content gates green (`BridgeDocsExportTests`,
+  `BridgeHelpTests`, `InstructionServiceTests`, `BridgeParityMemoryTests`).
+- **Live pass (pending, needs the dev app + human TCC/keychain):** an animated port logging its rAF
+  tick and listening for `presentation`. Park → the tick stops and `{state:"parked",visible:false}`
+  arrives; background → same; focus → `{state:"focused",visible:true,w,h}`; switch space → the
+  off-desktop port receives visible:false. Confirm no emit storm (a bounded log count across a
+  space-switch) and that the debounced trigger + real `pushEvent` deliver. For the shader, the 0.3 gate
+  still holds: zero new `port_versions` while parked.
 
 ## Risks and rollback
 
