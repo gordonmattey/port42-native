@@ -115,7 +115,12 @@ struct BridgeParamConsistencyTests {
 
             for part in parts.dropFirst() {
                 let chunk = #"r[""# + part
-                guard let canonical = matches(#"^r\["([^"]+)"\]"#, in: chunk).first else { continue }
+                // A real registration is `r["name"] = Bridge{Method,StreamMethod}(...)`. Require the
+                // assignment so a LOCAL dictionary read like `r["error"] as? String` inside a helper
+                // (browserResult) is not miscounted as a registered method.
+                guard let canonical = matches(#"^r\["([^"]+)"\]"#, in: chunk).first,
+                      chunk.range(of: #"^r\["[^"]+"\]\s*=\s*Bridge"#, options: .regularExpression) != nil
+                else { continue }
                 let reads = argReads(chunk).union(bagSubscriptReads(chunk)).union(helperReads)
                 out.append(Method(
                     canonical: canonical,
@@ -139,10 +144,10 @@ struct BridgeParamConsistencyTests {
         // port.position + tail item 4: rest.call + tail item 5: the 7 browser methods + tail item 6:
         // audio.capture, audio.stopCapture, camera.stream, camera.stopStream, screen.stream,
         // screen.stopStream + tail item 7: fs.pick + the close-out: help) + companions.invoke
-        // + presentation (backlog 1.1) = 64. BridgeServiceAI.swift: 3. Real methods 67.
-        // Plus one PARSER ARTIFACT: `r["error"]` inside browserResult's dictionary read (not a
-        // registration) is caught by the `r["` split, so the parser reports 68.
-        #expect(methods.count == 68, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // + presentation (backlog 1.1) = 64. BridgeServiceAI.swift: 3. Total 67. The parser now
+        // requires the `= Bridge...` assignment, so the local `r["error"]` read in browserResult is
+        // no longer miscounted (was the long-standing off-by-one that made this assert read 66).
+        #expect(methods.count == 67, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")
