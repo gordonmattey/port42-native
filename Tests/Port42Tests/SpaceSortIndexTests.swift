@@ -33,4 +33,41 @@ struct SpaceSortIndexTests {
         try db.saveSpace(s)
         #expect(try db.getRegularSpaces().first?.sortIndex == 7)
     }
+
+    // MARK: - reorder (Step 2)
+
+    private func ordered(_ names: [String]) -> [Space] {
+        names.enumerated().map { i, n in var s = Space.create(name: n); s.sortIndex = i; return s }
+    }
+
+    @Test("reorder moves a space to the target slot and renumbers sortIndex contiguously")
+    func reorderMovesAndRenumbers() {
+        let s = ordered(["a", "b", "c", "d"])
+        let cId = s[2].id
+        let aId = s[0].id
+        let out = Space.reorder(s, moving: cId, to: aId)   // c jumps in front of a
+        #expect(out.map(\.name) == ["c", "a", "b", "d"])
+        #expect(out.map(\.sortIndex) == [0, 1, 2, 3])
+    }
+
+    @Test("reorder is a no-op for equal or unknown ids")
+    func reorderNoOp() {
+        let s = ordered(["a", "b"])
+        #expect(Space.reorder(s, moving: s[0].id, to: s[0].id).map(\.name) == ["a", "b"])
+        #expect(Space.reorder(s, moving: "ghost", to: s[0].id).map(\.name) == ["a", "b"])
+    }
+
+    @Test("reorderSpaces persists the new order to the DB")
+    @MainActor
+    func reorderPersists() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        for sp in ordered(["a", "b", "c"]) { try db.saveSpace(sp) }
+        state.spaces = try db.getRegularSpaces()                  // [a, b, c]
+        let c = state.spaces[2], a = state.spaces[0]
+        state.reorderSpaces(moving: c.id, to: a.id)               // c in front of a
+        #expect(state.spaces.map(\.name) == ["c", "a", "b"])
+        #expect(state.spaces.map(\.sortIndex) == [0, 1, 2])
+        #expect(try db.getRegularSpaces().map(\.name) == ["c", "a", "b"])   // survives a reload
+    }
 }

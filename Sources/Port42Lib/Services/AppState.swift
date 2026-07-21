@@ -1984,6 +1984,19 @@ public final class AppState: ObservableObject {
         }
     }
 
+    /// Persist a galaxy drag-reorder (backlog 3.6): move `id` to `targetId`'s slot, renumber sortIndex,
+    /// save every changed row, reload. No-op if the resulting order is unchanged.
+    public func reorderSpaces(moving id: String, to targetId: String) {
+        let updated = Space.reorder(spaces, moving: id, to: targetId)
+        guard updated.map(\.id) != spaces.map(\.id) else { return }
+        do {
+            for s in updated { try db.saveSpace(s) }
+            spaces = try db.getRegularSpaces()
+        } catch {
+            print("[Port42] Failed to reorder spaces: \(error)")
+        }
+    }
+
     public func updateSpace(_ space: Space) {
         do {
             try db.saveSpace(space)

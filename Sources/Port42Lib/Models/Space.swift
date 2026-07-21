@@ -56,6 +56,19 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
         (spaces.map(\.sortIndex).max() ?? -1) + 1
     }
 
+    /// Galaxy drag-reorder (backlog 3.6): move `id` to occupy `targetId`'s slot and renumber every
+    /// space's sortIndex to its new array position. Pure, so it is unit-tested. Unknown or equal ids
+    /// are a no-op. Inserting at the target's post-removal index places the moved space just before it.
+    public static func reorder(_ spaces: [Space], moving id: String, to targetId: String) -> [Space] {
+        guard id != targetId, let from = spaces.firstIndex(where: { $0.id == id }) else { return spaces }
+        var arr = spaces
+        let moved = arr.remove(at: from)
+        let dest = arr.firstIndex(where: { $0.id == targetId }) ?? arr.count
+        arr.insert(moved, at: dest)
+        for i in arr.indices { arr[i].sortIndex = i }
+        return arr
+    }
+
     /// A rested space is alive-but-dormant: nothing is lost, it just can't reach for attention.
     public var isResting: Bool { restedAt != nil }
 

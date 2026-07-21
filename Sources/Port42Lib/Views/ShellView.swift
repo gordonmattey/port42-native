@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import WebKit
+import UniformTypeIdentifiers
 
 /// SHELL — S2.1. The shell root: the living ambient surface (Layer 0) with the real space desktop
 /// composited over it, and the zoom spine made visible (galaxy ↔ space ↔ focus). Selected instead
@@ -390,6 +391,8 @@ struct ShellGalaxyView: View {
     /// The resting shelf starts collapsed on every galaxy visit (rested worlds stay quiet).
     @State private var shelfExpanded = false
     @State private var shelfHovered: String?
+    /// The world currently being dragged to reorder (backlog 3.6). nil = no drag in flight.
+    @State private var draggedSpaceId: String?
 
     var body: some View {
         ZStack {
@@ -612,6 +615,31 @@ struct ShellGalaxyView: View {
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.45)
             .onEnded { _ in shell.settingsTarget = .space(space.id) })
         .onTapGesture { shell.jumpToSpace(index: index) }
+        // Drag-reorder (backlog 3.6): press + move picks up a world; dropping it on another commits the
+        // new galaxy order (persisted sortIndex). A tap (no move) still enters; a hold still opens settings.
+        .onDrag {
+            draggedSpaceId = space.id
+            return NSItemProvider(object: space.id as NSString)
+        }
+        .onDrop(of: [.text], delegate: SpaceReorderDrop(targetId: space.id, appState: appState,
+                                                        dragged: $draggedSpaceId))
+    }
+}
+
+/// Commits a galaxy world drag-reorder on drop (backlog 3.6): the dragged world takes the target's
+/// slot. One persist per drop; the live in-drag shuffle is deliberately skipped for robustness.
+private struct SpaceReorderDrop: DropDelegate {
+    let targetId: String
+    let appState: AppState
+    @Binding var dragged: String?
+
+    func validateDrop(info: DropInfo) -> Bool { dragged != nil && dragged != targetId }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let d = dragged, d != targetId else { dragged = nil; return false }
+        appState.reorderSpaces(moving: d, to: targetId)
+        dragged = nil
+        return true
     }
 }
 
