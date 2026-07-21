@@ -264,7 +264,8 @@ struct ShellDesktopView: View {
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
-            .onAppear { seedIfNeeded(area: geo.size); arrangedForSpace = sid }
+            .onAppear { shell.lastDesktopArea = geo.size; seedIfNeeded(area: geo.size); arrangedForSpace = sid }
+            .onChange(of: geo.size) { _, s in shell.lastDesktopArea = s }   // keep the presentation card size honest
             .onChange(of: appState.currentSpace?.id) { _, _ in
                 shell.clearOpenDMs()                                                       // DMs are per-desktop
                 if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile

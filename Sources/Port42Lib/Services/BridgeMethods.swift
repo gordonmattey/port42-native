@@ -225,6 +225,22 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         return .object(["ok": .bool(true)])
     }
 
+    // presentation — the calling port asks about ITSELF (backlog 1.1): its current placement state and
+    // whether it is on screen, so it can idle its animation loop when hidden. Port-JS only (a companion
+    // is not a port), so toolExposed is false. No permission — a port reading its own visibility.
+    r["presentation"] = BridgeMethod(permission: nil, toolExposed: false,
+        description: "The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.",
+        inputSchema: [
+            "type": "object",
+            "properties": [String: Any]()
+        ]) { p, _ in
+        let key = p.portId ?? p.id
+        // Unknown port (no shell, or not staged) → a safe visible default so a caller never idles wrongly.
+        let snap = appState.shell?.presentation(forPortId: key)
+            ?? PortPresentation(state: .tiled, visible: true, size: ShellState.defaultTileSize)
+        return .fromJSONObject(snap.jsonObject)
+    }
+
     // terminal.exec — the one gated terminal method (headless run-and-capture). Shared ShellExec, in
     // both old paths. Returns { output }.
     r["terminal.exec"] = BridgeMethod(permission: .terminal, paramNames: ["command", "options"],

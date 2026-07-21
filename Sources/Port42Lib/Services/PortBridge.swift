@@ -470,6 +470,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 _emit: function(event, data) {
                     const cbs = _listeners[event] || [];
                     cbs.forEach(cb => { try { cb(data); } catch(e) { console.error(e); } });
+                    // Presentation also fires a DOM CustomEvent, parity with port42:filedrop (backlog 1.1),
+                    // so a port may listen via window.addEventListener('port42:presentation', ...) too.
+                    if (event === 'presentation') {
+                        try { window.dispatchEvent(new CustomEvent('port42:presentation', { detail: data })); } catch(e) {}
+                    }
                 },
                 _heartbeat: function() {
                     _lastHeartbeat = Date.now();

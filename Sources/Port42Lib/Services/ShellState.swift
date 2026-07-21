@@ -349,6 +349,12 @@ public final class ShellState: ObservableObject {
 
     // MARK: Read-through helpers (never duplicate AppState)
 
+    /// The current desktop render area, set by `ShellDesktop`'s GeometryReader on layout. Stored so
+    /// the presentation getter/sync (backlog 1.1) can size a focused port's card headlessly. A sane
+    /// default until first layout — a focused port implies the desktop has laid out, so this is a floor,
+    /// not a live-critical value.
+    public var lastDesktopArea: CGSize = CGSize(width: 1440, height: 900)
+
     /// THE desktop-tile predicate — the one source for "which panels are staged as tiles on
     /// this desktop": the current space's tiled panels, plus surfaced DM chats, plus adopted
     /// foreign ports. The desktop renders this set, `applyArrange` grids it, and ShellView's
@@ -395,6 +401,17 @@ public final class ShellState: ObservableObject {
     public var contextItems: [PortContextItem] {
         Self.contextItems(tiled: desktopTilePanels, peeks: peekingPorts,
                           allPanels: appState.portWindows.panels)
+    }
+
+    /// Presentation snapshot for a port resolved by its own id (udid/messageId), or nil if unknown
+    /// (backlog 1.1). The source behind `port42.presentation()` (Step 2) and, in Step 3, the per-port
+    /// input to `syncPresentation`. Keyed like `owningPortBridge` (backlog 0.5). Lives here, not in the
+    /// `PortPresentation` extension, because it reads the file-private `appState`.
+    public func presentation(forPortId key: String) -> PortPresentation? {
+        guard let panel = appState.portWindows.panels.first(where: { $0.udid == key || $0.messageId == key })
+        else { return nil }
+        let item = contextItems.first { $0.id == panel.id }
+        return Self.presentation(for: panel, zoom: zoom, item: item, area: lastDesktopArea)
     }
 
     /// Is this id a unit on the current desktop (tile OR peek)? Focus on a desktop unit is a

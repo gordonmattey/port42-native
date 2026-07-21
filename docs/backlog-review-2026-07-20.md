@@ -97,6 +97,7 @@ Higher uncertainty; each needs an RCA or a repro before it's a clean build. Rank
 | 3.5 | **Publish the generated API reference as a static `llms.txt`** | S | Exporter builds the registry in memory, renders `generateAPIReference`, writes the file + a freshness-gate test (committed == generated). Publishable artifact like the DMG. |
 | 3.6 | **Drag-reorder spaces in the galaxy** | S–M | Needs a persistent `sortIndex` (append migration) that then drives `⌘1…9`. Pairs with 0.6 as the two switching axes. |
 | 3.7 | **`port.position` / `screen.displays` "Unknown tool"** | XS | Likely already resolved (the ports.list sweep verified these serve from the registry); confirm over the live gateway and either close or fix the reference. |
+| 3.8 | **Resize cursor on tile edges / corners** | XS | Pointer stays the default arrow while dragging a tile's edge or corner to resize. Swap to the directional resize cursor (`NSCursor.resize*` / `⤢`) on hover + during a resize drag, per edge/corner, so the affordance reads. Cursor-only polish on the tile drag handles. |
 
 ---
 

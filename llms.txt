@@ -194,6 +194,8 @@ Generated from the live method registry: every entry below is served exactly as 
 
   help(topic)
       Return the Port42 API reference. Pass topic:"ports" for the port-authoring manual (read it BEFORE building or editing a port: sizing, module-scope, patterns, the design system). No topic returns the full method reference.
+  presentation()
+      The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
 
 ### messages
 
