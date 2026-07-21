@@ -74,17 +74,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             let pid = createdBy ?? messageId ?? ""
             Task { @MainActor in state.permissions.cancelRequests(from: pid) }
         }
-        // The mic-leak teardown (backlog 0.5): the shared device bridges live on AppState, so this
-        // port's death must release any capture/stream it started — keyed on the port's stable id
-        // (messageId), so another port's session is never collateral damage. Captured as a plain
-        // value; deinit adds no retain. A port with no messageId started no captures, so there is
-        // nothing to release. Step 4 funnels this through AppState.releaseAcquisitions + suspendAI.
+        // The mic-leak teardown backstop (backlog 0.5): device resources release on the close path
+        // (PortWindowManager.close/stop -> releaseAcquisitions). This deinit covers the non-close
+        // death paths (quit, sign-out, restore-replace), funneling to the SAME AppState entry point,
+        // keyed on the port's stable id. Captured as a plain value; deinit adds no retain. A port
+        // with no messageId started no captures. The in-flight AI loop is cancelled at close; any
+        // stream Task that outlives this bridge holds [weak self] and no-ops.
         if let state = appState as? AppState, let mid = messageId {
-            Task { @MainActor in
-                state.audioDevice.releaseIfOwned(byPortId: mid)
-                state.cameraDevice.releaseIfOwned(byPortId: mid)
-                state.screenDevice.releaseIfOwned(byPortId: mid)
-            }
+            Task { @MainActor in state.releaseAcquisitions(portId: mid) }
         }
     }
 
@@ -209,6 +206,19 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     public func suspendAI() {
         for (_, task) in streamTasks { task.cancel() }
         streamTasks.removeAll()
+    }
+
+    /// Release every ongoing resource this port acquired (backlog 0.5): the device captures, streams,
+    /// and browser sessions on the shared bridges (via AppState.releaseAcquisitions, keyed on this
+    /// port's stable id), plus any in-flight generation (suspendAI). The ONE funnel the close path
+    /// (PortWindowManager.close/stop) calls before tearing down the webview; the deinit backstop
+    /// funnels to the same AppState entry point for the non-close death paths.
+    @MainActor
+    public func releaseAcquisitions() {
+        if let state, let mid = messageId {
+            state.releaseAcquisitions(portId: mid)
+        }
+        suspendAI()
     }
 
     /// Escape a string for safe embedding in JS string literals.

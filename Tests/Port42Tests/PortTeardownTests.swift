@@ -52,4 +52,44 @@ struct PortTeardownTests {
 
         #expect(spy.released == ["A", "B"], "each call passes exactly its own port id")
     }
+
+    // MARK: - Step 4: the funnel from close/deinit + the AI loop
+
+    @Test("PortBridge.releaseAcquisitions fans out its own id and cancels its AI loop")
+    @MainActor
+    func bridgeReleaseFansOutAndCancelsAI() throws {
+        let state = try makeState()
+        let spy = SpyOwnedResource()
+        state.deviceBridges = [spy]
+
+        let bridge = PortBridge(appState: state, spaceId: nil, messageId: "P")
+        bridge.streamTasks[1] = Task { while !Task.isCancelled { await Task.yield() } }
+
+        bridge.releaseAcquisitions()
+
+        #expect(spy.released == ["P"], "the bridge releases its own stable id across the device list")
+        #expect(bridge.streamTasks.isEmpty, "the in-flight generation is cancelled")
+    }
+
+    @Test("PortWindowManager.close triggers releaseAcquisitions for that port and cancels its AI loop")
+    @MainActor
+    func closeTriggersRelease() throws {
+        let state = try makeState()
+        let spy = SpyOwnedResource()
+        state.deviceBridges = [spy]
+
+        let bridge = PortBridge(appState: state, spaceId: nil, messageId: "P")
+        bridge.streamTasks[1] = Task { while !Task.isCancelled { await Task.yield() } }
+        let panel = PortPanel(
+            id: "P", udid: "P", html: "", bridge: bridge,
+            spaceId: nil, createdBy: nil, messageId: "P",
+            userTitle: nil, size: CGSize(width: 100, height: 100), position: nil)
+        state.portWindows.panels.append(panel)
+
+        state.portWindows.close("P")
+
+        #expect(spy.released == ["P"], "closing the port releases the resources it acquired")
+        #expect(bridge.streamTasks.isEmpty, "closing the port cancels its in-flight generation")
+        #expect(!state.portWindows.panels.contains { $0.id == "P" }, "the panel is gone after close")
+    }
 }

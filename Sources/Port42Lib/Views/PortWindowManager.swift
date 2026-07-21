@@ -609,8 +609,15 @@ public final class PortWindowManager: ObservableObject {
 
     /// Close a panel by ID.
     public func close(_ id: String) {
-        if let panel = panels.first(where: { $0.id == id }), !panel.isChatPort {
-            destroyWebView(id)
+        if let panel = panels.first(where: { $0.id == id }) {
+            // Release every ongoing resource this port acquired (mic, camera, screen, speech,
+            // playback, browser sessions, in-flight generation) BEFORE the webview goes — the
+            // close-path teardown for the leak (backlog 0.5). Chat ports carry no messageId, so
+            // this only cancels any AI loop for them.
+            panel.bridge.releaseAcquisitions()
+            if !panel.isChatPort {
+                destroyWebView(id)
+            }
         }
         appState?.teardownTerminalController(panelId: id)
         // Tear down a hoisted terminal surface (shell tile path). The floating path frees via
@@ -683,9 +690,12 @@ public final class PortWindowManager: ObservableObject {
 
     /// Stop a port by destroying its webview.
     public func stop(_ id: String) {
-        guard panels.contains(where: { $0.id == id }) else { return }
+        guard let panel = panels.first(where: { $0.id == id }) else { return }
+        // Same close-path teardown as close(): release what the port acquired before the webview
+        // goes, so a stopped port cannot keep the mic (etc.) running (backlog 0.5).
+        panel.bridge.releaseAcquisitions()
         destroyWebView(id)
-        NSLog("[Port42] Port stopped: %@", panels.first(where: { $0.id == id })?.title ?? id)
+        NSLog("[Port42] Port stopped: %@", panel.title)
     }
 
     /// Restart a port by reloading its content. Web ports reload the WKWebView; native
