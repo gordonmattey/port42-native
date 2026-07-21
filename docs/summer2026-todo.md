@@ -1602,7 +1602,26 @@ this makes it own *every* screen) and the port-positioning gap (per-display coor
 after the single-screen shell is solid; the enumeration API (`screen.displays`) is the one piece
 already in hand.
 
-## TODO: GUI shell — replace the desktop, not the OS (→ `docs/plan-port42-shell.md`)
+## TODO: GUI shell — replace the desktop, not the OS (→ `docs/plan-port42-shell.md`) — CORE SHIPPED 2026-07-20
+
+**The headline is done: Port42 IS the desktop.** The shell is the app surface (classic ContentView
+retired 2026-07-14), and the **fullscreen takeover** is shipped in `ShellMode.swift` exactly as
+planned — `styleMask = [.borderless, .fullSizeContentView]`, `NSApp.presentationOptions =
+[.hideDock, .hideMenuBar]`, full-display frame, via `applyShellWindow`. It's an **opt-in toggle**
+(`ShellMode.takeoverKey` / the `fullscreenTakeover` setting, default off), so "boots into a desktop of
+live ports with no Dock/menu bar" is real today. The ambient surface, the zoom spine
+(galaxy ↔ space ↔ focus), port units, peeks, adoption, and ⌘K are all in.
+
+**Still open from the plan (the enhancements, not the core):**
+- **Modes (meta-spaces)** — a whole-shell state with its own accent / dock apps / set of spaces /
+  default layout. Not built; today `ShellMode` is only the *window presentation* mode
+  (takeover vs windowed), not the meta-space concept. This is what would subsume "ports scoped to
+  space" + "a different dock view" at the shell level.
+- **Boot-into-Port42 tiers beyond the toggle** — launch-at-login (Tier 1) and MDM Autonomous Single
+  App Mode (Tier 2, kiosk-grade). The takeover toggle exists; auto-boot / lockdown do not.
+- **Multi-display** — see the item above (own every screen, not just one).
+
+Historical write-up below.
 
 Port42 boots into a **fullscreen surface with no macOS Dock and no menu bar**, and the desktop is
 made of **live ports** over a living ambient background. macOS stays the substrate; Port42 owns 100%
