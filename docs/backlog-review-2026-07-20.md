@@ -9,7 +9,12 @@ across 5 commits (spec `docs/plan-port-presentation-state.md`): the pure model +
 getter + the `presentation` event/DOM alias, the debounced emit funnel, the `isSuspended`-re-keyed-to-
 `!visible` defense (option A: gates new model calls, does not cancel in-flight), the port-authoring
 discipline, and a live pass in Port42Dev (rAF freezes when hidden, one event per transition, no storm).
-**Next: Tier 1.2 (webview eviction), which consumes 1.1's `visible` signal.**
+**Tier 1.2 (webview eviction) is DEFERRED (GM, 2026-07-21):** not a problem at current port counts, so
+it waits until live-webview count / idle CPU actually bites. It is not abandoned: the full plan and all
+four signed-off decisions (flat ~50-webview cap, lazy create-on-mount, web/browser-only, remount
+self-heal) are captured in `docs/plan-webview-eviction.md`, so it is a clean pickup when the accumulation
+returns. **Next active pickup is GM's call** (candidates: 2.1 permission overlay — a ship-blocker; 1.3
+ports-scoped-to-space; 3.4 terminal-stream / 3.5 llms.txt as cheap standalone wins).
 
 Source: `docs/summer2026-todo.md`, every OPEN item. Ranked against the north star: **improve the
 experience and remove friction.** Not raw feature value.
@@ -67,7 +72,7 @@ always-on port depend on.
 | # | Item | Size | Why |
 |---|------|------|-----|
 | 1.1 | **Ports must know their presentation state** | M | The enabling primitive for idle. `pushEvent("port42:presentation", …)` on every state change + shell-side throttle of invisible ports. The shell already knows the state; it just never tells the port. Unblocks 0.3's cooperative half and caps how many ports a person can have. |
-| 1.2 | **Webview registry never evicts** | M | CPU scales with ports-ever-created (measured: 88 live WebContent procs at 101 ports, ~90% CPU idle). Keep the working set mounted, evict the rest, re-mount on return. Must not resurrect the blanking bug (point `PortRenderProbe` at the eviction path). Pairs with 1.1: evict what isn't needed, idle what's kept. |
+| 1.2 | **Webview registry never evicts** — DEFERRED (GM 2026-07-21) | M | CPU scales with ports-ever-created (measured: 88 live WebContent procs at 101 ports, ~90% CPU idle). Keep the working set mounted, evict the rest, re-mount on return. **Deferred until it is a problem** (fine at current counts). Plan + signed-off decisions ready in `docs/plan-webview-eviction.md`; trigger to revisit = live-webview count or idle CPU actually bites. Pairs with 1.1: evict what isn't needed, idle what's kept. |
 | 1.3 | **Ports scoped to space** | M | Keystone for the space-as-place story. Persist `spaceId` as the scoping key for what's shown; switch the visible set on space change; decide cross-space behavior. The dock view and richer rows both need this data model. |
 | 1.4 | **Richer space rows / ambient activity** | M | "Where am I needed?" across spaces; `waiting-for-input` is the highest-value signal. Best impact-per-effort of the space-experience items per the 06-27 ranking. Must derive from cached/observed state, not per-render DB queries (the SidebarView render-storm pattern). |
 | 1.5 | **A different dock / gallery view of ports** | M | *See* the space's world. Depends on 1.3. Grid of ports with previews, grouped by space/type/recency. |
