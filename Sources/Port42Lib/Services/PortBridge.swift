@@ -118,7 +118,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         Principal(
             id: createdBy ?? messageId ?? ObjectIdentifier(self).debugDescription,
             displayName: createdBy ?? title ?? "a port",
-            spaceId: spaceId, kind: .port)
+            spaceId: spaceId, kind: .port,
+            // The port's OWN id, carried separately from the authz `id` (which is the creator for a
+            // companion-made port). Owner resolution keys on this so event routing and teardown find
+            // THIS port, not the creator's shared bucket (backlog 0.5).
+            portId: messageId)
     }
 
     // MARK: - File Drop

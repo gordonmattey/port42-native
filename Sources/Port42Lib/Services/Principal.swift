@@ -32,12 +32,28 @@ public struct Principal: Equatable {
     /// this principal, which is different from "unpersistable" (what nil used to mean).
     public let spaceId: String?
     public let kind: Kind
+    /// The calling port's OWN stable id (PortBridge.messageId), when the caller is a port; nil
+    /// otherwise. Distinct from `id`: `id` is the AUTHORIZATION identity — a companion-created port
+    /// authorizes AS its creator (P-260), so `id` is shared across every port that creator made and
+    /// cannot point at one specific port. `portId` names the specific live port, so owner resolution
+    /// (event routing + the mic-leak teardown, backlog 0.5) can find the exact bridge for a port
+    /// whose createdBy differs from its own id. NOT part of identity: coalescing and grants key on
+    /// `id` (see `==`), so this never splits a grant bucket.
+    public let portId: String?
 
-    public init(id: String, displayName: String, spaceId: String?, kind: Kind) {
+    public init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.spaceId = spaceId
         self.kind = kind
+        self.portId = portId
+    }
+
+    /// Identity is the authz tuple only — `portId` is deliberately excluded, so a port carrying its
+    /// own id never appears "different" for permission coalescing, which keys on this.
+    public static func == (lhs: Principal, rhs: Principal) -> Bool {
+        lhs.id == rhs.id && lhs.displayName == rhs.displayName
+            && lhs.spaceId == rhs.spaceId && lhs.kind == rhs.kind
     }
 
     /// The stable id a local (unauthenticated) gateway caller is given. A local `curl` has no client

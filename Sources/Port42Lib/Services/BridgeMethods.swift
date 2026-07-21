@@ -376,8 +376,12 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     }
     func owningPortBridge(_ p: Principal) -> PortBridge? {
         guard p.kind == .port else { return nil }
-        return appState.portWindows.panels.first(where: { $0.udid == p.id || $0.messageId == p.id })?.bridge
-            ?? appState.findInlineBridge(by: p.id)
+        // Resolve on the port's OWN id (portId), not the authz id: a companion-created port's `id` is
+        // its creator, shared across ports, so matching it would find the wrong port or none (backlog
+        // 0.5). Falls back to `id` for a port with no portId (nil messageId — starts no captures).
+        let key = p.portId ?? p.id
+        return appState.portWindows.panels.first(where: { $0.udid == key || $0.messageId == key })?.bridge
+            ?? appState.findInlineBridge(by: key)
     }
 
     r["browser.open"] = BridgeMethod(permission: .browser, paramNames: ["url", "options"],

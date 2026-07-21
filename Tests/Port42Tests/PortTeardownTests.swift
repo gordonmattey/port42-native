@@ -143,4 +143,33 @@ struct PortTeardownTests {
         #expect(bridges.contains { $0 is ScreenBridge }, "ScreenBridge must be registered for teardown")
         #expect(bridges.contains { $0 is BrowserBridge }, "BrowserBridge must be registered for teardown")
     }
+
+    // MARK: - Step 7 field regression: owner resolution for a createdBy-set port
+
+    // The live mic-down (Step 7) found teardown no-opping for a port whose createdBy differs from its
+    // own id (every gateway/companion-created port): portPrincipal.id is the CREATOR, so owner
+    // resolution matched nothing and the capture recorded a nil owner. The port's own id now rides on
+    // Principal.portId; owner resolution keys on it. This proves the resolution, headlessly.
+    @Test("owner resolution finds a createdBy-set port by its own id")
+    @MainActor
+    func ownerResolvesForCreatedByPort() throws {
+        let state = try makeState()
+        let bridge = try #require(state.portWindows.registerInlinePort(
+            id: "port-own-id", html: "<html><body>x</body></html>",
+            spaceId: nil, createdBy: "companion-x", title: "t", anchorMessageId: nil))
+
+        let p = bridge.portPrincipal
+        #expect(p.id == "companion-x", "authz identity stays the creator (P-260)")
+        #expect(p.portId == "port-own-id", "the port's own id rides alongside for owner resolution")
+        #expect(state.streamPortBridge(for: p) === bridge,
+                "resolution finds the specific port by its own id, not the shared creator id")
+    }
+
+    @Test("Principal.portId is excluded from identity (grants do not split)")
+    @MainActor
+    func portIdNotPartOfIdentity() {
+        let a = Principal(id: "companion-x", displayName: "x", spaceId: "s", kind: .port, portId: "port-1")
+        let b = Principal(id: "companion-x", displayName: "x", spaceId: "s", kind: .port, portId: "port-2")
+        #expect(a == b, "two ports of the same creator stay one authz identity for coalescing")
+    }
 }

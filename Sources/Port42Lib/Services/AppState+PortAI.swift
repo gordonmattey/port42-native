@@ -64,8 +64,11 @@ public extension AppState {
     /// nil for non-port principals (gateway / companion callers are never suspendable).
     func streamPortBridge(for principal: Principal) -> PortBridge? {
         guard principal.kind == .port else { return nil }
-        if let inline = findInlineBridge(by: principal.id) { return inline }
-        return portWindows.panels.first(where: { $0.messageId == principal.id })?.bridge
+        // The port's OWN id, not the authz id (a companion-created port authorizes as its creator, so
+        // principal.id would miss the specific port — same fix as owningPortBridge, backlog 0.5).
+        let key = principal.portId ?? principal.id
+        if let inline = findInlineBridge(by: key) { return inline }
+        return portWindows.panels.first(where: { $0.messageId == key })?.bridge
     }
 
     /// The creating-companion id used to resolve backend/model, per principal kind: a port's is its
