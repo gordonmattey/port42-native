@@ -2198,6 +2198,40 @@ scoped to space".
 
 ---
 
+## BUG: a generative/stateful port loses its state on restart + on background/pop-out (2026-07-21, GM)
+
+**Symptom (GM):** a shader port we created (a) does not survive a restart — the shader has to be
+generated again — and (b) loses its state when backgrounded or popped back out, again forcing a
+regenerate.
+
+**RCA (code-level; the definitive port-vs-platform split needs a live repro — see below).** One root
+cause, two paths:
+- **Root:** the generated shader is **runtime-only state** in the live webview (its GLSL / chosen
+  shader). It becomes durable only if the port writes it back — `port.update` DOES persist the latest
+  HTML to `port_panels` (`PortWindowManager.updatePort` `:785`), or `port42.storage`. The shader isn't
+  doing that, so the persisted HTML is the pre-generation original.
+- **Path a (restart):** `restoreFromDB` reloads `panel.html` = the original → regenerates.
+- **Path b (background/pop-out):** `minimize(_:)` (`PortWindowManager.swift:664`) sets `isBackground`
+  and, per its own comment, **"the unit unmounts"** — the WKWebView is detached from the window. For a
+  WebGL shader that triggers **WebGL context loss** (`webglcontextlost`); on remount the context is
+  restored EMPTY, so without a `webglcontextlost`/`webglcontextrestored` handler the shader comes back
+  blank → regenerates. Same un-persisted state, a second way to lose it.
+
+**Fix direction (mostly port-side, enabled by the platform):**
+- **Real fix (port-side, the "stateful-app pattern"):** the shader must persist its generated state
+  (`port42.storage` or a `port.update` static snapshot) and rehydrate on load. Then restart AND remount
+  both restore the real shader.
+- **Platform-side = the presentation-state + eviction items below:** a backgrounded port isn't told it
+  is about to unmount, so it can't snapshot first — deliver `port42:presentation {state:"background"}`
+  so a well-behaved port persists-before-unmount; and decide whether WebGL-bearing ports stay
+  attached-but-idle instead of detaching (context loss is inherent to unmounting).
+
+**Confirm live before fixing:** is this the self-generating SHADER (regenerates by design) or a
+generate-once shader whose state simply isn't saved? Open it in Dev, generate, watch the console for
+`webglcontextlost` on background, and check whether `port.getHtml` returns the generated shader or the
+original. That decides port-fix vs platform-fix. Relates to [[the presentation-state item]], the
+webview-eviction item, and the blanking-bug (all "restore assumes state survived; it doesn't").
+
 ## TODO: ports must know their presentation state — or the desktop melts (2026-07-16)
 
 **Found the hard way:** four animated ports (three.js scenes + a live WebGL shader) running as tiles
