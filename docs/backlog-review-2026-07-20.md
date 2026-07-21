@@ -1,5 +1,12 @@
 # Backlog review + ranked sequence (2026-07-20)
 
+**STATUS 2026-07-21 — Tier 0 complete (HEAD `cca4f66`).** All of Tier 0 shipped: 0.1 peek→tile,
+0.2 gateway-outlives-app, 0.3 parked-AI suspend (was already done), 0.4 bridge-rejects + CSP +
+truncation, 0.5 the exhaustive mic/speech teardown (both root causes, verified live — the retain
+cycle AND the owner-resolution-on-authz-id defect; spec `docs/plan-exhaustive-port-teardown.md`),
+0.6 recency-sorted ⌘K (MRU + persisted). **Next: Tier 1.1 (ports must know their presentation
+state), then 1.2 (webview eviction).** The 1.1 plan is the immediate task.
+
 Source: `docs/summer2026-todo.md`, every OPEN item. Ranked against the north star: **improve the
 experience and remove friction.** Not raw feature value.
 
