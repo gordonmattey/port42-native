@@ -347,15 +347,15 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
                 "rate": ["type": "number", "description": "Speech rate 0.1-1.0 (default 0.5)"]
             ],
             "required": ["text"]
-        ]) { _, args in
+        ]) { p, args in
         let text = try args.requireString("text")
-        return .fromJSONObject(await audio.speak(text: text, opts: args.object("options")))
+        return .fromJSONObject(await audio.speak(text: text, opts: args.object("options"), owner: owningPortBridge(p)))
     }
 
     r["audio.play"] = BridgeMethod(permission: nil, paramNames: ["data", "options"], toolExposed: false,
-        description: "Play base64-encoded audio data (WAV, MP3, AAC).") { _, args in
+        description: "Play base64-encoded audio data (WAV, MP3, AAC).") { p, args in
         let data = try args.requireString("data")
-        return .fromJSONObject(audio.play(data: data, opts: args.object("options")))
+        return .fromJSONObject(audio.play(data: data, opts: args.object("options"), owner: owningPortBridge(p)))
     }
 
     r["audio.stop"] = BridgeMethod(permission: nil, toolExposed: false,

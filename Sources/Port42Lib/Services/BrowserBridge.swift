@@ -7,12 +7,14 @@ import WebKit
 /// Each session is an independent WKWebView with its own navigation state.
 /// Max 5 concurrent sessions per port. Sessions use non-persistent data stores.
 @MainActor
-public final class BrowserBridge {
+public final class BrowserBridge: PortOwnedResource {
 
     private weak var bridge: PortBridge?
 
-    /// Active browser sessions keyed by session ID.
-    private var sessions: [String: BrowserSession] = [:]
+    /// Active browser sessions keyed by session ID. Internal so the teardown gate can prime and
+    /// assert release: each session remembers the port that opened it, and that port's teardown
+    /// closes it (backlog 0.5).
+    var sessions: [String: BrowserSession] = [:]
 
     /// Maximum concurrent sessions per port.
     private let maxSessions = 5
@@ -27,6 +29,20 @@ public final class BrowserBridge {
             session.cleanup()
         }
         sessions.removeAll()
+    }
+
+    /// Release every session the given port opened (PortOwnedResource). Keyed on the owning port id,
+    /// so another port's session is never collateral damage; idempotent. A closed port must not
+    /// leave a headless WKWebView browsing.
+    public func releaseIfOwned(byPortId id: String) {
+        let owned = sessions.filter { $0.value.ownerPortId == id }
+        for (sid, session) in owned {
+            session.cleanup()
+            sessions.removeValue(forKey: sid)
+        }
+        if !owned.isEmpty {
+            NSLog("[Port42] browser: released %d session(s) for port %@", owned.count, id)
+        }
     }
 
     // MARK: - Public API
@@ -53,7 +69,8 @@ public final class BrowserBridge {
             width: width,
             height: height,
             userAgent: userAgent,
-            bridge: owner ?? bridge
+            bridge: owner ?? bridge,
+            ownerPortId: owner?.messageId
         )
 
         sessions[String(sessionId)] = session
@@ -138,11 +155,15 @@ public final class BrowserBridge {
 
 // MARK: - Browser Session
 
-/// A single headless browser session backed by a WKWebView.
+/// A single headless browser session backed by a WKWebView. Internal (not private) so the teardown
+/// gate can inject a session and assert release by owning port id.
 @MainActor
-private final class BrowserSession: NSObject, WKNavigationDelegate {
+final class BrowserSession: NSObject, WKNavigationDelegate {
 
     let id: String
+    /// Stable id of the port that opened this session (PortBridge.messageId); its teardown closes
+    /// the session. Nil for a headless (non-port) caller, which no port teardown targets.
+    let ownerPortId: String?
     private let webView: WKWebView
     private weak var bridge: PortBridge?
     private var navigationContinuation: CheckedContinuation<[String: Any], Never>?
@@ -153,8 +174,9 @@ private final class BrowserSession: NSObject, WKNavigationDelegate {
     /// HTML content size limit (1MB).
     private let htmlLimit = 1_000_000
 
-    init(id: String, width: Int, height: Int, userAgent: String?, bridge: PortBridge?) {
+    init(id: String, width: Int, height: Int, userAgent: String?, bridge: PortBridge?, ownerPortId: String? = nil) {
         self.id = id
+        self.ownerPortId = ownerPortId
         self.bridge = bridge
 
         // Non-persistent data store so sessions don't share cookies/cache

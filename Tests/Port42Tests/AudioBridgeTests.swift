@@ -114,6 +114,60 @@ struct AudioBridgeTests {
         #expect(!ab.capturing)
     }
 
+    // MARK: - Speak / play ownership (backlog 0.5, Step 2)
+
+    @Test("releaseIfOwned stops speech for the owning port id, leaves a non-owner")
+    @MainActor
+    func speakReleasedByOwner() {
+        let ab = AudioBridge()
+        ab.speakPortId = "A"
+        ab.releaseIfOwned(byPortId: "other")
+        #expect(ab.speakPortId == "A", "another port's id must not stop this port's speech")
+        ab.releaseIfOwned(byPortId: "A")
+        #expect(ab.speakPortId == nil, "the owning port id must stop the speech")
+    }
+
+    @Test("releaseIfOwned stops playback for the owning port id, leaves a non-owner")
+    @MainActor
+    func playReleasedByOwner() {
+        let ab = AudioBridge()
+        ab.playPortId = "A"
+        ab.releaseIfOwned(byPortId: "other")
+        #expect(ab.playPortId == "A", "another port's id must not stop this port's playback")
+        ab.releaseIfOwned(byPortId: "A")
+        #expect(ab.playPortId == nil, "the owning port id must stop the playback")
+    }
+
+    @Test("play records the owning port id at start")
+    @MainActor
+    func playRecordsOwner() {
+        let ab = AudioBridge()
+        let owner = PortBridge(appState: NSObject(), spaceId: nil, messageId: "portA")
+        let result = ab.play(data: Self.silentWAV(), opts: nil, owner: owner)
+        #expect(result["ok"] as? Bool == true, "a valid WAV must play")
+        #expect(ab.playPortId == "portA", "play must record the owning port id")
+        _ = ab.stop()
+    }
+
+    /// A tiny valid PCM WAV (0.1s of silence) so play() can create a real AVAudioPlayer without any
+    /// asset file — just enough for the ownership-recording assertion.
+    @MainActor
+    static func silentWAV(seconds: Double = 0.1, sampleRate: Int = 8000) -> String {
+        let numSamples = Int(Double(sampleRate) * seconds)
+        let channels = 1, bitsPerSample = 16
+        let blockAlign = channels * bitsPerSample / 8
+        let byteRate = sampleRate * blockAlign
+        let dataSize = numSamples * blockAlign
+        var d = Data()
+        func u32(_ v: UInt32) { var x = v.littleEndian; d.append(Data(bytes: &x, count: 4)) }
+        func u16(_ v: UInt16) { var x = v.littleEndian; d.append(Data(bytes: &x, count: 2)) }
+        d.append("RIFF".data(using: .ascii)!); u32(UInt32(36 + dataSize)); d.append("WAVE".data(using: .ascii)!)
+        d.append("fmt ".data(using: .ascii)!); u32(16); u16(1); u16(UInt16(channels))
+        u32(UInt32(sampleRate)); u32(UInt32(byteRate)); u16(UInt16(blockAlign)); u16(UInt16(bitsPerSample))
+        d.append("data".data(using: .ascii)!); u32(UInt32(dataSize)); d.append(Data(count: dataSize))
+        return d.base64EncodedString()
+    }
+
     // MARK: - Permission descriptions
 
     @Test(".microphone permission has descriptive text")

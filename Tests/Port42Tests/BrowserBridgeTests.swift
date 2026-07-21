@@ -50,4 +50,31 @@ struct BrowserBridgeTests {
         #expect(!desc.title.isEmpty)
         #expect(!desc.message.isEmpty)
     }
+
+    // MARK: - Session ownership (backlog 0.5, Step 2) — keyed on the stable port id
+
+    @MainActor
+    private func session(_ id: String, owner: String?) -> BrowserSession {
+        BrowserSession(id: id, width: 320, height: 240, userAgent: nil, bridge: nil, ownerPortId: owner)
+    }
+
+    @Test("releaseIfOwned closes only the sessions the given port opened")
+    @MainActor
+    func releaseClosesOwnedSessions() {
+        let browser = BrowserBridge()
+        browser.sessions["a1"] = session("a1", owner: "portA")
+        browser.sessions["b1"] = session("b1", owner: "portB")
+        browser.releaseIfOwned(byPortId: "portA")
+        #expect(browser.sessions["a1"] == nil, "port A's session must be closed")
+        #expect(browser.sessions["b1"] != nil, "port B's session must survive")
+    }
+
+    @Test("releaseIfOwned for an unrelated port id closes nothing")
+    @MainActor
+    func releaseIgnoresNonOwner() {
+        let browser = BrowserBridge()
+        browser.sessions["a1"] = session("a1", owner: "portA")
+        browser.releaseIfOwned(byPortId: "other")
+        #expect(browser.sessions["a1"] != nil, "an unrelated id must not close the session")
+    }
 }

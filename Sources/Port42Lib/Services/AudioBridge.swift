@@ -27,9 +27,15 @@ public final class AudioBridge: PortOwnedResource {
     // TTS state
     private var synthesizer: AVSpeechSynthesizer?
     private var speechDelegate: SpeechFinishedDelegate?
+    /// Stable id of the port that started the current speech (PortBridge.messageId); its teardown
+    /// stops the synthesizer. Internal so the teardown gate can prime and assert release.
+    var speakPortId: String?
 
     // Playback state
     private var audioPlayer: AVAudioPlayer?
+    /// Stable id of the port that started the current playback (PortBridge.messageId); its teardown
+    /// stops the player. Internal so the teardown gate can prime and assert release.
+    var playPortId: String?
 
     public init() {}
 
@@ -198,19 +204,29 @@ public final class AudioBridge: PortOwnedResource {
         return ["ok": true]
     }
 
-    /// Release the capture this port started (PortOwnedResource). Keyed on the owning port id, so
-    /// another port's capture is never collateral damage; idempotent, so calling it from both the
-    /// close path and the deinit backstop is safe. The mic must not keep running after its port is
-    /// gone. (Step 2 extends this to stop the synthesizer and player this port started.)
+    /// Release everything this port started (PortOwnedResource): its mic capture, its speech, and its
+    /// playback. Keyed on the owning port id, so another port's audio is never collateral damage;
+    /// idempotent, so calling it from both the close path and the deinit backstop is safe. A closed
+    /// port must not keep the mic running, keep talking, or keep playing.
     public func releaseIfOwned(byPortId id: String) {
-        guard ownerPortId == id else { return }
-        if isCapturing { _ = stopCapture() }
+        if isCapturing, ownerPortId == id {
+            _ = stopCapture()
+        }
+        if speakPortId == id {
+            if let synth = synthesizer, synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+            speakPortId = nil
+        }
+        if playPortId == id {
+            if let player = audioPlayer, player.isPlaying { player.stop() }
+            playPortId = nil
+        }
     }
 
     // MARK: - Speech Output (P-502)
 
-    /// Speak text using AVSpeechSynthesizer. Resolves when speech finishes.
-    public func speak(text: String, opts: [String: Any]?) async -> [String: Any] {
+    /// Speak text using AVSpeechSynthesizer. Resolves when speech finishes. `owner` is the port that
+    /// made the call: its teardown stops the synthesizer so a closed port cannot keep talking.
+    public func speak(text: String, opts: [String: Any]?, owner: PortBridge? = nil) async -> [String: Any] {
         guard !text.isEmpty else {
             return ["error": "audio.speak requires non-empty text"]
         }
@@ -242,6 +258,8 @@ public final class AudioBridge: PortOwnedResource {
             synthesizer = AVSpeechSynthesizer()
         }
 
+        self.speakPortId = owner?.messageId
+
         let result: [String: Any] = await withCheckedContinuation { continuation in
             let delegate = SpeechFinishedDelegate {
                 continuation.resume(returning: ["ok": true])
@@ -251,14 +269,16 @@ public final class AudioBridge: PortOwnedResource {
             self.synthesizer!.speak(utterance)
         }
 
+        self.speakPortId = nil
         NSLog("[Port42] audio.speak completed: %d chars", text.count)
         return result
     }
 
     // MARK: - Audio Playback (P-502)
 
-    /// Play a base64-encoded audio buffer (WAV, MP3, AAC, etc).
-    public func play(data: String, opts: [String: Any]?) -> [String: Any] {
+    /// Play a base64-encoded audio buffer (WAV, MP3, AAC, etc). `owner` is the port that made the
+    /// call: its teardown stops the player so a closed port cannot keep playing.
+    public func play(data: String, opts: [String: Any]?, owner: PortBridge? = nil) -> [String: Any] {
         guard let audioData = Data(base64Encoded: data) else {
             return ["error": "invalid base64 audio data"]
         }
@@ -279,6 +299,7 @@ public final class AudioBridge: PortOwnedResource {
             player.prepareToPlay()
             player.play()
             self.audioPlayer = player
+            self.playPortId = owner?.messageId
 
             NSLog("[Port42] audio.play started: %.1fs duration", player.duration)
             return ["ok": true, "duration": player.duration]
