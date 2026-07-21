@@ -130,6 +130,7 @@ Higher uncertainty; each needs an RCA or a repro before it's a clean build. Rank
 | 3.6 | **Drag-reorder spaces in the galaxy** | S–M | Needs a persistent `sortIndex` (append migration) that then drives `⌘1…9`. Pairs with 0.6 as the two switching axes. |
 | 3.7 | **`port.position` / `screen.displays` "Unknown tool"** | XS | Likely already resolved (the ports.list sweep verified these serve from the registry); confirm over the live gateway and either close or fix the reference. |
 | 3.8 | **Resize cursor on tile edges / corners** | XS | Pointer stays the default arrow while dragging a tile's edge or corner to resize. Swap to the directional resize cursor (`NSCursor.resize*` / `⤢`) on hover + during a resize drag, per edge/corner, so the affordance reads. Cursor-only polish on the tile drag handles. |
+| 3.9 | **Screen recording: continuous video + audio** | M | Today `screen.capture` = one PNG and `screen.stream` = pushed frames; add a `screen.record` (start/stop) that writes a continuous **video file with audio** (system audio and/or mic). ScreenCaptureKit path: `SCRecordingOutput` (macOS 15+) or an `AVAssetWriter` fed from the existing `SCStream` plus an audio tap. Shares the `SCStream` plumbing with `screen.stream`, so it also touches the 2.4 pointer-glitch surface. GM idea 2026-07-21. |
 
 ---
 
