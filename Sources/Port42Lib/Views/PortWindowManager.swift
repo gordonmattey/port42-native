@@ -899,7 +899,18 @@ public final class PortWindowManager: ObservableObject {
 
     /// Clean up a webview and its associated handlers.
     private func destroyWebView(_ id: String) {
-        webViews[id]?.removeFromSuperview()
+        if let wv = webViews[id] {
+            // Break the retain cycle (backlog 0.5, the leak's root): WKUserContentController strongly
+            // retains its script message handlers, and the "port42" handler IS the PortBridge. Nothing
+            // else drops it, so after close the bridge stayed pinned, its deinit never fired, and the
+            // deinit-driven device stops never ran. Remove the handler and the injected user scripts
+            // so the bridge can dealloc and the deinit backstop can run on the non-close death paths.
+            // restart re-runs attach, which re-adds both, so an in-place reload is unaffected.
+            let ucc = wv.configuration.userContentController
+            ucc.removeScriptMessageHandler(forName: "port42")
+            ucc.removeAllUserScripts()
+            wv.removeFromSuperview()
+        }
         webViews.removeValue(forKey: id)
         consoleHandlers.removeValue(forKey: id)
         navDelegates.removeValue(forKey: id)
