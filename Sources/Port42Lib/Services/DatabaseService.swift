@@ -1406,11 +1406,12 @@ public final class DatabaseService {
     ) -> AnyDatabaseCancellable {
         ValueObservation
             .tracking { db in
-                // Match getRegularSpaces(): direct (1:1 DM) spaces are surfaced as
-                // companion rows, not as space rows — exclude them here too, or they
-                // leak into appState.spaces as phantom rows until the next refresh.
+                // Match getRegularSpaces() EXACTLY (filter AND order): direct (1:1 DM) spaces are
+                // surfaced as companion rows, not space rows — exclude them here too, or they leak into
+                // appState.spaces as phantom rows. The order MUST match getRegularSpaces (sortIndex, then
+                // createdAt, backlog 3.6) or this observation reverts a drag-reorder the moment it saves.
                 try Space.filter(Column("type") != "direct")
-                    .order(Column("createdAt").asc)
+                    .order(Column("sortIndex").asc, Column("createdAt").asc)
                     .fetchAll(db)
             }
             .start(in: dbQueue, onError: { error in

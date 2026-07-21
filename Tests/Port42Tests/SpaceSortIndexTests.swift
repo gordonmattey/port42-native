@@ -40,12 +40,32 @@ struct SpaceSortIndexTests {
         names.enumerated().map { i, n in var s = Space.create(name: n); s.sortIndex = i; return s }
     }
 
-    @Test("reorder moves a space to the target slot and renumbers sortIndex contiguously")
-    func reorderMovesAndRenumbers() {
+    @Test("insert into the gap before the target (a before c → 2nd)")
+    func reorderInsertBefore() {
         let s = ordered(["a", "b", "c", "d"])
-        let cId = s[2].id
-        let aId = s[0].id
-        let out = Space.reorder(s, moving: cId, to: aId)   // c jumps in front of a
+        let out = Space.reorder(s, moving: s[0].id, to: s[2].id)   // a into the gap before c
+        #expect(out.map(\.name) == ["b", "a", "c", "d"])
+        #expect(out.map(\.sortIndex) == [0, 1, 2, 3])
+    }
+
+    @Test("gap before a LATER tile lands further right (a before d → 3rd)")
+    func reorderInsertBeforeLater() {
+        let s = ordered(["a", "b", "c", "d"])
+        let out = Space.reorder(s, moving: s[0].id, to: s[3].id)   // a into the gap before d
+        #expect(out.map(\.name) == ["b", "c", "a", "d"])
+    }
+
+    @Test("the end sentinel (target matches no space) appends")
+    func reorderAppendEnd() {
+        let s = ordered(["a", "b", "c", "d"])
+        let out = Space.reorder(s, moving: s[0].id, to: "__reorder_end__")
+        #expect(out.map(\.name) == ["b", "c", "d", "a"])
+    }
+
+    @Test("backward: c into the gap before a → first")
+    func reorderBackward() {
+        let s = ordered(["a", "b", "c", "d"])
+        let out = Space.reorder(s, moving: s[2].id, to: s[0].id)
         #expect(out.map(\.name) == ["c", "a", "b", "d"])
         #expect(out.map(\.sortIndex) == [0, 1, 2, 3])
     }
@@ -70,4 +90,5 @@ struct SpaceSortIndexTests {
         #expect(state.spaces.map(\.sortIndex) == [0, 1, 2])
         #expect(try db.getRegularSpaces().map(\.name) == ["c", "a", "b"])   // survives a reload
     }
+
 }

@@ -393,6 +393,16 @@ struct ShellGalaxyView: View {
     @State private var shelfHovered: String?
     /// The world currently being dragged to reorder (backlog 3.6). nil = no drag in flight.
     @State private var draggedSpaceId: String?
+    /// The tile that FOLLOWS the gap where the dragged world will land (or `endDropTarget` for the
+    /// trailing gap = the New Space card). Drives the leading insertion bar; never reorders the grid
+    /// mid-drag (that oscillates), so it is a highlight only.
+    @State private var dropTargetId: String?
+    /// The hovered tile's width, to split it into before/after halves so the cursor can pick either the
+    /// gap before this tile or the gap before the next one (backlog 3.6).
+    @State private var tileWidth: CGFloat = 240
+    /// Sentinel target for the trailing gap (before the New Space card). `Space.reorder` appends because
+    /// it matches no space id.
+    static let endDropTarget = "__reorder_end__"
 
     var body: some View {
         ZStack {
@@ -549,6 +559,17 @@ struct ShellGalaxyView: View {
         // stay lit while you're hovering "new space".
         .onHover { hovering in newSpaceHovered = hovering; if hovering { shell.galaxyHover = nil } }
         .animation(.spring(response: 0.3), value: newSpaceHovered)
+        // The trailing gap (backlog 3.6): dropping onto (or just before) the New Space card appends the
+        // dragged world to the end. Its leading bar is the end-gap affordance.
+        .overlay(alignment: .leading) {
+            if draggedSpaceId != nil, dropTargetId == ShellGalaxyView.endDropTarget {
+                RoundedRectangle(cornerRadius: 2).fill(shell.accent)
+                    .frame(width: 4).padding(.vertical, 10).padding(.leading, 1)
+            }
+        }
+        .onDrop(of: [.plainText], delegate: SpaceReorderDrop(
+            targetId: ShellGalaxyView.endDropTarget, appState: appState, tileWidth: tileWidth,
+            dragged: $draggedSpaceId, dropTarget: $dropTargetId))
     }
 
     /// Count exactly what the desktop renders as tiles: the space's tiled ports + its chat tile
@@ -612,34 +633,82 @@ struct ShellGalaxyView: View {
         .animation(.spring(response: 0.3), value: hovered)
         // Hold ≥0.45s → settings; a quick tap → enter the space. High-priority long-press wins the
         // arbitration, so the release no longer also fires the tap (which zoomed in behind the box).
+        // Reorder affordance (backlog 3.6): the lifted world dims; the world it would land in front of
+        // shows a bright accent bar on its leading edge. NO live array mutation, so the grid stays put
+        // (mutating mid-drag reshuffles tiles under the cursor and oscillates).
+        .opacity(draggedSpaceId == space.id ? 0.35 : 1)
+        .overlay(alignment: .leading) {   // the gap bar is always on the leading edge (consistent, 3.6)
+            if draggedSpaceId != nil, draggedSpaceId != space.id, dropTargetId == space.id {
+                RoundedRectangle(cornerRadius: 2).fill(acc)
+                    .frame(width: 4).padding(.vertical, 10).padding(.leading, 1)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: dropTargetId)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { tileWidth = g.size.width }
+                .onChange(of: g.size.width) { _, w in tileWidth = w }
+        })
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.45)
             .onEnded { _ in shell.settingsTarget = .space(space.id) })
         .onTapGesture { shell.jumpToSpace(index: index) }
-        // Drag-reorder (backlog 3.6): press + move picks up a world; dropping it on another commits the
-        // new galaxy order (persisted sortIndex). A tap (no move) still enters; a hold still opens settings.
+        // Drag-reorder (backlog 3.6): press + move picks up a world; the accent bar shows where it will
+        // land (before OR after a tile, per cursor half, so the trailing slot is reachable); releasing
+        // commits the new order (persisted sortIndex). A tap (no move) still enters; a hold opens settings.
         .onDrag {
+            dropTargetId = nil
             draggedSpaceId = space.id
-            return NSItemProvider(object: space.id as NSString)
+            let provider = NSItemProvider()
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.plainText.identifier,
+                                                visibility: .all) { completion in
+                completion(Data(space.id.utf8), nil)
+                return nil
+            }
+            return provider
         }
-        .onDrop(of: [.text], delegate: SpaceReorderDrop(targetId: space.id, appState: appState,
-                                                        dragged: $draggedSpaceId))
+        .onDrop(of: [.plainText], delegate: SpaceReorderDrop(
+            targetId: space.id, appState: appState, tileWidth: tileWidth,
+            dragged: $draggedSpaceId, dropTarget: $dropTargetId))
     }
 }
 
-/// Commits a galaxy world drag-reorder on drop (backlog 3.6): the dragged world takes the target's
-/// slot. One persist per drop; the live in-drag shuffle is deliberately skipped for robustness.
+/// Galaxy world drag-reorder (backlog 3.6): the cursor's half of the hovered tile picks the insertion
+/// gap — left half = the gap before THIS tile, right half = the gap before the NEXT tile (or the
+/// trailing end). It records only the gap (never mutates the grid, which oscillates and kills
+/// performDrop) and commits on drop. `dropTarget` is always the tile FOLLOWING the gap, so the leading
+/// insertion bar and the drop both land in that gap.
 private struct SpaceReorderDrop: DropDelegate {
     let targetId: String
     let appState: AppState
+    let tileWidth: CGFloat
     @Binding var dragged: String?
+    @Binding var dropTarget: String?
 
     func validateDrop(info: DropInfo) -> Bool { dragged != nil && dragged != targetId }
 
+    /// Fires continuously while hovering, so the gap tracks the cursor's before/after half live.
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        if let d = dragged, d != targetId { dropTarget = resolvedGap(after: info.location.x > tileWidth / 2) }
+        return DropProposal(operation: .move)
+    }
+
     func performDrop(info: DropInfo) -> Bool {
-        guard let d = dragged, d != targetId else { dragged = nil; return false }
-        appState.reorderSpaces(moving: d, to: targetId)
-        dragged = nil
+        defer { dragged = nil; dropTarget = nil }
+        guard let d = dragged, let t = dropTarget, d != t else { return false }
+        appState.reorderSpaces(moving: d, to: t)   // t == endDropTarget → appends (matches no space)
         return true
+    }
+
+    /// The tile following the chosen gap: this tile (before-half), or the next working space / the end
+    /// sentinel (after-half).
+    private func resolvedGap(after: Bool) -> String {
+        guard after else { return targetId }
+        let working = appState.workingSpaces
+        if let i = working.firstIndex(where: { $0.id == targetId }) {
+            return (i + 1 < working.count) ? working[i + 1].id : ShellGalaxyView.endDropTarget
+        }
+        return targetId
     }
 }
 
