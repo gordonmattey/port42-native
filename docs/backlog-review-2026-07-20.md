@@ -1,11 +1,15 @@
 # Backlog review + ranked sequence (2026-07-20)
 
-**STATUS 2026-07-21 — Tier 0 complete (HEAD `cca4f66`).** All of Tier 0 shipped: 0.1 peek→tile,
-0.2 gateway-outlives-app, 0.3 parked-AI suspend (was already done), 0.4 bridge-rejects + CSP +
-truncation, 0.5 the exhaustive mic/speech teardown (both root causes, verified live — the retain
+**STATUS 2026-07-21 — Tier 0 complete; Tier 1.1 complete (verified live).** All of Tier 0 shipped: 0.1
+peek→tile, 0.2 gateway-outlives-app, 0.3 parked-AI suspend (was already done), 0.4 bridge-rejects + CSP
++ truncation, 0.5 the exhaustive mic/speech teardown (both root causes, verified live — the retain
 cycle AND the owner-resolution-on-authz-id defect; spec `docs/plan-exhaustive-port-teardown.md`),
-0.6 recency-sorted ⌘K (MRU + persisted). **Next: Tier 1.1 (ports must know their presentation
-state), then 1.2 (webview eviction).** The 1.1 plan is the immediate task.
+0.6 recency-sorted ⌘K (MRU + persisted). **Tier 1.1 (ports know their presentation state) shipped**
+across 5 commits (spec `docs/plan-port-presentation-state.md`): the pure model + `presentation()`
+getter + the `presentation` event/DOM alias, the debounced emit funnel, the `isSuspended`-re-keyed-to-
+`!visible` defense (option A: gates new model calls, does not cancel in-flight), the port-authoring
+discipline, and a live pass in Port42Dev (rAF freezes when hidden, one event per transition, no storm).
+**Next: Tier 1.2 (webview eviction), which consumes 1.1's `visible` signal.**
 
 Source: `docs/summer2026-todo.md`, every OPEN item. Ranked against the north star: **improve the
 experience and remove friction.** Not raw feature value.

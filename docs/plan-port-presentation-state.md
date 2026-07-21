@@ -440,12 +440,19 @@ returnable value** tested directly, following the repo's own precedent (`PortPus
   `port42.presentation()` / the `presentation` event / the `port42:presentation` DOM alias and the full
   discipline including persist-before-`background`. Content gates green (`BridgeDocsExportTests`,
   `BridgeHelpTests`, `InstructionServiceTests`, `BridgeParityMemoryTests`).
-- **Live pass (pending, needs the dev app + human TCC/keychain):** an animated port logging its rAF
-  tick and listening for `presentation`. Park → the tick stops and `{state:"parked",visible:false}`
-  arrives; background → same; focus → `{state:"focused",visible:true,w,h}`; switch space → the
-  off-desktop port receives visible:false. Confirm no emit storm (a bounded log count across a
-  space-switch) and that the debounced trigger + real `pushEvent` deliver. For the shader, the 0.3 gate
-  still holds: zero new `port_versions` while parked.
+- **Live pass — DONE (Port42Dev, gateway :4243, build 12:43).** An animated probe port (rAF loop gated
+  on `visible`, logging every event) driven over the gateway:
+  - Initial read: `port42.presentation()` returned `{state:"tiled",visible:true,360x260}` and the
+    `didFinish` event fired — no race. rAF ran ~60/sec while visible.
+  - Park (`port.manage dock`): `{state:"background",visible:false,reason:"background"}` arrived and the
+    tick FROZE (rafActive=false) — the port stopped burning CPU the instant it went off-screen.
+  - Restore: `{visible:true,reason:"shown"}`, tick resumed.
+  - Space switch away: `{state:"tiled",visible:false,reason:"hidden"}` (off-desktop), tick froze; switch
+    back: `{visible:true,reason:"shown"}`, resumed.
+  - No emit storm: exactly ONE event per transition — 5 total across init + park + restore + 2 switches.
+    The 50ms debounce coalesced each cascade into a single settled emit.
+  - Not live-driven (API cannot set zoom `.focus`): the `focused` state and the `isSuspended` re-key —
+    both covered by the unit suites (Steps 1, 4).
 
 ## Risks and rollback
 
