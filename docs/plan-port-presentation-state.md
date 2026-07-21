@@ -416,14 +416,20 @@ returnable value** tested directly, following the repo's own precedent (`PortPus
   idempotency; a live park = one delta. The debounced trigger and real `pushEvent` are live-verified in
   Step 5.
 
-### Step 4: shell-side defense
-- Skip not-visible ports in `pushHeartbeatToBridges` (via a pure `shouldHeartbeat(_:)` predicate).
-  Re-key `isSuspended` to `!presentation.visible` (decision 1, signed off) — one computation shared
-  with 0.3.
-- **Test:** new assertions that `isSuspended == true` for an off-desktop and a galaxy-hidden tile under
-  the `!visible` keying (the existing suspend suite `Bridge — streaming contract` /
-  `BridgeStreamTests` covers only `aiPaused`, so these are additive); the `shouldHeartbeat` predicate
-  is false for a not-visible port. Re-run `Bridge — streaming contract` for regression.
+### Step 4: shell-side defense — DONE (`Port Presentation — defense (Step 4)` green; AI + streaming suites green)
+- `ShellState.isVisible(_ panel:)` — the shared visibility computation.
+- `isSuspended` re-keyed to `!shell.isVisible(panel)` (decision 1), so an off-desktop or galaxy-hidden
+  tile also stops billing the model. Guarded: falls back to the panel-mode keying when no shell is
+  wired (headless/tests), which is why the AI suites (no `ShellState`) are unaffected.
+- `PortPresentation.shouldHeartbeat(_:)` pure predicate + `pushHeartbeatToBridges` skips not-visible
+  ports (resolved via `shell?.presentation(forPortId:)`).
+- **Scope note (behavior):** the re-key gates NEW model calls only. In-flight streams are still
+  cancelled solely on the park/background transition (`suspendAI`), so glancing at the galaxy or
+  focusing a sibling does not kill a running generation — it only blocks starting a new one while hidden.
+- **Tests:** `isSuspended` false for a visible tile; true for galaxy-hidden, off-desktop, parked, and
+  `aiPaused`; `shouldHeartbeat` false when not visible, true when visible or unknown. A test-lifetime
+  note: `state.shell` is weak (the app's `ShellView` owns it), so tests hold the `ShellState` with
+  `withExtendedLifetime`. Re-ran `Bridge — streaming contract` + `Bridge — ai service` for regression.
 
 ### Step 5: port-side discipline and reference ports
 - Update the first-party animated templates (three.js / shader) to gate rAF on `visible` and scale to

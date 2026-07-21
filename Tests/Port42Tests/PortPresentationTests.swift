@@ -408,3 +408,80 @@ struct PortPresentationFunnelTests {
         #expect(d[0].presentation.state == .parked && d[0].presentation.visible == false)
     }
 }
+
+/// Step 4: the shell-side defense. isSuspended re-keyed to !visible (decision 1, one computation with
+/// 0.3) and the pure shouldHeartbeat predicate that skips not-visible ports.
+@Suite("Port Presentation — defense (Step 4)")
+struct PortPresentationDefenseTests {
+
+    // MARK: - shouldHeartbeat (pure)
+
+    @Test("shouldHeartbeat: skip a not-visible port, keep a visible one, default-keep when unknown")
+    func heartbeatPredicate() {
+        #expect(ShellState.shouldHeartbeat(PortPresentation(state: .tiled, visible: true, size: .zero)) == true)
+        #expect(ShellState.shouldHeartbeat(PortPresentation(state: .parked, visible: false)) == false)
+        #expect(ShellState.shouldHeartbeat(nil) == true)      // no resolvable presentation → keep alive
+    }
+
+    // MARK: - isSuspended re-keyed to visibility
+
+    @MainActor
+    private func world() throws -> (ShellState, AppState, PortBridge, Space) {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let shell = ShellState(appState: state)
+        let space = Space.create(name: "s")
+        state.spaces = [space]; state.currentSpace = space
+        let bridge = PortBridge(appState: state, spaceId: space.id, messageId: "p1")
+        let panel = PortPanel(id: "p1", udid: "p1", html: "<div/>", bridge: bridge,
+                              spaceId: space.id, createdBy: nil, messageId: "p1",
+                              size: CGSize(width: 460, height: 400))
+        state.portWindows.panels.append(panel)
+        return (shell, state, bridge, space)
+    }
+
+    // state.shell is weak (ShellView owns it via @StateObject in the app); tests must keep the
+    // ShellState alive or isSuspended falls back to the panel-mode keying. withExtendedLifetime does that.
+
+    @Test("a visible tile on the current desktop is NOT suspended")
+    @MainActor
+    func visibleNotSuspended() throws {
+        let (shell, _, bridge, _) = try world()
+        withExtendedLifetime(shell) { #expect(bridge.isSuspended == false) }
+    }
+
+    @Test("a galaxy-hidden tile IS suspended (re-key extends 0.3 beyond park/background)")
+    @MainActor
+    func galaxySuspended() throws {
+        let (shell, _, bridge, _) = try world()
+        shell.zoom = .galaxy
+        withExtendedLifetime(shell) { #expect(bridge.isSuspended == true) }
+    }
+
+    @Test("an off-desktop tile (another space is current) IS suspended")
+    @MainActor
+    func offDesktopSuspended() throws {
+        let (shell, state, bridge, _) = try world()
+        let other = Space.create(name: "other")
+        state.spaces = [state.spaces[0], other]
+        state.currentSpace = other                       // p1 is no longer staged on the current desktop
+        withExtendedLifetime(shell) { #expect(bridge.isSuspended == true) }
+    }
+
+    @Test("a parked port IS suspended (agrees with the old panel-mode keying)")
+    @MainActor
+    func parkedSuspended() throws {
+        let (shell, state, bridge, _) = try world()
+        let i = try #require(state.portWindows.panels.firstIndex { $0.id == "p1" })
+        state.portWindows.panels[i].presentation = "parked"
+        withExtendedLifetime(shell) { #expect(bridge.isSuspended == true) }
+    }
+
+    @Test("aiPaused still short-circuits to suspended regardless of visibility")
+    @MainActor
+    func aiPausedSuspended() throws {
+        let (shell, _, bridge, _) = try world()
+        bridge.aiPaused = true
+        withExtendedLifetime(shell) { #expect(bridge.isSuspended == true) }   // visible, but manually paused
+    }
+}

@@ -152,4 +152,10 @@ extension ShellState {
         if prev.visible != next.visible { return next.visible ? "shown" : "hidden" }
         return "resize"                                                    // state+visible equal ⇒ size changed
     }
+
+    /// Heartbeat defense (backlog 1.1, Step 4): a not-visible port is skipped so its JS is not woken.
+    /// A port with no resolvable presentation defaults to being kept alive.
+    nonisolated public static func shouldHeartbeat(_ p: PortPresentation?) -> Bool {
+        p?.visible ?? true
+    }
 }

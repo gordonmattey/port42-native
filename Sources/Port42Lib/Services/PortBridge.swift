@@ -199,6 +199,12 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         if aiPaused { return true }
         guard let state = self.state,
               let panel = state.portWindows.panels.first(where: { $0.bridge === self }) else { return false }
+        // Re-keyed to presentation visibility (backlog 1.1, decision 1): an off-desktop or galaxy-hidden
+        // tile also stops billing the model, from the ONE computation shared with 0.3. This gates NEW
+        // model calls only; in-flight streams are still cancelled solely on the park/background
+        // transition (suspendAI), so glancing at the galaxy does not kill a running generation. Falls
+        // back to the panel-mode keying when no shell is wired (headless / tests).
+        if let shell = state.shell { return !shell.isVisible(panel) }
         return panel.isBackground || panel.presentation == "parked"
     }
 

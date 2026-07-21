@@ -447,6 +447,14 @@ public final class ShellState: ObservableObject {
         return out
     }
 
+    /// Whether this port's surface is actually on screen right now (backlog 1.1, Step 4): the
+    /// presentation `visible` axis. The ONE computation shared by the AI-suspend gate (0.3, re-keyed)
+    /// and the heartbeat skip — not visible = not spending, not woken.
+    func isVisible(_ panel: PortPanel) -> Bool {
+        let item = contextItems.first { $0.id == panel.id }
+        return Self.presentation(for: panel, zoom: zoom, item: item, area: lastDesktopArea).visible
+    }
+
     /// THE one emit funnel (Step 3): snapshot → pure diff → push the changed ports → store the snapshot.
     /// Read-only over observed state and it stores only the non-`@Published` `lastPresentation`, so it can
     /// never feed back into its own trigger (invariant #3). Driven solely by the debounced pipeline in

@@ -1129,7 +1129,11 @@ public final class AppState: ObservableObject {
     private func pushHeartbeatToBridges() {
         activeBridges.removeAll { $0.bridge == nil }
         for weak in activeBridges {
-            weak.bridge?.pushHeartbeat()
+            guard let bridge = weak.bridge else { continue }
+            // Skip a port the shell knows is not visible (backlog 1.1, Step 4): its JS is not woken.
+            let snap = bridge.messageId.flatMap { shell?.presentation(forPortId: $0) }
+            guard ShellState.shouldHeartbeat(snap) else { continue }
+            bridge.pushHeartbeat()
         }
     }
 
