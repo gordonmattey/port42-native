@@ -1596,6 +1596,34 @@ near-term proof; the rest rides the principal work.
 **Want:** put different spaces on different monitors — space A on monitor 1, space B on monitor 2,
 both live at once — so a multi-monitor setup is a multi-space workspace, not one space at a time.
 
+**UX vision (GM 2026-07-20):** the monitors show up in **galaxy view** as targets, and you
+**drag-and-drop a space card onto the monitor** you want it on. Direct, physical — the galaxy already
+renders spaces as cards, so adding the displays as drop zones is the natural surface.
+
+**Feasibility read (2026-07-20): NOT easy — the UX is the easy 20%, the mechanism under it is the hard
+80%.**
+- **Easy (the drag-drop UX):** enumerate monitors (have it — `NSScreen.screens` / `screen.displays`),
+  render them as galaxy drop targets (moderate SwiftUI), drag a space card onto one (standard drag-drop).
+- **Hard (what makes the drop DO something):**
+  1. **One shell window per monitor.** Today there is exactly one window; `ShellMode.applyShellWindow`
+     pins it to `window.screen ?? NSScreen.main`. A second monitor needs a second borderless-takeover
+     window rendering another space — the dedicated `ShellWindow` the shell plan calls "the graduation,"
+     anticipated but not built.
+  2. **`currentSpace` becomes per-display.** It is a single global today (the whole shell reads
+     `AppState.currentSpace`); multi-display shifts the model to "the space on each display" — a
+     display→space map, or one `ShellState` per window.
+  3. **THE load-bearing risk — port re-parenting across windows without blanking.** A port's webview is
+     mounted once in a window's view hierarchy (the mount-once contract that killed the blanking bug).
+     Moving a space to another monitor re-parents its ports into the other window. This is the same
+     WKWebView re-parent crux the shell plan already **spike-proved** (`prototypes/wkspike`), so there
+     is prior art — but it is where this feature lives or dies.
+
+**Recommended path — prove the mechanism before the UX.** Build the smallest thing that renders a space
+on a second monitor: a command ("send this space to display 2") that opens a takeover window there with
+`currentSpace` per-display, and confirm its ports re-parent cleanly (no blank — point `PortRenderProbe`
+at it). That de-risks the multi-window + re-parent core. The galaxy drag-drop is then the UX layer on
+top. Building the drag-drop first = a gesture that can't actually move a space yet.
+
 **Current state:** the shell is a **single window on one screen**. Geometry assumes `NSScreen.main`
 (e.g. `PortWindowManager` sizes tiles off `NSScreen.main?.visibleFrame`), and the takeover
 (`presentationOptions = [.hideDock,.hideMenuBar]` + borderless fullscreen) grabs that one screen.
