@@ -120,4 +120,27 @@ struct PortTeardownTests {
         }
         #expect(weakBridge == nil, "the bridge deallocated after close: the WKScriptMessageHandler retain is broken")
     }
+
+    // MARK: - Step 6: enforcement — a new capability cannot skip teardown
+
+    @Test("every start-with-owner device bridge is registered for teardown")
+    @MainActor
+    func teardownInventoryIsComplete() throws {
+        let state = try makeState()
+        let bridges = state.deviceBridges
+
+        // Fixed inventory. Swift has no runtime reflection over stored properties, so this guards
+        // drift by count + type: the four device families that accept an owning port today are
+        // audio (capture / speak / play), camera (stream), screen (stream), and browser (sessions).
+        //
+        // ADDING A NEW start-with-owner capability (a bridge that records owner?.messageId at start)?
+        // Conform it to PortOwnedResource, add it to AppState.deviceBridges, AND add it here. If you
+        // add the bridge to the list but not here (or vice versa), this test fails on purpose — that
+        // is the point: it turns "someone forgot teardown" from a silent leak into a red test.
+        #expect(bridges.count == 4, "deviceBridges drifted from the four owner-taking device families")
+        #expect(bridges.contains { $0 is AudioBridge }, "AudioBridge must be registered for teardown")
+        #expect(bridges.contains { $0 is CameraBridge }, "CameraBridge must be registered for teardown")
+        #expect(bridges.contains { $0 is ScreenBridge }, "ScreenBridge must be registered for teardown")
+        #expect(bridges.contains { $0 is BrowserBridge }, "BrowserBridge must be registered for teardown")
+    }
 }
