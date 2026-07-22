@@ -43,11 +43,18 @@ public struct ShellView: View {
             // Layer 0 — the ambient background. Normally the Canvas dreamscape; but if a port is set
             // as the background (the chrome-is-ports wedge), that port renders full-bleed here
             // instead, non-interactive. Your background is a port you made.
-            if let bgHtml = shell.backgroundPortHtml {
-                // Interactive: it's Layer 0 behind the desktop, so ports/chrome on top win their
-                // clicks and only the empty gaps fall through to the background. That means an
-                // AI-enabled background port (a shader you can regenerate, a live surface) actually
-                // works — "if i choose an ai port to be the background, i might want it to be AI."
+            if let bgId = shell.backgroundPortId, let v = appState.portWindows.hostView(for: bgId) {
+                // The LIVE port, re-parented full-bleed as Layer 0 — no reload. Background is just a
+                // position of the same surface (like tiled/parked/focus), so a running shader keeps
+                // running. Interactive: it's behind the desktop, so ports/chrome on top win their
+                // clicks and only the empty gaps fall through to the background.
+                ShellPortHost(view: v,
+                              bridge: appState.portWindows.panels.first(where: { $0.id == bgId })?.bridge,
+                              probeId: bgId)
+                    .ignoresSafeArea()
+            } else if let bgHtml = shell.backgroundPortHtml {
+                // Fallback: the background port was CLOSED — nothing live to re-parent, so mount a
+                // fresh copy from its stored HTML.
                 ShellBackgroundPort(html: bgHtml, appState: appState)
                     .ignoresSafeArea()
             } else {

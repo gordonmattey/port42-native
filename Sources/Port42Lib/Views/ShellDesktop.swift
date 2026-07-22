@@ -48,7 +48,7 @@ struct ShellChrome: View {
             // Reset background — a SHELL-level control, not a per-port one. Appears only when a port
             // is set as the background; clears it back to the ambient dreamscape and pops the port
             // back onto the desktop.
-            if shell.backgroundPortHtml != nil {
+            if shell.hasBackgroundPort {
                 chromeButton("moon.stars", "Reset background") { shell.clearBackgroundToTile() }
             }
             chromeButton("chart.bar", "Token usage") { shell.showUsage = true }
@@ -587,11 +587,11 @@ struct ShellTile: View {
                         onRefresh: { appState.portWindows.reloadPort(tile.id); showMore = false },
                         onHistory: { showMore = false; showVersions = true },
                         onSetBackground: {
-                            // Move the port to the background rather than clone it: set (captures the
-                            // HTML) then close the tile, so you don't see it twice. "port still stays
-                            // open" → gone; it lives as the background now (recoverable from history).
-                            appState.shell?.setBackgroundPort(id: tile.panel?.udid ?? tile.id)
-                            if let panel = tile.panel { shell.dismissTile(panel) }
+                            // MOVE the port to the background — a position change, not a clone. Its
+                            // presentation flips to "background", so it drops out of the tile grid and
+                            // re-parents full-bleed at Layer 0. The live surface (and any running
+                            // shader) keeps running: no dismiss, no reload.
+                            appState.shell?.setBackgroundPort(id: tile.panel?.id ?? tile.id)
                             showMore = false
                         })
                 }

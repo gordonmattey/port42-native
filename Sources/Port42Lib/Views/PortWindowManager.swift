@@ -586,6 +586,15 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
+    /// Move a port to a presentation (tiled / background) — a POSITION change only; the render layer
+    /// re-parents the hoisted view, never remakes it (unlike a fresh mount, so a shader keeps running).
+    /// Unlike `park`, this never suspends the AI: a full-bleed background port stays live. Persists.
+    public func setPresentation(id: String, to presentation: String) {
+        guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        panels[idx].presentation = presentation
+        persistPanel(id)
+    }
+
     /// Persist a tile's new geometry after a drag/resize ends (the shell desktop is the layout
     /// authority; hand positions survive restart). No-op for a port that isn't tiled/floating.
     public func updateTileFrame(id: String, position: CGPoint, size: CGSize? = nil) {

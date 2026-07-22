@@ -59,22 +59,48 @@ public final class ShellState: ObservableObject {
 
     // MARK: - Background-as-port (the chrome-is-ports wedge)
 
-    /// A port set as the space background — rendered full-bleed as Layer 0 instead of the ambient
-    /// Canvas dreamscape, non-interactive. The first step of "the chrome is ports too": your
-    /// background is a port you made. Persisted by id; HTML resolved on set/launch.
+    /// The LIVE port set as the space background — re-parented full-bleed as Layer 0, NOT reloaded.
+    /// Background is a PRESENTATION of the port (like tiled/parked/focus), so moving to or from it is
+    /// a position change, never a lifecycle change: the hoisted webview never remounts, so a running
+    /// shader / JS state survives. Layer 0 hosts this port's live surface via `hostView(for:)`.
+    @Published public var backgroundPortId: String?
+
+    /// Fallback ONLY: the background port was CLOSED, so there is no live surface to re-parent —
+    /// Layer 0 mounts a fresh copy from this stored HTML. A live background always uses `backgroundPortId`.
     @Published public var backgroundPortHtml: String?
     private static let bgKey = "shell.backgroundPortId"
 
-    /// Set (or clear, with nil) the background port. Resolves the port's latest HTML now and
-    /// remembers the id so it restores next launch.
+    /// True while anything is the background (a live port or the closed-port HTML fallback).
+    public var hasBackgroundPort: Bool { backgroundPortId != nil || backgroundPortHtml != nil }
+
+    /// Set (or clear, with nil) the background port. A live port MOVES to the background presentation
+    /// (re-parent, no reload); a closed port falls back to a fresh HTML mount. The id is remembered so
+    /// it restores next launch.
     @MainActor
     public func setBackgroundPort(id: String?) {
         guard let id else {
+            // Clear to the ambient dreamscape. A live background port flips back to a tile.
+            if let cur = backgroundPortId,
+               let panel = appState.portWindows.panels.first(where: { $0.id == cur || $0.udid == cur }) {
+                appState.portWindows.setPresentation(id: panel.id, to: "tiled")
+            }
+            backgroundPortId = nil
             backgroundPortHtml = nil
             UserDefaults.standard.removeObject(forKey: Self.bgKey)
             return
         }
+        // Live port → move it to the background presentation (drops from the grid, re-parents at
+        // Layer 0). The webview keeps running; nothing is cloned or reloaded.
+        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
+            appState.portWindows.setPresentation(id: panel.id, to: "background")
+            backgroundPortId = panel.id
+            backgroundPortHtml = nil
+            UserDefaults.standard.set(id, forKey: Self.bgKey)
+            return
+        }
+        // Closed port → nothing live to preserve; mount a fresh copy from its stored HTML.
         if let html = resolveBackgroundHtml(id: id) {
+            backgroundPortId = nil
             backgroundPortHtml = html
             UserDefaults.standard.set(id, forKey: Self.bgKey)
         }
@@ -90,18 +116,30 @@ public final class ShellState: ObservableObject {
         return (try? appState.db.fetchPortHtml(udid: id)) ?? nil
     }
 
-    /// Restore a background port set in a previous session.
+    /// Restore a background port set in a previous session. A live port (persisted with the background
+    /// presentation) is re-parented; a closed one falls back to stored HTML.
     @MainActor
     public func restoreBackgroundPort() {
         guard let id = UserDefaults.standard.string(forKey: Self.bgKey), !id.isEmpty else { return }
-        backgroundPortHtml = resolveBackgroundHtml(id: id)
+        if let panel = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
+            appState.portWindows.setPresentation(id: panel.id, to: "background")   // keep it out of the grid
+            backgroundPortId = panel.id
+        } else {
+            backgroundPortHtml = resolveBackgroundHtml(id: id)
+        }
     }
 
     /// Clear the background AND pop the port back onto the desktop as a tile — the reverse of "set as
-    /// background" (which closes the tile). GM: "when i do regular background, the background should
-    /// pop back in as a port."
+    /// background". A live background flips straight back to a frontmost tile (no reload); a closed-port
+    /// fallback is recreated from its stored HTML.
     @MainActor
     public func clearBackgroundToTile() {
+        if let cur = backgroundPortId {
+            let pid = appState.portWindows.panels.first(where: { $0.id == cur || $0.udid == cur })?.id
+            setBackgroundPort(id: nil)                           // flips it to "tiled" + clears the background
+            if let pid { bringToFront(pid); arrangeBump += 1 }   // frontmost + re-grid into place
+            return
+        }
         let html = backgroundPortHtml
         setBackgroundPort(id: nil)                               // ambient dreamscape returns
         guard let html, let sid = appState.currentSpace?.id else { return }
