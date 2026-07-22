@@ -6,6 +6,38 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG (TODO, 2026-07-21): message to a command companion animates its terminal but never arrives
+
+A `messages.send` posted to the space that @mentions a command (terminal) companion — here a curl
+`messages.send` from another companion, mentioning `@terminal` — shows the message in chat AND triggers
+animating terminal activity on the target companion, but NO message actually hits the terminal (nothing
+is injected into the companion's stdin). Observed live 2026-07-21: the message landed in chat, the
+`@terminal` companion's terminal animated as if receiving, but no message reached it.
+
+The animation firing without delivery suggests the routing/turn kicks the companion but the injection of
+the message text never happens (or targets the wrong session). Adjacent to the earlier "chat-driven CLI
+companion replies on screen but never posts" bug, but the INBOUND direction: a message TO the companion
+is dropped. Look at MentionParser/AgentRouter (AgentRouting.swift) → the command-companion inject path
+(AgentProcess / the NDJSON stdin write in AgentProtocol.swift).
+
+---
+
+## BUG (TODO, 2026-07-21): shim's PORT42_CLAUDE_SESSION_ID breaks `claude --resume`
+
+A command companion / terminal launched through the shim inherits `PORT42_CLAUDE_SESSION_ID` in its
+env. When the user then runs `claude --resume` in that terminal, the CLI errors:
+`--session-id can only be used with --continue or --resume if --fork-session is also specified.` The
+env var is being consumed as `--session-id` on a resume path that has no `--fork-session`.
+
+Workaround (confirmed live): `unset PORT42_CLAUDE_SESSION_ID` then `claude --resume <id>`.
+
+Fix: the shim's env handling should scrub `PORT42_CLAUDE_SESSION_ID` on the resume/continue path (the
+same `sanitizeEnv` discipline that already scrubs `CLAUDE_CODE_SESSION_ID` / `_CHILD_SESSION` /
+`_BRIDGE_SESSION_ID` before exec, per CLAUDE.md). Same env-leak class as the earlier
+companion-transcript bug. Lives in the shim (`port42-claude-shim`) / AgentProcess env setup.
+
+---
+
 ## BUG (TODO, 2026-07-21): restored/launched surface lands under everything + wrong restore animation origin
 
 Two related defects on the park-rail (dock) restore path and the new chat/terminal path. GM report:
