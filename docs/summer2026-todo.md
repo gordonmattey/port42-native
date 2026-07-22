@@ -6,6 +6,24 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## BUG (TODO, 2026-07-21): restored/launched surface lands under everything + wrong restore animation origin
+
+Two related defects on the park-rail (dock) restore path and the new chat/terminal path. GM report:
+
+1. **Z-order.** Restoring a port from the dock, OR launching a chat / terminal, drops the surface
+   UNDER the existing tiles instead of coming to the front. Expected: a restored or newly-launched
+   surface arrives frontmost and takes focus. (Likely a missing `bringToFront` / z-bump on the
+   restore + create paths; lives around the park-rail restore and chat/terminal spawn in
+   `ShellDesktop.swift` / `ShellState.swift`.)
+2. **Restore animation origin.** Restoring from the dock animates the tile in from the RIGHT screen
+   edge, instead of out of the dock (park rail) chip it was restored from. Expected: it animates from
+   its dock location. (The insertion transition is using a screen-relative origin, not the source
+   chip's frame.)
+
+Both are friction on the everyday restore loop. Size: S each, likely one seam.
+
+---
+
 ## ~~BUG: chat-driven CLI companion replies on screen but never posts~~ — FIXED 2026-07-20
 
 **Fixed on shell-s1** (`docs/plan-companion-cwd.md`, commits a9c6834..40e4a76). Two root causes,

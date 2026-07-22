@@ -112,16 +112,53 @@ gateway. Adding methods bumps the `BridgeParamConsistencyTests` count and the `l
 Capture cannot run headless (needs a real display + TCC), so the split is: **pure logic is unit-tested;
 the capture path is spike- and live-verified.** Each step builds green before the next.
 
-### Step 0: the spikes above
-Land the three findings (record+audio works, occlusion-proof + glitch status, sourceRect coordinate
-space). Gate the rest on Spike A and C passing.
+### Step 0: the spikes above — DONE (2026-07-21, verified live in Port42Dev)
 
-### Step 1: the recording session core (`window:self`, video + system audio, start/stop)
-- `ScreenRecorder.start/stop` for the simplest target (`window:self`), `capturesAudio` from `audio`,
-  `SCRecordingOutput` to a temp `.mov`, returns the real path + metadata.
-- **Test:** unit — `RecordConfig.from(opts:)` maps fps/scale/dimensions/cursor/audio correctly (pure).
-  Live (Port42Dev) — record 5s of self with `audio:"system"`, assert the returned path exists, is a
-  valid movie with a video + audio track, `seconds`/`bytes` are sane.
+Throwaway harness `ScreenRecordSpike.swift` (`#if DEBUG`, Debug menu + one-shot
+`PORT42_RECSPIKE_A/B/C_AUTORUN` flags), recording the self-window to `/tmp/screenrec-<mode>.mov`,
+verified with `ffprobe`/`ffmpeg` + frame extraction. Findings (the deliverable):
+
+- **A — PASS (gating).** `SCRecordingOutput` + `SCStreamConfiguration.capturesAudio=true` produce ONE
+  `.mov` with an H264 video track AND an AAC stereo 48kHz audio track. No separate `.audio`
+  `SCStreamOutput` is needed. Audio was non-silent (a looping `NSSound` played through the app during
+  the take; `volumedetect` mean −30.1 dB / max −8.9 dB, vs ~−91 dB for true silence).
+  `excludesCurrentProcessAudio` defaults false, so this process's own audio (the synth) is captured.
+- **B — occlusion-proof PASS; recorded pointer clean (risk-namer).** Recorded the self-window with
+  `showsCursor=true` while Finder and Terminal covered Port42. Every frame showed ONLY Port42's
+  surface (no leak, no black) — the `desktopIndependentWindow` filter is private regardless of
+  occlusion. The captured cursor rendered cleanly (no doubling/smear). The 2.4 glitch is about the
+  LIVE on-screen pointer, which a recording can't show; left as a live-observation note for Step 4's
+  cursor-on cases.
+- **C — PASS (gating).** With a `desktopIndependentWindow` filter, `config.sourceRect` is
+  **window-relative, in POINTS, origin top-left.** A centered 50%-size rect
+  `(432, 269.75, 864, 539.5)` on a 1728×1079-point window (3456×2158-px backing) cropped to the
+  centered half of the window content, not a pixel-space sub-patch and not offset by the window's
+  screen position. This is the coordinate space the union-bbox framing math in Step 2 uses.
+
+**Gate cleared** (A and C pass), Step 1 unblocked. Carry-forward: the spike hard-coded `scale = 2`
+(output came out at 2× the point size); Step 1's `RecordConfig.from(opts:)` must derive
+`width/height` from the requested `scale`/dimensions so takes land at the asked-for size.
+
+### Step 1: the recording session core (`window:self`, video + system audio, start/stop) — DONE (2026-07-21)
+
+`ScreenRecorder.swift`: the pure `RecordConfig.from(sourceSize:displayScale:opts:)` derivation
+(scale/dimensions/fps/cursor/audio/format → output px + SCStreamConfiguration shaping), `RecordTarget`
+(`.selfWindow` now, rest stubbed), and `ScreenRecorder` (`@MainActor`) owning an `SCStream` +
+`SCRecordingOutput` per `recordingId`. `start(.selfWindow, opts)` → `{recordingId, width, height,
+target}`; `stop(id)` finalizes via the delegate + a 3s watchdog → `{path, width, height, seconds, fps,
+bytes}`; `cleanup()` is the teardown seam (owner-port `releaseIfOwned` wiring lands in the teardown
+step). Step 1 writes to a temp `.mov`; the space-cwd/fallback destination lands with the bridge methods.
+
+- **Unit — PASS (13 tests, `RecordConfigTests`):** default scale = display scale; `scale:1` → point
+  size (the scale fix); `scale:2` → 2×; explicit width/height override; fps default/floor; cursor;
+  each `audio` value → correct `capturesAudio`/`captureMicrophone`; `format` → file type; Int-scale
+  from JSON. Headless.
+- **Live — PASS (Port42Dev, via the repointed spike A):** `start(.selfWindow, {audio:"system",
+  scale:1})` → `width:1728, height:1079`; 5s take; `stop` → a real temp path, `seconds:5.0`. ffprobe:
+  H264 **1728×1078** (h264 rounds the odd 1079 height down to even), AAC stereo 48kHz, mean −28.9 dB
+  (non-silent). Scale fix confirmed live.
+- **Carry-forward:** dimension math should prefer even width/height so the encoder does not silently
+  round (the 1079→1078 case). Fold into Step 2/4's derivation.
 
 ### Step 2: target resolution + framing math
 - `RecordTarget` resolution → filter + `sourceRect`; the **pure union-bbox** function (rects + padding →

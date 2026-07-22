@@ -95,6 +95,17 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 PortUnitCycleHarness.shared.runCycleSwapWhenReady()
             }
         }
+        // screen.record Step 0 spikes (docs/plan-screen-record.md). A/C run hands-free; B needs a human.
+        for (flag, mode) in [("PORT42_RECSPIKE_A_AUTORUN", ScreenRecordSpikeHarness.Mode.a),
+                             ("PORT42_RECSPIKE_B_AUTORUN", .b),
+                             ("PORT42_RECSPIKE_C_AUTORUN", .c)] {
+            if UserDefaults.standard.bool(forKey: flag) {
+                UserDefaults.standard.removeObject(forKey: flag)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    ScreenRecordSpikeHarness.shared.run(mode)
+                }
+            }
+        }
         #endif
 
         // Remember the windowed shell size: persist the SHELL window's frame on resize/move
@@ -368,6 +379,16 @@ struct Port42App: App {
                 }
                 Button("⌘` cycle — focus swap probe") {
                     PortUnitCycleHarness.shared.runCycleSwap()
+                }
+                Divider()
+                Button("screen.record Spike A (self + system audio)") {
+                    ScreenRecordSpikeHarness.shared.run(.a)
+                }
+                Button("screen.record Spike B (occlusion + pointer)") {
+                    ScreenRecordSpikeHarness.shared.run(.b)
+                }
+                Button("screen.record Spike C (sourceRect crop)") {
+                    ScreenRecordSpikeHarness.shared.run(.c)
                 }
             }
             #endif
