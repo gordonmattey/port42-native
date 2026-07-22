@@ -31,16 +31,17 @@ public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> 
         let permission: PortPermission?
         let description: String
         let streaming: Bool
+        let inputSchema: [String: Any]
     }
 
     var entries: [Entry] = []
     for (name, m) in state.bridgeRegistry {
         entries.append(Entry(name: name, params: m.paramNames, permission: m.permission,
-                             description: m.description, streaming: false))
+                             description: m.description, streaming: false, inputSchema: m.inputSchema))
     }
     for (name, m) in state.bridgeStreamRegistry {
         entries.append(Entry(name: name, params: m.paramNames, permission: m.permission,
-                             description: m.description, streaming: true))
+                             description: m.description, streaming: true, inputSchema: m.inputSchema))
     }
 
     out += "## Available Methods\n\n"
@@ -60,6 +61,7 @@ public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> 
             if !e.description.isEmpty {
                 out += "      \(e.description)\n"
             }
+            out += renderSchemaParams(e.inputSchema)
         }
     }
 
@@ -71,5 +73,29 @@ public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> 
         }
     }
 
+    return out
+}
+
+/// Render a method's `inputSchema` properties as indented `help` lines so the param SHAPE (not just the
+/// param name) is discoverable via `help` — e.g. what goes inside an `options` bag. Keys are sorted so
+/// the generated reference is byte-stable (the llms.txt freshness gate). Renders one line per property:
+/// `name (type[, required]): description`. A schema with no properties renders nothing.
+private func renderSchemaParams(_ schema: [String: Any]) -> String {
+    guard let props = schema["properties"] as? [String: Any], !props.isEmpty else { return "" }
+    let required = Set((schema["required"] as? [String]) ?? [])
+    var out = ""
+    for key in props.keys.sorted() {
+        let spec = props[key] as? [String: Any] ?? [:]
+        var head = key
+        var meta: [String] = []
+        if let type = spec["type"] as? String { meta.append(type) }
+        if required.contains(key) { meta.append("required") }
+        if !meta.isEmpty { head += " (\(meta.joined(separator: ", ")))" }
+        if let desc = spec["description"] as? String, !desc.isEmpty {
+            out += "        \(head): \(desc)\n"
+        } else {
+            out += "        \(head)\n"
+        }
+    }
     return out
 }

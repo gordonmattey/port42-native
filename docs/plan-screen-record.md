@@ -277,6 +277,43 @@ Two things folded in before Step 7 so the director examples are meaningful:
 The `contain` shot (any target whose requested aspect differs from the source) returns the legible
 "pass fit:cover or fit:exact" error until Step 6.
 
+## Known bugs (post-ship, GM 2026-07-21)
+
+Dev/eng-side defects found after the live pass (RCA by GM). Both are in the capture pipeline, not the
+bridge/framing layer (those are green). Neither blocks the shipped happy path (no-audio, no-cursor
+window/port takes).
+
+1. **Cursor never appears — `cursor:true` ignored for window captures. FIXED 2026-07-21.** A recording
+   made with `cursor:true` had no pointer. Cause: window/self/port targets use
+   `SCContentFilter(desktopIndependentWindow:)`, and ScreenCaptureKit's `showsCursor` has NO effect on
+   window captures — the cursor is a system compositor overlay, not window content, so it only renders on
+   display/region captures. The option was wired correctly (`showsCursor` set at `ScreenRecorder.swift`);
+   it simply could not take effect for `target:{window}`/`self`/`port`.
+   **Fix (GM's call: treat it as an invalid parameter, not an auto-route):** `RecordTarget.supportsCursor`
+   (display/region only) + a validation guard at the top of `ScreenRecorder.start` rejects `cursor:true` on
+   a window/self/port target BEFORE any capture, with a legible "use target:{display} or {region}" message.
+   No silent no-op, no occlusion surprise. `RecordTargetTests` covers `supportsCursor` for every case.
+   Display/region takes already render the cursor, so a cursor-bearing recording is achievable today.
+
+2. **System audio never lands in the file — `audio:"system"` silent.** A recording made with
+   `audio:"system"` has no audio track. The config is correct: `audio:"system"` → `capturesAudio = true`
+   (`ScreenRecorder.swift:91,108`), and `excludesCurrentProcessAudio` is unset so the app's own synth audio
+   should be included. But the output `.mov` has no audio track, so the captured audio samples are not being
+   written into the recording output — the audio input/track isn't wired into the
+   `SCRecordingOutput` / `AVAssetWriter` writer path.
+   **FIXED 2026-07-22 — replaced `SCRecordingOutput` with a manual `AVAssetWriter`.** `SCRecordingOutput`
+   did not land an audio track, so the recorder now owns the writer (`RecordingWriter` in
+   `ScreenRecorder.swift`): it registers `SCStreamOutput`s for `.screen` (video), `.audio` (system), and
+   `.microphone` (mic), and appends each into an `AVAssetWriter` (H.264 video + AAC 48k/stereo audio
+   tracks). The session anchors on the first COMPLETE video frame (so audio arriving before video can't
+   set t=0 wrong); incomplete screen frames are skipped; `finish` (mark-inputs-finished + finishWriting)
+   is idempotent and runs on stop AND on both teardown seams (`releaseIfOwned`, `cleanup`), so no
+   recording is left unfinalized. `SCStreamConfiguration` still sets `capturesAudio`/`captureMicrophone`
+   + explicit `sampleRate`/`channelCount` + `excludesCurrentProcessAudio = false` so the stream actually
+   produces the audio buffers. Compiles clean; the 45 headless recorder tests (config/target/framing/
+   teardown) pass. **Still needs one live TCC-gated `audio:"system"` capture** to confirm the track is
+   audible end to end (the writer/stream wiring isn't unit-testable).
+
 ## Testing strategy summary
 
 - **Unit (headless, deterministic):** options→config, union-bbox + aspect/fit framing math, target

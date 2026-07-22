@@ -21,7 +21,7 @@ public final class ScreenBridge: PortOwnedResource {
     var ownerPortId: String?
 
     /// The screen.record session manager (docs/plan-screen-record.md). Separate from the single-frame
-    /// capture + the stream: it owns SCRecordingOutput-backed recordings keyed by recordingId.
+    /// capture + the stream: it owns AVAssetWriter-backed recordings keyed by recordingId.
     public let recorder = ScreenRecorder()
 
     public init() {}

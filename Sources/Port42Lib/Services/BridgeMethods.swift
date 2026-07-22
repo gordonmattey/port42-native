@@ -411,7 +411,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         ]) { p, args in
         let url = try args.requireString("url")
         guard !url.isEmpty else { throw BridgeError.badArg("browser.open requires a URL") }
-        let opts = args.object("options") ?? [:]
+        let opts = args.object("options") ?? args.dictionary
         return try browserResult(await browser.open(url: url, opts: opts, owner: owningPortBridge(p)))
     }
 
@@ -432,7 +432,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             "required": ["sessionId"]
         ]) { _, args in
         let sessionId = try args.requireString("sessionId")
-        let result = try browserResult(await browser.capture(sessionId: sessionId, opts: args.object("options") ?? [:]))
+        let result = try browserResult(await browser.capture(sessionId: sessionId, opts: args.object("options") ?? args.dictionary))
         // Same convention as screen.capture: a captured image is .data, so the tool surface renders a
         // real image block and JS/gateway get the bare base64 string.
         if case let .object(o) = result, case let .string(base64)? = o["image"] {
@@ -452,7 +452,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             "required": ["sessionId"]
         ]) { _, args in
         let sessionId = try args.requireString("sessionId")
-        var opts = args.object("options") ?? [:]
+        var opts = args.object("options") ?? args.dictionary
         if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
         return try browserResult(await browser.text(sessionId: sessionId, opts: opts))
     }
@@ -460,7 +460,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     r["browser.html"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"], toolExposed: false,
         description: "Read the HTML of an open browser session, optionally scoped to a CSS selector.") { _, args in
         let sessionId = try args.requireString("sessionId")
-        var opts = args.object("options") ?? [:]
+        var opts = args.object("options") ?? args.dictionary
         if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
         return try browserResult(await browser.html(sessionId: sessionId, opts: opts))
     }
@@ -498,7 +498,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
 
     r["audio.capture"] = BridgeMethod(permission: .microphone, paramNames: ["options"], toolExposed: false,
         description: "Start microphone capture. Streams audio.transcription events (and audio.data when rawAudio is set) to the calling port until audio.stopCapture.") { p, args in
-        try avResult(await audio.capture(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
+        try avResult(await audio.capture(opts: args.object("options") ?? args.dictionary, owner: owningPortBridge(p)))
     }
 
     r["audio.stopCapture"] = BridgeMethod(permission: .microphone, toolExposed: false,
@@ -508,7 +508,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
 
     r["camera.stream"] = BridgeMethod(permission: .camera, paramNames: ["options"], toolExposed: false,
         description: "Start continuous camera streaming. Pushes camera.frame events to the calling port until camera.stopStream.") { p, args in
-        try avResult(await camera.stream(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
+        try avResult(await camera.stream(opts: args.object("options") ?? args.dictionary, owner: owningPortBridge(p)))
     }
 
     r["camera.stopStream"] = BridgeMethod(permission: nil, toolExposed: false,
@@ -518,7 +518,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
 
     r["screen.stream"] = BridgeMethod(permission: .screen, paramNames: ["options"], toolExposed: false,
         description: "Start continuous screen streaming. Pushes screen.frame events to the calling port until screen.stopStream.") { p, args in
-        try avResult(await screen.stream(opts: args.object("options") ?? [:], owner: owningPortBridge(p)))
+        try avResult(await screen.stream(opts: args.object("options") ?? args.dictionary, owner: owningPortBridge(p)))
     }
 
     r["screen.stopStream"] = BridgeMethod(permission: nil, toolExposed: false,
@@ -571,7 +571,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         "properties": [
             "options": [
                 "type": "object",
-                "description": "Recording options: target ({window:\"self\"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window/port/ports are occlusion-proof (only that surface); region/display capture the raw display (may catch other apps). Also aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds."
+                "description": "Recording options: target ({window:\"self\"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window/port/ports are occlusion-proof (only that surface); region/display capture the raw display (may catch other apps). Also aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool; only on a display or region target — a window/port capture cannot include the cursor), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds."
             ]
         ]
     ]
@@ -579,7 +579,11 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     r["screen.record.start"] = BridgeMethod(permission: .screen, paramNames: ["options"],
         description: "Start recording an app surface (window:self / a port / multiple ports) to a video file with optional system or mic audio. Returns {recordingId, width, height, target}. Stop with screen.record.stop.",
         inputSchema: recordSchema) { p, args in
-        let opts = args.object("options") ?? [:]
+        // Lenient bag: options nested under `options` OR passed flat at the top level both work — the
+        // `options` wrapper is optional. (Previously `?? [:]` silently swallowed a flat call into an
+        // empty bag → a default self-recording with no error. The whole-args fallback is the same idiom
+        // audio.play / storage already use.)
+        let opts = args.object("options") ?? args.dictionary
         let (target, dir, outputURL) = try await resolveRecordStart(opts, p)
         return try avResult(await screen.recorder.start(
             target: target, opts: opts, destinationDir: dir, outputURL: outputURL,
@@ -610,7 +614,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     r["screen.record"] = BridgeMethod(permission: .screen, paramNames: ["options"],
         description: "Record an app surface for a fixed number of seconds and auto-stop (the convenience form). Pass options.seconds. Returns {path, width, height, seconds, fps, bytes}.",
         inputSchema: recordSchema) { p, args in
-        let opts = args.object("options") ?? [:]
+        let opts = args.object("options") ?? args.dictionary
         guard let seconds = RecordConfig.numOpt(opts["seconds"]), seconds > 0 else {
             throw BridgeError(code: "device_error", message: "screen.record convenience requires options.seconds > 0; use screen.record.start for start/stop handles")
         }
@@ -649,7 +653,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             ],
             "required": ["url"]
         ]) { p, args in
-        let bag = args.object("options") ?? [:]
+        let bag = args.object("options") ?? args.dictionary
         func optString(_ key: String) -> String? { (bag[key] as? String) ?? args.string(key) }
         func optInt(_ key: String) -> Int? { (bag[key] as? Int) ?? args.int(key) }
         func optObject(_ key: String) -> [String: Any]? { (bag[key] as? [String: Any]) ?? args.object(key) }
@@ -811,7 +815,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
     let picker = FileBridge()
     r["fs.pick"] = BridgeMethod(permission: .filesystem, paramNames: ["options"], toolExposed: false,
         description: "Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write.") { p, args in
-        let result = await picker.pick(opts: args.object("options") ?? [:])
+        let result = await picker.pick(opts: args.object("options") ?? args.dictionary)
         if let one = result["path"] as? String { appState.grantPickedPath(one, to: p.id) }
         if let many = result["paths"] as? [String] {
             for path in many { appState.grantPickedPath(path, to: p.id) }

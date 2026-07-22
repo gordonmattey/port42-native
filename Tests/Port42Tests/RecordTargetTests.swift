@@ -73,4 +73,19 @@ struct RecordTargetTests {
         guard case .display(let id) = ok(["target": ["display": 1]]) else { Issue.record("expected .display"); return }
         #expect(id == 1)
     }
+
+    // supportsCursor — the cursor is a display-compositor overlay, capturable only on display/region.
+    @Test("display and region support the cursor")
+    func cursorSupportedTargets() {
+        #expect(RecordTarget.display(0).supportsCursor)
+        #expect(RecordTarget.region(CGRect(x: 0, y: 0, width: 10, height: 10)).supportsCursor)
+    }
+
+    @Test("window/self/port targets cannot capture the cursor")
+    func cursorUnsupportedTargets() {
+        #expect(!RecordTarget.selfWindow.supportsCursor)
+        #expect(!RecordTarget.window(1).supportsCursor)
+        #expect(!RecordTarget.port("A").supportsCursor)
+        #expect(!RecordTarget.ports(["A", "B"]).supportsCursor)
+    }
 }

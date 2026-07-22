@@ -6,11 +6,11 @@ import CoreMedia
 
 // MARK: - Screen Recorder (screen.record, docs/plan-screen-record.md — Step 1)
 
-/// The `screen.record` session core. Owns an `SCStream` + `SCRecordingOutput` per active recording,
-/// keyed by a `recordingId`, and writes a real video file (never base64). Step 1 targets `window:self`
-/// with video + optional system audio; richer targets (`window:id`, `port`, `ports`, `region`,
-/// `display`) and the framing math land in later steps. Recording requires macOS 15 (SCRecordingOutput);
-/// on older systems `start` returns a clear error.
+/// The `screen.record` session core. Owns an `SCStream` + a manual `RecordingWriter` (AVAssetWriter)
+/// per active recording, keyed by a `recordingId`, and writes a real video file with a real audio track
+/// (never base64). Targets: `window:self`, `window:id`, `port`, `ports`, `region`, `display`, with
+/// video + optional system/mic audio. Recording requires macOS 15; on older systems `start` returns a
+/// clear error. (The writer replaced `SCRecordingOutput`, which did not land an audio track.)
 ///
 /// Teardown seam from day one: `cleanup()` finalizes every active recording. Owner-port tracking +
 /// `releaseIfOwned` (so an owning port's death finalizes its recording) is wired in the teardown step,
@@ -29,6 +29,17 @@ public enum RecordTarget: Equatable {
 
     /// A legible refusal from `parse` (an unsupported target shape).
     public struct ParseError: Error, Equatable { public let message: String }
+
+    /// Whether the cursor can be captured for this target. The cursor is a display-compositor overlay
+    /// ScreenCaptureKit renders ONLY on display/region captures — `showsCursor` has no effect under the
+    /// window filter (`desktopIndependentWindow`). So `cursor:true` on a window/self/port target is an
+    /// invalid parameter combination, rejected at the boundary rather than silently ignored.
+    public var supportsCursor: Bool {
+        switch self {
+        case .display, .region: return true
+        case .selfWindow, .window, .port, .ports: return false
+        }
+    }
 
     /// Parse the `target` option shape: `{window:"self"}` / `{window:<id>}`, `{port:<udid>}`,
     /// `{ports:[<udid>...]}`, `{region:{x,y,w,h}}`, `{display:<id>}`, and a missing target (= self).
@@ -107,6 +118,15 @@ public struct RecordConfig: Equatable {
         c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         c.capturesAudio = capturesAudio
         c.captureMicrophone = captureMicrophone
+        // Audio source format: tell the SCStream to actually capture audio at a concrete sample rate /
+        // channel count, and keep the app's own audio in (excludesCurrentProcessAudio = false) so a
+        // `system` take records the demo's synth output. The RecordingWriter then writes these buffers
+        // into a real AAC track.
+        if capturesAudio || captureMicrophone {
+            c.sampleRate = 48_000
+            c.channelCount = 2
+            c.excludesCurrentProcessAudio = false
+        }
         c.backgroundColor = .clear   // window-only capture: transparent outside the window surface
         return c
     }
@@ -129,14 +149,13 @@ public struct RecordConfig: Equatable {
 @MainActor
 public final class ScreenRecorder {
 
-    /// One active recording. `output`/`delegate` are held as AnyObject because their types
-    /// (SCRecordingOutput / the delegate) are macOS 15-only and this class is usable at the app's
-    /// macOS 14 deployment floor; they are cast back inside `if #available` blocks.
+    /// One active recording. `writer` is held as AnyObject because `RecordingWriter` is macOS 15-only
+    /// and this class is usable at the app's macOS 14 deployment floor; it is cast back inside
+    /// `if #available` blocks.
     struct Active {
         let id: String
         let stream: SCStream
-        let output: AnyObject
-        let delegate: AnyObject
+        let writer: AnyObject     // RecordingWriter (macOS 15)
         let url: URL
         let width: Int
         let height: Int
@@ -176,6 +195,12 @@ public final class ScreenRecorder {
                       portFrameLookup: ((String) -> CGRect?)? = nil) async -> [String: Any] {
         guard #available(macOS 15, *) else {
             return ["error": "screen.record requires macOS 15 or later"]
+        }
+        // Invalid parameter combo, rejected before any capture: the cursor is a display-compositor
+        // overlay ScreenCaptureKit renders only on display/region captures — a window/self/port target
+        // cannot include it. Point the caller at the targets that can.
+        if (opts["cursor"] as? Bool) == true, !target.supportsCursor {
+            return ["error": "screen.record: cursor is only supported on a display or region target — a window/port capture cannot include the cursor. Use target:{display:…} or target:{region:{x,y,w,h}}."]
         }
         // Resolve the target → capture filter + base size (points) + label, from ONE content fetch.
         // self/port/ports/window:id use the occlusion-proof window filter; region/display use the
@@ -279,22 +304,37 @@ public final class ScreenRecorder {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
 
-        let recConfig = SCRecordingOutputConfiguration()
-        recConfig.outputURL = url
-        recConfig.outputFileType = cfg.avFileType
-        let delegate = RecordingOutputDelegate()
-        let output = SCRecordingOutput(configuration: recConfig, delegate: delegate)
+        // Manual AVAssetWriter path (not SCRecordingOutput): SCRecordingOutput did not land an audio
+        // track, so we feed the stream's own sample buffers into the writer ourselves — video from the
+        // `.screen` output, system audio from `.audio`, mic from `.microphone`. This is what actually
+        // writes an audio track for `audio:system|mic|both`.
+        guard let writer = RecordingWriter(url: url, fileType: cfg.avFileType,
+                                           width: outWidth, height: outHeight,
+                                           captureAudio: cfg.capturesAudio,
+                                           captureMic: cfg.captureMicrophone) else {
+            return ["error": "screen.record: could not create the writer at \(url.path)"]
+        }
         let stream = SCStream(filter: filter, configuration: scConfig, delegate: nil)
+        let sampleQueue = DispatchQueue(label: "port42.screen.record.\(id)")
 
         do {
-            try stream.addRecordingOutput(output)
+            try stream.addStreamOutput(writer, type: .screen, sampleHandlerQueue: sampleQueue)
+            if cfg.capturesAudio {
+                try stream.addStreamOutput(writer, type: .audio, sampleHandlerQueue: sampleQueue)
+            }
+            if cfg.captureMicrophone {
+                try stream.addStreamOutput(writer, type: .microphone, sampleHandlerQueue: sampleQueue)
+            }
+            guard writer.beginWriting() else {
+                return ["error": "screen.record: writer failed to start (\(writer.failureReason))"]
+            }
             try await stream.startCapture()
         } catch {
             NSLog("[Port42] screen.record: start failed: %@", error.localizedDescription)
             return ["error": "screen.record start failed: \(error.localizedDescription)"]
         }
 
-        active[id] = Active(id: id, stream: stream, output: output, delegate: delegate,
+        active[id] = Active(id: id, stream: stream, writer: writer,
                             url: url, width: outWidth, height: outHeight, fps: cfg.fps,
                             startedAt: Date(), ownerPortId: ownerPortId)
         NSLog("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d target=%@ → %@",
@@ -309,20 +349,19 @@ public final class ScreenRecorder {
         }
         active[recordingId] = nil
 
-        guard #available(macOS 15, *),
-              let output = rec.output as? SCRecordingOutput,
-              let delegate = rec.delegate as? RecordingOutputDelegate else {
+        guard #available(macOS 15, *), let writer = rec.writer as? RecordingWriter else {
             return ["error": "screen.record requires macOS 15 or later"]
         }
 
-        // Stop, then await finalize (delegate) with a 3s watchdog so we never hang.
+        // Stop capture, THEN finalize the writer (mark inputs finished + finishWriting), with a 3s
+        // watchdog so we never hang on a stuck finalize.
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             var resumed = false
             let done: () -> Void = { if !resumed { resumed = true; cont.resume() } }
-            delegate.onFinish = { _ in done() }
             Task {
                 do { try await rec.stream.stopCapture() }
                 catch { NSLog("[Port42] screen.record: stopCapture error: %@", error.localizedDescription) }
+                writer.finish { done() }
             }
             Task {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -330,10 +369,10 @@ public final class ScreenRecorder {
             }
         }
 
-        let seconds = CMTimeGetSeconds(output.recordedDuration)
-        // recordedFileSize can read 0 after finalize for some sources; fall back to the file on disk.
-        var bytes = output.recordedFileSize
-        if bytes <= 0, let sz = (try? FileManager.default.attributesOfItem(atPath: rec.url.path))?[.size] as? Int {
+        let seconds = writer.recordedSeconds
+        // Bytes from the file on disk (the writer wrote it directly).
+        var bytes = 0
+        if let sz = (try? FileManager.default.attributesOfItem(atPath: rec.url.path))?[.size] as? Int {
             bytes = sz
         }
         NSLog("[Port42] screen.record: stopped %@ %.2fs %ld bytes", recordingId, seconds, bytes)
@@ -356,7 +395,10 @@ public final class ScreenRecorder {
         for (rid, rec) in owned {
             active[rid] = nil
             NSLog("[Port42] screen.record: finalizing %@ on owner %@ teardown", rid, id)
-            Task { try? await rec.stream.stopCapture() }
+            Task {
+                try? await rec.stream.stopCapture()
+                if #available(macOS 15, *) { (rec.writer as? RecordingWriter)?.finish {} }
+            }
         }
     }
 
@@ -366,7 +408,10 @@ public final class ScreenRecorder {
         let recs = active
         active.removeAll()
         for (_, rec) in recs {
-            Task { try? await rec.stream.stopCapture() }
+            Task {
+                try? await rec.stream.stopCapture()
+                if #available(macOS 15, *) { (rec.writer as? RecordingWriter)?.finish {} }
+            }
         }
     }
 
@@ -387,21 +432,122 @@ public final class ScreenRecorder {
     }
 }
 
-// MARK: - Recording Output Delegate
+// MARK: - Recording Writer (manual AVAssetWriter)
 
-/// Mandatory SCRecordingOutput delegate. Resumes `onFinish` once the file is finalized (or fails), so
-/// a stop() reads a closed file rather than a still-writing one.
+/// Writes an `SCStream`'s sample buffers to a file with a real audio track. `SCRecordingOutput` did not
+/// land an audio track for `audio:system|mic|both`, so we own the writer: video from the `.screen`
+/// output, system audio from `.audio`, mic from `.microphone`. One `SCStreamOutput` handles all three
+/// (dispatched to `queue`); the session starts on the first COMPLETE video frame so audio that arrives
+/// before video can't set the timeline origin wrong. `finish` is idempotent (stop + teardown both call).
 @available(macOS 15, *)
-final class RecordingOutputDelegate: NSObject, SCRecordingOutputDelegate, @unchecked Sendable {
-    var onFinish: ((Error?) -> Void)?
-    private var fired = false
-    private func fire(_ err: Error?) { if !fired { fired = true; onFinish?(err) } }
+final class RecordingWriter: NSObject, SCStreamOutput, @unchecked Sendable {
+    private let writer: AVAssetWriter
+    private let videoInput: AVAssetWriterInput
+    private let audioInput: AVAssetWriterInput?     // system audio
+    private let micInput: AVAssetWriterInput?       // microphone
+    private let queue = DispatchQueue(label: "port42.screen.record.writer")
+    private var sessionStarted = false
+    private var finished = false
+    private var firstPTS: CMTime = .invalid
+    private var lastPTS: CMTime = .invalid
 
-    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
-        NSLog("[Port42] screen.record: recording failed: %@", error.localizedDescription)
-        fire(error)
+    init?(url: URL, fileType: AVFileType, width: Int, height: Int, captureAudio: Bool, captureMic: Bool) {
+        guard let w = try? AVAssetWriter(outputURL: url, fileType: fileType) else { return nil }
+        writer = w
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+        ]
+        videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        videoInput.expectsMediaDataInRealTime = true
+        if writer.canAdd(videoInput) { writer.add(videoInput) }
+
+        let audioSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 128_000,
+        ]
+        if captureAudio {
+            let ai = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            ai.expectsMediaDataInRealTime = true
+            if writer.canAdd(ai) { writer.add(ai); audioInput = ai } else { audioInput = nil }
+        } else { audioInput = nil }
+        if captureMic {
+            let mi = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            mi.expectsMediaDataInRealTime = true
+            if writer.canAdd(mi) { writer.add(mi); micInput = mi } else { micInput = nil }
+        } else { micInput = nil }
+        super.init()
     }
-    func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
-        fire(nil)
+
+    /// Prepare the writer for samples. Must succeed before capture starts.
+    func beginWriting() -> Bool { writer.startWriting() }
+
+    var failureReason: String { writer.error?.localizedDescription ?? "status \(writer.status.rawValue)" }
+
+    /// Seconds captured (first → last appended PTS), read after finish.
+    var recordedSeconds: Double {
+        queue.sync {
+            guard firstPTS.isValid, lastPTS.isValid else { return 0 }
+            return max(0, CMTimeGetSeconds(CMTimeSubtract(lastPTS, firstPTS)))
+        }
+    }
+
+    // SCStreamOutput — samples arrive on `queue` (we set it as the handler queue), so hop to it.
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        queue.async { [weak self] in self?.handle(sampleBuffer, type: type) }
+    }
+
+    private func handle(_ sb: CMSampleBuffer, type: SCStreamOutputType) {
+        guard !finished, CMSampleBufferDataIsReady(sb) else { return }
+        // Skip incomplete screen frames (idle/blank) — only .complete frames carry pixels.
+        if type == .screen, !Self.isCompleteFrame(sb) { return }
+
+        let pts = CMSampleBufferGetPresentationTimeStamp(sb)
+        if !sessionStarted {
+            guard type == .screen else { return }   // anchor the timeline to the first video frame
+            writer.startSession(atSourceTime: pts)
+            sessionStarted = true
+            firstPTS = pts
+        }
+        lastPTS = pts
+
+        switch type {
+        case .screen:
+            if videoInput.isReadyForMoreMediaData { videoInput.append(sb) }
+        case .audio:
+            if let ai = audioInput, ai.isReadyForMoreMediaData { ai.append(sb) }
+        case .microphone:
+            if let mi = micInput, mi.isReadyForMoreMediaData { mi.append(sb) }
+        @unknown default:
+            break
+        }
+    }
+
+    /// Finalize: mark inputs finished + finishWriting. Idempotent — a second call just fires completion.
+    func finish(_ completion: @escaping () -> Void) {
+        queue.async { [weak self] in
+            guard let self, !self.finished else { completion(); return }
+            self.finished = true
+            self.videoInput.markAsFinished()
+            self.audioInput?.markAsFinished()
+            self.micInput?.markAsFinished()
+            if self.writer.status == .writing {
+                self.writer.finishWriting { completion() }
+            } else {
+                completion()
+            }
+        }
+    }
+
+    /// A `.screen` sample is a complete (pixel-bearing) frame when its attachment status is `.complete`.
+    private static func isCompleteFrame(_ sb: CMSampleBuffer) -> Bool {
+        guard let arr = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let first = arr.first,
+              let raw = first[.status] as? Int,
+              let status = SCFrameStatus(rawValue: raw) else { return false }
+        return status == .complete
     }
 }

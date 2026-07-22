@@ -74,6 +74,8 @@ Generated from the live method registry: every entry below is served exactly as 
 
   ai.complete(prompt, options)  [permission: ai, streaming]
       Complete a prompt with an LLM, streaming tokens back. Returns the full text.
+        options (object): Optional: model, systemPrompt, maxTokens, images (base64 PNG).
+        prompt (string, required): The prompt to complete.
   ai.models()
       List the available models for the current Port AI provider, each with id, name, and tier.
   ai.status()
@@ -87,6 +89,8 @@ Generated from the live method registry: every entry below is served exactly as 
       Play base64-encoded audio data (WAV, MP3, AAC).
   audio.speak(text, options)
       Speak text aloud using text-to-speech
+        rate (number): Speech rate 0.1-1.0 (default 0.5)
+        text (string, required): Text to speak
   audio.stop()
       Stop any active speech synthesis or audio playback.
   audio.stopCapture()  [permission: microphone]
@@ -96,15 +100,21 @@ Generated from the live method registry: every entry below is served exactly as 
 
   automation.runAppleScript(source, timeout)  [permission: automation]
       Execute AppleScript code and return the result. Use this to control other applications on macOS.
+        source (string, required): AppleScript source code
+        timeout (integer): Timeout in seconds (default: 30, max: 120)
   automation.runJXA(source, timeout)  [permission: automation]
       Execute JavaScript for Automation (JXA) code and return the result. Use this to control other applications on macOS.
+        source (string, required): JXA source code
+        timeout (integer): Timeout in seconds (default: 30, max: 120)
 
 ### browser
 
   browser.capture(sessionId, options)  [permission: browser]
       Take a screenshot of an open browser session. Returns base64 PNG.
+        sessionId (string, required): Browser session ID from browser_open
   browser.close(sessionId)  [permission: browser]
       Close a browser session
+        sessionId (string, required): Browser session ID to close
   browser.execute(sessionId, js)  [permission: browser]
       Run JavaScript in an open browser session and return the result.
   browser.html(sessionId, options)  [permission: browser]
@@ -113,15 +123,24 @@ Generated from the live method registry: every entry below is served exactly as 
       Navigate an open browser session to a new URL.
   browser.open(url, options)  [permission: browser]
       Open a URL in a headless browser and return the page title. Use browser_text to read page content after opening.
+        url (string, required): The URL to open (http or https)
   browser.text(sessionId, options)  [permission: browser]
       Extract text content from an open browser session
+        selector (string): CSS selector to extract from (default: body)
+        sessionId (string, required): Browser session ID from browser_open
 
 ### bus
 
   bus.publish(topic, payload, space_id)
       Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.
+        payload (string, required): Message payload — any string, typically JSON
+        space_id (string): Target space ID. Omit for current space.
+        topic (string, required): Bus topic (e.g. 'bus', 'port:myPortId')
   bus.read(topic, limit, space_id)
       Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join/leave/presence), 'port:{portId}' (port-scoped events).
+        limit (integer): Max messages to return (default 20)
+        space_id (string): Space ID. Omit for current space.
+        topic (string, required): Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')
 
 ### camera
 
@@ -138,37 +157,55 @@ Generated from the live method registry: every entry below is served exactly as 
       Read the current clipboard contents. Returns text or base64 image data.
   clipboard.write(data)  [permission: clipboard]
       Write text to the system clipboard
+        data (string, required): The text to copy to clipboard
 
 ### companions
 
   companions.get(id)
       Get details about a specific companion by ID
+        id (string, required): The companion's ID
   companions.invoke(identifier, prompt)  [permission: ai, streaming]
       Invoke a companion (by id or name) with a prompt; streams its reply. The companion sees recent space context and replies to the caller, not the chat.
+        identifier (string, required): Companion id or display name.
+        prompt (string): What to ask the companion.
   companions.list(space_id)
       List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want).
+        space_id (string): Omit for your own space (the default). A space id targets that space. "*" returns the whole-instance roster.
 
 ### crease
 
   crease.forget(id)
       Remove a crease. Use when your model has updated and the break no longer matters.
+        id (string, required): The crease id to remove.
   crease.read()
       Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.
+        limit (integer): Max entries to return. Default 8.
   crease.touch(id)
       Mark a crease as currently shaping this response. Updates its recency and increases its weight. Use when an existing crease is active — don't re-write it.
+        id (string, required): The crease id (from crease_read).
   crease.write(content)
       Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.
+        actual (string): What happened instead.
+        content (string, required): Your words about what reformed in the break.
+        prediction (string): What you expected.
+        spaceId (string): Omit for a global crease that shapes all relationships.
 
 ### engrave
 
   engrave.forget(id)
       Remove an engraving. Use when the fact is no longer true or no longer matters.
+        id (string, required): The engraving id to remove.
   engrave.read()
       Read your engravings — factual knowledge about the user's world. Context, preferences, constraints, goals, capabilities. Things learned about their situation, not breaks in your model. Read these alongside creases to understand who you're swimming with.
+        limit (integer): Max entries to return. Default 8.
   engrave.touch(id)
       Mark an engraving as currently relevant to this response. Updates recency and increases weight. Use when an existing engraving is shaping what you say.
+        id (string, required): The engraving id (from engrave_read).
   engrave.write(content)
       Carve an engraving — a fact about the user's world worth keeping. Not what changed in you (that's a crease) — what you learned about their situation. Use category to classify: context, preference, constraint, goal, capability.
+        category (string): Optional: context, preference, constraint, goal, capability.
+        content (string, required): The factual knowledge about their world.
+        spaceId (string): Omit for a global engraving that shapes all relationships.
 
 ### fold
 
@@ -176,24 +213,36 @@ Generated from the live method registry: every entry below is served exactly as 
       Read the fold — your orientation in this relationship. Returns established understandings, tensions being held, what you're carrying, and relational depth. If no fold exists yet, returns empty state.
   fold.update()
       Update the fold — your orientation in this relationship. Update specific fields: established (shared understandings), tensions (unresolved threads), holding (the one thing you're carrying). Use depthDelta: 1 only when a real fold happened — something new was compressed into the relationship, not just a message exchanged.
+        depthDelta (integer): Pass 1 when a real fold happened. Never more than 1 per exchange.
+        established (array): Shared understandings that no longer need renegotiation.
+        holding (string): The one thread you're carrying that hasn't found its place yet.
+        tensions (array): Unresolved things being held in productive suspension.
 
 ### fs
 
   fs.list(path)  [permission: filesystem]
       List the contents of a directory in the Port42 data directory. Relative paths only (e.g. "scopes/strategy" or "scopes/strategy/decisions"). Returns a sorted list of filenames.
+        path (string, required): Relative path to the directory (e.g. "scopes/strategy")
   fs.mkdir(path)  [permission: filesystem]
       Create a directory (and any missing parent directories) in the Port42 data directory. Relative paths only (e.g. "scopes/strategy/decisions").
+        path (string, required): Relative path to create (e.g. "scopes/strategy/decisions")
   fs.pick(options)  [permission: filesystem]
       Open the native file picker. The chosen paths become readable and writable for the calling principal via fs.read / fs.write.
   fs.read(path, encoding)  [permission: filesystem]
       Read a file. Use a relative path (e.g. "scopes/strategy/scope.md") to read from the Port42 data directory without a file picker. Use an absolute path for picker-approved files.
+        encoding (string): utf8 (default) or base64
+        path (string, required): Relative path within Port42 data directory (e.g. "scopes/strategy/scope.md") or absolute path for picker-approved files.
   fs.write(path, data, encoding)  [permission: filesystem]
       Write a file. Use a relative path (e.g. "scopes/strategy/facts.md") to write to the Port42 data directory — parent directories are created automatically. Use an absolute path for picker-approved files.
+        data (string, required): Content to write
+        encoding (string): utf8 (default) or base64
+        path (string, required): Relative path within Port42 data directory (e.g. "scopes/strategy/facts.md") or absolute path for picker-approved files.
 
 ### general
 
   help(topic)
       Return the Port42 API reference. Pass topic:"ports" for the port-authoring manual (read it BEFORE building or editing a port: sizing, module-scope, patterns, the design system). No topic returns the full method reference.
+        topic (string): Optional. "ports" = the port-authoring manual. Omit for the API reference.
   presentation()
       The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
 
@@ -201,8 +250,12 @@ Generated from the live method registry: every entry below is served exactly as 
 
   messages.recent(count, space_id, topic)
       Get the most recent messages from the current space
+        count (integer): Number of messages to retrieve (default 20, max 100)
+        topic (string): Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join/leave events.
   messages.send(text, space_id)
       Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.
+        space_id (string): Target space ID (from space_list). Omit for current space.
+        text (string, required): The message text to send
   messages.sendAsCreator(text, space_id)
       Send a message to a space attributed to the calling principal's display identity.
 
@@ -210,6 +263,8 @@ Generated from the live method registry: every entry below is served exactly as 
 
   notify.send(title, body, options)  [permission: notification]
       Send a macOS system notification
+        body (string, required): Notification body text
+        title (string, required): Notification title
 
 ### port
 
@@ -217,39 +272,71 @@ Generated from the live method registry: every entry below is served exactly as 
       Close the calling port.
   port.create(options)
       Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), and env. Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
+        args (array): type:"terminal" — arguments for the command.
+        command (string): type:"terminal" — executable/CLI to run (e.g. "bash", "htop", "claude").
+        cwd (string): type:"terminal" — working directory (default: home).
+        env (object): type:"terminal" — custom environment variables for the shell.
+        html (string): type:"web" — full port HTML body (include a <title> and <meta name="version">).
+        space_id (string): Space to create the port in (default: current space).
+        systemPrompt (string): type:"terminal" — companion personality/role appended to the CLI's system prompt.
+        title (string): Port title (default: derived from html <title>, or the command).
+        type (string, required): The port type to create.
   port.exec(id, js)
       Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
+        id (string, required): The port's UDID (from ports_list)
+        js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response.
   port.getHtml(id, version)
       Read the HTML of a port. Omit 'version' to get the current HTML. Pass 'version' (from port_history) to read a specific historical snapshot.
+        id (string, required): The port's UDID (from ports_list)
+        version (integer): Optional version number (from port_history). Omit for current HTML.
   port.history(id)
       List all saved versions of a port by its UDID. Returns version number, createdBy, and createdAt for each snapshot. Use port_get_html with a version number to read a specific snapshot, or port_restore to roll back.
+        id (string, required): The port's UDID (from ports_list)
   port.info()
       Return the calling port's own id, title, space, and capabilities.
   port.manage(id, action)
       Manage a port. Actions: focus (raise to the front of the desktop), close, minimize/dock (off the desktop but still running), restore/undock (bring a docked/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.
+        action (string, required): One of: focus, close, minimize, dock, restore, undock
+        id (string, required): The port's UDID or title
   port.move(id, x, y)
       Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.
+        id (string, required): The port's UDID (from ports_list)
+        x (number, required): Horizontal position in screen points
+        y (number, required): Vertical position in screen points
   port.patch(id, search, replace)
       Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.
+        id (string, required): The port's UDID (from ports_list)
+        replace (string, required): The string to replace it with.
+        search (string, required): The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.
   port.position(id)
       Return a port's position and size.
   port.push(id, data)
       Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. "ls\n", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.
+        data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute).
+        id (string, required): The port's UDID (from ports_list), or a terminal's name.
   port.rename(id, title)
       Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.
+        id (string, required): The port's UDID (from ports_list)
+        title (string, required): The new title for the port
   port.restore(id, version)
       Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.
+        id (string, required): The port's UDID (from ports_list)
+        version (integer, required): The version number to restore to (from port_history)
   port.setCapabilities(capabilities)
       Set the calling port's own capabilities list.
   port.setTitle(title)
       Set the calling port's own title.
   port.update(id, html)
       Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.
+        html (string, required): The new HTML content for the port (full HTML, not a diff)
+        id (string, required): The port's UDID or title to identify which port to update
 
 ### ports
 
   ports.list(capabilities, space_id)
       List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: ["terminal"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.
+        capabilities (array): Filter to ports that have all of these capabilities. Examples: "terminal", "claude-code", "browser". Omit to list all ports.
+        space_id (string): List only this space's ports. Omit to list every space's.
 
 ### position
 
@@ -257,26 +344,40 @@ Generated from the live method registry: every entry below is served exactly as 
       Read your current position in this space — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.
   position.set(read)
       Establish or update your position — where you stand independent of what was just asked. This is not what you say. It's what you see and what you believe. Call this when your read of the situation changes, not after every exchange. A position gives you somewhere to push back from.
+        read (string, required): What you think is actually happening beneath what's being said.
+        stance (string): What you think needs to happen.
+        watching (array): Signals you're tracking that would confirm or change your read.
 
 ### rest
 
   rest.call(url, options)  [permission: rest]
       Make an HTTP request to an external API. Use the 'secret' parameter to inject authentication from the secrets store — you never see the raw credential. Supports GET, POST, PUT, PATCH, DELETE. JSON bodies are auto-serialized. Responses with JSON content-type are auto-parsed.
+        body (string): Request body. Objects are JSON-serialized automatically.
+        headers (object): Additional HTTP headers as key-value pairs.
+        method (string): HTTP method: GET, POST, PUT, PATCH, DELETE. Default: GET.
+        secret (string): Named secret from the secrets store. The runtime injects the auth header — you never see the raw key.
+        timeout (integer): Timeout in milliseconds. Default: 30000, max: 120000.
+        url (string, required): Full URL to call (https recommended)
 
 ### screen
 
   screen.capture(scale)  [permission: screen]
       Capture a screenshot of the screen. Returns a base64 PNG image.
+        scale (number): Image scale factor 0.1-2.0 (default 1.0)
   screen.displays()
       Get display information: size, position, and visible area (excluding dock/menubar) for all connected displays. No screen recording permission required. Use this to calculate port positions before calling port_move.
   screen.record(options)  [permission: screen]
       Record an app surface for a fixed number of seconds and auto-stop (the convenience form). Pass options.seconds. Returns {path, width, height, seconds, fps, bytes}.
+        options (object): Recording options: target ({window:"self"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window/port/ports are occlusion-proof (only that surface); region/display capture the raw display (may catch other apps). Also aspect (e.g. "16:9"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool; only on a display or region target — a window/port capture cannot include the cursor), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds.
   screen.record.start(options)  [permission: screen]
       Start recording an app surface (window:self / a port / multiple ports) to a video file with optional system or mic audio. Returns {recordingId, width, height, target}. Stop with screen.record.stop.
+        options (object): Recording options: target ({window:"self"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window/port/ports are occlusion-proof (only that surface); region/display capture the raw display (may catch other apps). Also aspect (e.g. "16:9"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool; only on a display or region target — a window/port capture cannot include the cursor), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds.
   screen.record.status(recordingId)
       Report whether a recording (or any recording) is active and its elapsed seconds.
+        recordingId (string): Optional recording id; omit for the overall status
   screen.record.stop(recordingId)
       Stop a recording started with screen.record.start. Returns {path, width, height, seconds, fps, bytes}.
+        recordingId (string, required): The id returned by screen.record.start
   screen.stopStream()
       Stop the screen stream and release the capture stream.
   screen.stream(options)  [permission: screen]
@@ -288,10 +389,13 @@ Generated from the live method registry: every entry below is served exactly as 
 
   space.current(space_id)
       Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.
+        space_id (string): Optional space id to inspect. Defaults to the currently selected space.
   space.list()
       List all spaces the user belongs to
   space.setWorkingDirectory(space_id, path)
       Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Empty path clears it (falls back to home). Defaults to the current space.
+        path (string, required): Absolute directory path. Empty clears the setting.
+        space_id (string): Space id (default: current space).
   space.switchTo(space_id)
       Switch the app's current space by id.
 
@@ -299,17 +403,24 @@ Generated from the live method registry: every entry below is served exactly as 
 
   storage.delete(key, options)
       Delete a value from persistent storage
+        key (string, required): The storage key to delete
   storage.get(key, options)
       Get a value from persistent key-value storage
+        key (string, required): The storage key
   storage.list(options)
       List all keys in persistent storage
   storage.set(key, value, options)
       Store a value in persistent key-value storage
+        key (string, required): The storage key
+        value (string, required): The value to store
 
 ### terminal
 
   terminal.exec(command, options)  [permission: terminal]
       Execute a shell command and return the output. Runs in /bin/zsh.
+        command (string, required): The shell command to execute
+        cwd (string): Working directory (default: home)
+        timeout (integer): Timeout in seconds (default: 30, max: 120)
 
 ### user
 
