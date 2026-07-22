@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import CoreGraphics
 @testable import Port42Lib
 
 // RecordTarget.parse — the pure target-shape parsing for screen.record (Step 3). Headless.
@@ -42,16 +43,34 @@ struct RecordTargetTests {
         #expect(err(["target": ["ports": [Any]()]]) != nil)
     }
 
-    @Test("window:<id> is a Step 4 error")
-    func windowIdDeferred() {
-        #expect(err(["target": ["window": 12345]]) != nil)
+    @Test("window:<id> parses to .window")
+    func windowId() {
+        guard case .window(let id) = ok(["target": ["window": 12345]]) else { Issue.record("expected .window"); return }
+        #expect(id == 12345)
     }
 
-    @Test("region and display are Step 4 errors")
-    func regionDisplayDeferred() {
-        let region: [String: Any] = ["target": ["region": ["x": 0, "y": 0, "w": 100, "h": 100]]]
-        let display: [String: Any] = ["target": ["display": 1]]
-        #expect(err(region) != nil)
-        #expect(err(display) != nil)
+    @Test("region parses to .region (x/y/w/h)")
+    func region() {
+        let opts: [String: Any] = ["target": ["region": ["x": 10, "y": 20, "w": 300, "h": 200]]]
+        guard case .region(let r) = ok(opts) else { Issue.record("expected .region"); return }
+        #expect(r == CGRect(x: 10, y: 20, width: 300, height: 200))
+    }
+
+    @Test("region also accepts width/height keys")
+    func regionWidthHeight() {
+        let opts: [String: Any] = ["target": ["region": ["x": 0, "y": 0, "width": 640, "height": 480]]]
+        guard case .region(let r) = ok(opts) else { Issue.record("expected .region"); return }
+        #expect(r == CGRect(x: 0, y: 0, width: 640, height: 480))
+    }
+
+    @Test("region without positive w/h is an error")
+    func regionInvalid() {
+        #expect(err(["target": ["region": ["x": 0, "y": 0]]]) != nil)
+    }
+
+    @Test("display parses to .display")
+    func display() {
+        guard case .display(let id) = ok(["target": ["display": 1]]) else { Issue.record("expected .display"); return }
+        #expect(id == 1)
     }
 }

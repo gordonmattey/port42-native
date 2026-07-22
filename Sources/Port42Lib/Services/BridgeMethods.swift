@@ -571,7 +571,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         "properties": [
             "options": [
                 "type": "object",
-                "description": "Recording options: target ({window:\"self\"} | {port:<udid>} | {ports:[<udid>...]}), aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds."
+                "description": "Recording options: target ({window:\"self\"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window/port/ports are occlusion-proof (only that surface); region/display capture the raw display (may catch other apps). Also aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds."
             ]
         ]
     ]

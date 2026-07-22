@@ -23,19 +23,21 @@ public enum RecordTarget: Equatable {
     case selfWindow
     case port(String)
     case ports([String])
-    // Step 4: case window(UInt32), region(CGRect), display(UInt32)
+    case window(UInt32)      // an OS window by id (occlusion-proof, like window:self)
+    case region(CGRect)      // an explicit display rect (screen coords; NOT occlusion-proof)
+    case display(UInt32)     // a whole display (NOT occlusion-proof)
 
     /// A legible refusal from `parse` (an unsupported target shape).
     public struct ParseError: Error, Equatable { public let message: String }
 
-    /// Parse the `target` option shape. Step 3 supports `{window:"self"}`, `{port:<udid>}`,
-    /// `{ports:[<udid>...]}`, and a missing target (= self); `{window:<id>}`, `{region:...}`,
-    /// `{display:...}` are Step 4 and return a legible error.
+    /// Parse the `target` option shape: `{window:"self"}` / `{window:<id>}`, `{port:<udid>}`,
+    /// `{ports:[<udid>...]}`, `{region:{x,y,w,h}}`, `{display:<id>}`, and a missing target (= self).
     public static func parse(_ opts: [String: Any]) -> Result<RecordTarget, ParseError> {
         guard let target = opts["target"] as? [String: Any] else { return .success(.selfWindow) }
         if let win = target["window"] {
             if let s = win as? String, s == "self" { return .success(.selfWindow) }
-            return .failure(ParseError(message: "screen.record: window:<id> targets are not yet supported (Step 4); use window:\"self\", port, or ports"))
+            if let id = RecordConfig.intOpt(win), id >= 0 { return .success(.window(UInt32(id))) }
+            return .failure(ParseError(message: "screen.record: window target must be \"self\" or a numeric window id"))
         }
         if let port = target["port"] as? String { return .success(.port(port)) }
         if let ports = target["ports"] as? [Any] {
@@ -43,8 +45,18 @@ public enum RecordTarget: Equatable {
             guard !ids.isEmpty else { return .failure(ParseError(message: "screen.record: ports target had no valid port ids")) }
             return .success(.ports(ids))
         }
-        if target["region"] != nil || target["display"] != nil {
-            return .failure(ParseError(message: "screen.record: region/display targets are not yet supported (Step 4)"))
+        if let region = target["region"] as? [String: Any] {
+            let x = RecordConfig.numOpt(region["x"]) ?? 0
+            let y = RecordConfig.numOpt(region["y"]) ?? 0
+            let w = RecordConfig.numOpt(region["w"]) ?? RecordConfig.numOpt(region["width"]) ?? 0
+            let h = RecordConfig.numOpt(region["h"]) ?? RecordConfig.numOpt(region["height"]) ?? 0
+            guard w > 0, h > 0 else { return .failure(ParseError(message: "screen.record: region needs positive w and h")) }
+            return .success(.region(CGRect(x: x, y: y, width: w, height: h)))
+        }
+        if let disp = target["display"] {
+            // screen.displays exposes no display ids yet, so a non-numeric/true value = the main display.
+            if let id = RecordConfig.intOpt(disp), id >= 0 { return .success(.display(UInt32(id))) }
+            return .success(.display(0))   // resolves to the first/main display in start()
         }
         return .success(.selfWindow)
     }
@@ -165,22 +177,63 @@ public final class ScreenRecorder {
         guard #available(macOS 15, *) else {
             return ["error": "screen.record requires macOS 15 or later"]
         }
-        guard let window = await resolveSelfWindow() else {
-            return ["error": "screen.record: could not resolve the Port42 window"]
+        // Resolve the target → capture filter + base size (points) + label, from ONE content fetch.
+        // self/port/ports/window:id use the occlusion-proof window filter; region/display use the
+        // display filter (NOT occlusion-proof — a raw display grab that can catch other apps).
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            return ["error": "screen.record: could not read shareable content: \(error.localizedDescription)"]
+        }
+
+        let filter: SCContentFilter
+        let baseSize: CGSize
+        var targetLabel: String
+        var isPortTarget = false
+        switch target {
+        case .selfWindow, .port, .ports:
+            guard let win = selfWindow(in: content) else {
+                return ["error": "screen.record: could not resolve the Port42 window"]
+            }
+            filter = SCContentFilter(desktopIndependentWindow: win)
+            baseSize = win.frame.size
+            targetLabel = "self"
+            if case .selfWindow = target {} else { isPortTarget = true }
+        case .window(let wid):
+            guard let win = content.windows.first(where: { $0.windowID == wid }) else {
+                return ["error": "screen.record: window \(wid) not found"]
+            }
+            filter = SCContentFilter(desktopIndependentWindow: win)
+            baseSize = win.frame.size
+            targetLabel = "window(\(wid))"
+        case .display(let did):
+            guard let disp = content.displays.first(where: { $0.displayID == did }) ?? content.displays.first else {
+                return ["error": "screen.record: no display available"]
+            }
+            filter = SCContentFilter(display: disp, excludingApplications: [], exceptingWindows: [])
+            baseSize = CGSize(width: disp.width, height: disp.height)
+            targetLabel = "display(\(disp.displayID))"
+        case .region(let r):
+            guard let disp = content.displays.first else {
+                return ["error": "screen.record: no display available"]
+            }
+            filter = SCContentFilter(display: disp, excludingApplications: [], exceptingWindows: [])
+            baseSize = r.size
+            targetLabel = "region"
         }
 
         let displayScale = Double(NSScreen.main?.backingScaleFactor ?? 2.0)
-        let cfg = RecordConfig.from(sourceSize: window.frame.size, displayScale: displayScale, opts: opts)
+        let cfg = RecordConfig.from(sourceSize: baseSize, displayScale: displayScale, opts: opts)
         let scConfig = cfg.makeSCStreamConfiguration()
-
-        // Geometry: `.selfWindow` uses the whole window; `.port`/`.ports` crop to their union bbox.
         var outWidth = cfg.width
         var outHeight = cfg.height
-        var targetLabel = "self"
-        switch target {
-        case .selfWindow:
-            break
-        case .port, .ports:
+
+        // region: crop the display filter to the requested rect (screen points, top-left origin).
+        if case .region(let r) = target { scConfig.sourceRect = r }
+
+        // port/ports: crop the self-window filter to the union bbox + framing.
+        if isPortTarget {
             let ids: [String] = { if case .port(let i) = target { return [i] }; if case .ports(let a) = target { return a }; return [] }()
             let rects = ids.compactMap { portFrameLookup?($0) }
             guard let bbox = RecordFraming.unionBBox(rects, padding: paddingOpt(opts)) else {
@@ -213,8 +266,6 @@ public final class ScreenRecorder {
         let url = outputURL ?? dir.appendingPathComponent("port42-rec-\(id).\(cfg.fileType.rawValue)")
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
-
-        let filter = SCContentFilter(desktopIndependentWindow: window)
 
         let recConfig = SCRecordingOutputConfiguration()
         recConfig.outputURL = url
@@ -268,7 +319,11 @@ public final class ScreenRecorder {
         }
 
         let seconds = CMTimeGetSeconds(output.recordedDuration)
-        let bytes = output.recordedFileSize
+        // recordedFileSize can read 0 after finalize for some sources; fall back to the file on disk.
+        var bytes = output.recordedFileSize
+        if bytes <= 0, let sz = (try? FileManager.default.attributesOfItem(atPath: rec.url.path))?[.size] as? Int {
+            bytes = sz
+        }
         NSLog("[Port42] screen.record: stopped %@ %.2fs %ld bytes", recordingId, seconds, bytes)
         return [
             "path": rec.url.path,
@@ -310,15 +365,8 @@ public final class ScreenRecorder {
 
     // MARK: - Self-window resolution
 
-    /// Port42's own frontmost/largest on-screen window (the `window:self` target).
-    private func resolveSelfWindow() async -> SCWindow? {
-        let content: SCShareableContent
-        do {
-            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        } catch {
-            NSLog("[Port42] screen.record: shareable content failed: %@", error.localizedDescription)
-            return nil
-        }
+    /// Port42's own frontmost/largest on-screen window (the `window:self` target), from shareable content.
+    private func selfWindow(in content: SCShareableContent) -> SCWindow? {
         let mine = content.windows.filter {
             $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
                 && $0.frame.width > 200 && $0.frame.height > 200

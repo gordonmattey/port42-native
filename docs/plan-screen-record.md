@@ -205,10 +205,24 @@ except stop/status (`recordingId`):
   has no space, so the fallback — correct), 3456×2158, 3s. ffprobe: H264 + AAC stereo. No permission
   card blocked it (screen already granted).
 
-### Step 4: options coverage (fps, scale, cursor, dimensions, format, aspect, region/display targets)
-- Fill in the remaining option fields and the `region`/`display`/`window:id` targets.
-- **Test:** unit — each option maps to config; `format: mp4` sets the right file type. Live — a 60fps
-  cursor-on take and a 16:9 take come out at the requested fps/size.
+### Step 4: options coverage + region/display/window:id targets — DONE (2026-07-21, verified live)
+
+Most options (width/height/scale/fps/cursor/audio/format via `RecordConfig`; aspect/fit/padding via
+`RecordFraming`) shipped in Steps 1-2. This step added the remaining targets. `ScreenRecorder.start`
+now resolves the target from ONE `SCShareableContent` fetch → `(filter, baseSize, label)`:
+- `self`/`port`/`ports`/`window:<osId>` → occlusion-proof `desktopIndependentWindow` filter.
+- `display:<id>` / `region:{x,y,w,h}` → display filter (NOT occlusion-proof — a raw display grab; the
+  method description says so). `region` sets `sourceRect` in screen points. `screen.displays` exposes no
+  display ids yet, so `{display:true}`/non-numeric resolves to the main display.
+- Two fixes found live: `stop()` falls back to the on-disk file size when `recordedFileSize` reads 0
+  (was returning bytes:0 for some sources); display parse accepts a truthy value as the main display.
+
+- **Unit — PASS (`RecordTargetTests`, 10):** window:id/region/display parse; region x/y/w/h and
+  width/height keys; region needs positive w/h. `llms.txt` regenerated, docs-export gate green.
+- **Live — PASS (gateway :4243):** self 60fps+cursor (3456×2158 @60), window:id (valid H264; a STATIC
+  external window yields a short clip because SCK emits window frames only on content change — an
+  animating window records the full duration), display:true (full display 3456×2234, 2.1s), region
+  800×600@(100,100) (→ 1600×1200 @scale 2). All valid H264.
 
 ### Step 5: the timed convenience + status + cleanup — DONE (2026-07-21, verified live)
 
