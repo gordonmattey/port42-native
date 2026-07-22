@@ -229,20 +229,33 @@ public final class ScreenRecorder {
         var outWidth = cfg.width
         var outHeight = cfg.height
 
-        // region: crop the display filter to the requested rect (screen points, top-left origin).
-        if case .region(let r) = target { scConfig.sourceRect = r }
-
-        // port/ports: crop the self-window filter to the union bbox + framing.
+        // Content bbox in the FILTER's coordinate space (window points for self/window/port; display
+        // points for region/display). aspect/fit framing crops within it.
+        let isRegion: Bool = { if case .region = target { return true }; return false }()
+        let contentBBox: CGRect
         if isPortTarget {
             let ids: [String] = { if case .port(let i) = target { return [i] }; if case .ports(let a) = target { return a }; return [] }()
             let rects = ids.compactMap { portFrameLookup?($0) }
             guard let bbox = RecordFraming.unionBBox(rects, padding: paddingOpt(opts)) else {
                 return ["error": "screen.record: no resolvable tiles for the given port(s)"]
             }
+            contentBBox = bbox
+            targetLabel = "ports(\(ids.count))"
+        } else if case .region(let r) = target {
+            contentBBox = r
+        } else {
+            contentBBox = CGRect(origin: .zero, size: baseSize)   // full window / display
+        }
+
+        // Apply framing when there is cropping to do: an aspect or explicit dims, a port target, or a
+        // region (always cropped to its rect). A plain window/display take skips it (full source).
+        let hasAspect = (opts["aspect"] as? String) != nil
+        let hasExplicitDims = RecordConfig.intOpt(opts["width"]) != nil && RecordConfig.intOpt(opts["height"]) != nil
+        if hasAspect || hasExplicitDims || isPortTarget || isRegion {
             let framing: RecordFraming.Result
             do {
                 framing = try RecordFraming.resolve(
-                    bbox: bbox,
+                    bbox: contentBBox,
                     aspect: opts["aspect"] as? String,
                     fit: RecordFit(rawValue: (opts["fit"] as? String) ?? "contain") ?? .contain,
                     width: RecordConfig.intOpt(opts["width"]),
@@ -258,7 +271,6 @@ public final class ScreenRecorder {
             scConfig.height = framing.height
             outWidth = framing.width
             outHeight = framing.height
-            targetLabel = "ports(\(ids.count))"
         }
 
         let id = UUID().uuidString

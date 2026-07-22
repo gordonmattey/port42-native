@@ -110,22 +110,35 @@ struct RecordFramingTests {
         #expect(r.height == 1080)
     }
 
-    @Test("fit:cover widens the sourceRect to a wider aspect, centered")
-    func resolveCoverWiden() throws {
+    @Test("fit:cover crops height for a wider aspect, centered, within the box")
+    func resolveCoverWiderCropsHeight() throws {
         let box = CGRect(x: 0, y: 0, width: 600, height: 600)    // 1:1
         let r = try RecordFraming.resolve(bbox: box, aspect: "2:1", fit: .cover,
                                           width: nil, height: nil, scale: 1.0)
-        // target 2:1 > 1:1 → widen: newW = 600 * 2 = 1200, centered about midX=300
-        #expect(r.sourceRect == CGRect(x: -300, y: 0, width: 1200, height: 600))
+        // target 2:1 > 1:1 → box too tall → crop height: newH = 600 / 2 = 300, centered about midY=300
+        #expect(r.sourceRect == CGRect(x: 0, y: 150, width: 600, height: 300))
     }
 
-    @Test("fit:cover heightens the sourceRect for a taller aspect, centered")
-    func resolveCoverHeighten() throws {
+    @Test("fit:cover crops width for a narrower aspect, centered, within the box")
+    func resolveCoverNarrowerCropsWidth() throws {
         let box = CGRect(x: 0, y: 0, width: 600, height: 600)    // 1:1
         let r = try RecordFraming.resolve(bbox: box, aspect: "1:2", fit: .cover,
                                           width: nil, height: nil, scale: 1.0)
-        // target 1:2 < 1:1 → heighten: newH = 600 / 0.5 = 1200, centered about midY=300
-        #expect(r.sourceRect == CGRect(x: 0, y: -300, width: 600, height: 1200))
+        // target 1:2 < 1:1 → box too wide → crop width: newW = 600 * 0.5 = 300, centered about midX=300
+        #expect(r.sourceRect == CGRect(x: 150, y: 0, width: 300, height: 600))
+    }
+
+    @Test("fit:cover stays within the box (no transparent bars for a window target)")
+    func resolveCoverWithinBounds() throws {
+        let box = CGRect(x: 0, y: 0, width: 1728, height: 1079)  // ~1.60, a self-window
+        let r = try RecordFraming.resolve(bbox: box, aspect: "16:9", fit: .cover,
+                                          width: nil, height: nil, scale: 1.0)
+        #expect(r.sourceRect.minX >= box.minX)
+        #expect(r.sourceRect.maxX <= box.maxX)
+        #expect(r.sourceRect.minY >= box.minY)
+        #expect(r.sourceRect.maxY <= box.maxY)
+        // 16:9 output ratio (within rounding)
+        #expect(abs(Double(r.width) / Double(r.height) - 16.0 / 9.0) < 0.01)
     }
 
     @Test("explicit width alone derives height from the output aspect")

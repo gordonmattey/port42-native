@@ -250,9 +250,32 @@ leak (the "nothing releases what it acquired" class):
   custom pipeline.
 - **Test:** live — a `contain` take of a non-16:9 target comes out 16:9 with bars, not stretched.
 
-### Step 7: live end-to-end (the spec's director examples)
-- Run the three shot-list examples (say-it-see-it, coordination two-port frame, synth hero with system
-  audio + cursor at 60fps) in Port42Dev; confirm each produces a correctly-sized, correctly-audio'd clip.
+### Framing extension: aspect/fit on ALL targets + cover = crop-to-fill (2026-07-21, DONE)
+
+Two things folded in before Step 7 so the director examples are meaningful:
+- **aspect/fit now applies to every target, not just ports.** `ScreenRecorder.start` computes a
+  `contentBBox` in the filter's coordinate space (self/window = full window; display = full display;
+  region = the rect; ports = the union) and runs `RecordFraming.resolve` whenever an aspect / explicit
+  dims are given (or it is a port/region target). A plain window/display take (no aspect) still skips
+  framing. This is what makes `screen.record({window:"self", aspect:"16:9"})` actually 16:9.
+- **`cover` is now standard crop-to-fill** (was an "expand into surrounding content" that added
+  transparent bars on a full-window target). Cover crops the overflow axis, always staying WITHIN the
+  box — correct and consistent for window/display/region/ports. "Keep everything at a fixed aspect" is
+  `contain` (letterbox, Step 6); ports with no aspect still frame the full union. Reflected in
+  `RecordFramingTests` (15).
+
+### Step 7: live end-to-end (the spec's director examples) — DONE (2026-07-21, verified live)
+
+- **V3 say-it-see-it** (`window:self`, `aspect:"16:9"`, `fit:"cover"`, audio none): 3456×1944 (true
+  16:9), a clean crop of the 1.60 window — no stretch, no bars (frame inspected).
+- **V1 synth hero** (`window:self`, `aspect:"16:9"`, `fit:"cover"`, cursor, `audio:"system"`, 60fps):
+  3456×1944 @60fps, AAC stereo.
+- **V2 coordination** (two-port union frame): the union + framing math is covered live by spike mode D
+  (coordinate space + union confirmed) and the 15 `RecordFramingTests`; cover now crops rather than
+  expands (a re-run needs an active space). No-aspect ports still frame the full union.
+
+The `contain` shot (any target whose requested aspect differs from the source) returns the legible
+"pass fit:cover or fit:exact" error until Step 6.
 
 ## Testing strategy summary
 

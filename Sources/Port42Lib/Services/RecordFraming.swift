@@ -80,7 +80,7 @@ public struct RecordFraming {
             case .exact:
                 sourceRect = bbox                      // stretched into the output aspect
             case .cover:
-                sourceRect = expand(bbox, toAspect: outputAR, bboxAR: bboxAR)
+                sourceRect = cropToFill(bbox, toAspect: outputAR, bboxAR: bboxAR)
             }
         }
 
@@ -94,22 +94,26 @@ public struct RecordFraming {
         } else if let h = height {
             outH = Double(h); outW = Double(h) * outputAR
         } else {
-            outW = bbox.width * scale
+            // Base on the captured rect (the cropped rect for cover, the box for exact/no-mismatch).
+            outW = sourceRect.width * scale
             outH = outW / outputAR
         }
 
         return Result(sourceRect: sourceRect, width: evenInt(outW), height: evenInt(outH))
     }
 
-    /// Expand a box to `targetAR` about its center (cover: widen or heighten so the target fills the
-    /// frame with no distortion; the added band may include surrounding window content).
-    private static func expand(_ box: CGRect, toAspect targetAR: Double, bboxAR: Double) -> CGRect {
+    /// Crop a box to `targetAR` about its center (cover: fill the frame, crop the overflow axis, no
+    /// distortion). The cropped rect is always WITHIN the box, so a window/display target gains no
+    /// transparent bars. To keep everything visible at a fixed aspect, use `contain` (letterbox).
+    private static func cropToFill(_ box: CGRect, toAspect targetAR: Double, bboxAR: Double) -> CGRect {
         if targetAR > bboxAR {
-            let newW = box.height * targetAR
-            return CGRect(x: box.midX - newW / 2, y: box.origin.y, width: newW, height: box.height)
-        } else {
+            // Target wider than the box → box is too tall → crop height, keep width.
             let newH = box.width / targetAR
             return CGRect(x: box.origin.x, y: box.midY - newH / 2, width: box.width, height: newH)
+        } else {
+            // Target narrower than the box → box is too wide → crop width, keep height.
+            let newW = box.height * targetAR
+            return CGRect(x: box.midX - newW / 2, y: box.origin.y, width: newW, height: box.height)
         }
     }
 }
