@@ -18,10 +18,17 @@ galaxy front + ⌘1-9; drag a world onto a gap (consistent leading insertion bar
 trailing gap) and it lands + persists (commits `7f612fa`, `3e29ad0`, `06efac0`). Two RCAs on the way:
 `observeSpaces` ordered by `createdAt` was reverting the reorder in the UI (fixed → order by
 `sortIndex`); and live-mutating the grid mid-drag oscillated and killed `performDrop` (fixed → record
-the gap only, commit on drop). **Next pickup is GM's call.** Fully-planned and ready: `screen.record`
-(native demo capture) — spec `port42-growth/specs/screen-record-api.md`, eng plan
-`docs/plan-screen-record.md`, start at Step 0 (three de-risking spikes). Other open items in the
-freshness-sweep list below.
+the gap only, commit on drop). **`screen.record` (native demo capture) SHIPPED (2026-07-21, verified live)** — 6 commits `3a91e62`..
+`fbf063c`. All targets (self / port / ports / window:id / display / region), aspect/fit on every target
+(cover = crop-to-fill, exact), system+mic audio, the four bridge methods (`screen.record.start/stop/
+status` + convenience) with `.screen`/`.microphone` gating and space-cwd/fallback destinations, and a
+leak-proof teardown seam (owner-port death finalizes recordings). 56 unit tests + the param-consistency
+and llms.txt gates green; the director shot-list examples validated on the dev gateway. Full step log in
+`docs/plan-screen-record.md`. **Only deferred piece: Step 6 `contain` (letterbox)** — a `contain`
+request whose aspect differs from the source returns a legible "use fit:cover or exact" error until then.
+**Next pickup (GM, 2026-07-21): the two dock bugs** logged at the top of `docs/summer2026-todo.md`
+(restored/launched surface lands under everything; restore animates from screen-right not the dock chip).
+Other open items in the freshness-sweep list below.
 
 ## Freshness sweep (2026-07-21) — corrected statuses
 
