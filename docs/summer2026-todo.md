@@ -38,21 +38,25 @@ companion-transcript bug. Lives in the shim (`port42-claude-shim`) / AgentProces
 
 ---
 
-## BUG (TODO, 2026-07-21): restored/launched surface lands under everything + wrong restore animation origin
+## ~~BUG: restored/launched surface lands under everything + wrong restore animation origin~~ — FIXED 2026-07-22 (verified live)
 
-Two related defects on the park-rail (dock) restore path and the new chat/terminal path. GM report:
+Two related defects on the park-rail (dock) restore path and the new chat/terminal path. Both fixed;
+RCA + plan in `docs/plan-dock-restore-bugs.md`.
 
-1. **Z-order.** Restoring a port from the dock, OR launching a chat / terminal, drops the surface
-   UNDER the existing tiles instead of coming to the front. Expected: a restored or newly-launched
-   surface arrives frontmost and takes focus. (Likely a missing `bringToFront` / z-bump on the
-   restore + create paths; lives around the park-rail restore and chat/terminal spawn in
-   `ShellDesktop.swift` / `ShellState.swift`.)
-2. **Restore animation origin.** Restoring from the dock animates the tile in from the RIGHT screen
-   edge, instead of out of the dock (park rail) chip it was restored from. Expected: it animates from
-   its dock location. (The insertion transition is using a screen-relative origin, not the source
-   chip's frame.)
-
-Both are friction on the everyday restore loop. Size: S each, likely one seam.
+1. **Z-order — FIXED.** Root cause was NOT a missing stamp on the create/restore paths (those now call
+   `bringToFront`). It was two z authorities drifting: `ShellState.nextZ()` (a counter) and
+   `PortWindowManager.bringToFront` (max+1). Terminal focus and other paths stamped panels up to z=171
+   via max+1 while the shell counter sat at 80, so `nextZ()` returned a value UNDER existing tiles and
+   every fresh port landed behind (measured live: counter 80, live tiles 171). Fix: `nextZ()` re-seeds
+   against the live max on every call (`zCounter = max(zCounter, panels.max.z) + 1`), so the shell
+   authority can never fall behind the manager authority. Plus the create/restore paths stamp frontmost:
+   `handlePortCreated` same-space branch, the chip-restore button, and `openChat`. Three regression
+   tests in `ShellStateTests` (birth frontmost, restore frontmost, and the drift case).
+2. **Restore animation origin — FIXED.** A `matchedGeometryEffect` shared namespace between the park
+   chip (source) and the tile (dest) morphs the tile OUT of the chip's location on restore; the
+   `arrangeBump` re-grid was dropped from the chip path so the morph is the only motion. Because tiles
+   are absolutely positioned via `.position`, the match is **position-anchored** (the tile flies from
+   the chip to its slot; a size-grow from chip-size would fight `.position` and is a deferred polish).
 
 ---
 
@@ -271,6 +275,13 @@ dangles and the JS promise never settles. Low frequency, but it is the same root
 settles the continuation as an error if no terminal event arrives. Closes the class fully so no engine
 misbehavior can leak a pending promise. Add a test: a backend that emits nothing ever, assert the call
 settles (errors) rather than hangs.
+
+**Status 2026-07-22 (verified in code):** STILL OPEN, but effectively bounded in practice. The
+cancel-hang is closed (`LLMStreamCollector.cancelIfPending` + a once-only `finish`), and `LLMEngine`
+sets `timeoutIntervalForRequest = 120`, so a silent network stall errors after 120s and settles the
+continuation. There is no `deinit` guard on the collector, so the residual is a backend that deallocs
+the collector while pending with no terminal event and no cancel (the real URLSession engine does not).
+Remaining work is the ~5-line deinit safety net + the emits-nothing test. Small hardening, low urgency.
 
 ---
 
@@ -1508,6 +1519,79 @@ base implementation needs one answer to "who is calling". Related: "adopt agent-
 + friends)" above (the parent item), "a port has a URL", "port teleport", and
 `membrane/bus-architecture.md` (cross-instance address + per-element right-of-way, which are the same
 question again).
+
+---
+
+## NORTH STAR (umbrella): the Port42 protocol — port addressing + P2P ports + shared-URL join (2026-07-22, GM)
+
+The pieces below are scattered across this doc as separate TODOs. GM's framing pulls them under one
+program: **a Port42 protocol** that makes a port a first-class, addressable, shareable network object.
+Three goals, in dependency order.
+
+**1. Systematic local port addressing.** Every port gets a stable, systematic address so any surface
+(JS, gateway, another port, an external viewer) can reference and route to a specific port instead of
+passing UDIDs by hand. Today a port is reachable only by UDID/title through `port.*` bridge calls;
+there is no address SCHEME. Decide the scheme (candidate: `port://<space>/<id>` or a flat
+`port://<id>`), make it resolve locally first (one instance, many ports), and route `port.*` and the
+stream bus through it. This is the prerequisite for everything below: you cannot share or peer to a
+port you cannot name. Related: the principal work above answers "which port on which instance does this
+address reach" (cross-instance address needs the peer's principal).
+
+**2. P2P ports.** A port on one instance connects peer-to-peer to a port (or viewer) on another. Two
+transports are already named in this doc: the **gateway relay** (the WS hub + reverse-proxy that
+invite sharing already rides, `gateway/main.go`) as the low-lift route, and **true P2P
+(libp2p/Iroh)** for a direct link off the relay (`membrane/bus-architecture.md`, the state-replication
+notes below). The addressing scheme (goal 1) plus the authenticated `peer.ID` (the principal work) are
+the substrate. Sequence: relay first (reuses the tunnel/invite machinery), direct P2P later.
+
+**3. Port sharing — a shared URL someone else opens to JOIN your live port (multiplayer).** GM: "shared
+url with someone else and they join your port." This is the user-facing verb over goals 1-2: send a URL,
+the other person opens it and lands in your LIVE port, co-present. **Precedent already shipping:** the
+SHARED SYNTH port (fundemos space) is a same-instance multiplayer port today (you plus AI players
+co-editing one grid). The new axis is CROSS-peer join over a URL. Mechanism is the **state-replication
+protocol** already sketched here: `getHtml` = snapshot, `push` = state delta, `patch` = targeted
+mutation (see the replication notes near the bottom of this doc + `membrane/bus-architecture.md`). A
+join is: resolve the address (1) → open a peer channel (2) → subscribe to the port's replicated state
+(rendering is just one more subscriber). "Publish a port as a website" (a read-only HTTP subscriber) is
+the degenerate one-way case of this; full join is two-way.
+
+**Not only push/patch — serving the PORT itself to a peer Port42 instance (GM, 2026-07-22).** Beyond
+syncing state deltas between two running copies, the protocol should be able to serve the port itself
+(its self-contained document + identity + live surface) to a peer's Port42, so the peer instance
+instantiates and HOSTS it, not just an HTTP viewer. Open question GM flagged: **is "serve the port to a
+peer instance" the same primitive as `getHtml` (snapshot) + `push`/`patch` (live deltas), or a distinct
+transfer?** They may collapse (serve = the initial `getHtml` snapshot, then the peer subscribes to
+`push`/`patch`), or "serve to a peer instance" may be its own verb closer to **port teleport** (the port
+materializes on the peer, addressable there). To work out. This is the difference between a peer
+*viewing* your port and a peer *running* your port.
+
+**Building blocks that already exist (validation: partial, in-repo):**
+- Authenticated peer identity at the wire: `gateway.go` handshake + `env.PeerID` (thrown away today at
+  `AppState.onCallReceived`; the principal item above is exactly promoting it).
+- Gateway serves full HTML pages over the public tunnel (`/invite`); a `GET /p/<id>` is directly
+  analogous (the publish-a-port item).
+- Self-contained port HTML (CSP inlines assets), version store retains every state — so a port is
+  already a serializable, replayable artifact.
+- Same-instance multiplayer precedent: SHARED SYNTH.
+
+**Open design decisions (unvalidated):**
+- Address scheme + resolver (`port://` shape; local resolve vs cross-instance).
+- Transport: gateway-relay vs true P2P (libp2p/Iroh); which first.
+- Serve-the-port vs replicate-state: is transmitting the port itself to a peer instance (the peer
+  instantiates + hosts it) the same primitive as `getHtml` snapshot + `push`/`patch` deltas, or a
+  distinct transfer near port teleport? Peer VIEWING your port vs peer RUNNING your port. (GM: to work out.)
+- Join semantics: shared replicated state (real co-edit) vs read-only view; conflict handling on
+  concurrent `patch`.
+- Identity/permissions per joiner: a joiner executes as the **viewer's** principal, never the host's
+  (the credential-laundering guard from the MCP / publish items). Bridge authority for a joined port is
+  gated on the principal work.
+- Live vs snapshot on share (the publish item's live-vs-snapshot decision generalizes here).
+
+**Sequence.** Gated on the **principal work** (identity is the substrate for cross-peer anything). Then:
+address scheme → gateway-relay join (reuses invite/tunnel) → state-replication co-edit → true P2P
+transport. Subsumes/organizes the scattered items: "a port has a URL", "port teleport", "publish a port
+as a website", "MCP as a port capability", "adopt agent-comms standards", and the
+`membrane/bus-architecture.md` cross-instance-address + replication work.
 
 ---
 

@@ -26,9 +26,14 @@ leak-proof teardown seam (owner-port death finalizes recordings). 56 unit tests 
 and llms.txt gates green; the director shot-list examples validated on the dev gateway. Full step log in
 `docs/plan-screen-record.md`. **Only deferred piece: Step 6 `contain` (letterbox)** — a `contain`
 request whose aspect differs from the source returns a legible "use fit:cover or exact" error until then.
-**Next pickup (GM, 2026-07-21): the two dock bugs** logged at the top of `docs/summer2026-todo.md`
-(restored/launched surface lands under everything; restore animates from screen-right not the dock chip).
-Other open items in the freshness-sweep list below.
+**The two dock bugs DONE (2026-07-22, verified live):** restored/launched surface landing under
+everything, and restore animating from screen-right. Root cause of the z-order half was a drift between
+two z authorities (`ShellState.nextZ` counter vs `PortWindowManager.bringToFront` max+1), fixed by making
+`nextZ` re-seed against the live max; the animation is a chip-anchored `matchedGeometryEffect` morph.
+3 regression tests. Also this session: screen.record audio (real `AVAssetWriter` track) + cursor
+invalid-param + lenient option bags + help renders option-bag shapes; background-as-presentation (a
+port set as background re-parents instead of reloading). Other open items in the freshness-sweep list
+below.
 
 ## Freshness sweep (2026-07-21) — corrected statuses
 
