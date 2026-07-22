@@ -210,11 +210,25 @@ except stop/status (`recordingId`):
 - **Test:** unit — each option maps to config; `format: mp4` sets the right file type. Live — a 60fps
   cursor-on take and a 16:9 take come out at the requested fps/size.
 
-### Step 5: the timed convenience + status + cleanup
-- `screen.record({seconds})` auto-stop; `screen.record.status`; ensure a stream always finalizes (stop
-  on app quit / port teardown, so a recording can't leak like the mic did — reuse the 0.5 teardown seam).
-- **Test:** unit — status shape, elapsed math. Live — timed take stops itself; killing the owning port
-  mid-record finalizes the file (no orphaned stream).
+### Step 5: the timed convenience + status + cleanup — DONE (2026-07-21, verified live)
+
+Timed convenience + `status` shipped in Step 3. This step wired the teardown seam so a recording cannot
+leak (the "nothing releases what it acquired" class):
+- `ScreenRecorder.releaseIfOwned(byPortId:)` finalizes recordings the given port started (keyed on
+  `Active.ownerPortId`, set from `Principal.portId` at start); fire-and-forget `stopCapture` with the
+  captured `rec` keeping the stream+delegate alive until the file finalizes.
+- `ScreenBridge.releaseIfOwned` calls `recorder.releaseIfOwned` BEFORE the stream early-return (a
+  recording and a stream are independent); `ScreenBridge.cleanup` calls `recorder.cleanup`. So the
+  existing `AppState.releaseAcquisitions(portId:)` path (port close + the deinit backstop) now finalizes
+  a port's recordings, exactly like the mic. App-quit is best-effort (a port's deinit backstop + the
+  convenience auto-stop cover the realistic cases; a gateway-peer manual start with no stop is the one
+  residual, no port to key on).
+- **Unit — PASS (5, `ScreenRecorderTeardownTests`):** idle recorder not recording; `status(nil)`/
+  `status(id)` shapes; `releaseIfOwned`/`cleanup` safe no-ops (a populated Active needs a real SCStream,
+  covered live).
+- **Live — PASS (Port42Dev, spike mode E):** a port started a 30s recording; closing the port at ~1.5s
+  drove `releaseAcquisitions` → the file finalized (valid mov, H264, 1.65s duration) and
+  `recorder.isRecording` went false. No orphaned stream, no unfinalized file.
 
 ### Step 6: `fit: contain` letterbox (deferred slice)
 - If `SCRecordingOutput` can't letterbox natively, add a compose step (an `AVAssetWriter` consumer that

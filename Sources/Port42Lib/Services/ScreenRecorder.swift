@@ -130,6 +130,9 @@ public final class ScreenRecorder {
         let height: Int
         let fps: Int
         let startedAt: Date
+        /// The port that started this recording (Principal.portId), or nil for a non-port caller
+        /// (the gateway). Its death finalizes the recording — the 0.5 "nothing leaks" seam.
+        let ownerPortId: String?
     }
 
     private var active: [String: Active] = [:]
@@ -157,6 +160,7 @@ public final class ScreenRecorder {
     public func start(target: RecordTarget, opts: [String: Any],
                       destinationDir: URL? = nil,
                       outputURL: URL? = nil,
+                      ownerPortId: String? = nil,
                       portFrameLookup: ((String) -> CGRect?)? = nil) async -> [String: Any] {
         guard #available(macOS 15, *) else {
             return ["error": "screen.record requires macOS 15 or later"]
@@ -228,7 +232,8 @@ public final class ScreenRecorder {
         }
 
         active[id] = Active(id: id, stream: stream, output: output, delegate: delegate,
-                            url: url, width: outWidth, height: outHeight, fps: cfg.fps, startedAt: Date())
+                            url: url, width: outWidth, height: outHeight, fps: cfg.fps,
+                            startedAt: Date(), ownerPortId: ownerPortId)
         NSLog("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d target=%@ → %@",
               id, outWidth, outHeight, cfg.fps, cfg.capturesAudio ? 1 : 0, targetLabel, url.lastPathComponent)
         return ["recordingId": id, "width": outWidth, "height": outHeight, "target": targetLabel]
@@ -273,6 +278,19 @@ public final class ScreenRecorder {
             "fps": rec.fps,
             "bytes": bytes
         ]
+    }
+
+    /// Finalize every recording started by the given port (the 0.5 teardown seam, keyed on the stable
+    /// port id). A no-op for a port that owns nothing here, so it is safe from both the close path and
+    /// the deinit backstop. Fire-and-forget stop: the captured `rec` keeps the stream + delegate alive
+    /// until finalize completes, so the file is written and no stream is orphaned.
+    public func releaseIfOwned(byPortId id: String) {
+        let owned = active.filter { $0.value.ownerPortId == id }
+        for (rid, rec) in owned {
+            active[rid] = nil
+            NSLog("[Port42] screen.record: finalizing %@ on owner %@ teardown", rid, id)
+            Task { try? await rec.stream.stopCapture() }
+        }
     }
 
     /// Teardown seam: finalize every active recording (app quit / owner teardown). Fire-and-forget

@@ -583,6 +583,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         let (target, dir, outputURL) = try await resolveRecordStart(opts, p)
         return try avResult(await screen.recorder.start(
             target: target, opts: opts, destinationDir: dir, outputURL: outputURL,
+            ownerPortId: p.portId,
             portFrameLookup: { appState.portWindows.portFrame(by: $0) }))
     }
 
@@ -616,6 +617,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         let (target, dir, outputURL) = try await resolveRecordStart(opts, p)
         let started = await screen.recorder.start(
             target: target, opts: opts, destinationDir: dir, outputURL: outputURL,
+            ownerPortId: p.portId,
             portFrameLookup: { appState.portWindows.portFrame(by: $0) })
         if let err = started["error"] as? String { throw BridgeError(code: "device_error", message: err) }
         guard let rid = started["recordingId"] as? String else {

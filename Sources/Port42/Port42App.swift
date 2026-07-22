@@ -99,7 +99,8 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         for (flag, mode) in [("PORT42_RECSPIKE_A_AUTORUN", ScreenRecordSpikeHarness.Mode.a),
                              ("PORT42_RECSPIKE_B_AUTORUN", .b),
                              ("PORT42_RECSPIKE_C_AUTORUN", .c),
-                             ("PORT42_RECSPIKE_D_AUTORUN", .d)] {
+                             ("PORT42_RECSPIKE_D_AUTORUN", .d),
+                             ("PORT42_RECSPIKE_E_AUTORUN", .e)] {
             if UserDefaults.standard.bool(forKey: flag) {
                 UserDefaults.standard.removeObject(forKey: flag)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
@@ -393,6 +394,9 @@ struct Port42App: App {
                 }
                 Button("screen.record Spike D (two-port framing)") {
                     ScreenRecordSpikeHarness.shared.run(.d)
+                }
+                Button("screen.record Spike E (owner teardown)") {
+                    ScreenRecordSpikeHarness.shared.run(.e)
                 }
             }
             #endif

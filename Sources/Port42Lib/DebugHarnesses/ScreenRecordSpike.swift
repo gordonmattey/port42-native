@@ -64,13 +64,55 @@ final class RecSpikeOutputDelegate: NSObject, SCRecordingOutputDelegate, @unchec
 public final class ScreenRecordSpikeHarness {
     public static let shared = ScreenRecordSpikeHarness()
 
-    public enum Mode: String { case a, b, c, d }
+    public enum Mode: String { case a, b, c, d, e }
 
     private let seconds: Double = 5.0
 
     public func run(_ mode: Mode) {
         if mode == .d { Task { await self.recordPortsLive() }; return }
+        if mode == .e { Task { await self.recordTeardownLive() }; return }
         Task { await self.record(mode) }
+    }
+
+    // MARK: - Mode E: owner-port teardown finalizes the recording (Step 5 live test)
+
+    /// Start a recording OWNED by a port on the SHARED recorder, then close the port and confirm the
+    /// file finalizes (valid, non-zero duration) with no orphaned stream — the 0.5 "nothing leaks" seam.
+    private func recordTeardownLive() async {
+        RecSpikeLog.p("=== SPIKE E (owner teardown) start ===")
+        guard #available(macOS 15, *) else { RecSpikeLog.p("E: requires macOS 15"); return }
+        var ready: (AppState, String)?
+        for _ in 0..<40 {
+            if let shell = ShellState.debugCurrent, let app = shell.debugAppState, let sid = app.currentSpace?.id {
+                ready = (app, sid); break
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        guard let (app, sid) = ready else { RecSpikeLog.p("E: no shell/app/space after 20s"); return }
+
+        let idE = "recspike-port-E"
+        _ = app.portWindows.registerTiledPort(id: idE, html: Self.coloredHTML(label: "PORT E", hue: 40),
+            spaceId: sid, createdBy: "recspike", title: "E",
+            position: CGPoint(x: 300, y: 200), size: CGSize(width: 420, height: 300))
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        let url = URL(fileURLWithPath: "/tmp/screenrec-e.mov")
+        try? FileManager.default.removeItem(at: url)
+        // 30s target so the recording is still live when we kill the port mid-take.
+        let start = await app.screenDevice.recorder.start(
+            target: .selfWindow, opts: ["audio": "none", "scale": 1.0],
+            outputURL: url, ownerPortId: idE)
+        RecSpikeLog.p("E: start (owner=\(idE)) → \(start)  isRecording=\(app.screenDevice.recorder.isRecording)")
+        try? await Task.sleep(nanoseconds: 1_500_000_000)   // record ~1.5s, then kill the owner
+
+        RecSpikeLog.p("E: closing port \(idE) mid-record (triggers releaseAcquisitions → recorder teardown)")
+        app.portWindows.close(idE)
+        try? await Task.sleep(nanoseconds: 1_500_000_000)   // let the finalize complete
+
+        RecSpikeLog.p("E: after teardown isRecording=\(app.screenDevice.recorder.isRecording)")
+        await checkOutput(url: url, label: "E")
+        RecSpikeLog.p("E: PASS iff isRecording=false AND E file has a video track with duration>0")
+        RecSpikeLog.p("=== SPIKE E done ===")
     }
 
     // MARK: - Mode D: ports framing (Step 2 live test)
@@ -262,8 +304,8 @@ public final class ScreenRecordSpikeHarness {
             await performRecording(window: window, config: config, url: url, label: "C")
             RecSpikeLog.p("C: inspect \(url.path) — if it shows the CENTER of the Port42 window, sourceRect is window-relative points.")
 
-        case .d:
-            break   // routed to recordPortsLive() in run(); never reaches here
+        case .d, .e:
+            break   // routed to recordPortsLive()/recordTeardownLive() in run(); never reaches here
         }
         RecSpikeLog.p("=== SPIKE \(mode.rawValue.uppercased()) done ===")
     }

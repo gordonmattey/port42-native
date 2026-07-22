@@ -288,6 +288,9 @@ public final class ScreenBridge: PortOwnedResource {
     /// correct immediately and a second call is a no-op. Keyed on the owning port id — the screen
     /// must not keep being captured after its port is gone.
     public func releaseIfOwned(byPortId id: String) {
+        // A recording and a stream are independent resources; release the recording regardless of
+        // stream state (the early-return below only guards the stream).
+        recorder.releaseIfOwned(byPortId: id)
         guard isStreaming, ownerPortId == id else { return }
         let toStop = stream
         stream = nil
@@ -300,6 +303,7 @@ public final class ScreenBridge: PortOwnedResource {
     // MARK: - Cleanup
 
     public func cleanup() {
+        recorder.cleanup()
         if let scStream = stream {
             Task {
                 try? await scStream.stopCapture()
