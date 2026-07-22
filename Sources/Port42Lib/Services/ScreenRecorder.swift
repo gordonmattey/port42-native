@@ -16,10 +16,14 @@ import CoreMedia
 /// `releaseIfOwned` (so an owning port's death finalizes its recording) is wired in the teardown step,
 /// the same seam the 0.5 mic-leak work established.
 
-/// What to frame. Step 1 supports `.selfWindow`; the rest are stubs filled in by later steps.
-public enum RecordTarget: Equatable {
+/// What to frame. `.selfWindow`/`.port`/`.ports` land on the self-window filter (occlusion-proof);
+/// `.port`/`.ports` add a `sourceRect` = the union of the ports' tile rects + padding. `window:id`,
+/// `region`, and `display` targets are Step 4.
+public enum RecordTarget {
     case selfWindow
-    // Step 2/4: case window(UInt32), port(String), ports([String]), region(CGRect), display(UInt32)
+    case port(String)
+    case ports([String])
+    // Step 4: case window(UInt32), region(CGRect), display(UInt32)
 }
 
 /// The pure options→config derivation (no ScreenCaptureKit in the computation, so it is
@@ -110,14 +114,15 @@ public final class ScreenRecorder {
     public var isRecording: Bool { !active.isEmpty }
 
     /// Start a recording. Returns `{recordingId, width, height, target}` or `{error}`.
-    /// Step 1: only `.selfWindow`; `destinationDir` defaults to the temp dir (the space-cwd/fallback
-    /// destination lands with the bridge methods).
-    public func start(target: RecordTarget, opts: [String: Any], destinationDir: URL? = nil) async -> [String: Any] {
+    /// `.selfWindow`/`.port`/`.ports` land on the self-window filter; `.port`/`.ports` crop to the
+    /// union of their tile rects via `portFrameLookup` (window-relative points, Spike C space).
+    /// `destinationDir` defaults to the temp dir (the space-cwd/fallback destination lands with the
+    /// bridge methods).
+    public func start(target: RecordTarget, opts: [String: Any],
+                      destinationDir: URL? = nil,
+                      portFrameLookup: ((String) -> CGRect?)? = nil) async -> [String: Any] {
         guard #available(macOS 15, *) else {
             return ["error": "screen.record requires macOS 15 or later"]
-        }
-        guard target == .selfWindow else {
-            return ["error": "screen.record: only window:self is supported at this step"]
         }
         guard let window = await resolveSelfWindow() else {
             return ["error": "screen.record: could not resolve the Port42 window"]
@@ -125,6 +130,43 @@ public final class ScreenRecorder {
 
         let displayScale = Double(NSScreen.main?.backingScaleFactor ?? 2.0)
         let cfg = RecordConfig.from(sourceSize: window.frame.size, displayScale: displayScale, opts: opts)
+        let scConfig = cfg.makeSCStreamConfiguration()
+
+        // Geometry: `.selfWindow` uses the whole window; `.port`/`.ports` crop to their union bbox.
+        var outWidth = cfg.width
+        var outHeight = cfg.height
+        var targetLabel = "self"
+        switch target {
+        case .selfWindow:
+            break
+        case .port, .ports:
+            let ids: [String] = { if case .port(let i) = target { return [i] }; if case .ports(let a) = target { return a }; return [] }()
+            let rects = ids.compactMap { portFrameLookup?($0) }
+            guard let bbox = RecordFraming.unionBBox(rects, padding: paddingOpt(opts)) else {
+                return ["error": "screen.record: no resolvable tiles for the given port(s)"]
+            }
+            let framing: RecordFraming.Result
+            do {
+                framing = try RecordFraming.resolve(
+                    bbox: bbox,
+                    aspect: opts["aspect"] as? String,
+                    fit: RecordFit(rawValue: (opts["fit"] as? String) ?? "contain") ?? .contain,
+                    width: RecordConfig.intOpt(opts["width"]),
+                    height: RecordConfig.intOpt(opts["height"]),
+                    scale: (RecordConfig.numOpt(opts["scale"]) ?? displayScale))
+            } catch RecordFramingError.containNotSupported {
+                return ["error": "screen.record: fit:contain (letterbox) is not yet supported; pass fit:cover or fit:exact, or omit aspect"]
+            } catch {
+                return ["error": "screen.record: framing failed: \(error.localizedDescription)"]
+            }
+            scConfig.sourceRect = framing.sourceRect
+            scConfig.width = framing.width
+            scConfig.height = framing.height
+            outWidth = framing.width
+            outHeight = framing.height
+            targetLabel = "ports(\(ids.count))"
+        }
+
         let id = UUID().uuidString
         let dir = destinationDir ?? FileManager.default.temporaryDirectory
         let url = dir.appendingPathComponent("port42-rec-\(id).\(cfg.fileType.rawValue)")
@@ -132,7 +174,6 @@ public final class ScreenRecorder {
         try? FileManager.default.removeItem(at: url)
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        let scConfig = cfg.makeSCStreamConfiguration()
 
         let recConfig = SCRecordingOutputConfiguration()
         recConfig.outputURL = url
@@ -150,10 +191,10 @@ public final class ScreenRecorder {
         }
 
         active[id] = Active(id: id, stream: stream, output: output, delegate: delegate,
-                            url: url, width: cfg.width, height: cfg.height, fps: cfg.fps)
-        NSLog("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d → %@",
-              id, cfg.width, cfg.height, cfg.fps, cfg.capturesAudio ? 1 : 0, url.lastPathComponent)
-        return ["recordingId": id, "width": cfg.width, "height": cfg.height, "target": "self"]
+                            url: url, width: outWidth, height: outHeight, fps: cfg.fps)
+        NSLog("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d target=%@ → %@",
+              id, outWidth, outHeight, cfg.fps, cfg.capturesAudio ? 1 : 0, targetLabel, url.lastPathComponent)
+        return ["recordingId": id, "width": outWidth, "height": outHeight, "target": targetLabel]
     }
 
     /// Stop + finalize a recording. Returns `{path, width, height, seconds, fps, bytes}` or `{error}`.
@@ -205,6 +246,11 @@ public final class ScreenRecorder {
         for (_, rec) in recs {
             Task { try? await rec.stream.stopCapture() }
         }
+    }
+
+    private func paddingOpt(_ opts: [String: Any]) -> CGFloat {
+        if let d = RecordConfig.numOpt(opts["padding"]) { return CGFloat(max(0, d)) }
+        return 24
     }
 
     // MARK: - Self-window resolution

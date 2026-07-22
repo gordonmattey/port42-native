@@ -64,12 +64,70 @@ final class RecSpikeOutputDelegate: NSObject, SCRecordingOutputDelegate, @unchec
 public final class ScreenRecordSpikeHarness {
     public static let shared = ScreenRecordSpikeHarness()
 
-    public enum Mode: String { case a, b, c }
+    public enum Mode: String { case a, b, c, d }
 
     private let seconds: Double = 5.0
 
     public func run(_ mode: Mode) {
+        if mode == .d { Task { await self.recordPortsLive() }; return }
         Task { await self.record(mode) }
+    }
+
+    // MARK: - Mode D: ports framing (Step 2 live test)
+
+    /// Open two known-position web ports, record their union bbox at 16:9/cover via the REAL
+    /// ScreenRecorder, and log the framing + output path. Verifies the desktop→window coordinate
+    /// space (portFrame == sourceRect space) and the union-bbox math end to end.
+    private func recordPortsLive() async {
+        RecSpikeLog.p("=== SPIKE D (ports framing) start ===")
+        guard #available(macOS 15, *) else { RecSpikeLog.p("D: requires macOS 15"); return }
+        // Wait (up to ~20s) for the shell to restore to a space — the autorun may fire before it lands.
+        var ready: (ShellState, AppState, String)?
+        for _ in 0..<40 {
+            if let shell = ShellState.debugCurrent, let app = shell.debugAppState, let sid = app.currentSpace?.id {
+                ready = (shell, app, sid); break
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        guard let (_, app, sid) = ready else {
+            RecSpikeLog.p("D: no shell/app/space after 20s — zoom into a space, then run Spike D from the Debug menu"); return
+        }
+        let idA = "recspike-port-A", idB = "recspike-port-B"
+        _ = app.portWindows.registerTiledPort(id: idA, html: Self.coloredHTML(label: "PORT A", hue: 320),
+            spaceId: sid, createdBy: "recspike", title: "A",
+            position: CGPoint(x: 200, y: 160), size: CGSize(width: 420, height: 300))
+        _ = app.portWindows.registerTiledPort(id: idB, html: Self.coloredHTML(label: "PORT B", hue: 160),
+            spaceId: sid, createdBy: "recspike", title: "B",
+            position: CGPoint(x: 760, y: 210), size: CGSize(width: 420, height: 300))
+        try? await Task.sleep(nanoseconds: 1_800_000_000)   // let both tiles mount + render
+
+        for id in [idA, idB] {
+            RecSpikeLog.p("D: \(id) portFrame=\(String(describing: app.portWindows.portFrame(by: id)))")
+        }
+
+        let recorder = ScreenRecorder()
+        let lookup: (String) -> CGRect? = { app.portWindows.portFrame(by: $0) }
+        let start = await recorder.start(
+            target: .ports([idA, idB]),
+            opts: ["padding": 32, "aspect": "16:9", "fit": "cover", "scale": 1.0, "cursor": false],
+            portFrameLookup: lookup)
+        RecSpikeLog.p("D: start → \(start)")
+        guard let rid = start["recordingId"] as? String else {
+            RecSpikeLog.p("D: no recordingId; abort")
+            app.portWindows.close(idA); app.portWindows.close(idB); return
+        }
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        let res = await recorder.stop(recordingId: rid)
+        RecSpikeLog.p("D: stop → \(res)")
+        if let path = res["path"] as? String { await checkOutput(url: URL(fileURLWithPath: path), label: "D") }
+        app.portWindows.close(idA); app.portWindows.close(idB)
+        RecSpikeLog.p("=== SPIKE D done ===")
+    }
+
+    private static func coloredHTML(label: String, hue: Int) -> String {
+        """
+        <html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:hsl(\(hue),70%,45%);color:#fff;font-family:monospace;font-size:40px;font-weight:bold">\(label)</body></html>
+        """
     }
 
     // MARK: - Self-window resolution
@@ -203,6 +261,9 @@ public final class ScreenRecordSpikeHarness {
             RecSpikeLog.p("C: windowFrame=\(window.frame) sourceRect=\(rect) (hypothesis: window-relative points) outputDims=\(config.width)x\(config.height)")
             await performRecording(window: window, config: config, url: url, label: "C")
             RecSpikeLog.p("C: inspect \(url.path) — if it shows the CENTER of the Port42 window, sourceRect is window-relative points.")
+
+        case .d:
+            break   // routed to recordPortsLive() in run(); never reaches here
         }
         RecSpikeLog.p("=== SPIKE \(mode.rawValue.uppercased()) done ===")
     }

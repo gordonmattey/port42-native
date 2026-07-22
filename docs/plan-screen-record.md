@@ -160,12 +160,26 @@ step). Step 1 writes to a temp `.mov`; the space-cwd/fallback destination lands 
 - **Carry-forward:** dimension math should prefer even width/height so the encoder does not silently
   round (the 1079→1078 case). Fold into Step 2/4's derivation.
 
-### Step 2: target resolution + framing math
-- `RecordTarget` resolution → filter + `sourceRect`; the **pure union-bbox** function (rects + padding →
-  bounding CGRect) and the `aspect`/`fit` → `width×height` derivation.
-- **Test:** unit — union bbox over 1/2/N rects with padding; `aspect:"16:9"` derives correct dimensions;
-  `fit: cover`/`exact` map to the right `sourceRect`+size; empty/one-port edge cases. Live — record two
-  ports; the output frames exactly their union + padding (Spike C coordinate space applied).
+### Step 2: target resolution + framing math — DONE (2026-07-21, verified live)
+
+`RecordFraming.swift` (pure): `unionBBox(rects, padding)`, `parseAspect`, `evenInt` (fixes the odd-height
+carry-forward), and `resolve(bbox, aspect, fit, width, height, scale) → (sourceRect, width, height)`.
+`ScreenRecorder` gained `.port(id)`/`.ports([id])` targets: a `portFrameLookup` closure supplies each
+tile rect (keeps the recorder decoupled from AppState), union + padding → bbox, `resolve` → `sourceRect`
++ dims on the self-window filter.
+
+- **v1 fit policy (GM 2026-07-21):** `cover` and `exact` supported; `contain` (letterbox) deferred to
+  Step 6. A `contain` request whose aspect differs from the box returns a legible error ("pass fit:cover
+  or fit:exact, or omit aspect") rather than a silently wrong frame. With no aspect/dims requested every
+  fit collapses to the box (no crop, no bars, no error).
+- **Unit — PASS (14 tests, `RecordFramingTests`):** union over 0/1/N rects + padding; aspect parse;
+  even rounding; no-mismatch collapse; matching-aspect no-error; contain-mismatch throws; exact stretch;
+  cover widen/heighten (centered); explicit-width derivation.
+- **Live — PASS (Port42Dev, mode D):** two ports at known positions, `record({ports:[a,b], padding:32,
+  aspect:"16:9", fit:"cover", scale:1})` → 1266×712 (16:9). The extracted frame shows BOTH ports fully
+  in view with padding and cover breathing room. Confirms `portFrame` (desktop coords) equals the
+  `sourceRect` window-point space — no chrome offset — and the union/cover math end to end. The shell
+  had re-arranged the ports; the recorder framed their actual rendered rects (the director pattern).
 
 ### Step 3: the bridge methods + permissions
 - Register `screen.record.start/stop/status` + the convenience; wire `.screen` (and `.microphone` for

@@ -98,7 +98,8 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         // screen.record Step 0 spikes (docs/plan-screen-record.md). A/C run hands-free; B needs a human.
         for (flag, mode) in [("PORT42_RECSPIKE_A_AUTORUN", ScreenRecordSpikeHarness.Mode.a),
                              ("PORT42_RECSPIKE_B_AUTORUN", .b),
-                             ("PORT42_RECSPIKE_C_AUTORUN", .c)] {
+                             ("PORT42_RECSPIKE_C_AUTORUN", .c),
+                             ("PORT42_RECSPIKE_D_AUTORUN", .d)] {
             if UserDefaults.standard.bool(forKey: flag) {
                 UserDefaults.standard.removeObject(forKey: flag)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
@@ -389,6 +390,9 @@ struct Port42App: App {
                 }
                 Button("screen.record Spike C (sourceRect crop)") {
                     ScreenRecordSpikeHarness.shared.run(.c)
+                }
+                Button("screen.record Spike D (two-port framing)") {
+                    ScreenRecordSpikeHarness.shared.run(.d)
                 }
             }
             #endif
