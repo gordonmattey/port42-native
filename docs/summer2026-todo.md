@@ -276,12 +276,15 @@ settles the continuation as an error if no terminal event arrives. Closes the cl
 misbehavior can leak a pending promise. Add a test: a backend that emits nothing ever, assert the call
 settles (errors) rather than hangs.
 
-**Status 2026-07-22 (verified in code):** STILL OPEN, but effectively bounded in practice. The
-cancel-hang is closed (`LLMStreamCollector.cancelIfPending` + a once-only `finish`), and `LLMEngine`
-sets `timeoutIntervalForRequest = 120`, so a silent network stall errors after 120s and settles the
-continuation. There is no `deinit` guard on the collector, so the residual is a backend that deallocs
-the collector while pending with no terminal event and no cancel (the real URLSession engine does not).
-Remaining work is the ~5-line deinit safety net + the emits-nothing test. Small hardening, low urgency.
+**FIXED 2026-07-22.** Finding during the fix: a pure `deinit` guard would NOT close the class, because
+the collector is held in the owner's strong `_activeStreamCollectors` and is removed only on
+`finish`/cancel — so on a silent death it stays retained forever and never deallocs (deinit never fires).
+The effective fix is a **max-duration watchdog** in `LLMStreamCollector`: a `Task` that settles the call
+as an `ai_timeout` error after `timeout` (default 300s, injectable), which ALSO drops the retention via
+`onDone`. It is cancelled on a normal finish. A `deinit` guard is added too as a cheap net for the
+dealloc-while-pending case. Regression test `StreamCollectorHardeningTests`: a backend that emits nothing
+settles with an error (0.2s watchdog) rather than hanging. The cancel-hang + 120s request timeout still
+stand; this closes the exotic no-callback-no-throw-retained tail.
 
 ---
 

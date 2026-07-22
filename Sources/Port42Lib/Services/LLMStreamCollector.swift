@@ -24,26 +24,52 @@ public final class LLMStreamCollector: NSObject, LLMStreamDelegate {
     /// closure does not have to capture (and cycle with) the collector.
     private let onDone: ((LLMStreamCollector) -> Void)?
 
+    /// Last-resort safety net (2.7 hardening): if no terminal callback and no cancel ever arrives, the
+    /// collector would sit in the owner's strong `_activeStreamCollectors` forever (so a `deinit` guard
+    /// alone never fires) and the awaiting JS promise would hang. This watchdog settles the call as an
+    /// error after `timeout`, which also drops the retention. Cancelled on a normal finish.
+    private var watchdog: Task<Void, Never>?
+
     public init(yield: @escaping @MainActor (String) -> Void,
                 continuation: CheckedContinuation<BridgeValue, Error>,
                 engine: LLMBackend = LLMEngine(),
-                onDone: ((LLMStreamCollector) -> Void)? = nil) {
+                onDone: ((LLMStreamCollector) -> Void)? = nil,
+                timeout: TimeInterval = 300) {
         self.yield = yield
         self.continuation = continuation
         self.engine = engine
         self.onDone = onDone
         super.init()
+        if timeout > 0 {
+            watchdog = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.finish(.failure(BridgeError(code: "ai_timeout",
+                    message: "stream settled by watchdog: no terminal response within \(Int(timeout))s")))
+            }
+        }
     }
 
     /// Resume the continuation exactly once (a late finish racing an error is a no-op), then release.
     @MainActor private func finish(_ result: Result<BridgeValue, Error>) {
         guard let cont = continuation else { return }
         continuation = nil
+        watchdog?.cancel(); watchdog = nil
         switch result {
         case .success(let v): cont.resume(returning: v)
         case .failure(let e): cont.resume(throwing: e)
         }
         onDone?(self)
+    }
+
+    deinit {
+        watchdog?.cancel()
+        // Cheap net for the case the collector IS deallocated while still pending (no owner retain):
+        // settle so the awaiting call can never hang. resume() is safe to call from any thread.
+        if let cont = continuation {
+            continuation = nil
+            cont.resume(throwing: CancellationError())
+        }
     }
 
     /// Settle the call as cancelled if it has not already settled. The core calls this from a stream's
