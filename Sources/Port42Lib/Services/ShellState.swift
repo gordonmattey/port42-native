@@ -256,7 +256,10 @@ public final class ShellState: ObservableObject {
     /// CLI companion, gateway, JS) with no per-path bookkeeping. Internal so tests drive it directly.
     func handlePortCreated(id: String, spaceId: String?, title: String) {
         guard let sid = spaceId, !isRested(sid) else { return }        // a rested space is fully silent
-        guard sid != appState.currentSpace?.id else { return }         // your space → a tile, not a peek
+        // Your space → a tile, not a peek. A fresh panel is born at z=0 (the bottom of the paint
+        // order), so stamp it frontmost + select it here — the ONE choke point every creator funnels
+        // through (portCreated) — so a launched terminal/browser/AI-made port lands on top, not under.
+        guard sid != appState.currentSpace?.id else { bringToFront(id); return }
         guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
@@ -781,8 +784,15 @@ public final class ShellState: ObservableObject {
     public private(set) var zCounter: Int = 0
 
     /// Next z value (frontmost). Call when a tile is focused/spawned, then stamp it on the panel.
+    /// Re-seeds against the LIVE panels first, so this authority never drifts BELOW a panel stamped
+    /// by `PortWindowManager.bringToFront` (max+1 — e.g. terminal focus). Without the re-seed the
+    /// counter goes stale and a freshly created/restored port gets a z UNDER existing tiles (measured:
+    /// counter at 80 while live tiles were at 171, so new ports landed behind everything).
     @discardableResult
-    public func nextZ() -> Int { zCounter += 1; return zCounter }
+    public func nextZ() -> Int {
+        zCounter = max(zCounter, appState.portWindows.panels.map(\.z).max() ?? 0) + 1
+        return zCounter
+    }
 
     /// Keep the counter ahead of any restored `z` so freshly focused ports still land on top.
     public func seedZCounter(from panels: [PortPanel]) {

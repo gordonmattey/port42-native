@@ -170,6 +170,10 @@ struct ShellDesktopView: View {
     /// The space the tile count last belonged to — so a count change from a SPACE SWITCH doesn't
     /// re-grid (tiles keep their saved per-space positions); only spawn/park/close within a space does.
     @State private var arrangedForSpace: String?
+    /// Shared namespace for the park-rail-chip → tile restore morph (Bug 2): a parked port's chip
+    /// (isSource) and its tile (dest) are never present together, so the tile animates OUT of the
+    /// chip's location on restore instead of sliding in from the screen edge.
+    @Namespace private var restoreNS
 
     private var sid: String? { appState.currentSpace?.id }
 
@@ -232,6 +236,7 @@ struct ShellDesktopView: View {
                                   size: item.panel?.size ?? ShellPlacement.peekSize,
                                   fallbackIndex: fallbackIdx),
                               area: geo.size,
+                              restoreNS: restoreNS,
                               exposeFrame: (shell.exposeActive && item.peek == nil && item.panel != nil)
                                   ? exposeRect(item.panel!, geo.size) : nil,
                               focusFrame: pl.chrome == .focus ? pl.rect : nil,
@@ -255,7 +260,7 @@ struct ShellDesktopView: View {
                 // Right-edge rail: park (main strip) + close (bottom zone). On top of the tiles.
                 // (The old left-edge notification rail is gone — peeks are absolutely-positioned
                 // units in the ForEach above, Phase 1.)
-                ShellParkRail(shell: shell, appState: appState, area: geo.size)
+                ShellParkRail(shell: shell, appState: appState, area: geo.size, restoreNS: restoreNS)
                     .zIndex(10_000)
             }
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
@@ -319,6 +324,9 @@ struct ShellTile: View {
     let tile: ShellTileModel
     let frame: CGRect
     let area: CGSize
+    /// Shared namespace for the dock-chip → tile restore morph (Bug 2). The tile is the dest
+    /// (isSource: false); the parked chip is the source. Threaded from ShellDesktopView.
+    var restoreNS: Namespace.ID
     var exposeFrame: CGRect? = nil        // set in exposé → scale-to-fit this cell (transient)
     /// Set when this tile is focused (Phase 0): the tile's ONE view animates to this rect in
     /// place — focus is a geometry state, not a second mount. nil = normal tile geometry.
@@ -534,6 +542,10 @@ struct ShellTile: View {
             }
         }
         .position(x: placedCenter.x, y: placedCenter.y)       // place last; exposé re-centers into its cell
+        // Restore morph (Bug 2): dest of the dock-chip match. Position-only so it composes with the
+        // absolute .position above (no size fight); when this port has no parked chip there is no
+        // source, so the effect is inert and the tile keeps its own placement.
+        .matchedGeometryEffect(id: "restore-\(tile.id)", in: restoreNS, properties: .position, anchor: .center, isSource: false)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: exposeFrame)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: focusFrame)   // focus = the unit's frame animating
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: peekHovered)
@@ -773,6 +785,9 @@ struct ShellParkRail: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     let area: CGSize
+    /// Shared namespace for the chip → tile restore morph (Bug 2). Each chip is the SOURCE; the tile
+    /// is the dest. Threaded from ShellDesktopView.
+    var restoreNS: Namespace.ID
 
     /// Ports put away in the rail. Only `parked` — the shell has NO floating presentation
     /// (Phase 2): a port here is tiled, parked, or peeking. One click restores a chip to a tile.
@@ -809,7 +824,10 @@ struct ShellParkRail: View {
     private func chip(_ p: PortPanel) -> some View {
         Button {
             appState.portWindows.unpark(id: p.id)
-            shell.arrangeBump += 1
+            shell.bringToFront(p.id)          // restored → frontmost + selected (was keeping its stale pre-park z)
+            // No arrangeBump: the matched-geometry morph (below) is the only motion, so the tile
+            // animates out of THIS chip's location instead of the arrange-spring dragging it in from
+            // the screen edge (Bug 2).
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
@@ -821,6 +839,8 @@ struct ShellParkRail: View {
         }
         .buttonStyle(.plain).help("Restore \(p.title)")
         .padding(.horizontal, 6)
+        // Source of the restore morph: the tile animates its position out of this chip's frame.
+        .matchedGeometryEffect(id: "restore-\(p.id)", in: restoreNS, properties: .position, anchor: .center, isSource: true)
     }
 
     private func closeZone(height: CGFloat, active: Bool) -> some View {
@@ -1034,6 +1054,11 @@ struct ShellDock: View {
     private func openChat() {
         guard let s = appState.currentSpace else { return }
         appState.portWindows.revealChat(spaceId: s.id, spaceName: s.name)
+        // Frontmost + select the chat tile — revealChat only flips presentation, so without this the
+        // chat comes back under whatever was focused since.
+        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == s.id }) {
+            shell.bringToFront(panel.id)
+        }
         shell.arrangeBump += 1
     }
 

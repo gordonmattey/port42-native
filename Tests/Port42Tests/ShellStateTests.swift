@@ -108,4 +108,61 @@ struct ShellStateTests {
         #expect(state.currentSpace?.id == s2.id)
         #expect(shell.zoom == .space)
     }
+
+    // MARK: - Dock restore + launch z-order (Bug 1)
+
+    @MainActor
+    private func z(_ id: String, _ state: AppState) -> Int {
+        state.portWindows.panels.first { $0.id == id }?.z ?? -1
+    }
+
+    @Test("a same-space birth is stamped frontmost + selected (not left at z=0 under everything)")
+    @MainActor
+    func birthLandsFrontmost() throws {
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        addPort("p1", to: space, in: state)
+        addPort("p2", to: space, in: state)
+        // handlePortCreated is the portCreated sink (live it is .receive(on: RunLoop.main)); a
+        // same-space birth stamps frontmost + selects rather than returning at the default z=0.
+        shell.handlePortCreated(id: "p1", spaceId: space.id, title: "p1")
+        shell.handlePortCreated(id: "p2", spaceId: space.id, title: "p2")
+        #expect(z("p2", state) > z("p1", state))     // the later birth is on top
+        #expect(shell.selectedTileId == "p2")
+    }
+
+    @Test("restoring a parked port stamps it frontmost over what was focused since")
+    @MainActor
+    func restoreLandsFrontmost() throws {
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        addPort("p1", to: space, in: state)
+        addPort("p2", to: space, in: state)
+        shell.bringToFront("p1")                      // p1 focused
+        state.portWindows.park(id: "p1")             // then parked (keeps its now-stale z)
+        shell.bringToFront("p2")                      // p2 focused since → higher z than p1
+        // The chip-restore path: unpark + re-stamp frontmost.
+        state.portWindows.unpark(id: "p1")
+        shell.bringToFront("p1")
+        #expect(z("p1", state) > z("p2", state))     // restored port is frontmost, not under p2
+        #expect(shell.selectedTileId == "p1")
+    }
+
+    @Test("nextZ re-seeds so a birth lands above a panel stamped by the manager's max+1 authority")
+    @MainActor
+    func zAuthorityDoesNotDrift() throws {
+        let (shell, state) = try makeState()
+        let space = Space.create(name: "main")
+        state.spaces = [space]; state.currentSpace = space
+        addPort("p1", to: space, in: state)
+        addPort("p2", to: space, in: state)
+        // The OTHER z authority (PortWindowManager.bringToFront = max+1, used by terminal focus)
+        // stamps p1 high WITHOUT bumping the shell counter — the drift that put new ports behind.
+        state.portWindows.bringToFront("p1")
+        // A same-space birth must still land ABOVE p1 (nextZ re-seeds against the live max).
+        shell.handlePortCreated(id: "p2", spaceId: space.id, title: "p2")
+        #expect(z("p2", state) > z("p1", state))
+    }
 }
