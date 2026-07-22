@@ -181,12 +181,29 @@ tile rect (keeps the recorder decoupled from AppState), union + padding → bbox
   `sourceRect` window-point space — no chrome offset — and the union/cover math end to end. The shell
   had re-arranged the ports; the recorder framed their actual rendered rects (the director pattern).
 
-### Step 3: the bridge methods + permissions
-- Register `screen.record.start/stop/status` + the convenience; wire `.screen` (and `.microphone` for
-  `mic|both`) through the `PermissionCoordinator`.
-- **Test:** unit — the schema/param-consistency (update the count) and a dispatch test that `start`
-  without a display errors cleanly, that `mic` triggers the microphone gate. Update the `llms.txt` gate.
-  Live — call `screen.record({seconds:5})` over the gateway; get a path back.
+### Step 3: the bridge methods + permissions — DONE (2026-07-21, verified live over the gateway)
+
+Four registry methods in `BridgeMethods.swift` (near `screen.stream`), all `paramNames:["options"]` bags
+except stop/status (`recordingId`):
+- `screen.record.start` (`.screen`, tool) → `recorder.start(...)`; `screen.record.stop` (`recordingId`);
+  `screen.record.status` (no perm); `screen.record` convenience (`.screen`, tool) = start → sleep
+  `seconds` → stop.
+- **Permissions:** `.screen` is auto-prompted by `BridgeDispatcher`; `audio:mic|both` additionally asks
+  `.microphone` in the body via `appState.permissions.request`.
+- **Destination:** calling space's `workingDirectory/recordings/`, else `BridgeFilePaths.dataDir/
+  recordings/`; a `path` option overrides (absolute as-is, relative under the dest dir). `~/.port42` is
+  never used. `ScreenBridge` now holds the `ScreenRecorder`; `.port`/`.ports` get `portFrameLookup =
+  { appState.portWindows.portFrame(by:) }`.
+- `ScreenRecorder` gained `status(recordingId:)`, an `outputURL` override, `Active.startedAt`, and the
+  pure `RecordTarget.parse` (self/port/ports; window:id/region/display → Step 4 error).
+
+- **Unit — PASS:** `RecordTargetTests` (7). `BridgeParamConsistencyTests` B1+B2 pass (schemas consistent
+  with the bodies); method count updated 67 → 71. `llms.txt` regenerated (`PORT42_REGEN_DOCS=1`), the
+  docs-export freshness gate passes.
+- **Live — PASS (Port42Dev gateway :4243):** `screen.record.status` → `{recording:false}`;
+  `screen.record({seconds:3, audio:"system"})` → a real path under `dataDir/recordings/` (gateway peer
+  has no space, so the fallback — correct), 3456×2158, 3s. ffprobe: H264 + AAC stereo. No permission
+  card blocked it (screen already granted).
 
 ### Step 4: options coverage (fps, scale, cursor, dimensions, format, aspect, region/display targets)
 - Fill in the remaining option fields and the `region`/`display`/`window:id` targets.

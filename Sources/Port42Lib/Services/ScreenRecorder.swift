@@ -19,11 +19,35 @@ import CoreMedia
 /// What to frame. `.selfWindow`/`.port`/`.ports` land on the self-window filter (occlusion-proof);
 /// `.port`/`.ports` add a `sourceRect` = the union of the ports' tile rects + padding. `window:id`,
 /// `region`, and `display` targets are Step 4.
-public enum RecordTarget {
+public enum RecordTarget: Equatable {
     case selfWindow
     case port(String)
     case ports([String])
     // Step 4: case window(UInt32), region(CGRect), display(UInt32)
+
+    /// A legible refusal from `parse` (an unsupported target shape).
+    public struct ParseError: Error, Equatable { public let message: String }
+
+    /// Parse the `target` option shape. Step 3 supports `{window:"self"}`, `{port:<udid>}`,
+    /// `{ports:[<udid>...]}`, and a missing target (= self); `{window:<id>}`, `{region:...}`,
+    /// `{display:...}` are Step 4 and return a legible error.
+    public static func parse(_ opts: [String: Any]) -> Result<RecordTarget, ParseError> {
+        guard let target = opts["target"] as? [String: Any] else { return .success(.selfWindow) }
+        if let win = target["window"] {
+            if let s = win as? String, s == "self" { return .success(.selfWindow) }
+            return .failure(ParseError(message: "screen.record: window:<id> targets are not yet supported (Step 4); use window:\"self\", port, or ports"))
+        }
+        if let port = target["port"] as? String { return .success(.port(port)) }
+        if let ports = target["ports"] as? [Any] {
+            let ids = ports.compactMap { $0 as? String }
+            guard !ids.isEmpty else { return .failure(ParseError(message: "screen.record: ports target had no valid port ids")) }
+            return .success(.ports(ids))
+        }
+        if target["region"] != nil || target["display"] != nil {
+            return .failure(ParseError(message: "screen.record: region/display targets are not yet supported (Step 4)"))
+        }
+        return .success(.selfWindow)
+    }
 }
 
 /// The pure options→config derivation (no ScreenCaptureKit in the computation, so it is
@@ -105,6 +129,7 @@ public final class ScreenRecorder {
         let width: Int
         let height: Int
         let fps: Int
+        let startedAt: Date
     }
 
     private var active: [String: Active] = [:]
@@ -113,6 +138,17 @@ public final class ScreenRecorder {
 
     public var isRecording: Bool { !active.isEmpty }
 
+    /// Status of a recording (or of the recorder overall when `recordingId` is nil).
+    public func status(recordingId: String?) -> [String: Any] {
+        if let id = recordingId {
+            guard let rec = active[id] else { return ["recording": false, "elapsed": 0.0] }
+            return ["recording": true, "elapsed": Date().timeIntervalSince(rec.startedAt), "recordingId": id]
+        }
+        guard let any = active.values.first else { return ["recording": false, "elapsed": 0.0, "count": 0] }
+        return ["recording": true, "elapsed": Date().timeIntervalSince(any.startedAt),
+                "recordingId": any.id, "count": active.count]
+    }
+
     /// Start a recording. Returns `{recordingId, width, height, target}` or `{error}`.
     /// `.selfWindow`/`.port`/`.ports` land on the self-window filter; `.port`/`.ports` crop to the
     /// union of their tile rects via `portFrameLookup` (window-relative points, Spike C space).
@@ -120,6 +156,7 @@ public final class ScreenRecorder {
     /// bridge methods).
     public func start(target: RecordTarget, opts: [String: Any],
                       destinationDir: URL? = nil,
+                      outputURL: URL? = nil,
                       portFrameLookup: ((String) -> CGRect?)? = nil) async -> [String: Any] {
         guard #available(macOS 15, *) else {
             return ["error": "screen.record requires macOS 15 or later"]
@@ -169,8 +206,8 @@ public final class ScreenRecorder {
 
         let id = UUID().uuidString
         let dir = destinationDir ?? FileManager.default.temporaryDirectory
-        let url = dir.appendingPathComponent("port42-rec-\(id).\(cfg.fileType.rawValue)")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = outputURL ?? dir.appendingPathComponent("port42-rec-\(id).\(cfg.fileType.rawValue)")
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
@@ -191,7 +228,7 @@ public final class ScreenRecorder {
         }
 
         active[id] = Active(id: id, stream: stream, output: output, delegate: delegate,
-                            url: url, width: outWidth, height: outHeight, fps: cfg.fps)
+                            url: url, width: outWidth, height: outHeight, fps: cfg.fps, startedAt: Date())
         NSLog("[Port42] screen.record: started %@ %dx%d @ %d fps audio=%d target=%@ → %@",
               id, outWidth, outHeight, cfg.fps, cfg.capturesAudio ? 1 : 0, targetLabel, url.lastPathComponent)
         return ["recordingId": id, "width": outWidth, "height": outHeight, "target": targetLabel]

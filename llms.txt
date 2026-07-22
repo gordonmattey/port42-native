@@ -269,6 +269,14 @@ Generated from the live method registry: every entry below is served exactly as 
       Capture a screenshot of the screen. Returns a base64 PNG image.
   screen.displays()
       Get display information: size, position, and visible area (excluding dock/menubar) for all connected displays. No screen recording permission required. Use this to calculate port positions before calling port_move.
+  screen.record(options)  [permission: screen]
+      Record an app surface for a fixed number of seconds and auto-stop (the convenience form). Pass options.seconds. Returns {path, width, height, seconds, fps, bytes}.
+  screen.record.start(options)  [permission: screen]
+      Start recording an app surface (window:self / a port / multiple ports) to a video file with optional system or mic audio. Returns {recordingId, width, height, target}. Stop with screen.record.stop.
+  screen.record.status(recordingId)
+      Report whether a recording (or any recording) is active and its elapsed seconds.
+  screen.record.stop(recordingId)
+      Stop a recording started with screen.record.start. Returns {path, width, height, seconds, fps, bytes}.
   screen.stopStream()
       Stop the screen stream and release the capture stream.
   screen.stream(options)  [permission: screen]

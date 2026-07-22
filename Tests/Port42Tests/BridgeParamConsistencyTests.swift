@@ -147,7 +147,8 @@ struct BridgeParamConsistencyTests {
         // + presentation (backlog 1.1) = 64. BridgeServiceAI.swift: 3. Total 67. The parser now
         // requires the `= Bridge...` assignment, so the local `r["error"]` read in browserResult is
         // no longer miscounted (was the long-standing off-by-one that made this assert read 66).
-        #expect(methods.count == 67, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // + screen.record{,.start,.stop,.status} (docs/plan-screen-record.md Step 3) = 71.
+        #expect(methods.count == 71, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

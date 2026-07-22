@@ -526,6 +526,105 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         try avResult(await screen.stopStream())
     }
 
+    // screen.record (docs/plan-screen-record.md): record app surfaces to a real video file (not
+    // base64). Shares the ScreenBridge SCStream plumbing; SCRecordingOutput writes video + optional
+    // system/mic audio. Requires macOS 15. Destination: the calling space's workingDirectory/recordings,
+    // else dataDir/recordings; a `path` option overrides. `.screen` is auto-prompted by the dispatcher;
+    // `audio:mic|both` additionally asks for `.microphone` here.
+
+    /// Where a recording lands: the calling space's working directory (`recordings/`), else the
+    /// app data dir (`recordings/`, reachable by the sandboxed fs.* API). `~/.port42` is never used.
+    func recordingsDir(spaceId: String?) -> URL {
+        if let sid = spaceId,
+           let wd = appState.spaces.first(where: { $0.id == sid })?.workingDirectory,
+           !wd.isEmpty {
+            return URL(fileURLWithPath: wd).appendingPathComponent("recordings")
+        }
+        return URL(fileURLWithPath: BridgeFilePaths.dataDir).appendingPathComponent("recordings")
+    }
+
+    /// Resolve start options → (target, destinationDir, outputURL override) or throw a legible error.
+    /// Also asks for `.microphone` when audio is mic/both.
+    func resolveRecordStart(_ opts: [String: Any], _ p: Principal) async throws -> (RecordTarget, URL, URL?) {
+        let target: RecordTarget
+        switch RecordTarget.parse(opts) {
+        case .success(let t): target = t
+        case .failure(let e): throw BridgeError(code: "device_error", message: e.message)
+        }
+        let audio = (opts["audio"] as? String) ?? "none"
+        if audio == "mic" || audio == "both" {
+            let ok = await appState.permissions.request(.microphone, from: p)
+            if !ok { throw BridgeError.permissionDenied("microphone") }
+        }
+        let dir = recordingsDir(spaceId: p.spaceId)
+        var outputURL: URL? = nil
+        if let path = opts["path"] as? String, !path.isEmpty {
+            outputURL = (path as NSString).isAbsolutePath
+                ? URL(fileURLWithPath: path)
+                : dir.appendingPathComponent(path)
+        }
+        return (target, dir, outputURL)
+    }
+
+    let recordSchema: [String: Any] = [
+        "type": "object",
+        "properties": [
+            "options": [
+                "type": "object",
+                "description": "Recording options: target ({window:\"self\"} | {port:<udid>} | {ports:[<udid>...]}), aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds."
+            ]
+        ]
+    ]
+
+    r["screen.record.start"] = BridgeMethod(permission: .screen, paramNames: ["options"],
+        description: "Start recording an app surface (window:self / a port / multiple ports) to a video file with optional system or mic audio. Returns {recordingId, width, height, target}. Stop with screen.record.stop.",
+        inputSchema: recordSchema) { p, args in
+        let opts = args.object("options") ?? [:]
+        let (target, dir, outputURL) = try await resolveRecordStart(opts, p)
+        return try avResult(await screen.recorder.start(
+            target: target, opts: opts, destinationDir: dir, outputURL: outputURL,
+            portFrameLookup: { appState.portWindows.portFrame(by: $0) }))
+    }
+
+    r["screen.record.stop"] = BridgeMethod(permission: nil, paramNames: ["recordingId"],
+        description: "Stop a recording started with screen.record.start. Returns {path, width, height, seconds, fps, bytes}.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["recordingId": ["type": "string", "description": "The id returned by screen.record.start"]],
+            "required": ["recordingId"]
+        ]) { _, args in
+        let id = try args.requireString("recordingId")
+        return try avResult(await screen.recorder.stop(recordingId: id))
+    }
+
+    r["screen.record.status"] = BridgeMethod(permission: nil, paramNames: ["recordingId"],
+        description: "Report whether a recording (or any recording) is active and its elapsed seconds.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["recordingId": ["type": "string", "description": "Optional recording id; omit for the overall status"]]
+        ]) { _, args in
+        .fromJSONObject(screen.recorder.status(recordingId: args.string("recordingId")))
+    }
+
+    r["screen.record"] = BridgeMethod(permission: .screen, paramNames: ["options"],
+        description: "Record an app surface for a fixed number of seconds and auto-stop (the convenience form). Pass options.seconds. Returns {path, width, height, seconds, fps, bytes}.",
+        inputSchema: recordSchema) { p, args in
+        let opts = args.object("options") ?? [:]
+        guard let seconds = RecordConfig.numOpt(opts["seconds"]), seconds > 0 else {
+            throw BridgeError(code: "device_error", message: "screen.record convenience requires options.seconds > 0; use screen.record.start for start/stop handles")
+        }
+        let (target, dir, outputURL) = try await resolveRecordStart(opts, p)
+        let started = await screen.recorder.start(
+            target: target, opts: opts, destinationDir: dir, outputURL: outputURL,
+            portFrameLookup: { appState.portWindows.portFrame(by: $0) })
+        if let err = started["error"] as? String { throw BridgeError(code: "device_error", message: err) }
+        guard let rid = started["recordingId"] as? String else {
+            throw BridgeError(code: "device_error", message: "screen.record: start returned no recordingId")
+        }
+        try? await Task.sleep(nanoseconds: UInt64(min(seconds, 3600) * 1_000_000_000))
+        return try avResult(await screen.recorder.stop(recordingId: rid))
+    }
+
     // Tail item 4 — rest.call. One body for all surfaces, carrying BOTH old paths' semantics: the
     // port path's dict-body support and the tool path's per-companion secret grant + filtered
     // response headers. JS calls (url, opts-bag); tool-use passes flat keys; reads fall through
