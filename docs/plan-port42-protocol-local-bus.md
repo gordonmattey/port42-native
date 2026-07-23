@@ -323,10 +323,17 @@ bridge (`PortBridge.swift`) predicts the callId, registers a `_tokenCallback` th
 
 **Live-verified (2026-07-23):** two separate web ports in Port42Dev. Port A's own page script called
 `port42.port.subscribe(B, e => …)`; three `port.push` calls to B were received by A in order with
-correct parsed payloads (`{seq:1}`, `{seq:2}`, `{seq:3}`), topic `port:<B>`, kind `push`. Note:
-`port.subscribe` cannot be exercised through `port.exec` — `PortExecJS` awaits the returned value and
-its wrapper cannot tolerate a `postMessage`, so any bridge call from `exec` fails; the subscribe must
-run in the port's own page script (its real delivery surface), which works. **L1 done.**
+correct parsed payloads (`{seq:1}`, `{seq:2}`, `{seq:3}`), topic `port:<B>`, kind `push`. Also
+verified driving `subscribe` through `port.exec` (subscribe then `port.push`, envelope arrives) —
+`exec` is a valid subscriber surface too. **L1 done.**
+
+**`port.exec` contract footgun (not a bus limitation):** `PortExecJS.wrapBody` treats a bare
+expression as `return (<expr>)`. A multi-statement one-liner with no explicit `return` and no
+newline — e.g. `foo(); 42` — becomes `return (foo(); 42)`, a **syntax error** reported as the opaque
+"A JavaScript exception occurred". This has nothing to do with the bridge or promises (`1+1; 42`
+fails identically). Any multi-statement `exec` body must use an explicit `return` or newlines.
+Candidate hardening: have `wrapBody` split on `;`/newlines and only wrap the final segment, or detect
+multi-statement input and require the caller's `return`.
 
 A port is an actor that emits a stream; L1 makes that stream subscribable by many, over one path.
 
