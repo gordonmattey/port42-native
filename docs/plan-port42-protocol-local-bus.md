@@ -309,6 +309,14 @@ consider `Principal` vending its own `PortAddress` when L1 lands.
 
 ### Phase L1 — unified Subscribe → Notify (keystone #3) — detailed (2026-07-23)
 
+**STATUS: CORE SHIPPED (2026-07-23), verified.** `NotifyBus` (in-memory 1:N, `NotifyBusTests` 4 green),
+`port.subscribe` (a `BridgeStreamMethod`; end-to-end `PortSubscribeTests` green: subscribe → publish →
+yield → cancel unsubscribes), and two producer taps: `port.push` ("push") and the terminal `onFlush`
+("terminal.output", threaded through `GhosttyTerminalController` — **ships backlog 3.4**, non-hooks
+tools only). Commits `f814acd`, + the terminal-tap commit. **Follow-ups:** the web + browser attach
+points; clean per-surface delivery (a port receives a Notify as an event via `port42.on`, not a stream
+token); a live in-app multi-subscriber check.
+
 A port is an actor that emits a stream; L1 makes that stream subscribable by many, over one path.
 
 **NotifyBus (in-memory, 1:N).** On `AppState`: `notifySubscribers: [String: [Int: (String) -> Void]]`

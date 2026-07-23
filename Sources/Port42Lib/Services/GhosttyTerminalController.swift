@@ -72,6 +72,8 @@ final class GhosttyTerminalController {
     private let processor: TerminalOutputProcessor
 
     private let post: (String) -> Void
+    /// Publish the terminal's clean output batch (onFlush) to the Notify bus (Phase L1 / backlog 3.4).
+    private let onOutput: @MainActor (String) -> Void
     /// Returns (and clears) any space messages that arrived while this terminal was still
     /// (re)spawning, so they can be injected once the CLI is ready. Injected by the caller
     /// (AppState) so the queue stays decoupled and testable. Defaults to no-op for tests.
@@ -100,12 +102,14 @@ final class GhosttyTerminalController {
 
     init(panelId: String, config: TerminalPortConfig,
          post: @escaping (String) -> Void,
+         onOutput: @escaping @MainActor (String) -> Void = { _ in },
          drainPending: @escaping () -> [String] = { [] },
          onSessionStarted: @escaping () -> Void = {},
          onSessionEnded: @escaping () -> Void = {}) {
         self.panelId = panelId
         self.config = config
         self.post = post
+        self.onOutput = onOutput
         self.drainPending = drainPending
         self.onSessionStarted = onSessionStarted
         self.onSessionEnded = onSessionEnded
@@ -126,7 +130,14 @@ final class GhosttyTerminalController {
               config.spaceId, config.cwd, config.startupCommand)
 
         // <p42> FALLBACK path (non-hooks tools only — the gate suppresses it otherwise).
-        self.processor = TerminalOutputProcessor { _ in }
+        // Phase L1 / backlog 3.4: onFlush's clean output batch publishes to the Notify bus, but only
+        // for non-hooks tools (claude/gemini stream via turnComplete; teeing a TUI is redraw garbage —
+        // the same coarse guard, no alt-screen probe).
+        // Capture the param + a computed flag, NOT self (self.processor is mid-init here).
+        self.processor = TerminalOutputProcessor { [onOutput, hc = Self.isHooksCapable(config.startupCommand)] out in
+            guard !hc, !out.isEmpty else { return }
+            onOutput(out)
+        }
         processor.onP42Output = { [weak self] tags in
             guard let self else { return }
             self.log("tee onP42Output: \(tags.count) tag(s)")

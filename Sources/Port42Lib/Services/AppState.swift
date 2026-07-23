@@ -2680,6 +2680,10 @@ public final class AppState: ObservableObject {
             self?.removeAutoRegisteredCompanion(panelId: panel.id)
         }
         let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
+                                                   onOutput: { [weak self] out in
+                                                       // Phase L1 / backlog 3.4: terminal output → Notify bus.
+                                                       self?.notifyBus.publish(topic: "port:\(panel.id)", kind: "terminal.output", payload: out)
+                                                   },
                                                    drainPending: drainPending,
                                                    onSessionStarted: onSessionStarted, onSessionEnded: onSessionEnded)
         terminalControllers[panel.id] = controller
