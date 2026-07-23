@@ -1370,8 +1370,9 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let title = try args.requireString("title")
         guard !title.isEmpty else { throw BridgeError.badArg("port.rename requires a non-empty title") }
-        appState.portWindows.renamePort(id: id, title: title)
-        if let bridge = appState.findInlineBridge(by: id) { bridge.title = title }
+        let ref = appState.resolvePortRef(id)
+        appState.portWindows.renamePort(id: ref?.udid ?? id, title: title)
+        if let bridge = appState.findInlineBridge(by: ref?.messageId ?? id) { bridge.title = title }
         return .object(["ok": .bool(true)])
     }
 
