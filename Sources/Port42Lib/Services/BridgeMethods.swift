@@ -152,26 +152,33 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         ]) { _, args in
         let id = try args.requireString("id")
         let data = args.any("data") ?? NSNull()
-        let controller = appState.resolveTerminalController(idOrName: id)
-        let wv = webView(id)
-        // [portdrive] DEBUG (RCA docs/rca-app-freeze-2.3.md): which port is being driven, how often,
-        // in which space — to identify the ~3s push loop's target without packet capture.
-        NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id,
-              controller != nil ? "terminal" : (wv != nil ? "web" : "NOTFOUND"),
-              appState.currentSpace?.name ?? "?")
-        switch PortPushRoute.classify(isTerminal: controller != nil, isWeb: wv != nil) {
+        // Phase L0: one resolver for the target (docs/plan-port42-protocol-local-bus.md). The PortRef
+        // carries the full identity, so each branch uses the key its accessor keys on (terminal id /
+        // webViews-key / inline messageId). Terminal-wins precedence lives in PortResolution now, not here.
+        guard let ref = appState.resolvePortRef(id) else {
+            NSLog("[Port42][portdrive] push id=%@ → NOTFOUND space=%@", id, appState.currentSpace?.name ?? "?")
+            throw BridgeError.notFound("port '\(id)'")
+        }
+        NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
+        switch ref.kind {
         case .terminal:
+            guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {
+                throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface")
+            }
             let str = (data as? String) ?? (String(data: (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
-            guard controller!.sendRaw(str) else { throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface") }
+            guard controller.sendRaw(str) else { throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface") }
             return .object(["ok": .bool(true)])
-        case .web:
+        case .web, .browser:
+            guard let wv = webView(ref.id ?? ref.messageId ?? id) else {
+                throw BridgeError.notFound("port '\(id)'")
+            }
             guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
                   let jsonStr = String(data: jsonData, encoding: .utf8) else {
                 throw BridgeError.badArg("could not serialize data to JSON")
             }
-            _ = try? await wv!.evaluateJavaScript("window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))")
+            _ = try? await wv.evaluateJavaScript("window.dispatchEvent(new CustomEvent('port42:data', {detail: \(jsonStr)}))")
             return .object(["ok": .bool(true)])
-        case .notFound:
+        case .unknown:
             throw BridgeError.notFound("port '\(id)'")
         }
     }

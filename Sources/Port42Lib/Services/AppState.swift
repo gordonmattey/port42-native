@@ -2760,6 +2760,25 @@ public final class AppState: ObservableObject {
         return AppState.resolveTerminalId(idOrName, candidates: cands).flatMap { terminalControllers[$0] }
     }
 
+    /// Resolve a `port42://space/<s>/<p>` address (or a bare udid / terminal name / port title) to a
+    /// `PortRef`, via the one `PortResolution` rule — consolidating the scattered id->port lookups
+    /// (docs/plan-port42-protocol-local-bus.md, Phase L0). The returned `PortRef` carries the full
+    /// identity (id / udid / messageId), so each caller uses the key its accessor keys on. The DB probe
+    /// is lazy: it runs only when the live tables miss (never on the hot push/exec path).
+    func resolvePortRef(_ idOrAddress: String) -> PortRef? {
+        let terminals = terminalControllers.map { (id: $0.key, name: $0.value.config.companionName) }
+        let panels = portWindows.panels.map {
+            PortCandidate(id: $0.id, udid: $0.udid, messageId: $0.messageId, title: $0.title, portType: $0.portType)
+        }
+        let inlineIds = Set(activeBridges.compactMap { $0.bridge?.messageId })
+        let database = db
+        return PortResolution.resolve(idOrAddress,
+                                      terminals: terminals,
+                                      panels: panels,
+                                      inlineMessageIds: inlineIds,
+                                      dbHas: { udid in (try? database.fetchPortHtml(udid: udid)) != nil })
+    }
+
     /// Create a native Ghostty `terminal` port and return its **port id** (UDID).
     ///
     /// This is the generic spawn used by every native-terminal caller (companion spawns,
