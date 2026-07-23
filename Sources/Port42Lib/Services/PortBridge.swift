@@ -554,6 +554,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     // Phase L1: subscribe to another port's live Notify stream. Each { topic, kind,
                     // payload } envelope is delivered (parsed) to onEvent. Returns a promise with a
                     // .cancel() that unsubscribes. Same token-callback machinery as ai.complete.
+                    // NOTE: the returned promise resolves only when the stream ends (cancel). Do NOT
+                    // `return` it from a port.exec body — callAsyncJavaScript auto-awaits and would
+                    // hang (PortExecJS bounds this with a timeout). Keep the handle in a variable and
+                    // return a plain value: `var s = port42.port.subscribe(id, fn); return "ok";`.
                     subscribe: function(id, onEvent) {
                         const cid = _callId + 1;
                         _tokenCallbacks[cid] = function(token) {

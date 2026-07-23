@@ -36,4 +36,22 @@ struct PortExecJSTests {
         let js = "const r = await port42.ports.list();\nreturn r.length"
         #expect(PortExecJS.wrapBody(js) == js)
     }
+
+    @Test("FOOTGUN: a multi-statement one-liner with no return mis-wraps to invalid JS")
+    func footgunMultiStatementOneLiner() {
+        // `foo(); 42` has no return/throw/newline, so it takes the bare-expression branch and becomes
+        // `return (foo(); 42);` — a JS syntax error surfaced as the opaque "A JavaScript exception
+        // occurred". Multi-statement bodies MUST use an explicit `return` or newlines. This pins the
+        // shape so the footgun is not silently reshaped by a future edit.
+        #expect(PortExecJS.wrapBody("foo(); 42") == "return (foo(); 42);")
+    }
+
+    @Test("timeout error carries actionable guidance about long-lived promises")
+    func timeoutMessage() {
+        // The guard that keeps a returned subscribe stream (or any never-resolving promise) from
+        // hanging the exec task. The message must point the caller at the actual cause.
+        let msg = PortExecError.timedOut(seconds: 30).errorDescription ?? ""
+        #expect(msg.contains("30s"))
+        #expect(msg.contains("subscribe"))
+    }
 }
