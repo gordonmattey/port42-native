@@ -6,6 +6,151 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-23, GM): inspect a port's console output via the API
+
+Today a port's `console.log/warn/error` is forwarded by the `portConsole` WKScriptMessageHandler
+straight to **NSLog** (`PortWindowManager.swift:1196`, `PortView.swift:186`) — it lands in the dev log
+file (`~/port42-build/Port42Dev*.log`) and nowhere else. There is **no bridge method** to read a port's
+console (`grep console BridgeMethods.swift` = nothing). So an agent/companion that **builds** a
+generative port cannot see that port's runtime errors through the API — it debugs blind (surfaced when a
+pushed-data shape bug threw `TypeError` in a port's `render()` every frame, visible only in the log).
+
+**This is the "platform hides its failures" class** (backlog through-line #2): a real error with no
+legible signal to the caller that produced it.
+
+**Proposal (two shapes, likely both):**
+- **`port.console(id, {tail})`** — a read method returning the port's recent console lines (level +
+  message + ts), from a small per-port ring buffer the `portConsole` handler fills (instead of only
+  NSLog).
+- **Console as a Notify stream** — console output as a subscribable per-port event, so an agent can
+  *watch* a port's console live while it iterates on it. This is a clean facet of the L1
+  Subscribe→Notify bus (`plan-port42-protocol-local-bus.md`): a port is an actor; its console is one of
+  its out-streams, alongside `port42:data` / height / presentation.
+
+**Why it matters:** generative ports are built BY agents (companions ask an LLM to build a port). When
+the port errors at runtime, the agent currently has no API-visible feedback loop — it can't self-correct.
+This closes that loop and pairs with the never-rejecting-bridge / make-failure-visible work.
+
+**Sizing:** S for the ring-buffer + `port.console` read; the Notify-stream version rides on L1.
+
+---
+
+## TODO (2026-07-22, GM): peek notifications when a Claude Code session needs attention
+
+When a Claude Code session running in a space (a `claude`/hooks **companion CLI** — e.g. Maker/Critic)
+**ends its turn and needs the human**, surface a **peek** into the human's current space so they know
+which session is waiting. With many sessions running at once you can't watch them all; this is the
+"where am I needed" signal made concrete.
+
+**Fit:** a concrete first slice of the membrane's **Gatekeeper + Watcher** (`membrane-architecture.md`:
+what reaches you, the calm view of all agents) and directly serves backlog **1.4** (the
+*waiting-for-input* signal, the highest-value space signal per the 06-27 ranking).
+
+**Substrate that exists:**
+- **turnComplete** — hooks companions already emit a turn-complete event (the clean-transcript path in
+  `GhosttyTerminalController`); that is the turn-end trigger.
+- **peeks** — the shell peek mechanism (a live surface that pops into a space with an attention beat,
+  including cross-space peeks) is built.
+- companion/terminal ports + member rows already carry the session identity + space.
+
+**Scope sketch:**
+- **Classify** turn-end: distinguish *needs attention* (awaiting input / asked a question / blocked /
+  errored) from *done, no action needed* — only the former peeks. Peeking every `turnComplete` is noise;
+  suppressing the rest is exactly the Gatekeeper's job.
+- **Route** to the human's current space; if the session's space isn't active, a cross-space peek that
+  names the session + space with a jump-to.
+- **Ack/dedup:** clear on look/respond; don't re-peek the same waiting state; coalesce when several
+  sessions need attention at once.
+
+**Open questions:**
+- The classifier is the hard part: `turnComplete` alone does not say "needs YOU." Does the hook/transcript
+  expose *awaiting-input* vs *finished*? If not, heuristic (ended on a question, a pending
+  tool/permission, idle-after-turn) or a session-side signal.
+- In-space companion CLIs only, or also external `claude` sessions not registered as companions?
+- In-shell peek vs a macOS notification (`notify.send`) when the human is away — ties to the
+  Sensor/Presenter modality choice (peek when present, OS notification when not).
+
+**Sizing:** M. The peek + `turnComplete` substrate exist; the real work is the **classifier**
+(needs-attention vs done) and the gatekeeping — the membrane's hard part, not the plumbing.
+
+---
+
+## TODO (2026-07-22, GM): native video ports (an AVKit/AVPlayer port type)
+
+A new **first-class port type** that renders and plays video **natively** (AVPlayer / AVPlayerLayer),
+not an HTML5 `<video>` inside a web port. Same port-unit model (inline in chat · tiled · parked · peek),
+same addressable-actor contract as every other port.
+
+**Why native, not a web port with `<video>`.**
+- A web `<video>` carries WKWebView decode/memory overhead and a second WebContent process per clip;
+  CSP/asset friction (data: URIs, no external hosts); no native scrubber, Picture-in-Picture, or AirPlay;
+  and weaker codec/format coverage.
+- We already **produce** video: `screen.record` writes .mp4/.mov, and camera/`screen.stream` are live
+  frame sources. A native video port is the natural inline **playback/preview** surface for them.
+- Native buys hardware decode, AVKit transport (or custom Port42-styled controls), PiP, AirPlay,
+  scrubbing/loop, and clean teardown (release `AVPlayer`/`AVPlayerItem` on close/park/deinit — squarely
+  the "nothing releases what it acquired" class, backlog 0.5).
+
+**Fits the bus/actor model** (`membrane/bus-architecture.md`): query-in = play/pause/seek/rate/stop
+(Update verbs); stream-out = position/state/`ended` (Notify events); temporal = seek/as-of. A video port
+is a clean actor, so it rides the same L0 address + L1 Subscribe→Notify work as everything else.
+
+**Precedent lowers the risk.** The native **Ghostty terminal** port already proves "a non-web native
+port type": the create path, the tile/inline/parked presentation plumbing, the re-parentable host view,
+and the teardown seam all exist. A `NativeVideoController` (analogous to `GhosttyTerminalController`) with
+an `AVPlayerLayer` host is the second native type.
+
+**Source variants (the first slice is a scoping decision — GM to confirm):**
+- (a) **local file** (space-cwd / a path) — playback of `screen.record` output. *Likely first slice.*
+- (b) **remote URL** — a hosted video.
+- (c) **live feed** — camera / `screen.stream` / an `AVCaptureSession` rendered as a port.
+- (d) **shared/streamed** video — gates on the live-media-plane / WebRTC north stars (largest).
+
+**Scope sketch (slice a):** `port.create({type:"video", src})` → a `NativeVideoController` + AVPlayer
+host, re-parented across inline/tile like the webview; map `port.push`/a small transport API to
+play/pause/seek; emit playback Notify events; `.filesystem` permission for local sources; release the
+player on teardown.
+
+**Open questions:** primary use case / first source (sets the slice); native transport chrome
+(`AVPlayerView`) vs custom controls; **audio routing** (a video port has audio — interacts with the
+audio/mic teardown and with multiple concurrent ports); whether `screen.record` should auto-open a video
+port on finish; and the addressing/Notify shape (transport = Update, playback state = Notify) as part of
+the protocol work.
+
+**Sizing:** M for slice (a) (new port type, but the port-unit/tile/teardown plumbing + the terminal-port
+precedent de-risk it); live-feed (c) and shared (d) are L and gate on the media-plane / WebRTC north
+stars. Related: "Browser port type" / "WebRTC in browser ports" / "Live media plane (WebRTC P2P)" in the
+Tier-4 north stars (`backlog-review-2026-07-20.md`).
+
+---
+
+## BUG (TODO, 2026-07-22): dev gateway shares prod's store-and-forward DB (no dev/prod isolation)
+
+Surfaced while clearing the dev fundemos chat. The dev gateway (:4243) and the prod gateway
+(`/Applications/Port42.app`, :4242) both hold the **same** store-and-forward file open:
+`~/Library/Application Support/Port42/gateway-messages.sqlite` (table `channel_messages`, keyed by
+`channel_id`). It is NOT namespaced to `Port42Dev/`. Confirmed by `lsof` on both gateway PIDs.
+
+**Consequences.**
+- Dev chat is durable across dev relaunches via prod's store: clearing only the dev app DB
+  (`Port42Dev/port42.sqlite`) does nothing, because the shared gateway store replays the messages
+  back on rejoin. A true clear required deleting the space's rows from the shared store too, which
+  means writing to a file the prod gateway holds open.
+- "Test in dev only (:4243)" does not fully isolate store-and-forward state. Dev and prod messages
+  co-mingle in one file (5000+ rows across ~200 channels, incl. prod spaces and swim channels).
+- Any dev-side maintenance on that store touches prod infrastructure.
+
+**Likely cause.** The gateway's message-store path is derived from a fixed `Port42/` app-support
+dir rather than the app's actual (possibly Dev-namespaced) data dir. The dev app's gateway
+subprocess inherits the prod path.
+
+**Direction.** Namespace the gateway store per instance (Dev vs prod vs the other variants that also
+exist: Port42B, Port42-Peer, Port42Dev*), e.g. derive `gateway-messages.sqlite` under the same
+data dir the app uses, so `:4243` and `:4242` never share a store. Small, isolates dev cleanly, and
+removes the "clearing dev chat means touching prod" hazard. For consideration, not yet scoped.
+
+---
+
 ## BUG (TODO, 2026-07-21): message to a command companion animates its terminal but never arrives
 
 A `messages.send` posted to the space that @mentions a command (terminal) companion — here a curl

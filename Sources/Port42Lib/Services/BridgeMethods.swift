@@ -154,6 +154,11 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         let data = args.any("data") ?? NSNull()
         let controller = appState.resolveTerminalController(idOrName: id)
         let wv = webView(id)
+        // [portdrive] DEBUG (RCA docs/rca-app-freeze-2.3.md): which port is being driven, how often,
+        // in which space — to identify the ~3s push loop's target without packet capture.
+        NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id,
+              controller != nil ? "terminal" : (wv != nil ? "web" : "NOTFOUND"),
+              appState.currentSpace?.name ?? "?")
         switch PortPushRoute.classify(isTerminal: controller != nil, isWeb: wv != nil) {
         case .terminal:
             let str = (data as? String) ?? (String(data: (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
