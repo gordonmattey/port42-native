@@ -856,6 +856,11 @@ public final class PortWindowManager: ObservableObject {
             forMainFrameOnly: true
         )
         let handler = PortConsoleHandler()
+        handler.onConsole = { [weak appState] level, msg in
+            // Phase L1: a web port's console output → Notify bus (a third producer, after push + terminal).
+            appState?.notifyBus.publish(topic: "port:\(panel.id)", kind: "console",
+                                        payload: ["level": level, "message": msg])
+        }
         config.userContentController.addUserScript(consoleScript)
         config.userContentController.add(handler, name: "portConsole")
         consoleHandlers[panel.id] = handler
@@ -1194,12 +1199,16 @@ enum PortWebViewFactory {
 
 /// Receives console.log/error/warn from port WKWebViews.
 class PortConsoleHandler: NSObject, WKScriptMessageHandler {
+    /// Phase L1 / roadmap "inspect a port's console via the API": (level, message) → Notify publish.
+    var onConsole: (@MainActor (String, String) -> Void)?
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "portConsole",
            let body = message.body as? [String: Any],
            let level = body["level"] as? String,
            let msg = body["message"] as? String {
             NSLog("[Port42:port:%@] %@", level, msg)
+            let cb = onConsole
+            Task { @MainActor in cb?(level, msg) }
         }
     }
 }
