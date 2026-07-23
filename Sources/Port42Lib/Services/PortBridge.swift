@@ -390,6 +390,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }
+        // Phase L1: mirror the event on the port's Notify topic so subscribers see it too — this is the
+        // browser attach point (browser.load/redirect/error push to the owner port), and also covers
+        // filedrop / presentation. Cheap no-op when nobody subscribes.
+        (appState as? AppState)?.notifyBus.publish(topic: "port:\(messageId)", kind: event, payload: data)
     }
 
     /// Send heartbeat to keep connection status alive

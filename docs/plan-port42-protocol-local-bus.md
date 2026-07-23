@@ -313,9 +313,11 @@ consider `Principal` vending its own `PortAddress` when L1 lands.
 `port.subscribe` (a `BridgeStreamMethod`; end-to-end `PortSubscribeTests` green: subscribe → publish →
 yield → cancel unsubscribes), and two producer taps: `port.push` ("push") and the terminal `onFlush`
 ("terminal.output", threaded through `GhosttyTerminalController` — **ships backlog 3.4**, non-hooks
-tools only). Commits `f814acd`, + the terminal-tap commit. **Follow-ups:** the web + browser attach
-points; clean per-surface delivery (a port receives a Notify as an event via `port42.on`, not a stream
-token); a live in-app multi-subscriber check.
+tools only). **All four producer taps in:** `port.push` ("push"), terminal `onFlush`
+("terminal.output"), web `portConsole` ("console" — also the console-as-Notify roadmap item), and
+`PortBridge.pushEvent` (browser `load`/`redirect`/`error` + filedrop/presentation). So all three port
+types stream. **Remaining L1 follow-ups:** clean per-surface delivery (a port receives a Notify as a
+`port42.on` event, not a stream token), and a live in-app multi-subscriber check.
 
 A port is an actor that emits a stream; L1 makes that stream subscribable by many, over one path.
 
