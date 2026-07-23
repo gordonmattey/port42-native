@@ -195,7 +195,9 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         ]) { _, args in
         let id = try args.requireString("id")
         let js = try args.requireString("js")
-        guard let wv = webView(id) else { throw BridgeError.notFound("port '\(id)'") }
+        // Phase L0: resolve the target, then require a web surface (docs/plan-port42-protocol-local-bus.md).
+        guard let ref = appState.resolvePortRef(id), ref.kind == .web || ref.kind == .browser,
+              let wv = webView(ref.id ?? ref.messageId ?? id) else { throw BridgeError.notFound("port '\(id)'") }
         // #5: PortExecJS awaits promises + marshals objects; nil = undefined/no-return.
         guard let result = try await PortExecJS.run(wv, js) else { return .object(["ok": .bool(true)]) }
         return .fromJSONObject(result)
@@ -213,7 +215,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         ]) { _, args in
         let id = try args.requireString("id")
         let action = try args.requireString("action")
-        guard let panel = appState.portWindows.findPort(by: id) else { throw BridgeError.notFound("port '\(id)'") }
+        guard let panel = appState.portWindows.findPort(by: appState.resolvePortRef(id)?.udid ?? id) else { throw BridgeError.notFound("port '\(id)'") }
         switch action {
         case "focus":
             appState.portWindows.bringToFront(panel.id)
@@ -1252,13 +1254,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             "required": ["id"]
         ]) { _, args in
         let id = try args.requireString("id")
+        // Phase L0: resolve a udid/title/name to the canonical udid for the DB read.
+        let udid = appState.resolvePortRef(id)?.udid ?? id
         if let version = args.int("version") {
-            guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
+            guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
                 throw BridgeError.notFound("version \(version) for port '\(id)'")
             }
             return .string(html)
         }
-        if let html = try? appState.db.fetchPortHtml(udid: id) { return .string(html) }
+        if let html = try? appState.db.fetchPortHtml(udid: udid) { return .string(html) }
         throw BridgeError.notFound("port '\(id)'")
     }
 
@@ -1272,7 +1276,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             "required": ["id"]
         ]) { _, args in
         let id = try args.requireString("id")
-        let versions = (try? appState.db.fetchPortVersions(portUdid: id)) ?? []
+        let udid = appState.resolvePortRef(id)?.udid ?? id
+        let versions = (try? appState.db.fetchPortVersions(portUdid: udid)) ?? []
         let iso = ISO8601DateFormatter()
         return .array(versions.map { v in
             .object([
@@ -1295,7 +1300,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         ]) { _, args in
         let id = try args.requireString("id")
         let html = try args.requireString("html")
-        guard appState.portWindows.updatePort(idOrTitle: id, html: html) else {
+        let target = appState.resolvePortRef(id)?.udid ?? id
+        guard appState.portWindows.updatePort(idOrTitle: target, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true)])
@@ -1315,14 +1321,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let search = try args.requireString("search")
         let replace = try args.requireString("replace")
-        guard let current = try? appState.db.fetchPortHtml(udid: id) else {
+        let udid = appState.resolvePortRef(id)?.udid ?? id
+        guard let current = try? appState.db.fetchPortHtml(udid: udid) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         guard current.contains(search) else {
             throw BridgeError.badArg("search string not found in port '\(id)' — read the current HTML with port.getHtml and copy the exact string")
         }
         let patched = current.replacingOccurrences(of: search, with: replace)
-        guard appState.portWindows.updatePort(idOrTitle: id, html: patched) else {
+        guard appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true)])
@@ -1340,10 +1347,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         ]) { _, args in
         let id = try args.requireString("id")
         let version = try args.requireInt("version")
-        guard let html = try? appState.db.fetchPortVersionHtml(udid: id, version: version) else {
+        let udid = appState.resolvePortRef(id)?.udid ?? id
+        guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
-        guard appState.portWindows.updatePort(idOrTitle: id, html: html) else {
+        guard appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true)])
@@ -1382,10 +1390,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         guard let x = args.double("x"), let y = args.double("y") else {
             throw BridgeError.badArg("port.move requires numeric x and y")
         }
-        guard appState.portWindows.findPort(by: id) != nil else {
+        let target = appState.resolvePortRef(id)?.udid ?? id
+        guard appState.portWindows.findPort(by: target) != nil else {
             throw BridgeError.notFound("port '\(id)'")
         }
-        appState.portWindows.movePort(id: id, x: CGFloat(x), y: CGFloat(y))
+        appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y))
         return .object(["ok": .bool(true)])
     }
 
