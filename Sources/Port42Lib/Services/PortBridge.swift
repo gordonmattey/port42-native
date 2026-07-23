@@ -550,6 +550,19 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                         document.body.style.width = w + 'px';
                         document.body.style.height = h + 'px';
                         window.webkit.messageHandlers.portHeight.postMessage(h);
+                    },
+                    // Phase L1: subscribe to another port's live Notify stream. Each { topic, kind,
+                    // payload } envelope is delivered (parsed) to onEvent. Returns a promise with a
+                    // .cancel() that unsubscribes. Same token-callback machinery as ai.complete.
+                    subscribe: function(id, onEvent) {
+                        const cid = _callId + 1;
+                        _tokenCallbacks[cid] = function(token) {
+                            try { onEvent(JSON.parse(token)); } catch(e) { onEvent(token); }
+                        };
+                        const p = call('port.subscribe', [id]);
+                        p.callId = cid;
+                        p.cancel = function() { return port42.ai.cancel(cid); };
+                        return p;
                     }
                 }),
                 fs: __ns('fs', {

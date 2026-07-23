@@ -309,15 +309,24 @@ consider `Principal` vending its own `PortAddress` when L1 lands.
 
 ### Phase L1 — unified Subscribe → Notify (keystone #3) — detailed (2026-07-23)
 
-**STATUS: CORE SHIPPED (2026-07-23), verified.** `NotifyBus` (in-memory 1:N, `NotifyBusTests` 4 green),
+**STATUS: SHIPPED (2026-07-23), verified live.** `NotifyBus` (in-memory 1:N, `NotifyBusTests` 4 green),
 `port.subscribe` (a `BridgeStreamMethod`; end-to-end `PortSubscribeTests` green: subscribe → publish →
 yield → cancel unsubscribes), and two producer taps: `port.push` ("push") and the terminal `onFlush`
 ("terminal.output", threaded through `GhosttyTerminalController` — **ships backlog 3.4**, non-hooks
 tools only). **All four producer taps in:** `port.push` ("push"), terminal `onFlush`
 ("terminal.output"), web `portConsole` ("console" — also the console-as-Notify roadmap item), and
 `PortBridge.pushEvent` (browser `load`/`redirect`/`error` + filedrop/presentation). So all three port
-types stream. **Remaining L1 follow-ups:** clean per-surface delivery (a port receives a Notify as a
-`port42.on` event, not a stream token), and a live in-app multi-subscriber check.
+types stream. **Per-surface delivery shipped:** `port42.port.subscribe(id, onEvent)` in the port JS
+bridge (`PortBridge.swift`) predicts the callId, registers a `_tokenCallback` that parses each
+`{topic, kind, payload}` envelope, and delivers it to `onEvent`; the returned promise carries a
+`.cancel()` that unsubscribes. Same token-callback machinery as `ai.complete`.
+
+**Live-verified (2026-07-23):** two separate web ports in Port42Dev. Port A's own page script called
+`port42.port.subscribe(B, e => …)`; three `port.push` calls to B were received by A in order with
+correct parsed payloads (`{seq:1}`, `{seq:2}`, `{seq:3}`), topic `port:<B>`, kind `push`. Note:
+`port.subscribe` cannot be exercised through `port.exec` — `PortExecJS` awaits the returned value and
+its wrapper cannot tolerate a `postMessage`, so any bridge call from `exec` fails; the subscribe must
+run in the port's own page script (its real delivery surface), which works. **L1 done.**
 
 A port is an actor that emits a stream; L1 makes that stream subscribable by many, over one path.
 
