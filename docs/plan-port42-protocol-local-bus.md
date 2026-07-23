@@ -307,22 +307,42 @@ L0" overstated it; identity is the real shared dependency. Relatedly, `Principal
 self-address) is a bare id while `PortRef` is the target address — L1/L2 will want one address notion, so
 consider `Principal` vending its own `PortAddress` when L1 lands.
 
-### Phase L1 — unified Subscribe → Notify (keystone #3)
+### Phase L1 — unified Subscribe → Notify (keystone #3) — detailed (2026-07-23)
 
-**Do.** Add the typed Notify envelope `{ topic, kind, payload }` and an in-memory 1:N subscriber registry
-keyed on the `port:{portId}` topic convention. Generalize the `BridgeStreamMethod` `yield` to carry the
-envelope. Wire the three publish attach points (§4): web native publish alongside `_emit`; terminal
-`onFlush` no-op → publish (behind the `hooksCapable` guard); browser `load/redirect/error` → publish.
-Expose `subscribe(port42://…)` as a stream method so render, an agent-observer, and persist are all
-subscribers to one stream.
+A port is an actor that emits a stream; L1 makes that stream subscribable by many, over one path.
 
-**Test gate.** One publish, N subscribers each receive it (the fan-out). Each port type's attach point
-produces a well-formed envelope (web dict, terminal line-batch, browser nav event). Terminal publish is
-suppressed for a `hooksCapable` companion. Unsubscribe stops delivery; a torn-down port stops publishing
-(ties to the teardown discipline, backlog 0.5). Command: `swift test --filter Notify` (+ a live
-multi-subscriber check in Port42Dev).
-**Done when:** a real running port of each type is subscribable, one publish reaches many local
-subscribers, and the envelope shape is uniform.
+**NotifyBus (in-memory, 1:N).** On `AppState`: `notifySubscribers: [String: [Int: (String) -> Void]]`
+(topic → subscriber id → deliver). Topic = `port:<portId>` (the existing `bus.*` convention).
+- `publishNotify(topic:, kind:, payload:)` — encode `{topic, kind, payload}` as one JSON string and
+  deliver to every subscriber of the topic. No subscribers → cheap no-op (the common case).
+- `subscribeNotify(topic:, deliver:) -> Int` and `unsubscribeNotify(id:, topic:)`.
+
+**The Notify envelope.** `{ "topic": <string>, "kind": <string>, "payload": <json> }` — one shape for
+every port type. It rides the existing `String` `yield` of `BridgeStreamMethod` (yield the JSON string),
+so the stream contract is unchanged; each adapter delivers an envelope to its surface (port JS → an
+event callback, gateway → a chunk, tool-use → collect).
+
+**`port.subscribe` (a `BridgeStreamMethod`).** Resolves the target via `resolvePortRef`, subscribes to
+`port:<udid>` with `deliver = yield`, then awaits cancellation (mirrors `ai.complete`'s continuation +
+`withTaskCancellationHandler`); on cancel/close it unsubscribes and returns. So render / an agent /
+persist each open a `port.subscribe` and receive the SAME Notify stream — one publish, many subscribers.
+
+**Three publish attach points.**
+- **Terminal (first slice — also cashes out backlog 3.4):** `GhosttyTerminalController.swift:129` —
+  replace the `onFlush { _ in }` no-op with `publishNotify(topic: "port:<id>", kind: "terminal.output",
+  payload: <clean line batch>)`, behind the existing `hooksCapable` guard (no alt-screen probe; the
+  documented limit for ad-hoc TUIs).
+- **Web (follow-up):** tap the native receipt of the port's `pushEvent` / height / console and republish
+  to `port:<id>`.
+- **Browser (follow-up):** route `browser.load/redirect/error` to `port:<id>` (pairs with the
+  console-as-Notify roadmap item).
+
+**Sequencing.** (1) NotifyBus + `port.subscribe` + the terminal tap — proves the 1:N bus end to end and
+ships terminal output streaming. (2) Web attach point. (3) Browser attach point + console-as-Notify.
+
+**Test gate.** Unit: `publishNotify` → N subscribers each receive the envelope; unsubscribe stops
+delivery; publish with zero subscribers is a no-op. Live in Port42Dev: `port.subscribe` a terminal, run
+a command, receive `terminal.output` envelopes; two concurrent subscribers both receive.
 
 ### Phase L2 — right-of-way lease (keystone #2, fast-follow)
 

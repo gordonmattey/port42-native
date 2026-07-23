@@ -40,6 +40,35 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
 
     registerAIServiceStream(into: &r, appState: appState)   // ai.complete (BridgeServiceAI.swift)
 
+    // Phase L1 (docs/plan-port42-protocol-local-bus.md): subscribe to a port's Notify stream. Yields
+    // each { topic, kind, payload } envelope as the port emits it, until the caller cancels. Many
+    // subscribers can watch one port; each gets every event (the NotifyBus fans out 1:N).
+    r["port.subscribe"] = BridgeStreamMethod(
+        permission: nil,
+        paramNames: ["id"],
+        toolExposed: false,
+        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload } as the port emits them (e.g. terminal.output). The stream stays open until cancelled.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port to observe (id / udid / title)."] as [String: Any]
+            ] as [String: Any],
+            "required": ["id"]
+        ]
+    ) { _, args, yield in
+        let id = try args.requireString("id")
+        let ref = appState.resolvePortRef(id)
+        let topic = "port:\(ref?.udid ?? ref?.id ?? id)"
+        let subId = appState.notifyBus.subscribe(topic: topic, deliver: yield)
+        defer { appState.notifyBus.unsubscribe(id: subId, topic: topic) }
+        // Hold the stream open until the caller cancels — the run executes on a tracked Task that is
+        // cancelled on close/cancel (mirrors ai.complete's cancellation). Poll so cleanup is prompt.
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return .object(["ok": .bool(true)])
+    }
+
     r["companions.invoke"] = BridgeStreamMethod(
         permission: .ai,
         paramNames: ["identifier", "prompt"],
@@ -160,6 +189,9 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             throw BridgeError.notFound("port '\(id)'")
         }
         NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
+        // Phase L1: republish the delivered input on the port's Notify topic (a cheap no-op when nobody
+        // subscribes), so an observer can watch what a port is being driven with.
+        appState.notifyBus.publish(topic: "port:\(ref.udid ?? ref.id ?? id)", kind: "push", payload: data)
         switch ref.kind {
         case .terminal:
             guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {

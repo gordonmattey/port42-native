@@ -762,6 +762,10 @@ public final class AppState: ObservableObject {
     /// Native (Ghostty) terminal companion controllers: panelId → controller.
     /// One per native terminal port; owns its hooks socket + output processor + env.
     var terminalControllers: [String: GhosttyTerminalController] = [:]
+
+    /// The in-memory Notify bus (Phase L1, docs/plan-port42-protocol-local-bus.md): a port's stream-out
+    /// is published to `port:<id>` and fanned out 1:N to every `port.subscribe` caller.
+    public let notifyBus = NotifyBus()
     /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
     /// keyed by the card's (original) port id. `terminalLiveIds` maps that stable card id to the
     /// currently-live port id (changes on respawn). In-memory: lost across app restarts (after a
