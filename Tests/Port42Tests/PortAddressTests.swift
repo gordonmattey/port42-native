@@ -116,7 +116,7 @@ struct PortResolutionTests {
 
         // The common path (a live web port) must NOT touch the DB.
         var probed2 = false
-        _ = resolve("PANEL-ID-1", dbHas: { probed2 = true; return true })
+        _ = resolve("PANEL-ID-1", dbHas: { _ in probed2 = true; return true })
         #expect(!probed2)
     }
 
