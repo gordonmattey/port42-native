@@ -141,6 +141,14 @@ north star.
 
 ### Phase L0 — the address resolver (keystone #1) — CONSOLIDATE variant (GM, 2026-07-22)
 
+**STATUS: SHIPPED (2026-07-23), verified live.** `PortAddress` + `PortResolution` + `PortAddressTests`
+(13 green) landed; `AppState.resolvePortRef` gathers the live candidate lists and calls the one
+resolution rule; all nine by-id methods (`push`/`exec`/`getHtml`/`history`/`manage`/`update`/`patch`/
+`restore`/`move`) route through it. Live-verified in Port42Dev: web+terminal push, and `getHtml`/`update`
+now resolve by **title/name**, not just UDID (parity preserved for UDIDs). Commits `0a2fc9d`, `e40a0ae`,
+`7833704`. **Small follow-ups:** a source-scan invariant gate; route `port.rename`; delete the now-unused
+`PortPushRoute`. **Next keystone: L1 (unified Subscribe→Notify).**
+
 **Decision (GM 2026-07-22):** consolidate, not minimal. L0 makes the scattered id→port lookups callers
 of one resolver, because the resolver must span all of them to resolve any address anyway, and the
 fragmentation is the actual cause of the polymorphic-id ambiguity.
