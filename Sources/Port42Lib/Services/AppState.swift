@@ -2746,11 +2746,9 @@ public final class AppState: ObservableObject {
     /// match; (2b) substring name match; (3) not found.
     nonisolated static func resolveTerminalId(_ idOrName: String,
                                               candidates: [(id: String, name: String)]) -> String? {
-        if candidates.contains(where: { $0.id == idOrName }) { return idOrName }          // 1. id-hit
-        let q = idOrName.lowercased()
-        if let m = candidates.first(where: { $0.name.lowercased() == q }) { return m.id }  // 2a. exact name
-        if let m = candidates.first(where: { $0.name.lowercased().contains(q) }) { return m.id } // 2b. contains
-        return nil                                                                          // 3. not-found
+        // The terminal id/name rule is owned by PortResolution now, so the local-bus resolver and this
+        // share ONE rule (see docs/plan-port42-protocol-local-bus.md, Phase L0). Forwarded for callers.
+        PortResolution.terminalMatch(idOrName, candidates: candidates)
     }
 
     /// Resolve a native terminal controller by port id or terminal name (companion name / title).
