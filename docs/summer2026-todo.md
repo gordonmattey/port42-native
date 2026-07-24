@@ -1818,6 +1818,37 @@ context, composes, and pushes its own lane. This realizes the tick jam — real 
 no conductor, no performer ports — and adds a genuine protocol capability (companions reacting to bus
 events). Prior art in the codebase: a `{beat}` signal already appears on the `bus` topic.
 
+## TODO: reopen a closed port, preserving its id (2026-07-23, GM)
+
+**The gap.** Closing a port destroys its live surface AND mints a new id when you recreate it, orphaning
+anyone subscribed to or referencing it (this is what cascaded the Vibe AI / performer churn during the
+synth work — closing one port forced recreating it and every subscriber). But the port RECORD persists
+after close — `port_get_html` still returns a closed port's HTML — so the id and content are recoverable;
+there's just no way to bring it back live.
+
+**The feature.** A reopen that re-instantiates the live surface from the persisted record with the SAME
+id: `port_manage(id, 'reopen')`, or extend restore/undock to work on fully-closed ports (today it only
+restores docked/inline ports and errors "not found" on a closed one). Then subscriptions and references
+survive a close→reopen, and closing is reversible instead of destructive.
+
+## TODO: invisible ports — run logic on the desktop with no tile (2026-07-23, GM)
+
+**The idea.** A port that runs (JS, bridge access, subscriptions, timers) but renders no visible tile —
+headless. It lives on the desktop, does its work, stays out of the way.
+
+**Why.** Many useful ports are logic, not UI: a coordinator, a sensor (the Vibe AI needn't be visible),
+a bus watcher, an automation, a desktop organizer. During the synth work the "no performer ports"
+constraint was really "no clutter" — invisible ports give the substrate (self-looping logic with tools
+and bus access) without the clutter.
+
+**Use case (GM).** A desktop-organizer port: an invisible utility that uses `ports_list` +
+`port_move` / `port_manage` / `port_position` to arrange tiles (tidy, tile, group, focus) — a meta port
+that manages the desktop.
+
+**Shape.** A `port_create` option like `{visible:false}` (or `type:"headless"`): full bridge + storage +
+subscriptions, no rendered surface; still listed in `ports_list` and closable; with a way to peek at it
+for debugging.
+
 ## TODO: synchronous agentic-CLI invoke from ports (command-companion call/await) (2026-07-11)
 
 **Gap found while dogfooding the generative-interface engine** (`port42-growth/gi-engine/`). A port

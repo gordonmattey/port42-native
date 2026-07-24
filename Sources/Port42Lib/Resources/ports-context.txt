@@ -409,6 +409,9 @@ BRIDGE API REFERENCE:
   port42.port.update(id, html)
     Replace a port's full HTML. Returns {ok: true} on success.
     Always call port42.port.getHtml(id) first — never guess at current state.
+    RELOADS the port: update (and patch) re-render the webview, so all runtime-only state resets —
+    toggles, in-memory variables, live subscriptions, and any behavior injected earlier with exec.
+    Persist anything that must survive (port42.storage) and re-establish subscriptions on load.
 
   port42.port.getHtml(id, version?)
     Returns the current HTML of a port, or a specific historical version.
