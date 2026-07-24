@@ -210,6 +210,10 @@ public struct ConversationContent: View {
     @State private var visibleEntryIDs: Set<String> = []
     @State private var scrollContentBottom: CGFloat = 0
     @State private var scrollVisibleBottom: CGFloat = 0
+    // RCA 2.3 fix: debounce the content-bottom preference so an animating/resizing inline port cannot
+    // spin `body` every frame. A non-@State box holds the in-flight value so per-frame updates never
+    // re-render the view; scroll state is committed only once the offset settles.
+    @State private var scrollSettle = ScrollSettleBox()
     @State private var cachedActivePortIDs: Set<String> = []
     @State private var lastEntryCount = 0
 
@@ -319,9 +323,19 @@ public struct ConversationContent: View {
                     }
                     .defaultScrollAnchor(.bottom)
                     .onPreferenceChange(ScrollOffsetKey.self) { contentBottom in
-                        guard abs(scrollContentBottom - contentBottom) > 2 else { return }
-                        scrollContentBottom = contentBottom
-                        updateNearBottom()
+                        // RCA 2.3: commit only once the offset has stopped moving for ~120ms. Per-frame
+                        // changes from an animating inline port just update the box (no body re-eval) and
+                        // reschedule; without this, one animated port pins the main thread at 100% CPU.
+                        scrollSettle.latest = contentBottom
+                        scrollSettle.work?.cancel()
+                        let work = DispatchWorkItem {
+                            guard abs(scrollSettle.committed - scrollSettle.latest) > 2 else { return }
+                            scrollSettle.committed = scrollSettle.latest
+                            scrollContentBottom = scrollSettle.latest
+                            updateNearBottom()
+                        }
+                        scrollSettle.work = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
                     }
                     .onChange(of: entries.count) { old, new in
                         // Space switch: 80ms debounce in selectSpace clears messages after
@@ -710,6 +724,15 @@ public struct ConversationContent: View {
 }
 
 // MARK: - Scroll Position Tracking
+
+// RCA 2.3: holds the debounced scroll-offset in flight WITHOUT being observed, so per-frame preference
+// updates from animating inline ports don't re-evaluate ConversationContent.body. Scroll state is
+// committed to @State only after the offset settles (see the ScrollOffsetKey onPreferenceChange handler).
+private final class ScrollSettleBox {
+    var latest: CGFloat = 0
+    var committed: CGFloat = 0
+    var work: DispatchWorkItem?
+}
 
 private struct ScrollOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0

@@ -1,9 +1,45 @@
 # RCA: app freeze — 100% CPU, every port grey (backlog 2.3)
 
-*2026-07-22. Status: **CAUSE OPEN. The earlier "background port confirmed" conclusion is RETRACTED —
-it was a contaminated A/B.** Solid: empty space is healthy, non-empty spaces (testing, fundemos) hang
-in a deep `ConversationContent` layout recursion. NOT solid: which content triggers it. The attempted
-fix was reverted (did not work). Test in Port42Dev (:4243) only.*
+*Status: **CAUSE CONFIRMED (2026-07-24).** A live 100% CPU spin was sampled straight into
+`ConversationContent.body.getter` at the scroll-offset preference loop (`ConversationContent.swift:311–325`).
+See CONFIRMED directly below. The prior 07-22 analysis (cause open, background-port retraction) is kept
+after it for the record. Test in Port42Dev (:4243) only.*
+
+## CONFIRMED (2026-07-24): the ConversationContent scroll-offset preference loop
+
+**Trigger.** GM created a new space; the app hung entering it. `:4243` process at **99.4% CPU, state R
+(running, not deadlocked)**, on the main thread. `sample` pinned the hot path to
+`ConversationContent.body.getter` → nested closures at lines **314, 312, 292** — the scroll-offset
+GeometryReader/preference machinery.
+
+**The loop (`ConversationContent.swift:311–325`).**
+- `GeometryReader` (311–315) publishes `ScrollOffsetKey` = the content-bottom `maxY`.
+- `.onPreferenceChange(ScrollOffsetKey)` (321–325) writes `scrollContentBottom` and calls `updateNearBottom()`.
+- A `guard abs(scrollContentBottom - contentBottom) > 2` is meant to damp it. But when the content's
+  bottom **keeps moving** — heavy, variable-height inline ports still rendering/animating, plus the
+  `scrollToBottom` nudges from the `onChange` handlers (326–352) — `maxY` never settles within 2pt, the
+  guard never trips, the preference recomputes every frame, `body` re-evaluates forever, and the main
+  thread pins. Empty space stays healthy (nothing variable, the offset settles); a loaded space spins.
+  Exactly the 07-22 "empty healthy / non-empty hangs" pattern, now with a mechanism.
+
+This confirms the **preference-loop hypothesis** the 07-22 doc had re-elevated, and closes the
+"background port is the cause" thread for good.
+
+**Fix plan (break the feedback cycle):**
+1. Decouple the offset read from layout-affecting state — `onPreferenceChange` should only feed the
+   "scroll to bottom" *decision*, never anything that re-lays-out the content it measures. Audit
+   `updateNearBottom()` / `isNearBottom` for anything that changes content height.
+2. Debounce/coalesce — act on only the trailing offset per runloop tick; drop `scrollToBottom` while the
+   offset is still moving.
+3. Replace the tight 2pt delta guard with a settle timer (act once the offset has held stable for N ms),
+   since content legitimately resizes as ports load.
+4. Stabilize inline-port heights — a port that resizes after first layout feeds the loop; give inline
+   ports a measured height and grow only on explicit content change.
+5. Regression guard — instrumentation that flags if `ConversationContent.body` evaluates more than K
+   times with no state change, so this can't silently return.
+
+**Recovery (operational).** A 100% main-thread render spin does not unwind — force-quit and relaunch;
+parked/persisted ports come back.
 
 ## RETRACTION (2026-07-22): "background port is the cause" was WRONG
 
