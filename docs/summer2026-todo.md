@@ -1748,6 +1748,76 @@ as a website", "MCP as a port capability", "adopt agent-comms standards", and th
 Two larger directions added after the shell-prototype session. Both have written plans + working
 throwaway proofs; they sit above the space-experience polish as *platform* moves.
 
+## TODO: `teleport` — bring an existing Claude Code session into a Port42 port (2026-07-23, GM)
+
+**The idea.** Ship a `teleport` CLI with the Mac install. You are Claude Code (or any resumable CLI
+agent) in some terminal, anywhere. You run `teleport` and your current session re-launches INSIDE a
+Port42 terminal port, context intact. The pane-bound agent becomes a participant in a space:
+addressable, on the bus, watchable, able to drive ports. This is the literal on-ramp for the GTM wedge
+("the agent stops being a process in a pane and becomes a participant in a place").
+
+**Two modes, one command.**
+- **Handoff (inside Port42).** Generalizes the `session-handoff` skill: ground state from git + a status
+  doc, write a short handoff prompt, spawn a fresh `claude` in a Port42 terminal port seeded with it.
+  Done by hand this month; package it.
+- **Teleport in (from outside Port42).** From a terminal not spawned by Port42: `teleport` (latest
+  session for this cwd) or `teleport --session <id>`. It resolves the Claude session and launches
+  `claude --resume <id>` inside a Port42 terminal port, so the SAME session continues in the room.
+
+**Mechanics (sketch).**
+- Claude sessions are resumable: transcripts at `~/.claude/projects/<project>/<session-id>.jsonl`;
+  `claude --resume <id>` (or `-c` for latest) continues them.
+- `teleport` finds the latest session id for `$PWD` (newest jsonl in the mapped project dir), or takes
+  `--session <id>`.
+- It calls the local gateway `port.create` (dev :4243 / prod :4242, autodetect via `user.get`) with
+  `{type:terminal, command:"claude --resume <id>", cwd:$PWD, title:"teleport: <branch>"}`.
+- Ships as a script/binary on PATH (or `port42 teleport`), part of the DMG.
+
+**Why it matters.** Distribution. A dev already living in Claude Code does not install a new desktop to
+try Port42; they teleport the session they already have. First run is "the agent I was already talking
+to is now in a room I can share." Pairs with the GTM wedge and the peek-notifications-for-CC-sessions
+item.
+
+**Open questions.**
+- Session ownership: `--resume` continues the transcript; does the outside terminal keep running too, or
+  hand off? Probably hand off (teleport = move, not fork).
+- Selection: by cwd by default; a global `--latest` across projects may be wanted.
+- Other CLI agents (gemini, codex): same shape if they expose resume; keep the launched command
+  pluggable.
+
+Cross-ref: distinct from `## TODO: port teleport — moving a port between instances` below. That one
+moves a PORT between instances; this one moves an agent SESSION into Port42.
+
+## TODO: companions as bus actors — a `busWatch` trigger (2026-07-23, GM) → `docs/spike-synth-tick-architecture.md`
+
+**The gap (found by spike).** Companions only wake on chat: `AgentTrigger` is `mentionOnly` or
+`allMessages`. There is no way for a companion to wake on a **bus signal**. So the clean "tick" model —
+a beat on the bus, each member reads state + vibe and pushes its part back every tick, no conductor —
+can't be built today: members can't self-wake on the beat. `companions.invoke` wakes a companion but
+returns text only (no tool execution), and a bus message doesn't start a turn.
+
+**The feature.** Add a `busWatch` trigger so a companion wakes when a message lands on a bus topic it
+watches, runs a full turn WITH tools, and can push. Generalizes past the synth: any companion becomes
+an event-driven bus actor, not just a chat responder.
+
+**Swift changes (small — the tool-enabled turn path `launchAgents` is reused):**
+- `AgentConfig.swift`: add `AgentTrigger.busWatch` + `watchTopic: String?` (which topic wakes it);
+  thread through initializers / CodingKeys / GRDB columns.
+- `DatabaseService.swift`: append a migration `ALTER TABLE agents ADD COLUMN watchTopic TEXT` (nullable;
+  never edit an existing migration).
+- `AppState.swift`: in the bus-publish path (bus handler ~line 2527, fed by `bus.publish` at
+  BridgeMethods.swift:1175), find local agents with `trigger == .busWatch && watchTopic == topic` and
+  `launchAgents(...)` them with the bus payload as `triggerContent`. Add a re-entrancy guard so a beat
+  doesn't stack a second turn on a still-running member.
+- A setter (e.g. `companions.setTrigger(id, trigger, topic)`) so "turn a member on" = flip it to
+  `busWatch` on the beat topic, and back to `mentionOnly` to remove it.
+
+**Synth side (JS, not Swift):** the transport publishes `{beat, state, vibe}` on the beat topic each
+bar; the Vibe AI folds its readout into that payload; a woken member reads state+vibe as its turn
+context, composes, and pushes its own lane. This realizes the tick jam — real companions as members,
+no conductor, no performer ports — and adds a genuine protocol capability (companions reacting to bus
+events). Prior art in the codebase: a `{beat}` signal already appears on the `bus` topic.
+
 ## TODO: synchronous agentic-CLI invoke from ports (command-companion call/await) (2026-07-11)
 
 **Gap found while dogfooding the generative-interface engine** (`port42-growth/gi-engine/`). A port
