@@ -504,92 +504,7 @@ public struct ConversationContent: View {
 
             // Input bar
             HStack(spacing: 12) {
-                TextField(placeholder, text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .focused($isInputFocused)
-                    .onSubmit {
-                        if !suggestions.isEmpty, selectedSuggestionIndex < suggestions.count {
-                            insertMention(suggestions[selectedSuggestionIndex])
-                        } else {
-                            send()
-                            isInputFocused = true
-                        }
-                    }
-                    .onChange(of: draft) { _, _ in
-                        selectedSuggestionIndex = 0
-                    }
-                    .onChange(of: isStreaming) { _, streaming in
-                        if !streaming {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                isInputFocused = true
-                            }
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { note in
-                        // Scoped: a spaceId object targets ONE chat's field (the shell's
-                        // keyboard-follows-focus); a nil object keeps the legacy broadcast.
-                        if let sid = note.object as? String, sid != spaceId { return }
-                        isInputFocused = true
-                    }
-                    .onKeyPress(.upArrow) {
-                        if !suggestions.isEmpty {
-                            selectedSuggestionIndex = max(0, selectedSuggestionIndex - 1)
-                            return .handled
-                        }
-                        // Browse input history when draft is empty or already in history
-                        guard let cid = spaceId else { return .ignored }
-                        let history = appState.inputHistory(for: cid)
-                        guard !history.isEmpty else { return .ignored }
-                        if historyIndex == -1 {
-                            savedDraft = draft
-                            historyIndex = 0
-                        } else if historyIndex < history.count - 1 {
-                            historyIndex += 1
-                        } else {
-                            return .handled
-                        }
-                        draft = history[historyIndex]
-                        return .handled
-                    }
-                    .onKeyPress(.downArrow) {
-                        if !suggestions.isEmpty {
-                            selectedSuggestionIndex = min(suggestions.count - 1, selectedSuggestionIndex + 1)
-                            return .handled
-                        }
-                        guard historyIndex >= 0 else { return .ignored }
-                        historyIndex -= 1
-                        if historyIndex < 0 {
-                            draft = savedDraft
-                        } else {
-                            let history = appState.inputHistory(for: spaceId ?? "")
-                            draft = history[historyIndex]
-                        }
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        if !suggestions.isEmpty {
-                            // Clear the @query to dismiss suggestions
-                            if let atRange = draft.range(of: "@", options: .backwards) {
-                                draft = String(draft[draft.startIndex..<atRange.lowerBound])
-                            }
-                            return .handled
-                        }
-                        return .ignored
-                    }
-                    .onKeyPress(.tab) {
-                        guard !suggestions.isEmpty, selectedSuggestionIndex < suggestions.count else { return .ignored }
-                        insertMention(suggestions[selectedSuggestionIndex])
-                        return .handled
-                    }
-                    .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in
-                        if draft.isEmpty {
-                            NotificationCenter.default.post(name: .helpRequested, object: nil)
-                            return .handled
-                        }
-                        return .ignored
-                    }
+                inputTextField
 
                 if isStreaming {
                     if let onStop {
@@ -702,6 +617,97 @@ public struct ConversationContent: View {
         if let atRange = draft.range(of: "@", options: .backwards) {
             draft = String(draft[draft.startIndex..<atRange.lowerBound]) + "@\(suggestion.name) "
         }
+    }
+
+    // Extracted so ConversationContent.body stays under SwiftUI's type-check budget. Multiline: the
+    // field grows from 1 to 10 rows as text wraps, then scrolls. Enter sends; Shift+Enter inserts a
+    // newline (with axis: .vertical, plain Enter would otherwise just add a line, so we intercept it).
+    private var inputTextField: some View {
+        TextField(placeholder, text: $draft, axis: .vertical)
+            .lineLimit(1...10)
+            .textFieldStyle(.plain)
+            .font(Port42Theme.mono(13))
+            .foregroundStyle(Port42Theme.textPrimary)
+            .focused($isInputFocused)
+            .onKeyPress(keys: [.return]) { keyPress in
+                if keyPress.modifiers.contains(.shift) { return .ignored }
+                if !suggestions.isEmpty, selectedSuggestionIndex < suggestions.count {
+                    insertMention(suggestions[selectedSuggestionIndex])
+                } else {
+                    send()
+                    isInputFocused = true
+                }
+                return .handled
+            }
+            .onChange(of: draft) { _, _ in
+                selectedSuggestionIndex = 0
+            }
+            .onChange(of: isStreaming) { _, streaming in
+                if !streaming {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isInputFocused = true
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { note in
+                if let sid = note.object as? String, sid != spaceId { return }
+                isInputFocused = true
+            }
+            .onKeyPress(.upArrow) {
+                if !suggestions.isEmpty {
+                    selectedSuggestionIndex = max(0, selectedSuggestionIndex - 1)
+                    return .handled
+                }
+                guard let cid = spaceId else { return .ignored }
+                let history = appState.inputHistory(for: cid)
+                guard !history.isEmpty else { return .ignored }
+                if historyIndex == -1 {
+                    savedDraft = draft
+                    historyIndex = 0
+                } else if historyIndex < history.count - 1 {
+                    historyIndex += 1
+                } else {
+                    return .handled
+                }
+                draft = history[historyIndex]
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                if !suggestions.isEmpty {
+                    selectedSuggestionIndex = min(suggestions.count - 1, selectedSuggestionIndex + 1)
+                    return .handled
+                }
+                guard historyIndex >= 0 else { return .ignored }
+                historyIndex -= 1
+                if historyIndex < 0 {
+                    draft = savedDraft
+                } else {
+                    let history = appState.inputHistory(for: spaceId ?? "")
+                    draft = history[historyIndex]
+                }
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                if !suggestions.isEmpty {
+                    if let atRange = draft.range(of: "@", options: .backwards) {
+                        draft = String(draft[draft.startIndex..<atRange.lowerBound])
+                    }
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.tab) {
+                guard !suggestions.isEmpty, selectedSuggestionIndex < suggestions.count else { return .ignored }
+                insertMention(suggestions[selectedSuggestionIndex])
+                return .handled
+            }
+            .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in
+                if draft.isEmpty {
+                    NotificationCenter.default.post(name: .helpRequested, object: nil)
+                    return .handled
+                }
+                return .ignored
+            }
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
