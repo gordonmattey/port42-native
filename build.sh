@@ -46,12 +46,14 @@ export BUILD_NUMBER
 CONFIG="debug"
 RUN=false
 NO_DMG=false
+DEV2=false
 
 for arg in "$@"; do
     case "$arg" in
         --release) CONFIG="release" ;;
         --run)     RUN=true ;;
         --no-dmg)  NO_DMG=true ;;
+        --dev2)    DEV2=true ;;
     esac
 done
 
@@ -63,6 +65,10 @@ done
 if [ "$CONFIG" = "release" ]; then
     APP_DIR_NAME="Port42"; EXEC="Port42"; BUNDLE_ID="com.port42.app"
     DISPLAY_NAME="Port42"; GW_PORT="4242"; DATA_DIR="Port42"; INVITE_NAME="com.port42.agent-invite"; DEV_ISO=false
+elif $DEV2; then
+    # Second isolated dev instance, alongside Port42Dev — for fresh-boot / onboarding tests.
+    APP_DIR_NAME="Port42Dev2"; EXEC="Port42Dev2"; BUNDLE_ID="com.port42.dev2"
+    DISPLAY_NAME="Port42 Dev2"; GW_PORT="4244"; DATA_DIR="Port42Dev2"; INVITE_NAME="com.port42.dev2.invite"; DEV_ISO=true
 else
     APP_DIR_NAME="Port42Dev"; EXEC="Port42Dev"; BUNDLE_ID="com.port42.dev"
     DISPLAY_NAME="Port42 Dev"; GW_PORT="4243"; DATA_DIR="Port42Dev"; INVITE_NAME="com.port42.dev.invite"; DEV_ISO=true

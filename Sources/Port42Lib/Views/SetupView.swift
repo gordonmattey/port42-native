@@ -855,7 +855,7 @@ public struct SetupView: View {
         guard appState.messages.isEmpty else { return }
         // Small delay so the swim view renders before the stream starts
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            appState.sendMessage(content: "hey, i'm \(userName). where am i?")
+            appState.sendMessage(content: "hey, i'm \(userName). what is this place?")
         }
     }
 

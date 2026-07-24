@@ -1849,6 +1849,79 @@ that manages the desktop.
 subscriptions, no rendered surface; still listed in `ports_list` and closable; with a way to peek at it
 for debugging.
 
+## TODO: terminal ports render inline in chat, not just as desktop tiles (2026-07-24, GM)
+
+**The gap (found in onboarding test).** Web ports render inline in the conversation; terminal ports open
+as native surfaces (desktop tiles) and do NOT appear inline (`port.create` contract: web "renders inline
+in chat," terminal "opens a native terminal"). So when Echo's onboarding says "create a terminal port and
+open claude code," the user creates it but nothing shows where they're looking — it's a tile elsewhere.
+
+**The feature (GM design, refined 2026-07-24).**
+- **Every port gets an inline representation, even non-renderable ones.** Web ports already get the
+  compact non-play block (`PortCompactBlock`) that expands inline on run. A terminal port currently
+  produces NO message segment at all (it opens as a desktop tile), so it leaves no trace in the chat —
+  it needs to emit the same inline card (title, type, status) so a created terminal is visible in the
+  conversation like any other port.
+- **Opening a terminal card takes you into OPEN WATER and opens it there** — do NOT try to render a
+  live terminal inline. The card is the handle; its "open" gesture navigates to the desktop/shell and
+  surfaces the terminal so you can actually see and use it. (Web ports keep expanding inline on run;
+  terminals — and other not-inline-renderable ports — route to open water instead.)
+- Mechanically: `PortCompactBlock` gains a terminal variant whose run/open action calls the
+  open-water navigation + focuses the terminal port, instead of `activatedPortIndices.insert` (which is
+  the inline-expand path for web ports).
+
+**Why it matters.** This is the payoff surface for teleport/onboarding: "your agent joins the room" only
+lands if you SEE the port in the room. Right now the very first thing onboarding tells you to do produces
+nothing visible inline.
+
+## TODO: pop ports to the right of the response when there's horizontal room (2026-07-24, GM)
+
+**The idea.** When a companion's reply creates a port, don't always stack it inline *below* the message —
+if there's enough horizontal space, place the port to the RIGHT of the response, side-by-side. The first
+swim (onboarding) is full-screen with wide empty gutters, so Echo's welcome text can sit left and the
+shader port sit right, both visible at once — a far stronger first impression than text-then-port-below.
+
+**Shape.** Responsive: port beside the response above a width threshold, inline-below when narrow (split
+view, docked chat, small window). Reflows on resize. Applies to the port(s) a message attaches.
+
+**Why.** Use the space that's there. In full-screen the conversation column leaves big side gutters; a
+port to the right fills them and shows text + surface together. Ties into the inline-representation work
+(a port always leaves a visible trace; here it can sit beside the reply rather than pushing it up).
+
+**Open questions.** Which side (right for LTR); multiple ports (stack / grid on the right); how it relates
+to the desktop tile model (is "right of response" a mini-tile?); scroll behavior (does the port scroll
+with the message or pin while you read?).
+
+## TODO: share a port's code, install it in your space (2026-07-24, GM)
+
+**The idea.** Export a port's self-contained code and let someone install it as a live port in their own
+space. A port already describes itself completely (HTML/CSS/JS, no external deps by convention), so it's
+portable — this makes the copy shareable and one-click installable. The "gist for ports."
+
+**Shape.**
+- **Export/share:** wrap a port into a shareable artifact — its HTML + metadata (title, capabilities,
+  version) into a "port package." A copyable blob, a file, or a short share link (`port42://…` or an
+  https landing). `port_get_html` already yields the source.
+- **Install:** paste the code / open the link → it creates the port in your current space (`port_create`
+  with the shared HTML), running immediately. Installing is just create-from-source; there is nothing to
+  export.
+
+**Why.** Distribution. Ports become shareable units — a good synth, a dashboard, a tool — that anyone
+drops into their space. Pairs with the `port42-ports` skill (agents author correct ports) and the
+harness thesis (a company builds its surfaces, then shares them).
+
+**Open questions.**
+- **Trust.** Installing another's port runs their JS with bridge access. Needs a review/sandbox story:
+  show the code before install, a capability manifest ("this port requests: files, clipboard"),
+  per-category permission prompts on first use (those already exist).
+- **State/assets.** Self-contained code travels; `port42.storage` data and runtime state do not — a
+  fresh install starts empty. A port needing seed data carries it in source or fetches it.
+- **Identity.** The installed copy is a new port with a new id — a copy, not a live-shared instance.
+- **Updates.** An installed port is a snapshot; no auto-update unless we add a source link.
+
+Cross-ref: distinct from cross-instance port *addressing* (sharing a LIVE port — the keystone) and from
+`port teleport` (moving a port between instances). This one shares the CODE (a copy).
+
 ## TODO: synchronous agentic-CLI invoke from ports (command-companion call/await) (2026-07-11)
 
 **Gap found while dogfooding the generative-interface engine** (`port42-growth/gi-engine/`). A port
