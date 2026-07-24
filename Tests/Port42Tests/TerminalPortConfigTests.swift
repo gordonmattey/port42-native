@@ -16,6 +16,7 @@ struct TerminalPortConfigTests {
         #expect(cfg.startupCommand == "")
         #expect(cfg.companionPrompt == "")
         #expect(cfg.env.isEmpty)
+        #expect(cfg.initialInput == "")
         #expect(cfg.companionName == "c")
     }
 
@@ -24,10 +25,13 @@ struct TerminalPortConfigTests {
         let original = TerminalPortConfig(
             command: "/bin/zsh", args: ["-l"], startupCommand: "claude", cwd: "/tmp",
             spaceId: "sid", spaceName: "Demo", companionName: "claude5", createdBy: "u1",
-            companionPrompt: "You are claude5.", env: ["FOO": "bar", "BAZ": "1"])
+            companionPrompt: "You are claude5.", env: ["FOO": "bar", "BAZ": "1"],
+            initialInput: "create a port showing this folder as a grid")
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(TerminalPortConfig.self, from: data)
         #expect(decoded.startupCommand == "claude")
+        // The prefill survives persistence, so a restored terminal knows what was offered.
+        #expect(decoded.initialInput == "create a port showing this folder as a grid")
         #expect(decoded.companionPrompt == "You are claude5.")
         #expect(decoded.args == ["-l"])
         #expect(decoded.cwd == "/tmp")

@@ -1,6 +1,33 @@
 import SwiftUI
 import AVKit
 
+// MARK: - Root screen selection (pure)
+
+/// Which screen the app root shows. Extracted from `TransitionRoot.body` so the truth table is
+/// testable headlessly (the views, videos and dive overlays are not).
+///
+/// `shell` covers the mid-transition frame too: the breakout video is an OVERLAY composited on
+/// top of the shell, not a screen of its own, so the shell must already be mounted under it.
+/// `none` is the gap before the boot cinematic has finished on a fresh install — the cinematic
+/// overlay covers it.
+public enum RootScreen: Equatable {
+    case lock
+    case shell
+    case setup
+    case none
+
+    /// The root's only branch. `transitionPlaying` = the breakout video is up.
+    public static func decide(showDreamscape: Bool,
+                              isSetupComplete: Bool,
+                              transitionPlaying: Bool,
+                              bootCinematicDone: Bool) -> RootScreen {
+        if showDreamscape { return .lock }
+        if transitionPlaying || isSetupComplete { return .shell }
+        if bootCinematicDone { return .setup }
+        return .none
+    }
+}
+
 // MARK: - Transition Root (shared between Port42 and Port42B)
 
 public struct TransitionRoot: View {
@@ -22,10 +49,24 @@ public struct TransitionRoot: View {
     @State private var showBootCinematic = false
     @State private var bootCinematicDone = false
     @State private var launchRevealProgress: CGFloat = 1.0  // 1 = hidden, 0 = revealed
+    @State private var onboardingReveal: CGFloat = 0.0      // black cover over the setup → shell swap
+    /// 1 = not yet materialized, 0 = settled. The focused chat grows and fades UP out of the
+    /// black rather than being switched on under it. Scale + opacity only: a blur over a live
+    /// surface forces offscreen rendering, which this shell cannot afford.
+    @State private var onboardingMaterialize: CGFloat = 0.0
     @State private var preWarmBreakoutVideo = false  // Mount video view hidden to avoid resize glitch
 
+    /// The dreamscape video plays behind the LOCK screen and through a dive. The boot terminal
+    /// (name/auth/consent) runs with NO video behind it — the terminal is the whole surface.
     private var showDreamscapeVideo: Bool {
-        appState.showDreamscape || isDiving || (!appState.isSetupComplete && transitionPhase == .none)
+        appState.showDreamscape || isDiving
+    }
+
+    private var rootScreen: RootScreen {
+        RootScreen.decide(showDreamscape: appState.showDreamscape,
+                          isSetupComplete: appState.isSetupComplete,
+                          transitionPlaying: transitionPhase != .none,
+                          bootCinematicDone: bootCinematicDone)
     }
 
     enum TransitionPhase {
@@ -34,9 +75,28 @@ public struct TransitionRoot: View {
         case fadingOut     // video fading out to reveal aquarium
     }
 
+    @ViewBuilder
+    private var rootContent: some View {
+        switch rootScreen {
+        case .lock:
+            LockScreenView()
+        case .shell:
+            // The shell IS the app (classic ContentView retired).
+            ShellView(appState: appState)
+        case .setup:
+            // Black plate: with the dreamscape video gone, the boot terminal needs its own ground.
+            ZStack {
+                Color.black.ignoresSafeArea()
+                SetupView()
+            }
+        case .none:
+            EmptyView()
+        }
+    }
+
     public var body: some View {
         ZStack {
-            // Shared dreamscape video background (only during dreamscape or setup)
+            // Shared dreamscape video background (lock screen / dive only)
             if showDreamscapeVideo {
                 DreamscapeVideoLayer()
                     .ignoresSafeArea()
@@ -45,16 +105,13 @@ public struct TransitionRoot: View {
                     .ignoresSafeArea()
             }
 
-            // The actual content (renders underneath the dive overlay)
-            // Lock screen stays until unlock() clears showDreamscape at peak opacity
-            if appState.showDreamscape {
-                LockScreenView()
-            } else if transitionPhase != .none || (appState.isSetupComplete && transitionPhase == .none) {
-                // The shell IS the app (classic ContentView retired).
-                ShellView(appState: appState)
-            } else if !appState.showDreamscape && bootCinematicDone {
-                SetupView()
-            }
+            // The actual content (renders underneath the dive overlay).
+            // Lock screen stays until unlock() clears showDreamscape at peak opacity.
+            // The materialize values are NEUTRAL (0) outside first-run, and applied
+            // unconditionally so the modifier chain never changes the content's identity.
+            rootContent
+                .scaleEffect(1 + 0.05 * onboardingMaterialize)
+                .opacity(1 - onboardingMaterialize)
 
             // Pre-warm breakout video (hidden, sized to window so no resize glitch)
             if useBreakoutVideo && preWarmBreakoutVideo && transitionPhase == .none {
@@ -106,6 +163,14 @@ public struct TransitionRoot: View {
                     .allowsHitTesting(false)
             }
 
+            // First-run reveal: black over the setup → shell swap, fading off the focused chat.
+            if onboardingReveal > 0 {
+                Color.black
+                    .ignoresSafeArea()
+                    .opacity(onboardingReveal)
+                    .allowsHitTesting(false)
+            }
+
             // Launch reveal overlay (blue flash before content appears)
             if launchRevealProgress > 0 {
                 Color(red: 0.0, green: 0.15, blue: 0.3)
@@ -148,9 +213,10 @@ public struct TransitionRoot: View {
             }
         }
         .onAppear {
-            if appState.isSetupComplete || appState.showDreamscape {
-                bootCinematicDone = true
-            }
+            // Nothing gates the setup terminal at launch: first boot goes straight to the BIOS,
+            // and every other launch (locked or returning) already satisfied this. The flag now
+            // only matters for the boot cinematic reached from the lock screen mid-session.
+            bootCinematicDone = true
             // Returning user: resize window while covered by launch overlay, then reveal.
             // Call unlock() after the animation so port windows appear (same gate as post-lock reveal).
             if appState.isSetupComplete && !appState.showDreamscape {
@@ -169,7 +235,20 @@ public struct TransitionRoot: View {
         }
         .onChange(of: appState.isSetupComplete) { _, newValue in
             if newValue && !prevSetupComplete {
-                if useBreakoutVideo {
+                // FIRST RUN: hold the setup transition's BLACK across the swap and fade it off
+                // the focused chat. No dive (its blue tint belongs to lock/unlock) and no
+                // breakout video — that moves onto the first zoom-out to open water.
+                if appState.isOnboarding {
+                    onboardingReveal = 1.0
+                    onboardingMaterialize = 1.0
+                    // Hold the black long enough for the shell to mount and the chat focus to
+                    // land, then lift it while the chat settles up into place — the two overlap,
+                    // so it reads as the port materializing, not a screen being switched on.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        withAnimation(.easeOut(duration: 0.55)) { onboardingReveal = 0.0 }
+                        withAnimation(.easeOut(duration: 1.2)) { onboardingMaterialize = 0.0 }
+                    }
+                } else if useBreakoutVideo {
                     startBreakoutTransition()
                 } else {
                     // Simple fade transition

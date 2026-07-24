@@ -6,6 +6,53 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-24, GM): claude turn detection → notification peek for a port in ANOTHER space
+
+**GM:** "add a claude turn detection so we can send a notification peek for ports in other spaces."
+
+This is the same signal as the 2026-07-22 item below ("peek notifications when a Claude Code session
+needs attention"), stated from the ports angle and re-raised as wanted: when a `claude` session
+(hooks companion / CLI in a terminal port) **ends a turn** in a space you are NOT currently viewing,
+fire a **cross-space peek** so the port that just did something surfaces where you are. The substrate
+is there (`turnComplete` from the shim; the cross-space peek mechanism; `notify.send` when away).
+The work is still the **classifier** (needs-attention vs done — don't peek every turn) plus the
+cross-space route + dedup. See the 07-22 write-up for the full scope sketch; this note pins that GM
+wants it, framed as "a port in another space did a turn → peek me."
+
+---
+
+## TODO (2026-07-24, GM): gemini and codex must work like claude code does (CLI-companion parity)
+
+**GM:** "we need to make sure gemini and codex work too like claude code does."
+
+Today the whole CLI-companion loop is **claude-specific**: the shim is `port42-claude-shim`, turn
+detection rides claude's Stop/SessionStart hooks (`notify turnComplete` / `sessionStarted`), and the
+inject/post path is tuned to claude. `isHooksCapable` already *names* `claude`/`gemini`/`codex`
+(line ~977), and there are `AgentConfig` CLIPresets for gemini, but "detected/preset" is not
+"works end to end." **Gemini CLI and Codex CLI have their own hook/event mechanisms (or none), so
+each needs its own turn-detection + inject + post wiring** to reach parity: join the space as a
+companion, emit turn signals, post its reply back, and resume its session across relaunches.
+
+**Scope sketch:**
+- **Turn detection per CLI.** Claude uses hooks → shim `turnComplete`. Establish the equivalent for
+  gemini and codex (their hook/event API, a PTY/transcript watcher, or a wrapper) so a turn-end fires
+  the same internal signal. This is the load-bearing gap.
+- **Inject + post.** Verify the chat→CLI inject and the CLI→space post path work for each (the
+  transcript-read that `lastAssistantText` does for claude needs a per-CLI equivalent).
+- **Resume / session id.** Per-(companion,space) session ids exist for claude; confirm gemini/codex
+  expose resume and wire the same stable-id discipline (see line ~1785).
+- **Env scrub.** The claude env-leak scrubbing (`CLAUDE_CODE_SESSION_ID` etc.) has per-CLI analogues;
+  audit each CLI's session env.
+
+**Fits:** the auto-register-any-hooks-CLI item (line ~961/977) is the natural home — that feature is
+only real once gemini and codex actually complete the loop, not just get detected. Serves the
+model-agnostic / bring-your-own-agent positioning directly.
+
+**Sizing:** M–L. Per-CLI turn detection is the hard part (claude's hooks were the enabling asset;
+gemini/codex may not offer the same, so a wrapper/watcher could be needed for each).
+
+---
+
 ## TODO (2026-07-23, GM): inspect a port's console output via the API
 
 Today a port's `console.log/warn/error` is forwarded by the `portConsole` WKScriptMessageHandler

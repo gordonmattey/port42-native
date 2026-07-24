@@ -47,6 +47,7 @@ CONFIG="debug"
 RUN=false
 NO_DMG=false
 DEV2=false
+DEV3=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -54,6 +55,7 @@ for arg in "$@"; do
         --run)     RUN=true ;;
         --no-dmg)  NO_DMG=true ;;
         --dev2)    DEV2=true ;;
+        --dev3)    DEV3=true ;;
     esac
 done
 
@@ -69,6 +71,11 @@ elif $DEV2; then
     # Second isolated dev instance, alongside Port42Dev — for fresh-boot / onboarding tests.
     APP_DIR_NAME="Port42Dev2"; EXEC="Port42Dev2"; BUNDLE_ID="com.port42.dev2"
     DISPLAY_NAME="Port42 Dev2"; GW_PORT="4244"; DATA_DIR="Port42Dev2"; INVITE_NAME="com.port42.dev2.invite"; DEV_ISO=true
+elif $DEV3; then
+    # Third isolated dev instance, alongside Port42Dev/Dev2 — a free surface to test changes while
+    # Dev keeps running whatever it's running (e.g. the companion loop). Own id, data dir, gateway.
+    APP_DIR_NAME="Port42Dev3"; EXEC="Port42Dev3"; BUNDLE_ID="com.port42.dev3"
+    DISPLAY_NAME="Port42 Dev3"; GW_PORT="4245"; DATA_DIR="Port42Dev3"; INVITE_NAME="com.port42.dev3.invite"; DEV_ISO=true
 else
     APP_DIR_NAME="Port42Dev"; EXEC="Port42Dev"; BUNDLE_ID="com.port42.dev"
     DISPLAY_NAME="Port42 Dev"; GW_PORT="4243"; DATA_DIR="Port42Dev"; INVITE_NAME="com.port42.dev.invite"; DEV_ISO=true

@@ -194,6 +194,12 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
     private(set) var assistantContentBlocks: [[String: Any]] = []
     private var stopReason: String?
     private var isContinuation = false
+    /// The RUNNING transcript across tool rounds: the original messages plus every
+    /// (assistant tool_use → user tool_result) pair so far. Each continuation used to rebuild
+    /// from the caller's original `messages`, which dropped every earlier round — the model
+    /// never saw results it already had, re-called the same tools, and hit the depth limit
+    /// mid-reply (onboarding: help → space_current → help → …, welcome never written).
+    private var continuationMessages: [[String: Any]] = []
 
     // Thinking block tracking (for tool continuation with adaptive thinking)
     private var currentThinkingIndex: Int?
@@ -244,6 +250,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         if !isContinuation {
             self.fullResponse = ""
             self.toolDepth = 0
+            self.continuationMessages = []
         }
         self.pendingInputTokens = 0
         self.pendingOutputTokens = 0
@@ -424,7 +431,9 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
         NSLog("[LLMEngine] Tool continuation %d/%d (%@)", toolDepth, Self.maxToolDepth, trackingSource)
         let previousBlocks = assistantContentBlocks
 
-        var allMessages = messages
+        // Round 1 starts from the caller's conversation; every later round continues the
+        // transcript this loop has already built, so earlier tool results stay in context.
+        var allMessages = continuationMessages.isEmpty ? messages : continuationMessages
         allMessages.append(["role": "assistant", "content": previousBlocks])
 
         var toolResultBlocks: [[String: Any]] = []
@@ -445,6 +454,7 @@ public final class LLMEngine: NSObject, URLSessionDataDelegate, LLMBackend {
             "role": "user",
             "content": toolResultBlocks
         ] as [String: Any])
+        continuationMessages = allMessages
 
         isContinuation = true
         try send(

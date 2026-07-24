@@ -525,6 +525,13 @@ public final class ShellState: ObservableObject {
         }
     }
 
+    /// Enter open water — the space rung, the desktop where your ports live — animated. The single
+    /// gesture for "follow a port onto the surface": opening a port card in chat, or popping a port
+    /// out, both land the user here rather than staring at the chat with the port off elsewhere.
+    public func enterOpenWater() {
+        withAnimation(.spring(response: 0.4)) { zoom = .space }
+    }
+
     /// Re-home a port to another space (the facade's `move`, plan §3) and clear this desktop's
     /// peek/adoption residue for it — a moved port is native to its new space, not surfaced.
     public func movePort(id: String, toSpace sid: String) {
@@ -593,9 +600,16 @@ public final class ShellState: ObservableObject {
     /// Where the shell lands on boot/unlock: the current space's desktop — or the GALAXY when
     /// there's nothing working to land on: no space yet (fresh setup), or EVERY space rests
     /// (an all-rested boot shows the empty front + shelf, not the inside of a rested space).
-    /// Pure → headless.
-    nonisolated public static func initialZoom(hasCurrentSpace: Bool, allRested: Bool) -> Zoom {
-        (hasCurrentSpace && !allRested) ? .space : .galaxy
+    ///
+    /// FIRST RUN overrides all of that: onboarding lands FOCUSED on the space's chat tile (the
+    /// first swim is the shell's focus view). With no chat udid yet, hold at the desktop rung —
+    /// never the galaxy, which would strand a fresh user outside their only space. The shell
+    /// re-applies this reactively once `ensureChatPort` lands the panel. Pure → headless.
+    nonisolated public static func initialZoom(hasCurrentSpace: Bool, allRested: Bool,
+                                               onboarding: Bool = false,
+                                               chatUdid: String? = nil) -> Zoom {
+        if onboarding { return chatUdid.map { Zoom.focus($0) } ?? .space }
+        return (hasCurrentSpace && !allRested) ? .space : .galaxy
     }
 
     /// ⌘1…N — jump straight to the Nth WORKING space (0-based, working-set order) and land on

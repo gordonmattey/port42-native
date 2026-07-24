@@ -534,6 +534,29 @@ final class SpaceAgentHandler: LLMStreamDelegate {
         }
     }
 
+    /// A line containing only this marker splits one companion reply into separate chat messages.
+    static let messageSplitMarker = "[[SPLIT]]"
+
+    /// Split a companion reply on marker-only lines. Returns trimmed, non-empty segments; a reply
+    /// with no marker comes back as one segment (unchanged behavior). Never returns empty.
+    static func splitIntoMessages(_ content: String) -> [String] {
+        var segments: [String] = []
+        var current: [String] = []
+        for line in content.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces) == messageSplitMarker {
+                segments.append(current.joined(separator: "\n"))
+                current = []
+            } else {
+                current.append(line)
+            }
+        }
+        segments.append(current.joined(separator: "\n"))
+        let trimmed = segments
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return trimmed.isEmpty ? [content.trimmingCharacters(in: .whitespacesAndNewlines)] : trimmed
+    }
+
     nonisolated func llmDidFinish(fullResponse: String) {
         Task { @MainActor in
             guard let appState = self.appState else { return }
@@ -542,35 +565,49 @@ final class SpaceAgentHandler: LLMStreamDelegate {
 
             let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
 
-            // Remove placeholder, insert completed message
-            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
-                appState.messages[idx].content = content
+            // A companion may split one reply into several chat messages with a line containing only
+            // the split marker. Onboarding uses this so Echo's welcome+port and its terminal nudge
+            // land as two separate bubbles. No marker → a single segment, exactly as before.
+            let segments = SpaceAgentHandler.splitIntoMessages(content)
+            let baseTime = Date()
+            let finalMessages: [Message] = segments.enumerated().map { i, seg in
+                // Segment 0 keeps the placeholder id; later segments are fresh messages ordered just
+                // after it (timestamp is the only sort key, so nudge each one strictly later).
+                Message(
+                    id: i == 0 ? self.messageId : UUID().uuidString,
+                    spaceId: self.spaceId,
+                    senderId: self.agent.id,
+                    senderName: self.agent.displayName,
+                    senderType: "agent",
+                    content: seg,
+                    timestamp: baseTime.addingTimeInterval(Double(i) * 0.05),
+                    replyToId: nil,
+                    syncStatus: "local",
+                    createdAt: baseTime.addingTimeInterval(Double(i) * 0.05),
+                    senderOwner: appState.currentUser?.displayName
+                )
             }
 
-            // Persist and sync
-            let finalMessage = Message(
-                id: self.messageId,
-                spaceId: self.spaceId,
-                senderId: self.agent.id,
-                senderName: self.agent.displayName,
-                senderType: "agent",
-                content: content,
-                timestamp: Date(),
-                replyToId: nil,
-                syncStatus: "local",
-                createdAt: Date(),
-                senderOwner: appState.currentUser?.displayName
-            )
+            // Reflect in the in-memory list: placeholder becomes segment 0, extras inserted after it.
+            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
+                appState.messages[idx] = finalMessages[0]
+                if finalMessages.count > 1 {
+                    appState.messages.insert(contentsOf: finalMessages[1...], at: idx + 1)
+                }
+            }
+
             // Track port creation if this response contains a port fence
             if content.contains("```port") {
                 Analytics.shared.portCreated()
             }
 
-            do {
-                try appState.db.saveMessage(finalMessage)
-                appState.sync.sendMessage(finalMessage)
-            } catch {
-                NSLog("[Port42] Failed to persist agent message: \(error)")
+            for msg in finalMessages {
+                do {
+                    try appState.db.saveMessage(msg)
+                    appState.sync.sendMessage(msg)
+                } catch {
+                    NSLog("[Port42] Failed to persist agent message: \(error)")
+                }
             }
             appState.activeAgentHandlers.removeValue(forKey: self.messageId)
 
@@ -696,6 +733,14 @@ public final class AppState: ObservableObject {
             }
         }
     }
+    /// FIRST RUN, one-shot. True from the end of setup until the first open-water zoom-out.
+    /// The shell reads it to open focused on the space's chat tile and to seed the opening
+    /// message there — the first swim IS the shell's focus view, not a bespoke surface.
+    /// Never true for a returning user (nothing sets it outside `enterShellFromSetup`).
+    @Published public private(set) var isOnboarding = false
+    /// One-shot guard behind `seedOnboardingFirstMessage` (the shell can call it on more than
+    /// one reactive pass while the chat panel settles).
+    private var onboardingFirstMessageSent = false
     @Published public var drafts: [String: String] = [:]
     @Published public var unreadCounts: [String: Int] = [:]
     @Published public var lastReadDates: [String: Date] = [:]
@@ -1182,6 +1227,10 @@ public final class AppState: ObservableObject {
         do {
             currentUser = try db.getLocalUser()
             isSetupComplete = currentUser != nil
+            // FIRST BOOT (no identity yet) goes straight to the BIOS — no lock screen, no
+            // dreamscape loop, no swim button. The lock screen belongs to a user who HAS an
+            // identity: a returning launch, a lock, a power off (each sets this itself).
+            if currentUser == nil { showDreamscape = false }
             spaces = try db.getRegularSpaces()
             loadLastReadDates()   // restore ⌘K recency + unread-since-last-visit across restart (0.6)
             companions = try db.getAllAgents()
@@ -1892,9 +1941,16 @@ public final class AppState: ObservableObject {
             try db.saveAgent(companion)
             companions = try db.getAllAgents()
 
-            // Open swim but don't send yet.
-            // SetupView will trigger the first message after the transition animation.
+            // Open swim but don't send yet. The shell seeds the first message once its chat
+            // tile is live (`seedOnboardingFirstMessage`).
             startSwim(with: companion)
+
+            // The first space is GENESIS. A direct space is otherwise named after its companion,
+            // which read as a space called "echo" sitting next to the companion echo.
+            if var first = currentSpace, first.type == "direct" {
+                first.name = "genesis"
+                updateSpace(first)
+            }
 
             Analytics.shared.configure(userId: user.id)
             Analytics.shared.setupCompleted()
@@ -1913,6 +1969,43 @@ public final class AppState: ObservableObject {
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
+    }
+
+    /// End the setup phases and hand the first run to the SHELL (the `.swim` phase is retired).
+    /// Order matters: `isOnboarding` must be set BEFORE the flip, so the shell sees it on its
+    /// first pass. The flip's `didSet` runs `switchToSpace` → `ensureChatPort`, which is what
+    /// guarantees the chat tile exists for the shell to focus (invariant 3).
+    public func enterShellFromSetup() {
+        isOnboarding = true
+        isSetupComplete = true
+    }
+
+    /// Clear the first-run flag. Called on the first open-water zoom-out. Idempotent.
+    public func endOnboarding() {
+        isOnboarding = false
+    }
+
+    /// The opening line of the first swim, PREFILLED into the chat input rather than sent (GM,
+    /// 2026-07-24 — the same call as the terminal's `initialInput`): the first thing that happens
+    /// in Port42 should be something the user chose to do, so the line waits and they press Enter.
+    /// One-shot: the reactive focus hook may fire more than once while the panel settles.
+    public func seedOnboardingFirstMessage() {
+        guard isOnboarding, !onboardingFirstMessageSent, messages.isEmpty else { return }
+        onboardingFirstMessageSent = true
+        let name = currentUser?.displayName ?? "there"
+        // Deferred so the focused chat's input has mounted and read its draft (the field
+        // restores from `chatDrafts` on appear — writing before that races the restore).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.messages.isEmpty, let sid = self.currentSpace?.id else { return }
+            guard (self.chatDrafts[sid] ?? "").isEmpty else { return }   // never clobber typing
+            self.chatDrafts[sid] = "hey, i'm \(name). what is this place?"
+        }
+    }
+
+    /// The udid of a space's chat tile — the shell's focus target for that space. Exactly one
+    /// `isChatPort` panel exists per space (`ensureChatPort`).
+    public func chatPortUdid(forSpace spaceId: String) -> String? {
+        portWindows.panels.first { $0.isChatPort && $0.spaceId == spaceId }?.udid
     }
 
     // MARK: - Spaces
@@ -2387,16 +2480,12 @@ public final class AppState: ObservableObject {
         }
 
         // Initiative: check companions NOT already targeted for watching signal matches.
-        // When @mentions are present, those companions are definitely targeted.
-        // When there are no @mentions, only allMessages companions are definitely
-        // responding — mentionOnly companions are not in normal routing and should
-        // be eligible for initiative even if they're space members.
-        let initiativeExcluded: Set<String>
-        if mentions.isEmpty {
-            initiativeExcluded = Set(targets.filter { $0.trigger == .allMessages }.map { $0.id })
-        } else {
-            initiativeExcluded = Set(targets.map { $0.id })
-        }
+        // `targets` IS the launch set — `findTargetAgents` returns every space member when
+        // there are no @mentions, and `launchAgents` does not filter by trigger — so excluding
+        // only `.allMessages` targets double-launched any mentionOnly companion that normal
+        // routing had already launched. In a DM that is the sole companion, every time it
+        // matched an initiative signal: two turns for one message, two of whatever it made.
+        let initiativeExcluded = Set(targets.map { $0.id })
         checkInitiativeTriggers(
             spaceId: space.id, messageContent: trimmed,
             alreadyTargeted: initiativeExcluded, senderId: user.id, senderName: user.displayName
@@ -2674,7 +2763,14 @@ public final class AppState: ObservableObject {
         // named companions and for non-claude terminals that never fire SessionStart); on exit,
         // remove it (it leaves the space and announces "left", even if the shell stays open).
         let onSessionStarted: () -> Void = { [weak self] in
-            self?.autoRegisterTerminalCompanion(config: config, panelId: panel.id)
+            guard let self else { return }
+            self.autoRegisterTerminalCompanion(config: config, panelId: panel.id)
+            // A prefilled prompt waits in the CLI's input box for the user to send. SessionStart
+            // is the only honest "the TUI is up" signal — typing on a timer races the CLI's boot
+            // (and its first-run trust prompt), which drops or misdirects the characters.
+            if !config.initialInput.isEmpty {
+                self.portWindows.prefillTerminal(id: panel.id, text: config.initialInput)
+            }
         }
         let onSessionEnded: () -> Void = { [weak self] in
             self?.removeAutoRegisteredCompanion(panelId: panel.id)
@@ -2830,7 +2926,8 @@ public final class AppState: ObservableObject {
                                  companionId: String? = nil,
                                  systemPrompt: String? = nil, env: [String: String] = [:],
                                  recordKey: String? = nil, postCard: Bool = true,
-                                 startupCommandOverride: String? = nil) -> String? {
+                                 startupCommandOverride: String? = nil,
+                                 initialInput: String = "") -> String? {
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
         // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
@@ -2864,7 +2961,8 @@ public final class AppState: ObservableObject {
             companionId: companionId,
             createdBy: currentUser?.id ?? "",
             companionPrompt: companionPrompt,
-            env: env
+            env: env,
+            initialInput: initialInput
         )
         guard let json = try? String(decoding: JSONEncoder().encode(config), as: UTF8.self) else {
             NSLog("[Port42] Failed to encode TerminalPortConfig for '%@'", title)
@@ -2923,7 +3021,7 @@ public final class AppState: ObservableObject {
                     systemPrompt: String?, env: [String: String] = [:],
                     spaceId: String, createdBy: String?, createdByName: String?,
                     presentation: String? = nil, position: CGPoint? = nil,
-                    size: CGSize? = nil) -> [String: Any] {
+                    size: CGSize? = nil, initialInput: String = "") -> [String: Any] {
         let presentation = presentation ?? "tiled"
         switch PortCreateValidation.validate(type: type, html: html, command: command) {
         case .error(let message):
@@ -2937,8 +3035,16 @@ public final class AppState: ObservableObject {
             guard let portId = spawnNativeTerminalPort(
                 command: command, args: args, cwd: resolvedCwd, spaceId: spaceId,
                 title: resolvedTitle, companionName: resolvedTitle,
-                systemPrompt: systemPrompt, env: env) else {
+                systemPrompt: systemPrompt, env: env, initialInput: initialInput) else {
                 return ["error": "failed to spawn terminal port"]
+            }
+            // The terminal lives as a desktop tile; leave its handle in chat so the conversation has
+            // a trace + a way back to it (generic across every surface-type port). Only when there's a
+            // conversational author — an internal create (e.g. a background-port restore) passes nil
+            // and must not spam a card.
+            if createdBy != nil {
+                postPortCard(kind: .terminal, id: portId, title: resolvedTitle, spaceId: spaceId,
+                             createdBy: createdBy, createdByName: createdByName)
             }
             return ["id": portId, "title": resolvedTitle]
 
@@ -2951,6 +3057,12 @@ public final class AppState: ObservableObject {
                 _ = portWindows.registerTiledPort(id: id, html: html, spaceId: spaceId,
                                                   createdBy: createdBy, title: resolvedTitle,
                                                   position: position, size: size)
+                // Same as terminals: a tiled web port lives on the desktop, so leave its card in chat
+                // (only for a conversational author — an internal restore passes nil, no card).
+                if createdBy != nil {
+                    postPortCard(kind: .web, id: id, title: resolvedTitle, spaceId: spaceId,
+                                 createdBy: createdBy, createdByName: createdByName)
+                }
                 return ["id": id, "title": resolvedTitle]
             }
             // Otherwise a web port renders INLINE in chat and AUTO-PLAYS on creation. The inline
@@ -2996,6 +3108,41 @@ public final class AppState: ObservableObject {
         try? db.saveMessage(msg)
         sync.sendMessage(msg)
         return id
+    }
+
+    /// Post the in-chat reference card for a newly created port: `[portref:<kind>:<id>:<title>]`.
+    /// Every port type that lives as a surface (terminal, browser, video, tiled web, …) leaves this
+    /// one handle in the conversation, so chat always has a trace and a way back to the port. A
+    /// live-inline web port is the exception — it renders itself inline and needs no card.
+    func postPortCard(kind: PortCardKind, id: String, title: String, spaceId: String,
+                      createdBy: String?, createdByName: String?) {
+        let name = createdByName ?? createdBy ?? currentUser?.displayName ?? "port42"
+        let msg = Message(
+            id: UUID().uuidString, spaceId: spaceId,
+            senderId: createdBy ?? currentUser?.id ?? "",
+            senderName: name, senderType: "agent",
+            content: ChatEntry.portRefCard(kind: kind, id: id, title: title),
+            timestamp: Date(), replyToId: nil, syncStatus: "sent", createdAt: Date()
+        )
+        try? db.saveMessage(msg)
+        sync.sendMessage(msg)
+    }
+
+    /// A chat port card's open action: take the user into open water (their space) and surface the
+    /// port, dispatching by kind. Terminals and web ports have bespoke openers; any other kind brings
+    /// its registered surface to front. Mirrors the pop-out → open-water gesture.
+    func openPort(id: String, kind: PortCardKind) {
+        shell?.enterOpenWater()
+        switch kind {
+        case .terminal:
+            openTerminalPort(id: id)
+        case .web:
+            openWebPort(id: id)
+        default:
+            if let panel = portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
+                if panel.isBackground { portWindows.restore(panel.id) } else { portWindows.bringToFront(panel.id) }
+            }
+        }
     }
 
     /// The inline terminal card's play action (Step 5b): focus the live window, restore it if

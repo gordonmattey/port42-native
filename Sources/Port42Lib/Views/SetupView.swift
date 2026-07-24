@@ -1244,9 +1244,10 @@ public struct SetupView: View {
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.9) {
-            withAnimation(.easeInOut(duration: 0.4)) {
-                phase = .swim
-            }
+            // Hand the first swim to the SHELL: it opens focused on the space's chat tile and
+            // seeds the opening message there. The bespoke `.swim` phase below is unreachable
+            // from here now and retires with phase 6.
+            appState.enterShellFromSetup()
         }
     }
 }

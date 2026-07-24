@@ -36,14 +36,19 @@ struct TerminalPortConfig: Codable {
     /// hooks/identity vars overlay it, so custom env can't clobber the socket/PATH/ZDOTDIR).
     /// Empty = none.
     var env: [String: String] = [:]
+    /// A line typed into the CLI once it is up, WITHOUT Enter — a prefilled prompt the user reads
+    /// and submits themselves. Distinct from `startupCommand` (which runs) and from `port.push`
+    /// (which drives the terminal for you). Empty = type nothing.
+    var initialInput: String = ""
 
     init(command: String, args: [String], startupCommand: String = "", cwd: String,
          spaceId: String, spaceName: String, companionName: String, companionId: String? = nil,
-         createdBy: String, companionPrompt: String = "", env: [String: String] = [:]) {
+         createdBy: String, companionPrompt: String = "", env: [String: String] = [:],
+         initialInput: String = "") {
         self.command = command; self.args = args; self.startupCommand = startupCommand
         self.cwd = cwd; self.spaceId = spaceId; self.spaceName = spaceName
         self.companionName = companionName; self.companionId = companionId; self.createdBy = createdBy
-        self.companionPrompt = companionPrompt; self.env = env
+        self.companionPrompt = companionPrompt; self.env = env; self.initialInput = initialInput
     }
 
     // Tolerant decoder: Swift's synthesized Decodable throws on a missing key even when a
@@ -62,6 +67,7 @@ struct TerminalPortConfig: Codable {
         createdBy = try c.decode(String.self, forKey: .createdBy)
         companionPrompt = try c.decodeIfPresent(String.self, forKey: .companionPrompt) ?? ""
         env = try c.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+        initialInput = try c.decodeIfPresent(String.self, forKey: .initialInput) ?? ""
     }
 }
 
@@ -460,6 +466,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let onInject: (((String) -> Void)?) -> Void
         private let startupCommand: String
         private var startupSent = false
+        private var prefillSent = false
         init(onTee: ((String) -> Void)?, startupCommand: String = "",
              onInject: @escaping (((String) -> Void)?) -> Void = { _ in }) {
             self.onTee = onTee
@@ -480,6 +487,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 line.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
                 NSLog("[Ghostty] typed startup command (%d chars)", self.startupCommand.count)
             }
+        }
+
+        /// Type a line into the surface WITHOUT Enter, so it sits in the CLI's input box for the
+        /// user to submit. At most once per surface: a prefill is a first-run gesture, and a
+        /// second one would append to whatever the user has since typed. Sent as one burst —
+        /// Claude Code's TUI reads that as a paste, which is exactly right here (it drafts).
+        func typePrefill(_ text: String) {
+            guard !prefillSent, !text.isEmpty, let s = surface else { return }
+            prefillSent = true
+            text.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+            NSLog("[Ghostty] typed prefill, unsent (%d chars)", text.count)
         }
 
         func teardown() {

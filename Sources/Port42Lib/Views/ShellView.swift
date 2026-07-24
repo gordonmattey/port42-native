@@ -27,6 +27,26 @@ public struct ShellView: View {
     @State private var monitors: [Any] = []
     /// The space the Quick Switcher opened in — a selection that changed it lands at .space.
     @State private var switcherSpaceId: String?
+    /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
+    /// hook would yank a user back to the chat every time the panel set changes.
+    @State private var onboardingFocusApplied = false
+
+    /// First run: the chat tile to open focused on. nil until `ensureChatPort` has landed it.
+    private var onboardingChatUdid: String? {
+        guard appState.isOnboarding, !onboardingFocusApplied,
+              let sid = appState.currentSpace?.id else { return nil }
+        return appState.chatPortUdid(forSpace: sid)
+    }
+
+    /// SPIKE 1: `switchToSpace` → `ensureChatPort` guarantees the chat panel EXISTS, but not by
+    /// any fixed `onAppear` — so the first-run focus is applied reactively, when the panel
+    /// actually appears, and then latched.
+    private func applyOnboardingFocus() {
+        guard !onboardingFocusApplied, let udid = onboardingChatUdid else { return }
+        onboardingFocusApplied = true
+        shell.zoom = .focus(udid)
+        appState.seedOnboardingFirstMessage()
+    }
 
     private var galaxyShown: Bool { shell.zoom == .galaxy }
     /// Focus IS a desktop state (Phase 2): every focusable id is a unit, and focus resizes that
@@ -241,8 +261,14 @@ public struct ShellView: View {
             // `AppState.unlock()` has already restored it as currentSpace. Galaxy if there's no
             // space yet (fresh setup) or every space rests (show the shelf, not a rested inside).
             shell.zoom = ShellState.initialZoom(hasCurrentSpace: appState.currentSpace != nil,
-                                                allRested: appState.workingSpaces.isEmpty)
+                                                allRested: appState.workingSpaces.isEmpty,
+                                                onboarding: appState.isOnboarding,
+                                                chatUdid: onboardingChatUdid)
+            applyOnboardingFocus()
         }
+        // First run: the chat panel can land after this view appears (Spike 1) — focus it the
+        // moment it does. No-op for a returning user (`onboardingChatUdid` is nil).
+        .onChange(of: onboardingChatUdid) { _, _ in applyOnboardingFocus() }
         .onDisappear { removeInputMonitors() }
     }
 

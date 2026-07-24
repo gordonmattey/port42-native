@@ -130,6 +130,12 @@ public final class PortWindowManager: ObservableObject {
         terminalCoordinators[id] = coordinator
     }
 
+    /// Type a prefilled line into a terminal port's CLI without submitting it (see
+    /// `Coordinator.typePrefill`). The coordinator owns the once-guard.
+    func prefillTerminal(id: String, text: String) {
+        terminalCoordinators[id]?.typePrefill(text)
+    }
+
     /// Hand the KEYBOARD to a port's live surface. Keyboard-driven focus (⌘` cycling, ⌘↓,
     /// double-click header) never routes through an AppKit click, so the first responder
     /// must be moved by hand — without this, keystrokes keep flowing to the PREVIOUSLY

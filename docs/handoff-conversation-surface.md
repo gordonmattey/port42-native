@@ -1,60 +1,103 @@
-# Handoff: The Conversation Surface
+# Handoff: The Conversation Surface → Onboarding Into The Shell
 
-Living status for the next session. The thread: making the chat a real surface — ports that live in the
-conversation (beside the reply, inline cards, terminals that open in open water) and the onboarding that
-introduces it. Grounded from git, not memory.
+Living status. The thread: making the chat a real surface for ports, and the onboarding around it. This
+session shipped the generic port-card work and pivoted to a bigger piece: unifying the first-swim
+onboarding into the real shell. Grounded from git, not memory.
 
 ## Where things are
 
-- Branch `main`, HEAD `246137c`, working tree clean (only `dist/` build artifacts).
-- Dev (`:4243`) is running the latest build. Prod is `:4242`. **Test in Dev only, never prod.**
+- Branch `main`, HEAD `745e495`. **The working tree is intentionally DIRTY** — everything below is
+  uncommitted (GM has not asked to commit). Do NOT commit unless asked.
+- Dev3 (`:4245`) is the test instance this session (`build.sh --dev3`, isolated `com.port42.dev3`).
+  Dev (`:4243`) may be running GM's Maker/Critic loop — **test in Dev3 only.** Note: booting a dev
+  instance rewrites the global `~/.claude/CLAUDE.md` port42 block to that instance's port (currently
+  `:4245`), so a Claude session leaning on it curls Dev3, not prod.
 
-## Shipped this session (all pushed to main)
+## Shipped this session (committed 2026-07-24; tested-working in Dev3 unless noted)
 
-- `246137c` — **multi-line auto-expanding input** (grows to 10 rows then scrolls; Enter=send,
-  Shift+Enter=newline). Required extracting the input field into an `inputTextField` computed property
-  because `ConversationContent.body` was at SwiftUI's type-check ceiling.
-- `bf60483` — **RCA-2.3 freeze fix** (confirmed live). A scroll-offset preference loop in
-  `ConversationContent` re-evaluated `body` every frame under animating inline content; now debounced
-  (commit scroll state only after the offset settles ~120ms). See `docs/rca-app-freeze-2.3.md`.
-- `3b0bd9a` — **onboarding**: clearer Echo welcome (concrete, not mysterious), a living shader first
-  port, a SEPARATE follow-up telling the user to create a terminal + launch claude code themselves;
-  auto first-message is now "what is this place?". Plus `build.sh --dev2` (isolated fresh-boot instance:
-  `com.port42.dev2` / `:4244` / `Port42Dev2`).
-- `912b001` — **`port.publish`** primitive + consumer-model port instructions (ports-context/core, llms).
-- Roadmap + specs across `docs/summer2026-todo.md`: busWatch companions (synth tick jam), teleport CLI,
-  reopen-closed-ports, invisible ports, share-a-port's-code, terminal-cards→open-water, ports-beside-
-  response. Plus `docs/spike-synth-tick-architecture.md`.
+- **Generic port cards.** Any surface-type port created from chat leaves a `[portref:<kind>:<id>:<title>]`
+  card inline; its open action = open water + focus the port. `PortCardKind` (public) + `portRefInfo` /
+  `portRefCard` in `ConversationContent.swift`; `postPortCard` + `openPort(id:kind:)` in `AppState.swift`
+  (createPort emits for terminal + tiled web, gated on `createdBy != nil`). Terminal card **confirmed
+  working by GM.** Supersedes the per-type `[terminal:]`/`[port:]` cards (kept for old messages).
+- **Companion multi-message split.** A reply splits on a `[[SPLIT]]`-only line into separate chat
+  messages (`splitIntoMessages` + rewritten `llmDidFinish` in `AppState.swift`). Onboarding uses it:
+  welcome+port, then a separate terminal nudge. Confirmed working.
+- **Inline port height floor.** `InlinePortLayout.minHeight = 300` (inline-only; ports stay resizable on
+  the desktop) — fixes the collapsed-strip shader. Confirmed.
+- **Ports beside the response (chat-UI step 2).** `MessageRow` renders text-left / ports-right when wide
+  (`portsRegion`, `MessageWidthKey`, 720pt threshold), stacked when narrow.
+- **Pop-out / card-open → open water.** All three pop-out paths + the card open call
+  `ShellState.enterOpenWater()` (zoom → `.space`).
+- **`echo-prompt.txt`** rewrite: welcome grounded in `port42-growth/positioning-core.md` (live surfaces,
+  yours/local; NO "open water"/multiplayer wording); a bolder full-bleed alive shader port; the terminal
+  nudge as a separate `[[SPLIT]]` message telling the user to type, verbatim, "create a terminal port and
+  run claude".
+- **Terminal prefill (`initialInput`), GM 2026-07-24: prefill WITHOUT send.** A terminal port can
+  open with a line waiting, unsent, in the CLI's input box — the user presses Enter. Teaches the
+  grammar (plain language → a live surface) instead of describing it, and keeps the action theirs;
+  auto-run was rejected because it spends the first impression on an action the user did not take
+  and lands on claude's own first-run friction (folder-trust, auth). `TerminalPortConfig.initialInput`
+  (tolerant decode) → `Coordinator.typePrefill` (types the burst with NO trailing `\r`, once per
+  surface) → `PortWindowManager.prefillTerminal` → fired from `makeTerminalController`'s
+  `onSessionStarted`, the only honest "the TUI is up" signal (a timer races claude's boot). Exposed
+  as `initialInput` on `port.create`; `echo-prompt.txt` tells Echo to pass one on the onboarding
+  terminal and to point the CTA at it. NOT carried by `terminalSpawnRecords`, so a respawn does not
+  re-prefill — deliberate, a prefill is a first-run gesture.
+- **Tool-loop context fix (`LLMEngine.continueWithToolResults`).** Each continuation rebuilt from
+  the caller's original messages, so every round but the current one was dropped: the model
+  re-called tools it had already run and burned the depth limit mid-reply. The engine now carries a
+  running `continuationMessages` transcript. Found via onboarding (Echo stopping after its
+  preamble), but it affected EVERY multi-round tool turn. Note: tool-heavy turns now carry their
+  full context, so a turn that calls `help` keeps that ~15k for the rest of the round trip.
+- **`build.sh --dev3`** (`com.port42.dev3` / `:4245` / `Port42Dev3`).
+- **`docs/summer2026-todo.md`**: two roadmap items — claude turn-detection → cross-space port peek;
+  gemini + codex CLI-companion parity (the loop is claude-specific today).
 
-## Next steps (do these first)
+## Unify onboarding into the shell — phases 1-4 BUILT + COMMITTED (2026-07-24)
 
-Read `docs/plan-chat-ui.md` — it has the ordered plan + 2026-07-24 findings. Then:
+Onboarding now runs inside the real shell. `SetupView.startTransition` ends in
+`AppState.enterShellFromSetup()`; the shell opens focused on the space's chat tile (applied
+reactively, latched) and seeds the first message there. `SetupView.swim` is unreachable and
+retires with phase 6. Also: first boot goes straight to the BIOS (no lock screen, no dreamscape
+loop, black plate behind the terminal), the seam takes a black reveal plus a scale/opacity
+materialize rather than the blue dive tint, and the first space is named `genesis`. The opening
+line is PREFILLED in the input, not sent — the user presses Enter (same call as the terminal's
+`initialInput`). Phase 4's nudge is resolved as prompt text in `echo-prompt.txt` (zoom out to the
+terminal, where claude waits with a line already typed), not shell chrome. Full detail, including
+the GM decisions and the THREE root-cause bugs found while testing it (LLMEngine tool-loop context
+loss, double companion turn per message, welcome port posted as a tool card ahead of the text), is
+in `docs/plan-unify-onboarding-shell.md` §Phases. New suite: `OnboardingShellTests` (11).
 
-1. **Chat-UI step 2 — ports beside the response.** When there's horizontal room, render a message's port
-   segment to the RIGHT of the text (full-screen first swim has wide gutters); inline-below when narrow.
-   In `ConversationContent.swift` `MessageRow` (~830–905). NOTE: "pop" already means pop-out-to-desktop —
-   name this differently (beside / side-by-side).
-2. **Chat-UI step 3 — terminal cards that open in open water.** Terminal/web port cards already exist
-   (`ChatEntry.terminalPortInfo` = `[terminal:<id>:<title>]`, `webPortInfo` = `[port:<id>:<title>]`).
-   Ensure a created terminal emits its card, render it as a `PortCompactBlock`-style block, and make its
-   open action route to **open water + focus the terminal** (not inline render).
-3. **Instruction-review fixes** (never applied — a review agent produced them earlier this session):
-   storage `value` type mismatch (llms says string, context says any-JSON — data-loss risk), `port.patch`
-   RELOADS note (like `port.update`), window→tile wording, drop the `if (space)` guard in examples,
-   `port.manage` action vocab drift, `screen_capture`→`screen.capture` in llms, etc. Re-run the review or
-   apply from memory. Files: `Sources/Port42Lib/Resources/ports-context.txt`, `ports-core.txt`, `llms.txt`.
+Remaining: phase 5 (centered-column layout), phase 6 (retire the swim chrome + the
+`.enterAquariumRequested` plumbing), and moving the breakout video onto the first zoom-out.
 
-Bigger builds when GM wants them: **busWatch** trigger (the synth tick jam's missing primitive — spec in
-`spike-synth-tick-architecture.md`) and **teleport** CLI.
+## Original next-steps note (superseded by the section above)
+
+Read **`docs/plan-unify-onboarding-shell.md`** in full — resolved flow, six phases, testing spine, the
+component/interface/invariant review, and Spike 1's verified finding. Summary of the target flow (GM,
+2026-07-24): boot terminal with NO background video → drop into the **focused shell chat** in the first
+space (the swim = focus view on the chat tile) → after the first terminal port, a text hint "zoom out to
+see your space (or the top-right arrow)" → **kill the 🐬 "swim in open water" button** → the first
+zoom-out (focus→space) plays the breakout video and lands you in open water. Centered-column layout = the
+focus view.
+
+**Immediate next step: Phase 1 (entry seam).** After `completeSetup`, flip `isSetupComplete` + set a
+one-shot `isOnboarding`, drop into `ShellView` instead of `SetupView.swim`, focus the chat tile
+**reactively when the chat panel appears** (Spike-1 caveat — `switchToSpace`→`ensureChatPort` guarantees
+it exists, but not at a fixed `onAppear`), seed the first message in-shell, and drop the boot-terminal
+background video. Not yet: breakout-on-zoom-out, the hint, killing the 🐬 button, centered-column. Build
+Phase 1, fresh-reset Dev3, verify onboarding lands in the focused shell chat with Echo playing and no
+blank frame — that proves the risky part.
 
 ## Hard rules (survive the boundary)
 
-- Test in **Port42Dev (:4243) only**, never prod.
-- **Never run `./build.sh` or relaunch Dev without asking** — it kills GM's in-flight work. (GM asks
-  explicitly when they want a build.)
-- **Do not commit or refactor unless asked.** Fix root causes.
-- Build gotcha: if `./build.sh` fails with cp "Operation not permitted" on resources, clear stale
-  xattrs: `xattr -cr .build/arm64-apple-macosx/debug`. Never pipe `./build.sh` through `head`/`tail`
-  (SIGPIPE kills it mid-assembly) — redirect to a file.
-- `ConversationContent.body` is at SwiftUI's type-check limit — extract into subviews before adding to it.
+- **Test in Dev3 (`:4245`) only** (`./build.sh --dev3 --run`), never prod. Fresh onboarding needs a data
+  reset: move `~/Library/Application Support/Port42Dev3` aside, then relaunch.
+- **Never run `./build.sh` or relaunch Dev without asking.** **Do not commit or refactor unless asked.**
+- Build gotchas: on cp "Operation not permitted", `xattr -cr .build/arm64-apple-macosx/debug`. Never pipe
+  `./build.sh` through head/tail (redirect to a file). `ConversationContent.body` is at the type-check
+  limit — extract subviews before adding. `AppState` has no SwiftUI import (put view animation in
+  `ShellState`). Run test suites by EXACT name (bare "Port" once SIGTERMed prod); keep `completeSetup`
+  behind `isTestProcess`; never interrupt a build/test (wedges the `.build` lock).
 - No em dashes in prose; US spelling; report style in docs.

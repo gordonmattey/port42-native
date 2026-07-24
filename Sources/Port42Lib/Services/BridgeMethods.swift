@@ -141,7 +141,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.create"] = BridgeMethod(permission: nil, paramNames: ["options"],
-        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), and env. Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -153,6 +153,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "cwd": ["type": "string", "description": "type:\"terminal\" — working directory (default: home)."],
                 "systemPrompt": ["type": "string", "description": "type:\"terminal\" — companion personality/role appended to the CLI's system prompt."],
                 "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
+                "initialInput": ["type": "string", "description": "type:\"terminal\" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input."],
                 "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."]
             ],
             "required": ["type"]
@@ -164,7 +165,8 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             command: o["command"] as? String, args: o["args"] as? [String] ?? [], cwd: o["cwd"] as? String,
             systemPrompt: o["systemPrompt"] as? String, env: o["env"] as? [String: String] ?? [:],
             spaceId: sid, createdBy: p.id, createdByName: p.displayName,
-            presentation: o["presentation"] as? String)
+            presentation: o["presentation"] as? String,
+            initialInput: o["initialInput"] as? String ?? "")
         if let err = result["error"] as? String { throw BridgeError.badArg(err) }
         return .fromJSONObject(result)   // { id, title }
     }

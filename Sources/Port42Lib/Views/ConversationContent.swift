@@ -103,6 +103,25 @@ public struct ChatEntry: Identifiable, Equatable {
         "[port:\(id):\(title)]"
     }
 
+    /// The GENERIC port reference card — the one in-chat handle every surface-type port leaves when
+    /// it's created (terminal, browser, video, markdown, tiled web, …). Format:
+    /// `[portref:<kind>:<id>:<title>]` (title may contain ':'). Supersedes the per-type
+    /// `[terminal:…]` / `[port:…]` cards, which stay only to render older messages.
+    public var portRefInfo: (kind: PortCardKind, id: String, title: String)? {
+        let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "[portref:"
+        guard c.hasPrefix(prefix), c.hasSuffix("]") else { return nil }
+        let inner = String(c.dropFirst(prefix.count).dropLast())   // "<kind>:<id>:<title>"
+        let parts = inner.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, !parts[1].isEmpty else { return nil }
+        return (PortCardKind(token: String(parts[0])), String(parts[1]), String(parts[2]))
+    }
+
+    /// Build a generic port reference card string: `[portref:<kind>:<id>:<title>]`.
+    public static func portRefCard(kind: PortCardKind, id: String, title: String) -> String {
+        "[portref:\(kind.token):\(id):\(title)]"
+    }
+
     // MARK: - Port Detection
 
     /// Whether this message contains a ```port code fence (complete or truncated)
@@ -642,6 +661,13 @@ public struct ConversationContent: View {
             .onChange(of: draft) { _, _ in
                 selectedSuggestionIndex = 0
             }
+            // A draft written from OUTSIDE the field (onboarding prefills the opening line so the
+            // user presses Enter on it) lands after this view has appeared, so the onAppear
+            // restore has already run. Fill only while the field is empty — never over typing,
+            // and the guard is also what stops this from cycling with the persist onChange.
+            .onChange(of: spaceId.flatMap { appState.chatDrafts[$0] } ?? "") { _, saved in
+                if draft.isEmpty, !saved.isEmpty { draft = saved }
+            }
             .onChange(of: isStreaming) { _, streaming in
                 if !streaming {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -754,6 +780,16 @@ private struct VisibleBottomKey: PreferenceKey {
     }
 }
 
+/// Width of a message row's content area — drives whether a message's ports sit beside the text
+/// (wide) or stack below it (narrow). Width is stable except on window/tile resize, so publishing it
+/// does not spin `body` the way an animating height preference would (see RCA-2.3).
+private struct MessageWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 // MARK: - Message Row (Equatable for diff-only re-render)
 
 struct MessageRow: View, Equatable {
@@ -762,6 +798,8 @@ struct MessageRow: View, Equatable {
     var portIsActive: Bool = false
     @EnvironmentObject var appState: AppState
     @State private var activatedPortIndices = Set<Int>()
+    /// Content-area width, captured from a background reader. Drives beside-vs-below port layout.
+    @State private var availableWidth: CGFloat = 0
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
@@ -771,10 +809,22 @@ struct MessageRow: View, Equatable {
         lhs.portIsActive == rhs.portIsActive
     }
 
+    /// Above this width a message's ports sit to the right of the text; below it they stack under it.
+    private var sideBySideThreshold: CGFloat { 720 }
+
     var body: some View {
         messageContent
             .padding(.top, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: MessageWidthKey.self, value: geo.size.width)
+                }
+            )
+            .onPreferenceChange(MessageWidthKey.self) { width in
+                // Tolerance guard: only react to real resizes, never sub-point jitter.
+                if abs(availableWidth - width) > 2 { availableWidth = width }
+            }
     }
 
     @ViewBuilder
@@ -809,8 +859,13 @@ struct MessageRow: View, Equatable {
 
     private var messageContent: some View {
         Group {
-            if let term = entry.terminalPortInfo {
-                // Native terminal port reference → the unified port card; opens the native window.
+            if let ref = entry.portRefInfo {
+                // Generic port card (any surface-type port) → open water + surface the port.
+                PortCard(kind: ref.kind, title: ref.title, createdBy: entry.senderName) {
+                    appState.openPort(id: ref.id, kind: ref.kind)
+                }
+            } else if let term = entry.terminalPortInfo {
+                // Legacy native-terminal card (older messages) → the unified port card.
                 PortCard(kind: .terminal, title: term.title, createdBy: entry.senderName) {
                     appState.openTerminalPort(id: term.id)
                 }
@@ -855,49 +910,7 @@ struct MessageRow: View, Equatable {
                             .font(Port42Theme.mono(13))
                             .foregroundColor(agentColor.opacity(0.5))
                     } else if entry.containsPort {
-                        ForEach(Array(entry.messageSegments.enumerated()), id: \.offset) { segIdx, segment in
-                            if case .text(let text) = segment {
-                                Text(text)
-                                    .font(Port42Theme.mono(13))
-                                    .foregroundColor(contentColor)
-                                    .textSelection(.enabled)
-                            } else if case .port(let html) = segment {
-                                let pIdx = entry.portIndex(atSegment: segIdx)
-                                let msgId = pIdx == 0 ? entry.id : entry.id + "-p\(pIdx)"
-                                if portIsActive || activatedPortIndices.contains(segIdx) {
-                                    if appState.useRegistryInlinePorts {
-                                        // Step 8: one registry-owned WKWebView, re-parented on pop-out.
-                                        RegisteredInlinePortView(id: msgId, html: html, appState: appState,
-                                                                 createdBy: entry.senderName, anchorMessageId: entry.id)
-                                    } else {
-                                        InlinePortView(html: html, appState: appState, messageId: msgId, createdBy: entry.senderName)
-                                    }
-                                } else {
-                                    PortCompactBlock(
-                                        html: html,
-                                        createdBy: entry.senderName,
-                                        onRun: {
-                                            NSLog("[Port42] PortCompactBlock onRun: segIdx=\(segIdx)")
-                                            activatedPortIndices.insert(segIdx)
-                                        },
-                                        onPopOut: {
-                                            NSLog("[Port42] PortCompactBlock onPopOut: keyWindow=\(String(describing: NSApp.keyWindow)), mainWindow=\(String(describing: NSApp.mainWindow))")
-                                            let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
-                                            let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
-                                            let bridge = PortBridge(appState: appState, spaceId: appState.currentSpace?.id, messageId: msgId, createdBy: entry.senderName)
-                                            appState.portWindows.popOut(
-                                                html: html,
-                                                bridge: bridge,
-                                                spaceId: appState.currentSpace?.id,
-                                                createdBy: entry.senderName,
-                                                messageId: msgId,
-                                                in: bounds
-                                            )
-                                        }
-                                    )
-                                }
-                            }
-                        }
+                        portsRegion(contentColor: contentColor)
                         if entry.isPortTruncated {
                             HStack(spacing: 6) {
                                 Image(systemName: "exclamationmark.triangle")
@@ -924,9 +937,116 @@ struct MessageRow: View, Equatable {
             if !isActive { activatedPortIndices.removeAll() }
         }
     }
+
+    // MARK: - Port segment layout (beside the text when wide, below it when narrow)
+
+    /// (segmentIndex, text) for every text segment, preserving segment order.
+    private var textSegmentList: [(Int, String)] {
+        entry.messageSegments.enumerated().compactMap { idx, seg in
+            if case .text(let t) = seg { return (idx, t) } else { return nil }
+        }
+    }
+
+    /// (segmentIndex, html) for every port segment, preserving segment order.
+    private var portSegmentList: [(Int, String)] {
+        entry.messageSegments.enumerated().compactMap { idx, seg in
+            if case .port(let h) = seg { return (idx, h) } else { return nil }
+        }
+    }
+
+    /// A message's segments. Wide: text in a left column, ports in a right column, side by side.
+    /// Narrow (or text-only / port-only messages): the original top-to-bottom stack.
+    @ViewBuilder
+    private func portsRegion(contentColor: Color) -> some View {
+        let texts = textSegmentList
+        let ports = portSegmentList
+        if availableWidth >= sideBySideThreshold && !texts.isEmpty && !ports.isEmpty {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(texts, id: \.0) { _, text in
+                        segmentText(text, contentColor)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(ports, id: \.0) { segIdx, html in
+                        portSegment(segIdx: segIdx, html: html)
+                    }
+                }
+                .frame(maxWidth: availableWidth * 0.5, alignment: .leading)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(entry.messageSegments.enumerated()), id: \.offset) { segIdx, segment in
+                    if case .text(let text) = segment {
+                        segmentText(text, contentColor)
+                    } else if case .port(let html) = segment {
+                        portSegment(segIdx: segIdx, html: html)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func segmentText(_ text: String, _ contentColor: Color) -> some View {
+        Text(text)
+            .font(Port42Theme.mono(13))
+            .foregroundColor(contentColor)
+            .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func portSegment(segIdx: Int, html: String) -> some View {
+        let pIdx = entry.portIndex(atSegment: segIdx)
+        let msgId = pIdx == 0 ? entry.id : entry.id + "-p\(pIdx)"
+        if portIsActive || activatedPortIndices.contains(segIdx) {
+            if appState.useRegistryInlinePorts {
+                // Step 8: one registry-owned WKWebView, re-parented on pop-out.
+                RegisteredInlinePortView(id: msgId, html: html, appState: appState,
+                                         createdBy: entry.senderName, anchorMessageId: entry.id)
+            } else {
+                InlinePortView(html: html, appState: appState, messageId: msgId, createdBy: entry.senderName)
+            }
+        } else {
+            PortCompactBlock(
+                html: html,
+                createdBy: entry.senderName,
+                onRun: {
+                    NSLog("[Port42] PortCompactBlock onRun: segIdx=\(segIdx)")
+                    activatedPortIndices.insert(segIdx)
+                },
+                onPopOut: {
+                    NSLog("[Port42] PortCompactBlock onPopOut: keyWindow=\(String(describing: NSApp.keyWindow)), mainWindow=\(String(describing: NSApp.mainWindow))")
+                    let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
+                    let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
+                    let bridge = PortBridge(appState: appState, spaceId: appState.currentSpace?.id, messageId: msgId, createdBy: entry.senderName)
+                    appState.portWindows.popOut(
+                        html: html,
+                        bridge: bridge,
+                        spaceId: appState.currentSpace?.id,
+                        createdBy: entry.senderName,
+                        messageId: msgId,
+                        in: bounds
+                    )
+                    // Follow the port out into open water (the space) — land on the new tile.
+                    appState.shell?.enterOpenWater()
+                }
+            )
+        }
+    }
 }
 
 // MARK: - Inline Port View (manages height state for PortView)
+
+private enum InlinePortLayout {
+    /// Floor for a port's height WHEN SHOWN INLINE in chat. A full-bleed visual port (a shader, a
+    /// chart) is often absolutely positioned and reports ~0 content height, so without a floor it
+    /// collapses to a thin strip. This governs only the in-chat presentation — the same port stays
+    /// freely resizable (smaller or larger) once it's a tile on the desktop.
+    static let minHeight: CGFloat = 300
+}
 
 struct InlinePortView: View {
     let html: String
@@ -1033,10 +1153,10 @@ struct InlinePortView: View {
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: max(height, 100))
+                .frame(height: max(height, InlinePortLayout.minHeight))
             } else {
                 PortView(html: html, bridge: bridge, height: $height)
-                    .frame(height: max(height, 100))
+                    .frame(height: max(height, InlinePortLayout.minHeight))
                     .id(restartToken)
             }
         }
@@ -1069,6 +1189,8 @@ struct InlinePortView: View {
             messageId: messageId,
             in: bounds
         )
+        // Take the user into open water (their space) so they land on the tile they just made.
+        appState.shell?.enterOpenWater()
     }
 }
 
@@ -1108,7 +1230,7 @@ struct RegisteredInlinePortView: View {
         return pres == "tiled" || pres == "parked"
     }
     private var title: String { bridge?.title ?? panel?.title ?? PortPanel.extractTitle(from: html) }
-    private var height: CGFloat { max(manager.inlineHeights[id] ?? 100, 100) }
+    private var height: CGFloat { max(manager.inlineHeights[id] ?? InlinePortLayout.minHeight, InlinePortLayout.minHeight) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1150,7 +1272,7 @@ struct RegisteredInlinePortView: View {
                     .frame(height: height)
             } else {
                 // Pre-registration placeholder (registration happens in onAppear).
-                Color.clear.frame(height: 100)
+                Color.clear.frame(height: InlinePortLayout.minHeight)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -1224,6 +1346,9 @@ struct RegisteredInlinePortView: View {
         let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
         let bounds = window?.contentView?.bounds.size ?? CGSize(width: 800, height: 600)
         manager.undockInline(id: id, in: bounds)
+        // Popping a port out re-parents it onto the desktop — take the user with it, into open
+        // water (their space), so they land on the tile they just made rather than an empty chat.
+        appState.shell?.enterOpenWater()
     }
 
     private func focus() {
@@ -1302,7 +1427,35 @@ struct PortCompactBlock: View {
 
 /// What a port card represents — drives only the icon. All ports share one card; the type varies the
 /// glyph (and nothing else for now).
-enum PortCardKind { case web, terminal }
+/// The kind of a port reference card. Extend this as new port types land (browser, video,
+/// markdown, …); an unknown token decodes to `.generic` so a future type still gets a card.
+public enum PortCardKind {
+    case web, terminal, browser, video, markdown, generic
+
+    /// Decode the token in a `[portref:<kind>:…]` card. Unknown → `.generic`.
+    public init(token: String) {
+        switch token.lowercased() {
+        case "terminal": self = .terminal
+        case "browser":  self = .browser
+        case "video":    self = .video
+        case "markdown", "md": self = .markdown
+        case "web", "port":    self = .web
+        default:         self = .generic
+        }
+    }
+
+    /// The token emitted into a `[portref:<kind>:…]` card.
+    var token: String {
+        switch self {
+        case .web:      return "web"
+        case .terminal: return "terminal"
+        case .browser:  return "browser"
+        case .video:    return "video"
+        case .markdown: return "markdown"
+        case .generic:  return "port"
+        }
+    }
+}
 
 /// The single inline card shown for a port reference (`[port:id]` web, `[terminal:id]` native). The
 /// card is the consistent in-chat anchor for EVERY port, whether or not the port's content can render
@@ -1354,14 +1507,26 @@ struct PortCard: View {
     private var icon: some View {
         switch kind {
         case .terminal:
-            Image(systemName: "terminal")
-                .font(.system(size: 24))
-                .foregroundStyle(Port42Theme.accent)
+            symbol("terminal")
+        case .browser:
+            symbol("globe")
+        case .video:
+            symbol("play.rectangle.fill")
+        case .markdown:
+            symbol("doc.richtext")
+        case .generic:
+            symbol("square.on.square")
         case .web:
             Image("port42-logo", bundle: Bundle.port42)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
         }
+    }
+
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 24))
+            .foregroundStyle(Port42Theme.accent)
     }
 }
 
