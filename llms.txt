@@ -282,9 +282,10 @@ Generated from the live method registry: every entry below is served exactly as 
         title (string): Port title (default: derived from html <title>, or the command).
         type (string, required): The port type to create.
   port.exec(id, js)
-      Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
+      Execute JavaScript on a live port. Reserve for one-off pokes: to READ a port's live state prefer port_subscribe, to feed it data use port_push, and put lasting behavior in the port's source HTML (exec-injected behavior dies on reload). The JS runs in the port's webview context with access to window, document, and any globals the port defines.
         id (string, required): The port's UDID (from ports_list)
         js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response.
+        Footguns (both surface as the opaque "A JavaScript exception occurred"): a multi-statement one-liner needs an explicit `return` or newlines — a bare `foo(); 42` becomes `return (foo(); 42)`, a syntax error; and never `return` a long-lived promise (a subscribe stream), which never resolves and hangs the call.
   port.getHtml(id, version)
       Read the HTML of a port. Omit 'version' to get the current HTML. Pass 'version' (from port_history) to read a specific historical snapshot.
         id (string, required): The port's UDID (from ports_list)
@@ -310,10 +311,18 @@ Generated from the live method registry: every entry below is served exactly as 
         search (string, required): The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.
   port.position(id)
       Return a port's position and size.
+  port.publish(kind, payload)
+      Emit the calling port's OWN state/event on its own Notify topic, for consumers watching via port_subscribe. The port broadcasting AS itself — the counterpart to port_push (input sent INTO a port). No target argument: a port can only publish as itself. Use this instead of letting a consumer reach in with port_exec to read your state; the port publishes, consumers subscribe.
+        kind (string, required): a short event kind, e.g. 'state', 'progress', 'result'.
+        payload: any JSON-serializable value delivered as the envelope payload.
   port.push(id, data)
       Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. "ls\n", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.
         data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute).
         id (string, required): The port's UDID (from ports_list), or a terminal's name.
+  port.subscribe(id, onEvent)
+      Subscribe to another port's live event stream — the way to READ a port as it changes (use this, not port_exec). onEvent receives each { topic, kind, payload } envelope: 'push' whenever anyone drives the target, the target's own port_publish events, plus terminal.output / console / browser events by type. Returns a handle with .cancel(); never return it from a port_exec body, since it never resolves. Publisher and subscriber must agree on the payload shape.
+        id (string, required): The port's UDID (from ports_list), or its title/address.
+        onEvent (required): callback invoked with each parsed { topic, kind, payload } envelope.
   port.rename(id, title)
       Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.
         id (string, required): The port's UDID (from ports_list)

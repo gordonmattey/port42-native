@@ -10,5 +10,7 @@ NON-NEGOTIABLES (each one broke a real port; the manual explains them):
 - Updating an existing port: read it first (port_get_html), make the minimum change (prefer port_patch), bump the version. Never rewrite a working port to fix one bug.
 - Use the async port42.* bridge for real app data — never hardcode names, ids, or values. A failed call REJECTS its promise: wrap init in try/catch so one failure doesn't blank the port, and make failures visible in the UI.
 - If you animate (requestAnimationFrame): gate the loop on port42.on('presentation', p => ...). Pause when p.visible is false and drop fidelity (fps, devicePixelRatio, particle count) when small/unfocused, sizing from p.w/p.h. A hidden port must burn no CPU.
+- To let others READ your port, publish your state (port42.port.publish('state', getState())) and let them port42.port.subscribe to it — never make a consumer reach in with port.exec(getState). Input goes IN via port.push, state comes OUT via port.publish. Behavior that publishes lives in the port's source HTML, not injected later with exec (that is lost on reload).
+- port.exec runs your JS as a function body: a multi-statement one-liner needs an explicit `return` or newlines (a bare `foo(); 42` becomes `return (foo(); 42)`, a syntax error), and never `return` a long-lived promise like a subscribe stream (it never resolves and hangs the call).
 
 For the stateful-app pattern, storage scoping, device APIs, examples, and every gotcha in depth: help with topic "ports".

@@ -215,6 +215,31 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         }
     }
 
+    r["port.publish"] = BridgeMethod(permission: nil, paramNames: ["kind", "payload"],
+        description: "A port emits its OWN state or event on its own Notify topic, for consumers watching via port_subscribe. This is a port broadcasting AS itself — distinct from port_push, which is input sent INTO a port. Only meaningful from inside a port; the topic is the calling port's own id, so there is no target argument. Use this instead of having a consumer reach in with port_exec to read state: the port publishes, consumers subscribe.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "kind": ["type": "string", "description": "Event kind, e.g. 'state', 'progress', 'error'."],
+                "payload": ["description": "Any JSON value (object/array/string/number) delivered as the Notify envelope's payload."]
+            ],
+            "required": ["kind"]
+        ]) { p, args in
+        // Phase L1 follow-on (docs/plan-port42-protocol-local-bus.md): the caller publishes AS itself.
+        // The Principal carries the caller's own port id (portId); a port can only publish on its own
+        // topic, so there is no target argument. The topic is computed the SAME way port.push does
+        // (resolvePortRef on the caller's own id), so publish and subscribe are symmetric — a consumer
+        // that subscribed to this port receives it. Retires the port.exec(getState) hydration path.
+        let key = p.portId ?? p.id
+        guard p.kind == .port, let ref = appState.resolvePortRef(key) else {
+            throw BridgeError(code: "no_port", message: "port.publish is only callable from within a port")
+        }
+        let kind = try args.requireString("kind")
+        let payload = args.any("payload") ?? NSNull()
+        appState.notifyBus.publish(topic: "port:\(ref.udid ?? ref.id ?? key)", kind: kind, payload: payload)
+        return .object(["ok": .bool(true)])
+    }
+
     r["port.exec"] = BridgeMethod(permission: nil, paramNames: ["id", "js"],
         description: "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
         inputSchema: [

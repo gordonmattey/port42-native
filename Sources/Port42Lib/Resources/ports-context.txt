@@ -445,11 +445,53 @@ BRIDGE API REFERENCE:
         updateDashboard(data);
       });
 
+  port42.port.subscribe(id, onEvent)
+    Subscribe to another port's live event stream. This is how you READ a port as it changes —
+    use this, not port.exec, to observe another port's state.
+    id: port UDID (from ports.list), or its title/address
+    onEvent: called with each parsed envelope { topic, kind, payload }
+    Returns: a promise carrying a .cancel() that unsubscribes. Keep it in a variable. Do NOT
+    `return` it from a port.exec body — it never resolves and would hang the exec.
+    You automatically receive: 'push' (whenever anyone port.push-es the target), the target's
+    own port.publish events, and terminal.output / console / browser events by port type.
+
+  port42.port.publish(kind, payload)
+    Emit YOUR OWN state or event on your own port's Notify topic, for consumers watching via
+    port.subscribe. The port broadcasting AS itself — the counterpart to port.push (input sent
+    INTO a port). There is no target argument: a port can only publish as itself.
+    kind: a short event kind you choose, e.g. 'state', 'progress', 'result'
+    payload: any JSON-serializable value
+    Returns: {ok: true}
+
+  CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):
+    A port is an actor: input goes IN via port.push, state comes OUT via port.publish, and
+    consumers watch via port.subscribe. To let others read your state, PUBLISH it — do NOT make
+    them reach in with port.exec to pull a getState(). Every consumer then reads you the same
+    way through the interface — a human render, another port, an AI companion, a peer on another
+    machine — with no code path into your internals.
+    - Producer: on each state change, and on a periodic heartbeat for late joiners, call
+        port42.port.publish('state', getState());
+    - Consumer: const sub = port42.port.subscribe(id, e => {
+        if (e.kind === 'state') render(e.payload);
+      });
+    - Agree on the payload shape once: publisher and subscriber must expect the SAME envelope.
+      If you publish getState() directly, the subscriber reads e.payload (not e.payload.state).
+    - Behavior that publishes must live in the port's SOURCE HTML. Injecting it later with
+      port.exec is scaffolding that is LOST on refresh/relaunch.
+
   port42.port.exec(id, js)
-    Execute arbitrary JavaScript on another port's webview context.
+    Execute arbitrary JavaScript on another port's webview context. Reserve this for one-off
+    pokes: to READ a port's live state use port.subscribe, to feed it data use port.push, and to
+    install lasting behavior put it in the port's source HTML (exec-injected behavior dies on
+    reload).
     id: port UDID (from ports.list)
     js: JavaScript string to evaluate
     Returns: the result of the evaluation, or {ok: true} if the JS returns nothing
+    TWO FOOTGUNS, both surfacing as the opaque "A JavaScript exception occurred":
+    - A multi-statement one-liner needs an explicit `return` or newlines. A bare `foo(); 42` is
+      wrapped as `return (foo(); 42)`, a syntax error. Write `foo(); return 42;` instead.
+    - Never `return` a long-lived promise (e.g. a port.subscribe stream). exec awaits the value
+      and it never resolves. Start it in a variable and return a plain value.
 
   port42.rest.call(url, opts?)
     Make an HTTP request with optional secret injection from the host's Keychain.

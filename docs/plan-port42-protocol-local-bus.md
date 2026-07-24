@@ -380,6 +380,40 @@ ships terminal output streaming. (2) Web attach point. (3) Browser attach point 
 delivery; publish with zero subscribers is a no-op. Live in Port42Dev: `port.subscribe` a terminal, run
 a command, receive `terminal.output` envelopes; two concurrent subscribers both receive.
 
+### Phase L1 follow-on — `port42.publish`: a port emits its own state (consumer-symmetry fix)
+
+**Why (proven live 2026-07-23).** Open Synth is a port built to be driven by peers: it accepts a defined
+`port.push` input contract (cells, op, lane register) and anyone pushing plays the canvas. Its input
+side was already a proper interface. Its output side was not. The only way to read the synth's current
+state was `port.exec(id, 'return OPENSYNTH.getState()')` — an agent reaching into the port's JS to pull
+state, a path no human render and no remote peer has. That is the one place an AI consumer does not use
+a port the way every other consumer does (GM caught it).
+
+**Live proof of the target model (Port42Dev, no rebuild).** A heartbeat emitter was injected into Open
+Synth that publishes `getState()` on its own topic every 2.5s (bootstrap via `port.push(self, {kind:
+'state', state})`, since the push tap already publishes on the port's topic). A separate SYNTH MONITOR
+port then read the synth's full live state through `port42.port.subscribe` alone — the five existing
+lanes, params, and live drives — with zero `exec` on the synth. Claude then joined as a peer: registered
+a lane and drove cells entirely through `port.push`, and the monitor reflected the new `claude` lane off
+the bus. State flowed synth → NotifyBus → subscribe → consumer; input flowed through the push contract.
+The `exec(getState)` asymmetry was closed in the running instance.
+
+**The primitive to ship.** `port42.publish(kind, payload)` — a port emits its OWN application state on
+its own Notify topic, a first-class signal distinct from `port.push` (which is input INTO a port).
+- **JS surface:** a carveout in the `port42` bridge (`PortBridge.swift`): `port42.publish(kind, payload)`.
+- **Native:** publishes `{topic: "port:<self-messageId>", kind, payload}` on `NotifyBus`, the topic being
+  the CALLING port's own id (the `PortBridge`'s `messageId`, the same source `pushEvent` already uses).
+  No target argument — a port can only publish as itself.
+- **Retires the workaround:** replaces the push-to-self heartbeat and, with it, the `exec(getState)`
+  hydration path. A port publishes its state; consumers subscribe. Same contract for human render, agent,
+  and remote peer.
+- **Fifth producer tap** alongside push / terminal / console / browser, and the first one owned by the
+  port's own application code rather than a native surface event.
+
+**Sequencing.** An L1 follow-on; needs an app build (touches `PortBridge.swift`), so it lands in a build
+cycle, before or alongside L2. Bake the emitter into Open Synth's source at the same time and retire the
+injected bootstrap.
+
 ### Phase L2 — right-of-way lease (keystone #2, fast-follow)
 
 **Do.** A per-port holder ("who holds the pen") keyed on `Principal.id`, gating the Update verbs
