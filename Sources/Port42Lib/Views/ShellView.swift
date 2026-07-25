@@ -272,7 +272,13 @@ public struct ShellView: View {
             // Keyboard follows focus (§B): every keyboard-driven path here (⌘` swap, ⌘↓,
             // double-click header, peek preview) skips the AppKit click that would normally
             // move the first responder — hand the keyboard to the focused unit's surface.
-            if case .focus(let id) = z { appState.portWindows.focusKeyboard(on: id) }
+            if case .focus(let id) = z {
+                appState.portWindows.focusKeyboard(on: id)
+                // Right-of-way (L2.d): zooming into a unit is the human saying "I am driving this",
+                // so it takes the pen — a companion's write to this port is refused while they hold
+                // it. Deliberately here and not in `focusKeyboard`, which also fires on HOVER.
+                appState.claimFocusForHuman(portId: id)
+            }
         }
         // The focused unit left the desktop (closed via API, evaporated, detached) → back to
         // the space rung. Focus has no overlay to fall into (Phase 2); this is the safety net.

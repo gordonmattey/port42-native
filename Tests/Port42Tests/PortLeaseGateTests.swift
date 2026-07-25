@@ -141,6 +141,54 @@ struct PortLeaseGateTests {
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "b")
     }
 
+    // MARK: - L2.d: the human can hold the pen
+
+    func makeWorldWithUser() throws -> (AppState, String) {
+        let (state, id) = try makeWorld()
+        let user = AppUser.createForTesting(displayName: "gordon")
+        try state.db.saveUser(user)
+        state.currentUser = user
+        return (state, id)
+    }
+
+    @Test("the human is a principal — until the lease, the person had none")
+    func humanPrincipalExists() throws {
+        let (state, _) = try makeWorldWithUser()
+        let p = try #require(state.humanPrincipal)
+        #expect(p.kind == .human)
+        #expect(p.id == state.currentUser?.id)
+        #expect(p.displayName == "gordon")
+    }
+
+    @Test("focusing a free port gives the human the pen, and a companion is then refused")
+    func focusClaimsForHuman() async throws {
+        let (state, id) = try makeWorldWithUser()
+        state.claimFocusForHuman(portId: id)
+
+        do {
+            _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
+                                                args: BridgeArgs(["id": id, "title": "echo's"]))
+            Issue.record("a companion must not write to a port the human is driving")
+        } catch let e as BridgeError {
+            #expect(e.code == "port_busy")
+            #expect(e.message.contains("gordon"))
+        }
+    }
+
+    @Test("focus NEVER steals — a companion mid-write keeps the pen")
+    func focusDoesNotSteal() async throws {
+        let (state, id) = try makeWorldWithUser()
+        // Echo is driving first.
+        _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
+                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+        // The human focuses it — allowed to LOOK, not to seize.
+        state.claimFocusForHuman(portId: id)
+        // Echo can still write: the lease denies, it does not evict.
+        _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
+                                            args: BridgeArgs(["id": id, "title": "still echo's"]))
+        #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "still echo's")
+    }
+
     // MARK: - The declaration cannot rot
 
     @Test("every write verb declares writesTarget, and no read verb does")

@@ -77,7 +77,9 @@ public extension AppState {
         switch principal.kind {
         case .port: return bridge?.createdBy
         case .companion: return principal.id
-        case .peer: return nil
+        // Neither a gateway caller nor the human IS a companion, so neither resolves a
+        // creating-companion: they fall back to the app default like any uncredited caller.
+        case .peer, .human: return nil
         }
     }
 

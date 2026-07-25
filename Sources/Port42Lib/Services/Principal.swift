@@ -21,6 +21,12 @@ public struct Principal: Equatable {
         /// A gateway caller (Claude Code, curl, an external agent). `id` is the authenticated
         /// `peer.ID` (Phase 3); today the label still flows in until that lands.
         case peer
+        /// THE LOCAL HUMAN. `id` is `AppUser.id`. Added for right-of-way (L2.d): until the lease,
+        /// nothing needed to authorize FOR the person — permissions are asked OF them — so the
+        /// person had no principal at all. A lease holder must be able to be the human, or a
+        /// companion could hold the pen on a port its owner is sitting in.
+        /// (First real use of `AppUser`'s identity; see docs/decision-identity-model.md.)
+        case human
     }
 
     /// Stable identity: permission coalescing and grant persistence key on this. nil-free by

@@ -53,6 +53,33 @@ extension AppState {
         return try await method.run(principal, args)
     }
 
+    /// The local human as a principal (L2.d). nil before setup completes.
+    var humanPrincipal: Principal? {
+        guard let user = currentUser else { return nil }
+        return Principal(id: user.id, displayName: user.displayName,
+                         spaceId: currentSpace?.id, kind: .human)
+    }
+
+    /// FOCUSING a unit is the human saying "I am driving this", so it takes the pen.
+    ///
+    /// Why focus and not `focusKeyboard`: keyboard focus also follows the MOUSE (hover raises a
+    /// tile and hands it the keyboard), and acquiring on hover would let a mouse dragged across the
+    /// desktop seize the pen from every companion it passed over, for the whole TTL. Zooming into a
+    /// unit is deliberate; hovering is not.
+    ///
+    /// Never steals: `check` denies rather than evicts, so focusing a port a companion is mid-write
+    /// on leaves that companion holding it. The denial is not an error here — it just means the
+    /// human is looking at something someone else is driving, which they are allowed to do.
+    ///
+    /// HONEST LIMIT (§L2.4): this makes the human's claim visible and blocks companion writes while
+    /// they hold it. It cannot make the reverse true — native keystrokes into a terminal or webview
+    /// never reach the bridge, so a human typing into a port a companion holds is still invisible
+    /// to the lease. Closing that needs input to route through the bus, which is not this phase.
+    func claimFocusForHuman(portId: String) {
+        guard let human = humanPrincipal else { return }
+        try? claimWrite(on: portId, by: human)
+    }
+
     /// Take (or refresh) the pen on a port for this principal, or throw naming who holds it.
     ///
     /// Keyed on the SAME id the port's Notify topic uses (`ref.udid ?? ref.id`), so the holder
