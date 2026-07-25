@@ -271,21 +271,21 @@ Generated from the live method registry: every entry below is served exactly as 
   port.close()
       Close the calling port.
   port.create(options)
-      Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), and env. Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
+      Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
         args (array): type:"terminal" — arguments for the command.
         command (string): type:"terminal" — executable/CLI to run (e.g. "bash", "htop", "claude").
         cwd (string): type:"terminal" — working directory (default: home).
         env (object): type:"terminal" — custom environment variables for the shell.
         html (string): type:"web" — full port HTML body (include a <title> and <meta name="version">).
+        initialInput (string): type:"terminal" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input.
         space_id (string): Space to create the port in (default: current space).
         systemPrompt (string): type:"terminal" — companion personality/role appended to the CLI's system prompt.
         title (string): Port title (default: derived from html <title>, or the command).
         type (string, required): The port type to create.
   port.exec(id, js)
-      Execute JavaScript on a live port. Reserve for one-off pokes: to READ a port's live state prefer port_subscribe, to feed it data use port_push, and put lasting behavior in the port's source HTML (exec-injected behavior dies on reload). The JS runs in the port's webview context with access to window, document, and any globals the port defines.
+      Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
         id (string, required): The port's UDID (from ports_list)
         js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response.
-        Footguns (both surface as the opaque "A JavaScript exception occurred"): a multi-statement one-liner needs an explicit `return` or newlines — a bare `foo(); 42` becomes `return (foo(); 42)`, a syntax error; and never `return` a long-lived promise (a subscribe stream), which never resolves and hangs the call.
   port.getHtml(id, version)
       Read the HTML of a port. Omit 'version' to get the current HTML. Pass 'version' (from port_history) to read a specific historical snapshot.
         id (string, required): The port's UDID (from ports_list)
@@ -312,17 +312,13 @@ Generated from the live method registry: every entry below is served exactly as 
   port.position(id)
       Return a port's position and size.
   port.publish(kind, payload)
-      Emit the calling port's OWN state/event on its own Notify topic, for consumers watching via port_subscribe. The port broadcasting AS itself — the counterpart to port_push (input sent INTO a port). No target argument: a port can only publish as itself. Use this instead of letting a consumer reach in with port_exec to read your state; the port publishes, consumers subscribe.
-        kind (string, required): a short event kind, e.g. 'state', 'progress', 'result'.
-        payload: any JSON-serializable value delivered as the envelope payload.
+      A port emits its OWN state or event on its own Notify topic, for consumers watching via port_subscribe. This is a port broadcasting AS itself — distinct from port_push, which is input sent INTO a port. Only meaningful from inside a port; the topic is the calling port's own id, so there is no target argument. Use this instead of having a consumer reach in with port_exec to read state: the port publishes, consumers subscribe.
+        kind (string, required): Event kind, e.g. 'state', 'progress', 'error'.
+        payload: Any JSON value (object/array/string/number) delivered as the Notify envelope's payload.
   port.push(id, data)
       Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. "ls\n", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.
         data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute).
         id (string, required): The port's UDID (from ports_list), or a terminal's name.
-  port.subscribe(id, onEvent)
-      Subscribe to another port's live event stream — the way to READ a port as it changes (use this, not port_exec). onEvent receives each { topic, kind, payload } envelope: 'push' whenever anyone drives the target, the target's own port_publish events, plus terminal.output / console / browser events by type. Returns a handle with .cancel(); never return it from a port_exec body, since it never resolves. Publisher and subscriber must agree on the payload shape.
-        id (string, required): The port's UDID (from ports_list), or its title/address.
-        onEvent (required): callback invoked with each parsed { topic, kind, payload } envelope.
   port.rename(id, title)
       Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.
         id (string, required): The port's UDID (from ports_list)
@@ -335,6 +331,9 @@ Generated from the live method registry: every entry below is served exactly as 
       Set the calling port's own capabilities list.
   port.setTitle(title)
       Set the calling port's own title.
+  port.subscribe(id)  [streaming]
+      Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload } as the port emits them (e.g. terminal.output). The stream stays open until cancelled.
+        id (string, required): The port to observe (id / udid / title).
   port.update(id, html)
       Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.
         html (string, required): The new HTML content for the port (full HTML, not a diff)
