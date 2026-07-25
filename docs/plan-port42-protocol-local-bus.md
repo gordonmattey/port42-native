@@ -416,7 +416,42 @@ injected bootstrap.
 
 ### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24)
 
-**STATUS: DESIGNED, no code.**
+**STATUS: L2.a–L2.d SHIPPED (2026-07-24), full suite 1057 green. L2.e (holder in the tile header)
+is the only step left, and it is the one that needs eyes — see "What building it taught us" below.**
+
+| Step | State |
+|---|---|
+| L2.a pure lease | SHIPPED — `PortLease.swift`, `PortLeaseTests` (11) |
+| L2.b dispatch gate | SHIPPED — `BridgeMethod.writesTarget` + `claimWrite`, `PortLeaseGateTests` |
+| L2.c holder broadcast | SHIPPED — `kind:"holder"` on `port:<id>`, change-only |
+| L2.d human principal | SHIPPED — `Principal.Kind.human`, zoom-to-focus claims |
+| L2.e holder in the header | **NOT BUILT** — pure visual, no automated gate |
+
+#### What building it taught us (integrate before L2.e)
+
+1. **`focusKeyboard` was the wrong seam, exactly as the review suspected.** Keyboard focus also
+   follows the MOUSE (hover raises a tile and hands it the keyboard), so acquiring there would let a
+   mouse dragged across the desktop seize the pen from every companion it passed over, for a full
+   TTL each. The claim hangs off the ZOOM transition instead: zooming into a unit is deliberate,
+   hovering is not.
+2. **Implicit acquisition is validated, not just argued.** The full suite went green with the gate
+   live and **no existing test or flow needed a change** — the acceptance clause held on the first
+   run, which is the evidence that a write-to-acquire model does not disturb single-driver use.
+3. **`check` denies, never evicts — and that turned out to be the important property.** It is what
+   lets the human's focus-claim be safe: focusing a port a companion is mid-write on leaves the
+   companion driving. A "focus wins" rule would have made every glance a seizure.
+4. **A write verb that no-ops on an unknown id exists** (`port.rename` resolves and shrugs), so
+   "unresolvable targets are not gated" had to be asserted as *never `port_busy`* rather than as
+   *throws notFound*. Worth knowing before relying on any write verb's error for control flow.
+5. **L2.e cannot read the lease directly.** `LeaseRegistry` is a plain value on `AppState`, not
+   `@Published`, so a header observing it would not update. It should SUBSCRIBE to the `holder`
+   envelopes on `port:<id>` — which is the protocol-correct path anyway, and makes the header just
+   another subscriber rather than a special case. Doing that first is what stops L2.e from becoming
+   a reason to make lease state observable.
+
+**Not built (deferred from §L2.3):** the explicit `port.lease({id, action:"take"|"release"})` verbs.
+The implicit path carries the whole model today; the knock is only needed once a human wants to ask
+for a pen a companion is holding, which is L2.e's UI question.
 
 **Do.** A per-port holder ("who holds the pen") keyed on `Principal.id`, gating the Update verbs at
 the dispatch seam. The holder is broadcast on the port's own Notify topic, so every surface already

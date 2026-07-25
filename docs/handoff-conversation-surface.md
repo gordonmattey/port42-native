@@ -1,3 +1,27 @@
+# Handoff: Onboarding Into The Shell → the L2 lease
+
+## Where this left off (2026-07-24, overnight)
+
+**v0.5.49 shipped** (notarized, stapled, GitHub Release, appcast pushed): onboarding runs inside the
+shell, all six phases of `plan-unify-onboarding-shell.md` done.
+
+**Then, on GM's "build as much as possible until you need manual testing":**
+`docs/plan-port42-protocol-local-bus.md` §L2 — the right-of-way lease — is built through **L2.d**,
+full suite **1057 green**. Only **L2.e** (the holder shown in the tile header) is left, because it is
+pure visual and has no automated gate. Read §L2's "What building it taught us" first: the biggest
+item is that the header must SUBSCRIBE to the `holder` envelopes rather than read the lease, since
+`LeaseRegistry` is not `@Published`.
+
+**Waiting on GM (manual, in Dev3):** a companion writing to a port the human has zoomed into should
+be refused by name, and focusing a port a companion is mid-write on should NOT steal it. Both are
+unit-tested; neither has been seen live.
+
+**Also shipped tonight:** the gateway binds loopback (`127.0.0.1:<port>`) instead of every interface
+— the LAN could previously reach `/call`, which authenticates nobody and proxies into the bridge.
+`docs/decision-identity-model.md` settles person/instance/actor and unblocked L2.
+
+---
+
 # Handoff: The Conversation Surface → Onboarding Into The Shell
 
 Living status. The thread: making the chat a real surface for ports, and the onboarding around it. This
