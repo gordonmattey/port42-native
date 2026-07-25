@@ -6,6 +6,19 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-24, GM): gateway auth + TLS — **see `docs/plan-gateway-auth-tls.md`**
+
+**GM:** "we need to add https support on the gateway, and should add auth to it presumably too."
+
+Written up separately because reading the code changed the priority. The gateway binds EVERY
+interface (`-addr :4242`, not loopback) and `/call` has no authentication at all, while proxying
+straight into the bridge registry (files, clipboard, screen, terminal, automation). So the exposure
+is not "traffic is unencrypted", it is "anything that can route to this machine can drive the app".
+HTTPS on top of that just encrypts the commands. Auth first, then TLS, and local TLS is mostly
+theatre once the gateway is on loopback with a token. Phases + open questions in the plan doc.
+
+---
+
 ## TODO (2026-07-24, GM): read a space's working directory — and then MORE than one
 
 **GM:** "need to be able to get cwd of a space, i imagine we'll need more than cwd in future, could
