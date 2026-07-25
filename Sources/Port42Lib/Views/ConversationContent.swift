@@ -935,10 +935,24 @@ struct MessageRow: View, Equatable {
 
     @ViewBuilder
     private func segmentText(_ text: String, _ contentColor: Color) -> some View {
-        Text(text)
+        Text(Self.inlineMarkdown(text))
             .font(Port42Theme.mono(13))
             .foregroundColor(contentColor)
             .textSelection(.enabled)
+    }
+
+    /// Companions write markdown, so `**do this**` must READ as emphasis instead of showing its
+    /// asterisks (onboarding's "type **create a terminal port and run claude**" was the tell).
+    ///
+    /// `inlineOnlyPreservingWhitespace` is the deliberate choice: it renders bold / italic / code /
+    /// links but leaves BLOCK syntax alone, so line breaks, list dashes and indentation survive
+    /// exactly as written. Full markdown would reflow a companion's message into paragraphs.
+    /// Unparseable text (mid-stream, half a `**`) falls back to itself, never to an error.
+    static func inlineMarkdown(_ s: String) -> AttributedString {
+        (try? AttributedString(
+            markdown: s,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(s)
     }
 
     @ViewBuilder
