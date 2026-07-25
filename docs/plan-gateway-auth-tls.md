@@ -48,13 +48,31 @@ Decide: one shared install secret, or per-caller tokens with per-caller permissi
 second is the real answer long-term (a companion's terminal should not silently inherit the app's
 whole authority) and folds into the existing `portPrincipal` model.
 
-### P2 — TLS
-Two different problems wearing one word:
-- **Tunnelled sharing** already has TLS: ngrok terminates HTTPS at its edge. Nothing to do.
-- **A self-hosted remote relay** over the internet has none. That needs real certs
-  (Let's Encrypt / a reverse proxy), which drags in a hostname, renewal, and a deployment story.
+### P2 — TLS, scoped by the libp2p decision
+**The transport endgame is already decided** (`membrane/slice-02-cross-instance.md`): go-libp2p,
+native to the Go gateway, with PeerID as the instance address, Circuit-Relay v2 + DCUtR for reach,
+and gossipsub for fan-out. That decision does most of P2's job for us, because libp2p brings an
+**encrypted, mutually-authenticated channel as a primitive**: peers are keypairs, and a stream is
+secured (Noise/TLS) before any bytes of ours cross it. There is no certificate authority, hostname,
+or renewal in that world.
+
+So the honest split:
+- **Tunnelled sharing (today)** already has TLS: ngrok terminates HTTPS at its edge. Nothing to do.
+- **A self-hosted internet relay with real certs** is the phase to NOT build. It is weeks of
+  hostname/renewal/deployment work on the interim WebSocket transport, and libp2p replaces the need
+  rather than inheriting it. Build it only if a concrete deployment demands it before libp2p lands.
 - **Local HTTPS is mostly theatre**: a self-signed cert on loopback buys little once P0 and P1 land,
-  and costs every caller a trust-store dance. Do it only if something concrete requires it.
+  and costs every caller a trust-store dance.
+
+**Identity is where the two tracks meet, and it needs deciding once.** Port42 users already carry
+P256 signing keys (`AppUser`, Keychain), the WebSocket path authenticates with Apple identity
+tokens, and libp2p will introduce a third keypair as the PeerID. Three identities for one person is
+how auth models rot. The question to settle before P1 hardens: does the PeerID derive from (or get
+signed by) the user's existing key, so "this instance is Gordon's" is provable, and does the local
+`/call` token become the same principal the bridge already models (`portPrincipal`)?
+The membrane architecture names **Gatekeeper** (decide what reaches you) and **Controller** (grant
+and limit what agents may do) as the roles that own this; `/call` auth should land as their local
+case, not as a fourth mechanism beside them.
 
 ### P3 — origin + CSRF hardening
 Explicit `CheckOrigin`, and a look at whether a malicious page can reach `/call` with a
@@ -67,9 +85,27 @@ before origin matters.
 no token is rejected, a call with the token succeeds, and the token is not logged. P0 is asserted by
 checking the listen address the app passes. TLS is verified by hand at whatever deployment lands.
 
+## How this sits against the libp2p track
+
+P0 and P1 are **transport-independent**: the `/call` HTTP surface is how local callers (Claude Code
+sessions, the shim, hooks, scripts) drive this machine's app, and it stays local under libp2p too.
+That work is never thrown away, which is exactly why it goes first.
+
+P2 is the phase that libp2p **subsumes**. Anything bespoke built for internet-facing TLS on the
+WebSocket relay is interim work with a known replacement, so the default answer is: don't, unless a
+deployment forces it.
+
+The one piece that must NOT be decided twice is identity (above). If `/call` auth invents its own
+principal now, libp2p's PeerID arrives as a competing one later and the two have to be reconciled
+under load. Cheaper to name the principal once, here, and let both transports present it.
+
 ## Open questions for GM
 
 1. Is anything today deliberately hitting the gateway from another device on the LAN?
-2. One install-wide secret to start, or go straight to per-caller tokens with scope?
-3. Is a self-hosted internet-facing relay a real target, or is ngrok the sharing story for now?
-   The answer decides whether P2 is a week or a no-op.
+   (If not, P0 is a one-line change I can make immediately.)
+2. One install-wide secret to start, or go straight to per-caller tokens with scope? The second
+   folds into `portPrincipal` and into libp2p's peer identity; the first is faster and throwaway.
+3. Does the libp2p PeerID bind to the user's existing P256 identity, or stand alone? This is the
+   question that decides whether P1's principal is the same one the membrane will use.
+4. Is a self-hosted internet-facing relay needed BEFORE libp2p lands? That is the only thing that
+   would justify building certs on the interim transport.

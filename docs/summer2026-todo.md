@@ -17,6 +17,17 @@ is not "traffic is unencrypted", it is "anything that can route to this machine 
 HTTPS on top of that just encrypts the commands. Auth first, then TLS, and local TLS is mostly
 theatre once the gateway is on loopback with a token. Phases + open questions in the plan doc.
 
+**Rolled in with the libp2p track** (GM): the transport endgame is already decided in
+`membrane/slice-02-cross-instance.md` (go-libp2p, PeerID as the instance address, Circuit-Relay v2 +
+DCUtR, gossipsub). libp2p brings an encrypted, mutually-authenticated channel as a PRIMITIVE, so it
+subsumes the "certs for a self-hosted internet relay" phase rather than inheriting it — that phase
+is interim work with a known replacement and should not be built unless a deployment forces it. The
+loopback bind and local `/call` auth are transport-independent and survive libp2p untouched, which
+is why they go first. The one thing that must not be decided twice is IDENTITY: `AppUser`'s P256
+keys, the Apple identity token on the WebSocket path, and libp2p's PeerID are three keypairs for one
+person. Name the principal once (the membrane's Gatekeeper/Controller own it) and let both
+transports present it.
+
 ---
 
 ## TODO (2026-07-24, GM): read a space's working directory — and then MORE than one
