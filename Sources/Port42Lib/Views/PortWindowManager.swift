@@ -862,9 +862,13 @@ public final class PortWindowManager: ObservableObject {
             forMainFrameOnly: true
         )
         let handler = PortConsoleHandler()
+        // Capture the ID, NOT `panel`: referencing `panel.id` inside the closure captures the whole
+        // struct, and a PortPanel holds its PortBridge — so this closure transitively pinned the
+        // bridge for as long as the handler lived (half of the teardown leak below).
+        let portId = panel.id
         handler.onConsole = { [weak appState] level, msg in
             // Phase L1: a web port's console output → Notify bus (a third producer, after push + terminal).
-            appState?.notifyBus.publish(topic: "port:\(panel.id)", kind: "console",
+            appState?.notifyBus.publish(topic: "port:\(portId)", kind: "console",
                                         payload: ["level": level, "message": msg])
         }
         config.userContentController.addUserScript(consoleScript)
@@ -927,7 +931,11 @@ public final class PortWindowManager: ObservableObject {
             // so the bridge can dealloc and the deinit backstop can run on the non-close death paths.
             // restart re-runs attach, which re-adds both, so an in-place reload is unaffected.
             let ucc = wv.configuration.userContentController
-            ucc.removeScriptMessageHandler(forName: "port42")
+            // ALL of them, not just "port42": the UCC strongly retains every handler it holds, and
+            // "portConsole" / "portHeight" were never removed. The console handler's closure reached
+            // the bridge, so the port42 removal alone could not free it while the webview lived (and
+            // a WKWebView mid-load outlives its last strong reference).
+            ucc.removeAllScriptMessageHandlers()
             ucc.removeAllUserScripts()
             wv.removeFromSuperview()
         }
