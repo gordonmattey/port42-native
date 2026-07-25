@@ -411,6 +411,27 @@ public final class ShellState: ObservableObject {
     /// not a live-critical value.
     public var lastDesktopArea: CGSize = CGSize(width: 1440, height: 900)
 
+    // MARK: First-run breakout (the aquarium video, re-homed onto the first zoom-out)
+
+    /// Non-nil while the first-run breakout plays: the rect the video STARTS at, which is the
+    /// frame of the port you were focused on. It grows from there to full screen, plays out, and
+    /// fades to leave you in the space. Cleared when the video finishes.
+    ///
+    /// Re-homed from the old 🐬 "swim in open water" button (retired): the celebration belongs on
+    /// the first time you actually leave the chat for your desktop, not on a button press during
+    /// setup. Set by `ShellView` on the first `.focus → .space` transition of a first run.
+    @Published public var breakoutFrom: CGRect? = nil
+
+    /// Begin the first-run breakout from the focused unit's frame. No-op if one is already running.
+    public func startBreakout(area: CGSize) {
+        guard breakoutFrom == nil else { return }
+        breakoutFrom = ShellPlacement.focusRect(in: area)
+    }
+
+    public func endBreakout() {
+        breakoutFrom = nil
+    }
+
     /// THE desktop-tile predicate — the one source for "which panels are staged as tiles on
     /// this desktop": the current space's tiled panels, plus surfaced DM chats, plus adopted
     /// foreign ports. The desktop renders this set, `applyArrange` grids it, and ShellView's

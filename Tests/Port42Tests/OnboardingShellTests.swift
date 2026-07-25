@@ -135,6 +135,46 @@ struct OnboardingShellTests {
         #expect(state.messages.isEmpty)
     }
 
+    // MARK: - Phases 4/6: first run ends at the first zoom-out, and the breakout plays there
+
+    @MainActor
+    @Test("The breakout starts on the focused port's frame, not full screen")
+    func breakoutStartsOnThePort() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let shell = ShellState(appState: state)
+        let area = CGSize(width: 1600, height: 1000)
+
+        shell.startBreakout(area: area)
+        let from = try #require(shell.breakoutFrom)
+        #expect(from == ShellPlacement.focusRect(in: area), "it must start where the port was")
+        #expect(from.width < area.width, "starting full-bleed would lose the grow-out")
+
+        // Idempotent: a second zoom-out mid-play cannot restart it.
+        shell.startBreakout(area: CGSize(width: 100, height: 100))
+        #expect(shell.breakoutFrom == from)
+
+        shell.endBreakout()
+        #expect(shell.breakoutFrom == nil)
+    }
+
+    @MainActor
+    @Test("Onboarding is a one-shot: ending it twice is harmless, and it never restarts")
+    func onboardingEndsOnce() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        state.enterShellFromSetup()
+        #expect(state.isOnboarding)
+
+        state.endOnboarding()
+        state.endOnboarding()
+        #expect(state.isOnboarding == false)
+
+        // A returning user's zoom-out must not qualify: the flag is the whole guard.
+        #expect(ShellState.initialZoom(hasCurrentSpace: true, allRested: false,
+                                       onboarding: state.isOnboarding, chatUdid: "c") == .space)
+    }
+
     @MainActor
     @Test("A draft the user is already typing is never clobbered")
     func prefillNeverClobbersTyping() async throws {

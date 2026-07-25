@@ -30,6 +30,9 @@ public struct ShellView: View {
     /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
     /// hook would yank a user back to the chat every time the panel set changes.
     @State private var onboardingFocusApplied = false
+    /// The breakout's two animated values: false = still on the port's frame, 1 = fully opaque.
+    @State private var breakoutExpanded = false
+    @State private var breakoutOpacity: Double = 1
 
     /// First run: the chat tile to open focused on. nil until `ensureChatPort` has landed it.
     private var onboardingChatUdid: String? {
@@ -224,6 +227,11 @@ public struct ShellView: View {
                                        request: request)
                     .zIndex(230)
             }
+
+            // First-run breakout: above everything (it is a moment, not a surface).
+            if let from = shell.breakoutFrom {
+                breakoutOverlay(from: from).zIndex(240)
+            }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
@@ -242,7 +250,15 @@ public struct ShellView: View {
             }
         }
         .animation(.spring(response: 0.4), value: shell.zoom)
-        .onChange(of: shell.zoom) { _, z in
+        .onChange(of: shell.zoom) { old, z in
+            // FIRST RUN ends here, at the moment you leave the chat for your desktop: the one-shot
+            // flag clears and the breakout plays. Any focus → space counts (the arrow, ⌘↑, a pinch,
+            // or following a port card out) — they are all the same milestone, the first time you
+            // are actually in open water.
+            if case .focus = old, z == .space, appState.isOnboarding {
+                appState.endOnboarding()
+                shell.startBreakout(area: shell.lastDesktopArea)
+            }
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
             if z == .space { shell.settleAfterPreview() }   // a previewed peek returns as seen + counting down
             // Keyboard follows focus (§B): every keyboard-driven path here (⌘` swap, ⌘↓,
@@ -270,6 +286,39 @@ public struct ShellView: View {
         // moment it does. No-op for a returning user (`onboardingChatUdid` is nil).
         .onChange(of: onboardingChatUdid) { _, _ in applyOnboardingFocus() }
         .onDisappear { removeInputMonitors() }
+    }
+
+    // MARK: - First-run breakout
+
+    /// The video starts ON the port you were focused on, grows to full screen while it plays, then
+    /// fades off to leave you in your space. It is not a screen you land on — the desktop is already
+    /// behind it at `.space`, so the fade IS the arrival.
+    @ViewBuilder
+    private func breakoutOverlay(from: CGRect) -> some View {
+        GeometryReader { geo in
+            let full = CGRect(origin: .zero, size: geo.size)
+            let r = breakoutExpanded ? full : from
+            AquariumBreakoutView(onFinished: {
+                withAnimation(.easeOut(duration: 0.9)) { breakoutOpacity = 0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                    shell.endBreakout()
+                    breakoutExpanded = false          // reset for the (never) next run
+                    breakoutOpacity = 1
+                }
+            }, playDelay: 0)
+            .frame(width: r.width, height: r.height)
+            .clipShape(RoundedRectangle(cornerRadius: breakoutExpanded ? 0 : ShellPlacement.focusCorner))
+            .position(x: r.midX, y: r.midY)
+            .opacity(breakoutOpacity)
+            .allowsHitTesting(false)                  // a moment you watch, not a surface you use
+            .onAppear {
+                // A beat on the port's frame so the eye registers WHERE it came from, then out.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    withAnimation(.easeInOut(duration: 1.1)) { breakoutExpanded = true }
+                }
+            }
+        }
+        .ignoresSafeArea()
     }
 
     /// Esc pressed with a shell modal open → close the topmost one (matches every card's ✕

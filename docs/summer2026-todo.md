@@ -6,6 +6,32 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-24, GM): read a space's working directory — and then MORE than one
+
+**GM:** "need to be able to get cwd of a space, i imagine we'll need more than cwd in future, could
+be multiple directories."
+
+**Today the API is write-only.** `space.setWorkingDirectory` exists (and is `toolExposed: false`, so
+companions cannot even call it through tool use), but nothing READS it back: `space.current` returns
+`{id, name, type, memberCount, members}` with no working directory. A companion can be told where the
+space works and has no way to ask. `Space.workingDirectory` and `TerminalCwd.resolve(override:spaceDir:)`
+already hold the value; only the read path is missing.
+
+**Step 1 (small):** add the directory to what a space reports. Prefer extending `space.current`'s
+payload over a new method, so "tell me about this space" stays one call. Decide at the same time
+whether the setter should become tool-exposed, since a companion that can read but not write is its
+own asymmetry.
+
+**Step 2 (the real design):** a space having exactly one directory will not hold. A real workspace is
+several roots (an app repo, its docs, a scratch dir). Model it as an ORDERED LIST with the first as
+primary — the primary is what a spawned CLI's cwd defaults to, so today's single-cwd behavior is the
+degenerate one-element case and nothing about terminal spawning changes on day one. That shape also
+answers "which of these is the project?" without a second concept. Needs a migration
+(`workingDirectory` → `workingDirectories`), a decision on whether ports/companions can be scoped to
+one root rather than the whole set, and a look at whether permission grants should be per-root.
+
+---
+
 ## TODO (2026-07-24, GM): support the current Claude models (Opus 5, Fable)
 
 **GM:** "support for newer models, claude has opus 5 and fable now which we should support."
