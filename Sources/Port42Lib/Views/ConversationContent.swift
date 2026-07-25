@@ -233,6 +233,9 @@ public struct ConversationContent: View {
     // spin `body` every frame. A non-@State box holds the in-flight value so per-frame updates never
     // re-render the view; scroll state is committed only once the offset settles.
     @State private var scrollSettle = ScrollSettleBox()
+    /// Captured from the ScrollViewReader so the resize handler (which lives outside the reader)
+    /// can re-pin to the bottom.
+    @State private var scrollProxy: ScrollViewProxy?
     @State private var cachedActivePortIDs: Set<String> = []
     @State private var lastEntryCount = 0
 
@@ -397,6 +400,7 @@ public struct ConversationContent: View {
 
                     .onAppear {
                         let activated = recomputeActivePortIDs()
+                        scrollProxy = proxy      // so the resize re-pin can reach the scroll view
                         proxy.scrollTo("bottom", anchor: .bottom)
                         if activated {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -447,6 +451,16 @@ public struct ConversationContent: View {
                 guard abs(scrollVisibleBottom - visibleHeight) > 2 else { return }
                 scrollVisibleBottom = visibleHeight
                 updateNearBottom()
+                // The chat was RESIZED (focus ↔ tile on zoom, or a window resize). The scroll
+                // OFFSET survives, but the content reflows to a different height at the new width,
+                // so that same offset now lands earlier in the conversation — the chat appears to
+                // scroll back in time when you zoom out. Re-pin once the resize settles.
+                // Only when the reader was already at the bottom: never yank someone reading back.
+                guard isNearBottom else { return }
+                scrollSettle.resizeWork?.cancel()
+                let work = DispatchWorkItem { scrollProxy?.scrollTo("bottom", anchor: .bottom) }
+                scrollSettle.resizeWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
             }
 
             if let error {
@@ -764,6 +778,9 @@ private final class ScrollSettleBox {
     var latest: CGFloat = 0
     var committed: CGFloat = 0
     var work: DispatchWorkItem?
+    /// Debounce for the re-pin after a RESIZE (kept here, not in @State, for the same reason as
+    /// the rest of this box: a resize animates, and touching @State per frame re-evaluates `body`).
+    var resizeWork: DispatchWorkItem?
 }
 
 private struct ScrollOffsetKey: PreferenceKey {
