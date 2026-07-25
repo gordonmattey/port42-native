@@ -77,6 +77,7 @@ extension AppState {
     /// to the lease. Closing that needs input to route through the bus, which is not this phase.
     func claimFocusForHuman(portId: String) {
         guard let human = humanPrincipal else { return }
+        NSLog("[Port42:lease] path=focus port=%@", portId)
         try? claimWrite(on: portId, by: human)
     }
 
@@ -94,6 +95,7 @@ extension AppState {
     func humanInteracted(with portId: String) {
         guard humanPrincipal != nil else { return }
         guard humanClaimThrottle.allow(port: portId, now: Date()) else { return }
+        NSLog("[Port42:lease] path=input port=%@", portId)
         claimFocusForHuman(portId: portId)
     }
 

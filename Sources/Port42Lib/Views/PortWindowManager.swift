@@ -914,8 +914,15 @@ public final class PortWindowManager: ObservableObject {
         let inputScript = WKUserScript(
             source: """
             (function() {
-              var send = function() {
-                try { window.webkit.messageHandlers.portInput.postMessage(1); } catch (e) {}
+              var send = function(e) {
+                // TRUSTED EVENTS ONLY. A synthetic event — one the port dispatched itself — has
+                // isTrusted === false. Without this check a port claims the pen by simulating
+                // input: caught live on the onboarding shader, which fires its own pointer events
+                // and so held the human's lease forever, locking companions out of a port nobody
+                // was touching. It is also the abuse case: a port could impersonate the user to
+                // seize right-of-way. Only what the human actually did counts as driving.
+                if (!e || e.isTrusted !== true) return;
+                try { window.webkit.messageHandlers.portInput.postMessage(1); } catch (err) {}
               };
               window.addEventListener('keydown', send, true);
               window.addEventListener('pointerdown', send, true);
