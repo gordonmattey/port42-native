@@ -453,12 +453,23 @@ public struct ConversationContent: View {
                 updateNearBottom()
                 // The chat was RESIZED (focus ↔ tile on zoom, or a window resize). The scroll
                 // OFFSET survives, but the content reflows to a different height at the new width,
-                // so that same offset now lands earlier in the conversation — the chat appears to
-                // scroll back in time when you zoom out. Re-pin once the resize settles.
-                // Only when the reader was already at the bottom: never yank someone reading back.
-                guard isNearBottom else { return }
+                // so that same offset now lands somewhere else entirely: earlier in the history, or
+                // past the end, where the viewport shows nothing but the backing colour (the "chat
+                // went black until I bumped the scroll" report). Re-pin once the resize settles.
+                //
+                // The near-bottom question is asked at the START of the burst, and the pin fires
+                // TWICE: once when the size settles, once after the reflow that follows it, since
+                // the content height keeps moving for a beat after the frame stops.
+                if scrollSettle.resizeWork == nil { scrollSettle.wasNearBottom = isNearBottom }
                 scrollSettle.resizeWork?.cancel()
-                let work = DispatchWorkItem { scrollProxy?.scrollTo("bottom", anchor: .bottom) }
+                let work = DispatchWorkItem {
+                    defer { scrollSettle.resizeWork = nil }
+                    guard scrollSettle.wasNearBottom else { return }   // never yank a reader back
+                    scrollProxy?.scrollTo("bottom", anchor: .bottom)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        scrollProxy?.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
                 scrollSettle.resizeWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
             }
@@ -781,6 +792,10 @@ private final class ScrollSettleBox {
     /// Debounce for the re-pin after a RESIZE (kept here, not in @State, for the same reason as
     /// the rest of this box: a resize animates, and touching @State per frame re-evaluates `body`).
     var resizeWork: DispatchWorkItem?
+    /// Sampled at the START of a resize burst, not when it settles: mid-resize the committed scroll
+    /// figures are stale (they lag 120ms behind), so asking "are we at the bottom?" at the end can
+    /// answer no for a reader who never left it.
+    var wasNearBottom = true
 }
 
 private struct ScrollOffsetKey: PreferenceKey {

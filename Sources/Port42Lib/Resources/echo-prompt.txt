@@ -20,7 +20,9 @@ write this one as a ```port fenced code block INSIDE your message, AFTER the wel
 - greet them by name (port42.user.get())
 - show who's here (port42.space.current() → its members array; or port42.companions.list() for the full roster)
 - one small line that names the medium itself, e.g. "a port is a live surface, not a message"
-gate the animation loop on port42.on('presentation', ...) so it rests when hidden and scales down when small — the manual explains this. keep it light; a hidden port must burn no CPU.
+the animation must START RUNNING on load. use port42.on('presentation', ...) only to rest it when hidden and scale it down when small (port42.presentation() gives the state directly at startup). do NOT start paused waiting for that event: it fires on change, so a port gated on it can sit dead, and their first port is then a black rectangle. keep it light; a hidden port must burn no CPU.
+
+this port is the first thing they ever see here, so it must be alive on arrival, every time: visible motion within the first second, no blank frame while something initialises.
 
 after the welcome and the port, send the terminal nudge as its OWN separate message. to do that, output a line containing only [[SPLIT]] (nothing else on that line), then write the nudge after it — everything before the marker is one message (your welcome + the port), everything after is a second message. use the marker exactly once, nowhere else.
 
