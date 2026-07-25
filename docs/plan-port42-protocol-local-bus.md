@@ -414,18 +414,124 @@ its own Notify topic, a first-class signal distinct from `port.push` (which is i
 cycle, before or alongside L2. Bake the emitter into Open Synth's source at the same time and retire the
 injected bootstrap.
 
-### Phase L2 — right-of-way lease (keystone #2, fast-follow)
+### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24)
 
-**Do.** A per-port holder ("who holds the pen") keyed on `Principal.id`, gating the Update verbs
-(`push`/`exec`/`patch`/`update`) at the resolver seam. Human UI and a companion are two local drivers;
-the lease arbitrates; the holder is broadcast on the port's Notify topic so both surfaces show it. Local
-focus generalizes into the holder. Explicit handoff, pessimistic (no CRDT/OT) — matching slice-02's
-deliberate choice.
+**STATUS: DESIGNED, no code.**
 
-**Test gate.** Two local principals contend; only the holder's Update applies; a non-holder Update is
-rejected; handoff changes the holder and emits a Notify. Command: `swift test --filter Lease` (+ live
-human-vs-companion contention on one port).
-**Done when:** two local drivers never double-write and both see the holder.
+**Do.** A per-port holder ("who holds the pen") keyed on `Principal.id`, gating the Update verbs at
+the dispatch seam. The holder is broadcast on the port's own Notify topic, so every surface already
+watching the port learns who is driving with no side channel. Explicit handoff, pessimistic — no
+CRDT, no OT (matching slice-02's deliberate choice, and for the reason in §L2.6).
+
+#### L2.1 Where the gate lives — declare it, don't scatter it
+
+`runBridgeMethod` (`BridgeDispatcher.swift:25`) is the ONE choke point every caller passes through,
+and it already gates `method.permission` there. The lease is the same shape of decision, so it goes
+in the same place and is DECLARED THE SAME WAY: `BridgeMethod` gains
+
+```swift
+/// The paramName carrying the port this method WRITES to. nil = a read (never gated).
+let writesTarget: String?      // e.g. "id" for push/exec/patch/update
+```
+
+Registry-declared, like `permission`, so a new write verb cannot silently escape the gate — the
+existing `BridgeParamConsistencyTests` source-scan can assert the write verbs all declare it.
+
+**Gated (Update):** `port.push`, `port.exec`, `port.patch`, `port.update`, `port.rename`,
+`port.move`, `port.restore`, `port.manage` (destructive actions).
+**Never gated (Query/Temporal):** `port.getHtml`, `port.history`, `port.info`, `port.position`,
+`port.subscribe`, `ports.list`. Reading is not driving.
+
+#### L2.2 The lease itself — pure, headless, time-injected
+
+New `Sources/Port42Lib/Services/PortLease.swift`, modelled on the pure-state discipline the shell
+uses (`ShellState`'s statics, `PortPlacement`): no AppState, no clock of its own.
+
+```swift
+struct Lease: Equatable { let holder: String; let holderName: String; let expires: Date }
+struct LeaseRegistry {                      // value type, one per app
+    mutating func check(port: String, principal: String, now: Date) -> LeaseDecision
+    mutating func release(port: String, principal: String)
+    mutating func handoff(port: String, from: String, to: String, now: Date)
+}
+enum LeaseDecision { case granted(Lease), refreshed(Lease), denied(byName: String, until: Date) }
+```
+
+`now` is passed in, never read inside: expiry is the one behaviour that is miserable to test against
+a real clock, and it is the behaviour most likely to be wrong.
+
+#### L2.3 Acquisition — implicit, because nothing may break today
+
+A write against a FREE port acquires the lease for its principal. A write by the CURRENT holder
+refreshes the TTL. A write against a port held by someone else is rejected with a `BridgeError`
+naming the holder. TTL ~30s, refreshed by use.
+
+This ordering matters: implicit acquisition means every single-driver flow that works today keeps
+working unchanged, and the lease only becomes visible at the moment there IS contention — which is
+exactly when a user wants to know about it. A design that required an explicit `take` first would
+break every existing port, script and companion on day one.
+
+Explicit verbs come with it for the deliberate cases: `port.lease({id, action:"take"|"release"})`,
+where `take` on a held port is a REQUEST (a knock the holder can answer), not a seizure.
+
+#### L2.4 The honest limit: native input is not a bridge write
+
+A human typing into a Ghostty terminal port, or clicking inside a webview, does **not** pass through
+`runBridgeMethod`. Keystrokes go straight to the surface. So the lease cannot see local human input,
+and a naive implementation would let a companion hold the pen while the human types underneath it —
+the exact double-write the keystone exists to prevent, invisible to the mechanism meant to catch it.
+
+**Resolution: focus acquires the lease for the human.** `portWindows.focusKeyboard(on:)` already
+exists as the single seam for "the keyboard now belongs to this unit" (⌘\` cycling, ⌘↓, hover, tile
+click all funnel through it). Hooking lease acquisition there unifies the informal right-of-way the
+shell already has with the formal one the protocol needs, instead of running two ideas of "who is
+driving" side by side. It also makes the felt behaviour correct: click a port, you hold the pen, and
+a companion's write is rejected while you are in it.
+
+#### L2.5 Broadcast — reuse the port's own topic
+
+On every holder CHANGE (not on refresh — that would spam):
+`notifyBus.publish(topic: "port:<id>", kind: "holder", payload: {holder, holderName, until})`.
+Anything already subscribed to the port sees it: the tile header, another instance's mirror, an
+agent deciding whether to wait. This is why L1 had to land first.
+
+#### L2.6 Why reject rather than queue (GM asked, 2026-07-24)
+
+A queued write is a STALE write: composed against the port as it was, applied against a port that
+moved, with the author gone. That is the same failure that ruled out optimistic merge. A rejection
+bounces back while the author still holds the context that produced it. It is worse with an agent in
+the mix, which is the real case: a companion writes in bulk, fills the queue, and the flush lands on
+the human as a jump nobody authored. And a queue is a scheduler — ordering policy, persistence,
+per-waiter TTL, dead-waiter handling, progress/cancel UI. The lease is one fact: who holds it.
+
+A queue is a POLICY OVER the lease and can be added later without touching the write path; it is not
+a primitive that can be retrofitted underneath one. The thing usually wanted is not a queue anyway,
+it is a knock (`take` → holder answers → handoff), which L2.3 provides.
+
+#### L2.7 Cross-instance forward-compat (the one thing not to get wrong)
+
+The holder is a principal id. Cross-instance (slice-02) will want the holder to be a PEER identity.
+If those are different notions, the lease means two different things depending on where the writer
+stands. **Do not ship L2 before answering the identity question** in `plan-gateway-auth-tls.md`
+(does the libp2p PeerID derive from the user's P256 key, and is the local `/call` caller the same
+principal the bridge already models). Same question, three tracks.
+
+#### Build order
+
+- **L2.a** `PortLease.swift` + `PortLeaseTests` — pure, headless, no app changes. Acquire when free,
+  deny when held, refresh by the holder, expiry frees, explicit release, handoff.
+- **L2.b** `writesTarget` on `BridgeMethod` + the dispatcher gate + the registry declarations, with a
+  source-scan test that every Update verb declares a target.
+- **L2.c** Notify broadcast on holder change.
+- **L2.d** `focusKeyboard` acquires for the human principal (L2.4) — the step that makes it true
+  rather than theoretically true.
+- **L2.e** Holder visible in the tile header (a name, not a lock icon: "gordon holds this").
+
+**Test gate.** `swift test --filter PortLease` for the pure layer; a dispatcher test where principal
+B's `push` is denied while A holds; live: a companion writing to a port the human is focused in gets
+rejected, the header shows the human, handoff flips it.
+**Done when:** two local drivers never double-write, both see the holder, and no existing
+single-driver flow needed a change.
 
 ## 7. Local acceptance (Port42Dev :4243)
 
