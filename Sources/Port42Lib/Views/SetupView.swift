@@ -28,7 +28,6 @@ public struct SetupView: View {
     @State private var appleAuthStatus: String?
     @State private var showAnalyticsConsent = false
     @State private var terminalVisible = false
-    @State private var showSettings = false
     @State private var terminalOffset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
     @State private var revealedSuffixes: Set<Int> = []
@@ -45,10 +44,13 @@ public struct SetupView: View {
         case compatibleEndpoint
     }
 
+    /// Setup is the BIOS and the handover, nothing else. The old `.swim` phase (a bespoke
+    /// full-screen chat with its own branded bar and a 🐬 "swim in open water" button) is gone:
+    /// the first swim runs in the real shell, focused on the space's chat tile.
+    /// See `docs/plan-unify-onboarding-shell.md`.
     enum SetupPhase {
         case boot       // POST lines + name prompt (all in one terminal)
-        case transition // fade to black, diamond
-        case swim       // full-screen swim session
+        case transition // fade to black, diamond, then hand to the shell
     }
 
     // MARK: - Line Model
@@ -138,8 +140,6 @@ public struct SetupView: View {
                     .opacity(terminalVisible ? 1.0 : 0.0)
             case .transition:
                 transitionView
-            case .swim:
-                swimTerminal
             }
         }
         .onAppear {
@@ -157,9 +157,8 @@ public struct SetupView: View {
                 cursorVisible.toggle()
             }
         }
-        .sheet(isPresented: $showSettings) {
-            SignOutSheet(isPresented: $showSettings)
-        }
+        // (The Settings sheet lived here for the retired `.swim` phase, whose branded bar was the
+        // only thing that could open it. Settings is a shell overlay now — ShellState.showSettings.)
     }
 
     // MARK: - Single Continuous Terminal
@@ -755,107 +754,6 @@ public struct SetupView: View {
         .onAppear {
             Analytics.shared.screen("Setup_Transition")
             startTransition()
-        }
-    }
-
-    // MARK: - Swim (full-screen with dreamscape video showing through)
-
-    private var swimTerminal: some View {
-        ZStack {
-            // Blue tint matching the dive transition, lets dreamscape video show through
-            Color(red: 0.0, green: 0.15, blue: 0.3).opacity(0.3).ignoresSafeArea()
-
-            if let space = appState.currentSpace, space.type == "direct",
-               let companion = appState.spaceCompanions.first {
-                let spaceId = space.id
-                let userName = submittedName ?? displayName
-                let isStreaming = appState.typingAgentNames.contains(companion.displayName)
-                let currentUserId = appState.currentUser?.id
-                let entries: [ChatEntry] = appState.messages.compactMap { msg in
-                    if msg.isAgent && msg.content.isEmpty { return nil }
-                    return ChatEntry(
-                        id: msg.id,
-                        senderName: msg.senderName,
-                        content: msg.content,
-                        timestamp: msg.timestamp,
-                        isSystem: msg.isSystem,
-                        isAgent: msg.isAgent,
-                        senderOwner: msg.senderOwner,
-                        syncStatus: msg.syncStatus,
-                        isOwnMessage: msg.senderId == currentUserId
-                    )
-                }
-                VStack(spacing: 0) {
-                    // Branded top bar for first swim
-                    HStack {
-                        Circle()
-                            .fill(Port42Theme.textAgent)
-                            .frame(width: 8, height: 8)
-
-                        Text(companion.displayName)
-                            .font(Port42Theme.monoBold(14))
-                            .foregroundStyle(Port42Theme.textAgent)
-
-                        Text("swim session")
-                            .font(Port42Theme.monoFontSmall)
-                            .foregroundStyle(Port42Theme.textSecondary)
-
-                        Spacer()
-
-                        Button(action: {
-                            NotificationCenter.default.post(name: .enterAquariumRequested, object: nil)
-                        }) {
-                            HStack(spacing: 8) {
-                                Text("\u{1F42C}")
-                                    .font(.system(size: 16))
-                                Text("swim in open water")
-                                    .font(Port42Theme.monoBold(12))
-                                    .foregroundStyle(.black)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Port42Theme.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .shadow(color: Port42Theme.accent.opacity(0.4), radius: 8)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.black.opacity(0.7))
-
-                    Divider().background(Port42Theme.border.opacity(0.5))
-
-                    ConversationContent(
-                        entries: entries,
-                        placeholder: "Message \(companion.displayName)...",
-                        isStreaming: isStreaming,
-                        error: appState.spaceErrors[spaceId],
-                        typingNames: isStreaming ? [companion.displayName] : [],
-                        onSend: { content in appState.sendMessage(content: content) },
-                        onStop: { appState.cancelStreaming(spaceId: spaceId) },
-                        onRetry: {
-                            AgentAuthResolver.shared.clearCache()
-                            appState.retryLastMessage(spaceId: spaceId)
-                        },
-                        onDismissError: { appState.spaceErrors[spaceId] = nil },
-                        onOpenSettings: { showSettings = true }
-                    )
-                    .environmentObject(appState)
-                }
-                .onAppear { sendFirstMessage(userName: userName) }
-            }
-        }
-        .onAppear {
-            Analytics.shared.screen("Setup_Swim")
-        }
-    }
-
-    private func sendFirstMessage(userName: String) {
-        guard appState.messages.isEmpty else { return }
-        // Small delay so the swim view renders before the stream starts
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            appState.sendMessage(content: "hey, i'm \(userName). what is this place?")
         }
     }
 

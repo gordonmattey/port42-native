@@ -134,7 +134,8 @@ public struct LockScreenView: View {
 
 public extension Notification.Name {
     static let diveRequested = Notification.Name("diveRequested")
-    static let enterAquariumRequested = Notification.Name("enterAquariumRequested")
+    // `.enterAquariumRequested` is retired with the 🐬 button that posted it: entering open water
+    // is now the ordinary zoom-out, and the breakout it triggered plays there instead.
 }
 
 // MARK: - Ripple Ring

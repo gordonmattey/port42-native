@@ -178,9 +178,12 @@ provided phase 1 confirms the `portPanelsRestored`-before-focus ordering (invari
    branch, the 720 threshold, the `availableWidth` state, the `MessageWidthKey` preference and
    its `GeometryReader` are all gone, so every message row is one less geometry reader and one
    less preference publish per resize. Reading order no longer changes with width.
-6. **Retire the bespoke swim chrome.** Remove `SetupView`'s `.swim` phase (branded bar +
-   `ConversationContent` host) and the now-redundant `.enterAquariumRequested` plumbing, keeping
-   whatever the breakout transition still needs.
+6. **Retire the bespoke swim chrome.** DONE 2026-07-24. Deleted: `SetupPhase.swim` and its case,
+   `swimTerminal` (the branded bar, the 🐬 button, its own `ConversationContent` host),
+   `SetupView.sendFirstMessage`, the `Setup_Swim` screen event, `.enterAquariumRequested` and its
+   receiver + `startEnterAquariumTransition`, and the Settings sheet that only the swim bar could
+   open (settings is a shell overlay now). ~110 lines out of `SetupView`. Setup is the BIOS and the
+   handover, nothing else.
 
 ## Resolved flow (GM, 2026-07-24)
 

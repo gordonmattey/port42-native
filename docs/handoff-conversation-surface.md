@@ -74,8 +74,10 @@ at 520 (`InlinePortLayout.maxWidth`, a port's default width) while the TEXT keep
 the chat, and ports-beside-response is deleted outright. The centered-column layout the plan
 originally called for was built, shown, and rejected — see the plan's phase 5 for what replaced it.
 
-Remaining: phase 6 (retire the swim chrome + the `.enterAquariumRequested` plumbing), and moving
-the breakout video onto the first zoom-out.
+**ALL SIX PHASES DONE (2026-07-24).** Phase 6 deleted the `.swim` phase, the 🐬 button, the branded
+bar, `sendFirstMessage`, `.enterAquariumRequested` + its transition, and the orphaned Settings sheet.
+The breakout moved onto the first zoom-out: it starts on the focused port's frame, grows to full
+screen over 2.6s, and any ladder move skips it. Setup is now the BIOS and the handover, nothing else.
 
 ## Original next-steps note (superseded by the section above)
 

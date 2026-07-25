@@ -268,9 +268,6 @@ public struct TransitionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: .diveRequested)) { _ in
             startDiveTransition()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .enterAquariumRequested)) { _ in
-            startEnterAquariumTransition()
-        }
         .onChange(of: appState.currentSpace?.type == "direct") { _, hasSession in
             if hasSession && !appState.isSetupComplete && useBreakoutVideo {
                 preWarmBreakoutVideo = true
@@ -314,16 +311,6 @@ public struct TransitionRoot: View {
         // otherwise resets the frame + presentationOptions). Fullscreen takeover is OPT-IN:
         // with it off, the shell restores to its remembered windowed frame.
         ShellMode.applyShellWindow(to: window)
-    }
-
-    private func startEnterAquariumTransition() {
-        isDiving = true
-        withAnimation(.easeIn(duration: 1.0)) {
-            diveProgress = 1.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            appState.isSetupComplete = true
-        }
     }
 
     private func startBreakoutTransition() {
