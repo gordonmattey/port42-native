@@ -416,8 +416,14 @@ injected bootstrap.
 
 ### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24)
 
-**STATUS: L2.a–L2.d SHIPPED (2026-07-24), full suite 1057 green. L2.e (holder in the tile header)
-is the only step left, and it is the one that needs eyes — see "What building it taught us" below.**
+**STATUS: BUILT END TO END (L2.a–L2.e, 2026-07-24/25), full suite 1065 green. Only LIVE
+VERIFICATION is left — every step's automated gate passes; none of it has been seen running.**
+
+**Keystone #2 is closed in code.** Two local drivers cannot double-write: a companion's write to a
+port the human is driving is refused by name, focus and native interaction both claim, the holder
+rides the port's own Notify topic, and the tile header shows it when someone else is driving.
+What remains is L2's manual column (a live human-vs-companion contention run) and, when it lands,
+the same mechanism over the wire in slice-02.
 
 | Step | State |
 |---|---|
@@ -426,7 +432,7 @@ is the only step left, and it is the one that needs eyes — see "What building 
 | L2.c holder broadcast | SHIPPED — `kind:"holder"` on `port:<id>`, change-only |
 | L2.d human principal | SHIPPED — `Principal.Kind.human`, zoom-to-focus claims |
 | **L2.d.2 interaction claims** | SHIPPED — typing/clicking in a surface claims it (`ClaimThrottle`) |
-| L2.e holder in the header | **NOT BUILT** — pure visual, no automated gate |
+| L2.e holder in the header | SHIPPED — subscribes to `holder` envelopes; shows only when it is SOMEONE ELSE |
 
 #### L2.d.2 — interaction claims the pen (added 2026-07-25, GM)
 

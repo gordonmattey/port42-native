@@ -6,15 +6,22 @@
 shell, all six phases of `plan-unify-onboarding-shell.md` done.
 
 **Then, on GM's "build as much as possible until you need manual testing":**
-`docs/plan-port42-protocol-local-bus.md` §L2 — the right-of-way lease — is built through **L2.d**,
-full suite **1057 green**. Only **L2.e** (the holder shown in the tile header) is left, because it is
-pure visual and has no automated gate. Read §L2's "What building it taught us" first: the biggest
-item is that the header must SUBSCRIBE to the `holder` envelopes rather than read the lease, since
-`LeaseRegistry` is not `@Published`.
+`docs/plan-port42-protocol-local-bus.md` §L2 — the right-of-way lease, keystone #2 — is **built end
+to end, L2.a through L2.e**, full suite **1065 green**. Read §L2's "What building it taught us"
+before extending it.
 
-**Waiting on GM (manual, in Dev3):** a companion writing to a port the human has zoomed into should
-be refused by name, and focusing a port a companion is mid-write on should NOT steal it. Both are
-unit-tested; neither has been seen live.
+**NOTHING OF L2 HAS BEEN SEEN RUNNING.** Every automated gate passes; the live column is untouched.
+The manual run, in Dev3:
+1. Zoom into a port, have a companion write to it → refused BY NAME, and the tile header shows the
+   holder when it is someone else (silent when it is you).
+2. Type in a terminal a companion is about to write to → same refusal (this is L2.d.2, native input
+   claiming the pen, the gap the design originally could not close).
+3. Focus a port a companion is mid-write on → it must NOT steal; the companion keeps driving.
+4. Leave a port idle 30s → the lease lapses and the other driver can take it.
+
+**Also shipped tonight:** the gateway binds loopback (`127.0.0.1:<port>`) instead of every interface
+— the LAN could previously reach `/call`, which authenticates nobody and proxies into the bridge.
+`docs/decision-identity-model.md` settles person/instance/actor and unblocked L2.
 
 **Also shipped tonight:** the gateway binds loopback (`127.0.0.1:<port>`) instead of every interface
 — the LAN could previously reach `/call`, which authenticates nobody and proxies into the bridge.
