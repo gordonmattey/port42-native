@@ -78,7 +78,7 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/echo-prompt.txt</key>
 		<data>
-		uYSYu0T8j/H4n6c9XgUzpQ7WrEs=
+		9q+5WA5iVe4pH5Da/2FaT9N11LI=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/llms-cli.txt</key>
 		<data>
@@ -102,11 +102,11 @@
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-context.txt</key>
 		<data>
-		SdTlUUP5QtYjwzLRnGtmmxh6S3k=
+		hF95B2spNFHtCd2+Oq6io+Hye7c=
 		</data>
 		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>
 		<data>
-		o8M8+fiiMZjpetjNXYguomswpc0=
+		kToB4S26aZsyEMXr6U/zauOMyUA=
 		</data>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>
 		<data>
@@ -128,7 +128,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			CC1eivzOeNByRB41I5KTehWS4LQ=
+			0gn1kLv8qFSsIOvGhyZbwMkVrQw=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-claude-shim" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -137,7 +137,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			6DplKmFXg9NOgVw02cF1IEQfMWw=
+			IgGoHqzieypuP6CuDATJddcgkxY=
 			</data>
 			<key>requirement</key>
 			<string>identifier "port42-gateway" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "5R5X43WDXE"</string>
@@ -272,7 +272,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			iJsNqR0MEjwfeXhHMSoUR+ZyTVd+/ASZEnTYgxpxVaE=
+			OXFB25g7gpqE5Foab687FmPht2k+aclxDEpZ3QUjYrU=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/llms-cli.txt</key>
@@ -314,14 +314,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			HORI/5rSD+N309RYHGWsphQdIy/8JgYZD1yoS8CYVts=
+			nZk82J0z/IUv1nPBVxtahrYKqT4ImRKvGuXbMq1x4NI=
 			</data>
 		</dict>
 		<key>Resources/Port42_Port42Lib.bundle/ports-core.txt</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			VnZw60Bm/IjzCElxJ9nPCfKIUaC4Giures+7QxHsFlc=
+			CLgShKpw9w8puIAyt/eW1dOpsLoc4Zul077wfuMbgHk=
 			</data>
 		</dict>
 		<key>Resources/PostHog_PostHog.bundle/PrivacyInfo.xcprivacy</key>
