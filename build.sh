@@ -158,21 +158,21 @@ if [ ! -d "$DIR/GhosttyKit.xcframework" ]; then
     echo "[build] GhosttyKit.xcframework extracted."
 fi
 
-# Test gate (release only) ---------------------------------------------------------------------
-# A release must not ship over a red suite. This is here because three real failures — including a
+# Test gate ------------------------------------------------------------------------------------
+# EVERY build runs the suite first (GM). This is here because three real failures — including a
 # port-teardown leak that stopped a closed port from ever releasing mic/camera/screen — sat red for
-# weeks: the tests caught them the day they appeared, but nothing forced the suite to run. Dev
-# builds are deliberately NOT gated, so --dev3 iteration stays fast.
-# Skip for an emergency ship with SKIP_TESTS=1 (and know what you are skipping).
-if [ "$CONFIG" = "release" ] && [ "${SKIP_TESTS:-0}" != "1" ]; then
-    echo "[build] Tests (release gate)..."
+# weeks: the tests caught them the day they appeared, but nothing forced the suite to run. Gating
+# dev builds too means a break surfaces on the next build instead of at ship time.
+# Skip with SKIP_TESTS=1 when you need the app in your hands right now (and know what you skipped).
+if [ "${SKIP_TESTS:-0}" != "1" ]; then
+    echo "[build] Tests..."
     cd "$DIR"
     TEST_LOG=$(mktemp -t port42-tests)
     if swift test > "$TEST_LOG" 2>&1; then
         grep -E "Test run with" "$TEST_LOG" | tail -1
         rm -f "$TEST_LOG"
     else
-        echo "[build] TESTS FAILED — release aborted. Nothing was signed or notarized."
+        echo "[build] TESTS FAILED — build aborted (nothing built, signed or launched)."
         grep -E "✘ Test |✘ Suite |error:" "$TEST_LOG" | head -20
         echo "[build] Full log: $TEST_LOG"
         exit 1

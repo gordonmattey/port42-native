@@ -101,6 +101,9 @@ Port42.app/Contents/
 ./build.sh --run        # Debug build and launch
 ```
 
+**Every build runs `swift test` first and aborts on a red suite** (~15s). A break surfaces on the
+next build instead of at ship time. `SKIP_TESTS=1 ./build.sh --run` when you need the app now.
+
 > **IMPORTANT — always rebuild the runnable bundle with `./build.sh`, never bare `swift build`.**
 > `swift build` only updates the loose `.build/debug/Port42` binary; it does **not** assemble or
 > re-sign `.build/Port42.app`. If you (or a test script) copy/launch `.build/Port42.app` after a
@@ -116,8 +119,8 @@ Port42.app/Contents/
 ```
 
 This single command handles the full pipeline:
-0. **Test gate**: `swift test` must pass or the release aborts before anything is signed. Dev
-   builds are not gated. Emergency override: `SKIP_TESTS=1 ./build.sh --release`.
+0. **Test gate** (every build, dev included): `swift test` must pass or the build aborts before
+   anything is compiled, signed or launched. Override: `SKIP_TESTS=1 ./build.sh …`.
 1. Swift release build with `-DRELEASE` flag
 2. Go gateway build
 3. Developer ID signing with hardened runtime + timestamp
