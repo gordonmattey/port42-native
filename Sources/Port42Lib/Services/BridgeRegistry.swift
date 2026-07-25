@@ -37,6 +37,12 @@ public struct BridgeMethod {
     /// metadata fails `BridgeSchemaParityTests`, which is how coverage is enforced (test, not compiler).
     public let description: String
     public let inputSchema: [String: Any]
+    /// RIGHT-OF-WAY (L2): the paramName carrying the port this method WRITES to, or nil for a read.
+    /// Declared here, beside `permission`, because it is the same shape of decision and belongs at
+    /// the same choke point — a new write verb that forgets to declare it is caught by
+    /// `BridgeParamConsistencyTests` rather than silently escaping the lease.
+    /// Reading is not driving: `getHtml`/`history`/`info`/`position`/`subscribe` stay nil.
+    public let writesTarget: String?
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
     /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
     /// two executors do today.
@@ -44,6 +50,7 @@ public struct BridgeMethod {
 
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
+                writesTarget: String? = nil,
                 wired: Bool = true,
                 toolExposed: Bool = true,
                 description: String = "",
@@ -55,6 +62,7 @@ public struct BridgeMethod {
         self.toolExposed = toolExposed
         self.description = description
         self.inputSchema = inputSchema
+        self.writesTarget = writesTarget
         self.run = run
     }
 }

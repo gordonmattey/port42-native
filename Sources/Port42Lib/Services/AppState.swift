@@ -855,6 +855,11 @@ public final class AppState: ObservableObject {
     /// True after restoreFromDB completes; gates switchToSpace calls in selectSpace.
     private var portPanelsRestored = false
 
+    /// RIGHT-OF-WAY (L2): who holds the pen on each port. One holder at a time; a write by anyone
+    /// else is rejected at the dispatch seam (`claimWrite`). Acquired implicitly by writing, so a
+    /// single driver never notices it exists. See docs/plan-port42-protocol-local-bus.md §L2.
+    var portLeases = LeaseRegistry()
+
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
 

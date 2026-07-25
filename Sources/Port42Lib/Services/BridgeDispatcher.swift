@@ -42,7 +42,34 @@ extension AppState {
             }
         }
 
+        // RIGHT-OF-WAY (L2). A write needs the pen for its target. Sits beside the permission gate
+        // because it is the same shape of decision at the same choke point, and after it because
+        // a permission prompt is about the CALLER while the lease is about the TARGET — asking for
+        // access to something you then cannot write to would be the wrong order of questions.
+        if let targetParam = method.writesTarget, let raw = args.string(targetParam) {
+            try claimWrite(on: raw, by: principal)
+        }
+
         return try await method.run(principal, args)
+    }
+
+    /// Take (or refresh) the pen on a port for this principal, or throw naming who holds it.
+    ///
+    /// Keyed on the SAME id the port's Notify topic uses (`ref.udid ?? ref.id`), so the holder
+    /// broadcast and the lease can never disagree about which port they mean. An unresolvable
+    /// target is deliberately NOT gated: the method's own `notFound` is the better error, and a
+    /// lease on a port that does not exist is a lock on nothing.
+    func claimWrite(on rawId: String, by principal: Principal) throws {
+        guard let ref = resolvePortRef(rawId), let key = ref.udid ?? ref.id else { return }
+        let actor = ActorRef(principal: principal.id)
+        switch portLeases.check(port: key, actor: actor, name: principal.displayName, now: Date()) {
+        case .granted, .refreshed:
+            return
+        case .denied(let held):
+            throw BridgeError(code: "port_busy",
+                              message: "'\(held.holderName)' is driving this port right now. "
+                                     + "Ask them to hand it over, or wait for them to finish.")
+        }
     }
 
     /// True when the streaming registry can handle this name (item 8).
