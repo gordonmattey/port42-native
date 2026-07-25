@@ -166,8 +166,18 @@ provided phase 1 confirms the `portPanelsRestored`-before-focus ordering (invari
    test beyond the prompt. The CTA now points at the terminal's **prefilled line**: GM chose
    prefill-WITHOUT-send (`TerminalPortConfig.initialInput`, typed on the CLI's SessionStart with no
    trailing Enter), so the user zooms out to find claude holding a sentence they press Enter on.
-5. **Centered-column layout.** `ConversationContent` (focused presentation) becomes a max-width
-   centered column with top/bottom padding; background (dreamscape/desktop) shows around it.
+5. **Port-width inline ports.** BUILT 2026-07-24, and NOT as originally planned. A centered
+   max-width column for the whole conversation was built, shown, and rejected (GM): the text must
+   run the FULL width of the chat; it is the inline PORT that holds a port's shape. So
+   `ChatView` fills its host exactly as before (no cap, no centering, no transparent surround),
+   and `InlinePortLayout.maxWidth = 520` caps the port segment — the width a port opens at on the
+   desktop (terminal 520x380, chat 520x420), sitting beside the existing `minHeight` floor.
+   Applied at the segment call site so it covers both the live inline port and the unactivated
+   compact card; a chat narrower than 520 falls under the cap and fills.
+   **Ports-beside-response is REMOVED** (GM: "never put it on the side"). Not disabled — the
+   branch, the 720 threshold, the `availableWidth` state, the `MessageWidthKey` preference and
+   its `GeometryReader` are all gone, so every message row is one less geometry reader and one
+   less preference publish per resize. Reading order no longer changes with width.
 6. **Retire the bespoke swim chrome.** Remove `SetupView`'s `.swim` phase (branded bar +
    `ConversationContent` host) and the now-redundant `.enterAquariumRequested` plumbing, keeping
    whatever the breakout transition still needs.

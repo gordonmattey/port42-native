@@ -14,6 +14,11 @@ public struct ChatView: View {
     private var spaceId: String? { explicitSpaceId ?? appState.currentSpace?.id }
 
     public var body: some View {
+        conversation
+            .background(Port42Theme.bgPrimary)
+    }
+
+    private var conversation: some View {
         ZStack {
             VStack(spacing: 0) {
                 // Shared conversation content
@@ -72,7 +77,6 @@ public struct ChatView: View {
             // whenever you were focused on a port and the gated call hung forever. It's a shell
             // overlay now: ShellView → ShellPermissionOverlay.)
         }
-        .background(Port42Theme.bgPrimary)
     }
 
     private func copyConversation() {

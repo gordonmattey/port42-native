@@ -69,8 +69,13 @@ the GM decisions and the THREE root-cause bugs found while testing it (LLMEngine
 loss, double companion turn per message, welcome port posted as a tool card ahead of the text), is
 in `docs/plan-unify-onboarding-shell.md` §Phases. New suite: `OnboardingShellTests` (11).
 
-Remaining: phase 5 (centered-column layout), phase 6 (retire the swim chrome + the
-`.enterAquariumRequested` plumbing), and moving the breakout video onto the first zoom-out.
+**Phase 5 BUILT but UNCOMMITTED** (in the tree, seen and approved by GM): inline ports are capped
+at 520 (`InlinePortLayout.maxWidth`, a port's default width) while the TEXT keeps the full width of
+the chat, and ports-beside-response is deleted outright. The centered-column layout the plan
+originally called for was built, shown, and rejected — see the plan's phase 5 for what replaced it.
+
+Remaining: phase 6 (retire the swim chrome + the `.enterAquariumRequested` plumbing), and moving
+the breakout video onto the first zoom-out.
 
 ## Original next-steps note (superseded by the section above)
 

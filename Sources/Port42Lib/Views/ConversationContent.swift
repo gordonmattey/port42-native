@@ -780,16 +780,6 @@ private struct VisibleBottomKey: PreferenceKey {
     }
 }
 
-/// Width of a message row's content area — drives whether a message's ports sit beside the text
-/// (wide) or stack below it (narrow). Width is stable except on window/tile resize, so publishing it
-/// does not spin `body` the way an animating height preference would (see RCA-2.3).
-private struct MessageWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 // MARK: - Message Row (Equatable for diff-only re-render)
 
 struct MessageRow: View, Equatable {
@@ -798,8 +788,6 @@ struct MessageRow: View, Equatable {
     var portIsActive: Bool = false
     @EnvironmentObject var appState: AppState
     @State private var activatedPortIndices = Set<Int>()
-    /// Content-area width, captured from a background reader. Drives beside-vs-below port layout.
-    @State private var availableWidth: CGFloat = 0
 
     static func == (lhs: MessageRow, rhs: MessageRow) -> Bool {
         lhs.entry.id == rhs.entry.id &&
@@ -809,22 +797,10 @@ struct MessageRow: View, Equatable {
         lhs.portIsActive == rhs.portIsActive
     }
 
-    /// Above this width a message's ports sit to the right of the text; below it they stack under it.
-    private var sideBySideThreshold: CGFloat { 720 }
-
     var body: some View {
         messageContent
             .padding(.top, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: MessageWidthKey.self, value: geo.size.width)
-                }
-            )
-            .onPreferenceChange(MessageWidthKey.self) { width in
-                // Tolerance guard: only react to real resizes, never sub-point jitter.
-                if abs(availableWidth - width) > 2 { availableWidth = width }
-            }
     }
 
     @ViewBuilder
@@ -938,52 +914,20 @@ struct MessageRow: View, Equatable {
         }
     }
 
-    // MARK: - Port segment layout (beside the text when wide, below it when narrow)
+    // MARK: - Port segment layout
 
-    /// (segmentIndex, text) for every text segment, preserving segment order.
-    private var textSegmentList: [(Int, String)] {
-        entry.messageSegments.enumerated().compactMap { idx, seg in
-            if case .text(let t) = seg { return (idx, t) } else { return nil }
-        }
-    }
-
-    /// (segmentIndex, html) for every port segment, preserving segment order.
-    private var portSegmentList: [(Int, String)] {
-        entry.messageSegments.enumerated().compactMap { idx, seg in
-            if case .port(let h) = seg { return (idx, h) } else { return nil }
-        }
-    }
-
-    /// A message's segments. Wide: text in a left column, ports in a right column, side by side.
-    /// Narrow (or text-only / port-only messages): the original top-to-bottom stack.
+    /// A message's segments, always top-to-bottom in the order they were written (GM: a port is
+    /// never beside the text) — reading order does not change with width. The TEXT runs the full
+    /// width of the conversation; a PORT is held to the width one opens at on the desktop.
     @ViewBuilder
     private func portsRegion(contentColor: Color) -> some View {
-        let texts = textSegmentList
-        let ports = portSegmentList
-        if availableWidth >= sideBySideThreshold && !texts.isEmpty && !ports.isEmpty {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(texts, id: \.0) { _, text in
-                        segmentText(text, contentColor)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(ports, id: \.0) { segIdx, html in
-                        portSegment(segIdx: segIdx, html: html)
-                    }
-                }
-                .frame(maxWidth: availableWidth * 0.5, alignment: .leading)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(entry.messageSegments.enumerated()), id: \.offset) { segIdx, segment in
-                    if case .text(let text) = segment {
-                        segmentText(text, contentColor)
-                    } else if case .port(let html) = segment {
-                        portSegment(segIdx: segIdx, html: html)
-                    }
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(entry.messageSegments.enumerated()), id: \.offset) { segIdx, segment in
+                if case .text(let text) = segment {
+                    segmentText(text, contentColor)
+                } else if case .port(let html) = segment {
+                    portSegment(segIdx: segIdx, html: html)
+                        .frame(maxWidth: InlinePortLayout.maxWidth, alignment: .leading)
                 }
             }
         }
@@ -1046,6 +990,11 @@ private enum InlinePortLayout {
     /// collapses to a thin strip. This governs only the in-chat presentation — the same port stays
     /// freely resizable (smaller or larger) once it's a tile on the desktop.
     static let minHeight: CGFloat = 300
+    /// Ceiling for a port's width WHEN SHOWN INLINE (GM): a port opens at 520 wide on the desktop
+    /// (terminal 520x380, chat 520x420), so inline it keeps that size instead of stretching to
+    /// whatever the chat happens to be. The TEXT still runs the full width of the conversation —
+    /// only the port is held to a port's shape. Narrower chats fall below the cap and fill.
+    static let maxWidth: CGFloat = 520
 }
 
 struct InlinePortView: View {
