@@ -27,12 +27,21 @@ protects it in transit.
 
 ## Phases
 
-### P0 — bind to loopback (one line, do first)
-`-addr 127.0.0.1:<port>` for the app-launched gateway. Removes LAN reachability immediately and
-costs nothing: ngrok's agent dials the gateway from the same machine, so tunnelled sharing is
-unaffected. A deliberately-hosted relay still opts into `:<port>` by launching itself.
-**Breaks:** anyone pointing a second device straight at their Mac's LAN address instead of using an
-invite link. Believed to be nobody, but it IS a behaviour change.
+### P0 — bind to loopback — **SHIPPED 2026-07-24**
+`GatewayProcess.swift` now launches with `-addr 127.0.0.1:<port>` instead of `:<port>`. LAN
+reachability gone. Sharing unaffected: ngrok forwards to a bare port, i.e. localhost. A
+deliberately-hosted relay still opts into `:<port>` by launching the binary itself.
+GM confirmed nothing was pointing a second device at the LAN address.
+
+### P0.5 — ngrok is INTERIM and retires with libp2p (GM, 2026-07-24)
+Stated so nobody invests in it: **ngrok is the interim sharing transport, and libp2p replaces it
+outright** — not augments it. Circuit-Relay v2 + DCUtR is the reach story, PeerID is the address.
+Anything built on the tunnel (a relay TLS story, tunnel-shaped invite links, ngrok account plumbing)
+is throwaway by construction, which sharpens P2 below from "probably don't" to "don't".
+
+The one thing this DOES put on the map: **invite links currently carry an ngrok HTTPS URL**, so the
+sharing surface has to be re-expressed as a peer address when libp2p lands. That is a slice-02
+follow-on, not gateway work, but it is where the tunnel's retirement will actually be felt.
 
 ### P1 — authenticate `/call`
 A per-install secret, generated on first launch, stored in the Keychain, required on every `/call`
