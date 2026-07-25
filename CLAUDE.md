@@ -116,6 +116,8 @@ Port42.app/Contents/
 ```
 
 This single command handles the full pipeline:
+0. **Test gate**: `swift test` must pass or the release aborts before anything is signed. Dev
+   builds are not gated. Emergency override: `SKIP_TESTS=1 ./build.sh --release`.
 1. Swift release build with `-DRELEASE` flag
 2. Go gateway build
 3. Developer ID signing with hardened runtime + timestamp
