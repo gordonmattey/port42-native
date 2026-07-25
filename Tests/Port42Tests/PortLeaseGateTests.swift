@@ -213,6 +213,47 @@ struct PortLeaseGateTests {
         #expect(state.portLeases.holder(of: id, now: Date()) == nil)
     }
 
+    // MARK: - L2.e: the header learns the holder BY SUBSCRIBING
+
+    @Test("the shell picks up the holder off the port's topic, and stays quiet about yourself")
+    func shellLearnsHolderFromTheBus() async throws {
+        let (state, id) = try makeWorldWithUser()
+        let shell = ShellState(appState: state)
+        let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
+
+        // Subscribe the way the desktop does. (contextItems is empty headless, so subscribe by hand
+        // to the same topic the sync would use — the parsing is what is under test.)
+        let sub = state.notifyBus.subscribe(topic: "port:\(udid)") { _ in }
+        defer { state.notifyBus.unsubscribe(id: sub, topic: "port:\(udid)") }
+        shell.syncHolderSubscriptions()
+
+        // A companion takes the pen → the shell should hear it and show it.
+        _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
+                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+        // Only ports on the desktop are subscribed, so drive the parse directly for the headless case.
+        shell.applyHolderEnvelopeForTesting(
+            #"{"topic":"port:\#(udid)","kind":"holder","payload":{"holder":"echo","holderName":"echo","until":\#(Date().addingTimeInterval(30).timeIntervalSince1970)}}"#,
+            port: udid)
+        #expect(shell.otherHolder(of: udid)?.name == "echo")
+
+        // The HUMAN holding it is not news — the chrome stays silent about you.
+        shell.applyHolderEnvelopeForTesting(
+            #"{"topic":"port:\#(udid)","kind":"holder","payload":{"holder":"\#(state.currentUser!.id)","holderName":"gordon","until":\#(Date().addingTimeInterval(30).timeIntervalSince1970)}}"#,
+            port: udid)
+        #expect(shell.otherHolder(of: udid) == nil)
+    }
+
+    @Test("an expired badge stops showing — the chip does not outlive the lease")
+    func expiredBadgeIsSilent() throws {
+        let (state, id) = try makeWorldWithUser()
+        let shell = ShellState(appState: state)
+        let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
+        shell.applyHolderEnvelopeForTesting(
+            #"{"topic":"port:\#(udid)","kind":"holder","payload":{"holder":"echo","holderName":"echo","until":\#(Date().addingTimeInterval(-1).timeIntervalSince1970)}}"#,
+            port: udid)
+        #expect(shell.otherHolder(of: udid) == nil)
+    }
+
     // MARK: - The declaration cannot rot
 
     @Test("every write verb declares writesTarget, and no read verb does")

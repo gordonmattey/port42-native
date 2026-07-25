@@ -411,6 +411,69 @@ public final class ShellState: ObservableObject {
     /// not a live-critical value.
     public var lastDesktopArea: CGSize = CGSize(width: 1440, height: 900)
 
+    // MARK: Right-of-way — who is driving each port (L2.e)
+
+    public struct HolderBadge: Equatable {
+        public let holder: String       // the ActorRef wire form
+        public let name: String         // what a human reads
+        public let until: Date
+    }
+
+    /// port udid → who holds its pen. Fed by SUBSCRIBING to each visible port's own Notify topic,
+    /// not by reading `LeaseRegistry`: the registry is a plain value (not `@Published`) and would
+    /// never drive a view, and going through the bus is the protocol-correct path anyway — the
+    /// header is just another subscriber, exactly like an agent or a remote instance would be.
+    @Published public private(set) var portHolders: [String: HolderBadge] = [:]
+    private var holderSubs: [String: Int] = [:]
+
+    /// Keep one holder subscription per visible port. Called when the desktop's unit set changes.
+    public func syncHolderSubscriptions() {
+        let live = Set(contextItems.compactMap { $0.panel?.udid })
+        for id in live where holderSubs[id] == nil {
+            let topic = "port:\(id)"
+            holderSubs[id] = appState.notifyBus.subscribe(topic: topic) { [weak self] envelope in
+                self?.applyHolderEnvelope(envelope, port: id)
+            }
+        }
+        for (id, sub) in holderSubs where !live.contains(id) {
+            appState.notifyBus.unsubscribe(id: sub, topic: "port:\(id)")
+            holderSubs[id] = nil
+            portHolders[id] = nil
+        }
+    }
+
+    /// Parse one `{topic, kind, payload}` envelope; only `holder` is ours. Everything else on the
+    /// topic (push, console, terminal output) flows past untouched.
+    /// Test seam: the desktop only subscribes to ports it is rendering, and there is no desktop
+    /// headless. The PARSING is the part worth pinning, so tests feed an envelope straight in.
+    func applyHolderEnvelopeForTesting(_ json: String, port: String) {
+        applyHolderEnvelope(json, port: port)
+    }
+
+    private func applyHolderEnvelope(_ json: String, port: String) {
+        guard let data = json.data(using: .utf8),
+              let env = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              env["kind"] as? String == "holder",
+              let p = env["payload"] as? [String: Any],
+              let holder = p["holder"] as? String,
+              let name = p["holderName"] as? String,
+              let until = p["until"] as? Double else { return }
+        portHolders[port] = HolderBadge(holder: holder, name: name,
+                                        until: Date(timeIntervalSince1970: until))
+    }
+
+    /// The badge to SHOW for a port: someone else is driving it, right now.
+    ///
+    /// Deliberately silent when the holder is you. In the common single-driver case the chrome says
+    /// nothing, and it speaks exactly when there is contention — which is the only moment the
+    /// information is actionable.
+    public func otherHolder(of udid: String?, now: Date = Date()) -> HolderBadge? {
+        guard let udid, let badge = portHolders[udid], now < badge.until else { return nil }
+        guard badge.holder != appState.humanPrincipal.map({ ActorRef(principal: $0.id).description })
+        else { return nil }
+        return badge
+    }
+
     // MARK: First-run breakout (the aquarium video, re-homed onto the first zoom-out)
 
     /// Non-nil while the first-run breakout plays: the rect the video STARTS at, which is the

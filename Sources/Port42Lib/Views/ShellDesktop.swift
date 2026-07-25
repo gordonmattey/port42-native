@@ -282,6 +282,9 @@ struct ShellDesktopView: View {
                 shell.applyArrange(area: geo.size)
             }
             .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
+            // L2.e: one holder subscription per visible port, kept in step with the unit set.
+            .onAppear { shell.syncHolderSubscriptions() }
+            .onChange(of: shell.contextItems.map(\.id)) { _, _ in shell.syncHolderSubscriptions() }
         }
     }
 
@@ -563,6 +566,16 @@ struct ShellTile: View {
                     Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
                     Text(surfacedSpaceTitle ?? tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     if surfacedSpaceTitle != nil { Text("· from").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary) }
+                }
+                // RIGHT-OF-WAY (L2.e): someone ELSE is driving this port. Silent when it is you —
+                // the chrome speaks only when there is contention, which is when it is actionable.
+                if let held = shell.otherHolder(of: tile.panel?.udid) {
+                    Text("✋ \(held.name)")
+                        .font(Port42Theme.mono(9))
+                        .foregroundStyle(Port42Theme.textPrimary.opacity(0.9))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Port42Theme.bgHover, in: Capsule())
+                        .help("\(held.name) is driving this port — your writes are refused until they finish")
                 }
                 Spacer(minLength: 8)
             }
