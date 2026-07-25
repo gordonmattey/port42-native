@@ -425,7 +425,25 @@ is the only step left, and it is the one that needs eyes — see "What building 
 | L2.b dispatch gate | SHIPPED — `BridgeMethod.writesTarget` + `claimWrite`, `PortLeaseGateTests` |
 | L2.c holder broadcast | SHIPPED — `kind:"holder"` on `port:<id>`, change-only |
 | L2.d human principal | SHIPPED — `Principal.Kind.human`, zoom-to-focus claims |
+| **L2.d.2 interaction claims** | SHIPPED — typing/clicking in a surface claims it (`ClaimThrottle`) |
 | L2.e holder in the header | **NOT BUILT** — pure visual, no automated gate |
+
+#### L2.d.2 — interaction claims the pen (added 2026-07-25, GM)
+
+§L2.4's honest limit is now closed on the human's side. The signal is not *keystrokes* but **input
+reaching the surface**: keydown and pointerdown, both intent to ACT. Hover does not count (a mouse
+crossing the desktop is not driving) and **scroll deliberately does not** — scrolling is READING,
+and claiming on it would block a companion mid-write exactly while the user watches it work.
+
+Reported by the surfaces, since none of it reaches the bridge: `GhosttyInputView.onHumanInput` for
+terminals, and an injected keydown/pointerdown listener reporting through a `portInput` handler for
+web ports (the same shape as console and height; the handler holds a closure, not the manager, so it
+cannot become a retain path). Throttled ~5s per port by `ClaimThrottle`, because typing fires per
+keystroke against a 30s TTL.
+
+**Still open, deliberately:** the *uninvented gesture* GM raised — asking for a pen someone else
+holds. That is a REQUEST (the knock in §L2.3), a different need from "who is driving now", which is
+an observable fact. Kept separate rather than collapsed into one motion.
 
 #### What building it taught us (integrate before L2.e)
 
