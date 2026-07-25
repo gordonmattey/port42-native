@@ -80,6 +80,23 @@ extension AppState {
         try? claimWrite(on: portId, by: human)
     }
 
+    /// The human INTERACTED with a port's surface — typed into it, clicked in it (L2.d.2). This is
+    /// the signal that makes the lease tell the truth: a bridge write is not the only way to drive a
+    /// port, and until now native input was invisible to right-of-way, so a companion could write
+    /// into a terminal you were typing in.
+    ///
+    /// What counts is intent to ACT: keydown and pointerdown. Deliberately NOT hover (a mouse
+    /// crossing the desktop is not driving) and NOT scroll — scrolling is READING, and claiming on
+    /// it would block a companion from continuing exactly while you watch it work.
+    ///
+    /// Throttled per port: typing fires this per keystroke, and re-claiming a lease you already
+    /// hold is noise.
+    func humanInteracted(with portId: String) {
+        guard humanPrincipal != nil else { return }
+        guard humanClaimThrottle.allow(port: portId, now: Date()) else { return }
+        claimFocusForHuman(portId: portId)
+    }
+
     /// Take (or refresh) the pen on a port for this principal, or throw naming who holds it.
     ///
     /// Keyed on the SAME id the port's Notify topic uses (`ref.udid ?? ref.id`), so the holder

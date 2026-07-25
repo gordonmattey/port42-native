@@ -117,3 +117,29 @@ public struct LeaseRegistry: Equatable {
         leases.removeValue(forKey: port)
     }
 }
+
+/// Rate-limits "the human is interacting with this port" so a claim happens at most once per
+/// interval per port. Typing fires this per KEYSTROKE; the lease TTL is 30s, so re-claiming on
+/// every character is pure noise, and the claim path resolves the port each time (the one part of
+/// it that is not free). Pure and time-injected, like the registry.
+public struct ClaimThrottle: Equatable {
+    /// Comfortably inside the TTL, so a continuously-used port never lapses, while an idle one
+    /// still frees itself on schedule.
+    public static let defaultInterval: TimeInterval = 5
+
+    private var last: [String: Date] = [:]
+    public let interval: TimeInterval
+
+    public init(interval: TimeInterval = ClaimThrottle.defaultInterval) { self.interval = interval }
+
+    /// True when this port should claim now. The FIRST interaction always passes — the moment you
+    /// touch a port is exactly when the claim matters most.
+    public mutating func allow(port: String, now: Date) -> Bool {
+        if let prev = last[port], now.timeIntervalSince(prev) < interval { return false }
+        last[port] = now
+        return true
+    }
+
+    /// Forget a port's throttle state (it closed), so a reused id starts fresh.
+    public mutating func forget(port: String) { last.removeValue(forKey: port) }
+}

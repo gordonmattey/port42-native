@@ -105,6 +105,48 @@ struct PortLeaseTests {
         #expect(r.holder(of: "P", now: t0) == nil)
     }
 
+    // MARK: - L2.d.2: the interaction throttle
+
+    // (`allow` is mutating, so each call is hoisted out of the #expect macro.)
+
+    @Test("the FIRST interaction always claims — that is the moment it matters")
+    func throttleAllowsFirst() {
+        var t = ClaimThrottle(interval: 5)
+        let first = t.allow(port: "P", now: t0)
+        #expect(first)
+    }
+
+    @Test("a burst of keystrokes claims once, not per character")
+    func throttleCollapsesABurst() {
+        var t = ClaimThrottle(interval: 5)
+        let first = t.allow(port: "P", now: t0)
+        #expect(first)
+        // Typing at ~10 chars/sec for two seconds: 20 keystrokes, no further claims.
+        var extra = 0
+        for i in 1...20 where t.allow(port: "P", now: t0.addingTimeInterval(Double(i) * 0.1)) { extra += 1 }
+        #expect(extra == 0)
+        // Past the interval, a continuing session re-claims so the lease never lapses under use.
+        let later = t.allow(port: "P", now: t0.addingTimeInterval(6))
+        #expect(later)
+    }
+
+    @Test("ports throttle independently — typing in one does not mute a claim in another")
+    func throttleIsPerPort() {
+        var t = ClaimThrottle(interval: 5)
+        let a = t.allow(port: "A", now: t0)
+        let b = t.allow(port: "B", now: t0)
+        #expect(a && b)
+    }
+
+    @Test("forget resets a port's throttle, so a reused id claims immediately")
+    func throttleForget() {
+        var t = ClaimThrottle(interval: 5)
+        _ = t.allow(port: "P", now: t0)
+        t.forget(port: "P")
+        let again = t.allow(port: "P", now: t0.addingTimeInterval(0.1))
+        #expect(again)
+    }
+
     // MARK: - The peer-qualified holder (decision-identity-model.md)
 
     @Test("local is the DEGENERATE form of remote, so today's strings need no migration")

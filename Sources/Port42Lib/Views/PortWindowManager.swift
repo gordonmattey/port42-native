@@ -169,6 +169,8 @@ public final class PortWindowManager: ObservableObject {
 
     /// Inline height handlers kept alive for WKWebView message routing (Step 8).
     private var heightHandlers: [String: PortHeightHandler] = [:]
+    /// L2.d.2 input taps, kept alive for WKWebView message routing (like the console/height ones).
+    private var inputHandlers: [String: PortInputHandler] = [:]
 
     /// Navigation delegates kept alive for WKWebView.
     private var navDelegates: [String: PortNavigationBlocker] = [:]
@@ -271,6 +273,9 @@ public final class PortWindowManager: ObservableObject {
             config: config, env: controller.env,
             onTee: { controller.receiveTee($0) },
             onInject: { controller.bindSurface($0) })
+        // Native input claims the pen (L2.d.2): a keystroke here never reaches the bridge, so
+        // without this the lease cannot see the human driving a terminal.
+        built.view.onHumanInput = { [weak appState] in appState?.humanInteracted(with: panel.udid) }
         storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
     }
 
@@ -902,6 +907,28 @@ public final class PortWindowManager: ObservableObject {
         config.userContentController.add(heightHandler, name: "portHeight")
         heightHandlers[panel.id] = heightHandler
 
+        // RIGHT-OF-WAY (L2.d.2): the human typing or clicking INSIDE a web port is driving it, and
+        // none of that reaches the bridge. Reported the same way console and height already are.
+        // keydown + pointerdown only: hover is not driving, and scroll is READING — claiming on a
+        // scroll would block a companion mid-write exactly while the user watches it work.
+        let inputScript = WKUserScript(
+            source: """
+            (function() {
+              var send = function() {
+                try { window.webkit.messageHandlers.portInput.postMessage(1); } catch (e) {}
+              };
+              window.addEventListener('keydown', send, true);
+              window.addEventListener('pointerdown', send, true);
+            })();
+            """,
+            injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        config.userContentController.addUserScript(inputScript)
+        let inputHandler = PortInputHandler(portUdid: panel.udid) { [weak appState] udid in
+            appState?.humanInteracted(with: udid)
+        }
+        config.userContentController.add(inputHandler, name: "portInput")
+        inputHandlers[panel.id] = inputHandler
+
         let webView = FileDropWebView(frame: .zero, configuration: config)
         let isBrowser = panel.portType == "browser"
         // A browser follows links & shows the site's own background; a normal port is locked to its
@@ -950,6 +977,7 @@ public final class PortWindowManager: ObservableObject {
         consoleHandlers.removeValue(forKey: id)
         navDelegates.removeValue(forKey: id)
         heightHandlers.removeValue(forKey: id)
+        inputHandlers.removeValue(forKey: id)
         inlineHeights.removeValue(forKey: id)
     }
 
@@ -1239,6 +1267,24 @@ class PortConsoleHandler: NSObject, WKScriptMessageHandler {
 /// Receives `document.body.scrollHeight` from a registry-owned port webview and republishes it on
 /// the manager (`inlineHeights[portId]`) so the SwiftUI inline host can size itself. Floating ports
 /// ignore the value. Clamped to [40, 600] to match the legacy inline-port sizing.
+/// L2.d.2: "the human just acted in this web port". Carries the port's udid so the lease keys on the
+/// same id everything else does. Holds a closure, not the manager, so it cannot be a retain path
+/// back into app state (the teardown leak that cost a morning).
+final class PortInputHandler: NSObject, WKScriptMessageHandler {
+    private let portUdid: String
+    private let onInput: (String) -> Void
+
+    init(portUdid: String, onInput: @escaping (String) -> Void) {
+        self.portUdid = portUdid
+        self.onInput = onInput
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "portInput" else { return }
+        onInput(portUdid)
+    }
+}
+
 final class PortHeightHandler: NSObject, WKScriptMessageHandler {
     weak var manager: PortWindowManager?
     let portId: String

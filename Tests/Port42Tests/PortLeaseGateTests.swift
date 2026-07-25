@@ -189,6 +189,30 @@ struct PortLeaseGateTests {
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "still echo's")
     }
 
+    @Test("typing in a port claims it — native input is invisible to the bridge without this")
+    func interactionClaims() async throws {
+        let (state, id) = try makeWorldWithUser()
+        // The signal the surfaces fire on keydown/pointerdown. Keyed on udid, as the surfaces key it.
+        let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
+        state.humanInteracted(with: udid)
+
+        do {
+            _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
+                                                args: BridgeArgs(["id": id, "title": "echo's"]))
+            Issue.record("a companion must not write into a port the human is typing in")
+        } catch let e as BridgeError {
+            #expect(e.code == "port_busy")
+            #expect(e.message.contains("gordon"))
+        }
+    }
+
+    @Test("interaction before setup is a no-op — no user, no claim")
+    func interactionNeedsAHuman() throws {
+        let (state, id) = try makeWorld()          // no currentUser
+        state.humanInteracted(with: id)
+        #expect(state.portLeases.holder(of: id, now: Date()) == nil)
+    }
+
     // MARK: - The declaration cannot rot
 
     @Test("every write verb declares writesTarget, and no read verb does")

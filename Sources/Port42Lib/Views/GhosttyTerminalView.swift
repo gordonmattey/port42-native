@@ -80,6 +80,10 @@ struct TerminalPortConfig: Codable {
 final class GhosttyInputView: NSView {
     var surface: ghostty_surface_t?
     private var observers: [NSObjectProtocol] = []
+    /// RIGHT-OF-WAY (L2.d.2): fired when the human types or clicks in this terminal, so the lease
+    /// learns that native input — which never reaches the bridge — is driving this port. Set by the
+    /// host; nil when nothing cares. Throttled downstream, so calling it per keystroke is fine.
+    var onHumanInput: (() -> Void)?
     /// When this view is hoisted OUT of SwiftUI (shell tile path), it owns its Coordinator so the
     /// pty-tee callback's unretained userdata stays alive. Nil for the SwiftUI-managed floating path.
     var retainedCoordinator: AnyObject?
@@ -166,6 +170,7 @@ final class GhosttyInputView: NSView {
 
     // MARK: keyboard
     override func keyDown(with event: NSEvent) {
+        onHumanInput?()          // typing IS driving (L2.d.2)
         // ⌘V / ⌘C (no other modifiers) → clipboard, not a key to the PTY. Ghostty's
         // own clipboard callbacks are stubbed off, so we drive the pasteboard directly.
         let f = event.modifierFlags
@@ -270,6 +275,7 @@ final class GhosttyInputView: NSView {
         // surface. This is the terminal's ONE legitimate keyboard claim alongside the
         // shell's keyboard-driven focus (`PortWindowManager.focusKeyboard`).
         if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        onHumanInput?()          // clicking IN a surface is acting on it (L2.d.2)
         mouseButton(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT)
     }
     override func mouseUp(with e: NSEvent)        { mouseButton(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) }

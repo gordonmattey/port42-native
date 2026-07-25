@@ -859,6 +859,8 @@ public final class AppState: ObservableObject {
     /// else is rejected at the dispatch seam (`claimWrite`). Acquired implicitly by writing, so a
     /// single driver never notices it exists. See docs/plan-port42-protocol-local-bus.md §L2.
     var portLeases = LeaseRegistry()
+    /// Rate-limit for `humanInteracted` — a keystroke-rate signal claiming a 30s lease (L2.d.2).
+    var humanClaimThrottle = ClaimThrottle()
 
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
@@ -2984,6 +2986,9 @@ public final class AppState: ObservableObject {
                 config: config, env: controller.env,
                 onTee: { controller.receiveTee($0) },
                 onInject: { controller.bindSurface($0) })
+            // Native input claims the pen (L2.d.2) — the spawn path's twin of the restore path's hook.
+            let udid = panel.udid
+            built.view.onHumanInput = { [weak self] in self?.humanInteracted(with: udid) }
             portWindows.storeTerminalView(id: portId, view: built.view, coordinator: built.coordinator)
         }
         NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
