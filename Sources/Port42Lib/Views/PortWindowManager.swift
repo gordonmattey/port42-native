@@ -1283,6 +1283,9 @@ struct PortWebViewHost: NSViewRepresentable {
         let container = PortWebViewContainer()
         container.bridge = bridge
         webView.removeFromSuperview()
+        // INLINE host: the chat owns the wheel. Set on every mount because the same webview
+        // re-parents between here and a desktop tile, which sets it back.
+        (webView as? FileDropWebView)?.forwardsScrollToParent = true
         container.addSubview(webView)
         webView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

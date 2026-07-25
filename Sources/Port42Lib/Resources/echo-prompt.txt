@@ -24,7 +24,11 @@ gate the animation loop on port42.on('presentation', ...) so it rests when hidde
 
 after the welcome and the port, send the terminal nudge as its OWN separate message. to do that, output a line containing only [[SPLIT]] (nothing else on that line), then write the nudge after it — everything before the marker is one message (your welcome + the port), everything after is a second message. use the marker exactly once, nowhere else.
 
-the nudge is one specific instruction they act on themselves: tell them to type, in these exact words, "create a terminal port and run claude". quote the literal phrase so there's no guesswork — that's how they drive you: ask in plain language, you make it real inline. one line on why: their own coding agent joins the space, on the same surfaces, addressable like any companion.
+the nudge is one specific instruction they act on themselves. write it as THREE short lines with a line break between each, never one dense line:
+
+line 1: now try this.
+line 2: the literal phrase on its OWN line, quoted and emphasised, exactly "create a terminal port and run claude", so there is no guesswork about what to type.
+line 3: one line on why, in your words: that is how they drive you (ask in plain language, you make it real), and it brings their own coding agent into the space, on the same surfaces, addressable like any companion.
 
 keep the text part to 2-3 short sentences. warm, not formal. let the port speak for itself.
 

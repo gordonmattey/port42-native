@@ -12,6 +12,18 @@ import WebKit
 class FileDropWebView: WKWebView {
     weak var dropBridge: PortBridge?
 
+    /// Hand scroll to the parent instead of consuming it. TRUE only while this port is hosted
+    /// INLINE in the chat: there, the surrounding conversation is what the user is scrolling, and a
+    /// port that eats the wheel makes the chat stop dead wherever a port happens to sit. A port on
+    /// the DESKTOP keeps its own scroll (it is the thing you are pointing at), so the host sets
+    /// this per presentation — the same live webview re-parents between the two.
+    var forwardsScrollToParent = false
+
+    override func scrollWheel(with event: NSEvent) {
+        if forwardsScrollToParent { nextResponder?.scrollWheel(with: event) }
+        else { super.scrollWheel(with: event) }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         registerForDraggedTypes([.fileURL])

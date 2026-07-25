@@ -942,6 +942,9 @@ struct ShellPortHost: NSViewRepresentable {
         let container = PortWebViewContainer()
         container.bridge = bridge
         view.removeFromSuperview()
+        // DESKTOP host: the port keeps its own wheel (it is the thing being pointed at). The
+        // inline chat host sets the opposite on the same webview when it takes it back.
+        (view as? FileDropWebView)?.forwardsScrollToParent = false
         container.addSubview(view)
         view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
