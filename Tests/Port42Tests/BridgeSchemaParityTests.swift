@@ -34,18 +34,42 @@ struct BridgeSchemaParityTests {
         return s
     }
 
-    /// The frozen golden (the 57 hand-written tool schemas, snapshotted before deletion) indexed by
-    /// tool name. This is what the generator is checked against now that the hand-written schemas are
-    /// gone from production. Regenerate the fixture only on a deliberate, reviewed schema change.
-    static func toolDefsByName() -> [String: [String: Any]] {
-        let root = URL(fileURLWithPath: #filePath)
+    static func goldenURL() -> URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let url = root.appendingPathComponent("Tests/Fixtures/tool-definitions-golden.json")
-        guard let data = try? Data(contentsOf: url),
+            .appendingPathComponent("Tests/Fixtures/tool-definitions-golden.json")
+    }
+
+    /// The golden tool schemas indexed by tool name — originally the hand-written `ToolDefinitions`
+    /// snapshotted before deletion, and since then the last REVIEWED generated set. It is what the
+    /// generator is checked against now that the hand-written schemas are gone from production.
+    ///
+    /// Regenerate deliberately after a registry change, then READ THE DIFF before committing:
+    ///   PORT42_REGEN_GOLDEN=1 swift test --filter BridgeSchemaParityTests
+    /// Without the flag the suite only verifies. (Same contract as `llms.txt`
+    /// in `BridgeDocsExportTests` — a generated artifact needs a regen path, or it rots: this
+    /// fixture silently missed the four `screen.record*` methods for exactly that reason.)
+    static func toolDefsByName() -> [String: [String: Any]] {
+        guard let data = try? Data(contentsOf: goldenURL()),
               let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return [:] }
         var m: [String: [String: Any]] = [:]
         for t in arr { if let n = t["name"] as? String { m[n] = t } }
         return m
+    }
+
+    /// Writes the current generated set to the fixture. Runs FIRST (it is the only test that
+    /// mutates the fixture) and only under the env flag; a normal run is read-only.
+    @Test("A. regenerate the golden (opt-in: PORT42_REGEN_GOLDEN=1)")
+    func regenerateGolden() throws {
+        guard ProcessInfo.processInfo.environment["PORT42_REGEN_GOLDEN"] == "1" else { return }
+        let world = try makeParityWorld()
+        // Sorted by name: the registry hands them back in dictionary order, which would rewrite
+        // the whole file on every regen and bury the real change in a 1000-line diff.
+        let generated = world.state.generatedToolDefinitions()
+            .sorted { ($0["name"] as? String ?? "") < ($1["name"] as? String ?? "") }
+        let data = try JSONSerialization.data(withJSONObject: generated,
+                                              options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: Self.goldenURL())
     }
 
     /// The tool schema generated from whichever registry (one-shot or streaming) holds `canonical`, or
@@ -93,10 +117,12 @@ struct BridgeSchemaParityTests {
         // Coverage: every ToolDefinitions tool is either checked or explicitly hybrid-only. No silent skip.
         #expect(checked == defs.count - Self.hybridOnlyTools.count,
                 "checked \(checked) but expected \(defs.count - Self.hybridOnlyTools.count) (defs \(defs.count) minus hybrid \(Self.hybridOnlyTools.count))")
-        // 58 = the full golden: 52 original + rest_call (item 4) + the 4 browser tools (item 5)
-        // + help (knowledge item B: tool-exposed with topics, GM decision 2026-07-19).
+        // 63 = the full golden: 52 original + rest_call (item 4) + the 4 browser tools (item 5)
+        // + help (knowledge item B: tool-exposed with topics, GM decision 2026-07-19)
+        // + port_publish + screen_record{,_start,_stop,_status} (added to the registry after the
+        // snapshot; the fixture had no regen path, so it silently missed them until 2026-07-24).
         // The hybrid list is empty; every golden schema is parity-checked against the generator.
-        #expect(checked == 58, "expected 58 parity-set methods, checked \(checked)")
+        #expect(checked == 63, "expected 63 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

@@ -6,6 +6,28 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-24, GM): support the current Claude models (Opus 5, Fable)
+
+**GM:** "support for newer models, claude has opus 5 and fable now which we should support."
+
+Port42 still offers the 4.x line only. The Claude 5 family ids: `claude-opus-5`, `claude-sonnet-5`,
+`claude-fable-5` (Haiku stays `claude-haiku-4-5-20251001`). Companions should be able to run on
+Opus 5 by default, with Fable available as a distinct option rather than a hidden alias.
+
+**The real work is that the model list is hardcoded in seven places**, so "add a model" today means
+seven edits and any one of them can be missed:
+- `ModelPicker.swift` — `anthropicModelOptions` (the UI list) and `defaultModel(for:)`
+- `BridgeServiceAI.swift` — the `ai` service's own model inventory (what a port/companion sees)
+- `AppState.swift` — the handler fallback (~431), and the model Echo is created with (~1938)
+- `AppState+PortAI.swift` — the port-AI default
+- `ShellView.swift` — the new-companion form's default (twice: `@State` and the create call)
+
+Do the consolidation first (ONE inventory, everything else reads it), then adding a model is one
+line. Worth checking the same pass: whether the pinned dated Haiku id should follow the same
+convention, and whether the Gemini list needs the same treatment.
+
+---
+
 ## TODO (2026-07-24, GM): claude turn detection → notification peek for a port in ANOTHER space
 
 **GM:** "add a claude turn detection so we can send a notification peek for ports in other spaces."

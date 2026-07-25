@@ -1,18 +1,5 @@
 [
   {
-    "description" : "Return the Port42 API reference. Pass topic:\"ports\" for the port-authoring manual (read it BEFORE building or editing a port: sizing, module-scope, patterns, the design system). No topic returns the full method reference.",
-    "input_schema" : {
-      "properties" : {
-        "topic" : {
-          "description" : "Optional. \"ports\" = the port-authoring manual. Omit for the API reference.",
-          "type" : "string"
-        }
-      },
-      "type" : "object"
-    },
-    "name" : "help"
-  },
-  {
     "description" : "Speak text aloud using text-to-speech",
     "input_schema" : {
       "properties" : {
@@ -475,6 +462,19 @@
     "name" : "fold_update"
   },
   {
+    "description" : "Return the Port42 API reference. Pass topic:\"ports\" for the port-authoring manual (read it BEFORE building or editing a port: sizing, module-scope, patterns, the design system). No topic returns the full method reference.",
+    "input_schema" : {
+      "properties" : {
+        "topic" : {
+          "description" : "Optional. \"ports\" = the port-authoring manual. Omit for the API reference.",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "help"
+  },
+  {
     "description" : "Get the most recent messages from the current space",
     "input_schema" : {
       "properties" : {
@@ -722,6 +722,25 @@
     "name" : "port_patch"
   },
   {
+    "description" : "A port emits its OWN state or event on its own Notify topic, for consumers watching via port_subscribe. This is a port broadcasting AS itself — distinct from port_push, which is input sent INTO a port. Only meaningful from inside a port; the topic is the calling port's own id, so there is no target argument. Use this instead of having a consumer reach in with port_exec to read state: the port publishes, consumers subscribe.",
+    "input_schema" : {
+      "properties" : {
+        "kind" : {
+          "description" : "Event kind, e.g. 'state', 'progress', 'error'.",
+          "type" : "string"
+        },
+        "payload" : {
+          "description" : "Any JSON value (object\/array\/string\/number) delivered as the Notify envelope's payload."
+        }
+      },
+      "required" : [
+        "kind"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_publish"
+  },
+  {
     "description" : "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. \"ls\\n\", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.",
     "input_schema" : {
       "properties" : {
@@ -965,6 +984,61 @@
       "type" : "object"
     },
     "name" : "screen_info"
+  },
+  {
+    "description" : "Record an app surface for a fixed number of seconds and auto-stop (the convenience form). Pass options.seconds. Returns {path, width, height, seconds, fps, bytes}.",
+    "input_schema" : {
+      "properties" : {
+        "options" : {
+          "description" : "Recording options: target ({window:\"self\"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window\/port\/ports are occlusion-proof (only that surface); region\/display capture the raw display (may catch other apps). Also aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool; only on a display or region target — a window\/port capture cannot include the cursor), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds.",
+          "type" : "object"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "screen_record"
+  },
+  {
+    "description" : "Start recording an app surface (window:self \/ a port \/ multiple ports) to a video file with optional system or mic audio. Returns {recordingId, width, height, target}. Stop with screen.record.stop.",
+    "input_schema" : {
+      "properties" : {
+        "options" : {
+          "description" : "Recording options: target ({window:\"self\"} | {window:<osId>} | {port:<udid>} | {ports:[<udid>...]} | {region:{x,y,w,h}} | {display:<id>}). window\/port\/ports are occlusion-proof (only that surface); region\/display capture the raw display (may catch other apps). Also aspect (e.g. \"16:9\"), fit (cover|exact; contain is not yet supported), width, height, scale, fps, padding, cursor (bool; only on a display or region target — a window\/port capture cannot include the cursor), audio (none|system|mic|both), format (mov|mp4), path, and for the convenience form seconds.",
+          "type" : "object"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "screen_record_start"
+  },
+  {
+    "description" : "Report whether a recording (or any recording) is active and its elapsed seconds.",
+    "input_schema" : {
+      "properties" : {
+        "recordingId" : {
+          "description" : "Optional recording id; omit for the overall status",
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "name" : "screen_record_status"
+  },
+  {
+    "description" : "Stop a recording started with screen.record.start. Returns {path, width, height, seconds, fps, bytes}.",
+    "input_schema" : {
+      "properties" : {
+        "recordingId" : {
+          "description" : "The id returned by screen.record.start",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "recordingId"
+      ],
+      "type" : "object"
+    },
+    "name" : "screen_record_stop"
   },
   {
     "description" : "List all visible windows with their titles, apps, and positions",
