@@ -521,22 +521,66 @@ lease, not a different object, and cross-instance stays the prefix the plan clai
 
 Write holder strings peer-qualified from L2.a. It is one line now and a migration later.
 
-#### Build order
+#### L2.8 Code review of the seams (read 2026-07-24, before writing any L2 code)
 
-- **L2.a** `PortLease.swift` + `PortLeaseTests` — pure, headless, no app changes. Acquire when free,
-  deny when held, refresh by the holder, expiry frees, explicit release, handoff.
-- **L2.b** `writesTarget` on `BridgeMethod` + the dispatcher gate + the registry declarations, with a
-  source-scan test that every Update verb declares a target.
-- **L2.c** Notify broadcast on holder change.
-- **L2.d** `focusKeyboard` acquires for the human principal (L2.4) — the step that makes it true
-  rather than theoretically true.
-- **L2.e** Holder visible in the tile header (a name, not a lock icon: "gordon holds this").
+**Confirmed — the design holds:**
+- **Every write verb takes `id` as its first param.** `push(id,data)`, `exec(id,js)`,
+  `patch(id,search,replace)`, `update(id,html)`, `rename(id,title)`, `move(id,x,y)`,
+  `restore(id,version)`, `manage(id,action)`. So `writesTarget` is uniformly `"id"` and the
+  declaration is mechanical, not a per-method judgement.
+- **`runBridgeMethod` is genuinely the only choke point** (`BridgeDispatcher.swift:25`) and already
+  does exactly this shape of gate for `permission` (`:34-43`). The lease check slots in beside it.
+- **Remote callers already produce principals.** `ToolExecutor.swift:148/164` builds
+  `Principal(kind: .peer)` for gateway/synced callers, so the holder being an actor rather than a
+  connection is already true on the existing transport.
 
-**Test gate.** `swift test --filter PortLease` for the pure layer; a dispatcher test where principal
-B's `push` is denied while A holds; live: a companion writing to a port the human is focused in gets
-rejected, the header shows the human, handoff flips it.
-**Done when:** two local drivers never double-write, both see the holder, and no existing
-single-driver flow needed a change.
+**Two findings that CHANGE the plan:**
+
+1. **There is no human principal.** `Principal.Kind` is `port | companion | peer` — the local human
+   typing has no principal at all, because until now nothing needed one (permissions are asked OF
+   the human, not authorized FOR them). L2.d cannot "acquire for the human principal" until one
+   exists. **Decision needed:** add `case human` with `id = AppUser.id`. It is small, but it is a
+   change to the identity type the whole authorization layer keys on, so it is called out rather
+   than slipped in. This is also the first place `AppUser`'s identity is used for anything
+   (`decision-identity-model.md` predicted it would need to become real).
+
+2. **A companion-made port authorizes AS its creator.** `PortBridge.portPrincipal.id` is
+   `createdBy ?? messageId` (`PortBridge.swift:117-126`) — deliberate (P-260), and documented: `id`
+   is shared across every port that creator made, while `portId` names the specific port and is
+   excluded from `==` so it never splits a grant bucket. **Consequence for the lease:** keyed on
+   `id`, two ports made by the same companion are the SAME holder and can never contend with each
+   other. **That is the right default** (the actor is the companion, not each surface it spawned)
+   and it keeps the lease consistent with grants, but it must be a stated choice: keying on
+   `portId ?? id` instead would make each port its own driver and immediately diverge from how every
+   permission in the app is bucketed.
+
+**Reviewed:** the write-verb registry declarations and their params; `runBridgeMethod`'s gate site;
+`Principal` and its three kinds; `PortBridge.portPrincipal`; `ToolExecutor`'s principal
+construction; `NotifyBus.publish` and the four existing producer taps; `focusKeyboard(on:)`
+(`PortWindowManager.swift:147` — the single seam, async-dispatched, with a special case for the
+SwiftUI chat unit).
+
+**NOT reviewed (do before the step that touches each):** whether any UI-driven write reaches
+`runBridgeMethod` at all or bypasses it (L2.d depends on the answer); the terminal write path
+(`port.push` → `controller.sendRaw`) and whether a lease denial there needs a visible surface;
+browser ports; and parked/inline/background presentations, where "who is driving" may be meaningless
+and the gate should probably no-op.
+
+#### Build order + the gate at each step
+
+Every step is shippable alone and green before the next starts.
+
+| Step | Build | Automated gate | Manual gate (Dev3) |
+|---|---|---|---|
+| **L2.a** | `PortLease.swift`: `Lease`, `LeaseRegistry`, `LeaseDecision`. Pure, time-injected, no app changes. | `swift test --filter PortLease` — acquire when free; deny when held by another; the holder's write refreshes; expiry frees (inject `now`); explicit release; handoff moves the holder; release by a non-holder is a no-op. | none (headless) |
+| **L2.b** | `writesTarget` on `BridgeMethod`, the eight declarations, the dispatcher check. | The pure tests still green + a dispatcher test: A holds, B's `push` throws a `BridgeError` naming A; A's own `push` succeeds; a READ by B succeeds (reads are never gated). Extend the `BridgeParamConsistencyTests` source-scan so a new write verb without `writesTarget` fails the suite. | Existing single-driver flows unchanged: a companion still makes and drives a port end to end. **This is the regression that matters** — if anything needed changing, implicit acquisition is wrong. |
+| **L2.c** | Notify broadcast on holder CHANGE (not refresh). | A holder change publishes exactly one `{kind:"holder"}` envelope on `port:<id>`; a refresh publishes none. | Subscribe a second port to the first and watch the holder envelope arrive. |
+| **L2.d** | `Principal.Kind.human` + `focusKeyboard` acquires for it. | Focusing a unit yields a human-held lease for that port; focusing away does not steal a lease held by someone else. | **The one that makes it real:** focus a port, have a companion write to it, the write is rejected and the human keeps driving. Then hand off and the companion proceeds. |
+| **L2.e** | Holder in the tile header (a name — "gordon holds this" — not a lock icon). | none (pure visual) | Two drivers, the header names the right one, and it clears when the lease expires. |
+
+**Done when:** two local drivers never double-write, both see the holder, and **no existing
+single-driver flow needed a change** — the last clause is the real acceptance test of the implicit
+acquisition design.
 
 ## 7. Local acceptance (Port42Dev :4243)
 

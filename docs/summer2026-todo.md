@@ -6,6 +6,30 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-24, GM): adding a port rearranges the whole desktop
+
+**GM:** "adding ports does too much rearranging."
+
+**Mechanism (read 2026-07-24).** Creating a port changes `tiledPanels.count`, which fires
+`ShellDesktop.swift:278`'s `onChange` → `shell.applyArrange(area:)` → `ShellState.applyArrange`
+(`:941`), which re-grids **every tile on the desktop** and springs them all to new positions. One
+new port therefore moves everything the user had already placed. The full re-grid is correct for the
+explicit ⌘L "Arrange" button (`ShellDesktop.swift:39`); it is wrong as the response to a spawn.
+
+**Fix direction:** split PLACE from ARRANGE.
+- `place(new:among:in:) -> CGPoint` — a pure function that finds a free spot for ONE tile without
+  moving any existing tile (first-fit against occupied rects, cascade-with-offset as the fallback
+  when the desktop is full). Headless-testable exactly like `ShellState.arrange`.
+- Spawn calls `place`; only ⌘L (and an explicit tidy) calls `applyArrange`.
+- Keep the existing spring on the new tile alone, so the birth still reads as motion without the
+  desktop lurching around it.
+
+Worth deciding at the same time: whether a port the user has MOVED BY HAND should be pinned against
+future arranges (a "user-placed" flag), since the current model has no memory of intent and ⌘L
+flattens hand-placement too.
+
+---
+
 ## TODO (2026-07-24, GM): gateway auth + TLS — **see `docs/plan-gateway-auth-tls.md`**
 
 **GM:** "we need to add https support on the gateway, and should add auth to it presumably too."
