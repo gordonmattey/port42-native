@@ -634,6 +634,13 @@ public final class PortWindowManager: ObservableObject {
                 destroyWebView(id)
             }
         }
+        // The port is gone, so its pen is meaningless — drop the lease with it (a close, not a
+        // release: no holder check, because the thing being held no longer exists). Without this a
+        // closed-and-reopened id could inherit a stale holder.
+        if let panel = panels.first(where: { $0.id == id }) {
+            appState?.portLeases.forget(port: panel.udid)
+        }
+        appState?.portLeases.forget(port: id)
         appState?.teardownTerminalController(panelId: id)
         // Tear down a hoisted terminal surface (shell tile path). The floating path frees via
         // dismantleNSView; the detached view isn't SwiftUI-managed, so free it explicitly here.

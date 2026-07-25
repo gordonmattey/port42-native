@@ -63,7 +63,18 @@ extension AppState {
         guard let ref = resolvePortRef(rawId), let key = ref.udid ?? ref.id else { return }
         let actor = ActorRef(principal: principal.id)
         switch portLeases.check(port: key, actor: actor, name: principal.displayName, now: Date()) {
-        case .granted, .refreshed:
+        case .granted(let lease):
+            // The holder CHANGED. Broadcast on the port's own topic — the thing already streaming
+            // its output is the thing that says who is driving it, so every surface watching the
+            // port (a tile header, another instance's mirror, an agent deciding whether to wait)
+            // learns for free and no side channel exists to fall out of sync. Refresh is silent:
+            // publishing per keystroke would drown the topic in non-news.
+            notifyBus.publish(topic: "port:\(key)", kind: "holder",
+                              payload: ["holder": lease.holder.description,
+                                        "holderName": lease.holderName,
+                                        "until": lease.expires.timeIntervalSince1970])
+            return
+        case .refreshed:
             return
         case .denied(let held):
             throw BridgeError(code: "port_busy",

@@ -91,6 +91,56 @@ struct PortLeaseGateTests {
         }
     }
 
+    // MARK: - L2.c: the holder is broadcast on the port's own topic
+
+    @Test("a holder CHANGE publishes once; the holder's own repeat writes publish nothing")
+    func holderBroadcast() async throws {
+        let (state, id) = try makeWorld()
+        // A short TTL so expiry (and therefore the next change) is reachable in a test.
+        state.portLeases = LeaseRegistry(ttl: 0.15)
+        let alice = principal("alice", "alice"), bob = principal("bob", "bob")
+
+        var envelopes: [String] = []
+        let sub = state.notifyBus.subscribe(topic: "port:\(id)") { envelopes.append($0) }
+        defer { state.notifyBus.unsubscribe(id: sub, topic: "port:\(id)") }
+
+        _ = try await state.runBridgeMethod("port.rename", principal: alice,
+                                            args: BridgeArgs(["id": id, "title": "a"]))
+        let afterFirst = envelopes.count
+        #expect(afterFirst == 1, "taking a free port is a holder change")
+        #expect(envelopes[0].contains("\"kind\":\"holder\"") || envelopes[0].contains("holder"))
+        #expect(envelopes[0].contains("alice"))
+
+        // Same holder writing again is NOT news.
+        _ = try await state.runBridgeMethod("port.rename", principal: alice,
+                                            args: BridgeArgs(["id": id, "title": "b"]))
+        #expect(envelopes.count == afterFirst, "a refresh must not publish")
+
+        // Let it lapse; the next driver IS news.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        _ = try await state.runBridgeMethod("port.rename", principal: bob,
+                                            args: BridgeArgs(["id": id, "title": "c"]))
+        #expect(envelopes.count == afterFirst + 1, "a new holder after expiry is a change")
+        #expect(envelopes.last?.contains("bob") == true)
+    }
+
+    @Test("closing a port drops its lease — a reopened id inherits no holder")
+    func closeForgetsTheLease() async throws {
+        let (state, id) = try makeWorld()
+        let alice = principal("alice", "alice"), bob = principal("bob", "bob")
+        _ = try await state.runBridgeMethod("port.rename", principal: alice,
+                                            args: BridgeArgs(["id": id, "title": "a"]))
+        state.portWindows.close(id)
+
+        _ = state.portWindows.registerInlinePort(
+            id: id, html: "<html><body>again</body></html>",
+            spaceId: nil, createdBy: nil, title: "t", anchorMessageId: nil)
+        // Bob must be able to drive the new port: the old holder died with the old one.
+        _ = try await state.runBridgeMethod("port.rename", principal: bob,
+                                            args: BridgeArgs(["id": id, "title": "b"]))
+        #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "b")
+    }
+
     // MARK: - The declaration cannot rot
 
     @Test("every write verb declares writesTarget, and no read verb does")
