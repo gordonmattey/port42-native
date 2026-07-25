@@ -508,13 +508,18 @@ A queue is a POLICY OVER the lease and can be added later without touching the w
 a primitive that can be retrofitted underneath one. The thing usually wanted is not a queue anyway,
 it is a knock (`take` → holder answers → handoff), which L2.3 provides.
 
-#### L2.7 Cross-instance forward-compat (the one thing not to get wrong)
+#### L2.7 Cross-instance forward-compat — SETTLED (`decision-identity-model.md`, 2026-07-24)
 
-The holder is a principal id. Cross-instance (slice-02) will want the holder to be a PEER identity.
-If those are different notions, the lease means two different things depending on where the writer
-stands. **Do not ship L2 before answering the identity question** in `plan-gateway-auth-tls.md`
-(does the libp2p PeerID derive from the user's P256 key, and is the local `/call` caller the same
-principal the bridge already models). Same question, three tracks.
+The blocker is answered. Identity is three axes, not one: **person** (the `AppUser` P256 key),
+**instance** (the libp2p PeerID, a per-device key signed by the person key), and **actor** (the
+`Principal` — a human, a companion, a port). The lease holds an ACTOR.
+
+**What that fixes here:** `Lease.holder` is a **qualified principal**, `<peerID>/<principalId>`,
+with the local peer as the empty prefix — the same shape as slice-02's port address
+(`port42://<peerID>/space/<id>/<portId>`). So the local lease is the DEGENERATE FORM of the remote
+lease, not a different object, and cross-instance stays the prefix the plan claims it is.
+
+Write holder strings peer-qualified from L2.a. It is one line now and a migration later.
 
 #### Build order
 
