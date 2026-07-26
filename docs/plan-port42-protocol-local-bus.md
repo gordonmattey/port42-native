@@ -543,6 +543,40 @@ callers. Adding it anywhere but the end would.
 ports are not addressable by port verbs, so the "plain append" row was solving a problem that does
 not exist.
 
+**Finding 7 — a full sweep of "ways in" (GM asked: what else?). Five more, and the pattern matters
+more than the list.**
+
+Every site that changes a port's state, swept rather than recalled:
+
+| Path | Covered by the plan as written? |
+|---|---|
+| `sendKey` ← human keydown (`GhosttyTerminalView.swift:230`) | yes — `onHumanInput` |
+| ⌘V paste (`:192`) | incidentally — it routes through `keyDown` first |
+| **file drop onto a terminal, pastes the paths (`:207`)** | **NO** — a drop is a write with no keystroke |
+| `inject` / `sendRaw` writer (`:445`) | yes — R4's controller choke point |
+| `typePrefill` (`:493`), startup command (`:505`) | yes — finding 3 |
+| **file drop onto a WEB port → `handleFileDrop` → `port42:filedrop` (`PortBridge.swift:135`)** | **NO** — an external write into the runtime, never through the dispatcher |
+| **the browser address bar (`ShellDesktop.swift:930`)** | **NO** — a user-typed URL replaces the whole page |
+| **page-initiated navigation (a link, the page's own JS)** | **NO** — and Spike B is exactly whether we can even see it |
+| **a REMOTE peer's @mention → `routeMentionsToTerminals` → `inject`** | path yes (R4), but the ACTOR is remote — cross-instance arriving early |
+| a port's own JS mutating itself (a shader, a form) | must **NOT** count — see the rule below |
+| debug harnesses writing straight to a surface (`GhosttyResizeSpike.swift:103`) | DEBUG-only; ignore, but know it exists |
+
+**The pattern: enumerating ways in is a losing game.** I have now found new ones on three separate
+passes, and the next reader will find a seventh. A guarantee that depends on someone having listed
+every caller is not a guarantee — it is a to-do list that silently rots.
+
+**So the rule changes: bump at the SURFACE, not at the API.** For a pty, every one of those seven
+sites ends in `ghostty_surface_text*`. Funnel them through a single `write(_:)` on
+`GhosttyInputView` that bumps `seq` and is the only thing permitted to call the C functions — then a
+new path physically cannot write without counting, and a reviewer can verify it by grepping for the
+raw call. The bridge and the controller become two callers among several rather than the boundary.
+
+**And the counter-rule, or the shader problem returns:** a port's OWN internal mutation must not
+bump `seq`. Only EXTERNAL writes and human input count. Otherwise an animating port invalidates
+every token every frame, which is the same failure that ruled out an output-sequence token for
+terminals.
+
 #### Architecture spikes (read-only, before the step they gate)
 
 - **Spike A — where does `seq` live, and can it be read cheaply at write time?** A write checks the
@@ -567,6 +601,7 @@ shippable green on its own.
 |---|---|---|---|---|
 | 1 | **R1 · demote** | `claimWrite` → `recordDriving`: records + broadcasts, never throws. `writesTarget` stays (it now means "which port does this touch"). | The existing gate tests INVERT: a second principal's write SUCCEEDS and presence updates. `port_busy` is gone from the codebase. Full suite green. | A companion writing to a port you are in is no longer refused. |
 | 2 | **R2 · seq** | `PortActivity`: `seq(for:)` + `bump(_:)`, in-memory, beside `portLeases`. Bumped from `recordDriving` (all bridge writes) and `onHumanInput`. | Pure: monotonic per port, independent per port, unknown port starts at 0. Wired: two bridge writes bump twice; a trusted input bumps; an untrusted one does not. | — |
+| 2b | **R2b · one surface writer** (finding 7) | Funnel all seven pty write sites through a single `GhosttyInputView.write(_:)` that bumps; it becomes the only caller of `ghostty_surface_text*`. Same for the web file-drop and browser address-bar paths. | A grep test: `ghostty_surface_text*` appears in exactly ONE place outside the harnesses. Drop-a-file and paste both bump. | Drop a file on a terminal; drop one on a web port; type a URL in a browser tile. Each bumps. |
 | 3 | **R3 · CAS** | Optional `expect` APPENDED to the write verbs' `paramNames` (finding 5); mismatch → `stale_write` carrying `current`. | Stale token refused; current token succeeds; ABSENT token succeeds (today's behaviour, nothing breaks); the error CARRIES `current` — without that, callers cannot self-correct. | A companion that reads then writes still works end to end. |
 | 4 | **R4 · the pty choke point** | Move bump+check into `GhosttyTerminalController` (`inject`/`sendRaw`, finding 2), so @mention and `port.push` are covered identically. Bump on `typePrefill` + startup (finding 3). | An @mention-injected line bumps `seq` and is token-checked — the SAME assertions as `port.push`, run against both paths. Prefill bumps. | @mention a terminal companion; it still lands. |
 | 5 | **R5 · streams require it** | Terminals reject a token-less write; conflict carries `current`, so a naive caller self-corrects in one retry. | Token-less `port.push` to a terminal refused; retry with `current` lands. The ONLY required-token surface. | Type a long command slowly while a companion writes — no splice. |
