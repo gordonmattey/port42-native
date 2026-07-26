@@ -414,7 +414,68 @@ its own Notify topic, a first-class signal distinct from `port.push` (which is i
 cycle, before or alongside L2. Bake the emitter into Open Synth's source at the same time and retire the
 injected bootstrap.
 
-### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24)
+### Phase L2 REVISED — state tokens for correctness, the lease for presence (GM, 2026-07-26)
+
+**The built L2 conflated two problems.** Stale writes are a CORRECTNESS problem; who is driving is a
+COORDINATION problem. One time-based lock was doing both, badly — which is why the TTL had no
+principled value, and why justifying it reached for LLM latency on a bus whose writers are scripts,
+ports and peers as much as companions.
+
+#### The rule
+
+**Every port exposes a monotonic state token. A write carries the token it was composed against; if
+the port has moved, the write is rejected and the error carries the current token.** No holder, no
+timer. Correct whether the writer thought for 3ms or 3 hours, and identical locally and across
+instances — which a lock can never be, because clocks do not agree between peers.
+
+A rejected write is self-correcting: the conflict response carries `current`, so a naive caller does
+push → conflict → push-with-token → success. One extra round trip, once.
+
+#### The token follows the WRITE SHAPE, not the port type
+
+| Shape | Port type | Token | Why |
+|---|---|---|---|
+| **Mutate** | web | the existing version number | `update`/`patch` replace content, so writers genuinely clobber. CAS essential. |
+| **Position-sensitive append** | terminal | **input sequence** — every byte delivered from ANY source (human keystrokes, `inject`, `push`) | Input only appends, but WHERE matters: text landing mid-line corrupts it, and a stray newline executes it. |
+| **Plain append** | chat | message count (context only) | Messages never clobber: both exist, order is the only question, and that is not corruption. **Chat needs no CAS.** |
+| **External** | browser | committed-navigation counter | We do not own the page. Staleness means "the page you read is gone" — weaker, and honestly so. |
+
+**Why input sequence and not output sequence for a PTY:** a redrawing TUI (claude's own UI, htop)
+emits constantly, so an output token moves every frame and every write fails — protection too noisy
+to use. Input sequence means exactly "has anyone typed into this since I looked", and redraw does
+not perturb it. It also catches the dangerous case precisely: your keystrokes bump the sequence, so
+a companion's write composed before you started typing is stale, without blocking it for 30 seconds
+because you once touched the port.
+
+**Presentation is not a type.** Inline/tiled/parked/background are positions of the same port and do
+not change write semantics, so they do not touch the token. **A new port type must declare its
+shape** — same discipline as `writesTarget`, so a future type cannot arrive with no answer to "what
+does staleness mean here?".
+
+#### What happens to the lease
+
+**It stays, demoted to presence.** It records and broadcasts and displays who is driving; it stops
+refusing writes. That removes the TTL-as-correctness problem entirely (the remaining TTL is display
+freshness — when the chip should fade). Presence is worth keeping on its own terms: it is what makes
+a companion's work visible, and it is what a remote peer will want to see in slice-02.
+
+**The one place a token is REQUIRED, not optional:** streams. A token-less write to a terminal is
+unguarded against the half-typed-line splice, and that case can execute something you did not type.
+Everywhere else a missing token means last-write-wins, which is today's behaviour and breaks nothing.
+
+#### What of the built work survives
+
+Almost all of it. L2.a's registry, L2.c's broadcast, L2.d/d.2's claim paths and L2.e's header all
+serve presence unchanged. L2.b changes from `throw` to `record`. The new work is the token layer
+(L2.f) and, for terminals, the input counter — which the `onHumanInput` hook from L2.d.2 already
+half-provides.
+
+**Also still owed from the L2.d.2 finding:** the web claim must move to the native event monitor.
+`isTrusted` stops accidental synthesis but a port can shadow it on an event it dispatches, so it is
+a speed bump, not a boundary. Presence being advisory lowers the stakes of that hole — a forged
+claim then misleads a human rather than blocking a companion — but it does not close it.
+
+### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24, SUPERSEDED ABOVE)
 
 **STATUS: BUILT END TO END (L2.a–L2.e, 2026-07-24/25), full suite 1065 green. Only LIVE
 VERIFICATION is left — every step's automated gate passes; none of it has been seen running.**
