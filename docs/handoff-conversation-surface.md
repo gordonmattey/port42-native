@@ -1,31 +1,45 @@
-# Handoff: Onboarding Into The Shell → the L2 lease
+# Handoff: Port42 App Dev — Right-of-Way
 
-## Where this left off (2026-07-24, overnight)
+## Where this left off (2026-07-26)
 
-**v0.5.49 shipped** (notarized, stapled, GitHub Release, appcast pushed): onboarding runs inside the
-shell, all six phases of `plan-unify-onboarding-shell.md` done.
+**HEAD `1a8afce`, branch `main`, tree clean** (only `dist/` build artifacts). Full suite **1065
+green**. Dev3 is the test instance (`./build.sh --dev3 --run`, `:4245`).
 
-**Then, on GM's "build as much as possible until you need manual testing":**
-`docs/plan-port42-protocol-local-bus.md` §L2 — the right-of-way lease, keystone #2 — is **built end
-to end, L2.a through L2.e**, full suite **1065 green**. Read §L2's "What building it taught us"
-before extending it.
+**v0.5.49 shipped** — notarized, stapled, GitHub Release, appcast pushed. Onboarding runs inside the
+shell; all six phases of `plan-unify-onboarding-shell.md` are done.
 
-**NOTHING OF L2 HAS BEEN SEEN RUNNING.** Every automated gate passes; the live column is untouched.
-The manual run, in Dev3:
-1. Zoom into a port, have a companion write to it → refused BY NAME, and the tile header shows the
-   holder when it is someone else (silent when it is you).
-2. Type in a terminal a companion is about to write to → same refusal (this is L2.d.2, native input
-   claiming the pen, the gap the design originally could not close).
-3. Focus a port a companion is mid-write on → it must NOT steal; the companion keeps driving.
-4. Leave a port idle 30s → the lease lapses and the other driver can take it.
+### 1. NEXT UP — the pre-boot cinematic regression (see `summer2026-todo.md`, top item)
 
-**Also shipped tonight:** the gateway binds loopback (`127.0.0.1:<port>`) instead of every interface
-— the LAN could previously reach `/call`, which authenticates nobody and proxies into the bridge.
-`docs/decision-identity-model.md` settles person/instance/actor and unblocked L2.
+First boot lost the glitch sequence. `DolphinProtocolView` is only ever triggered by
+`.dolphinProtocolRequested`, posted from `LockScreenView.diveIn()`; the first-boot change set
+`showDreamscape = false` when there is no identity, so the lock screen never renders and nothing
+posts it. Fix from `TransitionRoot` (no identity → play it → then the setup terminal), and **hold
+`bootCinematicDone` false at first boot** or the setup terminal renders under the video and it will
+look fixed without being fixed. Only a fresh-data Dev3 launch shows it.
 
-**Also shipped tonight:** the gateway binds loopback (`127.0.0.1:<port>`) instead of every interface
-— the LAN could previously reach `/call`, which authenticates nobody and proxies into the bridge.
-`docs/decision-identity-model.md` settles person/instance/actor and unblocked L2.
+### 2. Then — the L2 protocol revision, R1–R7
+
+`docs/plan-port42-protocol-local-bus.md` §"Phase L2 REVISED" is the current design; the section below
+it is superseded and says so. Read the REVISED section, its **Verification** findings 1–7, and the
+two spikes before writing code.
+
+- **What is built (L2.a–e + d.2):** a per-port lease, the dispatch gate, the holder broadcast on the
+  port's Notify topic, a `human` principal, interaction-claims, and the tile-header chip. **Live-
+  verified**: a gateway write to a port the human held was refused BY NAME; GM saw the chip.
+- **What the design became:** the lease conflated correctness with coordination. Correctness moves to
+  **state tokens (CAS)** — one activity `seq` per port, bumped by every external mutation — and the
+  lease is **demoted to presence** (shows who is driving, refuses nothing). R1 (demote) goes first
+  because the gate is live in Dev3 enforcing on a justification we abandoned.
+- **The rule that came out of it:** *bump at the SURFACE, not the API*. Enumerating callers failed
+  three times (finding 7); the guarantee has to be structural, verifiable by grep.
+
+### 3. Security thread (open)
+
+`docs/plan-gateway-auth-tls.md`: P0 shipped (gateway binds loopback). P1 — authenticating `/call`,
+which today authenticates nobody — is open, and the callers are the work.
+`docs/decision-identity-model.md` settles person/instance/actor and is the shared input to L2, the
+gateway, and slice-02. **A port can still forge the human's presence claim** (`isTrusted` is
+shadowable); R7 moves the claim to the native monitor.
 
 ---
 
