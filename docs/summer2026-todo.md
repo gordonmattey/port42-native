@@ -16,15 +16,23 @@ then asks the UI delegate to create a web view for it, nobody answers, and **the
 silently** — no navigation, no error, no feedback. `PortBrowserNavigation` only implements
 `decidePolicyFor` (`PortWindowManager.swift:1329`), which never sees it.
 
-**Two fixes, and the second is the more Port42 answer:**
-1. *Same surface* — implement `createWebViewWith` and load the request into the existing webview.
-   One line of intent, keeps one port = one surface, but silently flattens the site's intent to
-   open a second thing.
-2. *A new window becomes a NEW PORT.* The site says "this deserves its own surface"; the desktop
-   already has surfaces. Spawning a browser port for it is truer to the model than collapsing it,
-   and it makes an ordinary web idiom produce a Port42 object.
+**DECIDED (GM, 2026-07-26): a new window becomes a NEW BROWSER PORT.** The site is saying "this
+deserves its own surface" and the desktop already has surfaces, so an ordinary web idiom produces a
+Port42 object instead of being flattened.
 
-Worth deciding deliberately rather than defaulting to (1) because it is shorter.
+**The rejected option is worse than it looks.** Loading the request into the existing webview
+REPLACES the page you were on. For an OAuth or payment popup that is worse than today's silent
+failure: the parent is destroyed mid-flow, and those flows expect to hand a result back to their
+opener — so a broken login becomes a broken login that also ate your page.
+
+**Two constraints that make the new-port version correct rather than merely nicer:**
+1. **Build the child from the `configuration` WebKit passes in**, never a fresh one. That is what
+   preserves the `window.opener` link, so a popup can still post its result back to the parent
+   port. Getting this wrong reimplements the rejected option's bug with extra steps.
+2. **Gate on user intent:** `navigationAction.navigationType == .linkActivated` means a human
+   clicked. An ungestured `window.open()` is the popup-spam case, and without the check a careless
+   or hostile page can carpet the desktop with ports. Same lesson as `isTrusted` in the lease work —
+   separate what the human did from what the page did. Real browsers refuse it too.
 
 **Protocol relevance (R2/Spike B):** a new-window navigation is a state change we currently cannot
 observe AT ALL, which sharpens Spike B — the browser's activity token is the weakest of the four,
