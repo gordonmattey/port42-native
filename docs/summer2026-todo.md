@@ -6,6 +6,32 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-26, GM): browser ports drop links that open in a new window
+
+**GM:** "on browser it's actually broken when links open in new window."
+
+**Cause (verified 2026-07-26).** There is **no `WKUIDelegate` in the codebase at all**. A
+`target="_blank"` link or a `window.open()` yields a navigation with a nil `targetFrame`; WebKit
+then asks the UI delegate to create a web view for it, nobody answers, and **the click dies
+silently** — no navigation, no error, no feedback. `PortBrowserNavigation` only implements
+`decidePolicyFor` (`PortWindowManager.swift:1329`), which never sees it.
+
+**Two fixes, and the second is the more Port42 answer:**
+1. *Same surface* — implement `createWebViewWith` and load the request into the existing webview.
+   One line of intent, keeps one port = one surface, but silently flattens the site's intent to
+   open a second thing.
+2. *A new window becomes a NEW PORT.* The site says "this deserves its own surface"; the desktop
+   already has surfaces. Spawning a browser port for it is truer to the model than collapsing it,
+   and it makes an ordinary web idiom produce a Port42 object.
+
+Worth deciding deliberately rather than defaulting to (1) because it is shorter.
+
+**Protocol relevance (R2/Spike B):** a new-window navigation is a state change we currently cannot
+observe AT ALL, which sharpens Spike B — the browser's activity token is the weakest of the four,
+and this is one of the reasons why. Fixing this makes the token more honest as a side effect.
+
+---
+
 ## TODO (2026-07-24, GM): adding a port rearranges the whole desktop
 
 **GM:** "adding ports does too much rearranging."
