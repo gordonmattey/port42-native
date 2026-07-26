@@ -928,6 +928,18 @@ public final class PortWindowManager: ObservableObject {
               };
               window.addEventListener('keydown', send, true);
               window.addEventListener('pointerdown', send, true);
+              // `beforeinput` is the third, and it is the one that makes this HONEST (Spike C,
+              // measured live 2026-07-26). keydown+pointerdown saw 8 of 11 real content changes.
+              // The three it missed were not exotic: DICTATION and IME arrive as composition
+              // events, and CONTEXT-MENU PASTE arrives as a paste event — none of them involve a
+              // key or a pointer, so the port changed and Port42 had no idea. That is presence
+              // lying AND the activity token standing still while the document moves under it.
+              //
+              // `beforeinput` fired on all 11, seen and missed alike, so one event name covers
+              // what two were failing to. It does not REPLACE them: it only fires for editable
+              // content, and a canvas/game/shader port is driven by pointers with nothing
+              // editable in sight. Three narrow signals, not one clever one.
+              window.addEventListener('beforeinput', send, true);
             })();
             """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true)

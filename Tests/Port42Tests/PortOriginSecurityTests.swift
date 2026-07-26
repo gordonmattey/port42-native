@@ -83,6 +83,24 @@ struct PortOriginSecurityTests {
         #expect(loaders > 0, "the scan found no loaders; the walk is broken")
     }
 
+    @Test("the input listener covers the three signals Spike C measured, not the two it guessed")
+    func inputListenerCoversMeasuredSignals() throws {
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Port42Lib/Views/PortWindowManager.swift"), encoding: .utf8)
+        // Measured live: keydown+pointerdown caught 8 of 11 real content changes. The misses were
+        // dictation/IME (composition events) and context-menu paste (a paste event) — no key, no
+        // pointer. `beforeinput` fired on all 11. Dropping any of the three reopens a hole someone
+        // has already walked through.
+        for ev in ["'keydown'", "'pointerdown'", "'beforeinput'"] {
+            #expect(src.contains("addEventListener(\(ev), send, true)"),
+                    "the port input listener must report \(ev)")
+        }
+        // And the trust check still guards all three: without it a port forges the human's presence
+        // and, since R2, moves the activity token too.
+        #expect(src.contains("e.isTrusted !== true"))
+    }
+
     @Test("EVERY message handler is pinned — a partial fix is the same bug with fewer doors")
     func everyHandlerPinned() throws {
         func source(_ p: String) throws -> String {

@@ -4,7 +4,7 @@
 
 **HEAD `3c3f370`, branch `main`.** The tree is UNCOMMITTED (GM has not asked to commit) and carries
 the cinematic fix, a SECURITY P0 fix, and L2 **R1, R1b, R2, R2b, R3** (+ the new `port.getDom`).
-Full suite **1099 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running ALL of it, live-verified.
+Full suite **1100 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running ALL of it, live-verified.
 Dev3 builds no longer need GM's go-ahead (GM, 2026-07-26); Dev `:4243` and prod still do.
 
 **v0.5.49 shipped** — notarized, stapled, GitHub Release, appcast pushed. Onboarding runs inside the
@@ -72,11 +72,21 @@ two spikes before writing code.
   `example.com` called `ports.list()` and got the user's real ports back. The nav policy allows
   `.other` (script-initiated, the hostile case) and cancels `.linkActivated` (a human clicking), the
   inverse of its stated intent. Browser ports carry the bridge onto every site by construction.
-- **Spike C is RUN, partially** — the input sweep across all surfaces. Six ad-hoc seams for "input
-  reached a port", split by surface TECHNOLOGY, which is the root cause of finding 7 repeating. The
-  web listener is `keydown`+`pointerdown` only, so voice/IME/context-paste/autofill are suspected
-  blind spots. **The remaining half needs a live probe with real input devices** — do not fix against
-  a guessed list.
+- **Spike C is RUN and MEASURED live** — the input sweep across all surfaces. Six ad-hoc seams for
+  "input reached a port", split by surface TECHNOLOGY, which is the root cause of finding 7
+  repeating. The web listener was `keydown`+`pointerdown`: **it saw 8 of 11 real content changes.**
+  The three misses (emoji picker via composition, right-click paste, cross-app drag) involve no key
+  and no pointer, so the port changed while presence lied and the token stood still.
+  **FIXED: `beforeinput` added** — it fired on all 11, and a re-measure came back 7/7 seen, zero
+  invisible. It does not replace the other two (it only fires for editable content; a canvas port is
+  pointer-driven). Suite **1100 green**.
+- **Two caveats on Spike C, both worth carrying:** (1) **dictation is still UNMEASURED** — the probe
+  logged events but not which action produced them, so I inferred the labels and got one wrong
+  (`fn fn` is the emoji picker on GM's machine, not dictation). The mechanism finding survives; the
+  feature labels were a guess. A labelled probe (operator names the action first) is the right shape.
+  (2) **Terminals have the same hole with no seam to fix it at**: `GhosttyInputView` implements no
+  `NSTextInputClient`, so dictation/IME either do not work there or bypass `keyDown`, which is where
+  `onHumanInput` hangs. A web port now has three input signals; a terminal still has one.
 - **MEMBRANE REVIEW is on the backlog** (`summer2026-todo.md`) and **should be decided before R4/R5**:
   one `PortInput` seam carrying `(port, kind, actor, trusted)`, each surface technology reduced to
   translating into it. R5 ("terminals require a token") is only sound if every way in counts.

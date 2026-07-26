@@ -700,9 +700,50 @@ token: **dictation / voice, IME composition, context-menu paste, autofill, dragg
 field.** `beforeinput` is the canonical "the user is about to change content" event and covers these
 cases; the current pair covers keys and clicks and calls it input.
 
-**NOT yet verified which specific ones slip** — that needs a live probe with a human using the actual
-devices, which is the remaining half of this spike. The shape is certain from the event names; the
-list is not. Do not fix against a guessed list — that is finding 7's mistake for the third time.
+**MEASURED 2026-07-26** with a live probe (GM at the keyboard, real input devices — the blind cases
+are `isTrusted` by definition, so nothing about this could be simulated).
+
+**Before: 11 real content changes, Port42 saw 8, THREE INVISIBLE.**
+
+| events fired | what it was | old verdict |
+|---|---|---|
+| keydown, input | typing | seen |
+| keydown, paste, input | ⌘V | seen |
+| keydown, input (insertReplacementText) | accent hold (é) | seen |
+| pointerdown, input (insertReplacementText) | a click-to-insert (picker or suggestion) | seen |
+| **composition\*, beforeinput, input** ×2 | **the EMOJI PICKER** (see the caveat) | **INVISIBLE** |
+| **paste, beforeinput, input** | **right-click → Paste** | **INVISIBLE** |
+| **drop, beforeinput, input** | **drag text in from another app** | **INVISIBLE** |
+
+**METHODOLOGY CAVEAT, and it cost a wrong claim.** The probe recorded EVENTS, not which action
+produced them, so the right-hand column is inference. I first wrote the two composition rows up as
+"dictation". GM corrected it: on this machine `fn fn` opens the EMOJI PICKER, so those rows are the
+picker, and **dictation was never tested at all**. The events are facts; the labels were my guess,
+and a probe that needs the operator to remember what they just did is a badly built probe. A rerun
+should let the operator name each action before performing it.
+
+The finding survives the correction, because it is about MECHANISM not about which feature: a real
+user action can change a port's content through composition, paste or drop events with **no key and
+no pointer anywhere**. When that happens the port changed, presence lied, and the activity token
+stood still while the document moved underneath it — a companion's stale write would have passed CAS
+cleanly. Dictation is expected to be in this family (it is composition-based) but that is now an
+expectation, not a measurement.
+
+**The fix is one event name.** `beforeinput` fired on ALL ELEVEN rows, seen and missed alike. One
+signal covers what two were failing to. Added to the injected listener behind the same `isTrusted`
+check. **Re-measured after the fix: 7 of 7 seen, zero invisible**, including a right-click paste and
+a cross-app drag — the drag being a case nobody had enumerated, caught by construction rather than
+by having listed it.
+
+`beforeinput` does NOT replace the other two: it only fires for editable content, and a
+canvas/game/shader port is driven by pointers with nothing editable in sight. Three narrow signals,
+not one clever one.
+
+**C2b — TERMINALS have the same hole, and no seam to fix it at.** `GhosttyInputView` implements no
+`NSTextInputClient` — no `insertText`, no `setMarkedText`, no `interpretKeyEvents`. Dictation and IME
+into a terminal port therefore either do not work at all or bypass `keyDown`, which is the only place
+`onHumanInput` hangs. Code-verified; not probed live. A web port now has three signals and a terminal
+still has one, which is the membrane argument in miniature.
 
 **C3 — still entirely uncounted:** page-initiated browser navigation (B2), and `window.open` /
 `target="_blank"`, which has no `WKUIDelegate` anywhere in the repo (already its own TODO).
