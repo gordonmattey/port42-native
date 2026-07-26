@@ -497,7 +497,7 @@ stopped. The timer is the fallback for the actor with no end event, not the mech
 
 Almost all of it. L2.a's registry, L2.c's broadcast, L2.d/d.2's claim paths and L2.e's header all
 serve presence unchanged. L2.b changes from `throw` to `record`. The new work is the token layer
-(L2.f) and, for terminals, the input counter — which the `onHumanInput` hook from L2.d.2 already
+(R2–R5) and, for terminals, the input counter — which the `onHumanInput` hook from L2.d.2 already
 half-provides.
 
 **Also still owed from the L2.d.2 finding:** the web claim must move to the native event monitor.
