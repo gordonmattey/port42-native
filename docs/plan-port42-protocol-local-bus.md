@@ -463,6 +463,22 @@ a companion's work visible, and it is what a remote peer will want to see in sli
 unguarded against the half-typed-line splice, and that case can execute something you did not type.
 Everywhere else a missing token means last-write-wins, which is today's behaviour and breaks nothing.
 
+#### Presence lifetime: events where they exist, a timer only where they do not
+
+A single TTL cannot serve both actors, because they have opposite rhythms:
+
+- **A companion** has 5–20s of model latency between related tool calls. A 10s decay flickers the
+  chip off mid-turn and back on when it writes, reading as "stopped, started, stopped" when the
+  truth is one continuous piece of work. This is what the original 30s was accidentally covering.
+- **A human** pauses 1–3s between keystrokes and longer while thinking, but has no end signal at
+  all. 30s claims they are driving something they walked away from half a minute ago — actively
+  misleading once it is a REMOTE peer's name on the chip.
+
+So: **a companion's presence is event-scoped** — held for the turn, dropped at its end. The signals
+exist already (`llmDidFinish`, and `turnComplete` for terminal companions). No timer, no flicker,
+and it is exactly true. **A human's presence is timed** at ~10s, because nothing tells us when they
+stopped. The timer is the fallback for the actor with no end event, not the mechanism.
+
 #### What of the built work survives
 
 Almost all of it. L2.a's registry, L2.c's broadcast, L2.d/d.2's claim paths and L2.e's header all
@@ -474,6 +490,25 @@ half-provides.
 `isTrusted` stops accidental synthesis but a port can shadow it on an event it dispatches, so it is
 a speed bump, not a boundary. Presence being advisory lowers the stakes of that hole — a forged
 claim then misleads a human rather than blocking a companion — but it does not close it.
+
+#### Build order (revised 2026-07-26)
+
+Ordered so the thing currently enforcing on a bad justification stops first.
+
+| Step | Build | Gate |
+|---|---|---|
+| **L2.g demote** | `claimWrite` → `recordDriving`: records + broadcasts, never throws. Registry keeps `writesTarget` (it is now "which port does this touch", still the right declaration). | The existing gate tests INVERT: a second principal's write now succeeds and presence updates. `port_busy` disappears from the codebase. Full suite green. |
+| **L2.f1 tokens** | One `stateToken(for:)` resolver, per write shape: web → version, terminal → input seq, browser → nav counter, chat → nil. Declared per port type, so a new type must answer. | Pure tests per provider + "an unknown type has no silent default". |
+| **L2.f2 CAS** | Optional `expect` on the write verbs; mismatch → `stale_write` carrying `current`. | Write with a stale token is refused; with the current token succeeds; with none succeeds (last-write-wins, today's behaviour). The conflict error must carry `current`, or callers cannot self-correct. |
+| **L2.f3 streams require it** | Terminals reject a token-less write. The conflict carries `current`, so a naive caller self-corrects in one retry. | A token-less `port.push` to a terminal is refused; the retry with `current` lands. This is the ONLY required-token surface. |
+| **L2.f4 input counter** | The terminal's input sequence counts EVERY source: human keystrokes (`onHumanInput` already gives this), `inject`, `push`. | Typing bumps it; a companion's pre-typing token is then stale. This is the half-typed-line case, caught by state. |
+| **L2.h presence lifetime** | Companion presence dropped at `llmDidFinish` / `turnComplete`; human TTL → ~10s. | Presence survives a full companion turn without flickering; a human's fades ~10s after their last input. |
+| **L2.i native claim** | Move the web presence claim off the injected listener onto the shell's `NSEvent` monitor. | A port dispatching a forged `isTrusted` event no longer registers as the human. |
+
+**Also fix while in there:** `routeMentionsToTerminals` calls `controller.inject` directly
+(`AppState.swift:1649`), bypassing the dispatch seam entirely — so an @mention into a terminal is
+neither recorded as presence nor token-checked. Every path into a PTY must converge on one claim
+point, or the guarantee is only as good as the route taken.
 
 ### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24, SUPERSEDED ABOVE)
 
