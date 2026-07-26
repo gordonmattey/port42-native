@@ -1,12 +1,90 @@
 # Summer 2026 — north-star notes (TODO)
 
+---
+
+## SECURITY P0 (found 2026-07-26 during Spike B): a web port can navigate to any site and TAKE THE BRIDGE WITH IT
+
+**LIVE-VERIFIED in Dev3, end to end.** Not a code-reading inference.
+
+```
+1. create a normal web port
+2. its JS runs:  location.href = 'https://example.com'
+3. navigation SUCCEEDS — origin is now https://example.com
+4. window.port42 is still there, and its methods are still functions
+5. example.com calls port42.ports.list() → RESOLVES with the user's real port list
+   across spaces (ids, spaceIds, titles, positions)
+```
+
+An arbitrary remote origin executed a native bridge call and got user data back.
+
+**Cause.** `PortNavigationBlocker` (`PortWindowManager.swift:1323`) is the "sandbox":
+
+```swift
+decisionHandler(navigationAction.navigationType == .other ? .allow : .cancel)
+```
+
+Its doc comment says *"Blocks all navigation except initial load (sandbox)."* **The rule is inverted
+relative to that intent.** `.other` is what WebKit reports for SCRIPT-INITIATED navigation, which is
+exactly the hostile case; `.linkActivated` — a human clicking a link — is the case it cancels. So the
+policy blocks the user and permits the page.
+
+**Why the bridge follows.** The injected scripts and message handlers live on the
+`WKUserContentController` in the webview's CONFIGURATION, so they are re-injected on every
+navigation. The bridge is a property of the WEBVIEW, not of the document that happened to be in it.
+Nothing re-checks the origin, because nothing expected the origin to change.
+
+**Blast radius.**
+- A port's HTML is authored by a COMPANION (an LLM) or pasted by the user. Prompt injection into a
+  companion is enough to plant one; the port then hands an attacker page a live API onto the machine.
+- Permission-gated verbs (files, terminal, screen, clipboard) still prompt — but grants are keyed to
+  the PORT PRINCIPAL and persist, so a port that was legitimately granted `filesystem` yesterday
+  carries that grant to whatever origin it navigates to today.
+- Ungated verbs (`ports.list`, `port.info`, …) need no prompt at all. That is the call proven above.
+- **Browser ports are worse, by code inspection** (`addTiledBrowserPanel:472` → `createPortWebView` →
+  `bridge.attach(to: config)`): they take the SAME config, so **every website loaded in a browser
+  port carries `window.port42`.** `PortBrowserNavigation` allows all navigation by design, so this is
+  not an escape — it is the normal path. Not live-tested (creating one needs the `.browser`
+  permission), but it is the identical mechanism to the one verified above.
+
+**Fix direction (not applied — needs a decision, it is a real design choice).**
+1. **Invert the blocker to an allowlist.** A normal web port permits the initial load and nothing
+   else; every other navigation is cancelled regardless of type. Type-based rules were the bug.
+2. **Bind the bridge to an ORIGIN, not a webview.** Every bridge message handler checks
+   `message.frameInfo.securityOrigin` against the origin the port was created with, and refuses
+   otherwise. This is the load-bearing one: it holds even if a navigation slips through, and it is
+   the only thing that makes browser ports safe.
+3. **Decide what a browser port's bridge should be.** Full `window.port42` on arbitrary websites is
+   not defensible. Either no bridge, or a separate minimal surface with its own permission story.
+
+Relates to `docs/plan-gateway-auth-tls.md` P1 (authenticating `/call`) — same underlying question of
+who a caller actually is. Also sharpens R7: `isTrusted` is a speed bump for a port forging the
+human's input, and this is the same class of hole one level down.
+
+---
+
 Forward-looking architecture direction. **Not built yet.** These are decisions about where the
 model is heading, written down so they survive reboots and *steer* current work (don't entrench
 patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
-## TODO (2026-07-26, GM) — **NEXT UP**: first boot lost the pre-boot cinematic (a regression I caused)
+## DONE (2026-07-26) — first boot lost the pre-boot cinematic (a regression I caused)
+
+**FIXED AND LIVE-VERIFIED (GM, 2026-07-26: "works great").** A fresh-data Dev3 launch plays the
+glitch sequence, then hands to the setup terminal, with nothing rendering underneath it.
+
+The fix is the direction below, with the gate made explicit rather than implicit:
+`RootScreen.playsBootCinematicAtLaunch(hasIdentity:isSetupComplete:)` is a pure launch decision,
+and `TransitionRoot.onAppear` branches on it — first boot sets `showBootCinematic = true` and
+leaves `bootCinematicDone` **false**, so `decide` returns `.none` and the overlay covers the gap.
+Every other launch keeps the old unconditional `bootCinematicDone = true`. The dismissal path
+needed no change: `showBootCinematic` going false already sets the flag and clears
+`showDreamscape`, landing on `.setup`. `OnboardingShellTests` +2 (first boot plays it and the root
+is `.none` while it does; a launch with an identity never plays it). Suite 1067 green.
+
+The original report follows.
+
+---
 
 **GM:** "we are missing the pre-boot video interactive sequence, the glitch etc. when we shifted the
 way things work I think we lost it."
@@ -74,9 +152,90 @@ and this is one of the reasons why. Fixing this makes the token more honest as a
 
 ---
 
-## TODO (2026-07-24, GM): adding a port rearranges the whole desktop
+## TODO (2026-07-26, GM) — **MEMBRANE REVIEW**: one input seam, not six
 
-**GM:** "adding ports does too much rearranging."
+**GM:** "we are the UX and own the membrane with the user. so... any interaction key, voice, any
+input device must go through a controller."
+
+**The finding that prompted it (Spike C, in the protocol plan).** There are SIX separate seams for
+"something entered a port", each added when someone noticed a gap: `GhosttyInputView.sendKey`,
+`GhosttyInputView.write`, the injected JS `keydown`/`pointerdown` listener, `PortBridge.handleFileDrop`,
+`ShellBrowserTile.navigate`, and `runBridgeMethod`. They are split by **surface technology** —
+Ghostty, WKWebView and SwiftUI chrome each have their own input plumbing — so each grew its own hook.
+
+**That split is why finding 7 kept repeating.** Three sweeps for "ways into a terminal" each found one
+the last had missed, and R2b then funneled ONE of the six and left five. The sweep was scoped to a
+technology; the property is about the product.
+
+**The shape to review:** one `PortInput` seam every input is reported to, regardless of origin,
+carrying `(port, kind, actor, trusted)`. Each surface technology's only job becomes translating its
+native events into it. Then the activity bump, the presence record, the trust boundary, voice, and a
+remote peer's input all hang off ONE place.
+
+**What it unblocks / where it is load-bearing:**
+- **R5** (terminals require a token) is only sound if every way in counts. It currently does not for
+  web and browser, and is unverified for voice anywhere.
+- **R7** (move the human's claim off the shadowable `isTrusted` onto a native monitor) is a property
+  of this seam, not a patch to the JS listener.
+- **Voice and any future input device** land here for free instead of needing a seventh hook.
+- **Slice-02**: a remote peer's input is just another actor arriving at the same seam.
+
+**Do not fix against a list of missing events** (dictation, IME, context-menu paste, autofill are
+suspected but unverified). Finish Spike C's live probe first — guessing the list is the mistake this
+item exists to stop making.
+
+---
+
+## TODO (2026-07-26): `port.push` with a missing `data` types the string `null` into a live shell
+
+**Found by accident** while testing R1: a push sent with the wrong param name (`text`, not `data`)
+returned `{"ok":true}` sixty times and typed `null` into GM's terminal each time. GM saw
+`bash: null: command not found`. Reproduced deliberately by omitting `data` entirely — same result.
+
+**Cause (verified 2026-07-26).** `BridgeMethods.swift:185`:
+
+```swift
+let data = args.any("data") ?? NSNull()
+```
+
+`data` is declared **required** in the method's own `inputSchema`, and the body defaults it anyway.
+`NSNull` then reaches `:202`, which JSON-serializes it with `.fragmentsAllowed` into the string
+`"null"` and hands that to `sendRaw` — so it is typed at the prompt. The call reports success.
+
+**Why this is worth fixing rather than noting:**
+
+1. **It contradicts the sibling verb.** `port.exec` with a missing `js` throws `missing_arg`
+   correctly. Two methods in one registry, two contracts for a required argument. The schema is
+   already right in both cases; only push's body disagrees with it.
+2. **A terminal is a SHELL.** A malformed call becomes text at a live prompt. It was `null` here,
+   and the mechanism does not care what the string is.
+3. **`ok:true` means no caller can detect it.** A companion doing push → "ok" → carry on has no
+   signal that its payload evaporated.
+4. **It undercuts R3.** A write verb that cannot fail on a missing argument will also not fail on a
+   missing `expect` token, so CAS would be silently optional exactly where R5 needs it mandatory.
+
+**Fix:** `try args.require("data")` (or the typed equivalent), matching exec. Check the rest of the
+registry for the same `?? NSNull()` / silent-default shape while there — the schema is the
+declaration, and a body that disagrees with its own schema is the bug class, not this one instance.
+
+---
+
+## TODO (2026-07-24 / 2026-07-26, GM): the desktop rearranges itself — TWO symptoms, one subsystem
+
+**SCOPE (GM, 2026-07-26): AFTER the L2 protocol work.** Not part of the right-of-way thread; picked
+up once R4–R7 and the membrane review are done. Captured in full below so it survives the boundary.
+
+
+**GM (2026-07-24):** "adding ports does too much rearranging."
+**GM (2026-07-26):** "moving away from the space (for a period of time, not sure if another space or
+another app), when I come back, the tiles are rearranged."
+
+Same subsystem, and the second is the more serious of the two: symptom 1 is a spawn doing more than
+it should, but symptom 2 moves the user's tiles when they did **nothing at all**. Layout has no
+memory of intent, so any re-grid is total, and a total re-grid is indistinguishable from the desktop
+losing the user's work.
+
+### Symptom 1 — a spawn re-grids everything (mechanism VERIFIED 2026-07-24)
 
 **Mechanism (read 2026-07-24).** Creating a port changes `tiledPanels.count`, which fires
 `ShellDesktop.swift:278`'s `onChange` → `shell.applyArrange(area:)` → `ShellState.applyArrange`
@@ -95,6 +254,37 @@ explicit ⌘L "Arrange" button (`ShellDesktop.swift:39`); it is wrong as the res
 Worth deciding at the same time: whether a port the user has MOVED BY HAND should be pinned against
 future arranges (a "user-placed" flag), since the current model has no memory of intent and ⌘L
 flattens hand-placement too.
+
+### Symptom 2 — leaving and returning rearranges tiles (candidates only, NOT yet verified)
+
+Nothing was added, so this is not symptom 1. Four candidates, read but **not reproduced or
+instrumented** — do that first rather than fixing on this list.
+
+1. **`seedIfNeeded` re-grids the WHOLE desktop from `.onAppear`** (`ShellDesktop.swift:311`). It
+   calls `applyArrange` if **any** tiled panel has `position == nil`. So one never-positioned port
+   (an adopted foreign port, a peek, anything restored without a saved position) moves every other
+   tile the user had placed, every time the desktop view appears. The comment above it claims
+   "arrange only re-grids on spawn/⌘L", which this line makes false.
+2. **`arrange` grids by INDEX IN `z` ORDER**, not by where a tile was (`ShellState.swift:1036`). So
+   focusing or clicking tiles changes `z`, and the NEXT arrange from any cause deals the same tiles
+   into different cells. Layout is therefore a function of recent attention, which is why a re-grid
+   looks like a shuffle rather than a tidy.
+3. **`arrangedForSpace` goes stale when two spaces have the SAME tile count** (`:281`). The guard
+   only updates inside `onChange(of: tiledPanels.count)`, and an equal count fires no change — so
+   the flag can keep naming the space you left. That mis-sequences later arranges. (Note this
+   direction SWALLOWS an arrange rather than adding one, so it likely explains oddness after a
+   return rather than the return itself. Check it, do not assume it.)
+4. **`arrange` is a function of `area`.** Any re-grid at a different window size lands tiles
+   somewhere new, so a resize while away plus any of the above compounds it.
+
+**Before fixing:** confirm which trigger actually fires by logging every `applyArrange` caller with
+its reason, then reproduce both the space-switch and the app-switch cases. GM was explicitly unsure
+which of the two it was, and they are different code paths.
+
+**The fix direction is the same as symptom 1's, plus one rule:** a re-grid must be something the
+user ASKED for. ⌘L and an explicit tidy arrange; a spawn places; appearing, returning, resizing and
+switching arrange **nothing**. Persisting position per port per space is what makes "arrange nothing"
+possible, and the "user-placed" flag above is what keeps it true across a later ⌘L.
 
 ---
 

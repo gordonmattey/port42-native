@@ -92,18 +92,31 @@ public struct BridgeError: Error, Equatable {
     public let code: String
     /// Human-readable, shown to the caller.
     public let message: String
+    /// Machine-readable extras the caller needs in order to ACT on the error, surfaced as top-level
+    /// keys beside `code`. Added for R3's `stale_write`, which carries the port's `current` token:
+    /// an error that only says "you are stale" leaves a caller stuck, while one that says what the
+    /// current value IS turns the failure into a one-retry self-correction. Empty for every error
+    /// where the code alone is the whole story.
+    public let details: [String: String]
 
-    public init(code: String, message: String) {
+    public init(code: String, message: String, details: [String: String] = [:]) {
         self.code = code
         self.message = message
+        self.details = details
     }
 
     public func toJSONObject() -> Any {
-        return ["error": message, "code": code]
+        var o: [String: Any] = ["error": message, "code": code]
+        for (k, v) in details where k != "error" && k != "code" { o[k] = v }
+        return o
     }
 
     public func toToolBlocks() -> [[String: Any]] {
-        return [["type": "text", "text": "Error: \(message)"]]
+        // The details go in the TEXT too, not just the JSON: a companion reads prose, and an error
+        // it cannot act on costs a whole turn.
+        let extra = details.isEmpty ? ""
+            : " (" + details.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + ")"
+        return [["type": "text", "text": "Error: \(message)\(extra)"]]
     }
 
     // Common cases, so bodies don't each invent their own wording.

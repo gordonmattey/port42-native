@@ -67,6 +67,46 @@ public struct BridgeMethod {
     }
 }
 
+public extension BridgeMethod {
+    /// R3 — give this method the optional `expect` token if it WRITES.
+    ///
+    /// Applied centrally to the finished registry rather than typed into eight declarations, for the
+    /// same reason `writesTarget` is declared rather than scattered: a new write verb must not be
+    /// able to arrive without CAS. Declaring it per-method would make compare-and-swap depend on
+    /// whoever added the verb having remembered, which is the failure mode this whole phase exists
+    /// to stop (finding 7).
+    ///
+    /// `expect` is APPENDED to `paramNames`, never inserted. `BridgeArgs(positional:names:)` maps
+    /// positional args in order, so a trailing name cannot disturb an existing positional JS caller;
+    /// anywhere else would silently reassign their arguments (finding 5).
+    func acceptingExpect() -> BridgeMethod {
+        guard writesTarget != nil, !paramNames.contains(PortActivity.expectParam) else { return self }
+        var schema = inputSchema
+        if !schema.isEmpty {
+            var props = schema["properties"] as? [String: Any] ?? [:]
+            props[PortActivity.expectParam] = [
+                "type": "string",
+                // Names `ports_list`, NOT `port_info`: port_info is `toolExposed: false`, so a
+                // companion can never call it — pointing there would send the model to a tool that
+                // does not exist for it. ports_list is the call it already makes to find the id.
+                "description": "Optional. The port's `token` from ports_list, as it was when you "
+                             + "composed this write. If the port has changed since, the write is "
+                             + "refused with code 'stale_write' carrying the current token — retry "
+                             + "with that instead of clobbering whoever moved it."
+            ] as [String: Any]
+            schema["properties"] = props
+        }
+        return BridgeMethod(permission: permission,
+                            paramNames: paramNames + [PortActivity.expectParam],
+                            writesTarget: writesTarget,
+                            wired: wired,
+                            toolExposed: toolExposed,
+                            description: description,
+                            inputSchema: schema,
+                            run: run)
+    }
+}
+
 /// Canonical method name → its single implementation.
 public typealias BridgeRegistry = [String: BridgeMethod]
 

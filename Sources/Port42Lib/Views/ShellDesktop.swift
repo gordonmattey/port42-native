@@ -282,9 +282,9 @@ struct ShellDesktopView: View {
                 shell.applyArrange(area: geo.size)
             }
             .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
-            // L2.e: one holder subscription per visible port, kept in step with the unit set.
-            .onAppear { shell.syncHolderSubscriptions() }
-            .onChange(of: shell.contextItems.map(\.id)) { _, _ in shell.syncHolderSubscriptions() }
+            // L2.e: one driver subscription per visible port, kept in step with the unit set.
+            .onAppear { shell.syncDriverSubscriptions() }
+            .onChange(of: shell.contextItems.map(\.id)) { _, _ in shell.syncDriverSubscriptions() }
         }
     }
 
@@ -569,7 +569,7 @@ struct ShellTile: View {
                 }
                 // RIGHT-OF-WAY (L2.e): someone ELSE is driving this port. Silent when it is you —
                 // the chrome speaks only when there is contention, which is when it is actionable.
-                if let held = shell.otherHolder(of: tile.panel?.udid) {
+                if let held = shell.otherDriver(of: tile.panel?.udid) {
                     Text("✋ \(held.name)")
                         .font(Port42Theme.mono(9))
                         .foregroundStyle(Port42Theme.textPrimary.opacity(0.9))
@@ -883,7 +883,10 @@ struct ShellTileBody: View {
         } else if let panel = tile.panel, panel.portType == "browser",
                   let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
             ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html,
-                             probeId: panel.id)   // address bar + page
+                             probeId: panel.id,
+                             onNavigate: { [weak appState] in
+                                 appState?.surfaceWrote(port: panel.udid)
+                             })   // address bar + page
         } else if let panel = tile.panel, let v = appState.portWindows.hostView(for: panel.id) {
             ShellPortHost(view: v, bridge: panel.bridge, probeId: panel.id)   // web OR terminal — one host
         } else {
@@ -898,12 +901,18 @@ struct ShellBrowserTile: View {
     let webView: WKWebView
     let accent: Color
     var probeId: String? = nil
+    /// R2b / finding 7: a URL typed here REPLACES the whole page, and it reaches the webview without
+    /// passing the dispatcher — so the port's token has to move or a companion's write composed
+    /// against the old page would still look current.
+    var onNavigate: () -> Void = {}
     @State private var urlText: String
 
-    init(webView: WKWebView, accent: Color, initialURL: String, probeId: String? = nil) {
+    init(webView: WKWebView, accent: Color, initialURL: String, probeId: String? = nil,
+         onNavigate: @escaping () -> Void = {}) {
         self.webView = webView
         self.accent = accent
         self.probeId = probeId
+        self.onNavigate = onNavigate
         _urlText = State(initialValue: initialURL)
     }
 
@@ -929,6 +938,7 @@ struct ShellBrowserTile: View {
 
     private func navigate() {
         if let url = URL(string: PortWindowManager.normalizedBrowserURL(urlText)) {
+            onNavigate()
             webView.load(URLRequest(url: url))
         }
     }

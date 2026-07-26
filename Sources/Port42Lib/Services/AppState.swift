@@ -855,12 +855,18 @@ public final class AppState: ObservableObject {
     /// True after restoreFromDB completes; gates switchToSpace calls in selectSpace.
     private var portPanelsRestored = false
 
-    /// RIGHT-OF-WAY (L2): who holds the pen on each port. One holder at a time; a write by anyone
-    /// else is rejected at the dispatch seam (`claimWrite`). Acquired implicitly by writing, so a
-    /// single driver never notices it exists. See docs/plan-port42-protocol-local-bus.md §L2.
-    var portLeases = LeaseRegistry()
-    /// Rate-limit for `humanInteracted` — a keystroke-rate signal claiming a 30s lease (L2.d.2).
-    var humanClaimThrottle = ClaimThrottle()
+    /// PRESENCE (L2, demoted by R1): who is driving each port. Recorded at the dispatch seam
+    /// (`recordDriving`) by whoever wrote last, and by the human on focus and native input. It
+    /// refuses nothing — correctness against a stale write is the state token (R2–R5), not this.
+    /// See docs/plan-port42-protocol-local-bus.md §"Phase L2 REVISED".
+    var portDrivers = DriverRegistry()
+    /// CORRECTNESS (R2): per-port activity counters, the half presence gave up. A write composes
+    /// against a token and R3 refuses it if the port has moved since. NOT `@Published` and not
+    /// observed by anything: R2b bumps this on every human keystroke, and a published dict would
+    /// invalidate the shell once per character (Spike A finding A2).
+    var portActivity = PortActivity()
+    /// Rate-limit for `humanInteracted` — a keystroke-rate signal against a 30s window (L2.d.2).
+    var presenceThrottle = PresenceThrottle()
 
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
@@ -2986,9 +2992,11 @@ public final class AppState: ObservableObject {
                 config: config, env: controller.env,
                 onTee: { controller.receiveTee($0) },
                 onInject: { controller.bindSurface($0) })
-            // Native input claims the pen (L2.d.2) — the spawn path's twin of the restore path's hook.
+            // Native input records presence (L2.d.2) — the spawn path's twin of the restore path's
+            // hook; `onSurfaceWrite` (R2b) is its activity-token counterpart.
             let udid = panel.udid
             built.view.onHumanInput = { [weak self] in self?.humanInteracted(with: udid) }
+            built.view.onSurfaceWrite = { [weak self] in self?.surfaceWrote(port: udid) }
             portWindows.storeTerminalView(id: portId, view: built.view, coordinator: built.coordinator)
         }
         NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)

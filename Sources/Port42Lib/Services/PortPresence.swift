@@ -1,17 +1,24 @@
 import Foundation
 
-// MARK: - Right-of-way (keystone #2, docs/plan-port42-protocol-local-bus.md §L2)
+// MARK: - Presence (keystone #2, docs/plan-port42-protocol-local-bus.md §"Phase L2 REVISED")
 //
-// One holder per port at a time: who may WRITE to it right now. A write by a non-holder is
-// REJECTED, never queued and never merged — a queued write is a stale write, composed against a
-// port that has since moved, applied with the author gone (§L2.6). Pessimistic and explicit,
-// matching slice-02's deliberate choice for the same mechanism across the wire.
+// WHO IS DRIVING a port right now. It shows; it does not refuse. R1 demoted this from a write
+// lock, because the built version conflated two problems: stale writes are a CORRECTNESS problem
+// and who is driving is a COORDINATION one, and a single time-based lock served both badly — which
+// is why the TTL never had a principled value. Correctness moves to state tokens (R2–R5, one
+// monotonic activity `seq` per port); this layer keeps only the part a lock was never needed for.
+//
+// LAST DRIVER WINS. Recording is unconditional: whoever wrote most recently is the one driving,
+// which is the only reading that stays true when a human starts typing into a port a companion has
+// been writing to. Refusing to move the ref would leave the chrome naming someone who stopped.
 //
 // Pure and time-injected: no AppState, no clock of its own. Expiry is the behaviour most likely to
 // be wrong and the most miserable to test against a real clock, so `now` is always a parameter.
+// The remaining TTL is DISPLAY freshness (when the chip should fade), not correctness — R6 replaces
+// it with turn-scoped events for companions, which have a real end signal.
 
-/// WHO holds the pen, peer-qualified. `decision-identity-model.md`: identity is three axes, and a
-/// lease holds an ACTOR (a human, a companion, a port) at an INSTANCE. Local is the degenerate form
+/// WHO is driving, peer-qualified. `decision-identity-model.md`: identity is three axes, and
+/// presence names an ACTOR (a human, a companion, a port) at an INSTANCE. Local is the degenerate form
 /// — `peer == nil` — so the same value works unchanged when slice-02 makes the peer explicit, and
 /// the local lease is not a different object from the remote one.
 public struct ActorRef: Equatable, Hashable, CustomStringConvertible {
@@ -42,95 +49,92 @@ public struct ActorRef: Equatable, Hashable, CustomStringConvertible {
     }
 }
 
-public struct Lease: Equatable {
-    public let holder: ActorRef
-    /// What a human reads on the tile ("gordon", "echo"). Never the identity — that is `holder`.
-    public let holderName: String
+public struct Driver: Equatable {
+    public let ref: ActorRef
+    /// What a human reads on the tile ("gordon", "echo"). Never the identity — that is `ref`.
+    public let name: String
     public let expires: Date
 
     public func isLive(at now: Date) -> Bool { now < expires }
 }
 
-public enum LeaseDecision: Equatable {
-    /// The port was free (or the previous lease had expired) — this actor now holds it.
-    case granted(Lease)
-    /// Already the holder; the TTL moved forward. Deliberately distinct from `.granted` so the
-    /// broadcast can fire on CHANGE only and not spam the topic on every keystroke (§L2.5).
-    case refreshed(Lease)
-    /// Someone else holds it. Carries who, so the error can name them.
-    case denied(Lease)
+public enum DriverChange: Equatable {
+    /// The driver CHANGED — a free port, a lapsed one, or a different actor taking over.
+    case changed(Driver)
+    /// The same actor again; only the freshness window moved. Deliberately distinct from `.changed`
+    /// so the broadcast can fire on CHANGE only and not spam the topic on every keystroke (§L2.5).
+    case refreshed(Driver)
 }
 
-/// The per-port holder table. A value type: one lives on `AppState`, and tests build their own.
-public struct LeaseRegistry: Equatable {
-    /// How long a lease survives without use. Short enough that a crashed holder frees the port on
-    /// its own, long enough that a human thinking between keystrokes never loses the pen.
+/// The per-port driver table. A value type: one lives on `AppState`, and tests build their own.
+public struct DriverRegistry: Equatable {
+    /// How long presence survives without use — DISPLAY freshness, not a lock. Short enough that a
+    /// crashed writer stops being shown as driving, long enough that a human thinking between
+    /// keystrokes does not flicker off the chrome.
     public static let defaultTTL: TimeInterval = 30
 
-    private var leases: [String: Lease] = [:]
+    private var drivers: [String: Driver] = [:]
     public let ttl: TimeInterval
 
-    public init(ttl: TimeInterval = LeaseRegistry.defaultTTL) { self.ttl = ttl }
+    public init(ttl: TimeInterval = DriverRegistry.defaultTTL) { self.ttl = ttl }
 
-    /// The live holder of a port, or nil when free or expired. Read-only: never extends anything.
-    public func holder(of port: String, now: Date) -> Lease? {
-        guard let l = leases[port], l.isLive(at: now) else { return nil }
+    /// The live driver of a port, or nil when nobody is or the record went stale. Read-only: never
+    /// extends anything.
+    public func driver(of port: String, now: Date) -> Driver? {
+        guard let l = drivers[port], l.isLive(at: now) else { return nil }
         return l
     }
 
-    /// THE write gate. Acquires implicitly when free — so every single-driver flow that works today
-    /// keeps working and the lease only becomes visible when there is actually contention (§L2.3).
+    /// Record that this actor just drove the port. ALWAYS succeeds — presence observes, it does not
+    /// arbitrate (R1). The return says only whether the driver CHANGED, which is what the Notify
+    /// broadcast keys off: a refresh fires per keystroke and publishing it would be all noise.
     @discardableResult
-    public mutating func check(port: String, actor: ActorRef, name: String, now: Date) -> LeaseDecision {
-        let fresh = Lease(holder: actor, holderName: name, expires: now.addingTimeInterval(ttl))
-        guard let current = leases[port], current.isLive(at: now) else {
-            leases[port] = fresh
-            return .granted(fresh)
-        }
-        guard current.holder == actor else { return .denied(current) }
-        leases[port] = fresh
-        return .refreshed(fresh)
+    public mutating func record(port: String, actor: ActorRef, name: String, now: Date) -> DriverChange {
+        let fresh = Driver(ref: actor, name: name, expires: now.addingTimeInterval(ttl))
+        let sameDriver = drivers[port].map { $0.isLive(at: now) && $0.ref == actor } ?? false
+        drivers[port] = fresh
+        return sameDriver ? .refreshed(fresh) : .changed(fresh)
     }
 
-    /// Give up the pen. Only the holder can: a stray release from anyone else is a no-op, not a
-    /// way to knock the current driver off.
+    /// Stop being shown as the driver. Only the current one can: a stray release from anyone else is
+    /// a no-op, so nobody can clear someone else's presence out from under them.
     @discardableResult
     public mutating func release(port: String, actor: ActorRef, now: Date) -> Bool {
-        guard let current = leases[port], current.isLive(at: now), current.holder == actor else { return false }
-        leases.removeValue(forKey: port)
+        guard let current = drivers[port], current.isLive(at: now), current.ref == actor else { return false }
+        drivers.removeValue(forKey: port)
         return true
     }
 
-    /// Explicit handoff — the answer to a knock. Only the holder may hand off; handing off a free
-    /// port is not a way to assign the pen to someone else behind their back.
+    /// Explicit handoff — the answer to a knock. Only the current driver may hand off; handing off a
+    /// port nobody is driving is not a way to assign it to someone else behind their back.
     @discardableResult
     public mutating func handoff(port: String, from: ActorRef, to: ActorRef,
                                  toName: String, now: Date) -> Bool {
-        guard let current = leases[port], current.isLive(at: now), current.holder == from else { return false }
-        leases[port] = Lease(holder: to, holderName: toName, expires: now.addingTimeInterval(ttl))
+        guard let current = drivers[port], current.isLive(at: now), current.ref == from else { return false }
+        drivers[port] = Driver(ref: to, name: toName, expires: now.addingTimeInterval(ttl))
         return true
     }
 
-    /// Drop a port's lease entirely (the port closed). Not a release: no holder check, because the
-    /// thing being held no longer exists.
+    /// Drop a port's presence entirely (the port closed). Not a release: no driver check, because
+    /// the thing being driven no longer exists.
     public mutating func forget(port: String) {
-        leases.removeValue(forKey: port)
+        drivers.removeValue(forKey: port)
     }
 }
 
 /// Rate-limits "the human is interacting with this port" so a claim happens at most once per
-/// interval per port. Typing fires this per KEYSTROKE; the lease TTL is 30s, so re-claiming on
-/// every character is pure noise, and the claim path resolves the port each time (the one part of
+/// interval per port. Typing fires this per KEYSTROKE; the freshness window is 30s, so re-recording
+/// on every character is pure noise, and the claim path resolves the port each time (the one part of
 /// it that is not free). Pure and time-injected, like the registry.
-public struct ClaimThrottle: Equatable {
-    /// Comfortably inside the TTL, so a continuously-used port never lapses, while an idle one
-    /// still frees itself on schedule.
+public struct PresenceThrottle: Equatable {
+    /// Comfortably inside the TTL, so a continuously-used port never goes stale, while an idle one
+    /// still ages out on schedule.
     public static let defaultInterval: TimeInterval = 5
 
     private var last: [String: Date] = [:]
     public let interval: TimeInterval
 
-    public init(interval: TimeInterval = ClaimThrottle.defaultInterval) { self.interval = interval }
+    public init(interval: TimeInterval = PresenceThrottle.defaultInterval) { self.interval = interval }
 
     /// True when this port should claim now. The FIRST interaction always passes — the moment you
     /// touch a port is exactly when the claim matters most.

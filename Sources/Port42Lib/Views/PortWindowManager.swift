@@ -273,9 +273,11 @@ public final class PortWindowManager: ObservableObject {
             config: config, env: controller.env,
             onTee: { controller.receiveTee($0) },
             onInject: { controller.bindSurface($0) })
-        // Native input claims the pen (L2.d.2): a keystroke here never reaches the bridge, so
-        // without this the lease cannot see the human driving a terminal.
+        // Native input records presence (L2.d.2): a keystroke here never reaches the bridge, so
+        // without this the chrome cannot see the human driving a terminal.
         built.view.onHumanInput = { [weak appState] in appState?.humanInteracted(with: panel.udid) }
+        // Every programmatic write into the surface moves the port's token (R2b).
+        built.view.onSurfaceWrite = { [weak appState] in appState?.surfaceWrote(port: panel.udid) }
         storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
     }
 
@@ -643,9 +645,9 @@ public final class PortWindowManager: ObservableObject {
         // release: no holder check, because the thing being held no longer exists). Without this a
         // closed-and-reopened id could inherit a stale holder.
         if let panel = panels.first(where: { $0.id == id }) {
-            appState?.portLeases.forget(port: panel.udid)
+            appState?.portDrivers.forget(port: panel.udid)
         }
-        appState?.portLeases.forget(port: id)
+        appState?.portDrivers.forget(port: id)
         appState?.teardownTerminalController(panelId: id)
         // Tear down a hoisted terminal surface (shell tile path). The floating path frees via
         // dismantleNSView; the detached view isn't SwiftUI-managed, so free it explicitly here.
@@ -1258,6 +1260,11 @@ class PortConsoleHandler: NSObject, WKScriptMessageHandler {
     /// Phase L1 / roadmap "inspect a port's console via the API": (level, message) → Notify publish.
     var onConsole: (@MainActor (String, String) -> Void)?
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        // Origin-pinned like every other handler. Lower stakes than the bridge (a foreign page could
+        // only forge log lines) but the same class of hole, and console output is republished on the
+        // port's Notify topic — so an unpinned handler lets a foreign origin write into a stream
+        // other ports and companions subscribe to as if it were the port speaking.
+        guard PortBridge.isPortOrigin(message) else { return }
         if message.name == "portConsole",
            let body = message.body as? [String: Any],
            let level = body["level"] as? String,
@@ -1288,6 +1295,12 @@ final class PortInputHandler: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "portInput" else { return }
+        // Same origin pin as the bridge, and for a sharper reason than it looks: this signal both
+        // names the human as the driver AND bumps the port's activity token. A foreign origin that
+        // could send it would forge the human's presence and invalidate every honest writer's token
+        // from a page the user never typed in. `isTrusted` in the injected listener stops synthetic
+        // events; it says nothing about WHICH SITE is sending real ones.
+        guard PortBridge.isPortOrigin(message) else { return }
         onInput(portUdid)
     }
 }
@@ -1302,6 +1315,7 @@ final class PortHeightHandler: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard PortBridge.isPortOrigin(message) else { return }   // pinned like the rest
         guard message.name == "portHeight", let h = message.body as? CGFloat else { return }
         let clamped = min(max(h, 40), 600)
         let id = portId
@@ -1316,10 +1330,32 @@ final class PortHeightHandler: NSObject, WKScriptMessageHandler {
 
 // MARK: - Navigation Blocker
 
-/// Blocks all navigation except initial load (sandbox).
+/// Keeps a normal web port on its OWN document. A port is one surface, not a browser.
+///
+/// SECURITY (fixed 2026-07-26). This previously read
+/// `navigationType == .other ? .allow : .cancel`, which is the INVERSE of what its own comment
+/// claimed. `.other` is what WebKit reports for SCRIPT-INITIATED navigation — precisely the hostile
+/// case — while `.linkActivated`, a human clicking, was the case it cancelled. So the policy blocked
+/// the user and permitted the page. Live-verified: a port ran `location.href = 'https://example.com'`,
+/// the navigation succeeded, and the injected `window.port42` went with it.
+///
+/// The rule is now an ALLOWLIST OF DESTINATIONS, not a guess from the navigation type. Type-based
+/// reasoning is what failed: there is no navigation type that means "safe". Where a navigation is
+/// going is a fact; why it was started is an inference.
+///
+/// This is defence in depth, NOT the primary fix — `PortBridge.isPortOrigin` is, because it holds
+/// even if something reaches a foreign document, and it covers browser ports, which must navigate.
 class PortNavigationBlocker: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(navigationAction.navigationType == .other ? .allow : .cancel)
+        decisionHandler(Self.allows(navigationAction.request.url) ? .allow : .cancel)
+    }
+
+    /// A port may load its own document and nothing else. Pure, so the rule is testable without a
+    /// webview — the old one never was, which is part of why it was wrong for so long.
+    static func allows(_ url: URL?) -> Bool {
+        guard let url else { return true }             // no URL to judge: not a destination change
+        if url.absoluteString == "about:blank" { return true }
+        return url.host == PortBridge.portOrigin
     }
 }
 

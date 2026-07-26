@@ -80,10 +80,46 @@ struct TerminalPortConfig: Codable {
 final class GhosttyInputView: NSView {
     var surface: ghostty_surface_t?
     private var observers: [NSObjectProtocol] = []
-    /// RIGHT-OF-WAY (L2.d.2): fired when the human types or clicks in this terminal, so the lease
-    /// learns that native input — which never reaches the bridge — is driving this port. Set by the
-    /// host; nil when nothing cares. Throttled downstream, so calling it per keystroke is fine.
+    /// PRESENCE (L2.d.2): fired when the human types or clicks in this terminal, so presence learns
+    /// that native input — which never reaches the bridge — is driving this port. Set by the host;
+    /// nil when nothing cares. Throttled downstream, so calling it per keystroke is fine.
     var onHumanInput: (() -> Void)?
+
+    /// ACTIVITY (R2b): fired after every PROGRAMMATIC write into this surface, so the port's state
+    /// token moves. Set by the host beside `onHumanInput`.
+    var onSurfaceWrite: (() -> Void)?
+
+    /// How text reaches the pty. Both end in a C call; the distinction is Ghostty's, not ours.
+    enum WriteMode {
+        /// `ghostty_surface_text` — bracketed-paste delivery. A TUI can tell this from typing.
+        case paste
+        /// `ghostty_surface_text_input` — as if typed. What a companion's `inject` uses, because a
+        /// TUI that sees a paste may draft it rather than submit it.
+        case keys
+    }
+
+    /// THE ONLY PLACE PROGRAMMATIC TEXT ENTERS A TERMINAL SURFACE (R2b, finding 7).
+    ///
+    /// Every path that puts text into a pty without a human keystroke funnels here: paste, file
+    /// drop, a companion's `inject`, the startup command, the first-run prefill. It counts the write
+    /// against the port's activity token, so a new path physically cannot write without counting.
+    ///
+    /// This shape was chosen over enumerating callers because enumerating FAILED THREE TIMES — three
+    /// separate sweeps each found a way in the previous one had missed (finding 7). A guarantee that
+    /// depends on someone having listed every caller is a to-do list that rots. This one is
+    /// verifiable by grep, which is what `TerminalWriteFunnelTests` asserts.
+    ///
+    /// NOT covered here, and deliberately: human keystrokes, which reach the surface through
+    /// `ghostty_surface_key` in `sendKey`, a different C entry point with its own seam
+    /// (`onHumanInput`). The grep test covers both entry points so neither can grow a second caller.
+    func write(_ text: String, mode: WriteMode) {
+        guard let s = surface, !text.isEmpty else { return }
+        switch mode {
+        case .paste: text.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
+        case .keys:  text.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+        }
+        onSurfaceWrite?()
+    }
     /// When this view is hoisted OUT of SwiftUI (shell tile path), it owns its Coordinator so the
     /// pty-tee callback's unretained userdata stays alive. Nil for the SwiftUI-managed floating path.
     var retainedCoordinator: AnyObject?
@@ -186,10 +222,8 @@ final class GhosttyInputView: NSView {
 
     // MARK: clipboard
     private func pasteFromClipboard() {
-        guard let s = surface,
-              let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
-        // ghostty_surface_text = bracketed-paste delivery (vs. text_input keystrokes).
-        str.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
+        guard let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
+        write(str, mode: .paste)
     }
 
     // MARK: file drop — paste dropped file paths into the terminal (Step 5c)
@@ -199,12 +233,13 @@ final class GhosttyInputView: NSView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let s = surface,
+        guard surface != nil,
               let urls = sender.draggingPasteboard.readObjects(
                 forClasses: [NSURL.self],
                 options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty else { return false }
-        let pasted = escapeDroppedPaths(urls.map { $0.path })
-        pasted.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
+        // A drop is a write with NO keystroke, so it was invisible to `onHumanInput` — finding 7
+        // caught it, and the funnel is what stops the next one like it from being missed.
+        write(escapeDroppedPaths(urls.map { $0.path }), mode: .paste)
         return true
     }
     @discardableResult
@@ -435,17 +470,20 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // (routeMentionsToTerminals → controller.inject) can reach it. Reads the
         // coordinator's current surface each call, so it no-ops after teardown.
         coordinator.onInject({ [weak coord = coordinator] line in
-            guard let s = coord?.surface else { return }
+            guard let v = coord?.view else { return }
             // Send the body, then Enter SEPARATELY after a short delay. Claude Code's TUI
             // heuristically treats a fast input burst as a paste, so a trailing "\r" in the same
             // write is kept as a literal newline — the message drafts in the input box and never
             // submits (worse for longer messages). Splitting Enter into its own keypress, after
             // the body burst has settled, makes it submit reliably.
+            //
+            // Both halves are writes, so both count: the Enter lands up to 80ms after the body, and
+            // in that window the human may have typed. Counting only the body would leave a token
+            // that looks current at the exact moment the line is submitted.
             let body = line.hasSuffix("\r") ? String(line.dropLast()) : line
-            body.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+            v.write(body, mode: .keys)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak coord] in
-                guard let s = coord?.surface else { return }
-                "\r".withCString { ghostty_surface_text_input(s, $0, 1) }
+                coord?.view?.write("\r", mode: .keys)
             }
         })
 
@@ -488,9 +526,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
             guard !startupSent, !startupCommand.isEmpty, surface != nil else { return }
             startupSent = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self, let s = self.surface else { return }
-                let line = self.startupCommand + "\r"
-                line.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+                guard let self, let v = self.view else { return }
+                v.write(self.startupCommand + "\r", mode: .keys)
                 NSLog("[Ghostty] typed startup command (%d chars)", self.startupCommand.count)
             }
         }
@@ -500,9 +537,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
         /// second one would append to whatever the user has since typed. Sent as one burst —
         /// Claude Code's TUI reads that as a paste, which is exactly right here (it drafts).
         func typePrefill(_ text: String) {
-            guard !prefillSent, !text.isEmpty, let s = surface else { return }
+            guard !prefillSent, !text.isEmpty, let v = view else { return }
             prefillSent = true
-            text.withCString { ghostty_surface_text_input(s, $0, UInt(strlen($0))) }
+            v.write(text, mode: .keys)
             NSLog("[Ghostty] typed prefill, unsent (%d chars)", text.count)
         }
 

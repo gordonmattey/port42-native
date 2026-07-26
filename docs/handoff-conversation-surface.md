@@ -2,34 +2,96 @@
 
 ## Where this left off (2026-07-26)
 
-**HEAD `1a8afce`, branch `main`, tree clean** (only `dist/` build artifacts). Full suite **1065
-green**. Dev3 is the test instance (`./build.sh --dev3 --run`, `:4245`).
+**HEAD `3c3f370`, branch `main`.** The tree is UNCOMMITTED (GM has not asked to commit) and carries
+the cinematic fix, a SECURITY P0 fix, and L2 **R1, R1b, R2, R2b, R3** (+ the new `port.getDom`).
+Full suite **1099 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running ALL of it, live-verified.
+Dev3 builds no longer need GM's go-ahead (GM, 2026-07-26); Dev `:4243` and prod still do.
 
 **v0.5.49 shipped** — notarized, stapled, GitHub Release, appcast pushed. Onboarding runs inside the
 shell; all six phases of `plan-unify-onboarding-shell.md` are done.
 
-### 1. NEXT UP — the pre-boot cinematic regression (see `summer2026-todo.md`, top item)
+### 1. DONE — the pre-boot cinematic regression (`summer2026-todo.md`, top item)
 
-First boot lost the glitch sequence. `DolphinProtocolView` is only ever triggered by
-`.dolphinProtocolRequested`, posted from `LockScreenView.diveIn()`; the first-boot change set
-`showDreamscape = false` when there is no identity, so the lock screen never renders and nothing
-posts it. Fix from `TransitionRoot` (no identity → play it → then the setup terminal), and **hold
-`bootCinematicDone` false at first boot** or the setup terminal renders under the video and it will
-look fixed without being fixed. Only a fresh-data Dev3 launch shows it.
+Fixed and live-verified on a fresh-data Dev3 launch (GM: "works great"). The cinematic had only ever
+been triggered by `LockScreenView.diveIn()`, which first boot no longer renders, so it now runs from
+the root instead: `RootScreen.playsBootCinematicAtLaunch(hasIdentity:isSetupComplete:)` is a pure
+launch decision, and `TransitionRoot.onAppear` leaves `bootCinematicDone` **false** across it (so
+`decide` returns `.none` and the overlay covers the gap, rather than the setup terminal rendering
+under the video). `OnboardingShellTests` +2. Suite **1067 green**.
 
-### 2. Then — the L2 protocol revision, R1–R7
+### 2. NEXT UP — the L2 protocol revision, R1–R7
 
 `docs/plan-port42-protocol-local-bus.md` §"Phase L2 REVISED" is the current design; the section below
 it is superseded and says so. Read the REVISED section, its **Verification** findings 1–7, and the
 two spikes before writing code.
 
-- **What is built (L2.a–e + d.2):** a per-port lease, the dispatch gate, the holder broadcast on the
-  port's Notify topic, a `human` principal, interaction-claims, and the tile-header chip. **Live-
-  verified**: a gateway write to a port the human held was refused BY NAME; GM saw the chip.
+- **What L2.a–e originally built (now SUPERSEDED by R1–R3 below, kept for the history):** a per-port
+  lease, a dispatch gate that REFUSED writes, the holder broadcast, a `human` principal,
+  interaction-claims, and the tile-header chip. The refusal is gone; everything else became presence.
 - **What the design became:** the lease conflated correctness with coordination. Correctness moves to
   **state tokens (CAS)** — one activity `seq` per port, bumped by every external mutation — and the
-  lease is **demoted to presence** (shows who is driving, refuses nothing). R1 (demote) goes first
-  because the gate is live in Dev3 enforcing on a justification we abandoned.
+  lease is **demoted to presence** (shows who is driving, refuses nothing).
+- **R1 (demote) is DONE**, both gates passed — including the manual one live in Dev3: GM clicked into
+  a port (taking presence) and a gateway `port.exec` against it LANDED, where the pre-R1 build
+  refused it by name. `claimWrite` → `recordDriving`,
+  `LeaseRegistry.check` → `record`, `LeaseDecision.denied` deleted, `port_busy` gone from the
+  codebase. The call it forced: **last driver wins** — the step's gate requires presence to MOVE on
+  a second writer, and a record that refuses to move would leave the chip naming a companion that
+  stopped while you type. See the plan's §"R1 as built". Suite **1067 green**.
+- **Spike A is RUN** (see the plan's §"Spike A findings"). An in-memory dict on `AppState` works, with
+  four corrections: resolve the port ONCE at the seam and share the key (the resolve is the only
+  non-free part, not the lookup); do NOT make it `@Published` (R2b bumps per keystroke); do NOT
+  forget it on close (opposite lifecycle to presence — a reset counter lets a token from a dead id
+  pass against a reused one); and **a bare counter is unsafe across a restart**, so qualify the
+  token with a per-launch epoch the way `ActorRef` was made peer-qualified from day one.
+- **R2 is BUILT**, gate passed. `PortActivity` on `AppState`, token = **`<epoch>:<seq>`** (GM took
+  A4: epoch now, not a wire-format migration at slice-02). The seam resolves the port once and hands
+  one key to both the bump and `recordDriving`. The bump fires before the async body (wrong in the
+  safe direction). The presence throttle deliberately does NOT reach the token — throttled, a
+  4-second-old companion write would pass CAS against a line you are mid-way through typing.
+- **R1b — rename + a throttle fix.** The lease was demoted but kept every one of its names, which
+  made the whole subsystem unreadable (GM: "I thought we got rid of leasing"). `PortLease.swift` →
+  `PortPresence.swift`, `LeaseRegistry` → `DriverRegistry`, `ClaimThrottle` → `PresenceThrottle`,
+  wire `kind:"holder"` → `kind:"driver"`. Renaming it surfaced a live defect GM had already spotted:
+  the 5s presence throttle meant a human clicking against a companion writing every 2s could NEVER
+  win the header chip back. The throttle's premise ("re-claiming a lease you already hold is noise")
+  died with the lock. Now it throttles a REFRESH and never a TAKEOVER. Suite **1081 green**.
+- **R2b is BUILT**, gate passed, manual gate open. `GhosttyInputView.write(_:mode:)` is the ONLY
+  caller of `ghostty_surface_text*`; five sites route through it (paste, file drop, inject's two
+  halves, startup command, prefill), plus the web file-drop and browser address-bar paths. Pinned by
+  `TerminalWriteFunnelTests`, a grep gate — the property is structural, not a list. Human keystrokes
+  are a separate C entry point (`ghostty_surface_key`) with their own seam; the gate covers both so
+  neither grows a second caller. Suite **1086 green**.
+- **Spike B is RUN** (late — it gates R2's browser row and R2/R2b were built without it; the process
+  lesson is in the plan). Answer: `didCommit` is necessary but NOT sufficient. Verified live that
+  `history.pushState` changes the URL with no document load, so no commit fires and every SPA route
+  change is invisible. Use **KVO on `webView.url`**. Browser CAS is the weakest token, with a reason
+  now rather than a suspicion.
+- **Spike B also found a SECURITY P0** (`summer2026-todo.md`, top): a normal web port's JS can
+  navigate to any site and the `window.port42` bridge FOLLOWS IT. Live-verified — a page on
+  `example.com` called `ports.list()` and got the user's real ports back. The nav policy allows
+  `.other` (script-initiated, the hostile case) and cancels `.linkActivated` (a human clicking), the
+  inverse of its stated intent. Browser ports carry the bridge onto every site by construction.
+- **Spike C is RUN, partially** — the input sweep across all surfaces. Six ad-hoc seams for "input
+  reached a port", split by surface TECHNOLOGY, which is the root cause of finding 7 repeating. The
+  web listener is `keydown`+`pointerdown` only, so voice/IME/context-paste/autofill are suspected
+  blind spots. **The remaining half needs a live probe with real input devices** — do not fix against
+  a guessed list.
+- **MEMBRANE REVIEW is on the backlog** (`summer2026-todo.md`) and **should be decided before R4/R5**:
+  one `PortInput` seam carrying `(port, kind, actor, trusted)`, each surface technology reduced to
+  translating into it. R5 ("terminals require a token") is only sound if every way in counts.
+- **R3 (CAS) is DONE**, gate passed and live-verified — the first step that REFUSES anything, and the
+  replacement for the lock R1 removed. Optional `expect` on every write verb; a mismatch throws
+  `stale_write` carrying `current`, so a caller self-corrects in one retry. `expect` is injected
+  centrally (`mapValues { $0.acceptingExpect() }`), so a write verb added tomorrow gets CAS by
+  construction. Live: a 5-second-stale write was refused and the clobber never landed.
+- **`port.getDom` is NEW, and came out of a gap R3 exposed.** `port.exec` is correctly a write, so
+  inspecting a live port bumped its token and a caller invalidated its own read — "write against what
+  you saw" was not expressible. `getDom(id, selector?) → {html, token}` is a true read: no bump, no
+  `js` parameter (so a mutation cannot be smuggled through a read verb), and html+token from one
+  instant. `port.getHtml` remains the stored SOURCE, which does not reflect live `exec`/`push`.
+- **Next: the MEMBRANE decision**, before R4/R5 (see Spike C and the backlog item). Then R4–R7.
+  Suite **1099 green**.
 - **The rule that came out of it:** *bump at the SURFACE, not the API*. Enumerating callers failed
   three times (finding 7); the guarantee has to be structural, verifiable by grep.
 

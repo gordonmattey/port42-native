@@ -149,7 +149,10 @@ struct BridgeParamConsistencyTests {
         // no longer miscounted (was the long-standing off-by-one that made this assert read 66).
         // + screen.record{,.start,.stop,.status} (docs/plan-screen-record.md Step 3) = 71.
         // + port.subscribe (L1 slice 1, NotifyBus) + port.publish (the consumer model) = 73.
-        #expect(methods.count == 73, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // + port.getDom (R3): a READ of the live DOM. `port.exec` is correctly a write, so
+        //   inspecting a port through it bumped the activity token and a caller invalidated its own
+        //   read — "look, then write against what you saw" was not expressible. = 74.
+        #expect(methods.count == 74, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

@@ -579,18 +579,140 @@ terminals.
 
 #### Architecture spikes (read-only, before the step they gate)
 
-- **Spike A — where does `seq` live, and can it be read cheaply at write time?** A write checks the
-  token on every call, so the read must be O(1) and must not touch the DB. Candidate: an in-memory
-  `[portUdid: Int]` on `AppState` beside `portLeases`, since it is session state, not history.
-  Confirm nothing needs it to survive a restart (a restarted app has no in-flight writers, so a
-  reset counter is safe — VERIFY, because a remote peer holding a token across our restart is
-  exactly the cross-instance case).
+- **Spike A — where does `seq` live, and can it be read cheaply at write time?** RUN 2026-07-26
+  (read-only, no code). Answer: **yes, an in-memory `[portKey: Int]` on `AppState` works** — with
+  four corrections to the sketch (A1–A4) and one confirmation (A5). Findings below.
   **Gates R2.**
 - **Spike B — can a browser's committed navigation be observed?** `PortBrowserNavigation` overrides
   `decidePolicyFor` (`PortWindowManager.swift:1329`) but not `didCommit`. Confirm adding `didCommit`
   is enough to catch every page change (including in-page history API pushes, which do NOT fire it —
   and if they do not, say so rather than claim browser CAS is sound).
   **Gates R2's browser row.**
+
+##### Spike A findings (2026-07-26)
+
+**A1 — the O(1) claim is true of the LOOKUP and false of the KEY, and the key is the whole cost.**
+The dict read is O(1) on a `@MainActor` class, no locking, no DB. But getting the key means
+`resolvePortRef` (`AppState.swift:2880`), which rebuilds a terminals array and a panels array on
+every call, so it is O(panels + terminals), and it can touch the DB — `dbHas` is a lazy probe, fired
+only after the live tables miss, so the common push/exec path never reaches it.
+**So: R3 must reuse the `PortRef` the seam already resolved for `recordDriving`, not resolve a second
+time.** Resolve once at the dispatch seam, pass the key to both. Resolving twice per write would
+double the one genuinely non-free part of the check.
+
+**A2 — it must NOT be `@Published`.** Same reason `portLeases` is not (L2.e lesson 5), plus a
+sharper one: R2b bumps on every human keystroke, and a `@Published` dict would invalidate the shell
+once per character. Presence reaches the header through the Notify bus, and the token's only
+consumer is the dispatcher, so nothing needs observability.
+
+**A3 — activity and presence have OPPOSITE lifecycle rules, which is why `seq` is a separate type
+and not a field on `LeaseRegistry`.** A close calls `portLeases.forget` (`PortWindowManager.swift:646`)
+because a dead port has no driver. For the token the same move is BACKWARDS: if a closed id is reused
+(the `closeForgetsTheLease` test does exactly this) a reset counter starts at 0 again, and a token
+composed against the DEAD port passes CAS against the new one. Monotonic-per-id and never reset is
+strictly safer — a stale token then mismatches by construction. **`PortActivity` must not forget on
+close.** In-session unbounded growth is one Int per port id, which is nothing.
+
+**A4 — a reset counter is NOT safe across a restart, and the fix is the one this codebase already
+chose once.** `panel.id` and `udid` are both restored from the DB (`restoreFromDB:211-212`), so the
+KEY survives a restart while the counter would not. Meanwhile every port's live state definitely
+changed: a web port comes back from its persisted SOURCE with all `exec`/`push` runtime state gone,
+and a terminal's pty is new. So a peer holding a pre-restart token of 0 against a post-restart
+counter of 0 passes CAS against a port that has been wiped — a stale write admitted, which is the
+exact failure the token exists to stop.
+
+Nothing bites LOCALLY today (there are no cross-instance writers yet), but the shape to build is
+already settled by precedent: `ActorRef` was made peer-qualified from day one specifically so local
+was the degenerate form and no migration was needed. **Do the same here: qualify the token with a
+per-launch epoch (`<epoch>:<seq>`), constant within a session so nothing local notices, and
+mismatching by construction across a restart.** Deciding it now costs a string; deciding it at
+slice-02 costs a wire-format migration.
+
+**A5 — one counter covers every surface.** The gateway is a subprocess but its RPC re-enters
+`runBridgeMethod`, and the port JS surface is a Proxy over the same registry, so there is no second
+writer path with its own state. One dict on `AppState` is the whole system.
+
+**Consequence for R2's gate.** The stated gate ("unknown port starts at 0") stands for the numeric
+part. A4 adds a term to the token, so the gate reads: an unknown port starts at seq 0, and two
+different launch epochs never compare equal.
+##### Spike B findings (2026-07-26) — browser CAS is the weakest token, and now we know why
+
+**Run late, and that is a process failure worth recording.** Spikes are declared "read-only, before
+the step they gate". Spike B gates R2's browser row, and R2 *and* R2b were built without it. Nothing
+caught that, because R2's own acceptance criteria never mentioned the browser — the gate table was
+checkable in isolation and did not reference the spike list. **Cross-check the spike list against the
+step being built, not just the step's own gate.**
+
+**B1 — what exists today.** `PortBrowserNavigation` implements `decidePolicyFor` and nothing else. No
+`didCommit`, no `didFinish`, no KVO on `webView.url`. So today a browser port's page can change
+completely and no Swift code learns anything.
+
+**B2 — `didCommit` is necessary but NOT sufficient, verified live.** In a running port:
+
+```
+before: http://port42.local/            history.pushState({},'','#probe1')
+after:  http://port42.local/#probe1     DOM intact, 0 navigation entries
+```
+
+The URL changed with no document load. `didCommit` fires when a navigation COMMITS A NEW DOCUMENT;
+none was committed, so it cannot fire. Every SPA route change is invisible to it — and SPA route
+changes are most of what "the page changed under us" means on the modern web.
+
+**So the plan's own instruction applies: say so rather than claim browser CAS is sound.** It is not,
+with `didCommit` alone.
+
+**B3 — the recommendation is KVO on `webView.url`.** WebKit updates that property for
+same-document navigations as well as commits, so one observer covers both. `didCommit` can stay as a
+belt for the cross-document case. **Verify with a live test when the browser row is built** — this
+spike proved the JS-side fact (URL changes, no load) and did not instrument the native side, which a
+read-only spike cannot.
+
+**B4 — the spike also found a P0 security hole**, written up in `summer2026-todo.md`: the navigation
+policy for NORMAL web ports permits script-initiated navigation, and the `window.port42` bridge
+follows the port to the new origin. Live-verified: a page on `example.com` called `ports.list()` and
+got the user's ports back. That is not a protocol problem, but it was found by pulling this thread
+and it changes R7's priority.
+
+##### Spike C findings (2026-07-26) — the input sweep, all surfaces (partial: needs a live probe)
+
+Commissioned because finding 7's sweep was titled *"every way into a TERMINAL"*, while the property
+we need is about every surface. GM's framing is the right one: **Port42 owns the membrane with the
+user, so every input — key, pointer, voice, drop, any future device — should pass one seam.**
+
+**C1 — there are SIX seams for "something entered a port", each added ad hoc:**
+
+| seam | covers |
+|---|---|
+| `GhosttyInputView.sendKey` | terminal, human keys (`ghostty_surface_key`) |
+| `GhosttyInputView.write` | terminal, all programmatic (R2b) |
+| injected JS `keydown`/`pointerdown` | web, human |
+| `PortBridge.handleFileDrop` | web, file drop |
+| `ShellBrowserTile.navigate` | browser, address bar |
+| `runBridgeMethod` | any type, programmatic |
+
+They are split by SURFACE TECHNOLOGY — Ghostty, WKWebView, SwiftUI chrome each have their own input
+plumbing, so each grew its own hook. That is the actual root cause of finding 7 repeating: R2b
+funneled one of the six and left five.
+
+**C2 — the web listener is two event names, which is not "input".** It reports `keydown` and
+`pointerdown` only. Anything a user does that produces neither is invisible to presence AND to the
+token: **dictation / voice, IME composition, context-menu paste, autofill, dragging text into a
+field.** `beforeinput` is the canonical "the user is about to change content" event and covers these
+cases; the current pair covers keys and clicks and calls it input.
+
+**NOT yet verified which specific ones slip** — that needs a live probe with a human using the actual
+devices, which is the remaining half of this spike. The shape is certain from the event names; the
+list is not. Do not fix against a guessed list — that is finding 7's mistake for the third time.
+
+**C3 — still entirely uncounted:** page-initiated browser navigation (B2), and `window.open` /
+`target="_blank"`, which has no `WKUIDelegate` anywhere in the repo (already its own TODO).
+
+**C4 — the conclusion, and why it blocks R4/R5.** R5 makes a token MANDATORY for terminal writes.
+That is only sound if every way in counts. On the current six-seam model it is provably not sound for
+web and browser, and unproven for voice on any surface. **The membrane review (one `PortInput` seam
+carrying `(port, kind, actor, trusted)`, with each surface technology reduced to translating its
+native events into it) should be decided before R4**, not after. It is also where R7's trust boundary
+belongs, and where slice-02's remote actors arrive.
 
 #### Build order (revised 2026-07-26)
 
@@ -599,14 +721,201 @@ shippable green on its own.
 
 | # | Step | Build | Automated gate | Manual gate |
 |---|---|---|---|---|
-| 1 | **R1 · demote** | `claimWrite` → `recordDriving`: records + broadcasts, never throws. `writesTarget` stays (it now means "which port does this touch"). | The existing gate tests INVERT: a second principal's write SUCCEEDS and presence updates. `port_busy` is gone from the codebase. Full suite green. | A companion writing to a port you are in is no longer refused. |
-| 2 | **R2 · seq** | `PortActivity`: `seq(for:)` + `bump(_:)`, in-memory, beside `portLeases`. Bumped from `recordDriving` (all bridge writes) and `onHumanInput`. | Pure: monotonic per port, independent per port, unknown port starts at 0. Wired: two bridge writes bump twice; a trusted input bumps; an untrusted one does not. | — |
-| 2b | **R2b · one surface writer** (finding 7) | Funnel all seven pty write sites through a single `GhosttyInputView.write(_:)` that bumps; it becomes the only caller of `ghostty_surface_text*`. Same for the web file-drop and browser address-bar paths. | A grep test: `ghostty_surface_text*` appears in exactly ONE place outside the harnesses. Drop-a-file and paste both bump. | Drop a file on a terminal; drop one on a web port; type a URL in a browser tile. Each bumps. |
-| 3 | **R3 · CAS** | Optional `expect` APPENDED to the write verbs' `paramNames` (finding 5); mismatch → `stale_write` carrying `current`. | Stale token refused; current token succeeds; ABSENT token succeeds (today's behaviour, nothing breaks); the error CARRIES `current` — without that, callers cannot self-correct. | A companion that reads then writes still works end to end. |
+| 1 | **R1 · demote** — DONE 2026-07-26, both gates PASSED | `claimWrite` → `recordDriving`: records + broadcasts, never throws. `writesTarget` stays (it now means "which port does this touch"). | The existing gate tests INVERT: a second principal's write SUCCEEDS and presence updates. `port_busy` is gone from the codebase. Full suite green. | A companion writing to a port you are in is no longer refused. |
+| 2 | **R2 · seq** — BUILT 2026-07-26, gate PASSED | `PortActivity`: `seq(for:)` + `bump(_:)`, in-memory, beside `portLeases`. Bumped at the dispatch seam (all bridge writes) and from `humanInteracted`. | Pure: monotonic per port, independent per port, unknown port starts at 0, two epochs never collide. Wired: two bridge writes bump twice; a read does not; an unresolvable target does not; human input bumps per keystroke. | — |
+| 2b | **R2b · one surface writer** (finding 7) — BUILT 2026-07-26, gate PASSED, manual gate open | Funnel all seven pty write sites through a single `GhosttyInputView.write(_:)` that bumps; it becomes the only caller of `ghostty_surface_text*`. Same for the web file-drop and browser address-bar paths. | A grep test: `ghostty_surface_text*` appears in exactly ONE place outside the harnesses. Drop-a-file and paste both bump. | Drop a file on a terminal; drop one on a web port; type a URL in a browser tile. Each bumps. |
+| 3 | **R3 · CAS** — DONE 2026-07-26, gate PASSED + live-verified | Optional `expect` APPENDED to the write verbs' `paramNames` (finding 5); mismatch → `stale_write` carrying `current`. | Stale token refused; current token succeeds; ABSENT token succeeds (today's behaviour, nothing breaks); the error CARRIES `current` — without that, callers cannot self-correct. | A companion that reads then writes still works end to end. |
 | 4 | **R4 · the pty choke point** | Move bump+check into `GhosttyTerminalController` (`inject`/`sendRaw`, finding 2), so @mention and `port.push` are covered identically. Bump on `typePrefill` + startup (finding 3). | An @mention-injected line bumps `seq` and is token-checked — the SAME assertions as `port.push`, run against both paths. Prefill bumps. | @mention a terminal companion; it still lands. |
 | 5 | **R5 · streams require it** | Terminals reject a token-less write; conflict carries `current`, so a naive caller self-corrects in one retry. | Token-less `port.push` to a terminal refused; retry with `current` lands. The ONLY required-token surface. | Type a long command slowly while a companion writes — no splice. |
 | 6 | **R6 · presence lifetime** | Companion presence dropped at `llmDidFinish` / `turnComplete`; human TTL → ~10s. | Presence survives a whole companion turn (no flicker across a tool-call gap); a human's clears ~10s after last input. | Watch the chip through a real multi-step companion turn. |
 | 7 | **R7 · native claim** | Move the web claim off the injected listener onto the shell's `NSEvent` monitor. | A port dispatching a forged `isTrusted` event does not register as the human. | Re-run the shader idle test: zero claims. |
+
+#### R1 as built (2026-07-26)
+
+**Manual gate CLEARED live in Dev3.** GM clicked into a web port (taking presence via the L2.d.2
+interaction claim), then a gateway `port.exec` against that port **landed** — it returned the
+evaluated result, so it reached the webview. The same call on the pre-R1 build came back refused by
+name. The keystone's old behaviour is gone from the running app, not just from the tests.
+
+`LeaseRegistry.check` → `record`, and `LeaseDecision.denied` is **deleted**. The decision the caller
+gets back is now only "did the driver CHANGE", which is all the Notify broadcast ever keyed off.
+
+**The one design call R1 forced: LAST DRIVER WINS.** The step's own gate ("a second principal's write
+SUCCEEDS *and presence updates*") is unsatisfiable while a live record refuses to move, so
+`record` is unconditional. That is also the only reading that stays true: holding the driver still
+would leave the chrome naming a companion that stopped while the human types underneath it, which is
+the exact blindness L2.d.2 was added to fix. Two consequences, both wanted:
+
+- **Focus now moves presence off a companion.** The old `focusDoesNotSteal` invariant existed
+  because focus could seize the PEN; with no pen, refusing to update presence would just make the
+  chip lie. Its test is inverted, not deleted.
+- **A takeover no longer waits for the TTL.** A different driver publishes immediately.
+
+The flicker this exposes (a companion re-taking the chip on each write across a tool-call gap) is
+**R6's** problem, not a reason to keep a lock: R6 scopes companion presence to the turn.
+
+`writesTarget` survived unchanged, which is what R3 hangs `expect` off. `port_busy` is gone from
+`Sources/` and `Tests/`; grep confirms it. Suite **1067 green**.
+
+#### R1b — the rename, and the throttle defect it exposed (2026-07-26, GM)
+
+**GM: "I thought we got rid of leasing though, I am so confused."** Correct, and the confusion was
+the code's fault: R1 changed the lease's JOB and kept every one of its NAMES. A type called
+`LeaseRegistry` that leases nothing is a comment that lies, and it made the next conversation about
+it unreadable. Renamed to match what it does:
+
+| was | now |
+|---|---|
+| `PortLease.swift` | `PortPresence.swift` |
+| `LeaseRegistry` / `portLeases` | `DriverRegistry` / `portDrivers` |
+| `Lease` / `.holder` / `.holderName` | `Driver` / `.ref` / `.name` |
+| `LeaseDecision.granted` | `DriverChange.changed` |
+| `ClaimThrottle` / `humanClaimThrottle` | `PresenceThrottle` / `presenceThrottle` |
+| `claimFocusForHuman` | `recordHumanFocus` |
+| `HolderBadge` / `otherHolder` | `DriverBadge` / `otherDriver` |
+| wire: `kind:"holder"`, `payload.holder` | `kind:"driver"`, `payload.driver` |
+
+The WIRE changed too. It is a protocol surface, but nothing outside this app consumes it yet (no
+gateway code, no port JS, only `ShellState` and the tests), so the migration cost is zero now and
+non-zero the moment slice-02 exists.
+
+**The defect the rename hunt surfaced, found live by GM: the human could never win the chip back.**
+GM clicked continuously in a port while a companion wrote to it every 2s, and the header never
+stopped naming the gateway. Not a plumbing failure — `window.webkit.messageHandlers.portInput` was
+confirmed registered — but arithmetic: `PresenceThrottle` drops all but one claim per **5 seconds**,
+so a 2s write cadence beat the human every time.
+
+**The throttle's justification had died with the lock and nobody re-derived it.** Its comment read
+"re-claiming a lease you already hold is noise" — true under a 30s lock, false under last-driver-wins,
+where a companion's write means you do NOT still hold it and your next keystroke is a genuine change.
+
+**Fix: throttle a REFRESH, never a TAKEOVER.** Already the driver → throttled. Anyone else, or
+nobody → recorded immediately. That restores the throttle's original intent rather than tuning its
+interval, which would only have moved the race instead of removing it. Two tests pin both halves: a
+takeover inside the throttle window still wins; a ten-keystroke burst still publishes exactly once.
+
+**The pattern worth carrying to R6:** R2 had already pulled the token bump out from behind this same
+throttle, for the same reason, and the presence half was left behind. When a mechanism is demoted,
+every rule justified by its old job has to be re-checked — not just the rule that was obviously
+about it.
+
+#### R2 as built (2026-07-26)
+
+`PortActivity` (`Sources/Port42Lib/Services/PortActivity.swift`), pure, on `AppState` beside
+`portLeases`. **Token = `<epoch>:<seq>`** (GM decided A4: epoch now, not at slice-02). Suite
+**1079 green**.
+
+Three things the build settled that the table row does not say:
+
+**The seam resolves ONCE and shares the key** (A1). `runBridgeMethod` derives `portKey(for:)` and
+hands the same key to both the bump and `recordDriving`; `recordDriving(on:)` survives as a thin
+resolving overload for the focus and input callers, which hold a raw id. Presence, the token and the
+Notify topic now provably key off one value.
+
+**The bump fires BEFORE `method.run`.** The body is async and can suspend, so a token read mid-write
+would be read against a port already moving. A body that then throws leaves a bump for a write that
+did not land, costing a concurrent writer one self-correcting retry — wrong in the safe direction,
+which is the only acceptable direction here.
+
+**The presence throttle must not reach the token, and this is a correctness rule, not tuning.**
+`humanInteracted` was one throttled call; it is now two signals. The `ClaimThrottle` (~5s) still
+covers the presence claim, because re-recording a driver you already are is noise at keystroke rate.
+The bump is unthrottled: throttled, a companion's write composed 4 seconds ago would pass CAS against
+a port you had typed thirty characters into — exactly the splice R5 exists to stop. The bump also
+does NOT require an identity (the port changed whether or not we know who the person is), while the
+claim still does.
+
+#### R2b as built (2026-07-26)
+
+`GhosttyInputView.write(_:mode:)` is now the only caller of `ghostty_surface_text` and
+`ghostty_surface_text_input`, and it fires `onSurfaceWrite` after every write. Five sites routed
+through it: clipboard paste, file drop, a companion's `inject` (both halves), the startup command,
+the first-run prefill. Suite **1086 green**.
+
+**The seam is `GhosttyInputView`, not the controller, and that matters.** Finding 2 pointed at
+`injectToSurface` as the choke point, which is true for the BRIDGE routes and false for the rest —
+paste, drop, startup and prefill never touch the controller. Only the view is downstream of all of
+them.
+
+**Three things the build settled:**
+
+1. **Human keystrokes are a DIFFERENT C entry point.** They reach the pty via
+   `ghostty_surface_key` in `sendKey`, not the text functions, so the funnel does not and should not
+   cover them — they have their own seam in `onHumanInput`. The grep test covers both entry points
+   so neither can quietly grow a second caller.
+2. **The `inject` Enter counts separately from its body.** They are two writes 80ms apart, and the
+   human can type in the gap. Counting only the body would leave a token that looks current at the
+   exact moment the line is submitted.
+3. **Both terminal build paths had to be wired** (restore in `PortWindowManager`, spawn in
+   `AppState`). The presence hook was already in both; a token wired in only one would make
+   terminals count or not count depending on how they were created, which no user could ever see.
+   There is a test for exactly that.
+
+**`AppState.surfaceWrote(port:)` bumps but does NOT record presence**, unlike the bridge seam. This
+path fires for writes the app itself makes at spawn time, and naming the app as the driver of a port
+the user just opened would be a lie. Presence belongs to writes with a principal.
+
+**The non-terminal ways in from finding 7 are covered too:** a file drop onto a WEB port
+(`PortBridge.handleFileDrop`, resolved by bridge object identity rather than by threading a udid
+through every construction site) and the browser address bar (`ShellBrowserTile.navigate`). Page-
+initiated browser navigation remains uncounted — that is Spike B, still unrun.
+
+#### R3 as built (2026-07-26) — the first step that refuses anything
+
+Optional `expect` on every write verb; a mismatch throws `stale_write` carrying `current`. Suite
+**1099 green**, and live-verified in Dev3 with the case the earlier loop could not produce:
+
+```
+slow companion reads token   → 9ba21a7e:0
+   ...5 seconds of "thinking"...
+someone else writes          → port moves to :1
+slow companion writes with :0
+   → {"code":"stale_write","expected":"9ba21a7e:0","current":"9ba21a7e:1"}
+port content: v1-by-someone-else        ← the clobber never landed
+```
+
+**`expect` is injected CENTRALLY, not declared eight times.** `buildBridgeRegistry` ends with
+`mapValues { $0.acceptingExpect() }`, so a write verb added tomorrow gets compare-and-swap by
+construction. Declaring it per-method would make CAS depend on whoever adds the verb remembering —
+the exact failure this phase exists to stop. Appended last, per finding 5.
+
+**Three ordering rules, each with a failure behind it:**
+- The check runs BEFORE the bump, or a write invalidates the token it is being judged against.
+- A refused write does NOT bump. A rejection that moved the token would invalidate every other
+  writer over a write that never happened. There is a test for it.
+- The token is read at the seam off the SAME resolve as the bump and the presence record (A1).
+
+**`BridgeError` gained `details: [String: String]`**, so `current` is machine-readable beside `code`
+and also rendered into the tool text — a companion reads prose, and an error it cannot act on costs
+a whole turn. An error that says only "you are stale" leaves the caller guessing; one that says what
+the current value IS turns the failure into a one-retry self-correction.
+
+##### The gap R3 exposed, and `port.getDom`
+
+To write "against what I saw", a caller must first SEE. The only way to inspect a live port was
+`port.exec` — correctly a write, since it runs arbitrary JS — so **looking at a port invalidated the
+looker's own token.** Circular: the read was a write. `port.getHtml` was no help; it returns the
+stored SOURCE, which does not reflect any `exec`/`push` since load.
+
+**`port.getDom(id, selector?) → {html, token}`**, a read (`writesTarget: nil`, so no bump, no
+presence). Two properties that matter:
+
+- **No `js` parameter.** The expression is fixed in the method, so a caller cannot smuggle a mutation
+  through a read verb. The classification is enforced by the method's SHAPE, not by trusting callers
+  — the same discipline as the R2b funnel.
+- **`html` and `token` come back together, from one instant.** Fetching the token separately leaves a
+  gap in which the port can move, handing back a token that was never true of the html beside it.
+
+Verified live: three consecutive `getDom` calls returned an identical token, then a write carrying it
+landed.
+
+##### What the generated-artifact gates caught (worth keeping)
+
+Three gates fired on R3, all correctly: `BridgeParamConsistencyTests` (method count),
+`BridgeSchemaParityTests` (golden fixture) and `BridgeDocsExportTests` (`llms.txt`). Each has a regen
+path whose doc says to READ THE DIFF, and doing so caught a real defect: the `expect` description
+pointed companions at `port_info`, which is `toolExposed: false` — a tool no companion can call. Now
+points at `ports_list`. **The regen diff is a review surface, not a chore.**
 
 **Sequencing rationale.** 1 first because it is live in Dev3 refusing writes on a justification we
 have abandoned. 2 before 3 because CAS needs something to compare. 4 before 5 because requiring a

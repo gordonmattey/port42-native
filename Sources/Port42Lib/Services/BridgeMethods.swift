@@ -23,7 +23,9 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerLiveDeviceMethods(into: &r, appState: appState)
     registerPortLiveMethods(into: &r, appState: appState)
     registerAIService(into: &r, appState: appState)   // ai.models, ai.status (BridgeServiceAI.swift)
-    return r
+    // R3: every WRITE verb gains the optional `expect` token here, once, instead of eight times in
+    // eight declarations. A write verb added tomorrow gets compare-and-swap by construction.
+    return r.mapValues { $0.acceptingExpect() }
 }
 
 // MARK: Streaming registry (item 8)
@@ -260,6 +262,54 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // #5: PortExecJS awaits promises + marshals objects; nil = undefined/no-return.
         guard let result = try await PortExecJS.run(wv, js) else { return .object(["ok": .bool(true)]) }
         return .fromJSONObject(result)
+    }
+
+    r["port.getDom"] = BridgeMethod(permission: nil, paramNames: ["id", "selector"],
+        description: "Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including "
+                   + "everything its JS has changed since load. Use this, not port_get_html, when you "
+                   + "need current state: port_get_html returns the stored SOURCE, which does not "
+                   + "reflect any port_exec or port_push that has run since. Returns {html, token}; "
+                   + "pass that token as 'expect' on your next write and it will be refused rather "
+                   + "than clobber someone if the port moved in between.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
+                "selector": ["type": "string", "description": "Optional CSS selector to read just one subtree. Omit for the whole document."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
+        // A READ, and `writesTarget` is deliberately nil so it neither bumps the activity token nor
+        // records presence. That is the whole reason it exists.
+        //
+        // R3 exposed the gap: `port.exec` is (correctly) a write, because it runs arbitrary JS and
+        // can mutate — so INSPECTING a live port through it moved the token, and a caller that
+        // looked before writing invalidated its own token. "Read the live state, then write against
+        // it" was not expressible; the read was a write.
+        //
+        // What makes this honestly read-only is that there is NO `js` parameter. The expression is
+        // fixed here, so a caller cannot smuggle a mutation through a read verb — the classification
+        // is enforced by the method's shape, not by trusting the caller.
+        let id = try args.requireString("id")
+        guard let ref = appState.resolvePortRef(id), ref.kind == .web || ref.kind == .browser,
+              let wv = webView(ref.id ?? ref.messageId ?? id) else {
+            throw BridgeError.notFound("web port '\(id)'")
+        }
+        let js: String
+        if let sel = args.string("selector"), !sel.isEmpty {
+            let quoted = sel.replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+            js = "(document.querySelector('\(quoted)') || {}).outerHTML || ''"
+        } else {
+            js = "document.documentElement.outerHTML"
+        }
+        let html = (try await PortExecJS.run(wv, js) as? String) ?? ""
+        // The token comes back WITH the DOM, from the same instant: fetching it separately would
+        // leave a gap in which the port could move, and hand back a token that was never true of
+        // the html beside it.
+        var out: [String: BridgeValue] = ["html": .string(html)]
+        if let key = ref.udid ?? ref.id { out["token"] = .string(appState.portActivity.token(for: key)) }
+        return .object(out)
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
@@ -1271,6 +1321,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let registered = appState.portWindows.allPorts()
         let inline = appState.inlinePorts().filter { $0.spaceId == p.spaceId || p.spaceId == nil }.suffix(5)
 
+        // Snapshot the counters once, before building the list. A value type, so every entry reports
+        // the same instant — a listing whose rows were read at different moments would hand out
+        // tokens that were never all true together.
+        let activity = appState.portActivity
+
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
                    cwd: String?, status: String, spaceId: String?, x: CGFloat?, y: CGFloat?,
@@ -1281,6 +1336,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "id": .string(id), "title": .string(title),
                 "capabilities": .array(capabilities.map { .string($0) }),
                 "status": .string(status),
+                // R3: the port's activity token, so a caller can compose a write against the state
+                // it just read and pass it back as `expect`. Surfaced on the DISCOVERY call because
+                // that is where a caller already learns the id — a token you have to make a second
+                // call for is a token nobody uses.
+                "token": .string(activity.token(for: id)),
             ]
             if let spaceId { o["spaceId"] = .string(spaceId) }
             if let createdBy { o["createdBy"] = .string(createdBy) }
@@ -1474,9 +1534,13 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
     }
 
     r["port.info"] = BridgeMethod(permission: nil, toolExposed: false,
-        description: "Return the calling port's own id, title, space, and capabilities.") { p, _ in
+        description: "Return the calling port's own id, title, space, capabilities, and activity token.") { p, _ in
         var info: [String: BridgeValue] = ["id": .string(p.id), "createdBy": .string(p.displayName)]
         if let sid = p.spaceId { info["spaceId"] = .string(sid) }
+        // R3: a port's own token, for a port that reads-then-writes itself.
+        if let key = appState.portKey(for: p.id) {
+            info["token"] = .string(appState.portActivity.token(for: key))
+        }
         return .object(info)
     }
 

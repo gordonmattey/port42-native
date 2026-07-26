@@ -147,6 +147,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         guard let json = try? JSONSerialization.data(withJSONObject: paths),
               let jsonStr = String(data: json, encoding: .utf8) else { return }
         NSLog("[Port42] handleFileDrop: dispatching port42:filedrop for %d path(s)", paths.count)
+        // R2b / finding 7: a drop onto a WEB port is an external write into the runtime that never
+        // passes the dispatcher, so without this the port's token would not move and a companion's
+        // write composed before the drop would still look current. Found by sweeping for ways in,
+        // not by anyone remembering it existed — which is the argument for the surface funnel.
+        //
+        // The udid is resolved by object identity rather than carried on the bridge: a drop is a
+        // rare, human-paced event, and threading an id through every construction site is exactly
+        // the kind of list that rots.
+        if let state, let udid = state.portWindows.panels.first(where: { $0.bridge === self })?.udid {
+            state.surfaceWrote(port: udid)
+        }
         _ = try? await webView?.evaluateJavaScript(
             "window.dispatchEvent(new CustomEvent('port42:filedrop', {detail: \(jsonStr)}))"
         )
@@ -262,7 +273,38 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         return .resolve(result)
     }
 
+    /// The ONE origin a port's own document is ever served from — every `loadHTMLString` in the app
+    /// passes this as its baseURL. A port IS this origin; anything else is a different website that
+    /// happens to be sitting in the same webview.
+    public static let portOrigin = "port42.local"
+
+    /// Is this message from the port's OWN document, or from a site that has since been loaded into
+    /// its webview?
+    ///
+    /// SECURITY (found live 2026-07-26). The injected scripts and message handlers live on the
+    /// webview's CONFIGURATION, so WebKit re-injects them on every navigation — the bridge belongs to
+    /// the WEBVIEW, not to the document that happened to be in it. A port whose JS ran
+    /// `location.href = 'https://example.com'` therefore handed a full `window.port42` to
+    /// example.com, which called `ports.list()` and got the user's real ports back. Verified end to
+    /// end, not inferred.
+    ///
+    /// This check is the load-bearing fix, not the navigation policy. A policy says "you should not
+    /// have got here"; this says "even if you did, you are not the port". It is also what makes
+    /// BROWSER ports safe, and those navigate by design — no policy can help them.
+    ///
+    /// A port's HTML is written by a companion, so prompt injection is enough to plant one; and
+    /// permission grants are keyed to the port principal and persist, so an escaped port carries
+    /// yesterday's `filesystem` grant to whatever origin it reaches today.
+    nonisolated static func isPortOrigin(_ message: WKScriptMessage) -> Bool {
+        message.frameInfo.securityOrigin.host == portOrigin
+    }
+
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard Self.isPortOrigin(message) else {
+            NSLog("[Port42][security] bridge call REFUSED from foreign origin %@ (port %@)",
+                  message.frameInfo.securityOrigin.host, messageId ?? "?")
+            return
+        }
         guard message.name == "port42",
               let body = message.body as? [String: Any],
               let method = body["method"] as? String,
