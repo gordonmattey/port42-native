@@ -6,6 +6,40 @@ patterns we've decided to collapse). Each item is tagged TODO.
 
 ---
 
+## TODO (2026-07-26, GM) — **NEXT UP**: first boot lost the pre-boot cinematic (a regression I caused)
+
+**GM:** "we are missing the pre-boot video interactive sequence, the glitch etc. when we shifted the
+way things work I think we lost it."
+
+**Correct, and it is a regression from this session's first-boot change, not drift.**
+
+**Cause (verified).** `DolphinProtocolView` IS that sequence — its phases are glitch → home →
+traffic → walls → observer → swimming → frequency → realization → protocol → invitation. Its ONLY
+trigger anywhere in the codebase is `.dolphinProtocolRequested`, posted from
+`LockScreenView.diveIn()` (`LockScreenView.swift:130`) when the user is not a returning one. The
+first-boot change set `showDreamscape = false` when there is no identity, so **the lock screen never
+renders, nothing posts the notification, and the cinematic never plays.** Fresh installs drop
+straight into the BIOS.
+
+The intent of that change was to kill the dreamscape LOOP behind the boot terminal. It killed the
+cinematic in front of it as collateral, because the two were coupled through the lock screen.
+
+**Fix direction.** Drive the cinematic from the ROOT at first boot rather than from the lock screen,
+which is where it always belonged: `TransitionRoot.onAppear` sees no identity → play
+`DolphinProtocolView(skipBios: true)` (skip because `SetupView` has its own BIOS) → on finish, show
+the setup terminal. That restores the sequence AND keeps the no-dreamscape-loop requirement, because
+the loop came from the lock screen, not from the cinematic.
+
+**The gotcha, or this will look fixed and not be:** `bootCinematicDone` is currently set
+UNCONDITIONALLY in `TransitionRoot.onAppear` (also my change — it was covering for the fact that
+`showDreamscape` no longer gated it). The fix must hold it false at first boot until the cinematic
+finishes, or the setup terminal renders underneath the video and the reveal is spoiled.
+
+**Verify by:** a fresh-data Dev3 launch, which is the only way to see it — a returning user must
+still go straight to the shell with no cinematic.
+
+---
+
 ## TODO (2026-07-26, GM): browser ports drop links that open in a new window
 
 **GM:** "on browser it's actually broken when links open in new window."
