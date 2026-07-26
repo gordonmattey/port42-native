@@ -2,8 +2,9 @@
 
 ## Where this left off (2026-07-26)
 
-**HEAD `3c3f370`, branch `main`.** The tree is UNCOMMITTED (GM has not asked to commit) and carries
-the cinematic fix, a SECURITY P0 fix, and L2 **R1, R1b, R2, R2b, R3** (+ the new `port.getDom`).
+**Branch `l2-right-of-way`** (3 commits, off `3c3f370` on main; fast-forward with
+`git checkout main && git merge --ff-only l2-right-of-way`). Carries the cinematic fix, a SECURITY
+P0 fix, the Spike C input fix, and L2 **R1, R1b, R2, R2b, R3** (+ the new `port.getDom`).
 Full suite **1100 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running ALL of it, live-verified.
 Dev3 builds no longer need GM's go-ahead (GM, 2026-07-26); Dev `:4243` and prod still do.
 
