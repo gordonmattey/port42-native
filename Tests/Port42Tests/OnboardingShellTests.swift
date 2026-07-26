@@ -11,7 +11,7 @@ import Foundation
 @Suite("Onboarding into the shell")
 struct OnboardingShellTests {
 
-    // MARK: - Phase 1: first boot goes straight to the BIOS
+    // MARK: - Phase 1: first boot plays the cinematic, then the BIOS
 
     @MainActor
     @Test("First boot skips the lock screen — no identity, no dreamscape loop")
@@ -21,10 +21,33 @@ struct OnboardingShellTests {
         #expect(state.currentUser == nil)
         #expect(state.isSetupComplete == false)
         #expect(state.showDreamscape == false)
-        // …which is exactly the setup terminal, not the lock screen.
+        // …which is the setup terminal once the cinematic is done, not the lock screen.
         #expect(RootScreen.decide(showDreamscape: state.showDreamscape,
                                   isSetupComplete: state.isSetupComplete,
                                   transitionPlaying: false, bootCinematicDone: true) == .setup)
+    }
+
+    @MainActor
+    @Test("First boot plays the pre-boot cinematic — the root drives it, not the lock screen")
+    func firstBootPlaysCinematic() throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        #expect(RootScreen.playsBootCinematicAtLaunch(hasIdentity: state.currentUser != nil,
+                                                      isSetupComplete: state.isSetupComplete))
+        // …and while it plays, the root MUST be `.none`. If `bootCinematicDone` were true here
+        // the setup terminal would render under the video and the fix would look applied
+        // without being applied — the regression this test exists to catch.
+        #expect(RootScreen.decide(showDreamscape: state.showDreamscape,
+                                  isSetupComplete: state.isSetupComplete,
+                                  transitionPlaying: false, bootCinematicDone: false) == .none)
+    }
+
+    @Test("A launch with an identity never plays the cinematic")
+    func returningLaunchSkipsCinematic() {
+        // Returning user: straight to the lock screen / shell.
+        #expect(RootScreen.playsBootCinematicAtLaunch(hasIdentity: true, isSetupComplete: true) == false)
+        // Power off keeps the data but drops setup: still an identity on disk, still no cinematic.
+        #expect(RootScreen.playsBootCinematicAtLaunch(hasIdentity: true, isSetupComplete: false) == false)
     }
 
     // MARK: - Phase 1: the root screen truth table

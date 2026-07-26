@@ -26,6 +26,19 @@ public enum RootScreen: Equatable {
         if bootCinematicDone { return .setup }
         return .none
     }
+
+    /// Whether the pre-boot cinematic plays at LAUNCH.
+    ///
+    /// It belongs to a FIRST BOOT and nothing else: with no identity there is no lock screen to
+    /// launch it from (first boot skips it to kill the dreamscape loop), so the root has to. A
+    /// locked or returning launch already has an identity and goes to the lock screen or straight
+    /// to the shell.
+    ///
+    /// Whoever answers `true` here MUST leave `bootCinematicDone` false until the cinematic
+    /// finishes, or `decide` returns `.setup` and the boot terminal renders under the video.
+    public static func playsBootCinematicAtLaunch(hasIdentity: Bool, isSetupComplete: Bool) -> Bool {
+        !hasIdentity && !isSetupComplete
+    }
 }
 
 // MARK: - Transition Root (shared between Port42 and Port42B)
@@ -213,10 +226,18 @@ public struct TransitionRoot: View {
             }
         }
         .onAppear {
-            // Nothing gates the setup terminal at launch: first boot goes straight to the BIOS,
-            // and every other launch (locked or returning) already satisfied this. The flag now
-            // only matters for the boot cinematic reached from the lock screen mid-session.
-            bootCinematicDone = true
+            // FIRST BOOT plays the pre-boot cinematic from HERE. It used to hang off the lock
+            // screen's `diveIn()`, which first boot no longer renders, so nothing posted
+            // `.dolphinProtocolRequested` and fresh installs dropped straight into the BIOS.
+            // `bootCinematicDone` stays FALSE across it (`decide` → `.none`, the overlay covers
+            // the gap); the `showBootCinematic` onChange flips it when the cinematic dismisses.
+            // Every other launch (locked or returning) has already satisfied the flag.
+            if RootScreen.playsBootCinematicAtLaunch(hasIdentity: appState.currentUser != nil,
+                                                     isSetupComplete: appState.isSetupComplete) {
+                showBootCinematic = true
+            } else {
+                bootCinematicDone = true
+            }
             // Returning user: resize window while covered by launch overlay, then reveal.
             // Call unlock() after the animation so port windows appear (same gate as post-lock reveal).
             if appState.isSetupComplete && !appState.showDreamscape {
