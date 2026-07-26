@@ -431,14 +431,28 @@ instances — which a lock can never be, because clocks do not agree between pee
 A rejected write is self-correcting: the conflict response carries `current`, so a naive caller does
 push → conflict → push-with-token → success. One extra round trip, once.
 
-#### The token follows the WRITE SHAPE, not the port type
+#### The token is ONE activity sequence, not a per-type table
 
-| Shape | Port type | Token | Why |
-|---|---|---|---|
-| **Mutate** | web | the existing version number | `update`/`patch` replace content, so writers genuinely clobber. CAS essential. |
-| **Position-sensitive append** | terminal | **input sequence** — every byte delivered from ANY source (human keystrokes, `inject`, `push`) | Input only appends, but WHERE matters: text landing mid-line corrupts it, and a stray newline executes it. |
-| **Plain append** | chat | message count (context only) | Messages never clobber: both exist, order is the only question, and that is not corruption. **Chat needs no CAS.** |
-| **External** | browser | committed-navigation counter | We do not own the page. Staleness means "the page you read is gone" — weaker, and honestly so. |
+*(Corrected 2026-07-26 by checking the code. The per-type table below survived about ten minutes of
+verification. What killed it is in §Verification finding 1.)*
+
+**Every port carries a monotonic `seq`, bumped by anything that changes it**: a bridge write
+(`push`/`exec`/`patch`/`update`/`restore`), a programmatic terminal write (`inject`/`sendRaw`/
+prefill), trusted human input into the surface, and an external change we observe (a browser
+navigation). A write carries the `seq` it was composed against; a mismatch is a conflict.
+
+One counter, one rule, every type. The per-type differences that remain are only **where the bumps
+come from**, not what the token means:
+
+| Type | Bumped by |
+|---|---|
+| **web** | bridge writes + trusted human keydown/pointerdown in the surface |
+| **terminal** | `inject` / `sendRaw` / prefill + trusted human keystrokes (`onHumanInput`) |
+| **browser** | the above + a committed navigation (the page changed under us) |
+| **chat** | n/a — not addressable by port verbs at all (`PortSurfaceKind` is web/terminal/browser/unknown), so it needs no token |
+
+The document VERSION (`port_versions`) stays exactly as it is, for history and restore. It is not
+the CAS token — see finding 1.
 
 **Why input sequence and not output sequence for a PTY:** a redrawing TUI (claude's own UI, htop)
 emits constantly, so an output token moves every frame and every write fails — protection too noisy
@@ -491,24 +505,80 @@ half-provides.
 a speed bump, not a boundary. Presence being advisory lowers the stakes of that hole — a forged
 claim then misleads a human rather than blocking a companion — but it does not close it.
 
+#### Verification against the codebase (2026-07-26, before any code)
+
+**Finding 1 — the port version is the WRONG token, and would have shipped as a fake guarantee.**
+`savePortVersion` (`DatabaseService.swift:1600`) is called from exactly two places, both in
+`PortWindowManager` (`:299` persist, `:824` `updateHtml`). So the version bumps only when the HTML
+SOURCE is replaced — i.e. `update`/`patch`. **`port.exec` and `port.push` do not bump it**: they
+drive the port's live runtime (JS state, DOM) without touching source. Two companions exec'ing
+against the same runtime would both read the same version, both pass CAS, and clobber each other
+anyway. A token that cannot see the most common write is worse than no token, because it reads as
+protection. Hence one activity `seq` per port, bumped by every mutation of any kind.
+
+**Finding 2 — @mention into a terminal bypasses everything, and it is the COMMON path.**
+`routeMentionsToTerminals` calls `controller.inject(line)` directly (`AppState.swift:1649`), never
+touching `runBridgeMethod`. So the most-used way a companion reaches a terminal is neither recorded
+as presence nor token-checked, while the rarer `port.push` is. GM caught this: it has to be handled,
+not noted.
+**The good news is the choke point already exists.** `inject` and `sendRaw` both funnel through
+`injectToSurface` (`GhosttyTerminalController.swift:208/218`), so the CONTROLLER is the one place
+every programmatic pty write passes. Bump and check there, not at the bridge, and every route is
+covered by construction.
+
+**Finding 3 — two pty writes bypass even the controller.** `Coordinator.typePrefill`
+(`PortWindowManager.swift:136`) and the startup command both write straight to the Ghostty surface.
+They are app-originated at spawn time, so they need no token check, but they DO change the pty and
+must bump `seq` or a companion's first write races them.
+
+**Finding 4 — human keystrokes never pass either seam.** `GhosttyInputView` writes to the surface
+directly (`ghostty_surface_text_input`, `:445/493/505`). The `onHumanInput` hook from L2.d.2 is the
+only observation point, which makes it load-bearing for correctness now, not just for presence.
+
+**Finding 5 — appending `expect` to a verb's `paramNames` is safe.** `BridgeArgs(positional:names:)`
+maps positional args in order, so an appended trailing name cannot disturb existing positional JS
+callers. Adding it anywhere but the end would.
+
+**Finding 6 — chat drops out entirely.** `PortSurfaceKind` is web/terminal/browser/unknown; chat
+ports are not addressable by port verbs, so the "plain append" row was solving a problem that does
+not exist.
+
+#### Architecture spikes (read-only, before the step they gate)
+
+- **Spike A — where does `seq` live, and can it be read cheaply at write time?** A write checks the
+  token on every call, so the read must be O(1) and must not touch the DB. Candidate: an in-memory
+  `[portUdid: Int]` on `AppState` beside `portLeases`, since it is session state, not history.
+  Confirm nothing needs it to survive a restart (a restarted app has no in-flight writers, so a
+  reset counter is safe — VERIFY, because a remote peer holding a token across our restart is
+  exactly the cross-instance case).
+  **Gates L2.f1.**
+- **Spike B — can a browser's committed navigation be observed?** `PortBrowserNavigation` overrides
+  `decidePolicyFor` (`PortWindowManager.swift:1329`) but not `didCommit`. Confirm adding `didCommit`
+  is enough to catch every page change (including in-page history API pushes, which do NOT fire it —
+  and if they do not, say so rather than claim browser CAS is sound).
+  **Gates L2.f1's browser row.**
+
 #### Build order (revised 2026-07-26)
 
-Ordered so the thing currently enforcing on a bad justification stops first.
+Ordered so the thing currently enforcing on a bad justification stops first, and so every step is
+shippable green on its own.
 
-| Step | Build | Gate |
-|---|---|---|
-| **L2.g demote** | `claimWrite` → `recordDriving`: records + broadcasts, never throws. Registry keeps `writesTarget` (it is now "which port does this touch", still the right declaration). | The existing gate tests INVERT: a second principal's write now succeeds and presence updates. `port_busy` disappears from the codebase. Full suite green. |
-| **L2.f1 tokens** | One `stateToken(for:)` resolver, per write shape: web → version, terminal → input seq, browser → nav counter, chat → nil. Declared per port type, so a new type must answer. | Pure tests per provider + "an unknown type has no silent default". |
-| **L2.f2 CAS** | Optional `expect` on the write verbs; mismatch → `stale_write` carrying `current`. | Write with a stale token is refused; with the current token succeeds; with none succeeds (last-write-wins, today's behaviour). The conflict error must carry `current`, or callers cannot self-correct. |
-| **L2.f3 streams require it** | Terminals reject a token-less write. The conflict carries `current`, so a naive caller self-corrects in one retry. | A token-less `port.push` to a terminal is refused; the retry with `current` lands. This is the ONLY required-token surface. |
-| **L2.f4 input counter** | The terminal's input sequence counts EVERY source: human keystrokes (`onHumanInput` already gives this), `inject`, `push`. | Typing bumps it; a companion's pre-typing token is then stale. This is the half-typed-line case, caught by state. |
-| **L2.h presence lifetime** | Companion presence dropped at `llmDidFinish` / `turnComplete`; human TTL → ~10s. | Presence survives a full companion turn without flickering; a human's fades ~10s after their last input. |
-| **L2.i native claim** | Move the web presence claim off the injected listener onto the shell's `NSEvent` monitor. | A port dispatching a forged `isTrusted` event no longer registers as the human. |
+| # | Step | Build | Automated gate | Manual gate |
+|---|---|---|---|---|
+| 1 | **L2.g demote** | `claimWrite` → `recordDriving`: records + broadcasts, never throws. `writesTarget` stays (it now means "which port does this touch"). | The existing gate tests INVERT: a second principal's write SUCCEEDS and presence updates. `port_busy` is gone from the codebase. Full suite green. | A companion writing to a port you are in is no longer refused. |
+| 2 | **L2.f1 seq** | `PortActivity`: `seq(for:)` + `bump(_:)`, in-memory, beside `portLeases`. Bumped from `recordDriving` (all bridge writes) and `onHumanInput`. | Pure: monotonic per port, independent per port, unknown port starts at 0. Wired: two bridge writes bump twice; a trusted input bumps; an untrusted one does not. | — |
+| 3 | **L2.f2 CAS** | Optional `expect` APPENDED to the write verbs' `paramNames` (finding 5); mismatch → `stale_write` carrying `current`. | Stale token refused; current token succeeds; ABSENT token succeeds (today's behaviour, nothing breaks); the error CARRIES `current` — without that, callers cannot self-correct. | A companion that reads then writes still works end to end. |
+| 4 | **L2.f3 the pty choke point** | Move bump+check into `GhosttyTerminalController` (`inject`/`sendRaw`, finding 2), so @mention and `port.push` are covered identically. Bump on `typePrefill` + startup (finding 3). | An @mention-injected line bumps `seq` and is token-checked — the SAME assertions as `port.push`, run against both paths. Prefill bumps. | @mention a terminal companion; it still lands. |
+| 5 | **L2.f4 streams require it** | Terminals reject a token-less write; conflict carries `current`, so a naive caller self-corrects in one retry. | Token-less `port.push` to a terminal refused; retry with `current` lands. The ONLY required-token surface. | Type a long command slowly while a companion writes — no splice. |
+| 6 | **L2.h presence lifetime** | Companion presence dropped at `llmDidFinish` / `turnComplete`; human TTL → ~10s. | Presence survives a whole companion turn (no flicker across a tool-call gap); a human's clears ~10s after last input. | Watch the chip through a real multi-step companion turn. |
+| 7 | **L2.i native claim** | Move the web claim off the injected listener onto the shell's `NSEvent` monitor. | A port dispatching a forged `isTrusted` event does not register as the human. | Re-run the shader idle test: zero claims. |
 
-**Also fix while in there:** `routeMentionsToTerminals` calls `controller.inject` directly
-(`AppState.swift:1649`), bypassing the dispatch seam entirely — so an @mention into a terminal is
-neither recorded as presence nor token-checked. Every path into a PTY must converge on one claim
-point, or the guarantee is only as good as the route taken.
+**Sequencing rationale.** 1 first because it is live in Dev3 refusing writes on a justification we
+have abandoned. 2 before 3 because CAS needs something to compare. 4 before 5 because requiring a
+token on a path that half the callers bypass would fail open — the choke point has to exist before
+it can be mandatory. 7 last because presence being advisory (step 1) lowers the stakes of the
+forgery hole from "a port can block a companion" to "a port can mislead a human", so it stops being
+urgent, but it is still owed.
 
 ### Phase L2 — right-of-way lease (keystone #2) — detailed (2026-07-24, SUPERSEDED ABOVE)
 
