@@ -22,24 +22,34 @@ why the register exists rather than a note.
 
 ---
 
-## 1. Identity — the ACTOR noun · **IN THE PLAN, NEXT**
+## 1. Identity — the ACTOR noun · **IN THE PLAN, IN PROGRESS**
 
-**Status: BROKEN, live.** Six `Principal` construction sites. Two of them:
+**Status: BROKEN, live, and MEASURED 2026-07-27** (I1.1, `ActorProbe.swift`). Six `Principal`
+construction sites. **Permissions are keyed on `principal.id`**, presence names the principal, and the
+activity token attributes writes by it. `decision-identity-model.md` settles person/instance/actor in
+prose; nothing enforces it in code.
 
-```swift
-Principal(id: createdBy ?? "anonymous-tool-caller", …)   // ToolExecutor:75, :92
-```
+Two holes are live. **Neither is the one this entry used to name.**
 
-**Permissions are keyed on `principal.id`.** So every unattributed tool caller shares one bucket:
-grant `filesystem` to one and all of them have it, persistently. Presence names them identically, and
-the activity token attributes their writes to one actor. `decision-identity-model.md` settles
-person/instance/actor in prose; nothing enforces it in code.
+| what | where | how it fails |
+|---|---|---|
+| a gateway-created port inherits the shared `local-http` id | `BridgeMethods.swift:169` (`createdBy: p.id`) | **pools.** All such ports in a space share one grant bucket. Dev3 already persists `automation` in one and `ai` globally. |
+| a chat or ambient port authorizes as a heap address | `PortWindowManager.swift:1020`, `ShellView.swift:1512` (`ObjectIdentifier`) | **unstable.** Changes per launch so a grant never restores; addresses are reused after dealloc so a grant can transfer to a different object. |
 
-**Why it goes first.** It is small, it is a live hole, and **both guarantees shipped this session are
-built on `principal.id`** — presence records it and CAS attributes by it. Anything identity gets wrong
-is inherited by everything above it.
+**`anonymous-tool-caller` (`ToolExecutor:75,:92`) is UNREACHABLE** and was this entry's headline until
+it was measured. One production construction site, passing a non-optional `agent.id`. It is deleted in
+I1.5 rather than fixed.
 
-**Steps I1.1–I1.4 are in the plan** (`plan-port42-protocol-local-bus.md` §B).
+**Why it goes first.** Both guarantees shipped this session are built on `principal.id`: presence
+records it and CAS attributes by it. Anything identity gets wrong is inherited by everything above it.
+
+**Register note on method.** This entry was originally written from a count of `Principal(`
+construction sites and fallback strings, and **that method could not have found either live hole** (one
+has no fallback, the other needed a caller list). A primitive's STATUS here is only as good as the way
+it was established, so an asserted-from-structure status is weaker evidence than a measured one, and
+§3 already carries that caveat explicitly.
+
+**Steps I1.2–I1.6 and the open GM decision are in the plan** (`plan-port42-protocol-local-bus.md` §B).
 
 ---
 

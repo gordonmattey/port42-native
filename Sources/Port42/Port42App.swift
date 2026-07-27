@@ -37,6 +37,16 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyProbe()  // Step 1: confirm GhosttyKit links and resolves at runtime
 
         #if DEBUG
+        // I1.1 (plan-port42-protocol-local-bus.md §B): the actor probe runs for the WHOLE session,
+        // not on a trigger — the measurement is "what calls in during normal use", so arming it by
+        // hand would sample only the part of the session I remembered to arm. Off-switch:
+        // `defaults write <domain> PORT42_ACTOR_PROBE -bool false`. Reset per launch so a tally is
+        // one session's traffic rather than an accumulation across builds.
+        if UserDefaults.standard.object(forKey: "PORT42_ACTOR_PROBE") != nil {
+            ActorProbe.enabled = UserDefaults.standard.bool(forKey: "PORT42_ACTOR_PROBE")
+        }
+        if ActorProbe.enabled { ActorProbe.reset() }
+
         // Spike 3 (I6) hands-free trigger: `defaults write <domain> PORT42_SPIKE3_AUTORUN -bool true`
         // → the resize spike opens at launch and runs its full sequence. One-shot (self-clearing),
         // so normal launches are untouched. Exists because permission-gated remote automation can't

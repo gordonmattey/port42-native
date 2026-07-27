@@ -27,7 +27,7 @@ struct PortLeaseGateTests {
     }
 
     func principal(_ id: String, _ name: String) -> Principal {
-        Principal(id: id, displayName: name, spaceId: nil, kind: .companion)
+        Principal.companion(id: id, displayName: name, spaceId: nil)
     }
 
     @Test("a second principal's write SUCCEEDS, and presence follows it (R1)")

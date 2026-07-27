@@ -70,7 +70,7 @@ struct ServiceManifestSpikeTests {
         #expect(nameMap == ["forecasts.get": "weather.forecast"])
 
         // Dispatch reaches the generic backend with the canonical name and the args, no method-specific code.
-        let principal = Principal(id: "peer-1", displayName: "peer", spaceId: nil, kind: .peer)
+        let principal = Principal.peer(id: "peer-1", displayName: "peer")
         let value = try await registry["weather.forecast"]!.run(principal, BridgeArgs(["city": "Lisbon", "days": 3]))
         #expect(received.count == 1)
         #expect(received.first?.canonical == "weather.forecast")

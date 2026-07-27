@@ -78,7 +78,7 @@ struct BridgeStorageTests {
         let w = try makeParityWorld()
         _ = try await call(w, "storage.set", ["key": "secret", "value": "mine"])
         // same space, different caller id → different creator scope → not visible
-        let other = Principal(id: "someone-else", displayName: "Other", spaceId: w.space.id, kind: .companion)
+        let other = Principal.companion(id: "someone-else", displayName: "Other", spaceId: w.space.id)
         let got = try await call(w, "storage.get", ["key": "secret"], principal: other)
         #expect(got == .object(["value": .null]))
     }
@@ -89,7 +89,7 @@ struct BridgeStorageTests {
         let w = try makeParityWorld()
         _ = try await call(w, "storage.set", ["key": "g", "value": "gv", "options": ["scope": "global"]])
         // a caller in a different space, same id, reads the global value
-        let elsewhere = Principal(id: w.companion.id, displayName: w.companion.displayName, spaceId: "other-space", kind: .companion)
+        let elsewhere = Principal.companion(id: w.companion.id, displayName: w.companion.displayName, spaceId: "other-space")
         let g = try await call(w, "storage.get", ["key": "g", "options": ["scope": "global"]], principal: elsewhere)
         #expect(g == .object(["value": .string("gv")]))
         // but a space-scoped read from the other space sees nothing
@@ -101,7 +101,7 @@ struct BridgeStorageTests {
     @MainActor
     func noSpaceErrors() async throws {
         let w = try makeParityWorld()
-        let spaceless = Principal(id: "peer-1", displayName: "curl", spaceId: nil, kind: .peer)
+        let spaceless = Principal.peer(id: "peer-1", displayName: "curl")
         await #expect(throws: BridgeError.self) {
             _ = try await call(w, "storage.set", ["key": "k", "value": "v"], principal: spaceless)
         }

@@ -11,7 +11,7 @@ import Testing
 struct PermissionCoordinatorTests {
 
     private func requester(_ id: String, space: String? = "space-1") -> Principal {
-        Principal(id: id, displayName: id, spaceId: space, kind: .port)
+        Principal.port(id: id, displayName: id, spaceId: space)
     }
 
     /// Spin the main actor until `condition` holds, so a child task's `request(...)` has registered.
@@ -163,10 +163,8 @@ struct PermissionCoordinatorTests {
     /// space) grant the human was never shown, and for spaceless callers wrote nothing at all.
     @Test("scope description distinguishes a space grant from a global one")
     func scopeDescriptionIsHonest() {
-        let inSpace = Principal(id: "echo", displayName: "echo",
-                                spaceId: "space-1", kind: .companion)
-        let gateway = Principal(id: "local-http", displayName: "Claude Code",
-                                spaceId: nil, kind: .peer)
+        let inSpace = Principal.companion(id: "echo", displayName: "echo", spaceId: "space-1")
+        let gateway = Principal.peer(id: "local-http", displayName: "Claude Code")
 
         #expect(inSpace.scopeDescription.contains("in this space"))
         #expect(gateway.scopeDescription.contains("everywhere"))

@@ -47,12 +47,95 @@ public struct Principal: Equatable {
     /// `id` (see `==`), so this never splits a grant bucket.
     public let portId: String?
 
-    public init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil) {
+    /// PRIVATE, and the point of I1.2 (`plan-port42-protocol-local-bus.md` §B).
+    ///
+    /// A memberwise init taking any `String` cannot refuse a bad identity, and both live holes I1.1
+    /// measured are exactly that: a heap address handed in as an identity, and a SHARED id inherited
+    /// as if it were an authored one. Neither is visible at a construction site, so no amount of care
+    /// at the call sites would have caught them. Every identity now comes from a named factory below,
+    /// which puts all identity POLICY in this file where a reviewer can see it at once and I1.3/I1.4
+    /// can change it in one place.
+    ///
+    /// Enforced by `PrincipalConstructionTests` scanning the whole package, tests included.
+    private init(id: String, displayName: String, spaceId: String?, kind: Kind, portId: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.spaceId = spaceId
         self.kind = kind
         self.portId = portId
+    }
+
+    // MARK: - Surfaces
+    //
+    // One factory per surface a caller can arrive from. These take an identity the caller already
+    // has; the two POLICY factories further down are the ones that decide an identity, and they are
+    // where the known defects live.
+
+    /// A port's JS, when the authorizing identity is already known.
+    public static func port(id: String, displayName: String, spaceId: String?,
+                            portId: String? = nil) -> Principal {
+        Principal(id: id, displayName: displayName, spaceId: spaceId, kind: .port, portId: portId)
+    }
+
+    /// An in-app companion's tool use.
+    public static func companion(id: String, displayName: String, spaceId: String?) -> Principal {
+        Principal(id: id, displayName: displayName, spaceId: spaceId, kind: .companion)
+    }
+
+    /// A gateway caller (Claude Code, curl, an external agent). `spaceId` is nil for the gateway,
+    /// whose grants are global to the principal rather than scoped to a space.
+    public static func peer(id: String, displayName: String, spaceId: String? = nil) -> Principal {
+        Principal(id: id, displayName: displayName, spaceId: spaceId, kind: .peer)
+    }
+
+    /// THE LOCAL HUMAN. `id` is `AppUser.id`.
+    public static func human(id: String, displayName: String, spaceId: String?) -> Principal {
+        Principal(id: id, displayName: displayName, spaceId: spaceId, kind: .human)
+    }
+
+    // MARK: - Policy: deciding an identity that was not given
+    //
+    // The two factories below RESOLVE an identity rather than accept one, and both currently resolve
+    // it wrongly in a way I1.1 measured. They are deliberately separate from the surfaces above so
+    // the defect has a name and one home.
+
+    /// The identity a port's bridge authorizes as. THREE RUNGS, and two of them are known defects.
+    ///
+    /// 1. `createdBy` — a port acts as its creator (GM 2026-07-19, P-260): one grant bucket per author
+    ///    per space, one storage namespace with its companion. Correct when the creator IS an author.
+    ///    **DEFECT (I1.3):** a gateway-created port has `createdBy == "local-http"`, which is not an
+    ///    author but every local process, so all such ports in a space share one bucket. Dev3 already
+    ///    persists an `automation` grant in one. This rung LOOKS attributed, which is why a source
+    ///    scan never found it.
+    /// 2. `messageId` — a human-created port keys on its own id. Sound.
+    /// 3. `instanceFallback` — **DEFECT (I1.4):** in practice a heap address, from the two sites that
+    ///    pass no id at all (`ensureChatPort`, the ambient background port). It changes every launch,
+    ///    so a grant can never restore, and an address is reused after dealloc, so a grant can
+    ///    transfer to an unrelated object. Named as a parameter rather than computed here so the rung
+    ///    is greppable and the caller cannot pretend it is an identity.
+    public static func forPortBridge(createdBy: String?, messageId: String?, instanceFallback: String,
+                                     title: String?, spaceId: String?) -> Principal {
+        Principal(id: createdBy ?? messageId ?? instanceFallback,
+                  displayName: createdBy ?? title ?? "a port",
+                  spaceId: spaceId, kind: .port,
+                  // The port's OWN id, carried separately from the authz `id` (which is the creator
+                  // for a companion-made port). Owner resolution keys on this so event routing and
+                  // teardown find THIS port, not the creator's shared bucket (backlog 0.5).
+                  portId: messageId)
+    }
+
+    /// The identity an in-app companion's tool call authorizes as.
+    ///
+    /// **The `nil` branch is UNREACHABLE and is deleted in I1.5.** `ToolExecutor` has one production
+    /// construction site (`AppState.swift:139`) passing a non-optional `AgentConfig.id`, every test
+    /// site passes a real id, and the I1.1 probe recorded zero hits across a full session. It is kept
+    /// for this step only so I1.2 changes structure without changing behavior. Both plans led with
+    /// this string as the headline identity defect; it never fired.
+    public static func forCompanionTool(createdBy: String?, createdByName: String?,
+                                        spaceId: String?) -> Principal {
+        Principal(id: createdBy ?? "anonymous-tool-caller",
+                  displayName: createdByName ?? createdBy ?? "a companion",
+                  spaceId: spaceId, kind: .companion)
     }
 
     /// Identity is the authz tuple only — `portId` is deliberately excluded, so a port carrying its

@@ -23,7 +23,7 @@ struct PortCASTests {
     }
 
     func principal(_ id: String) -> Principal {
-        Principal(id: id, displayName: id, spaceId: nil, kind: .companion)
+        Principal.companion(id: id, displayName: id, spaceId: nil)
     }
 
     func rename(_ state: AppState, _ id: String, _ title: String,

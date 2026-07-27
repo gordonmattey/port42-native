@@ -31,6 +31,17 @@ extension AppState {
             throw BridgeError(code: "unknown_method", message: "Unknown method: \(canonical)")
         }
 
+        #if DEBUG
+        // I1.1 (plan §B). Recorded BEFORE the permission gate, so a call that is about to be
+        // denied still counts as a caller — the question is who reaches the dispatcher without an
+        // identity, not who succeeds. The grants are read here because this is the one place that
+        // knows the bucket a synthetic id is already sharing.
+        ActorProbe.dispatch(method: canonical, principal: principal,
+                            grants: companionPermissions(createdBy: principal.id,
+                                                         spaceId: principal.spaceId))
+        ActorProbe.anyDispatch(surface: principal.kind.rawValue)
+        #endif
+
         if let perm = method.permission {
             var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
                 .union(pregrant)
@@ -91,8 +102,8 @@ extension AppState {
     /// The local human as a principal (L2.d). nil before setup completes.
     var humanPrincipal: Principal? {
         guard let user = currentUser else { return nil }
-        return Principal(id: user.id, displayName: user.displayName,
-                         spaceId: currentSpace?.id, kind: .human)
+        return Principal.human(id: user.id, displayName: user.displayName,
+                               spaceId: currentSpace?.id)
     }
 
     /// FOCUSING a unit is the human saying "I am driving this", so it records them as the driver.
@@ -146,7 +157,16 @@ extension AppState {
     /// keystroke, and `resolvePortRef` is the one part of the path that is not free (Spike A, A1).
     func humanInteracted(with portId: String) {
         portActivity.bump(portId)
-        guard let human = humanPrincipal else { return }
+        guard let human = humanPrincipal else {
+            #if DEBUG
+            // I1.1: a mutation with NOBODY to attribute it to. No `Principal` site would ever show
+            // this one, because the path builds no principal at all — it bumps the token and
+            // returns. Counted here so the six construction sites are not mistaken for the whole
+            // set of ways a write reaches a port unattributed.
+            ActorProbe.inputWithoutIdentity(port: portId)
+            #endif
+            return
+        }
         let alreadyDriving = portDrivers.driver(of: portId, now: Date())?.ref
                              == ActorRef(principal: human.id)
         if alreadyDriving {
@@ -231,6 +251,13 @@ extension AppState {
         guard let method = bridgeStreamRegistry[canonical] else {
             throw BridgeError(code: "unknown_method", message: "Unknown streaming method: \(canonical)")
         }
+        #if DEBUG
+        ActorProbe.dispatch(method: canonical, principal: principal,
+                            grants: companionPermissions(createdBy: principal.id,
+                                                         spaceId: principal.spaceId),
+                            streaming: true)
+        ActorProbe.anyDispatch(surface: principal.kind.rawValue)
+        #endif
         if let perm = method.permission {
             var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
                 .union(pregrant)

@@ -24,7 +24,7 @@ struct BridgeDispatchTests {
     @MainActor
     func dispatchNoPerm() async throws {
         let w = try makeParityWorld()
-        let p = Principal(id: "peer-1", displayName: "Claude Code", spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: "peer-1", displayName: "Claude Code")
         let v = try await w.state.runBridgeMethod("ports.list", principal: p, args: BridgeArgs([:]))
         #expect(v == .array([]))
     }
@@ -33,7 +33,7 @@ struct BridgeDispatchTests {
     @MainActor
     func dispatchUnknown() async throws {
         let w = try makeParityWorld()
-        let p = Principal(id: "peer-1", displayName: "x", spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: "peer-1", displayName: "x")
         await #expect(throws: BridgeError.self) {
             _ = try await w.state.runBridgeMethod("bogus.method", principal: p, args: BridgeArgs([:]))
         }
@@ -49,7 +49,7 @@ struct BridgeDispatchTests {
         defer { BridgeFilePaths.dataDir = original; try? FileManager.default.removeItem(atPath: tmp) }
 
         let w = try makeParityWorld()
-        let p = Principal(id: "peer-1", displayName: "Claude Code", spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: "peer-1", displayName: "Claude Code")
         _ = try await w.state.runBridgeMethod("fs.write", principal: p,
                                               args: BridgeArgs(["path": "a.txt", "data": "hi"]),
                                               pregrant: [.filesystem])

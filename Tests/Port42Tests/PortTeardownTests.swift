@@ -168,8 +168,8 @@ struct PortTeardownTests {
     @Test("Principal.portId is excluded from identity (grants do not split)")
     @MainActor
     func portIdNotPartOfIdentity() {
-        let a = Principal(id: "companion-x", displayName: "x", spaceId: "s", kind: .port, portId: "port-1")
-        let b = Principal(id: "companion-x", displayName: "x", spaceId: "s", kind: .port, portId: "port-2")
+        let a = Principal.port(id: "companion-x", displayName: "x", spaceId: "s", portId: "port-1")
+        let b = Principal.port(id: "companion-x", displayName: "x", spaceId: "s", portId: "port-2")
         #expect(a == b, "two ports of the same creator stay one authz identity for coalescing")
     }
 }

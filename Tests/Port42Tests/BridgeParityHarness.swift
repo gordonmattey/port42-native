@@ -27,7 +27,7 @@ struct ParityWorld {
 
     /// The new path's caller identity: a companion principal, same id + space the executor uses.
     var principal: Principal {
-        Principal(id: companion.id, displayName: companion.displayName, spaceId: space.id, kind: .companion)
+        Principal.companion(id: companion.id, displayName: companion.displayName, spaceId: space.id)
     }
 
     /// The registry under test, built from this world's AppState.

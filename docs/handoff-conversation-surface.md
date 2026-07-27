@@ -24,16 +24,30 @@ a second instance.
 |---|---|
 | **ADDRESS** | ✅ done — `PortRef.key`, one definition where there were three |
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
-| **ACTOR** | ❌ **broken** — 6 `Principal` construction sites, 2 sharing one `"anonymous-tool-caller"` id, and permissions key on `principal.id`, so unattributed callers POOL their grants |
+| **ACTOR** | ❌ **broken, and MEASURED 2026-07-27** (I1.1). Two live holes: a gateway-created port inherits the shared `local-http` id (Dev3 already pools a persisted `automation` grant), and every space's chat port authorizes as a heap address. The `"anonymous-tool-caller"` id this row used to name is UNREACHABLE. |
 
-### NEXT: I1 · Identity (plan §B), starting at I1.1
+### NEXT: I1 · Identity (plan §B), at I1.2
 
-**I1.1 is an INSTRUMENTATION step, not a design step.** Log every `createdBy == nil` dispatch with its
-method and surface, run Dev3 normally, and read what actually calls in. Only then decide (I1.3) whether
-an unattributed caller is refused or gets a per-surface synthetic identity that never pools.
+**I1.1 is DONE (2026-07-27) and it replaced this section's premise rather than confirming it.**
+`ActorProbe.swift` (DEBUG only, live tally at `/tmp/port42-actor.log`) measured what actually calls in:
 
-Designing against an imagined set of callers is on record twice in this thread — finding 7's three
-sweeps each missed a path, and Spike C's probe mislabelled dictation because I guessed. Measure first.
+- **`anonymous-tool-caller` is unreachable.** One production `ToolExecutor` construction site, passing
+  a non-optional `agent.id`. Both plans led with it. It gets deleted, not fixed.
+- **Gateway-created ports pool.** `port.create` does `createdBy: p.id`, which from the gateway is the
+  shared `local-http`, so every such port in a space shares one grant bucket. Dev3 already persists
+  `automation` (AppleScript/JXA) in one of them.
+- **Chat and ambient ports authorize as a heap address** (`ObjectIdentifier`), so a grant cannot
+  survive a relaunch and can transfer to a different object after a dealloc.
+
+**Next is I1.2** (one `Principal` constructor), which is the fix rather than hygiene: both live holes
+are shapes a memberwise init taking any `String` cannot refuse. **I1.3 carries an open GM decision**
+(un-pooling gateway ports costs one permission prompt per port until gateway auth P1 lands; the
+recommendation on file is to take the prompts). Full detail and revised steps I1.2–I1.6 in plan §B.
+
+**The method finding is the durable one.** The premise came from counting `Principal(` construction
+sites and fallback strings, and that method could not have found either real hole. Third instance in
+this thread after finding 7 and Spike C: a property about who calls in is not decidable by reading the
+callee. The probe stays wired as the regression detector.
 
 ### Shipped this thread
 
@@ -60,11 +74,11 @@ under the video). `OnboardingShellTests` +2. Suite **1067 green**.
 
 ### 1b. THE FLAT SEQUENCE — read this before the section below
 
-Plans had nested three deep (L2 → the input seam → identity). **`docs/architecture-invariants.md` §0
-holds the one ordered line of work**, and nothing nests below it. Next is **I1 · Identity** — six
-`Principal` construction sites, two of which fall back to a SHARED `"anonymous-tool-caller"` id, and
-permissions are keyed on `principal.id`. It goes ahead of the input seam because presence and CAS are
-both built on that id, so anything identity gets wrong is inherited.
+Plans had nested three deep (L2 → the input seam → identity). **`plan-port42-protocol-local-bus.md`
+§A holds the one ordered line of work**, and nothing nests below it (the register carries status, not
+order). Current step is **I1 · Identity**, now at I1.2. See the NEXT section above for what I1.1
+measured. It goes ahead of the input seam because presence and CAS are both built on `principal.id`,
+so anything identity gets wrong is inherited.
 
 The section below is the L2 thread's own detail and stays accurate; the sequence above governs order.
 

@@ -27,8 +27,7 @@ struct BridgePrincipalTests {
 
     @Test("a peer principal coalesces and persists on its id, label rides only as displayName")
     func peerPrincipalKeysOnId() {
-        let p = Principal(id: Principal.localGatewayID, displayName: "Local (gateway)",
-                          spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: Principal.localGatewayID, displayName: "Local (gateway)")
         // Since the collapse the Principal goes straight to the coordinator: `id` is both the
         // coalescing key and the grant persistence key; the label is display only.
         #expect(p.id == "local-http")
@@ -186,14 +185,59 @@ struct BridgePrincipalTests {
         #expect(humanPort.portPrincipal.id == "msg-port-2")
     }
 
-    @Test("PortBridge dispatches as ONE identity — no divergent inline Principal")
+    // MARK: - I1.2 · one constructor
+    //
+    // Supersedes the old per-file check ("PortBridge constructs Principal exactly once"). That was
+    // the right property scoped to one file, and scoping a property about identity to one file is
+    // the mistake I1.1 measured: the two live holes were in a rung that LOOKED attributed and at two
+    // sites nobody had counted. The gate is now the whole package.
+
+    @Test("the memberwise Principal init is private: every identity comes from a named factory")
+    func principalHasOneConstructor() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        // Assembled at runtime so this file does not match its own scan. Spelled literally, the
+        // needle makes the gate flag itself and it can never pass.
+        let needle = "Principal" + "(id:"
+        var offenders: [String] = []
+        for dir in ["Sources", "Tests"] {
+            let files = FileManager.default
+                .enumerator(at: root.appendingPathComponent(dir), includingPropertiesForKeys: nil)!
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "Principal.swift" }
+            for f in files {
+                let src = try String(contentsOf: f, encoding: .utf8)
+                // The construction shape anchors on the first memberwise label. A bare `Principal(`
+                // also matches helper names like `selfPrincipal(`, which are not constructions.
+                guard src.contains(needle) else { continue }
+                offenders.append(f.lastPathComponent)
+            }
+        }
+        #expect(offenders.isEmpty, """
+            Principal constructed directly in: \(offenders.sorted()).
+            Use a factory in Principal.swift. A memberwise init taking any String cannot tell a heap \
+            address from an identity, nor an inherited SHARED id from an authored one, which is both \
+            of the holes I1.1 measured.
+            """)
+    }
+
+    @Test("PortBridge dispatches as ONE identity, resolved by one policy factory")
     func portBridgeHasOneIdentityConstruction() throws {
-        // portPrincipal must BE the dispatch identity: if handleMethod builds its own Principal
+        // portPrincipal must BE the dispatch identity: if handleMethod resolves its own identity
         // inline, the card identity and the grant identity can drift apart again.
         let src = try #require(Self.libSources().first { $0.file == "PortBridge.swift" }).source
-        let constructions = src.components(separatedBy: "Principal(").count - 1
-        #expect(constructions == 1,
-                "PortBridge constructs Principal \(constructions) times; portPrincipal must be the only one")
+        let resolves = src.components(separatedBy: "Principal.forPortBridge(").count - 1
+        #expect(resolves == 1,
+                "PortBridge resolves an identity \(resolves) times; portPrincipal must be the only one")
+    }
+
+    @Test("the ObjectIdentifier rung is passed in, never minted inside Principal (I1.4 has one site)")
+    func heapAddressRungIsNamedAtItsCallSite() throws {
+        // `instanceFallback` is a parameter so the defect is greppable and I1.4 can find every caller.
+        // If Principal.swift ever computes it itself, the rung goes invisible again.
+        let principalSrc = try #require(Self.libSources().first { $0.file == "Principal.swift" }).source
+        #expect(!principalSrc.contains("ObjectIdentifier"),
+                "Principal.swift mints its own instance fallback; it must be passed by the caller")
     }
 
     @Test("a dropped file is granted to the port's PRINCIPAL, so its fs.read actually succeeds")
@@ -225,7 +269,7 @@ struct BridgePrincipalTests {
         let w = try makeParityWorld()
         let port = PortBridge(appState: w.state, spaceId: "space-1",
                               messageId: "msg-port-3", createdBy: "echo", title: "probe")
-        let companion = Principal(id: "echo", displayName: "echo", spaceId: "space-1", kind: .companion)
+        let companion = Principal.companion(id: "echo", displayName: "echo", spaceId: "space-1")
 
         _ = try await w.state.runBridgeMethod("storage.set", principal: port.portPrincipal,
                                               args: BridgeArgs(["key": "pipeline", "value": "state-ok"]))

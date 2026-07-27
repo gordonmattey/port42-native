@@ -172,7 +172,7 @@ struct BridgePortsTests {
     /// A principal AS the port itself: id is the port's udid, kind .port — what the port-JS adapter
     /// constructs for a call originating inside the port's own webview.
     func selfPrincipal(_ w: ParityWorld, portId: String) -> Principal {
-        Principal(id: portId, displayName: "selftest", spaceId: w.space.id, kind: .port)
+        Principal.port(id: portId, displayName: "selftest", spaceId: w.space.id)
     }
 
     @MainActor

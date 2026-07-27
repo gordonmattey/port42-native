@@ -24,7 +24,7 @@ honest. Nothing else belongs here.
 |---|---|---|
 | **ADDRESS** | which port | ✅ **done 2026-07-26.** `PortRef.key` — one definition, was three. Inline ports were unaddressable and had no protection at all. |
 | **TOKEN** | which version of it | ⚠️ **mechanism done, not yet honest.** R2/R3 ship the counter and CAS. But a token only tells the truth if EVERY mutation counts, and today terminals and browsers have ways in that do not. |
-| **ACTOR** | who is writing | ❌ **broken.** Six `Principal` construction sites, two sharing one `"anonymous-tool-caller"` id. Permissions key on `principal.id`, so unattributed callers pool their grants. |
+| **ACTOR** | who is writing | ❌ **broken, and MEASURED 2026-07-27 (I1.1).** Two live holes, neither of them the one this row used to name: every gateway-created port authorizes as the shared `local-http` id (a real `automation` grant is already pooled in Dev3), and every space's chat port authorizes as a heap address. The `"anonymous-tool-caller"` fallback both plans led with is **unreachable**. |
 
 ### Definition of done
 
@@ -67,31 +67,102 @@ R7. They are quality, not protocol completeness. See the register.
 
 ---
 
-## B. I1 · Identity — the ACTOR noun · **NEXT**
+## B. I1 · Identity — the ACTOR noun · **IN PROGRESS**
 
-**Status: BROKEN, live.** Six `Principal` construction sites. Two of them:
+**First because presence and CAS are both built on `principal.id`.** Anything identity gets wrong is
+already inherited by both guarantees shipped this session. `decision-identity-model.md` settles
+person/instance/actor in prose; nothing enforces it in code.
+
+### I1.1 is DONE (2026-07-27), and it did not confirm this section. It replaced it.
+
+`ActorProbe.swift` (DEBUG only) registers a fallback identity as SYNTHETIC at the site that mints it,
+then records any dispatch whose principal id is one of those. Membership is the test rather than a
+string match, so the instrument cannot drift when a fallback string is edited. Live tally at
+`/tmp/port42-actor.log`, rewritten in place, so a per-keystroke path cannot bury the one call that
+matters.
+
+**What the previous draft of this section said was broken:**
 
 ```swift
 Principal(id: createdBy ?? "anonymous-tool-caller", …)   // ToolExecutor:75, :92
 ```
 
-Permissions are keyed on `principal.id`, so every unattributed tool caller shares one bucket: grant
-`filesystem` to one and all of them have it, persistently. Presence names them identically and the
-token attributes their writes to one actor. `decision-identity-model.md` settles person/instance/actor
-in prose; nothing enforces it in code.
+**That fallback is UNREACHABLE.** `ToolExecutor` has exactly one production construction site
+(`AppState.swift:139`), which passes `createdBy: agent.id`, and `AgentConfig.id` is a non-optional
+`String`. All eight test sites pass a real id too. The `= nil` default on the init parameter is the
+only thing that keeps it looking live. Zero probe hits across a full session, agreeing with the source.
 
-**First because presence and CAS are both built on `principal.id`.** Anything identity gets wrong is
-already inherited by both guarantees shipped this session.
+### The two holes that are real
+
+**1. Every gateway-created port authorizes as `local-http`, and the bucket already holds a grant.**
+
+`port.create` sets `createdBy: p.id` (`BridgeMethods.swift:169`). From the gateway that id is the
+deliberately-shared `local-http`, so the port's `PortBridge.createdBy` is `local-http` and
+`portPrincipal` takes **rung 1, the rung that looks attributed** because a real non-nil string flows
+through it. It pools anyway. Measured: two independently created ports both dispatched as
+`id=local-http surface=port space=set`. Persisted in Dev3:
+
+```
+portPerms.local-http.4C7AE45B-501D-4E3E-B9AD-5563F9C354CF = automation
+portPerms.local-http.global                               = ai
+```
+
+`automation` is `runAppleScript` and `runJXA`, so driving other applications. Any port created through
+the gateway in that space inherits it silently and permanently. Gateway-created ports are how Claude
+Code works against Port42, so this is the ordinary path.
+
+**The P-260 rule is not wrong; its precondition is.** "A port acts as its creator, one bucket per
+author per space" assumes the creator is an author. `local-http` is not an author, it is every local
+process, and extending that sharing to ports was never a decision anyone made.
+
+**2. Every space's chat port authorizes as a heap address.**
+
+`PortWindowManager.swift:1020` (`ensureChatPort`) and `ShellView.swift:1512` (the ambient background
+port) both construct with `messageId: nil, createdBy: nil`, so `portPrincipal` falls to rung 3,
+`ObjectIdentifier(self).debugDescription`. That fails in a different direction from pooling: the id
+changes every launch, so a grant against it can never restore, and an address is reused after dealloc,
+so a later object can inherit a grant issued to a different one. **Reachability is proven from the two
+construction sites; no dispatch has been observed yet.** Watch for `MINT rung=objectIdentifier`.
+
+### Revised steps
 
 | # | Step | Gate |
 |---|---|---|
-| I1.1 | **Instrument first.** Log every `createdBy == nil` dispatch with its method and surface; run Dev3 normally; read it. | A list of REAL callers. Designing against an imagined set is on record twice this session — finding 7's three sweeps, and Spike C's mislabelled probe. |
+| ✅ I1.1 | **Instrument and measure.** | DONE 2026-07-27. Produced a list of real callers that contradicts the list this section was written against. |
 | I1.2 | **One constructor.** `Principal.for(surface:…)` the only way to build one; the memberwise init goes private. | No `Principal(` outside its own file, asserted by source scan. |
-| I1.3 | **Decide what an unattributed caller IS** — informed by I1.1. Refused, or given a per-surface synthetic identity that never pools. **Never one shared string.** | Two unattributed callers cannot see each other's grants. |
-| I1.4 | **Presence and token attribute correctly** under whatever I1.3 decides. | Such a write names something a human can act on. |
+| I1.3 | **A port created by a SHARED identity gets its own, it does not inherit.** | Two gateway-created ports cannot see each other's grants. |
+| I1.4 | **Chat and ambient ports get a stable identity.** `ensureChatPort` already mints a UUID one line above the bridge and does not pass it. | A grant survives a relaunch; no principal id is ever a heap address. |
+| I1.5 | **Delete the dead fallback** and the `= nil` default that keeps it reachable-looking. | `anonymous-tool-caller` is absent from the codebase. |
+| I1.6 | **Presence and token attribute correctly** under I1.3 and I1.4. | Such a write names something a human can act on. |
 
-**Deliberately not pre-decided:** refusing is safest and may break a path that works today. I1.1 exists
-to find out which before choosing.
+**I1.2 stops being hygiene and becomes the fix.** Both holes are shapes a memberwise init taking any
+`String` cannot refuse: it cannot tell a heap address from an identity, and it cannot tell an inherited
+shared id from an authored one. Fixing the two sites without the constructor only resets the clock.
+
+### The blocker on I1.3, and it is GM's call
+
+**Un-pooling gateway ports costs prompts.** Each becomes its own grant bucket, so a session creating
+four ports asks four times where it asks once today.
+
+The middle option is not available yet. Sharing per Claude Code SESSION rather than per port would be
+the right granularity, and **the gateway authenticates nobody**, so there is no session to key on.
+That is `plan-gateway-auth-tls.md` P1, open. Until P1 lands the only two choices are more prompts or
+keep pooling, and pooling currently means a persisted `automation` grant reachable by any
+gateway-made port in that space.
+
+**Recommendation: take the prompts.** `automation` drives other applications, and today's behavior
+grants it to ports the human never approved individually.
+
+### The method finding, which outlasts the specific bugs
+
+The list this section was built from came from counting `Principal(` construction sites and fallback
+strings. **It could not have found either real hole.** Hole 1 has no fallback at all, so a source scan
+sees an attributed caller; hole 2 needed a caller list rather than a code read. The rung the scan
+flagged loudest is dead.
+
+That is the third instance of the same failure in this thread, after finding 7's three sweeps and
+Spike C's guessed labels. **A property about who calls in is not decidable by reading the callee.**
+The probe stays wired while I1.2 to I1.6 land, as the regression detector.
 
 ---
 

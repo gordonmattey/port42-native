@@ -269,7 +269,7 @@ struct PortPresentationGetterTests {
     func dispatchReturnsSnapshot() async throws {
         let (shell, state, sid) = try world()
         let expected = try #require(shell.presentation(forPortId: "p1"))
-        let p = Principal(id: "p1", displayName: "selftest", spaceId: sid, kind: .port, portId: "p1")
+        let p = Principal.port(id: "p1", displayName: "selftest", spaceId: sid, portId: "p1")
         let v = try await state.runBridgeMethod("presentation", principal: p, args: BridgeArgs([:]))
         #expect(v == .fromJSONObject(expected.jsonObject))
     }
@@ -278,7 +278,7 @@ struct PortPresentationGetterTests {
     @MainActor
     func dispatchUnknownFallback() async throws {
         let (_, state, sid) = try world()
-        let p = Principal(id: "ghost", displayName: "selftest", spaceId: sid, kind: .port, portId: "ghost")
+        let p = Principal.port(id: "ghost", displayName: "selftest", spaceId: sid, portId: "ghost")
         let v = try await state.runBridgeMethod("presentation", principal: p, args: BridgeArgs([:]))
         let fallback = PortPresentation(state: .tiled, visible: true, size: ShellState.defaultTileSize)
         #expect(v == .fromJSONObject(fallback.jsonObject))

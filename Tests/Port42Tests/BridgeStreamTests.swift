@@ -18,7 +18,7 @@ struct BridgeStreamTests {
             return .object(["text": .string("Hello world"), "done": .bool(true)])
         }
         var tokens: [String] = []
-        let p = Principal(id: "port-1", displayName: "a port", spaceId: nil, kind: .port)
+        let p = Principal.port(id: "port-1", displayName: "a port", spaceId: nil)
         let final = try await method.run(p, BridgeArgs([:])) { tokens.append($0) }
         #expect(tokens == ["Hel", "lo ", "world"])
         #expect(final == .object(["text": .string("Hello world"), "done": .bool(true)]))
@@ -32,7 +32,7 @@ struct BridgeStreamTests {
             throw BridgeError(code: "ai_error", message: "model refused")
         }
         var tokens: [String] = []
-        let p = Principal(id: "port-1", displayName: "a port", spaceId: nil, kind: .port)
+        let p = Principal.port(id: "port-1", displayName: "a port", spaceId: nil)
         await #expect(throws: BridgeError.self) {
             _ = try await method.run(p, BridgeArgs([:])) { tokens.append($0) }
         }
@@ -62,7 +62,7 @@ struct BridgeStreamTests {
             }
         ]
         var tokens: [String] = []
-        let p = Principal(id: "port-1", displayName: "port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-1", displayName: "port", spaceId: w.space.id)
         let final = try await w.state.runBridgeStream(
             "ai.complete", principal: p, args: BridgeArgs(["prompt": "a b c"]), pregrant: [.ai]
         ) { tokens.append($0) }
@@ -75,7 +75,7 @@ struct BridgeStreamTests {
     @MainActor
     func dispatchUnknown() async throws {
         let w = try makeParityWorld()
-        let p = Principal(id: "x", displayName: "x", spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: "x", displayName: "x")
         await #expect(throws: BridgeError.self) {
             _ = try await w.state.runBridgeStream("nope.stream", principal: p, args: BridgeArgs([:])) { _ in }
         }
@@ -117,7 +117,7 @@ struct BridgeStreamTests {
         let w = try makeParityWorld()
         w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["Hel", "lo"], finalText: "Hello") }
         var toks: [String] = []
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         let final = try await w.state.runBridgeStream(
             "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]
         ) { toks.append($0) }
@@ -131,7 +131,7 @@ struct BridgeStreamTests {
         struct Boom: Error {}
         let w = try makeParityWorld()
         w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["x"], finalText: "", failure: Boom()) }
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         await #expect(throws: BridgeError.self) {
             _ = try await w.state.runBridgeStream(
                 "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
@@ -144,7 +144,7 @@ struct BridgeStreamTests {
         let w = try makeParityWorld()
         w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["a", "b"], finalText: "ab") }
         #expect(w.state.activeStreamCollectorCount == 0)
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         // The call completing at all proves the collector was retained (a weak-only delegate would
         // dealloc mid-flight and the continuation would never resume); count back to 0 proves release.
         _ = try await w.state.runBridgeStream(
@@ -163,7 +163,7 @@ struct BridgeStreamTests {
         // If the guard were skipped the stub would resolve; instead the call must throw first.
         var reached = false
         w.state.streamBackendOverride = { _ in reached = true; return StubStreamBackend(tokens: [], finalText: "") }
-        let p = Principal(id: "port-susp", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-susp", displayName: "a port", spaceId: w.space.id)
         await #expect(throws: BridgeError.self) {
             _ = try await w.state.runBridgeStream(
                 "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
@@ -193,7 +193,7 @@ struct BridgeStreamTests {
         let w = try makeParityWorld()
         let stub = ManualStreamBackend()
         w.state.streamBackendOverride = { _ in stub }
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         // Run the stream in a Task (the same shape the port-JS adapter uses) so it can be cancelled.
         let task = Task { @MainActor in
             try await w.state.runBridgeStream(
@@ -218,7 +218,7 @@ struct BridgeStreamTests {
         let w = try makeParityWorld()
         let stub = SilentCancelBackend()
         w.state.streamBackendOverride = { _ in stub }
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         let task = Task { @MainActor in
             try await w.state.runBridgeStream(
                 "ai.complete", principal: p, args: BridgeArgs(["prompt": "hi"]), pregrant: [.ai]) { _ in }
@@ -241,7 +241,7 @@ struct BridgeStreamTests {
         let w = try makeParityWorld()   // companion "Echo"
         w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["Hi"], finalText: "Hi from Echo") }
         var toks: [String] = []
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         let final = try await w.state.runBridgeStream(
             "companions.invoke", principal: p,
             args: BridgeArgs(["identifier": "Echo", "prompt": "hello"]), pregrant: [.ai]) { toks.append($0) }
@@ -253,7 +253,7 @@ struct BridgeStreamTests {
     @MainActor
     func companionInvokeNotFound() async throws {
         let w = try makeParityWorld()
-        let p = Principal(id: "port-x", displayName: "a port", spaceId: w.space.id, kind: .port)
+        let p = Principal.port(id: "port-x", displayName: "a port", spaceId: w.space.id)
         await #expect(throws: BridgeError.self) {
             _ = try await w.state.runBridgeStream(
                 "companions.invoke", principal: p,

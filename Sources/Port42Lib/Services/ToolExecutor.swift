@@ -72,9 +72,14 @@ public final class ToolExecutor {
         // grants fresh, so `grantedPermissions` is passed only as a same-call pregrant.
         let canonical = name.contains(".") ? name : (appState?.canonicalFromTool(name) ?? name)
         if let appState, appState.bridgeHandles(canonical) {
-            let principal = Principal(id: createdBy ?? "anonymous-tool-caller",
-                                      displayName: createdByName ?? createdBy ?? "a companion",
-                                      spaceId: spaceId, kind: .companion)
+            let principal = Principal.forCompanionTool(createdBy: createdBy,
+                                                       createdByName: createdByName,
+                                                       spaceId: spaceId)
+            #if DEBUG
+            if createdBy == nil {
+                ActorProbe.minted(id: principal.id, surface: "companion-tool", rung: "createdBy-nil")
+            }
+            #endif
             do {
                 let value = try await appState.runBridgeMethod(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: grantedPermissions)
@@ -89,9 +94,14 @@ public final class ToolExecutor {
         // Streaming registry (item 8): tool-use is one-shot, so collect-into-final — ignore tokens,
         // render the accumulated result as tool blocks.
         if let appState, appState.bridgeStreamHandles(canonical) {
-            let principal = Principal(id: createdBy ?? "anonymous-tool-caller",
-                                      displayName: createdByName ?? createdBy ?? "a companion",
-                                      spaceId: spaceId, kind: .companion)
+            let principal = Principal.forCompanionTool(createdBy: createdBy,
+                                                       createdByName: createdByName,
+                                                       spaceId: spaceId)
+            #if DEBUG
+            if createdBy == nil {
+                ActorProbe.minted(id: principal.id, surface: "companion-tool-stream", rung: "createdBy-nil")
+            }
+            #endif
             do {
                 let value = try await appState.runBridgeStream(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: grantedPermissions,
@@ -145,7 +155,16 @@ public final class RemoteToolExecutor: ObservableObject {
         // JS / tool-use / gateway. Anything not yet extracted (the live-only families) falls through
         // to the old switch below, unchanged.
         if let appState, appState.bridgeHandles(canonical) {
-            let principal = Principal(id: senderId, displayName: senderName, spaceId: nil, kind: .peer)
+            let principal = Principal.peer(id: senderId, displayName: senderName)
+            #if DEBUG
+            // `local-http` is a DELIBERATE shared bucket (every local process is one principal
+            // because none of them authenticate), which makes it the closest thing to a working
+            // precedent for whatever I1.3 decides. Counted so the decision is made against how
+            // much traffic actually rides it, not against the fact that it exists.
+            if senderId == Principal.localGatewayID {
+                ActorProbe.minted(id: principal.id, surface: "gateway", rung: "local-http-shared")
+            }
+            #endif
             do {
                 let value = try await appState.runBridgeMethod(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: pregrant)
@@ -161,7 +180,12 @@ public final class RemoteToolExecutor: ObservableObject {
         // ignored and the accumulated result is returned. A failed call returns {error} in the body
         // (correct for a request/response transport; not the never-reject shim).
         if let appState, appState.bridgeStreamHandles(canonical) {
-            let principal = Principal(id: senderId, displayName: senderName, spaceId: nil, kind: .peer)
+            let principal = Principal.peer(id: senderId, displayName: senderName)
+            #if DEBUG
+            if senderId == Principal.localGatewayID {
+                ActorProbe.minted(id: principal.id, surface: "gateway-stream", rung: "local-http-shared")
+            }
+            #endif
             do {
                 let value = try await appState.runBridgeStream(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: pregrant,

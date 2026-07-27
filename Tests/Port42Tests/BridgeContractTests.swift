@@ -142,7 +142,7 @@ struct PrincipalTests {
 
     @Test("a principal is the permission identity: stable id, display label, space scope")
     func identity() {
-        let p = Principal(id: "peer-abc", displayName: "Claude Code", spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: "peer-abc", displayName: "Claude Code")
         #expect(p.id == "peer-abc")          // grant keys on identity, not a label
         #expect(p.displayName == "Claude Code")
         #expect(p.spaceId == nil)
@@ -150,14 +150,14 @@ struct PrincipalTests {
 
     @Test("a spaceless principal scopes its grant globally, not unpersistably")
     func spacelessScope() {
-        let p = Principal(id: "peer-abc", displayName: "Claude Code", spaceId: nil, kind: .peer)
+        let p = Principal.peer(id: "peer-abc", displayName: "Claude Code")
         // nil spaceId = the coordinator's "everywhere" wording, not "ask every time".
         #expect(p.scopeDescription.contains("globally"))
     }
 
     @Test("a port principal in a space scopes its grant to that space")
     func portScope() {
-        let p = Principal(id: "port-1", displayName: "shader", spaceId: "space-9", kind: .port)
+        let p = Principal.port(id: "port-1", displayName: "shader", spaceId: "space-9")
         #expect(p.scopeDescription.contains("in this space"))
     }
 }

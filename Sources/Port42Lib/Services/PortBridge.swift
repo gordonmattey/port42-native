@@ -115,14 +115,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// (todo #6). A human-created port keys on its own message id. The space scope rides in
     /// `spaceId`, so a grant never leaks across spaces.
     var portPrincipal: Principal {
-        Principal(
-            id: createdBy ?? messageId ?? ObjectIdentifier(self).debugDescription,
-            displayName: createdBy ?? title ?? "a port",
-            spaceId: spaceId, kind: .port,
-            // The port's OWN id, carried separately from the authz `id` (which is the creator for a
-            // companion-made port). Owner resolution keys on this so event routing and teardown find
-            // THIS port, not the creator's shared bucket (backlog 0.5).
-            portId: messageId)
+        // The rung policy lives in `Principal.forPortBridge` (I1.2), not here: two of its three rungs
+        // are known defects (I1.3, I1.4) and they get fixed in one place.
+        let p = Principal.forPortBridge(
+            createdBy: createdBy, messageId: messageId,
+            instanceFallback: ObjectIdentifier(self).debugDescription,
+            title: title, spaceId: spaceId)
+        #if DEBUG
+        // I1.1: which rung of the chain a real port actually lands on. Rung 2 (`messageId`) still
+        // names ONE port and does not pool; rung 3 names a heap address that differs every launch,
+        // so a grant against it is unpersistable in practice and two ports can collide after a
+        // dealloc. Only rungs 2 and 3 are unattributed.
+        if createdBy == nil {
+            ActorProbe.minted(id: p.id, surface: "port-js",
+                              rung: messageId != nil ? "messageId" : "objectIdentifier")
+        }
+        #endif
+        return p
     }
 
     // MARK: - File Drop
