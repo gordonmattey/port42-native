@@ -20,7 +20,17 @@ launch decision, and `TransitionRoot.onAppear` leaves `bootCinematicDone` **fals
 `decide` returns `.none` and the overlay covers the gap, rather than the setup terminal rendering
 under the video). `OnboardingShellTests` +2. Suite **1067 green**.
 
-### 2. NEXT UP — the L2 protocol revision, R1–R7
+### 1b. THE FLAT SEQUENCE — read this before the section below
+
+Plans had nested three deep (L2 → the input seam → identity). **`docs/architecture-invariants.md` §0
+holds the one ordered line of work**, and nothing nests below it. Next is **I1 · Identity** — six
+`Principal` construction sites, two of which fall back to a SHARED `"anonymous-tool-caller"` id, and
+permissions are keyed on `principal.id`. It goes ahead of the input seam because presence and CAS are
+both built on that id, so anything identity gets wrong is inherited.
+
+The section below is the L2 thread's own detail and stays accurate; the sequence above governs order.
+
+### 2. The L2 protocol revision, R1–R7
 
 `docs/plan-port42-protocol-local-bus.md` §"Phase L2 REVISED" is the current design; the section below
 it is superseded and says so. Read the REVISED section, its **Verification** findings 1–7, and the
