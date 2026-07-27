@@ -81,17 +81,36 @@ else
     DISPLAY_NAME="Port42 Dev"; GW_PORT="4243"; DATA_DIR="Port42Dev"; INVITE_NAME="com.port42.dev.invite"; DEV_ISO=true
 fi
 
-# Auto-bump patch version for release builds if not manually bumped
+# Auto-bump patch version for release builds if not manually bumped.
+#
+# The local `.last-release-version` file is ADVISORY. The published tags are authoritative, because
+# the file can drift from what actually shipped (a hand-edited VERSION, a release from another
+# clone, an aborted run) and when it drifts the bump silently does not happen. That failure is
+# invisible until the very end: the build succeeds, `gh release create` fails on the existing tag,
+# and users receive nothing while the log says the release is ready.
 if [ "$CONFIG" = "release" ]; then
     LAST_RELEASE_FILE="$DIR/.last-release-version"
     LAST_RELEASE=$(cat "$LAST_RELEASE_FILE" 2>/dev/null || echo "")
     if [ "$APP_VERSION" = "$LAST_RELEASE" ]; then
         IFS='.' read -r major minor patch <<< "$APP_VERSION"
         APP_VERSION="$major.$minor.$((patch + 1))"
-        echo "$APP_VERSION" > "$DIR/VERSION"
         echo "[build] Auto-bumped version to $APP_VERSION"
     fi
+
+    # Settle the version against the REAL release history, before it is baked into Info.plist.
+    # Offline or without gh, this is skipped and the advisory file stands.
+    if command -v git >/dev/null 2>&1 && git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
+        git -C "$DIR" fetch origin --tags --quiet 2>/dev/null || true
+        while git -C "$DIR" rev-parse -q --verify "refs/tags/v${APP_VERSION}" >/dev/null 2>&1; do
+            echo "[build] v${APP_VERSION} is already tagged; bumping past it"
+            IFS='.' read -r major minor patch <<< "$APP_VERSION"
+            APP_VERSION="$major.$minor.$((patch + 1))"
+        done
+    fi
+
+    echo "$APP_VERSION" > "$DIR/VERSION"
     echo "$APP_VERSION" > "$LAST_RELEASE_FILE"
+    echo "[build] Releasing as v${APP_VERSION}"
 fi
 export APP_VERSION
 
@@ -374,18 +393,71 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ] && ! $NO_DMG; then
         echo "[build] Install with: brew install --cask sparkle"
     fi
 
-    # Create GitHub Release and upload DMG
-    echo "[build] Creating GitHub Release v${APP_VERSION}..."
-    gh release create "v${APP_VERSION}" "$DMG" \
-        --title "v${APP_VERSION}" \
-        --notes "Port42 v${APP_VERSION}" 2>&1 || echo "[build] WARNING: GitHub Release creation failed (may already exist)"
-
-    # Push appcast and dist to git
+    # PUSH BEFORE TAGGING. This order is load-bearing, not tidiness.
+    #
+    # v0.5.50 shipped with its tag pointing at the PREVIOUS release's commit, because the release
+    # was created here while the commits were still local. GitHub cannot tag an object it does not
+    # have, so `gh release create` silently fell back to the default branch's head and the tag named
+    # a tree with none of the release's code in it. The DMG was correct and every other signal said
+    # nothing had shipped.
     echo "[build] Pushing appcast to git..."
     cd "$DIR"
     git add dist/appcast.xml
-    git commit -m "Update appcast for v${APP_VERSION}" 2>&1 | tail -1
+    git commit -m "Update appcast for v${APP_VERSION}" 2>&1 | tail -1 || echo "[build] appcast unchanged, nothing to commit"
     git push 2>&1 | tail -2
+
+    RELEASE_SHA=$(git rev-parse HEAD)
+
+    # Notes DERIVED from the commit range, never a stub.
+    #
+    # This used to pass --notes "Port42 <version>", so every release published an empty body and the
+    # real notes were written by hand afterwards, if at all. v0.5.50 carried two security fixes and
+    # said nothing about either, so an agent reading the release concluded none had shipped.
+    PREV_TAG=$(git tag --sort=-creatordate --merged HEAD 2>/dev/null | grep -v "^v${APP_VERSION}$" | head -1 || true)
+    NOTES_FILE="$(mktemp)"
+    {
+        if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since ${PREV_TAG}"
+            echo
+            git log --no-merges --format='- %s' "${PREV_TAG}..HEAD"
+        else
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s' -20 HEAD
+        fi
+        echo
+        echo "---"
+        echo
+        echo "Built from \`${RELEASE_SHA}\`."
+        echo
+        echo "*Generated from the commit range. Edit this release to add a human summary; anything"
+        echo "security-relevant should be called out at the top so it is visible without reading the diff.*"
+    } > "$NOTES_FILE"
+
+    # Create GitHub Release and upload DMG. Tag the exact commit the DMG was built from, and ABORT
+    # on failure: the old `|| echo WARNING` defeated `set -e`, so a release that was never created
+    # (an existing tag, an auth failure) still reported success and users got nothing.
+    echo "[build] Creating GitHub Release v${APP_VERSION} at ${RELEASE_SHA}..."
+    if ! gh release create "v${APP_VERSION}" "$DMG" \
+        --title "v${APP_VERSION}" \
+        --target "$RELEASE_SHA" \
+        --notes-file "$NOTES_FILE"; then
+        echo "[build] ERROR: GitHub Release v${APP_VERSION} was NOT created."
+        echo "[build] The DMG is built and the appcast is pushed, but users will not receive this."
+        echo "[build] Most likely: the tag already exists. Check 'gh release list' and bump VERSION."
+        rm -f "$NOTES_FILE"
+        exit 1
+    fi
+    rm -f "$NOTES_FILE"
+
+    # The tag must name the commit we built. Asserted, not assumed: three pieces of release metadata
+    # (version, notes, tag target) can each disagree with the artifact, and on v0.5.50 two did.
+    TAGGED_SHA=$(gh release view "v${APP_VERSION}" --json tagName --jq .tagName >/dev/null 2>&1 &&
+                 git ls-remote origin "refs/tags/v${APP_VERSION}" | cut -f1 || echo "")
+    if [ -n "$TAGGED_SHA" ] && [ "$TAGGED_SHA" != "$RELEASE_SHA" ]; then
+        echo "[build] WARNING: tag v${APP_VERSION} points at ${TAGGED_SHA}, not the built commit ${RELEASE_SHA}."
+        echo "[build] Fix with: git tag -f v${APP_VERSION} ${RELEASE_SHA} && git push -f origin v${APP_VERSION}"
+    fi
 
     echo "[build] Release ready: $DMG"
 fi
