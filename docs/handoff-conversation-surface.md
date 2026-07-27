@@ -1,12 +1,50 @@
-# Handoff: Port42 App Dev — Right-of-Way
+# Handoff: Port42 Protocol — Address · Actor · Token
 
 ## Where this left off (2026-07-26)
 
-**Branch `l2-right-of-way`** (3 commits, off `3c3f370` on main; fast-forward with
-`git checkout main && git merge --ff-only l2-right-of-way`). Carries the cinematic fix, a SECURITY
-P0 fix, the Spike C input fix, and L2 **R1, R1b, R2, R2b, R3** (+ the new `port.getDom`).
-Full suite **1100 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running ALL of it, live-verified.
-Dev3 builds no longer need GM's go-ahead (GM, 2026-07-26); Dev `:4243` and prod still do.
+**Branch `l2-right-of-way`**, HEAD `bce909d`, **10 commits** off `3c3f370` on main, tree clean.
+Fast-forward with `git checkout main && git merge --ff-only l2-right-of-way`.
+Full suite **1102 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
+live-verified. **Dev3 builds no longer need GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod
+still do.
+
+### READ THIS FIRST: the frame
+
+**`docs/plan-port42-protocol-local-bus.md` §A is THE single plan** for this thread. Everything below
+§A in that file is the detailed record (phases, spikes, findings 1–7) — accurate as history, but §A
+governs. `docs/architecture-invariants.md` is the canonical REGISTER beside it: what must have one
+definition and whether it does. **Ordering lives in the plan, status lives in the register.**
+
+**A protocol write is three nouns: an ADDRESS, an ACTOR, and a TOKEN** — *port X, by Y, composed
+against state Z*. That is the whole contract locally and over the wire; slice-02 changes the transport
+and nothing else. Each noun must have exactly one definition or the protocol lies the moment there is
+a second instance.
+
+| Noun | State |
+|---|---|
+| **ADDRESS** | ✅ done — `PortRef.key`, one definition where there were three |
+| **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
+| **ACTOR** | ❌ **broken** — 6 `Principal` construction sites, 2 sharing one `"anonymous-tool-caller"` id, and permissions key on `principal.id`, so unattributed callers POOL their grants |
+
+### NEXT: I1 · Identity (plan §B), starting at I1.1
+
+**I1.1 is an INSTRUMENTATION step, not a design step.** Log every `createdBy == nil` dispatch with its
+method and surface, run Dev3 normally, and read what actually calls in. Only then decide (I1.3) whether
+an unattributed caller is refused or gets a per-surface synthetic identity that never pools.
+
+Designing against an imagined set of callers is on record twice in this thread — finding 7's three
+sweeps each missed a path, and Spike C's probe mislabelled dictation because I guessed. Measure first.
+
+### Shipped this thread
+
+- **L2 R1–R3**: the lease demoted to presence (last-driver-wins), the `<epoch>:<seq>` activity token,
+  one pty surface writer, CAS with `stale_write` carrying `current`, and `port.getDom`.
+- **A SECURITY P0**: a web port's JS could navigate to any site and the `window.port42` bridge went
+  with it — live-verified, a page on example.com called `ports.list()` and got the user's ports back.
+  Fixed by origin-pinning every message handler plus a destination allowlist.
+- **Input coverage**: `beforeinput` added. Measured — the old two-event listener saw 8 of 11 real
+  content changes; dictation, the emoji picker, right-click paste and a cross-app drag were invisible.
+- **`PortRef.key`**: inline ports had no token, no presence and no CAS at all.
 
 **v0.5.49 shipped** — notarized, stapled, GitHub Release, appcast pushed. Onboarding runs inside the
 shell; all six phases of `plan-unify-onboarding-shell.md` are done.
