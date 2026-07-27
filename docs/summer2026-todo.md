@@ -152,7 +152,13 @@ and this is one of the reasons why. Fixing this makes the token more honest as a
 
 ---
 
-## TODO (2026-07-26, GM) — **MEMBRANE REVIEW**: one input seam, not six
+## TODO (2026-07-26, GM) — **ONE BRIDGE, FOR THE HUMAN TOO** → `docs/plan-input-seam.md`
+
+**Renamed from "membrane review".** `docs/membrane/` already uses that word for the whole experience
+layer; reusing it for one input seam collided with the name of the product. The framing that
+survived: the site already promises "one bridge, same methods" for five caller types, all of them
+programmatic — a person typing, dictating or dropping touches no bridge at all. This is the missing
+half of a promise already made, not a new layer. **Full plan: `docs/plan-input-seam.md`.**
 
 **GM:** "we are the UX and own the membrane with the user. so... any interaction key, voice, any
 input device must go through a controller."

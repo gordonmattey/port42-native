@@ -757,7 +757,9 @@ still has one, which is the membrane argument in miniature.
 **C3 — still entirely uncounted:** page-initiated browser navigation (B2), and `window.open` /
 `target="_blank"`, which has no `WKUIDelegate` anywhere in the repo (already its own TODO).
 
-**C4 — the conclusion, and why it blocks R4/R5.** R5 makes a token MANDATORY for terminal writes.
+**C4 — the conclusion, and why it blocks R4/R5.** *(The plan for this is now
+`docs/plan-input-seam.md`; it is NOT called "the membrane" — that name belongs to the whole
+experience layer in `docs/membrane/`.)* R5 makes a token MANDATORY for terminal writes.
 That is only sound if every way in counts. On the current six-seam model it is provably not sound for
 web and browser, and unproven for voice on any surface. **The membrane review (one `PortInput` seam
 carrying `(port, kind, actor, trusted)`, with each surface technology reduced to translating its
