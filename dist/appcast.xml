@@ -3,6 +3,15 @@
     <channel>
         <title>Port42</title>
         <item>
+            <title>0.5.50</title>
+            <pubDate>Mon, 27 Jul 2026 09:18:50 -0700</pubDate>
+            <sparkle:version>2184</sparkle:version>
+            <sparkle:shortVersionString>0.5.50</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v0.5.50/Port42.dmg" length="44179250" type="application/octet-stream" sparkle:edSignature="lJ9AGjxhisD9nQ65pfJy0XtvVvB4ef1/4JuI3u+8hVOa7LqPua+cVNnMHh/nu/WbJhs0bhBRd3khxrSLCw/9Dw=="/>
+        </item>
+        <item>
             <title>0.5.49</title>
             <pubDate>Fri, 24 Jul 2026 22:47:52 -0700</pubDate>
             <sparkle:version>2161</sparkle:version>
@@ -19,15 +28,6 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v0.5.47/Port42.dmg" length="43775768" type="application/octet-stream" sparkle:edSignature="o33HHC2U5c7gV0Ws7vhQoFBbaIRfEYIlKd4+FiHG5vYPidRxGBvHRBE0WtkKEG4D4L71T6ST+6n+X2Cwd3FaBA=="/>
-        </item>
-        <item>
-            <title>0.5.33</title>
-            <pubDate>Mon, 06 Apr 2026 21:31:06 -0700</pubDate>
-            <sparkle:version>1596</sparkle:version>
-            <sparkle:shortVersionString>0.5.33</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/gordonmattey/port42-native/releases/download/v0.5.33/Port42.dmg" length="34531223" type="application/octet-stream" sparkle:edSignature="extVjL8djzkQdhxFwWOARP1eoAN9IGbw47lvQJiWevXbpVZl4N/Bfw8tHcdv7Am7ERgm8RpZwgGcnVicfd2zDw=="/>
         </item>
     </channel>
 </rss>
