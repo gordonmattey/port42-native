@@ -53,18 +53,29 @@ extension AppState {
             }
         }
 
-        // A WRITE'S TWO SIDE EFFECTS, off ONE resolve.
-        //
-        // The port is resolved here rather than inside each helper because resolution is the only
-        // part of this that is not free — `resolvePortRef` rebuilds the terminal and panel tables
-        // per call, and can probe the DB when the live ones miss (Spike A finding A1). Both the
-        // token bump and the presence record key off the same `PortRef.key`, so resolving
-        // twice would double the expensive half for nothing.
-        //
-        // Both sit after the permission gate, which DOES refuse: a permission prompt is about the
-        // CALLER, and there is no point recording a driver or moving a port's token for a call that
-        // is about to be denied.
-        if let targetParam = method.writesTarget, let raw = args.string(targetParam),
+        // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
+        // no point recording a driver or moving a port's token for a call about to be denied.
+        try applyWriteSideEffects(writesTarget: method.writesTarget, args: args, principal: principal)
+
+        return try await method.run(principal, args)
+    }
+
+    /// A WRITE'S SIDE EFFECTS, for BOTH dispatchers (I2 · C5).
+    ///
+    /// Extracted so the one-shot and streaming paths cannot diverge. Before C5 the streaming
+    /// registry had no `writesTarget` at all: a streaming write verb would have moved no token,
+    /// checked no CAS and recorded no presence, and nothing would have said so. Nothing escaped in
+    /// practice, because all three streaming methods happen to be reads, but "happens to be" is the
+    /// property this seam exists to replace.
+    ///
+    /// ONE resolve, shared. `resolvePortRef` is the only part of this that is not free (it rebuilds
+    /// the terminal and panel tables per call and can probe the DB when the live ones miss, Spike A
+    /// finding A1), and the CAS check, the token bump and the presence record all key off the same
+    /// `PortRef.key`, so resolving more than once would double the expensive half for nothing.
+    ///
+    /// Throws `stale_write` when CAS refuses. Callers must run this BEFORE the body.
+    func applyWriteSideEffects(writesTarget: String?, args: BridgeArgs, principal: Principal) throws {
+        if let targetParam = writesTarget, let raw = args.string(targetParam),
            let key = portKey(for: raw) {
             // CAS (R3). A writer may declare the state it composed against. If the port has moved
             // since, the write is REFUSED — the first thing in this phase that refuses anything, and
@@ -100,8 +111,6 @@ extension AppState {
                 trust: .principal))
             broadcastDriverChange(outcome.driverChanged, port: key)
         }
-
-        return try await method.run(principal, args)
     }
 
     /// The local human as a principal (L2.d). nil before setup completes.
@@ -310,6 +319,10 @@ extension AppState {
                 saveCompanionPermissions(granted, createdBy: principal.id, spaceId: principal.spaceId)
             }
         }
+        // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch
+        // with its own rules; a write is a write whichever registry serves it.
+        try applyWriteSideEffects(writesTarget: method.writesTarget, args: args, principal: principal)
+
         return try await method.run(principal, args, yield)
     }
 }

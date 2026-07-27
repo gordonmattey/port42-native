@@ -130,21 +130,53 @@ public struct BridgeStreamMethod {
     /// Whether this method is exposed as an LLM tool. False for `ai.complete`/`companions.invoke`
     /// (a companion uses its own model, not these as tools). See `BridgeMethod.toolExposed`.
     public let toolExposed: Bool
+    /// The parameter naming the port this method WRITES to, or nil for a read (I2 · C5).
+    ///
+    /// Streaming had no such field until C5, so a streaming write verb would have moved no token,
+    /// checked no CAS and recorded no presence, silently. Nothing escaped in practice because all
+    /// three streaming methods happen to be reads, but "happens to be" is exactly the property the
+    /// input seam exists to replace with a structural one. Same meaning as `BridgeMethod.writesTarget`
+    /// and dispatched through the same `applyWriteSideEffects`.
+    public let writesTarget: String?
     /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
     public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
 
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
                 toolExposed: Bool = true,
+                writesTarget: String? = nil,
                 description: String = "",
                 inputSchema: [String: Any] = [:],
                 run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
         self.toolExposed = toolExposed
+        self.writesTarget = writesTarget
         self.description = description
         self.inputSchema = inputSchema
         self.run = run
+    }
+
+    /// Streaming's twin of `BridgeMethod.acceptingExpect()`: a declared write gets the optional
+    /// `expect` param so CAS is opt-in on this path too, injected centrally rather than per method.
+    func acceptingExpect() -> BridgeStreamMethod {
+        guard writesTarget != nil, !paramNames.contains(PortActivity.expectParam) else { return self }
+        var schema = inputSchema
+        if !schema.isEmpty {
+            var props = schema["properties"] as? [String: Any] ?? [:]
+            props[PortActivity.expectParam] = [
+                "type": "string",
+                "description": "Optional. The port's `token` from ports_list, as it was when you "
+                             + "composed this write. If the port has changed since, the write is "
+                             + "refused with code 'stale_write' carrying the current token — retry "
+                             + "with that instead of clobbering whoever moved it."
+            ] as [String: Any]
+            schema["properties"] = props
+        }
+        return BridgeStreamMethod(permission: permission,
+                                  paramNames: paramNames + [PortActivity.expectParam],
+                                  toolExposed: toolExposed, writesTarget: writesTarget,
+                                  description: description, inputSchema: schema, run: run)
     }
 }
 

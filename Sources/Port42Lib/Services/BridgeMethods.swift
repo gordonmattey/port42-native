@@ -124,7 +124,10 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
             model: model, maxTokens: appState.portAIMaxTokens, yield: yield)
     }
 
-    return r
+    // I2 · C5 — the streaming twin of the one-shot injection above. A streaming write verb added
+    // tomorrow gets compare-and-swap by construction, on the same terms, instead of silently
+    // escaping the token because its registry had no notion of a write.
+    return r.mapValues { $0.acceptingExpect() }
 }
 
 // MARK: Ports (live — the by-id/opts methods duplicated across paths)
