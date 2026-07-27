@@ -75,7 +75,7 @@ extension AppState {
             // behaviour, so nothing that works now breaks, and CAS is opt-in until R5 makes it
             // mandatory for the one surface that cannot tolerate a splice.
             if let expected = args.string(PortActivity.expectParam) {
-                let current = portActivity.token(for: key)
+                let current = portInput.token(for: key)
                 guard expected == current else {
                     // The error CARRIES `current`. Without it a caller only learns that it lost,
                     // not what to compose against — so the retry would be a guess, and a naive
@@ -91,7 +91,7 @@ extension AppState {
             // A body that then throws leaves a bump for a write that did not land — which costs a
             // concurrent writer one self-correcting retry, and never admits a stale write. Wrong in
             // the safe direction is the only acceptable way to be wrong here.
-            portActivity.bump(key)
+            portInput.bumpDirectly(key)
             // PRESENCE (L2, demoted by R1). Records and broadcasts who is driving; refuses nothing.
             recordDriving(port: key, by: principal)
         }
@@ -156,7 +156,7 @@ extension AppState {
     /// one dict read. Only the branch that actually records pays for a resolve — this runs per
     /// keystroke, and `resolvePortRef` is the one part of the path that is not free (Spike A, A1).
     func humanInteracted(with portId: String) {
-        portActivity.bump(portId)
+        portInput.bumpDirectly(portId)
         guard let human = humanPrincipal else {
             #if DEBUG
             // I1.1: a mutation with NOBODY to attribute it to. No `Principal` site would ever show
@@ -167,10 +167,10 @@ extension AppState {
             #endif
             return
         }
-        let alreadyDriving = portDrivers.driver(of: portId, now: Date())?.ref
+        let alreadyDriving = portInput.driver(of: portId, now: Date())?.ref
                              == ActorRef(principal: human.id)
         if alreadyDriving {
-            guard presenceThrottle.allow(port: portId, now: Date()) else { return }
+            guard portInput.throttleAllows(port: portId, now: Date()) else { return }
         }
         NSLog("[Port42:presence] path=input port=%@ takeover=%d", portId, alreadyDriving ? 0 : 1)
         recordHumanFocus(portId: portId)
@@ -190,7 +190,7 @@ extension AppState {
     ///
     /// The id is already the port key, so no resolve — this is on a per-keystroke-burst path.
     func surfaceWrote(port portId: String) {
-        portActivity.bump(portId)
+        portInput.bumpDirectly(portId)
     }
 
     /// The ONE key every per-port table uses: the port's Notify topic id (`PortRef.key`).
@@ -215,7 +215,7 @@ extension AppState {
     /// R1 demoted right-of-way to presence, so this reports a fact rather than arbitrating one.
     func recordDriving(port key: String, by principal: Principal) {
         let actor = ActorRef(principal: principal.id)
-        switch portDrivers.record(port: key, actor: actor, name: principal.displayName, now: Date()) {
+        switch portInput.recordDirectly(port: key, actor: actor, name: principal.displayName, now: Date()) {
         case .changed(let d):
             NSLog("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
             // The driver CHANGED. Broadcast on the port's own topic — the thing already streaming

@@ -149,6 +149,46 @@ struct PortInputSeamTests {
         #expect(seam.driver(of: "p2", now: t0) == nil)
     }
 
+    // MARK: - C2.0 · one owner
+
+    @Test("the three tables have ONE owner: nothing outside the seam holds its own")
+    func seamIsTheOnlyOwner() throws {
+        // C2.0. While `AppState` held `portActivity`/`portDrivers`/`presenceThrottle` and the seam
+        // held its own, moving a single translator would have bumped one counter while every reader
+        // read the other, splitting a port's token in two for the length of the migration. That is
+        // the exact lie the seam exists to prevent, introduced by the work meant to prevent it.
+        //
+        // Tree-wide, because a gate scoped to named files is not a gate: `bothHostsWireIt` named two
+        // files and a third site walked past it (C0), and the old `Principal` scan was per-file
+        // while both live holes hid behind it (I1).
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let walker = try #require(FileManager.default.enumerator(at: root,
+                                                                 includingPropertiesForKeys: nil))
+        var owners: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            // The seam is the owner; ShellState's `portDrivers` is an unrelated @Published dict of
+            // display badges for the chrome, not the registry.
+            let file = url.lastPathComponent
+            guard file != "PortInput.swift", file != "ShellState.swift" else { continue }
+            let src = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            for line in src.split(separator: "\n") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                guard !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
+                if t.contains("= DriverRegistry(") || t.contains("= PortActivity(")
+                    || t.contains("= PresenceThrottle(") {
+                    owners.append("\(file): \(t.prefix(60))")
+                }
+            }
+        }
+        #expect(owners.isEmpty, """
+            These declare their own copy of a table the seam owns: \(owners).
+            A second owner splits a port's token across two counters, which is the failure C2.0 \
+            exists to make impossible.
+            """)
+    }
+
     // MARK: - the recorded risk
 
     @Test("PortInput has exactly four fields plus a display label")

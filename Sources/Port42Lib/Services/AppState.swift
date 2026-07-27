@@ -855,18 +855,21 @@ public final class AppState: ObservableObject {
     /// True after restoreFromDB completes; gates switchToSpace calls in selectSpace.
     private var portPanelsRestored = false
 
-    /// PRESENCE (L2, demoted by R1): who is driving each port. Recorded at the dispatch seam
-    /// (`recordDriving`) by whoever wrote last, and by the human on focus and native input. It
-    /// refuses nothing — correctness against a stale write is the state token (R2–R5), not this.
-    /// See docs/plan-port42-protocol-local-bus.md §"Phase L2 REVISED".
-    var portDrivers = DriverRegistry()
-    /// CORRECTNESS (R2): per-port activity counters, the half presence gave up. A write composes
-    /// against a token and R3 refuses it if the port has moved since. NOT `@Published` and not
-    /// observed by anything: R2b bumps this on every human keystroke, and a published dict would
-    /// invalidate the shell once per character (Spike A finding A2).
-    var portActivity = PortActivity()
-    /// Rate-limit for `humanInteracted` — a keystroke-rate signal against a 30s window (L2.d.2).
-    var presenceThrottle = PresenceThrottle()
+    /// EVERYTHING a port's input can mutate, in one place (I2 · C2.0).
+    ///
+    /// Was three separate fields: `portDrivers` (PRESENCE, L2 — who is driving, refusing nothing),
+    /// `portActivity` (CORRECTNESS, R2 — the per-port counter a write composes against, which R3
+    /// refuses a stale write on), and `presenceThrottle` (the rate limit on presence, never on the
+    /// token). They are one concern and are now owned by one seam, so no path can move one without
+    /// the others being visible to it.
+    ///
+    /// Ownership moved before any translator did, deliberately: with the tables in two places a
+    /// half-migrated translator would bump one counter while every reader read the other, and a
+    /// port's token would have been split in two for the length of the migration.
+    ///
+    /// NOT `@Published` and not observed: this bumps on every human keystroke, and a published value
+    /// would invalidate the shell once per character (Spike A finding A2).
+    var portInput = PortInputSeam()
 
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []

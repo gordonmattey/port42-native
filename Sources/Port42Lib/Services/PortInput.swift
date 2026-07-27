@@ -119,7 +119,46 @@ public struct PortInputSeam {
     // MARK: Reads
 
     public func token(for port: String) -> String { activity.token(for: port) }
+    public func seq(for port: String) -> Int { activity.seq(for: port) }
     public func driver(of port: String, now: Date) -> Driver? { drivers.driver(of: port, now: now) }
+
+    /// A CONSISTENT snapshot of every port's counter, for a caller listing many ports at once.
+    ///
+    /// `ports.list` reads a token per row, and rows read at different moments would hand out tokens
+    /// that were never all true together: a caller could compose against a set of tokens that never
+    /// coexisted. Taking the value once gives every row the same instant. A copy, so a reader cannot
+    /// mutate through it.
+    public var activitySnapshot: PortActivity { activity }
+
+    // MARK: Transitional passthroughs (C2.0 only — C2.1..n and C4 delete these)
+    //
+    // C2.0 moves OWNERSHIP of the tables and nothing else. Ownership has to move first and in one
+    // step: while `AppState` held its own copies and the seam held others, moving a single
+    // translator would have bumped one counter while every reader read the other, splitting a port's
+    // token in two for the length of the migration. That is the exact lie the seam exists to
+    // prevent, and it would have been introduced by the work meant to prevent it.
+    //
+    // So the existing call sites keep their logic verbatim and simply operate on the seam's tables.
+    // Each translator that moves to `received(_:)` deletes its passthrough with it; C4 removes
+    // whatever is left and the compiler names anything still reaching for one.
+    //
+    // These are NOT the seam's interface. `received(_:)` is.
+
+    @discardableResult
+    mutating func bumpDirectly(_ port: String) -> String { activity.bump(port) }
+
+    mutating func recordDirectly(port: String, actor: ActorRef, name: String, now: Date) -> DriverChange {
+        drivers.record(port: port, actor: actor, name: name, now: now)
+    }
+
+    mutating func throttleAllows(port: String, now: Date) -> Bool {
+        throttle.allow(port: port, now: now)
+    }
+
+    mutating func forgetDirectly(port: String) {
+        drivers.forget(port: port)
+        throttle.forget(port: port)
+    }
 
     // MARK: The door
 

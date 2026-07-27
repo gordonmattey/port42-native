@@ -40,20 +40,20 @@ struct PortCASTests {
         let (state, id, udid) = try makeWorld()
         try await rename(state, id, "no token")
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "no token")
-        #expect(state.portActivity.seq(for: udid) == 1)
+        #expect(state.portInput.seq(for: udid) == 1)
     }
 
     @Test("a CURRENT token succeeds")
     func currentTokenSucceeds() async throws {
         let (state, id, udid) = try makeWorld()
-        try await rename(state, id, "first", expect: state.portActivity.token(for: udid))
+        try await rename(state, id, "first", expect: state.portInput.token(for: udid))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "first")
     }
 
     @Test("a STALE token is refused, and the port is left alone")
     func staleTokenRefused() async throws {
         let (state, id, udid) = try makeWorld()
-        let composed = state.portActivity.token(for: udid)   // what a slow writer read
+        let composed = state.portInput.token(for: udid)   // what a slow writer read
         try await rename(state, id, "someone else got there", by: "bob")   // the port moves
 
         await #expect(throws: BridgeError.self) {
@@ -66,7 +66,7 @@ struct PortCASTests {
     @Test("the refusal CARRIES current — without it the caller cannot converge")
     func refusalCarriesCurrent() async throws {
         let (state, id, udid) = try makeWorld()
-        let composed = state.portActivity.token(for: udid)
+        let composed = state.portInput.token(for: udid)
         try await rename(state, id, "moved", by: "bob")
 
         do {
@@ -74,10 +74,10 @@ struct PortCASTests {
             Issue.record("expected the stale write to be refused")
         } catch let e as BridgeError {
             #expect(e.code == PortActivity.staleCode)
-            #expect(e.details["current"] == state.portActivity.token(for: udid))
+            #expect(e.details["current"] == state.portInput.token(for: udid))
             // And it reaches the caller in BOTH renderings: JSON for code, prose for a companion.
             let json = e.toJSONObject() as? [String: Any]
-            #expect(json?["current"] as? String == state.portActivity.token(for: udid))
+            #expect(json?["current"] as? String == state.portInput.token(for: udid))
             let text = (e.toToolBlocks().first?["text"] as? String) ?? ""
             #expect(text.contains("current:"))
         }
@@ -86,7 +86,7 @@ struct PortCASTests {
     @Test("conflict → retry with the returned token → success, in ONE extra round trip")
     func selfCorrectsInOneRetry() async throws {
         let (state, id, udid) = try makeWorld()
-        let composed = state.portActivity.token(for: udid)
+        let composed = state.portInput.token(for: udid)
         try await rename(state, id, "moved", by: "bob")
 
         var recovered = false
@@ -105,12 +105,12 @@ struct PortCASTests {
     @Test("a refused write does NOT bump — a rejection must not invalidate the next writer")
     func refusalDoesNotBump() async throws {
         let (state, id, udid) = try makeWorld()
-        let composed = state.portActivity.token(for: udid)
+        let composed = state.portInput.token(for: udid)
         try await rename(state, id, "moved", by: "bob")
-        let afterBob = state.portActivity.seq(for: udid)
+        let afterBob = state.portInput.seq(for: udid)
 
         try? await rename(state, id, "stale", by: "alice", expect: composed)
-        #expect(state.portActivity.seq(for: udid) == afterBob,
+        #expect(state.portInput.seq(for: udid) == afterBob,
                 "a refused write bumped the token, so every other writer was invalidated by a write that never happened")
     }
 
@@ -124,7 +124,7 @@ struct PortCASTests {
                                                   args: BridgeArgs([:]))
         let arr = (out.toJSONObject() as? [[String: Any]]) ?? []
         let mine = arr.first { ($0["id"] as? String) == udid || ($0["id"] as? String) == id }
-        #expect(mine?["token"] as? String == state.portActivity.token(for: udid))
+        #expect(mine?["token"] as? String == state.portInput.token(for: udid))
     }
 
     // MARK: - The key (review finding, 2026-07-26)

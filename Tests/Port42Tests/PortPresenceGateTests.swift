@@ -38,13 +38,13 @@ struct PortLeaseGateTests {
 
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
                                             args: BridgeArgs(["id": id, "title": "alice's"]))
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "alice")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "alice")
 
         // No throw. This is the whole of R1: presence observes, it does not arbitrate.
         _ = try await state.runBridgeMethod("port.rename", principal: bob,
                                             args: BridgeArgs(["id": id, "title": "bob's"]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "bob's")
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "bob")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "bob")
     }
 
     @Test("the driver keeps writing — presence is not a one-shot")
@@ -68,7 +68,7 @@ struct PortLeaseGateTests {
         // `ports.list` is the read that works headless (getHtml reads the DB, and an inline port is
         // deliberately never persisted). Bob looking must not make Bob the driver.
         _ = try await state.runBridgeMethod("ports.list", principal: bob, args: BridgeArgs([:]))
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "alice")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "alice")
     }
 
     @Test("an unresolvable target records NO presence — a driver of nothing is not a driver")
@@ -80,7 +80,7 @@ struct PortLeaseGateTests {
         // claimed that id.
         _ = try? await state.runBridgeMethod("port.rename", principal: alice,
                                              args: BridgeArgs(["id": "no-such-port", "title": "x"]))
-        #expect(state.portDrivers.driver(of: "no-such-port", now: Date()) == nil)
+        #expect(state.portInput.driver(of: "no-such-port", now: Date()) == nil)
     }
 
     // MARK: - L2.c: the holder is broadcast on the port's own topic
@@ -129,8 +129,8 @@ struct PortLeaseGateTests {
         // Nobody is driving the new port. Under R1 this no longer shows up as a blocked write, so
         // the table is the assertion: a reused id must not inherit the dead port's driver and show
         // a stale name in the new port's header.
-        #expect(state.portDrivers.driver(of: udid, now: Date()) == nil)
-        #expect(state.portDrivers.driver(of: id, now: Date()) == nil)
+        #expect(state.portInput.driver(of: udid, now: Date()) == nil)
+        #expect(state.portInput.driver(of: id, now: Date()) == nil)
 
         _ = try await state.runBridgeMethod("port.rename", principal: bob,
                                             args: BridgeArgs(["id": id, "title": "b"]))
@@ -161,14 +161,14 @@ struct PortLeaseGateTests {
         let (state, id) = try makeWorldWithUser()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         state.recordHumanFocus(portId: id)
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "gordon")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
 
         // A companion writing to a port you are focused on is NOT refused (R1) — it just becomes
         // the driver, because it is the one that acted most recently.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
                                             args: BridgeArgs(["id": id, "title": "echo's"]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "echo's")
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "echo")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
     }
 
     @Test("focus takes presence back from a companion, and blocks nothing either way")
@@ -181,12 +181,12 @@ struct PortLeaseGateTests {
         // The human focuses it. Under the old gate this was deliberately a no-op so focus could not
         // seize the pen; with nothing to seize, the honest answer is that the human is now driving.
         state.recordHumanFocus(portId: id)
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "gordon")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
         // And echo is still free to write, which is the point of the demotion.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
                                             args: BridgeArgs(["id": id, "title": "still echo's"]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "still echo's")
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "echo")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
     }
 
     @Test("typing in a port names you the driver — native input reaches no dispatcher without this")
@@ -195,7 +195,7 @@ struct PortLeaseGateTests {
         // The signal the surfaces fire on keydown/pointerdown. Keyed on udid, as the surfaces key it.
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         state.humanInteracted(with: udid)
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "gordon")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
     }
 
     @Test("a TAKEOVER is never throttled — your input wins the label back instantly")
@@ -204,19 +204,19 @@ struct PortLeaseGateTests {
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
 
         state.humanInteracted(with: udid)
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "gordon")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
 
         // A companion writes: it becomes the driver.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
                                             args: BridgeArgs(["id": id, "title": "echo's"]))
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "echo")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
 
         // You touch it again IMMEDIATELY — far inside the ~5s throttle window opened by your first
         // interaction. GM found this live: with a companion writing every 2s against a 5s throttle,
         // the human could never win the chip back, because the throttle was dropping the very event
         // that should have moved it. A takeover is a CHANGE, not a refresh.
         state.humanInteracted(with: udid)
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "gordon")
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
     }
 
     @Test("a REFRESH is still throttled — holding it does not spam the topic per keystroke")
@@ -245,7 +245,7 @@ struct PortLeaseGateTests {
     func interactionNeedsAHuman() throws {
         let (state, id) = try makeWorld()          // no currentUser
         state.humanInteracted(with: id)
-        #expect(state.portDrivers.driver(of: id, now: Date()) == nil)
+        #expect(state.portInput.driver(of: id, now: Date()) == nil)
     }
 
     // MARK: - L2.e: the header learns the holder BY SUBSCRIBING
@@ -295,13 +295,13 @@ struct PortLeaseGateTests {
     func bridgeWritesBump() async throws {
         let (state, id) = try makeWorld()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
-        #expect(state.portActivity.seq(for: udid) == 0)
+        #expect(state.portInput.seq(for: udid) == 0)
 
         for title in ["a", "b"] {
             _ = try await state.runBridgeMethod("port.rename", principal: principal("alice", "alice"),
                                                 args: BridgeArgs(["id": id, "title": title]))
         }
-        #expect(state.portActivity.seq(for: udid) == 2)
+        #expect(state.portInput.seq(for: udid) == 2)
         // Same key as presence and the Notify topic — three tables that must never disagree about
         // which port they mean.
         #expect(state.portKey(for: id) == udid)
@@ -313,7 +313,7 @@ struct PortLeaseGateTests {
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         _ = try await state.runBridgeMethod("ports.list", principal: principal("bob", "bob"),
                                             args: BridgeArgs([:]))
-        #expect(state.portActivity.seq(for: udid) == 0)
+        #expect(state.portInput.seq(for: udid) == 0)
     }
 
     @Test("an unresolvable target bumps nothing — no token on a port that does not exist")
@@ -321,7 +321,7 @@ struct PortLeaseGateTests {
         let (state, _) = try makeWorld()
         _ = try? await state.runBridgeMethod("port.rename", principal: principal("alice", "alice"),
                                              args: BridgeArgs(["id": "no-such-port", "title": "x"]))
-        #expect(state.portActivity.seq(for: "no-such-port") == 0)
+        #expect(state.portInput.seq(for: "no-such-port") == 0)
     }
 
     @Test("human input bumps EVERY time — the presence throttle must not reach the token")
@@ -333,16 +333,16 @@ struct PortLeaseGateTests {
         // per keystroke, or a companion's 4-second-old write would pass CAS against a line you have
         // been typing into — the exact splice R5 exists to stop.
         for _ in 1...10 { state.humanInteracted(with: udid) }
-        #expect(state.portActivity.seq(for: udid) == 10)
-        #expect(state.portDrivers.driver(of: udid, now: Date())?.name == "gordon")
+        #expect(state.portInput.seq(for: udid) == 10)
+        #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
     }
 
     @Test("input before setup still bumps — the port changed whether or not we know who did it")
     func inputWithoutIdentityStillBumps() throws {
         let (state, id) = try makeWorld()          // no currentUser
         state.humanInteracted(with: id)
-        #expect(state.portActivity.seq(for: id) == 1)
-        #expect(state.portDrivers.driver(of: id, now: Date()) == nil)
+        #expect(state.portInput.seq(for: id) == 1)
+        #expect(state.portInput.driver(of: id, now: Date()) == nil)
     }
 
     @Test("the surface only reports TRUSTED input, so a port cannot bump its own token")

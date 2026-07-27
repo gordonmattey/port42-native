@@ -308,7 +308,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // leave a gap in which the port could move, and hand back a token that was never true of
         // the html beside it.
         var out: [String: BridgeValue] = ["html": .string(html)]
-        if let key = ref.key { out["token"] = .string(appState.portActivity.token(for: key)) }
+        if let key = ref.key { out["token"] = .string(appState.portInput.token(for: key)) }
         return .object(out)
     }
 
@@ -1324,7 +1324,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // Snapshot the counters once, before building the list. A value type, so every entry reports
         // the same instant — a listing whose rows were read at different moments would hand out
         // tokens that were never all true together.
-        let activity = appState.portActivity
+        let activity = appState.portInput.activitySnapshot
 
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
@@ -1539,7 +1539,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         if let sid = p.spaceId { info["spaceId"] = .string(sid) }
         // R3: a port's own token, for a port that reads-then-writes itself.
         if let key = appState.portKey(for: p.id) {
-            info["token"] = .string(appState.portActivity.token(for: key))
+            info["token"] = .string(appState.portInput.token(for: key))
         }
         return .object(info)
     }

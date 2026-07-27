@@ -639,9 +639,9 @@ public final class PortWindowManager: ObservableObject {
         // release: no holder check, because the thing being held no longer exists). Without this a
         // closed-and-reopened id could inherit a stale holder.
         if let panel = panels.first(where: { $0.id == id }) {
-            appState?.portDrivers.forget(port: panel.udid)
+            appState?.portInput.forgetDirectly(port: panel.udid)
         }
-        appState?.portDrivers.forget(port: id)
+        appState?.portInput.forgetDirectly(port: id)
         appState?.teardownTerminalController(panelId: id)
         // Tear down a hoisted terminal surface (shell tile path). The floating path frees via
         // dismantleNSView; the detached view isn't SwiftUI-managed, so free it explicitly here.
