@@ -155,10 +155,6 @@ public struct PortInputSeam {
         throttle.allow(port: port, now: now)
     }
 
-    mutating func forgetDirectly(port: String) {
-        drivers.forget(port: port)
-        throttle.forget(port: port)
-    }
 
     // MARK: The door
 

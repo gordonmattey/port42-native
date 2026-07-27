@@ -635,13 +635,21 @@ public final class PortWindowManager: ObservableObject {
                 destroyWebView(id)
             }
         }
-        // The port is gone, so its pen is meaningless — drop the lease with it (a close, not a
-        // release: no holder check, because the thing being held no longer exists). Without this a
-        // closed-and-reopened id could inherit a stale holder.
+        // The port is gone, so presence on it is meaningless: drop it (a close, not a release, so
+        // no holder check, because the thing being held no longer exists). Without this a
+        // closed-and-reopened id could inherit a stale driver.
+        //
+        // I2 · C2.1 — through the seam's door. `portClosed` forgets presence and the throttle and
+        // deliberately NOT the token: the two have opposite lifecycles, and a counter that rewinds
+        // would let a token minted against this dead port pass CAS against a live one that reused
+        // the id (Spike A, correction 4).
+        //
+        // BOTH ids, because a panel is addressed by `id` and by `udid` and this close path can be
+        // reached with either. Forgetting one and not the other leaves half a stale driver.
         if let panel = panels.first(where: { $0.id == id }) {
-            appState?.portInput.forgetDirectly(port: panel.udid)
+            appState?.portInput.portClosed(panel.udid)
         }
-        appState?.portInput.forgetDirectly(port: id)
+        appState?.portInput.portClosed(id)
         appState?.teardownTerminalController(panelId: id)
         // Tear down a hoisted terminal surface (shell tile path). The floating path frees via
         // dismantleNSView; the detached view isn't SwiftUI-managed, so free it explicitly here.
