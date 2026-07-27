@@ -63,6 +63,28 @@ public struct PortRef: Equatable {
 
     /// The most specific identifier we resolved, for logs and error messages.
     public var describedId: String { id ?? udid ?? messageId ?? "?" }
+
+    /// THE per-port key — the Notify topic id, the activity-token key and the presence key, all of
+    /// which must be the same string or they are silently talking about different ports.
+    ///
+    /// Defined ONCE here because it was previously written three times and three ways
+    /// (`udid ?? id`, `udid ?? id ?? <caller's raw string>`, twice), and none of them handled
+    /// `messageId`. Two consequences, both live until 2026-07-26:
+    ///
+    /// - An INLINE-only port (a `port` fence before adoption) has nil `id` AND nil `udid`, so the
+    ///   dispatcher's key was nil and its whole write block — token bump, presence, CAS — was
+    ///   skipped. A real, writable surface with no staleness protection at all.
+    /// - The `?? <raw string>` fallbacks keyed the Notify topic on whatever the caller passed, which
+    ///   can be a TITLE, so a publisher and a subscriber agreed only when they happened to use the
+    ///   same alias.
+    ///
+    /// nil only when a ref carries no identity at all, which resolution cannot produce.
+    public static func key(_ ref: PortRef) -> String? {
+        ref.udid ?? ref.id ?? ref.messageId
+    }
+
+    /// Convenience for call sites that hold a ref.
+    public var key: String? { PortRef.key(self) }
 }
 
 public enum PortResolution {

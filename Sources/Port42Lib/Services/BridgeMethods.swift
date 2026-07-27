@@ -60,7 +60,7 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
     ) { _, args, yield in
         let id = try args.requireString("id")
         let ref = appState.resolvePortRef(id)
-        let topic = "port:\(ref?.udid ?? ref?.id ?? id)"
+        let topic = "port:\(ref?.key ?? id)"
         let subId = appState.notifyBus.subscribe(topic: topic, deliver: yield)
         defer { appState.notifyBus.unsubscribe(id: subId, topic: topic) }
         // Hold the stream open until the caller cancels — the run executes on a tracked Task that is
@@ -195,7 +195,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
         // Phase L1: republish the delivered input on the port's Notify topic (a cheap no-op when nobody
         // subscribes), so an observer can watch what a port is being driven with.
-        appState.notifyBus.publish(topic: "port:\(ref.udid ?? ref.id ?? id)", kind: "push", payload: data)
+        appState.notifyBus.publish(topic: "port:\(ref.key ?? id)", kind: "push", payload: data)
         switch ref.kind {
         case .terminal:
             guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {
@@ -240,7 +240,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         }
         let kind = try args.requireString("kind")
         let payload = args.any("payload") ?? NSNull()
-        appState.notifyBus.publish(topic: "port:\(ref.udid ?? ref.id ?? key)", kind: kind, payload: payload)
+        appState.notifyBus.publish(topic: "port:\(ref.key ?? key)", kind: kind, payload: payload)
         return .object(["ok": .bool(true)])
     }
 
@@ -308,7 +308,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // leave a gap in which the port could move, and hand back a token that was never true of
         // the html beside it.
         var out: [String: BridgeValue] = ["html": .string(html)]
-        if let key = ref.udid ?? ref.id { out["token"] = .string(appState.portActivity.token(for: key)) }
+        if let key = ref.key { out["token"] = .string(appState.portActivity.token(for: key)) }
         return .object(out)
     }
 

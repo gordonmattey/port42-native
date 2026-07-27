@@ -44,7 +44,7 @@ public struct PortActivity: Equatable {
     /// one so that local was the degenerate form of remote.
     public let epoch: String
 
-    /// port key (`ref.udid ?? ref.id`, the same key presence and the Notify topic use) → count.
+    /// port key (`PortRef.key`, the same key presence and the Notify topic use) → count.
     ///
     /// DELIBERATELY NO `forget`, and this is the opposite of what presence does on a close
     /// (`DriverRegistry.forget`). A dead port has no driver, so presence must drop it; but a counter

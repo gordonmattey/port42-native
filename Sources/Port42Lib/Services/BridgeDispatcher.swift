@@ -47,7 +47,7 @@ extension AppState {
         // The port is resolved here rather than inside each helper because resolution is the only
         // part of this that is not free — `resolvePortRef` rebuilds the terminal and panel tables
         // per call, and can probe the DB when the live ones miss (Spike A finding A1). Both the
-        // token bump and the presence record key off the same `ref.udid ?? ref.id`, so resolving
+        // token bump and the presence record key off the same `PortRef.key`, so resolving
         // twice would double the expensive half for nothing.
         //
         // Both sit after the permission gate, which DOES refuse: a permission prompt is about the
@@ -173,12 +173,12 @@ extension AppState {
         portActivity.bump(portId)
     }
 
-    /// The ONE key every per-port table uses: the port's Notify topic id (`ref.udid ?? ref.id`).
+    /// The ONE key every per-port table uses: the port's Notify topic id (`PortRef.key`).
     /// Presence, the activity token and the broadcast all key off this, so none of them can
     /// disagree about which port they mean. nil for an unresolvable target.
     func portKey(for rawId: String) -> String? {
         guard let ref = resolvePortRef(rawId) else { return nil }
-        return ref.udid ?? ref.id
+        return PortRef.key(ref)
     }
 
     /// Resolve, then record. For the callers that hold a raw id rather than a key; the dispatch

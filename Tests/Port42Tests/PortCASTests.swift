@@ -127,6 +127,52 @@ struct PortCASTests {
         #expect(mine?["token"] as? String == state.portActivity.token(for: udid))
     }
 
+    // MARK: - The key (review finding, 2026-07-26)
+
+    @Test("an INLINE-only port is CAS-protected too — nil id and nil udid is not 'no port'")
+    func inlinePortsHaveAKey() {
+        // A `port` fence before adoption resolves with id AND udid nil, only messageId set. The key
+        // was `udid ?? id`, so it came out nil — and the dispatcher's whole write block (token bump,
+        // presence, CAS) is `if let key`, so ALL of it was skipped for a real, writable surface.
+        let inline = PortRef(kind: .web, spaceId: nil, id: nil, udid: nil, messageId: "msg-1")
+        #expect(PortRef.key(inline) == "msg-1")
+        // The ordinary shapes are unchanged: udid wins, then id.
+        #expect(PortRef.key(PortRef(kind: .web, spaceId: nil, id: "i", udid: "u", messageId: "m")) == "u")
+        #expect(PortRef.key(PortRef(kind: .terminal, spaceId: nil, id: "t", udid: nil, messageId: nil)) == "t")
+    }
+
+    @Test("no Notify topic hand-rolls the port key from a resolved ref")
+    func notifyTopicsUseTheOneKey() throws {
+        // A first version of this test banned `udid ?? ` everywhere and turned up ten hits — which
+        // proved the finding was imprecise, not that the codebase was ten times worse. That
+        // expression serves TWO different jobs:
+        //
+        //   the per-port KEY  (Notify topic / activity token / presence) = udid ?? id ?? messageId
+        //   the DB udid       (fetchPortHtml, port_versions, restore)    = udid, aliased ?? id
+        //
+        // They are not the same and must not be unified: a DB read keyed on a messageId would miss,
+        // and a topic keyed on the caller's raw alias splits publisher from subscriber. So this
+        // pins only the one that has to agree with the token — the Notify topic.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let walker = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        var offenders: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            for line in text.split(separator: "\n") where line.contains("\"port:\\(") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix("//") || t.hasPrefix("///") { continue }
+                // A ref in scope must go through `.key`; a topic built from a plain local id is
+                // fine (the caller already resolved it).
+                if t.contains("ref") && !t.contains(".key") {
+                    offenders.append("\(url.lastPathComponent): \(t)")
+                }
+            }
+        }
+        #expect(offenders.isEmpty, "Notify topics not using PortRef.key: \(offenders.joined(separator: " | "))")
+    }
+
     // MARK: - The declaration cannot rot
 
     @Test("EVERY write verb accepts expect, and no read verb does")
