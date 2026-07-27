@@ -2742,10 +2742,45 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Create (or recreate) the controller backing a native terminal port. Called from
-    /// `PortWindowManager` when a `portType == "terminal"` window is built — covers both
-    /// fresh pop-outs and DB-restored panels. Recreates fresh each time so a rebuilt window
-    /// never shares a stale hooks socket. Returns nil if the panel isn't a terminal port.
+    /// THE one place a terminal surface is built and wired (I2 · C0).
+    ///
+    /// Building one is five steps: make the controller, make the detached surface, wire
+    /// `onHumanInput` (presence), wire `onSurfaceWrite` (the activity token), and register the view
+    /// so a tile can host it. Those five were duplicated verbatim across the spawn and restore
+    /// paths, and a THIRD caller (`PortWindowManager.restart`) did step one and skipped the rest,
+    /// leaving a controller with no surface bound to it. That third site is why this is a factory
+    /// and not a tidy-up: nothing structural stopped it, and nothing would have stopped a fourth.
+    ///
+    /// Every way a terminal comes into existence goes through here, so a hook cannot be wired on
+    /// one path and forgotten on another. That difference is invisible to a user and fatal to the
+    /// token: a terminal built by the forgetful path would accept writes that never count.
+    ///
+    /// `config` is passed rather than read from `panel.terminalConfig` because the restore path
+    /// rewrites `cwd` to the shell's live directory first.
+    @discardableResult
+    func buildTerminalSurface(for panel: PortPanel, config: TerminalPortConfig) -> Bool {
+        guard let controller = makeTerminalController(for: panel) else { return false }
+        let built = GhosttyTerminalView.makeDetached(
+            config: config, env: controller.env,
+            onTee: { controller.receiveTee($0) },
+            onInject: { controller.bindSurface($0) })
+        // Native input records presence (L2.d.2): a keystroke here never reaches the bridge, so
+        // without this the chrome cannot see the human driving a terminal.
+        let udid = panel.udid
+        built.view.onHumanInput = { [weak self] in self?.humanInteracted(with: udid) }
+        // Every programmatic write into the surface moves the port's token (R2b).
+        built.view.onSurfaceWrite = { [weak self] in self?.surfaceWrote(port: udid) }
+        portWindows.storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
+        return true
+    }
+
+    /// Create (or recreate) the controller backing a native terminal port. Recreates fresh each
+    /// time so a rebuilt window never shares a stale hooks socket. Returns nil if the panel isn't a
+    /// terminal port.
+    ///
+    /// Step one of five: a controller alone is not a usable terminal. Call it directly only if you
+    /// genuinely want the controller and nothing else; `buildTerminalSurface` is what callers want,
+    /// and `PortWindowManager.restart` calling this on its own is the defect C0 fixed.
     @discardableResult
     func makeTerminalController(for panel: PortPanel) -> GhosttyTerminalController? {
         guard let config = panel.terminalConfig else { return nil }
@@ -2986,18 +3021,8 @@ public final class AppState: ObservableObject {
         // Ghostty surface hosted by its unit, like any tile).
         let portId = portWindows.addTiledTerminalPanel(configJSON: json, spaceId: spaceId,
                                                        createdBy: companionName, title: title)
-        if let panel = portWindows.panels.first(where: { $0.id == portId }),
-           let controller = makeTerminalController(for: panel) {
-            let built = GhosttyTerminalView.makeDetached(
-                config: config, env: controller.env,
-                onTee: { controller.receiveTee($0) },
-                onInject: { controller.bindSurface($0) })
-            // Native input records presence (L2.d.2) — the spawn path's twin of the restore path's
-            // hook; `onSurfaceWrite` (R2b) is its activity-token counterpart.
-            let udid = panel.udid
-            built.view.onHumanInput = { [weak self] in self?.humanInteracted(with: udid) }
-            built.view.onSurfaceWrite = { [weak self] in self?.surfaceWrote(port: udid) }
-            portWindows.storeTerminalView(id: portId, view: built.view, coordinator: built.coordinator)
+        if let panel = portWindows.panels.first(where: { $0.id == portId }) {
+            buildTerminalSurface(for: panel, config: config)
         }
         NSLog("[Port42] Spawned native terminal port '%@' (id=%@)", title, portId)
 

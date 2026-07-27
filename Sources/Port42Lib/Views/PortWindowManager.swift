@@ -272,17 +272,7 @@ public final class PortWindowManager: ObservableObject {
         // session transcript already exists (else --session-id <id>), so the restored terminal
         // reconnects to its own conversation without --continue (which would conflict with the
         // pinned id and could resume a sibling session). See docs/plan-companion-cwd.md.
-        guard let controller = appState.makeTerminalController(for: panel) else { return }
-        let built = GhosttyTerminalView.makeDetached(
-            config: config, env: controller.env,
-            onTee: { controller.receiveTee($0) },
-            onInject: { controller.bindSurface($0) })
-        // Native input records presence (L2.d.2): a keystroke here never reaches the bridge, so
-        // without this the chrome cannot see the human driving a terminal.
-        built.view.onHumanInput = { [weak appState] in appState?.humanInteracted(with: panel.udid) }
-        // Every programmatic write into the surface moves the port's token (R2b).
-        built.view.onSurfaceWrite = { [weak appState] in appState?.surfaceWrote(port: panel.udid) }
-        storeTerminalView(id: panel.id, view: built.view, coordinator: built.coordinator)
+        appState.buildTerminalSurface(for: panel, config: config)
     }
 
     /// Persist permissions for a bridge after a grant, so they survive restart.
@@ -736,7 +726,14 @@ public final class PortWindowManager: ObservableObject {
     public func restart(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         if panels[idx].portType == "terminal" {
-            appState?.makeTerminalController(for: panels[idx])
+            // I2 · C0: this called `makeTerminalController` alone, which is ONE of the five steps
+            // that build a terminal surface. It tore the old controller down, made a new one, and
+            // never built or bound a surface for it, so the comment above was false and a restarted
+            // terminal would have had a controller wired to nothing. It has no callers today, so it
+            // was a trap rather than a live defect. Routing it through the factory fixes it.
+            if let panel = panels[idx].terminalConfig {
+                appState?.buildTerminalSurface(for: panels[idx], config: panel)
+            }
         } else {
             destroyWebView(id)
             createPortWebView(for: panels[idx])

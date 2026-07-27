@@ -93,13 +93,42 @@ struct TerminalWriteFunnelTests {
                 "write(_:mode:) must fire onSurfaceWrite, or the token stops tracking the pty")
     }
 
-    @Test("both terminal build paths wire the counter, not just the one someone remembered")
-    func bothHostsWireIt() throws {
-        // A terminal surface is built in TWO places (restore and spawn). The presence hook was
-        // wired in both; the token hook has to be too, or terminals built by one path would count
-        // and terminals built by the other would not — a difference no user could ever see.
-        #expect(try source("Views/PortWindowManager.swift").contains("onSurfaceWrite = "))
-        #expect(try source("Services/AppState.swift").contains("onSurfaceWrite = "))
+    @Test("a terminal surface is built and wired in exactly ONE place (I2 · C0)")
+    func oneTerminalSurfaceFactory() throws {
+        // SUPERSEDES `bothHostsWireIt`, which asserted that both build paths wired the token hook.
+        // That was the right property while there were two paths, but "remember to wire it in both"
+        // is the discipline this seam has failed at four times. C0 collapsed them into
+        // `AppState.buildTerminalSurface`, so the property to hold is now stronger and structural:
+        // there is ONE site, therefore there is nothing to keep in sync.
+        //
+        // It was not a hypothetical. A THIRD caller (`PortWindowManager.restart`) did step one of
+        // five and skipped the rest, leaving a controller bound to no surface. Nothing caught it
+        // because the old test asked "do these two files each contain the wiring", which stays true
+        // no matter how many other places get it wrong.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let walker = try #require(FileManager.default.enumerator(at: root,
+                                                                 includingPropertiesForKeys: nil))
+        var builders: [String: Int] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let file = url.lastPathComponent
+            // `makeDetached`'s own definition, and the DEBUG resize harness, which deliberately
+            // drives the production surface without app wiring. Same allow-list as `oneWriter`.
+            guard file != "GhosttyTerminalView.swift", file != "GhosttyResizeSpike.swift" else { continue }
+            let src = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            let n = src.components(separatedBy: "GhosttyTerminalView.makeDetached(").count - 1
+            if n > 0 { builders[file] = n }
+        }
+        #expect(builders == ["AppState.swift": 1], """
+            A terminal surface must be built in exactly one place, \
+            AppState.buildTerminalSurface. Found: \(builders.sorted(by: { $0.key < $1.key })).
+            """)
+
+        // And that one place must wire BOTH hooks, or the single site is single and wrong.
+        let factory = try source("Services/AppState.swift")
+        #expect(factory.contains("onHumanInput = "), "the factory must wire presence")
+        #expect(factory.contains("onSurfaceWrite = "), "the factory must wire the activity token")
     }
 
     @Test("the non-terminal ways in are counted too (finding 7)")
