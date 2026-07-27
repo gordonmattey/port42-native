@@ -567,15 +567,21 @@ struct ShellTile: View {
                     Text(surfacedSpaceTitle ?? tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     if surfacedSpaceTitle != nil { Text("· from").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary) }
                 }
-                // RIGHT-OF-WAY (L2.e): someone ELSE is driving this port. Silent when it is you —
-                // the chrome speaks only when there is contention, which is when it is actionable.
+                // PRESENCE (L2, demoted from right-of-way by R1): someone ELSE drove this port most
+                // recently. Silent when it is you — the chrome speaks only when there is contention.
+                //
+                // The copy said "your writes are refused until they finish", which R1 made UNTRUE:
+                // presence refuses nothing, last driver wins. It is a report, not an arbitration.
+                // What actually refuses is CAS (R3), and only for a write composed against state the
+                // port has already moved past. Same untruth as the architecture page (plan §D), but
+                // in-product rather than in copy, so it is a defect and not a positioning call.
                 if let held = shell.otherDriver(of: tile.panel?.udid) {
                     Text("✋ \(held.name)")
                         .font(Port42Theme.mono(9))
                         .foregroundStyle(Port42Theme.textPrimary.opacity(0.9))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Port42Theme.bgHover, in: Capsule())
-                        .help("\(held.name) is driving this port — your writes are refused until they finish")
+                        .help("\(held.name) drove this port most recently. Your writes are not blocked; a write composed against stale state is refused, not applied.")
                 }
                 Spacer(minLength: 8)
             }

@@ -24,8 +24,8 @@ why the register exists rather than a note.
 
 ## 1. Identity — the ACTOR noun · **IN THE PLAN, IN PROGRESS**
 
-**Status: MEASURED then FIXED 2026-07-27** (I1.1–I1.5). Both holes closed; I1.6 (attribution
-follow-through) is the remainder.
+**Status: ✅ RESOLVED 2026-07-27** (I1.1–I1.6). Measured first, which found two holes neither plan
+had named and killed the one both led with. One private constructor, so identity policy has one home.
 **Permissions are keyed on `principal.id`**, presence names the principal, and the activity token
 attributes writes by it. `decision-identity-model.md` settles person/instance/actor in
 prose; nothing enforces it in code.
@@ -54,10 +54,14 @@ has no fallback, the other needed a caller list). A primitive's STATUS here is o
 it was established, so an asserted-from-structure status is weaker evidence than a measured one, and
 §3 already carries that caveat explicitly.
 
-**Open against this entry:** I1.6 (presence and token attribute correctly under the new identities),
-and a migration question, orphaned `portPerms.local-http.<space>` grants that nothing reads any more.
-`Principal.isSharedIdentity` is the single place that changes when gateway auth P1 lets callers
-authenticate. **Steps are in the plan** (`plan-port42-protocol-local-bus.md` §B).
+**Left open, and neither is an identity defect:** a migration question (orphaned
+`portPerms.local-http.<space>` grants that nothing reads any more; Dev3 holds an `automation` one),
+and gateway auth P1, after which `Principal.isSharedIdentity` is the single place that changes.
+
+**What this entry cost to get right:** its original status was written from a count of construction
+sites and fallback strings, and that method found neither real hole. The register now treats
+*measured* and *asserted from structure* as different grades of evidence, and §3 is the remaining
+asserted one.
 
 ---
 

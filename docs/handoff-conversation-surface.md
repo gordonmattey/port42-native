@@ -2,9 +2,9 @@
 
 ## Where this left off (2026-07-27)
 
-**Branch `l2-right-of-way`**, **13 commits** off `3c3f370` on main, tree clean.
+**Branch `l2-right-of-way`**, **14 commits** off `3c3f370` on main, tree clean.
 Fast-forward with `git checkout main && git merge --ff-only l2-right-of-way`.
-Full suite **1109 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
+Full suite **1116 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
 live-verified. **Dev3 builds no longer need GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod
 still do.
 
@@ -26,7 +26,7 @@ a second instance.
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
 | **ACTOR** | ✅ **MEASURED then FIXED 2026-07-27** (I1.1–I1.5). One private `Principal` constructor; a gateway-created port authorizes as itself rather than the shared `local-http`; no identity is a heap address; the dead `"anonymous-tool-caller"` fallback deleted. Remaining: I1.6. |
 
-### I1 · Identity is DONE except I1.6 (plan §B)
+### I1 · Identity is COMPLETE. **NEXT: I2, the input seam** (plan §C)
 
 **I1.1 is DONE (2026-07-27) and it replaced this section's premise rather than confirming it.**
 `ActorProbe.swift` (DEBUG only, live tally at `/tmp/port42-actor.log`) measured what actually calls in:
@@ -49,9 +49,15 @@ ITSELF, not as the shared `local-http`. Accepted cost: one permission prompt per
 gateway authenticates nobody and there is no session to key a narrower shared bucket on until
 `plan-gateway-auth-tls.md` P1. `Principal.isSharedIdentity` is the one place that changes when it does.
 
-**Left on I1:** I1.6 (presence and token attribute correctly under the new identities), plus a
-migration question, orphaned `portPerms.local-http.<space>` grants that nothing reads now. Dev3 still
-holds an `automation` one. **Then I2, the input seam** (plan §C).
+**I1.6 closed it (2026-07-27)** and turned up a defect on no list: the driver chip promised *"your
+writes are refused until they finish"*, which R1 made untrue three steps earlier. Presence refuses
+nothing; CAS refuses stale writes. Same untruth as the architecture page (plan §D) but in-product, so
+a defect rather than a positioning call. Fixed and pinned by a scan over user-facing strings.
+
+**Left over, neither blocking:** orphaned `portPerms.local-http.<space>` grants that nothing reads now
+(Dev3 holds an `automation` one, a migration decision), and plan §D's marketing copy, still GM's call.
+
+**NEXT: I2, the input seam** (plan §C, phases C0–C5). It makes the TOKEN honest and unblocks R5.
 
 **The method finding is the durable one.** The premise came from counting `Principal(` construction
 sites and fallback strings, and that method could not have found either real hole. Third instance in
@@ -85,7 +91,7 @@ under the video). `OnboardingShellTests` +2. Suite **1067 green**.
 
 Plans had nested three deep (L2 → the input seam → identity). **`plan-port42-protocol-local-bus.md`
 §A holds the one ordered line of work**, and nothing nests below it (the register carries status, not
-order). **I1 · Identity is done bar I1.6**; next after it is I2, the input seam. See the section
+order). **I1 · Identity is COMPLETE**; next is I2, the input seam. See the section
 above for what I1.1 measured and what shipped. It goes ahead of the input seam because presence and CAS are both built on `principal.id`,
 so anything identity gets wrong is inherited.
 

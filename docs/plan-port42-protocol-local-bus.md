@@ -135,7 +135,16 @@ construction sites; no dispatch was ever observed.** Fixed by giving all three s
 | ✅ I1.3 | **A port created by a SHARED identity gets its own, it does not inherit.** | DONE 2026-07-27, **GM chose to un-pool everything.** Two gateway-created ports cannot see each other's grants. Calibrated: reverting it fails the gate with both ports reading `local-http`. |
 | ✅ I1.4 | **Chat and ambient ports get a stable identity.** | DONE 2026-07-27. `PortBridge.stableIdentity`, passed by `ensureChatPort` (the panel id), the DB restore path (`row.id`) and the shell background (a fixed constant). Calibrated: reverting the fix fails the test with two different heap addresses for one port. |
 | ✅ I1.5 | **Delete the dead fallback.** | DONE 2026-07-27. Removed as DEAD, not fixed. `ToolExecutor.createdBy` is now non-optional, so the hole cannot be reopened at a call site. |
-| I1.6 | **Presence and token attribute correctly** under I1.3 and I1.4. | Such a write names something a human can act on. |
+| ✅ I1.6 | **Presence and token attribute correctly** under I1.3 and I1.4. | DONE 2026-07-27. Every surface's driver name pinned by `DriverAttributionTests`; live-confirmed in Dev3 for the gateway (`Local (gateway)`) and the human (their display name, taking over immediately, which is R1b's throttle fix working). |
+
+**I1.6 found a live defect that was on no list.** The driver chip's tooltip read *"your writes are
+refused until they finish"*. **R1 removed the refusal** three steps earlier: presence refuses nothing,
+last driver wins, and what actually refuses is CAS against stale state. This is §D's untruth again, but
+in-product rather than in marketing copy, so it is a defect and not a positioning call. Fixed, and
+pinned by a scan over user-facing strings (comments excluded, so the record of the fix is not itself an
+offence). Calibrated: the original tooltip trips it.
+
+**I1 is COMPLETE.** Next is I2, the input seam (§C).
 
 **Why I1.4 did not just pass `messageId`.** It looked like the one-line fix (`ensureChatPort` mints a
 UUID one line above the bridge and drops it). But `messageId` drives panel dedupe, inline bridge lookup
