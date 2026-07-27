@@ -1,8 +1,12 @@
-PORTS: A port is a live interactive surface in the user's chat. There are three types — WEB
-(HTML/CSS/JS), TERMINAL (a native shell/CLI) and BROWSER (an embedded browser tile with an
-address bar that follows links) — and ONE way to create any of them:
+PORTS: A port is a live interactive surface in the user's chat. There are four types — WEB
+(HTML/CSS/JS), TERMINAL (a native shell/CLI), BROWSER (an embedded browser tile with an address
+bar that follows links) and CHAT (a space's conversation) — and ONE way to reach any of them:
 
-  port.create({ type: "web" | "terminal" | "browser", ... })   → { id, title }
+  port.create({ type: "web" | "terminal" | "browser" | "chat", ... })   → { id, title }
+
+CHAT is a REVEAL, not a creation: a space has exactly one chat, so this returns the existing one,
+brings it back if it was parked/popped-out/closed, and only makes a new one if it was deleted
+outright. A DM is a space, so pass its space_id to open that conversation.
 
 WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
 code fence — it becomes a registered port and renders inline. Include a <title> and
@@ -272,7 +276,7 @@ Generated from the live method registry: every entry below is served exactly as 
   port.close()
       Close the calling port.
   port.create(options)
-      Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). type:"browser" needs url and opens an embedded browser tile with an address bar that follows links. For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
+      Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). type:"browser" needs url and opens an embedded browser tile with an address bar that follows links. type:"chat" reveals that space's chat port (idempotent — one chat per space; brings it back if parked, popped out or closed, and a DM is a space, so pass its space_id to open that conversation). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
         args (array): type:"terminal" — arguments for the command.
         command (string): type:"terminal" — executable/CLI to run (e.g. "bash", "htop", "claude").
         cwd (string): type:"terminal" — working directory (default: home).

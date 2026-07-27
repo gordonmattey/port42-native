@@ -15,10 +15,19 @@ public enum PortCreateKind: Equatable {
     /// That contradicted the unified API's whole claim, that a human and an agent reach the same
     /// surfaces through one bridge: a person could make a browser port with a click and no companion
     /// or agent could make one at all.
-    ///
-    /// (`chat` is still not creatable here, and that is correct: a chat port is created per space by
-    /// the shell, not by a caller.)
     case browser(url: String)
+    /// The space's CHAT port, revealed. Idempotent: one chat per space, so this returns the existing
+    /// one rather than making a second.
+    ///
+    /// Added 2026-07-27 (GM). `chat` was excluded on the reasoning that a chat port is created by the
+    /// shell per space, not by a caller. That was right about CREATION and wrong about REACH: a chat
+    /// can be parked, popped out or closed, and the dock's chat button reopens it (recreating it if
+    /// it was deleted outright). A human could do that with a click and no agent could do it at all,
+    /// which is the same hole `browser` had.
+    ///
+    /// A DM is a space (`type == "direct"`), so passing a DM's `space_id` reveals that conversation.
+    /// One verb covers both.
+    case chat
 }
 
 /// Outcome of validating a port.create request: a resolved kind, or a human-readable error message.
@@ -45,6 +54,10 @@ public enum PortCreateValidation {
             let c = (command ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !c.isEmpty else { return .error("port.create type:\"terminal\" requires non-empty 'command'") }
             return .ok(.terminal(command: c))
+        case "chat":
+            // No payload: a space has exactly one chat and `space_id` (handled by the caller) says
+            // which. Rejecting stray html/command/url would be pedantry with no upside.
+            return .ok(.chat)
         case "browser":
             // `url` is the honest parameter name. `html` is accepted as a fallback because the panel
             // stores a browser's start URL in its `html` field, so a caller reading the stored shape
@@ -53,9 +66,9 @@ public enum PortCreateValidation {
             guard !u.isEmpty else { return .error("port.create type:\"browser\" requires non-empty 'url'") }
             return .ok(.browser(url: u))
         case let other?:
-            return .error("port.create: unknown type \"\(other)\" (expected \"web\", \"terminal\" or \"browser\")")
+            return .error("port.create: unknown type \"\(other)\" (expected \"web\", \"terminal\", \"browser\" or \"chat\")")
         case nil:
-            return .error("port.create requires 'type' (\"web\", \"terminal\" or \"browser\")")
+            return .error("port.create requires 'type' (\"web\", \"terminal\", \"browser\" or \"chat\")")
         }
     }
 }

@@ -1,8 +1,12 @@
-PORTS: A port is a live interactive surface in the user's chat. There are three types — WEB
-(HTML/CSS/JS), TERMINAL (a native shell/CLI) and BROWSER (an embedded browser tile with an
-address bar that follows links) — and ONE way to create any of them:
+PORTS: A port is a live interactive surface in the user's chat. There are four types — WEB
+(HTML/CSS/JS), TERMINAL (a native shell/CLI), BROWSER (an embedded browser tile with an address
+bar that follows links) and CHAT (a space's conversation) — and ONE way to reach any of them:
 
-  port.create({ type: "web" | "terminal" | "browser", ... })   → { id, title }
+  port.create({ type: "web" | "terminal" | "browser" | "chat", ... })   → { id, title }
+
+CHAT is a REVEAL, not a creation: a space has exactly one chat, so this returns the existing one,
+brings it back if it was parked/popped-out/closed, and only makes a new one if it was deleted
+outright. A DM is a space, so pass its space_id to open that conversation.
 
 WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
 code fence — it becomes a registered port and renders inline. Include a <title> and

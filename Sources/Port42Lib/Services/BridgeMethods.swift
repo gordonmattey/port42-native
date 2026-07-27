@@ -146,11 +146,11 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.create"] = BridgeMethod(permission: nil, paramNames: ["options"],
-        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). type:\"browser\" needs url and opens an embedded browser tile with an address bar that follows links. For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). type:\"browser\" needs url and opens an embedded browser tile with an address bar that follows links. type:\"chat\" reveals that space's chat port (idempotent — one chat per space; brings it back if parked, popped out or closed, and a DM is a space, so pass its space_id to open that conversation). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
         inputSchema: [
             "type": "object",
             "properties": [
-                "type": ["type": "string", "enum": ["web", "terminal", "browser"], "description": "The port type to create."],
+                "type": ["type": "string", "enum": ["web", "terminal", "browser", "chat"], "description": "The port type to create."],
                 "title": ["type": "string", "description": "Port title (default: derived from html <title>, or the command)."],
                 "html": ["type": "string", "description": "type:\"web\" — full port HTML body (include a <title> and <meta name=\"version\">)."],
                 "command": ["type": "string", "description": "type:\"terminal\" — executable/CLI to run (e.g. \"bash\", \"htop\", \"claude\")."],

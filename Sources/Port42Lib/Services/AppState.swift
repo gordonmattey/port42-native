@@ -3094,6 +3094,20 @@ public final class AppState: ObservableObject {
             }
             return ["id": portId, "title": resolvedTitle]
 
+        case .ok(.chat):
+            // REVEAL, not create. One chat per space, so this is idempotent: it returns the existing
+            // chat port, brings it back from parked or popped-out, and recreates it only if it was
+            // deleted outright. The dock's chat button does exactly this; until now nothing else
+            // could. A DM is a space, so a DM's `space_id` reveals that conversation.
+            guard let space = spaces.first(where: { $0.id == spaceId }) else {
+                return ["error": "port.create type:\"chat\" needs a real space_id"]
+            }
+            portWindows.revealChat(spaceId: space.id, spaceName: space.name)
+            guard let panel = portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == space.id }) else {
+                return ["error": "failed to reveal chat port"]
+            }
+            return ["id": panel.id, "title": panel.title]
+
         case .ok(.browser(let url)):
             // A browser port is always a TILE: it carries its own chrome (address bar, back/forward)
             // and follows links, which an inline chat card cannot host meaningfully.

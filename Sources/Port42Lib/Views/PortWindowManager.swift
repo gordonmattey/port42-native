@@ -577,15 +577,22 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
-    /// SHELL: bring a space's chat back onto the desktop as a tile from any state (parked, popped-out
-    /// floating, already tiled — or DELETED). The dock's "chat" button uses this; it's how a
-    /// closed/parked chat is reopened, and it RE-CREATES the chat port if you deleted them all.
+    /// SHELL: bring a space's chat back onto the desktop as a tile from any state (parked, docked,
+    /// popped-out floating, already tiled — or DELETED). The dock's "chat" button uses this; it's how
+    /// a closed/parked chat is reopened, and it RE-CREATES the chat port if you deleted them all.
+    ///
+    /// "Any state" was NOT true until 2026-07-27: this set `presentation` and never cleared
+    /// `isBackground`, which is a SEPARATE flag (`minimize`/`dock` sets it, `restore` clears it, and
+    /// `ports.list` reports it as status "docked"). So a docked chat stayed docked and the dock's own
+    /// chat button did nothing for it. Found by exposing chat through `port.create`, which exercised
+    /// a path the UI rarely reaches.
     public func revealChat(spaceId: String, spaceName: String) {
         if !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) {
             ensureChatPort(spaceId: spaceId, spaceName: spaceName)   // gone entirely → make a fresh one
         }
         guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
         panels[idx].presentation = "tiled"
+        panels[idx].isBackground = false
         persistPanel(panels[idx].id)
     }
 
