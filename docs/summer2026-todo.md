@@ -172,6 +172,17 @@ carrying `(port, kind, actor, trusted)`. Each surface technology's only job beco
 native events into it. Then the activity bump, the presence record, the trust boundary, voice, and a
 remote peer's input all hang off ONE place.
 
+**GM, 2026-07-26: Port42 owns its OWN dictation layer here.** Voice is not delegated to per-surface
+system text services — the membrane captures it and injects the transcript, so every surface gets it
+uniformly and it counts for the activity token by construction. That is what makes the terminal's
+missing `NSTextInputClient` low priority for VOICE (see that item). It does not cover IME, which is
+a system input-method concern and needs the protocol regardless.
+
+**What Spike C proved this is worth:** dictation, the emoji picker, right-click paste and a cross-app
+drag all changed a port's content with no key and no pointer, and all four were invisible. That was
+one surface with two event listeners. The membrane is the same problem stated once instead of six
+times.
+
 **What it unblocks / where it is load-bearing:**
 - **R5** (terminals require a token) is only sound if every way in counts. It currently does not for
   web and browser, and is unverified for voice anywhere.
@@ -183,6 +194,44 @@ remote peer's input all hang off ONE place.
 **Do not fix against a list of missing events** (dictation, IME, context-menu paste, autofill are
 suspected but unverified). Finish Spike C's live probe first — guessing the list is the mistake this
 item exists to stop making.
+
+---
+
+## TODO (LOW, 2026-07-26, GM): terminal ports implement no `NSTextInputClient`
+
+**Scope: LOW (GM).** "We're going to have our own dictation layer in the membrane anyway." Correct
+for voice — see the split below, because one half of this is superseded by that plan and one half
+is not.
+
+**Verified 2026-07-26.** `GhosttyInputView` is a bare `NSView`. Zero occurrences of
+`NSTextInputClient`, `insertText`, `setMarkedText`, `unmarkText`, `hasMarkedText`, `markedRange`,
+`selectedRange`, `interpretKeyEvents`. Keystrokes go `keyDown → sendKey → ghostty_surface_key` with
+raw virtual keycodes, and `key.composing` is hardcoded `false`.
+
+`NSTextInputClient` is the protocol macOS text SERVICES deliver through. Terminal.app supports
+dictation because its view conforms; ours does not, so the text has nowhere to arrive. It is not
+being dropped by us — it never reaches us.
+
+**The half the membrane's own dictation layer DOES supersede:** voice → text. If Port42 captures
+audio and injects the transcript itself, it can feed every surface uniformly through the membrane
+seam, and it counts for the activity token by construction. That is a better answer than per-surface
+system dictation, and it is why this is low priority.
+
+**The half it does NOT:** **IME.** Chinese, Japanese and Korean input needs marked-text composition
+handled by the system input method — a Port42 dictation layer gives you none of it. So today
+**CJK input into a terminal port does not work at all**, and no amount of membrane work changes
+that; it needs the protocol conformance. Same for the Character Viewer and press-and-hold accents.
+Filed low on GM's call, with the CJK consequence stated so the call is made with eyes open rather
+than by conflating it with the dictation one.
+
+**If built:** conform `GhosttyInputView` to `NSTextInputClient` (insertText / setMarkedText /
+unmarkText / markedRange / selectedRange / hasMarkedText + the rect and index callbacks so the
+candidate window positions), route committed text through the R2b `write(_:mode:)` funnel so it
+counts, and set `key.composing` honestly during composition instead of always false. Ghostty
+upstream implements this in its own macOS app — there is a reference.
+
+**Unverified, cheap to check:** whether the emoji picker and press-and-hold accents also fail into a
+terminal port. Same delivery route, so expected, but not measured.
 
 ---
 
