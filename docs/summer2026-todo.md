@@ -152,13 +152,14 @@ and this is one of the reasons why. Fixing this makes the token more honest as a
 
 ---
 
-## TODO (2026-07-26, GM) — **ONE BRIDGE, FOR THE HUMAN TOO** → `docs/plan-input-seam.md`
+## TODO (2026-07-26, GM) — **ONE BRIDGE, FOR THE HUMAN TOO** → `plan-port42-protocol-local-bus.md` §C
 
 **Renamed from "membrane review".** `docs/membrane/` already uses that word for the whole experience
 layer; reusing it for one input seam collided with the name of the product. The framing that
 survived: the site already promises "one bridge, same methods" for five caller types, all of them
 programmatic — a person typing, dictating or dropping touches no bridge at all. This is the missing
-half of a promise already made, not a new layer. **Full plan: `docs/plan-input-seam.md`.**
+half of a promise already made, not a new layer. **Full plan: `plan-port42-protocol-local-bus.md` §C**
+(was `plan-input-seam.md`, folded in 2026-07-26 so the protocol has one plan).
 
 **GM:** "we are the UX and own the membrane with the user. so... any interaction key, voice, any
 input device must go through a controller."
@@ -200,6 +201,51 @@ times.
 **Do not fix against a list of missing events** (dictation, IME, context-menu paste, autofill are
 suspected but unverified). Finish Spike C's live probe first — guessing the list is the mistake this
 item exists to stop making.
+
+---
+
+## TODO (2026-07-27, GM): the membrane INTERPRETS, it does not only carry
+
+**GM:** "the membrane mediates the experience with the user, input, output, but this layer could have
+more power to it. For example access to camera could also include vectors outlining known objects in
+the scene."
+
+**The gap.** `camera.capture` hands back pixels. So does `screen.capture`. Every consumer that wants
+meaning re-derives it alone: a companion pays tokens per frame to look, a port would have to ship its
+own model, and neither can see what the other concluded. The membrane is a transport today. The
+proposal is that structure gets added ONCE, at the layer that already owns the device.
+
+**The shape (GM, agreed 2026-07-27): a layer COMPOSED OVER the seam, never fields grown on it.**
+
+This is the discipline the input seam already wrote down, applied to output. `plan-port42-protocol-local-bus.md`
+§C records the risk that `PortInput` has four fields and **becomes a bag the moment a fifth is added
+for a CONSUMER rather than a SOURCE**. Semantic enrichment is consumer-driven by definition: object
+outlines exist because something downstream wants them, not because the camera produced them. Bolted
+onto the seam it is the recorded failure mode, arriving exactly as predicted. Composed over it, the
+seam keeps carrying the raw signal and interpretation is a separate, optional, testable stage.
+
+**It is the OUTPUT seam, which is already on the register** (`architecture-invariants.md` §4: ten
+publish sites emitting `console`, `terminal.output`, `push`, `driver`, `port.publish`). Enrichment
+landing at one site and raw pixels at another is finding 7 restated with a new noun. It wants to sit
+behind whatever single door output eventually gets, which means **output consolidation is a
+prerequisite, not a nice-to-have**, because otherwise this ships as an eleventh publish site.
+
+**It is also an ACTOR question, which is why it is filed while I1 is live.** If the membrane derives
+object outlines from a frame, something interpreted that frame. Today the grant is `camera`, which a
+human reads as "this can see". **A grant to see pixels is not obviously a grant to have those pixels
+interpreted, possibly by a model that is not local.** That distinction has to exist in the permission
+before the capability ships: narrowing an existing grant afterwards is the change users notice and
+resent, and the permission card would have been lying in the meantime.
+
+**Open, not decided:**
+- Where interpretation runs (on-device Vision, a local model, a remote one). The permission story
+  differs per answer, so this is not an implementation detail to settle later.
+- Whether the interpretation is pushed alongside the raw signal or fetched on demand against it.
+- Which devices get it. Camera is the example; screen, audio and clipboard have the same shape.
+
+**Sequence:** after the input seam (§C) and the output consolidation (register §4). Nothing here
+blocks the protocol's three nouns, and building it before output has one door would add a site to
+the exact list this would then have to clean up.
 
 ---
 
