@@ -204,6 +204,54 @@ item exists to stop making.
 
 ---
 
+## TODO (2026-07-27, GM): a permission manager. You cannot see or revoke what you granted
+
+**The gap, measured 2026-07-27 while closing I1.** The production install holds **119 live grant
+buckets** covering `ai`, `automation`, `clipboard`, `filesystem`, `notification`, `rest`, `screen` and
+`terminal`, and **there is no way for the user to see any of them, let alone revoke one.** A permission
+prompt is the only moment of consent and it happens once, in passing, with the answer persisted
+indefinitely.
+
+**Grants are a primitive with no owner.** Five identity schemes have passed through this store and
+every one left its layer behind, because nothing reads or reaps them:
+
+| scheme | example key | still reachable |
+|---|---|---|
+| display label | `portPerms.Claude Code.<space>` | no |
+| per-call http id | `portPerms.http-caller-http-1784356233577987000.global` | no, the id cannot recur |
+| flattened remote label | `portPerms.remote-http-cal.<space>` | unclear |
+| Phase-3 principal | `portPerms.local-http.global` | **yes, live** |
+| heap address (pre-I1.4) | `portPerms.ObjectIdentifier(0x0000600000373570).global` | no |
+
+Two findings from that survey worth keeping:
+
+- **14 `ObjectIdentifier` buckets in the dev install are proof the I1.4 defect was firing continuously**,
+  not theoretically. Fourteen heap addresses, each granted `ai` separately, which is fourteen times
+  someone answered the same prompt for what was logically one port because the grant could never be
+  found again.
+- **The heaviest permission set in the whole store sits on ids that can never recur**:
+  `http-caller-http-<nanos>` holds `automation, filesystem, screen, terminal` in production.
+
+**Why this is the real answer and the orphan cleanup is not.** A migration deletes the layers we
+already know about. It does nothing about the next scheme change, and nothing about the actual
+problem, which is that consent is invisible after the moment it is given. A manager makes the store
+legible, which is also the only way anyone would have noticed the pooling in I1.3 without a probe.
+
+**Sketch:** Settings surface listing grants grouped by grantee (companion, port, gateway, peer), each
+row showing the scope the card promised at grant time (`Principal.scopeDescription` already generates
+that sentence), with revoke per row and per grantee. Reads and writes the same
+`companionPermissions` / `saveCompanionPermissions` pair, so no new storage.
+
+**Open, deliberately not decided here:** whether grants should expire. Everything today is permanent,
+which is what makes an invisible grant serious.
+
+**Related, still open (GM's call):** the orphan cleanup itself. Options on file are park-then-delete
+(rewrite the three provably-unreachable classes under a `portPermsOrphaned.` prefix, delete a release
+later) or delete outright. `remote-http-cal` and the retired `swim-` spaces are probably dead but not
+provably so, and should be left alone either way.
+
+---
+
 ## TODO (2026-07-27, GM): the membrane INTERPRETS, it does not only carry
 
 **GM:** "the membrane mediates the experience with the user, input, output, but this layer could have
