@@ -979,12 +979,17 @@ public final class PortWindowManager: ObservableObject {
         webView.setValue(!isBrowser, forKey: "drawsBackground")
         webView.allowsMagnification = isBrowser
         if isBrowser {
-            // I2 · C3. Every navigation moves the token, whatever caused it: a link, back/forward,
-            // a reload, a script, or an SPA route change that fires no navigation delegate at all.
+            // I2 · C3 + C6. TWO signals, because neither covers the other: KVO on `url` catches an
+            // SPA route change (pushState fires no load), and `didCommit` catches a reload (a load
+            // with no URL change). C6 measured the gap: reload counted for nothing.
             browserURLObservers[panel.id] = PortBrowserURLObserver(
                 webView: webView, portKey: panel.udid) { [weak appState] key, url in
                     appState?.browserNavigated(port: key, to: url)
                 }
+            (navDelegate as? PortBrowserNavigation)?.onCommitted = { [weak appState, weak webView] in
+                guard let url = webView?.url else { return }
+                appState?.browserNavigated(port: panel.udid, to: url)
+            }
         }
 
         // Give bridge a reference to the webview for callbacks
@@ -1407,8 +1412,25 @@ class PortNavigationBlocker: NSObject, WKNavigationDelegate {
 /// A browser port must FOLLOW links (unlike a normal port, which is locked to its own document), so
 /// allow every navigation. Subclass so it fits the existing `navDelegates` registry.
 final class PortBrowserNavigation: PortNavigationBlocker {
+    /// I2 · C6 — set alongside the URL observer, because neither signal covers the other.
+    var onCommitted: (() -> Void)?
+
     override func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(.allow)
+    }
+
+    /// A document was committed. Measured in C6: a RELOAD replaces the whole document while the URL
+    /// stays identical, so KVO on `url` never fires and the reload did not count.
+    ///
+    /// Spike B concluded `didCommit` was "necessary but not sufficient" and C3 read that as a reason
+    /// to use KVO INSTEAD. The measurement corrects the reading: necessary and not sufficient means
+    /// use BOTH. KVO catches `pushState` (a URL change with no load); `didCommit` catches a reload
+    /// (a load with no URL change). Neither is a superset.
+    ///
+    /// Double-counting a normal navigation, which fires both, is harmless: the token is a monotonic
+    /// counter, not a change log, and only its movement carries meaning.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        onCommitted?()
     }
 }
 

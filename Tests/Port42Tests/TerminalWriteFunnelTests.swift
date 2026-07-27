@@ -148,6 +148,14 @@ struct TerminalWriteFunnelTests {
         let body = String(pwm[observer.lowerBound...].prefix(1200))
         #expect(body.contains("observe(\\.url"),
                 "must observe `url`; didCommit misses pushState (Spike B)")
+
+        // C6 measured that KVO alone is not enough either: a RELOAD replaces the document with the
+        // URL unchanged, so `url` never fires and the reload counted for nothing. Spike B's
+        // "necessary but not sufficient" means use BOTH, not one instead of the other.
+        #expect(pwm.contains("didCommit navigation"),
+                "a reload must count: it commits a document without changing the URL")
+        #expect(pwm.contains("onCommitted = "),
+                "the commit hook must be WIRED, not merely declared")
     }
 
     @Test("the non-terminal ways in are counted too (finding 7)")
