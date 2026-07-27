@@ -89,6 +89,10 @@ final class GhosttyInputView: NSView {
     /// token moves. Set by the host beside `onHumanInput`.
     var onSurfaceWrite: (() -> Void)?
 
+    /// The IME composition currently on screen, if any. Drives `hasMarkedText`/`markedRange`, which
+    /// the input system consults before deciding what to send next.
+    fileprivate var marked: String = ""
+
     /// How text reaches the pty. Both end in a C call; the distinction is Ghostty's, not ours.
     enum WriteMode {
         /// `ghostty_surface_text` — bracketed-paste delivery. A TUI can tell this from typing.
@@ -350,6 +354,119 @@ final class GhosttyInputView: NSView {
 
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+}
+
+// MARK: - macOS text input: dictation, the emoji picker, IME
+
+/// WHY A TERMINAL NEEDS THIS, AND WHY IT DID NOT HAVE IT.
+///
+/// macOS delivers dictation, the emoji/symbol picker and IME composition through exactly ONE door:
+/// `NSTextInputClient.insertText(_:replacementRange:)` on the first responder. A view that does not
+/// conform gives the system nowhere to put the composed text, so all three silently do nothing.
+///
+/// That is one mechanism, not three features, which is why I2 · C6 measured them failing together
+/// while typing and paste worked fine. It was never a Ghostty limitation: we host its surface in a
+/// view that implemented a key path and mouse forwarding and never wired the text-input side.
+/// `sendKey` says as much, deferring "IME / dead keys" to a later polish step. This is that step,
+/// arriving because C6 measured the cost.
+///
+/// **This half needs NO change to `keyDown`.** Dictation and the picker do not route through key
+/// events at all, so conforming is sufficient for both and the most sensitive path in the app is
+/// untouched. IME composition DOES need `keyDown` routed through the input context, and that is
+/// deliberately separate: `setMarkedText` below is honest about not rendering a composition rather
+/// than pretending to.
+extension GhosttyInputView: NSTextInputClient {
+
+    /// The system committed text: a dictated phrase, a picked emoji, a completed IME composition.
+    ///
+    /// Goes through `write(_:mode:)`, the ONE funnel, so it counts for the activity token by
+    /// construction rather than by anyone remembering to add a hook here (R2b, finding 7).
+    ///
+    /// `onHumanInput` fires too, and that distinction matters: `write` alone reports a surface write
+    /// with NO actor, which is right for a startup command and wrong for a person speaking. Dictation
+    /// is the human driving, so presence must name them.
+    func insertText(_ string: Any, replacementRange: NSRange) {
+        let text: String
+        switch string {
+        case let s as String:             text = s
+        case let a as NSAttributedString: text = a.string
+        default:                          return
+        }
+        guard !text.isEmpty else { return }
+        onHumanInput?()
+        write(text, mode: .keys)
+    }
+
+    /// IME composition in progress: the underlined text before it is committed.
+    ///
+    /// I first stubbed this and documented it as real work deferred. That was wrong — Ghostty
+    /// already exposes `ghostty_surface_preedit`, which draws the composition into the terminal grid
+    /// itself. Found by looking for the caret API after GM noticed the mic was in the wrong place.
+    /// Two "not implemented" notes turned out to be two calls.
+    ///
+    /// Preedit is NOT a write: it is a proposal the user has not committed, so it deliberately does
+    /// NOT go through `write(_:mode:)` and does NOT move the token. Only `insertText` counts. A
+    /// composition that bumped the token would refuse concurrent writers over text that may never
+    /// exist.
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        let text: String
+        switch string {
+        case let s as String:             text = s
+        case let a as NSAttributedString: text = a.string
+        default:                          return
+        }
+        marked = text
+        guard let s = surface else { return }
+        text.withCString { ghostty_surface_preedit(s, $0, UInt(strlen($0))) }
+    }
+
+    /// The composition ended (committed or cancelled). An empty preedit clears it from the grid.
+    func unmarkText() {
+        marked = ""
+        guard let s = surface else { return }
+        ghostty_surface_preedit(s, nil, 0)
+    }
+
+    func hasMarkedText() -> Bool { !marked.isEmpty }
+    func markedRange() -> NSRange {
+        marked.isEmpty ? NSRange(location: NSNotFound, length: 0)
+                       : NSRange(location: 0, length: marked.utf16.count)
+    }
+
+    /// THERE IS AN INSERTION POINT, and saying so is what dictation needs.
+    ///
+    /// This returned `NSNotFound` first, mirroring `markedRange`. Measured: the emoji picker worked
+    /// and dictation did not. `NSNotFound` is right for a marked range (there is no composition) and
+    /// wrong here, because it means "I have no insertion point at all" — the picker inserts wherever
+    /// it is told, but dictation needs a caret to aim at and declines when there is none.
+    ///
+    /// A terminal has no document model, so the honest answer is a zero-length selection at the
+    /// start: an insertion point exists, and nothing is selected.
+    func selectedRange() -> NSRange { NSRange(location: 0, length: 0) }
+    func attributedSubstring(forProposedRange range: NSRange,
+                             actualRange: NSRangePointer?) -> NSAttributedString? { nil }
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    func characterIndex(for point: NSPoint) -> Int { 0 }
+
+    /// Where the system anchors the dictation indicator and the IME candidate window.
+    ///
+    /// This returned the whole view rect, so GM saw the mic appear over the port's HEADER instead of
+    /// at the prompt. `ghostty_surface_ime_point` exists for exactly this and gives the caret's real
+    /// position, which is what the API is for: the terminal knows where its cursor is, and until now
+    /// we never asked.
+    ///
+    /// Falls back to the view rect if the surface is gone, because a close-but-wrong anchor is
+    /// cosmetic while `.zero` parks the panel in the corner of the screen.
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        guard let window else { return .zero }
+        guard let s = surface else { return window.convertToScreen(convert(bounds, to: nil)) }
+        var x: Double = 0, y: Double = 0, w: Double = 0, h: Double = 0
+        ghostty_surface_ime_point(s, &x, &y, &w, &h)
+        // Ghostty reports the caret in VIEW coordinates with a top-left origin; AppKit wants
+        // bottom-left, so the y is flipped before going to the screen.
+        let local = NSRect(x: x, y: bounds.height - y - h, width: max(w, 1), height: max(h, 1))
+        return window.convertToScreen(convert(local, to: nil))
     }
 }
 

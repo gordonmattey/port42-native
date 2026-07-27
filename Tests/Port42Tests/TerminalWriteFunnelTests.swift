@@ -158,6 +158,27 @@ struct TerminalWriteFunnelTests {
                 "the commit hook must be WIRED, not merely declared")
     }
 
+    @Test("dictation and the emoji picker have a door into the terminal, through the funnel")
+    func terminalAcceptsSystemTextInput() throws {
+        let view = try source("Views/GhosttyTerminalView.swift")
+
+        // macOS delivers dictation, the emoji picker and IME through ONE protocol. C6 measured all
+        // three failing together in terminals, which is the signature of a missing conformance
+        // rather than three broken features.
+        #expect(view.contains("NSTextInputClient"),
+                "without this conformance the system has nowhere to deliver composed text")
+
+        // And it must arrive through the FUNNEL, not by calling Ghostty directly — otherwise
+        // dictated text would reach the pty without counting, which is the exact hole the funnel
+        // exists to close (finding 7). `oneWriter` above enforces the other half of this.
+        let insert = try #require(view.range(of: "func insertText("))
+        let body = String(view[insert.lowerBound...].prefix(700))
+        #expect(body.contains("write(text, mode: .keys)"),
+                "insertText must go through write(_:mode:), or dictation does not count")
+        #expect(body.contains("onHumanInput?()"),
+                "dictation is the HUMAN driving; write alone reports no actor")
+    }
+
     @Test("the non-terminal ways in are counted too (finding 7)")
     func webAndBrowserPathsCount() throws {
         // A file drop onto a WEB port: an external write into the runtime, never through the
