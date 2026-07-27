@@ -712,6 +712,7 @@ are `isTrusted` by definition, so nothing about this could be simulated).
 | keydown, input (insertReplacementText) | accent hold (é) | seen |
 | pointerdown, input (insertReplacementText) | a click-to-insert (picker or suggestion) | seen |
 | **composition\*, beforeinput, input** ×2 | **the EMOJI PICKER** (see the caveat) | **INVISIBLE** |
+| **composition\*, beforeinput, input** | **DICTATION** — measured separately, labelled run | **INVISIBLE** |
 | **paste, beforeinput, input** | **right-click → Paste** | **INVISIBLE** |
 | **drop, beforeinput, input** | **drag text in from another app** | **INVISIBLE** |
 
@@ -726,8 +727,16 @@ The finding survives the correction, because it is about MECHANISM not about whi
 user action can change a port's content through composition, paste or drop events with **no key and
 no pointer anywhere**. When that happens the port changed, presence lied, and the activity token
 stood still while the document moved underneath it — a companion's stale write would have passed CAS
-cleanly. Dictation is expected to be in this family (it is composition-based) but that is now an
-expectation, not a measurement.
+cleanly. **Dictation was MEASURED afterwards in a labelled run and is confirmed in this family**:
+`insertCompositionText` / `deleteCompositionText` / `insertFromComposition`, with
+compositionstart/update/end — no key, no pointer. Old listener: blind. New listener: sees it. So
+GM's original "any interaction, key, voice, any input device" framing was exactly right, and voice
+was the case the old two-event listener could never have caught.
+
+Getting there took three probe revisions, and the reason is worth keeping: the first probe recorded
+events but not actions, the second read its label 700ms late so labels slid between rows, and the
+third finally captured the label when the burst STARTED. **A probe whose output depends on the
+operator remembering what they just did is not evidence.**
 
 **The fix is one event name.** `beforeinput` fired on ALL ELEVEN rows, seen and missed alike. One
 signal covers what two were failing to. Added to the injected listener behind the same `isTrusted`
