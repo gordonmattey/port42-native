@@ -39,6 +39,19 @@ public struct PortInput: Equatable {
         case navigation(URL)
         /// A write with no human behind it: a bridge verb, a startup command, a prefill.
         case programmatic
+
+        #if DEBUG
+        /// Short name for the C6 probe. The payload is deliberately NOT logged: this measures which
+        /// ways in reach the seam, and a probe that recorded what you typed would be a keylogger.
+        var probeName: String {
+            switch self {
+            case .text(let s):     return "text(\(s.count) chars)"
+            case .gesture:         return "gesture"
+            case .navigation:      return "navigation"
+            case .programmatic:    return "programmatic"
+            }
+        }
+        #endif
     }
 
     /// How we know this happened. R7 lives here: moving the human's claim off page-reported
@@ -154,6 +167,13 @@ public struct PortInputSeam {
     /// dropping it leaves the chrome naming someone who stopped.
     @discardableResult
     public mutating func received(_ input: PortInput, now: Date = Date()) -> Outcome {
+        #if DEBUG
+        // I2 · C6. Recorded HERE, at the door, rather than at each translator: the question is what
+        // ARRIVES, and a probe placed on the translators could only ever see the paths that already
+        // have one. An action that produces no line is the finding.
+        PortInputProbe.record(kind: input.kind.probeName, trust: "\(input.trust)",
+                              attributed: input.actor != nil)
+        #endif
         let token = activity.bump(input.port)
 
         guard let actor = input.actor else {
