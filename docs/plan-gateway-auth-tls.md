@@ -27,11 +27,25 @@ protects it in transit.
 
 ## Phases
 
-### P0 — bind to loopback — **SHIPPED 2026-07-24**
-`GatewayProcess.swift` now launches with `-addr 127.0.0.1:<port>` instead of `:<port>`. LAN
-reachability gone. Sharing unaffected: ngrok forwards to a bare port, i.e. localhost. A
-deliberately-hosted relay still opts into `:<port>` by launching the binary itself.
-GM confirmed nothing was pointing a second device at the LAN address.
+### P0 — bind to loopback — **FIXED IN `main` 2026-07-24, NOT SHIPPED**
+`GatewayProcess.swift` launches with `-addr 127.0.0.1:<port>` instead of `:<port>`. Sharing
+unaffected: ngrok forwards to a bare port, i.e. localhost. A deliberately-hosted relay still opts
+into `:<port>` by launching the binary itself. GM confirmed nothing was pointing a second device at
+the LAN address.
+
+> **STATUS CORRECTED 2026-07-27. This said "SHIPPED 2026-07-24" and that was false.**
+> The fix (`26a52e6`, 23:42) landed **53 minutes AFTER the v0.5.49 release commit** (`f5204f8`,
+> 22:49). `git merge-base --is-ancestor` confirms it: the shipped build predates the fix, and
+> `dist/Port42.dmg` is still v0.5.49. **Every v0.5.49 install binds every interface.**
+>
+> Measured live on GM's machine 2026-07-27: prod listening on `*:4242`, Dev on `*:4243`, macOS
+> application firewall disabled, and `curl http://<LAN-ip>:4242/call` returned the real port list
+> unauthenticated.
+>
+> The handoff and `architecture-invariants.md` both repeated "P0 shipped" on this line's authority.
+> **The status was asserted from the source, not measured against the artifact**, which is the same
+> failure the I1 thread recorded one layer out: a source scan cannot see that the build predates the
+> commit. A phase is SHIPPED when a user can install it, never when it is merged.
 
 ### P0.5 — ngrok is INTERIM and retires with libp2p (GM, 2026-07-24)
 Stated so nobody invests in it: **ngrok is the interim sharing transport, and libp2p replaces it
@@ -56,6 +70,24 @@ plan rather than a patch:
 Decide: one shared install secret, or per-caller tokens with per-caller permission scope. The
 second is the real answer long-term (a companion's terminal should not silently inherit the app's
 whole authority) and folds into the existing `portPrincipal` model.
+
+**Evidence added 2026-07-27 (measured, not asserted).** Two facts sharpen this from "add auth" to
+"auth alone is not enough":
+
+1. `gateway.go` sets `SenderID: localPrincipalID` **unconditionally, with no check of
+   `r.RemoteAddr`**. The constant is named `localPrincipalID` and its comment says "a local HTTP
+   caller", but nothing enforces local. That was only ever true because of P0's bind, so a naming
+   assumption was load-bearing for a security property.
+2. **A standing grant already exists for that identity.** GM's production install holds
+   `portPerms.local-http.global = ai, screen, filesystem, terminal`. So the pooled bucket is not
+   theoretical: authenticating callers while leaving one shared `local-http` principal in place
+   would still hand every local process filesystem, screen and terminal with no prompt.
+
+**Therefore P1 must retire the shared principal, not merely gate it.** `Principal.isSharedIdentity`
+(added by I1.3, `plan-port42-protocol-local-bus.md` §B) is the single place in the app that encodes
+"this id is shared by callers who are not the same actor", and it is what changes when P1 lands.
+Dealing with the existing `local-http` grants is part of the phase, not a follow-up: see the
+permission-manager item in `summer2026-todo.md`.
 
 ### P2 — TLS, scoped by the libp2p decision
 **The transport endgame is already decided** (`membrane/slice-02-cross-instance.md`): go-libp2p,

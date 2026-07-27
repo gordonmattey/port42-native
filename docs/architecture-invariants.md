@@ -92,6 +92,11 @@ navigation are open.
 **R7 is one instance of this**, not the whole of it. `PortInput.trust` unifies them for input only —
 reads are uncovered, and the gateway authenticates nobody (`plan-gateway-auth-tls` P1, open).
 
+**Live 2026-07-27:** the loopback fix (P0) is in `main` but **was never shipped**, so v0.5.49 binds
+every interface and `/call` assigns the shared `local-http` identity with no `RemoteAddr` check.
+Measured, not asserted: a LAN request returned the real port list unauthenticated. See
+`plan-gateway-auth-tls.md` P0.
+
 *Asserted from structure. Unlike §1 and §4, no live defect is proven — the origin pin closed the one
 that was.*
 

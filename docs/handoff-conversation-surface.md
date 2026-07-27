@@ -185,7 +185,9 @@ two spikes before writing code.
 
 ### 3. Security thread (open)
 
-`docs/plan-gateway-auth-tls.md`: P0 shipped (gateway binds loopback). P1 — authenticating `/call`,
+`docs/plan-gateway-auth-tls.md`: **P0 is fixed in `main` but NOT SHIPPED** (corrected 2026-07-27: the
+fix landed 53 minutes after the v0.5.49 release commit, so every shipped install binds every
+interface; verified live). A release is the fix. P1, authenticating `/call`,
 which today authenticates nobody — is open, and the callers are the work.
 `docs/decision-identity-model.md` settles person/instance/actor and is the shared input to L2, the
 gateway, and slice-02. **A port can still forge the human's presence claim** (`isTrusted` is
