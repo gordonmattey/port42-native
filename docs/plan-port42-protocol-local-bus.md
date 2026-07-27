@@ -253,7 +253,8 @@ reframe below.
 | ✅ C0 | **Collapse the terminal duplication.** One factory taking `(panel, config)`. | DONE 2026-07-27. Found a THIRD site (`PortWindowManager.restart`) doing one of five steps, leaving a controller bound to no surface. `bothHostsWireIt` replaced by a tree-wide walk asserting exactly one builder. |
 | ✅ C1 | The door: `PortInput` + the seam, fields still internal. | DONE 2026-07-27. Pure tests, nothing calls it. `actor` had to become optional (above). |
 | ▶ C2.0 | **Ownership first.** `AppState` holds ONE seam; its three fields go; reads forward to it. | **This step is new and it is a correctness prerequisite, not tidiness.** See below. |
-| C2.1..n | Move the translators, one commit each, each LIVE-verified. | Independently green, behaviour identical, and the path observed counting in Dev3. |
+| C2.1..n | **Delete a passthrough; the compiler names its callers; convert those.** One commit each, each LIVE-verified. | Independently green, behaviour identical, path observed counting in Dev3, and the passthrough gone. |
+| C6 | **Re-measure every surface, the way Spike C did.** | The class no compiler can find (below). Without this, R5 is unsound however clean C4 leaves the routing. |
 | C3 | Browser navigation via KVO on `webView.url`. | A page-initiated navigation bumps the token (Spike B: `didCommit` misses SPA route changes). |
 | C4 | **Flip the fields private.** | The compiler names every path missed. This is the phase that matters. |
 | C5 | The streaming registry joins. | A streaming write verb cannot escape. |
@@ -268,17 +269,40 @@ the lie the seam exists to prevent, introduced by the work meant to prevent it.
 So ownership transfers atomically first, and only then is "one translator per commit" actually
 independent.
 
-### C2 is preparation. C4 is the phase that delivers the guarantee.
+### TWO failure classes, and only ONE of them is a compiler's job
+
+This plan has been blurring them together, and R5 depends on the harder one.
+
+**WRONG CALLER: a path mutates the tables directly instead of through the door.** The compiler finds
+every one of these the moment the direct route is deleted. C2.0 proved it by accident: removing
+`AppState.portActivity` surfaced an eleventh site that two careful hand-derivations had missed, because
+it BINDS the value (`let activity = appState.portActivity`) rather than calling through it, and a grep
+for `portActivity.` cannot see that shape. **C4 closes this class completely**, and C2.1..n now closes
+it incrementally by deleting one passthrough at a time.
+
+**MISSING CALLER: a path changes the port and touches the seam not at all.** Dictation, the emoji
+picker, right-click paste, a cross-app drag, an SPA route change. **No compiler will ever find these**,
+because there is nothing that fails to compile. Spike C found three only by measuring, and measured the
+web listener at 8 of 11 real content changes.
+
+**R5 ("terminals require a token") depends on the SECOND class.** So "C4 is the phase that matters" is
+true for routing and false for honesty: finishing C4 proves nothing bypasses the door, never that
+everything arrives at it. C6 exists because declaring the token honest on C4's evidence would be
+exactly the "asserted rather than measured" error this thread has now made three times.
+
+### C2 is preparation. C4 delivers ROUTING. C6 delivers HONESTY.
 
 This plan had the weight the wrong way round, treating C2 as the bulk and C4 as a finishing move.
 **Reverse it.** The reason is the finding this whole thread keeps re-proving: **enumeration
 undercounts, every single time.** Five instances now (finding 7's three sweeps, Spike C's 8-of-11,
 C0's third build site, I1's two unlisted holes, I1's dead headline defect).
 
-C2 is an enumeration phase. It will therefore be incomplete, and **effort spent trying to prove it
-complete is wasted**, because C4 achieves completeness by construction: the compiler enumerates what
-people demonstrably cannot. So C2 should be **cheap and unambitious**, move the known translators
-cleanly, and state in its own commits that the list is provisional.
+C2 was an enumeration phase, and C2.0 showed how to stop it being one: **delete the direct route and
+let the compiler produce the list.** Effort spent hand-deriving translators is wasted, and demonstrably
+so, since two careful passes still missed a site the type system found in seconds.
+
+**The transitional passthroughs are a liability while they exist**, because the seam then has two
+doors. They should die fast, one per commit, rather than linger.
 
 ### Method, carried from I1 (all four earned the hard way)
 
@@ -292,6 +316,9 @@ cleanly, and state in its own commits that the list is provisional.
   its token watched moving. Rewiring is the class of change where the types are satisfied and the
   behaviour is gone.
 - **Done means live-verified, not committed.** P0 sat three days behind a doc that said `SHIPPED`.
+- **A scan for "who touches X" must match BINDING, not just calling.** `a.b.method()` and
+  `let x = a.b` are both uses; a pattern for `X.` sees only the first. That shape hid the eleventh
+  site from two hand-derivations (C2.0).
 
 Dictation and remote peers are then translators, not phases — which is the test of whether the seam is
 shaped right, and weak evidence, because both cases were chosen by the person proposing it.

@@ -3,7 +3,7 @@
 ## Where this left off (2026-07-27)
 
 **On `main`**, tree clean. `l2-right-of-way` was fast-forwarded in and **released as v0.5.50**
-(notarized, stapled, appcast pushed). Full suite **1128 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
+(notarized, stapled, appcast pushed). Full suite **1129 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
 live-verified. **Dev3 builds no longer need GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod
 still do.
 
@@ -25,7 +25,7 @@ a second instance.
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
 | **ACTOR** | ✅ **done 2026-07-27** (I1.1–I1.6). Measured first, which killed the defect both plans led with and found two nobody had named. One private `Principal` constructor; a gateway-created port authorizes as itself, not the shared `local-http`; no identity is a heap address. |
 
-### I1 COMPLETE · I2 in progress (C0 + C1 done). **NEXT: C2.0** (plan §C)
+### I1 COMPLETE · I2 in progress (C0, C1, C2.0 done). **NEXT: C2.1** (plan §C)
 
 **I1.1 is DONE (2026-07-27) and it replaced this section's premise rather than confirming it.**
 `ActorProbe.swift` (DEBUG only, live tally at `/tmp/port42-actor.log`) measured what actually calls in:
@@ -62,9 +62,19 @@ built the door (`PortInput` + `PortInputSeam`), pure and uncalled; `actor` had t
 against the plan's sketch, because I1.1 measured input arriving with nobody to attribute it to and
 forcing a value would mean inventing an identity, which I1.3 had just forbidden.
 
-**NEXT is C2.0, and it is new**: `AppState` still owns `portActivity`/`portDrivers`/`presenceThrottle`
-while the seam owns its own, so moving a translator would split a port's token across two counters
-for the length of the migration. Ownership transfers atomically first.
+**C2.0 moved ownership** (one seam, AppState's three fields gone) and taught the method for the rest:
+deleting `AppState.portActivity` made the COMPILER surface an eleventh site that two careful
+hand-derivations had missed, because it binds the value (`let activity = appState.portActivity`) rather
+than calling through it. **So C2.1..n is now: delete a passthrough, let the compiler name its callers,
+convert those.** No hand-derived list, because two of them were wrong.
+
+**THE GAP WORTH KNOWING (plan §C, new).** Two failure classes were being blurred. A WRONG CALLER
+mutates the tables directly and the compiler finds every one once the direct route is gone, so C4
+closes that class completely. A MISSING CALLER changes the port and touches the seam not at all
+(dictation, emoji picker, right-click paste, cross-app drag, SPA route change) and **no compiler can
+ever find those**. R5 depends on the second class. **C6 is new**: re-measure every surface the way
+Spike C did, because declaring the token honest on C4's evidence would prove only that nothing bypasses
+the door, never that everything arrives at it.
 
 **The plan's weight moved (§C).** C2 was treated as the bulk and C4 (fields private) as a finishing
 move; it is the reverse. C2 is an enumeration phase, enumeration has undercounted five times in this

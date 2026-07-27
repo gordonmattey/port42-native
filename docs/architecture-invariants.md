@@ -76,10 +76,17 @@ mutations, so this is ten sites, not six.
 
 **Phases are in the plan** (`plan-port42-protocol-local-bus.md` §C). Unblocks R5.
 
-**The weight moved.** C2 (move the translators) was treated as the bulk of the work and C4 (make the
-fields private) as a finishing move. It is the reverse: C2 is an enumeration phase, enumeration has
-undercounted five times in this thread, and C4 is what makes the property complete BY CONSTRUCTION.
-Effort spent proving C2 exhaustive is wasted.
+**Two failure classes, and only one is a compiler's job.** A WRONG CALLER mutates the tables directly
+instead of through the door; deleting the direct route makes the compiler name every one, which C2.0
+proved by accident when it surfaced an eleventh site two hand-derivations had missed. A MISSING CALLER
+changes the port and touches the seam not at all (dictation, the emoji picker, right-click paste, a
+cross-app drag, an SPA route change); **nothing fails to compile, so only measurement finds those** and
+Spike C measured the web listener at 8 of 11.
+
+**This entry is not RESOLVED when C4 lands.** C4 proves nothing bypasses the door; it never proves
+everything arrives at it, and the token's honesty (and therefore R5) depends on the second. Declaring
+it done on C4's evidence would repeat the "asserted rather than measured" error this register already
+carries a caveat about in §1 and §3.
 
 ---
 
