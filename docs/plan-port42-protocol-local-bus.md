@@ -1,13 +1,176 @@
-# Plan: the Port42 protocol, proven locally (the address + Notify bus)
+# Plan: the Port42 protocol, proven locally
 
-*2026-07-22. Status: **PLANNED**, no code. Read-level architecture spike done (four traces, cited
-below). This is the build plan for proving the bus/actor contract **inside one instance** before any
-transport. Test only in Port42Dev (:4243). Full plan per phase; nothing built until reviewed.*
+***THE single plan for the protocol thread.** Rewritten at the head 2026-07-26 — everything below
+§A is the detailed record (phases, spikes, findings), and §A is the plan those details serve. If the
+two ever disagree, §A wins and the detail is stale.*
 
-Related: `membrane/bus-architecture.md` (the six-facet contract, the working spec), `port42-rfc.txt`
-(UERP, the address + verb north star), `membrane/slice-02-cross-instance.md` (the same contract over
-libp2p, deferred), `plan-api-unification.md` + `plan-phase3-principal.md` (the two shipped layers this
-stands on).
+*Canonical register of primitives: `architecture-invariants.md` — a reference, not a plan. It says
+what must have one definition and whether it does. This doc says what we build and in what order.*
+
+---
+
+## A. The whole thing in one frame
+
+**A protocol write is three nouns: an ADDRESS, an ACTOR, and a TOKEN.**
+
+> *port `X`* · *by `Y`* · *composed against state `Z`*
+
+That is the entire contract, locally and over the wire — slice-02 changes the transport and nothing
+else. **Each noun must have exactly one definition, or the protocol lies the moment there is a second
+instance.** Everything in this plan is one of those three nouns being made single-definition and
+honest. Nothing else belongs here.
+
+| Noun | Means | State |
+|---|---|---|
+| **ADDRESS** | which port | ✅ **done 2026-07-26.** `PortRef.key` — one definition, was three. Inline ports were unaddressable and had no protection at all. |
+| **TOKEN** | which version of it | ⚠️ **mechanism done, not yet honest.** R2/R3 ship the counter and CAS. But a token only tells the truth if EVERY mutation counts, and today terminals and browsers have ways in that do not. |
+| **ACTOR** | who is writing | ❌ **broken.** Six `Principal` construction sites, two sharing one `"anonymous-tool-caller"` id. Permissions key on `principal.id`, so unattributed callers pool their grants. |
+
+### Definition of done
+
+**A write to any port, from any surface, carries all three nouns; each has one definition; and the
+token is honest because every way in counts.** At that point the local protocol is complete and
+slice-02 is a transport change rather than a redesign.
+
+### Why the input seam is in this plan and not new scope
+
+It looked like new scope, and it is not. **It is what makes the TOKEN honest.** The token is a claim
+about "has this port changed since I looked" — and that claim is false for any mutation that does not
+count. Measured this session: dictation, the emoji picker, right-click paste and a cross-app drag all
+changed a port while the token stood still. Fixing the web listener closed those four; terminals and
+browser navigation are still open. Until every way in counts, R5 ("terminals REQUIRE a token") would
+be enforcing a guarantee we cannot make.
+
+### The sequence
+
+Flat. Each line ships on its own. Plans do not nest below this.
+
+| | Step | Noun | Why here |
+|---|---|---|---|
+| ✅ | L2 R1 · demote the lease to presence | actor | a lock could never cross the wire; clocks do not agree between peers |
+| ✅ | L2 R1b · rename + throttle fix | actor | the code called it a lease while doing presence |
+| ✅ | L2 R2 · activity token | token | `<epoch>:<seq>`, peer-shaped from day one |
+| ✅ | L2 R2b · one surface writer | token | every pty write counts, verified by grep |
+| ✅ | L2 R3 · CAS + `port.getDom` | token | the first step that refuses anything |
+| ✅ | `PortRef.key` | address | one definition, was three |
+| ✅ | port sandbox (origin pin) | actor | a P0: a port could navigate away and take the bridge |
+| ▶ | **I1 · Identity** | **actor** | §B. A live permission-pooling hole, and presence + CAS both key on `principal.id` |
+| | I2 · the input seam | token | §C. Every way in counts → makes R5 honest |
+| | L2 R4 · pty choke point | token | @mention and `port.push` covered identically |
+| | L2 R5 · terminals require a token | token | only sound after I2 |
+| | L2 R6 · presence lifetime | actor | turn-scoped, no chip flicker |
+| | L2 R7 · native claim | actor | move the human's claim off shadowable `isTrusted` |
+| | **then: slice-02** | — | the same three nouns over libp2p |
+
+**Not in this plan**, though real and registered: the output seam, the error taxonomy, trust beyond
+R7. They are quality, not protocol completeness. See the register.
+
+---
+
+## B. I1 · Identity — the ACTOR noun · **NEXT**
+
+**Status: BROKEN, live.** Six `Principal` construction sites. Two of them:
+
+```swift
+Principal(id: createdBy ?? "anonymous-tool-caller", …)   // ToolExecutor:75, :92
+```
+
+Permissions are keyed on `principal.id`, so every unattributed tool caller shares one bucket: grant
+`filesystem` to one and all of them have it, persistently. Presence names them identically and the
+token attributes their writes to one actor. `decision-identity-model.md` settles person/instance/actor
+in prose; nothing enforces it in code.
+
+**First because presence and CAS are both built on `principal.id`.** Anything identity gets wrong is
+already inherited by both guarantees shipped this session.
+
+| # | Step | Gate |
+|---|---|---|
+| I1.1 | **Instrument first.** Log every `createdBy == nil` dispatch with its method and surface; run Dev3 normally; read it. | A list of REAL callers. Designing against an imagined set is on record twice this session — finding 7's three sweeps, and Spike C's mislabelled probe. |
+| I1.2 | **One constructor.** `Principal.for(surface:…)` the only way to build one; the memberwise init goes private. | No `Principal(` outside its own file, asserted by source scan. |
+| I1.3 | **Decide what an unattributed caller IS** — informed by I1.1. Refused, or given a per-surface synthetic identity that never pools. **Never one shared string.** | Two unattributed callers cannot see each other's grants. |
+| I1.4 | **Presence and token attribute correctly** under whatever I1.3 decides. | Such a write names something a human can act on. |
+
+**Deliberately not pre-decided:** refusing is safest and may break a path that works today. I1.1 exists
+to find out which before choosing.
+
+---
+
+## C. I2 · The input seam — making the TOKEN honest
+
+*Was `plan-input-seam.md`; folded in here 2026-07-26 so the protocol has one plan. Not called "the
+membrane" — `docs/membrane/` uses that for the whole experience layer.*
+
+The frame is already public: *"a human and an agent reach the same surface through **one bridge**, with
+the same methods and the same permissions."* Five caller types are named there and **all are
+programmatic**. A person typing, dictating, pasting or dropping touches no bridge at all. So this is
+the missing half of a promise already made.
+
+**Six seams today**, split by surface technology, which is why three separate sweeps each missed a
+path. One door instead:
+
+```swift
+struct PortInput {
+    let port: String        // PortRef.key
+    let kind: Kind          // .text(String) | .gesture | .navigation(URL) | .programmatic
+    let actor: ActorRef     // from I1
+    let trust: Trust        // .native | .reportedByPage | .principal   ← R7 lives here
+}
+func received(_ input: PortInput)
+```
+
+**The enforcement is privacy, not discipline.** `portActivity` and `portDrivers` become private to the
+seam, so any path that wants to affect them must build a `PortInput`. A compile error, not a code
+review — "remember to call the thing" has failed four times in this subsystem alone.
+
+**Scope: 6 mutation sites** (3 bump, 1 record, 2 forget) and **8 translators**, 7 existing plus browser
+navigation, which needs KVO on `webView.url` (Spike B: `didCommit` misses SPA route changes).
+
+| # | Phase | Gate |
+|---|---|---|
+| C0 | **Collapse the terminal duplication.** One factory taking `(panel, config)`. | Deletes `bothHostsWireIt`, a test whose only job is catching a forgotten second wiring. |
+| C1 | The door: `PortInput` + `received(_:)` + `portClosed(_:)`, fields still internal. | Pure tests; nothing calls it yet. |
+| C2 | Move the 7 translators, one commit each. | Each independently green, behaviour identical. |
+| C3 | Translator 8 — browser navigation via KVO. | A page-initiated navigation bumps the token. |
+| C4 | **Flip the fields private.** | The compiler names every path missed. This is the phase that matters. |
+| C5 | The streaming registry joins. | A streaming write verb cannot escape. |
+
+Dictation and remote peers are then translators, not phases — which is the test of whether the seam is
+shaped right, and weak evidence, because both cases were chosen by the person proposing it.
+
+**Decisions (GM):** a gesture bumps the token (a canvas click can change everything with no
+`beforeinput`); input only, not output; Port42 owns dictation as a translator; per-port, not the old
+spec's per-element.
+
+**Recorded risk:** `PortInput` has four fields because four things need it today. If a fifth is added
+for a CONSUMER rather than a SOURCE, it has become a bag and the design failed.
+
+---
+
+## D. A published promise R1 made untrue
+
+The architecture page says right-of-way *"decides who acts"* and lets you *"take the pen from an agent
+mid-task and hand it back."* R1 removed the deciding; the handoff verbs were deferred and never built.
+
+**Call: change the copy, do not build the knock.** "Take the pen" is a lock's ergonomics, and under CAS
+you do not need to take anything — your write cannot be clobbered. Suggested replacement, weaker-
+sounding and actually stronger because it is a guarantee rather than an arbitration:
+
+> When two callers reach the same port, you can see who is driving — and a write composed against stale
+> state is refused, not applied.
+
+---
+
+*Everything below is the detailed record: the original phases, the L2 revision, Spikes A–C and
+findings 1–7. Accurate as history; §A governs.*
+
+---
+
+## Original framing (2026-07-22)
+
+*Status at the time: PLANNED, no code. Read-level architecture spike done (four traces, cited below).*
+
+Related: `membrane/bus-architecture.md`, `port42-rfc.txt` (UERP, the address + verb north star),
+`membrane/slice-02-cross-instance.md`, `plan-api-unification.md` + `plan-phase3-principal.md`.
 
 ---
 

@@ -1,32 +1,15 @@
 # The invariant primitives — what has one home, and what does not
 
-*2026-07-26. Owner: this document. The register of concepts that must have a single definition, which
-ones do, which ones do not, and the order we fix them in. **This is also the flat sequence** — it
-exists partly to stop the plan-within-a-plan nesting that produced it (§0).*
+*2026-07-26. Owner: this document. The canonical register of concepts that must have a single
+definition, and whether they do.*
 
-## 0. Where we are, flat
+## This is a REGISTER, not a plan
 
-Three levels of nesting had accumulated: the L2 protocol plan gated R4/R5 on the input seam, the input
-seam turned out to be gated on identity, and each level was a separate document. Three levels of
-"cannot do X until Y" is how work stops shipping.
+It says what must have exactly one definition and whether it does. **It does not say what we build or
+in what order** — that is `plan-port42-protocol-local-bus.md` §A, which is the single plan for the
+protocol thread and maps each primitive to one of the protocol's three nouns (address · actor · token).
 
-**So there is one sequence, here, and plans do not nest below it.** Each line ships on its own.
-
-| | Work | State | Why here |
-|---|---|---|---|
-| ✅ | L2 R1–R3 + `port.getDom` | **done, live** | presence, activity token, CAS |
-| ✅ | Port sandbox (origin pin) | **done, live** | a P0 found while spiking |
-| ✅ | Input coverage (`beforeinput`) | **done, live** | dictation/paste/drop were invisible |
-| ▶ | **I1 · Identity** | **next** | §1 — a live permission-pooling hole, and everything else keys on it |
-| | I2 · Input seam (`plan-input-seam.md`) | planned | §2 — unblocks R4/R5 |
-| | L2 R4, R5 | planned | needs I2 to be honest |
-| | I3 · Trust | planned | §3 — R7 is one instance of it |
-| | L2 R6, R7 | planned | |
-| | I4 · Output seam | later | §4 — the twin of I2 |
-| | I5 · Error taxonomy | later | §5 |
-| | Desktop rearranging | after the protocol thread | GM's scope call |
-
-Everything else stays on `summer2026-todo.md` and is not part of this line.
+One question, one home: ordering lives in the plan, status lives here.
 
 ## The test
 
@@ -39,7 +22,7 @@ why the register exists rather than a note.
 
 ---
 
-## 1. Identity — who is calling · **NEXT**
+## 1. Identity — the ACTOR noun · **IN THE PLAN, NEXT**
 
 **Status: BROKEN, live.** Six `Principal` construction sites. Two of them:
 
@@ -56,27 +39,21 @@ person/instance/actor in prose; nothing enforces it in code.
 built on `principal.id`** — presence records it and CAS attributes by it. Anything identity gets wrong
 is inherited by everything above it.
 
-### Plan
-
-| # | Step | Gate |
-|---|---|---|
-| I1.1 | **Find out what actually calls in unattributed.** Log every `createdBy == nil` dispatch with its method and surface, run Dev3 normally, read it. | A list of real callers, not a guess. Do not design against an imagined set — that mistake is on record twice this session (finding 7, Spike C's labels). |
-| I1.2 | **One constructor.** `Principal.for(surface:…)` as the only way to build one; the initializer becomes private to the type. Compile error at every site that improvises. | No `Principal(` outside `Principal.swift`, asserted by a source scan. |
-| I1.3 | **Decide what an unattributed caller IS** — informed by I1.1. Either it cannot call (refuse), or it gets a per-surface synthetic identity that never pools. **Not one shared string.** | Two distinct unattributed callers cannot see each other's grants. |
-| I1.4 | **Presence and token attribute correctly** for whatever I1.3 decides. | A write from an unattributed caller names something a human can act on. |
-
-**Open question for I1.3, deliberately not pre-decided:** refusing is the safe answer and may break a
-real path that works today. I1.1 exists to find out which, before choosing.
+**Steps I1.1–I1.4 are in the plan** (`plan-port42-protocol-local-bus.md` §B).
 
 ---
 
-## 2. Input — every way into a port · `plan-input-seam.md`
+## 2. Input — every way into a port · the TOKEN noun
 
-**Status: planned, not started.** Six seams, split by surface technology, which is why three sweeps
-each missed a path and why dictation was invisible. Full plan in its own doc; it is the one exception
-to "no nesting", because it is large enough to need phases and is already written.
+**Status: partly fixed, planned.** Six seams split by surface technology, which is why three sweeps
+each missed a path and why dictation, the emoji picker, right-click paste and a cross-app drag were
+all invisible until measured. The web listener is fixed (`beforeinput`); terminals and browser
+navigation are open.
 
-Unblocks **R4/R5** — "terminals require a token" is only sound if every way in counts.
+**This is not a separate concern from the token — it is what makes the token honest.** A token claims
+"has this port changed since I looked", and that claim is false for any mutation that does not count.
+
+**Phases C0–C5 are in the plan** (`plan-port42-protocol-local-bus.md` §C). Unblocks R5.
 
 ---
 
