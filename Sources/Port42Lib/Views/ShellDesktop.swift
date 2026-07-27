@@ -890,6 +890,14 @@ struct ShellTileBody: View {
                   let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
             ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html,
                              probeId: panel.id,
+                             // I2 · C3 leaves this in place deliberately, alongside the new KVO
+                             // observer that also sees this navigation. They count different
+                             // things: this fires on INTENT, before `load()`, and KVO fires on
+                             // FACT, when the URL actually changes. Keeping the early one preserves
+                             // R2's chosen ordering (bump before the change lands, so a reader in
+                             // the gap cannot compose against a token the navigation is about to
+                             // invalidate). Double-counting is harmless: the token is a monotonic
+                             // counter, not a change log, and only its movement is meaningful.
                              onNavigate: { [weak appState] in
                                  appState?.surfaceWrote(port: panel.udid)
                              })   // address bar + page

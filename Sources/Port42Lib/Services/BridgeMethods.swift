@@ -143,14 +143,15 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.create"] = BridgeMethod(permission: nil, paramNames: ["options"],
-        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+        description: "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). type:\"browser\" needs url and opens an embedded browser tile with an address bar that follows links. For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
         inputSchema: [
             "type": "object",
             "properties": [
-                "type": ["type": "string", "enum": ["web", "terminal"], "description": "The port type to create."],
+                "type": ["type": "string", "enum": ["web", "terminal", "browser"], "description": "The port type to create."],
                 "title": ["type": "string", "description": "Port title (default: derived from html <title>, or the command)."],
                 "html": ["type": "string", "description": "type:\"web\" — full port HTML body (include a <title> and <meta name=\"version\">)."],
                 "command": ["type": "string", "description": "type:\"terminal\" — executable/CLI to run (e.g. \"bash\", \"htop\", \"claude\")."],
+                "url": ["type": "string", "description": "type:\"browser\" — the page to open (e.g. \"https://example.com\")."],
                 "args": ["type": "array", "items": ["type": "string"], "description": "type:\"terminal\" — arguments for the command."],
                 "cwd": ["type": "string", "description": "type:\"terminal\" — working directory (default: home)."],
                 "systemPrompt": ["type": "string", "description": "type:\"terminal\" — companion personality/role appended to the CLI's system prompt."],
@@ -168,7 +169,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             systemPrompt: o["systemPrompt"] as? String, env: o["env"] as? [String: String] ?? [:],
             spaceId: sid, createdBy: p.id, createdByName: p.displayName,
             presentation: o["presentation"] as? String,
-            initialInput: o["initialInput"] as? String ?? "")
+            initialInput: o["initialInput"] as? String ?? "", url: o["url"] as? String)
         if let err = result["error"] as? String { throw BridgeError.badArg(err) }
         return .fromJSONObject(result)   // { id, title }
     }

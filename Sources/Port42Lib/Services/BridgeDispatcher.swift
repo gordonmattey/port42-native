@@ -204,6 +204,22 @@ extension AppState {
     /// just opened would be a lie. The bridge seam records presence for writes that have a principal.
     ///
     /// The id is already the port key, so no resolve — this is on a per-keystroke-burst path.
+    /// A BROWSER port went somewhere new (I2 · C3).
+    ///
+    /// A navigation replaces the entire document, so it is the largest content change a port can
+    /// undergo and the one a stale write most needs to be refused against. Before this, the only
+    /// hook was the tile's address bar: typing a URL counted, and clicking a link, going back,
+    /// reloading, or any script-initiated navigation did not.
+    ///
+    /// No actor: a navigation can be caused by the human clicking a link or by the page's own
+    /// script, and the two are indistinguishable at this seam. Claiming the human drove it when a
+    /// script did would be the same forgery `isTrusted` exists to stop, so this counts the change
+    /// and names nobody. R7 is where a native claim could make that distinction.
+    func browserNavigated(port portId: String, to url: URL) {
+        portInput.received(PortInput(port: portId, kind: .navigation(url),
+                                     actor: nil, trust: .native))
+    }
+
     func surfaceWrote(port portId: String) {
         // I2 · C2.2. `actor: nil` is what keeps presence out of this path: it fires for writes the
         // app itself makes at spawn time, and naming the app as the driver of a port the user just

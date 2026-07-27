@@ -6,6 +6,19 @@ import Foundation
 public enum PortCreateKind: Equatable {
     case web(html: String)
     case terminal(command: String)
+    /// An embedded WebKit browser tile with an address bar and real navigation.
+    ///
+    /// Added 2026-07-27 (GM). `browser` has been a first-class port type for a long time, with its
+    /// own `portType`, its own webview configuration, its own navigation delegate and its own tile
+    /// chrome, and it was reachable ONLY from the dock. `port.create` rejected it by name.
+    ///
+    /// That contradicted the unified API's whole claim, that a human and an agent reach the same
+    /// surfaces through one bridge: a person could make a browser port with a click and no companion
+    /// or agent could make one at all.
+    ///
+    /// (`chat` is still not creatable here, and that is correct: a chat port is created per space by
+    /// the shell, not by a caller.)
+    case browser(url: String)
 }
 
 /// Outcome of validating a port.create request: a resolved kind, or a human-readable error message.
@@ -18,9 +31,11 @@ public enum PortCreateValidationResult: Equatable {
 
 public enum PortCreateValidation {
     /// Resolve a port.create request to a typed kind, or an error.
-    /// `web` requires non-empty `html`; `terminal` requires non-empty `command`; any other (or
-    /// missing) `type` is rejected. Inputs are trimmed; whitespace-only counts as empty.
-    public static func validate(type: String?, html: String?, command: String?) -> PortCreateValidationResult {
+    /// `web` requires non-empty `html`; `terminal` requires non-empty `command`; `browser` requires
+    /// non-empty `url`; any other (or missing) `type` is rejected. Inputs are trimmed; whitespace-only
+    /// counts as empty.
+    public static func validate(type: String?, html: String?, command: String?,
+                                url: String? = nil) -> PortCreateValidationResult {
         switch type {
         case "web":
             let h = (html ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,10 +45,17 @@ public enum PortCreateValidation {
             let c = (command ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !c.isEmpty else { return .error("port.create type:\"terminal\" requires non-empty 'command'") }
             return .ok(.terminal(command: c))
+        case "browser":
+            // `url` is the honest parameter name. `html` is accepted as a fallback because the panel
+            // stores a browser's start URL in its `html` field, so a caller reading the stored shape
+            // would reasonably reach for it; rejecting that would be a papercut with no upside.
+            let u = (url ?? html ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !u.isEmpty else { return .error("port.create type:\"browser\" requires non-empty 'url'") }
+            return .ok(.browser(url: u))
         case let other?:
-            return .error("port.create: unknown type \"\(other)\" (expected \"web\" or \"terminal\")")
+            return .error("port.create: unknown type \"\(other)\" (expected \"web\", \"terminal\" or \"browser\")")
         case nil:
-            return .error("port.create requires 'type' (\"web\" or \"terminal\")")
+            return .error("port.create requires 'type' (\"web\", \"terminal\" or \"browser\")")
         }
     }
 }

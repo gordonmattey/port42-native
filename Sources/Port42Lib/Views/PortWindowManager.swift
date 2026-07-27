@@ -174,6 +174,9 @@ public final class PortWindowManager: ObservableObject {
 
     /// Navigation delegates kept alive for WKWebView.
     private var navDelegates: [String: PortNavigationBlocker] = [:]
+    /// I2 · C3: one per browser port, watching `url` so every navigation counts (not just the
+    /// address bar). Retained here for the port's lifetime; freed in `destroyWebView`.
+    private var browserURLObservers: [String: PortBrowserURLObserver] = [:]
 
     /// Panels running in the background (hidden but alive).
     public var backgroundPanels: [PortPanel] {
@@ -968,6 +971,14 @@ public final class PortWindowManager: ObservableObject {
         navDelegates[panel.id] = navDelegate
         webView.setValue(!isBrowser, forKey: "drawsBackground")
         webView.allowsMagnification = isBrowser
+        if isBrowser {
+            // I2 · C3. Every navigation moves the token, whatever caused it: a link, back/forward,
+            // a reload, a script, or an SPA route change that fires no navigation delegate at all.
+            browserURLObservers[panel.id] = PortBrowserURLObserver(
+                webView: webView, portKey: panel.udid) { [weak appState] key, url in
+                    appState?.browserNavigated(port: key, to: url)
+                }
+        }
 
         // Give bridge a reference to the webview for callbacks
         panel.bridge.setWebView(webView)
@@ -1006,6 +1017,7 @@ public final class PortWindowManager: ObservableObject {
         webViews.removeValue(forKey: id)
         consoleHandlers.removeValue(forKey: id)
         navDelegates.removeValue(forKey: id)
+        browserURLObservers.removeValue(forKey: id)
         heightHandlers.removeValue(forKey: id)
         inputHandlers.removeValue(forKey: id)
         inlineHeights.removeValue(forKey: id)
@@ -1391,6 +1403,44 @@ final class PortBrowserNavigation: PortNavigationBlocker {
     override func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(.allow)
     }
+}
+
+/// I2 · C3 — translator: a browser port went somewhere new.
+///
+/// **KVO on `url`, not `didCommit`, and Spike B is why.** `didCommit` is necessary but not
+/// sufficient: `history.pushState` changes the URL with no document load, so no commit fires and
+/// **every SPA route change is invisible**. Verified live in that spike. A single-page app is the
+/// common case on the modern web, so committing-only would have counted the minority of navigations
+/// and quietly missed the rest.
+///
+/// What this replaces: the ONLY existing hook was the tile's address bar (`onNavigate`), so typing a
+/// URL counted and **back, forward, reload, clicking a link, and any script-initiated navigation did
+/// not**. One of roughly six ways a browser port's content changes.
+///
+/// KNOWN LIMIT, stated because a token that overclaims is worse than one that admits its edge: this
+/// sees URL changes, so a same-URL content change (a form POST re-render, an SPA that mutates the DOM
+/// without touching the URL) still does not count. Spike B called browser CAS the weakest token and
+/// this does not make it the strongest, it makes it honest about most navigations instead of one.
+final class PortBrowserURLObserver: NSObject {
+    private let portKey: String
+    private let onNavigate: (String, URL) -> Void
+    private var observation: NSKeyValueObservation?
+
+    init(webView: WKWebView, portKey: String, onNavigate: @escaping (String, URL) -> Void) {
+        self.portKey = portKey
+        self.onNavigate = onNavigate
+        super.init()
+        // `.new` still fires for the FIRST set (nil to the start URL), so a browser port's creating
+        // load counts as a navigation. Measured, not assumed: a freshly created browser port shows
+        // seq=1. That is correct rather than incidental, since the port went from empty to showing a
+        // document, which is a content change a stale write should be refused against.
+        observation = webView.observe(\.url, options: [.new]) { [weak self] _, change in
+            guard let self, let url = change.newValue ?? nil else { return }
+            self.onNavigate(self.portKey, url)
+        }
+    }
+
+    deinit { observation?.invalidate() }
 }
 
 // MARK: - Reusable WebView Host

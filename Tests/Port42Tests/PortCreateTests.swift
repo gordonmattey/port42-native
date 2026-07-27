@@ -107,4 +107,42 @@ struct PortCreateTests {
         // Marked to auto-activate so it plays immediately instead of as a collapsed card.
         #expect(state.pendingPortActivationId == id)
     }
+    // MARK: - browser (GM 2026-07-27: every port type through one door)
+
+    @Test("type:\"browser\" is accepted and needs a url")
+    func browserValidates() {
+        #expect(PortCreateValidation.validate(type: "browser", html: nil, command: nil,
+                                              url: "https://example.com")
+                == .ok(.browser(url: "https://example.com")))
+
+        // `browser` was rejected outright until 2026-07-27, while being a first-class port type with
+        // its own portType, webview config, navigation delegate and tile chrome, creatable ONLY from
+        // the dock. That contradicted the unified API's claim that a human and an agent reach the
+        // same surfaces through one bridge.
+        guard case .error(let msg) = PortCreateValidation.validate(type: "browser", html: nil,
+                                                                   command: nil, url: "  ") else {
+            Issue.record("a blank url must be rejected"); return
+        }
+        #expect(msg.contains("requires non-empty 'url'"))
+    }
+
+    @Test("a browser url may arrive as `html`, the field the panel stores it in")
+    func browserAcceptsHtmlAsFallback() {
+        // A caller reading the stored panel shape would reasonably reach for `html`; rejecting that
+        // would be a papercut with no upside.
+        #expect(PortCreateValidation.validate(type: "browser", html: "https://example.com",
+                                              command: nil, url: nil)
+                == .ok(.browser(url: "https://example.com")))
+    }
+
+    @Test("the rejection message names every type it accepts")
+    func unknownTypeNamesAllThree() {
+        guard case .error(let msg) = PortCreateValidation.validate(type: "hologram", html: nil,
+                                                                   command: nil, url: nil) else {
+            Issue.record("unknown type must be rejected"); return
+        }
+        // A caller told "expected web or terminal" would conclude browser ports are not creatable,
+        // which is exactly the wrong belief this change exists to remove.
+        for t in ["web", "terminal", "browser"] { #expect(msg.contains(t), "message omits \(t)") }
+    }
 }

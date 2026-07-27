@@ -3067,9 +3067,9 @@ public final class AppState: ObservableObject {
                     systemPrompt: String?, env: [String: String] = [:],
                     spaceId: String, createdBy: String?, createdByName: String?,
                     presentation: String? = nil, position: CGPoint? = nil,
-                    size: CGSize? = nil, initialInput: String = "") -> [String: Any] {
+                    size: CGSize? = nil, initialInput: String = "", url: String? = nil) -> [String: Any] {
         let presentation = presentation ?? "tiled"
-        switch PortCreateValidation.validate(type: type, html: html, command: command) {
+        switch PortCreateValidation.validate(type: type, html: html, command: command, url: url) {
         case .error(let message):
             return ["error": message]
 
@@ -3093,6 +3093,20 @@ public final class AppState: ObservableObject {
                              createdBy: createdBy, createdByName: createdByName)
             }
             return ["id": portId, "title": resolvedTitle]
+
+        case .ok(.browser(let url)):
+            // A browser port is always a TILE: it carries its own chrome (address bar, back/forward)
+            // and follows links, which an inline chat card cannot host meaningfully.
+            let resolvedTitle = (title?.isEmpty == false ? title! : "browser")
+            let id = portWindows.addTiledBrowserPanel(url: url, spaceId: spaceId,
+                                                      createdBy: createdBy, title: resolvedTitle,
+                                                      size: size)
+            guard !id.isEmpty else { return ["error": "failed to create browser port"] }
+            if createdBy != nil {
+                postPortCard(kind: .web, id: id, title: resolvedTitle, spaceId: spaceId,
+                             createdBy: createdBy, createdByName: createdByName)
+            }
+            return ["id": id, "title": resolvedTitle]
 
         case .ok(.web(let html)):
             let resolvedTitle = (title?.isEmpty == false ? title! : PortPanel.extractTitle(from: html))

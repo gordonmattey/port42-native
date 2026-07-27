@@ -131,6 +131,25 @@ struct TerminalWriteFunnelTests {
         #expect(factory.contains("onSurfaceWrite = "), "the factory must wire the activity token")
     }
 
+    @Test("a browser port watches its URL, not just its address bar (I2 · C3)")
+    func browserNavigationIsObserved() throws {
+        let pwm = try source("Views/PortWindowManager.swift")
+
+        // The observer must exist and be INSTALLED, not merely defined.
+        #expect(pwm.contains("PortBrowserURLObserver("),
+                "a browser port must install a URL observer, or only the address bar counts")
+        #expect(pwm.contains("browserURLObservers.removeValue"),
+                "the observer must be freed with the webview, or it outlives its port")
+
+        // KVO on `url`, NOT didCommit. Spike B verified live that `history.pushState` changes the
+        // URL with no document load, so no commit fires and every SPA route change is invisible.
+        // A single-page app is the common case, so committing-only counts the minority.
+        let observer = try #require(pwm.range(of: "final class PortBrowserURLObserver"))
+        let body = String(pwm[observer.lowerBound...].prefix(1200))
+        #expect(body.contains("observe(\\.url"),
+                "must observe `url`; didCommit misses pushState (Spike B)")
+    }
+
     @Test("the non-terminal ways in are counted too (finding 7)")
     func webAndBrowserPathsCount() throws {
         // A file drop onto a WEB port: an external write into the runtime, never through the

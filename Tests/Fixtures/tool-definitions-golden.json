@@ -533,7 +533,7 @@
     "name" : "notify_send"
   },
   {
-    "description" : "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in \/bin\/zsh; the command is typed in — claude\/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
+    "description" : "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in \/bin\/zsh; the command is typed in — claude\/gemini get the Port42 hooks). type:\"browser\" needs url and opens an embedded browser tile with an address bar that follows links. For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
     "input_schema" : {
       "properties" : {
         "args" : {
@@ -579,8 +579,13 @@
           "description" : "The port type to create.",
           "enum" : [
             "web",
-            "terminal"
+            "terminal",
+            "browser"
           ],
+          "type" : "string"
+        },
+        "url" : {
+          "description" : "type:\"browser\" — the page to open (e.g. \"https:\/\/example.com\").",
           "type" : "string"
         }
       },

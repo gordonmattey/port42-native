@@ -1,7 +1,8 @@
-PORTS: A port is a live interactive surface in the user's chat. There are two types — WEB
-(HTML/CSS/JS) and TERMINAL (a native shell/CLI) — and ONE way to create either:
+PORTS: A port is a live interactive surface in the user's chat. There are three types — WEB
+(HTML/CSS/JS), TERMINAL (a native shell/CLI) and BROWSER (an embedded browser tile with an
+address bar that follows links) — and ONE way to create any of them:
 
-  port.create({ type: "web" | "terminal", ... })   → { id, title }
+  port.create({ type: "web" | "terminal" | "browser", ... })   → { id, title }
 
 WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
 code fence — it becomes a registered port and renders inline. Include a <title> and
@@ -271,7 +272,7 @@ Generated from the live method registry: every entry below is served exactly as 
   port.close()
       Close the calling port.
   port.create(options)
-      Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
+      Create a port and return its id. The uniform way to make any port. type:"web" needs html (a full port HTML body) and renders inline in chat. type:"terminal" needs command and opens a native terminal (runs in /bin/zsh; the command is typed in — claude/gemini get the Port42 hooks). type:"browser" needs url and opens an embedded browser tile with an address bar that follows links. For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).
         args (array): type:"terminal" — arguments for the command.
         command (string): type:"terminal" — executable/CLI to run (e.g. "bash", "htop", "claude").
         cwd (string): type:"terminal" — working directory (default: home).
@@ -282,6 +283,7 @@ Generated from the live method registry: every entry below is served exactly as 
         systemPrompt (string): type:"terminal" — companion personality/role appended to the CLI's system prompt.
         title (string): Port title (default: derived from html <title>, or the command).
         type (string, required): The port type to create.
+        url (string): type:"browser" — the page to open (e.g. "https://example.com").
   port.exec(id, js, expect)
       Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
         expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
