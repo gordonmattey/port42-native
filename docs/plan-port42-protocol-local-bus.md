@@ -24,7 +24,7 @@ honest. Nothing else belongs here.
 |---|---|---|
 | **ADDRESS** | which port | ✅ **done 2026-07-26.** `PortRef.key` — one definition, was three. Inline ports were unaddressable and had no protection at all. |
 | **TOKEN** | which version of it | ⚠️ **mechanism done, not yet honest.** R2/R3 ship the counter and CAS. But a token only tells the truth if EVERY mutation counts, and today terminals and browsers have ways in that do not. |
-| **ACTOR** | who is writing | ❌ **broken, and MEASURED 2026-07-27 (I1.1).** Two live holes, neither of them the one this row used to name: every gateway-created port authorizes as the shared `local-http` id (a real `automation` grant is already pooled in Dev3), and every space's chat port authorizes as a heap address. The `"anonymous-tool-caller"` fallback both plans led with is **unreachable**. |
+| **ACTOR** | who is writing | ✅ **done 2026-07-27 (I1.1–I1.5).** Measured first, which found two holes neither plan had named and killed the one both led with. One private constructor; a gateway-created port authorizes as itself, not as the shared `local-http`; no identity is a heap address. Remaining: I1.6, attribution follow-through. |
 
 ### Definition of done
 
@@ -94,7 +94,8 @@ only thing that keeps it looking live. Zero probe hits across a full session, ag
 
 ### The two holes that are real
 
-**1. Every gateway-created port authorizes as `local-http`, and the bucket already holds a grant.**
+**1. Every gateway-created port authorizes as `local-http`, and the bucket already holds a grant.
+FIXED in I1.3 (2026-07-27).**
 
 `port.create` sets `createdBy: p.id` (`BridgeMethods.swift:169`). From the gateway that id is the
 deliberately-shared `local-http`, so the port's `PortBridge.createdBy` is `local-http` and
@@ -131,7 +132,7 @@ construction sites; no dispatch was ever observed.** Fixed by giving all three s
 |---|---|---|
 | ✅ I1.1 | **Instrument and measure.** | DONE 2026-07-27. Produced a list of real callers that contradicts the list this section was written against. |
 | ✅ I1.2 | **One constructor.** | DONE 2026-07-27. Memberwise init private; four surface factories, two policy factories. The gate is the COMPILER (`initializer is inaccessible`), calibrated by reintroducing a call; a package-wide scan is the backstop. |
-| ▶ I1.3 | **A port created by a SHARED identity gets its own, it does not inherit.** | **OPEN, blocked on the GM decision below.** Two gateway-created ports cannot see each other's grants. |
+| ✅ I1.3 | **A port created by a SHARED identity gets its own, it does not inherit.** | DONE 2026-07-27, **GM chose to un-pool everything.** Two gateway-created ports cannot see each other's grants. Calibrated: reverting it fails the gate with both ports reading `local-http`. |
 | ✅ I1.4 | **Chat and ambient ports get a stable identity.** | DONE 2026-07-27. `PortBridge.stableIdentity`, passed by `ensureChatPort` (the panel id), the DB restore path (`row.id`) and the shell background (a fixed constant). Calibrated: reverting the fix fails the test with two different heap addresses for one port. |
 | ✅ I1.5 | **Delete the dead fallback.** | DONE 2026-07-27. Removed as DEAD, not fixed. `ToolExecutor.createdBy` is now non-optional, so the hole cannot be reopened at a call site. |
 | I1.6 | **Presence and token attribute correctly** under I1.3 and I1.4. | Such a write names something a human can act on. |
@@ -146,19 +147,28 @@ principal's last rung.
 `String` cannot refuse: it cannot tell a heap address from an identity, and it cannot tell an inherited
 shared id from an authored one. Fixing the two sites without the constructor only resets the clock.
 
-### The blocker on I1.3, and it is GM's call
+### I1.3 as decided and built (GM, 2026-07-27: un-pool everything)
 
-**Un-pooling gateway ports costs prompts.** Each becomes its own grant bucket, so a session creating
-four ports asks four times where it asks once today.
+**The cost accepted: prompts.** Each gateway-created port is its own grant bucket, so a session
+creating four ports that want permissions asks four times where it asked once. The alternative
+granularity (share per Claude Code SESSION) is unavailable because **the gateway authenticates
+nobody**, so there is no session to key on. That is `plan-gateway-auth-tls.md` P1, open. Revisit
+sharing when P1 lands; `Principal.isSharedIdentity` is the one place that changes.
 
-The middle option is not available yet. Sharing per Claude Code SESSION rather than per port would be
-the right granularity, and **the gateway authenticates nobody**, so there is no session to key on.
-That is `plan-gateway-auth-tls.md` P1, open. Until P1 lands the only two choices are more prompts or
-keep pooling, and pooling currently means a persisted `automation` grant reachable by any
-gateway-made port in that space.
+**How it was built.** `createdBy` is skipped as an authorization identity when it is shared, so the
+port falls to rung 2 and authorizes as ITSELF. `createdBy` remains the PROVENANCE record: still
+stored on the panel, still returned by `ports.list`, still resolving the port's AI model. **"Who made
+this" and "what it may do" stopped being the same field**, which is what made this a one-line policy
+change rather than a sweep.
 
-**Recommendation: take the prompts.** `automation` drives other applications, and today's behavior
-grants it to ports the human never approved individually.
+The permission card names the PORT, not the gateway. Naming the creator would have asked the human to
+grant to "Local (gateway)" while the grant landed on one port, which is the opposite of informed
+consent.
+
+**Migration debt, not fixed here:** existing installs keep orphaned `portPerms.local-http.<space>`
+keys, which nothing reads any more (ports use their own id; gateway calls are space-less and read the
+global bucket). Dev3 still holds an `automation` one. Harmless while unreachable, worth a cleanup
+decision because it is a real grant sitting in storage.
 
 ### The method finding, which outlasts the specific bugs
 

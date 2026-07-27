@@ -95,33 +95,55 @@ public struct Principal: Equatable {
 
     // MARK: - Policy: deciding an identity that was not given
     //
-    // The two factories below RESOLVE an identity rather than accept one, and both currently resolve
-    // it wrongly in a way I1.1 measured. They are deliberately separate from the surfaces above so
-    // the defect has a name and one home.
+    // The factories below RESOLVE an identity rather than accept one. They are deliberately separate
+    // from the surfaces above so identity policy has a name and one home, which is what let I1.3 and
+    // I1.4 be one-line changes here instead of sweeps across call sites.
 
-    /// The identity a port's bridge authorizes as. THREE RUNGS, and two of them are known defects.
+    /// Is this id SHARED by callers who are not the same actor?
+    ///
+    /// `local-http` is the only one, and it is shared on purpose: a local process reaching the
+    /// gateway does not authenticate, so every one of them is the same principal and grants persist
+    /// against it rather than re-prompting per call. That reasoning is sound FOR THE GATEWAY and was
+    /// never a decision about ports, which is how it leaked into `port.create` (I1.3).
+    ///
+    /// It stops being shared when `plan-gateway-auth-tls.md` P1 authenticates callers.
+    public static func isSharedIdentity(_ id: String) -> Bool {
+        id == localGatewayID
+    }
+
+    /// The identity a port's bridge authorizes as. Three rungs, in order.
     ///
     /// 1. `createdBy` — a port acts as its creator (GM 2026-07-19, P-260): one grant bucket per author
-    ///    per space, one storage namespace with its companion. Correct when the creator IS an author.
-    ///    **DEFECT (I1.3):** a gateway-created port has `createdBy == "local-http"`, which is not an
-    ///    author but every local process, so all such ports in a space share one bucket. Dev3 already
-    ///    persists an `automation` grant in one. This rung LOOKS attributed, which is why a source
-    ///    scan never found it.
-    /// 2. `messageId` — a human-created port keys on its own id. Sound.
-    /// 3. `instanceFallback` — **DEFECT (I1.4):** in practice a heap address, from the two sites that
-    ///    pass no id at all (`ensureChatPort`, the ambient background port). It changes every launch,
-    ///    so a grant can never restore, and an address is reused after dealloc, so a grant can
-    ///    transfer to an unrelated object. Named as a parameter rather than computed here so the rung
-    ///    is greppable and the caller cannot pretend it is an identity.
+    ///    per space, one storage namespace with its companion. **Only when the creator IS an author.**
+    ///    A SHARED creator is skipped (I1.3, GM 2026-07-27): a gateway-created port had
+    ///    `createdBy == "local-http"`, which is not an author but every local process, so all such
+    ///    ports in a space pooled into one bucket and Dev3 accumulated an `automation` grant in it.
+    ///    This rung LOOKED attributed, which is why a source scan never found it.
+    /// 2. `messageId` — the port's own id. A human-created port keys on this, and so does a port whose
+    ///    creator was shared: it authorizes as ITSELF.
+    /// 3. `instanceFallback` — a stable id supplied by the caller (I1.4). It was a heap address until
+    ///    the three sites that pass no id of their own started supplying one. Named as a parameter
+    ///    rather than computed here so the rung is greppable and a caller cannot pretend an address is
+    ///    an identity.
+    ///
+    /// **`createdBy` remains the PROVENANCE record either way** (stored on the panel, shown by
+    /// `ports.list`, used to resolve a port's AI model). Only the authorization identity changes, so
+    /// "who made this" and "what it may do" stop being the same field.
     public static func forPortBridge(createdBy: String?, messageId: String?, instanceFallback: String,
                                      title: String?, spaceId: String?) -> Principal {
-        Principal(id: createdBy ?? messageId ?? instanceFallback,
-                  displayName: createdBy ?? title ?? "a port",
-                  spaceId: spaceId, kind: .port,
-                  // The port's OWN id, carried separately from the authz `id` (which is the creator
-                  // for a companion-made port). Owner resolution keys on this so event routing and
-                  // teardown find THIS port, not the creator's shared bucket (backlog 0.5).
-                  portId: messageId)
+        // I1.3: inherit the creator's identity only when the creator is an actual author.
+        let author = createdBy.flatMap { isSharedIdentity($0) ? nil : $0 }
+        return Principal(
+            id: author ?? messageId ?? instanceFallback,
+            // The card must name whoever the grant is ABOUT. When the port authorizes as itself,
+            // naming its creator would ask the human to grant to "Local (gateway)" while the grant
+            // actually lands on one port, which is the opposite of informed consent.
+            displayName: author ?? title ?? "a port",
+            spaceId: spaceId, kind: .port,
+            // The port's OWN id, carried separately from the authz `id` (which is the creator for a
+            // companion-made port). Owner resolution keys on this so event routing and teardown find
+            // THIS port, not the creator's shared bucket (backlog 0.5).
+            portId: messageId)
     }
 
     /// The identity an in-app companion's tool call authorizes as.

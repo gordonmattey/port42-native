@@ -2,9 +2,9 @@
 
 ## Where this left off (2026-07-27)
 
-**Branch `l2-right-of-way`**, **12 commits** off `3c3f370` on main, tree clean.
+**Branch `l2-right-of-way`**, **13 commits** off `3c3f370` on main, tree clean.
 Fast-forward with `git checkout main && git merge --ff-only l2-right-of-way`.
-Full suite **1106 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
+Full suite **1109 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
 live-verified. **Dev3 builds no longer need GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod
 still do.
 
@@ -24,9 +24,9 @@ a second instance.
 |---|---|
 | **ADDRESS** | ✅ done — `PortRef.key`, one definition where there were three |
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
-| **ACTOR** | ⚠️ **MEASURED and half fixed 2026-07-27** (I1). Heap-address identities gone (I1.4), the dead `"anonymous-tool-caller"` fallback deleted (I1.5), one `Principal` constructor (I1.2). **Open: I1.3**, where a gateway-created port still inherits the shared `local-http` id, and Dev3 pools a persisted `automation` grant under it. |
+| **ACTOR** | ✅ **MEASURED then FIXED 2026-07-27** (I1.1–I1.5). One private `Principal` constructor; a gateway-created port authorizes as itself rather than the shared `local-http`; no identity is a heap address; the dead `"anonymous-tool-caller"` fallback deleted. Remaining: I1.6. |
 
-### NEXT: I1 · Identity (plan §B), at I1.3 · **needs a GM decision**
+### I1 · Identity is DONE except I1.6 (plan §B)
 
 **I1.1 is DONE (2026-07-27) and it replaced this section's premise rather than confirming it.**
 `ActorProbe.swift` (DEBUG only, live tally at `/tmp/port42-actor.log`) measured what actually calls in:
@@ -44,11 +44,14 @@ identity comes from a named factory (the gate is the compiler, calibrated); chat
 carry a `stableIdentity` instead of a heap address; the dead fallback is deleted and
 `ToolExecutor.createdBy` is non-optional so it cannot be reopened.
 
-**I1.3 is the only one left before I1.6, and it needs a GM decision.** Un-pooling gateway ports costs
-one permission prompt per port until gateway auth P1 lands (`plan-gateway-auth-tls.md`), because the
-gateway authenticates nobody, so there is no session to key a shared bucket on. The recommendation on
-file is to take the prompts: `automation` (AppleScript/JXA) is currently reachable by any
-gateway-created port in that space. Full detail in plan §B.
+**I1.3 shipped too (GM 2026-07-27: un-pool everything).** A gateway-created port authorizes as
+ITSELF, not as the shared `local-http`. Accepted cost: one permission prompt per port, because the
+gateway authenticates nobody and there is no session to key a narrower shared bucket on until
+`plan-gateway-auth-tls.md` P1. `Principal.isSharedIdentity` is the one place that changes when it does.
+
+**Left on I1:** I1.6 (presence and token attribute correctly under the new identities), plus a
+migration question, orphaned `portPerms.local-http.<space>` grants that nothing reads now. Dev3 still
+holds an `automation` one. **Then I2, the input seam** (plan §C).
 
 **The method finding is the durable one.** The premise came from counting `Principal(` construction
 sites and fallback strings, and that method could not have found either real hole. Third instance in
@@ -82,8 +85,8 @@ under the video). `OnboardingShellTests` +2. Suite **1067 green**.
 
 Plans had nested three deep (L2 → the input seam → identity). **`plan-port42-protocol-local-bus.md`
 §A holds the one ordered line of work**, and nothing nests below it (the register carries status, not
-order). Current step is **I1 · Identity**, now at I1.3. See the NEXT section above for what I1.1
-measured and what shipped. It goes ahead of the input seam because presence and CAS are both built on `principal.id`,
+order). **I1 · Identity is done bar I1.6**; next after it is I2, the input seam. See the section
+above for what I1.1 measured and what shipped. It goes ahead of the input seam because presence and CAS are both built on `principal.id`,
 so anything identity gets wrong is inherited.
 
 The section below is the L2 thread's own detail and stays accurate; the sequence above governs order.

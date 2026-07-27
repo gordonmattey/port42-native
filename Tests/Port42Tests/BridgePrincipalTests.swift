@@ -231,6 +231,58 @@ struct BridgePrincipalTests {
                 "PortBridge resolves an identity \(resolves) times; portPrincipal must be the only one")
     }
 
+    // MARK: - I1.3 · a shared creator is not an author (GM decision 2026-07-27: un-pool)
+
+    @Test("two gateway-created ports cannot see each other's grants")
+    @MainActor
+    func gatewayCreatedPortsDoNotPool() throws {
+        let w = try makeParityWorld()
+        // What `port.create` writes when the caller is the gateway: createdBy is the SHARED
+        // local-http id, because every local process reaching the gateway is one principal.
+        let a = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-a",
+                           createdBy: Principal.localGatewayID, title: "A")
+        let b = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-b",
+                           createdBy: Principal.localGatewayID, title: "B")
+
+        // THE GATE. Before I1.3 both were "local-http" in space-1, so one grant covered both.
+        #expect(a.portPrincipal.id != b.portPrincipal.id)
+        #expect(a.portPrincipal.id == "port-a")
+        #expect(b.portPrincipal.id == "port-b")
+        #expect(a.portPrincipal.id != Principal.localGatewayID)
+    }
+
+    @Test("a gateway-created port's permission card names the PORT, not the gateway")
+    @MainActor
+    func gatewayCreatedPortCardNamesItself() throws {
+        let w = try makeParityWorld()
+        let p = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-a",
+                           createdBy: Principal.localGatewayID, title: "weather").portPrincipal
+        // Naming the creator here would ask the human to grant to "Local (gateway)" while the grant
+        // lands on one port. The card and the grant must describe the same thing.
+        #expect(p.displayName == "weather")
+        #expect(!p.displayName.contains(Principal.localGatewayID))
+    }
+
+    @Test("P-260 survives: a real author is still inherited, only a SHARED id is skipped")
+    @MainActor
+    func realAuthorsStillInherit() throws {
+        let w = try makeParityWorld()
+        // A companion is an author: its ports share its bucket, deliberately (GM 2026-07-19).
+        let byCompanion = PortBridge(appState: w.state, spaceId: "s", messageId: "port-1",
+                                     createdBy: "echo", title: "t")
+        #expect(byCompanion.portPrincipal.id == "echo")
+
+        // An AUTHENTICATED remote peer is also one actor, so it inherits too. Only the local
+        // gateway's id is shared across callers who are not the same actor.
+        let byPeer = PortBridge(appState: w.state, spaceId: "s", messageId: "port-2",
+                                createdBy: "peer-7f3a", title: "t")
+        #expect(byPeer.portPrincipal.id == "peer-7f3a")
+
+        #expect(Principal.isSharedIdentity(Principal.localGatewayID))
+        #expect(!Principal.isSharedIdentity("echo"))
+        #expect(!Principal.isSharedIdentity("peer-7f3a"))
+    }
+
     // MARK: - I1.4 · no identity is a heap address
 
     @Test("a port with no creator and no message id authorizes as its stable id, not a heap address")

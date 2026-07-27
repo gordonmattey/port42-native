@@ -24,16 +24,17 @@ why the register exists rather than a note.
 
 ## 1. Identity — the ACTOR noun · **IN THE PLAN, IN PROGRESS**
 
-**Status: MEASURED 2026-07-27** (I1.1, `ActorProbe.swift`), **one hole fixed, one open.**
+**Status: MEASURED then FIXED 2026-07-27** (I1.1–I1.5). Both holes closed; I1.6 (attribution
+follow-through) is the remainder.
 **Permissions are keyed on `principal.id`**, presence names the principal, and the activity token
 attributes writes by it. `decision-identity-model.md` settles person/instance/actor in
 prose; nothing enforces it in code.
 
-Two holes were found. **Neither is the one this entry used to name.**
+Two holes were found. **Neither is the one this entry used to name**, and both are now closed.
 
 | what | where | how it fails |
 |---|---|---|
-| a gateway-created port inherits the shared `local-http` id | `BridgeMethods.swift:169` (`createdBy: p.id`) | **pools.** All such ports in a space share one grant bucket. Dev3 already persists `automation` in one and `ai` globally. |
+| ~~a gateway-created port inherits the shared `local-http` id~~ | `Principal.forPortBridge` rung 1 | ✅ **FIXED I1.3 (2026-07-27), GM chose to un-pool.** A SHARED creator is not an author, so the port authorizes as itself. `createdBy` stays the provenance record: "who made this" and "what it may do" are no longer the same field. |
 | ~~a chat or ambient port authorizes as a heap address~~ | `ObjectIdentifier` at three sites | ✅ **FIXED I1.4 (2026-07-27).** `PortBridge.stableIdentity` feeds the principal's last rung, kept separate from `messageId` so addressing and authorization do not share a field. |
 
 **`anonymous-tool-caller` was this entry's headline until it was measured, and it is now GONE**
@@ -53,7 +54,10 @@ has no fallback, the other needed a caller list). A primitive's STATUS here is o
 it was established, so an asserted-from-structure status is weaker evidence than a measured one, and
 §3 already carries that caveat explicitly.
 
-**Steps I1.2–I1.6 and the open GM decision are in the plan** (`plan-port42-protocol-local-bus.md` §B).
+**Open against this entry:** I1.6 (presence and token attribute correctly under the new identities),
+and a migration question, orphaned `portPerms.local-http.<space>` grants that nothing reads any more.
+`Principal.isSharedIdentity` is the single place that changes when gateway auth P1 lets callers
+authenticate. **Steps are in the plan** (`plan-port42-protocol-local-bus.md` §B).
 
 ---
 
