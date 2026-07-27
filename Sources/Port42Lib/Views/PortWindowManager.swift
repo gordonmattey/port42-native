@@ -962,15 +962,45 @@ public final class PortWindowManager: ObservableObject {
             })();
             """,
             injectionTime: .atDocumentStart, forMainFrameOnly: true)
-        config.userContentController.addUserScript(inputScript)
-        let inputHandler = PortInputHandler(portUdid: panel.udid) { [weak appState] udid in
+
+        // WHICH WORLD THIS LISTENER LIVES IN, AND WHY IT DIFFERS BY PORT TYPE (I2 · C6 follow-up).
+        //
+        // A WEB port's document is served from `port42.local` and its own JS is the legitimate
+        // caller of the bridge, so its handlers stay in the PAGE world and the origin pin is what
+        // makes that sound.
+        //
+        // A BROWSER port is a foreign site by construction, so the origin pin rejects its input and
+        // C6 measured the result: typing into a browser page counted for NOTHING, while a companion
+        // holding a stale token could clobber whatever you were typing into a form.
+        //
+        // Loosening the pin would be wrong: every handler is registered in the page's world, so
+        // `window.webkit.messageHandlers.portInput` is reachable by the site's own scripts, and
+        // accepting foreign origins would let any page forge the human's presence and invalidate
+        // every honest writer's token.
+        //
+        // An ISOLATED WKContentWorld removes the choice. The site cannot SEE the handler, so there is
+        // nothing to forge and no origin to check. It also makes `isTrusted` trustworthy here for the
+        // first time: prototypes are per-world, so a page cannot shadow `Event.prototype.isTrusted`
+        // out from under a listener that does not share its world.
+        let isBrowserPort = panel.portType == "browser"
+        let inputHandler = PortInputHandler(portUdid: panel.udid,
+                                            worldIsolated: isBrowserPort) { [weak appState] udid in
             appState?.humanInteracted(with: udid)
         }
-        config.userContentController.add(inputHandler, name: "portInput")
+        if isBrowserPort {
+            let world = WKContentWorld.world(name: "port42.input")
+            config.userContentController.addUserScript(
+                WKUserScript(source: inputScript.source, injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true, in: world))
+            config.userContentController.add(inputHandler, contentWorld: world, name: "portInput")
+        } else {
+            config.userContentController.addUserScript(inputScript)
+            config.userContentController.add(inputHandler, name: "portInput")
+        }
         inputHandlers[panel.id] = inputHandler
 
         let webView = FileDropWebView(frame: .zero, configuration: config)
-        let isBrowser = panel.portType == "browser"
+        let isBrowser = isBrowserPort
         // A browser follows links & shows the site's own background; a normal port is locked to its
         // document and drawn transparent over the shell.
         let navDelegate: PortNavigationBlocker = isBrowser ? PortBrowserNavigation() : PortNavigationBlocker()
@@ -1337,9 +1367,17 @@ class PortConsoleHandler: NSObject, WKScriptMessageHandler {
 final class PortInputHandler: NSObject, WKScriptMessageHandler {
     private let portUdid: String
     private let onInput: (String) -> Void
+    /// True when this handler is registered in an isolated `WKContentWorld` (browser ports).
+    ///
+    /// The origin pin below exists because a page-world handler is reachable by the site's own
+    /// scripts. In an isolated world it is not reachable at all, so the pin has nothing left to
+    /// defend and would only reject the legitimate signal — which is exactly what C6 measured
+    /// happening to every keystroke in a browser port.
+    private let worldIsolated: Bool
 
-    init(portUdid: String, onInput: @escaping (String) -> Void) {
+    init(portUdid: String, worldIsolated: Bool = false, onInput: @escaping (String) -> Void) {
         self.portUdid = portUdid
+        self.worldIsolated = worldIsolated
         self.onInput = onInput
     }
 
@@ -1350,7 +1388,9 @@ final class PortInputHandler: NSObject, WKScriptMessageHandler {
         // could send it would forge the human's presence and invalidate every honest writer's token
         // from a page the user never typed in. `isTrusted` in the injected listener stops synthetic
         // events; it says nothing about WHICH SITE is sending real ones.
-        guard PortBridge.isPortOrigin(message) else { return }
+        // Isolation is the stronger guarantee: the site cannot reach this handler, so there is no
+        // foreign sender to exclude. Where it does not apply (web ports, page world), the pin stands.
+        guard worldIsolated || PortBridge.isPortOrigin(message) else { return }
         onInput(portUdid)
     }
 }
