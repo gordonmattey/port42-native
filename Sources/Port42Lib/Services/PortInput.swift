@@ -130,32 +130,6 @@ public struct PortInputSeam {
     /// mutate through it.
     public var activitySnapshot: PortActivity { activity }
 
-    // MARK: Transitional passthroughs (C2.0 only — C2.1..n and C4 delete these)
-    //
-    // C2.0 moves OWNERSHIP of the tables and nothing else. Ownership has to move first and in one
-    // step: while `AppState` held its own copies and the seam held others, moving a single
-    // translator would have bumped one counter while every reader read the other, splitting a port's
-    // token in two for the length of the migration. That is the exact lie the seam exists to
-    // prevent, and it would have been introduced by the work meant to prevent it.
-    //
-    // So the existing call sites keep their logic verbatim and simply operate on the seam's tables.
-    // Each translator that moves to `received(_:)` deletes its passthrough with it; C4 removes
-    // whatever is left and the compiler names anything still reaching for one.
-    //
-    // These are NOT the seam's interface. `received(_:)` is.
-
-    @discardableResult
-    mutating func bumpDirectly(_ port: String) -> String { activity.bump(port) }
-
-    mutating func recordDirectly(port: String, actor: ActorRef, name: String, now: Date) -> DriverChange {
-        drivers.record(port: port, actor: actor, name: name, now: now)
-    }
-
-    mutating func throttleAllows(port: String, now: Date) -> Bool {
-        throttle.allow(port: port, now: now)
-    }
-
-
     // MARK: The door
 
     /// Something entered a port. THE one place the token moves and presence is recorded.
@@ -196,6 +170,28 @@ public struct PortInputSeam {
                               name: input.actorName ?? actor.principal, now: now) {
         case .changed(let d): return Outcome(token: token, driverChanged: d)
         case .refreshed:      return Outcome(token: token, driverChanged: nil)
+        }
+    }
+
+    /// Someone CLAIMED a port without changing it: focusing a tile, zooming into a unit.
+    ///
+    /// **Presence only. The token deliberately does not move**, and that is why this exists rather
+    /// than being a `PortInput.Kind`. `received(_:)` bumps unconditionally, because an input by
+    /// definition changed the port. A focus changes nothing: bumping on it would invalidate every
+    /// reader's token for no reason and cost concurrent writers spurious `stale_write` retries.
+    ///
+    /// So the seam has two entry points, not one, because it owns two guarantees and a focus touches
+    /// exactly one of them. "One door for input" was never "one method for everything the seam owns".
+    ///
+    /// Unthrottled, unlike the refresh path in `received`: a focus is a deliberate act and there is
+    /// no keystroke-rate stream of them to drown a topic.
+    ///
+    /// Returns the new driver when presence MOVED, for the caller to broadcast; nil on a refresh.
+    public mutating func presenceClaimed(port: String, actor: ActorRef,
+                                         name: String, now: Date = Date()) -> Driver? {
+        switch drivers.record(port: port, actor: actor, name: name, now: now) {
+        case .changed(let d): return d
+        case .refreshed:      return nil
         }
     }
 

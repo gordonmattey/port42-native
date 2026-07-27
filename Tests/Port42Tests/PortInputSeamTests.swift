@@ -189,6 +189,55 @@ struct PortInputSeamTests {
             """)
     }
 
+    // MARK: - C4 · the mutating surface is exactly three doors
+
+    @Test("the seam has exactly THREE mutating entry points, and the tables are private")
+    func threeDoorsAndNoOther() throws {
+        // C4 was planned as "flip the fields private, and the compiler names every path missed". It
+        // landed early and incrementally instead: C1 declared the tables private from the start, and
+        // each passthrough deleted in C2 made the compiler produce that phase's caller list. There
+        // was never a big-bang flip.
+        //
+        // What is left is keeping it true. A fourth mutating method is how this erodes: it would not
+        // fail any behaviour test, and it would quietly become a second door.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Port42Lib/Services/PortInput.swift")
+        let src = try String(contentsOf: url, encoding: .utf8)
+
+        let doors = src.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.contains("mutating func") && !$0.hasPrefix("//") && !$0.hasPrefix("///") }
+            .compactMap { line -> String? in
+                guard let r = line.range(of: "mutating func ") else { return nil }
+                return String(line[r.upperBound...]).components(separatedBy: "(").first
+            }
+        #expect(Set(doors) == ["received", "presenceClaimed", "portClosed"], """
+            The seam's mutating surface changed: \(doors.sorted()).
+            received = input (token always moves). presenceClaimed = a claim that changes nothing \
+            (token must NOT move). portClosed = presence lapses, the token does not. A fourth door \
+            is a second way in, which is what this seam exists to remove.
+            """)
+
+        // And the tables stay private, or the doors are decoration.
+        for table in ["var activity", "var drivers", "var throttle"] {
+            #expect(src.contains("private \(table)"),
+                    "\(table) must be private to the seam, or any path can mutate it directly")
+        }
+    }
+
+    @Test("presenceClaimed does NOT move the token, which is why it is a separate door")
+    func presenceClaimDoesNotBump() {
+        var seam = PortInputSeam()
+        let before = seam.token(for: "p1")
+        let d = seam.presenceClaimed(port: "p1", actor: alice, name: "Alice", now: t0)
+        #expect(d?.ref == alice, "a focus still records presence")
+        #expect(seam.token(for: "p1") == before, """
+            Focusing a port changes nothing about its contents. Bumping on it would invalidate every \
+            reader's token on a click and cost concurrent writers spurious stale_write retries.
+            """)
+    }
+
     // MARK: - the recorded risk
 
     @Test("PortInput has exactly four fields plus a display label")

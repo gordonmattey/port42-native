@@ -91,9 +91,14 @@ extension AppState {
             // A body that then throws leaves a bump for a write that did not land — which costs a
             // concurrent writer one self-correcting retry, and never admits a stale write. Wrong in
             // the safe direction is the only acceptable way to be wrong here.
-            portInput.bumpDirectly(key)
-            // PRESENCE (L2, demoted by R1). Records and broadcasts who is driving; refuses nothing.
-            recordDriving(port: key, by: principal)
+            // I2 · C2.2 — through the seam's door. One call now does both: the token moves and, since
+            // this write HAS a principal, presence records with it. They can no longer be wired
+            // separately, which is the point.
+            let outcome = portInput.received(PortInput(
+                port: key, kind: .programmatic,
+                actor: ActorRef(principal: principal.id), actorName: principal.displayName,
+                trust: .principal))
+            broadcastDriverChange(outcome.driverChanged, port: key)
         }
 
         return try await method.run(principal, args)
@@ -156,24 +161,34 @@ extension AppState {
     /// one dict read. Only the branch that actually records pays for a resolve — this runs per
     /// keystroke, and `resolvePortRef` is the one part of the path that is not free (Spike A, A1).
     func humanInteracted(with portId: String) {
-        portInput.bumpDirectly(portId)
-        guard let human = humanPrincipal else {
-            #if DEBUG
+        let human = humanPrincipal
+        #if DEBUG
+        if human == nil {
             // I1.1: a mutation with NOBODY to attribute it to. No `Principal` site would ever show
-            // this one, because the path builds no principal at all — it bumps the token and
-            // returns. Counted here so the six construction sites are not mistaken for the whole
-            // set of ways a write reaches a port unattributed.
+            // this one, because the path builds no principal at all. Counted so the construction
+            // sites are not mistaken for the whole set of ways a write reaches a port unattributed.
             ActorProbe.inputWithoutIdentity(port: portId)
-            #endif
-            return
         }
-        let alreadyDriving = portInput.driver(of: portId, now: Date())?.ref
-                             == ActorRef(principal: human.id)
-        if alreadyDriving {
-            guard portInput.throttleAllows(port: portId, now: Date()) else { return }
+        // Kept for the live presence log, which reads as a stream of takeovers.
+        let alreadyDriving = human.map { portInput.driver(of: portId, now: Date())?.ref
+                                         == ActorRef(principal: $0.id) } ?? false
+        #endif
+
+        // I2 · C2.2 — one call. The bump, the throttle and the record were three separate steps here
+        // and the seam now owns the ordering between them, which is what stops a future edit from
+        // throttling the token by accident. `actor: nil` when there is no human is not a special
+        // case: it is the honest statement that the port changed and we do not know who.
+        let outcome = portInput.received(PortInput(
+            port: portId, kind: .gesture,
+            actor: human.map { ActorRef(principal: $0.id) }, actorName: human?.displayName,
+            trust: .native))
+
+        #if DEBUG
+        if human != nil {
+            NSLog("[Port42:presence] path=input port=%@ takeover=%d", portId, alreadyDriving ? 0 : 1)
         }
-        NSLog("[Port42:presence] path=input port=%@ takeover=%d", portId, alreadyDriving ? 0 : 1)
-        recordHumanFocus(portId: portId)
+        #endif
+        broadcastDriverChange(outcome.driverChanged, port: portId)
     }
 
     /// A PROGRAMMATIC write reached a port's surface without passing the dispatcher (R2b).
@@ -190,7 +205,11 @@ extension AppState {
     ///
     /// The id is already the port key, so no resolve — this is on a per-keystroke-burst path.
     func surfaceWrote(port portId: String) {
-        portInput.bumpDirectly(portId)
+        // I2 · C2.2. `actor: nil` is what keeps presence out of this path: it fires for writes the
+        // app itself makes at spawn time, and naming the app as the driver of a port the user just
+        // opened would be a lie. Under the seam that is not a rule anyone has to remember, it falls
+        // out of there being nobody to name.
+        portInput.received(PortInput(port: portId, kind: .programmatic, actor: nil, trust: .native))
     }
 
     /// The ONE key every per-port table uses: the port's Notify topic id (`PortRef.key`).
@@ -213,25 +232,32 @@ extension AppState {
 
     /// Record this principal as the one driving a port, and broadcast the change. NEVER refuses:
     /// R1 demoted right-of-way to presence, so this reports a fact rather than arbitrating one.
+    /// I2 · C2.2: this is the FOCUS path, and it goes through `presenceClaimed`, not `received`.
+    ///
+    /// Focusing a port changes nothing about its contents, so its token must NOT move. `received`
+    /// bumps unconditionally by design, so routing focus through it would invalidate every reader's
+    /// token on a click and cost concurrent writers spurious `stale_write` retries. The seam has two
+    /// entry points because it owns two guarantees and a focus touches exactly one.
     func recordDriving(port key: String, by principal: Principal) {
-        let actor = ActorRef(principal: principal.id)
-        switch portInput.recordDirectly(port: key, actor: actor, name: principal.displayName, now: Date()) {
-        case .changed(let d):
-            NSLog("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
-            // The driver CHANGED. Broadcast on the port's own topic — the thing already streaming
-            // its output is the thing that says who is driving it, so every surface watching the
-            // port (a tile header, another instance's mirror, an agent deciding whether to wait)
-            // learns for free and no side channel exists to fall out of sync. Refresh is silent:
-            // publishing per keystroke would drown the topic in non-news.
-            notifyBus.publish(topic: "port:\(key)", kind: "driver",
-                              payload: ["driver": d.ref.description,
-                                        "driverName": d.name,
-                                        "until": d.expires.timeIntervalSince1970])
-        case .refreshed:
-            // Deliberately silent, like the broadcast: a refresh fires per keystroke and logging it
-            // would bury the changes, which are the events that mean something.
-            break
-        }
+        let driver = portInput.presenceClaimed(port: key,
+                                               actor: ActorRef(principal: principal.id),
+                                               name: principal.displayName)
+        broadcastDriverChange(driver, port: key)
+    }
+
+    /// Announce a driver change on the port's own topic. nil = a refresh, which is silent by design:
+    /// publishing per keystroke would drown the topic in non-news.
+    ///
+    /// The thing already streaming a port's output is the thing that says who is driving it, so
+    /// every surface watching the port (a tile header, another instance's mirror, an agent deciding
+    /// whether to wait) learns for free and no side channel exists to fall out of sync.
+    func broadcastDriverChange(_ driver: Driver?, port key: String) {
+        guard let d = driver else { return }
+        NSLog("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
+        notifyBus.publish(topic: "port:\(key)", kind: "driver",
+                          payload: ["driver": d.ref.description,
+                                    "driverName": d.name,
+                                    "until": d.expires.timeIntervalSince1970])
     }
 
     /// True when the streaming registry can handle this name (item 8).
