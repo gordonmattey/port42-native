@@ -62,11 +62,17 @@ and gateway auth P1, after which `Principal.isSharedIdentity` is the single plac
 
 ## 2. Input — every way into a port · the TOKEN noun
 
-**Status: IN PROGRESS** (I2 · C0 and C1 done 2026-07-27). Six seams split by surface technology,
+**Status: ✅ RESOLVED 2026-07-27** (I2 · C0–C6), and measured surface by surface rather than argued. Six seams split by surface technology,
 which is why three sweeps each missed a path and why dictation, the emoji picker, right-click paste
 and a cross-app drag were all invisible until measured. The web listener is fixed (`beforeinput`);
-terminals now have one build path (C0, which found a third site doing one of five steps); the door
-exists and nothing calls it yet (C1). Browser navigation is open.
+One door (`PortInputSeam`), three mutating entry points, the tables private, enforced by the
+compiler. C6 measured coverage with the operator naming each action first: **web 7/7**; browser now
+counts typing (an isolated `WKContentWorld`, since the origin pin correctly rejected page-reported
+input) and reload (`didCommit`, which KVO cannot see); terminals gained dictation, the emoji picker
+and IME (`NSTextInputClient` — one missing conformance, not three broken features).
+
+**Known and stated:** a browser page that mutates its DOM without changing its URL still does not
+count. Spike B called browser CAS the weakest token and it remains so.
 
 **Scope correction:** making the tables private breaks the four READ sites as well as the six
 mutations, so this is ten sites, not six.
@@ -76,17 +82,17 @@ mutations, so this is ten sites, not six.
 
 **Phases are in the plan** (`plan-port42-protocol-local-bus.md` §C). Unblocks R5.
 
-**Two failure classes, and only one is a compiler's job.** A WRONG CALLER mutates the tables directly
+**Two failure classes, and only one is a compiler's job.** Both were closed by different means. A WRONG CALLER mutates the tables directly
 instead of through the door; deleting the direct route makes the compiler name every one, which C2.0
 proved by accident when it surfaced an eleventh site two hand-derivations had missed. A MISSING CALLER
 changes the port and touches the seam not at all (dictation, the emoji picker, right-click paste, a
 cross-app drag, an SPA route change); **nothing fails to compile, so only measurement finds those** and
 Spike C measured the web listener at 8 of 11.
 
-**This entry is not RESOLVED when C4 lands.** C4 proves nothing bypasses the door; it never proves
-everything arrives at it, and the token's honesty (and therefore R5) depends on the second. Declaring
-it done on C4's evidence would repeat the "asserted rather than measured" error this register already
-carries a caveat about in §1 and §3.
+**It was NOT resolved when C4 landed**, and that distinction is the entry's lesson: C4 proved nothing
+bypasses the door, C6 proved things arrive at it. Two of C6's four candidate findings evaporated on
+re-measure (web dictation, the emoji picker), which is why the run is trustworthy — the first pass
+would have shipped both as holes.
 
 ---
 

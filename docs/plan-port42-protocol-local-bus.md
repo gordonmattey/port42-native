@@ -55,11 +55,11 @@ Flat. Each line ships on its own. Plans do not nest below this.
 | ✅ | `PortRef.key` | address | one definition, was three |
 | ✅ | port sandbox (origin pin) | actor | a P0: a port could navigate away and take the bridge |
 | ✅ | I1 · Identity | actor | §B. Measured first, which killed the defect both plans led with and found two nobody had named |
-| ▶ | **I2 · the input seam** | **token** | §C. Every way in counts → makes R5 honest. C0 + C1 done; C2.0 next |
-| | L2 R4 · pty choke point | token | @mention and `port.push` covered identically |
-| | L2 R5 · terminals require a token | token | only sound after I2 |
+| ✅ | I2 · the input seam | token | §C. One door, measured surface by surface (C6). Terminals gained dictation/emoji/IME; browser input and reload now count. |
+| ✅ | L2 R4 · pty choke point | token | Met by R2b's funnel + I2. Verified live: startup bumps, `port.push` bumps, and a STALE token is refused on a terminal. |
+| ▶ | **L2 R5 · terminals REQUIRE a token** | **token** | Unblocked: I2 made every way in count. Now a GM decision, because it BREAKS callers (see §E). |
 | | L2 R6 · presence lifetime | actor | turn-scoped, no chip flicker |
-| | L2 R7 · native claim | actor | move the human's claim off shadowable `isTrusted` |
+| | L2 R7 · native claim | actor | move the human's claim off shadowable `isTrusted`. **Cheaper than planned:** an isolated `WKContentWorld` makes `isTrusted` unforgeable (per-world prototypes), which is how browser input was fixed. Web ports could take the same route instead of a native monitor. |
 | | **then: slice-02** | — | the same three nouns over libp2p |
 
 **Not in this plan**, though real and registered: the output seam, the error taxonomy, trust beyond
@@ -332,6 +332,28 @@ today. If a fifth is added for a CONSUMER rather than a SOURCE, it has become a 
 failed. `PortInputSeamTests` asserts the stored-property count, so adding one is a deliberate act with
 a test to change rather than a drift. Calibrated: a fifth field fails it with this reasoning in the
 message.
+
+---
+
+## E. R5 · terminals REQUIRE a token — the open decision
+
+**I2 unblocked this.** R5 was unsound while ways into a port went uncounted, because refusing an
+untokened write means claiming the token tells the truth. C6 measured that surface by surface.
+
+**What R5 actually changes:** `expect` becomes MANDATORY for terminal writes instead of optional. A
+`port.push` to a terminal without a token is refused.
+
+**Why it is GM's call and not a detail:** it BREAKS every existing caller. Today CAS is opt-in and
+"nothing that works now breaks" was the explicit design constraint at R3. R5 reverses that for one
+surface. Every script, companion and Claude Code session pushing to a terminal must first read a
+token and then send it.
+
+**Why a terminal and not everything:** a terminal cannot tolerate a splice. Text arrives as a stream
+and two interleaved writes produce a line neither caller wrote, which no retry can detect afterwards.
+A web port's `port.exec` replaces a value; a spliced shell command runs.
+
+**Measured state today (2026-07-27):** the mechanism is complete and terminals already honour a token
+when one is supplied. R5 is purely the decision to require it.
 
 ---
 
