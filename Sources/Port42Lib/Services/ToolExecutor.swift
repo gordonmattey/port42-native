@@ -8,7 +8,11 @@ import WebKit
 public final class ToolExecutor {
     private weak var appState: AppState?
     private let spaceId: String?
-    let createdBy: String?
+    /// The companion this executor acts for. NON-OPTIONAL since I1.5: an optional here is what made
+    /// a shared `"anonymous-tool-caller"` identity expressible, and the one production construction
+    /// site has always passed a real `AgentConfig.id`. A caller that cannot name its companion now
+    /// fails to compile instead of pooling grants with every other unnamed caller.
+    let createdBy: String
     /// Display name of the caller (for message attribution); nil for anonymous/remote callers.
     let createdByName: String?
     /// True when this executor runs an in-app companion composing a chat reply. Routes
@@ -25,7 +29,7 @@ public final class ToolExecutor {
         grantedPermissions.insert(perm)
     }
 
-    init(appState: AppState, spaceId: String?, createdBy: String? = nil,
+    init(appState: AppState, spaceId: String?, createdBy: String,
          createdByName: String? = nil, inChat: Bool = false) {
         self.appState = appState
         self.spaceId = spaceId
@@ -34,9 +38,7 @@ public final class ToolExecutor {
         self.inChat = inChat
         // Restore previously granted permissions so the user isn't re-prompted. spaceId nil = a
         // spaceless caller (the gateway) → its global grant, which never restored before.
-        if let by = createdBy {
-            self.grantedPermissions = appState.companionPermissions(createdBy: by, spaceId: spaceId)
-        }
+        self.grantedPermissions = appState.companionPermissions(createdBy: createdBy, spaceId: spaceId)
     }
 
     /// A single tool result over this many UTF-8 bytes is truncated before it reaches the model — a
@@ -75,11 +77,6 @@ public final class ToolExecutor {
             let principal = Principal.forCompanionTool(createdBy: createdBy,
                                                        createdByName: createdByName,
                                                        spaceId: spaceId)
-            #if DEBUG
-            if createdBy == nil {
-                ActorProbe.minted(id: principal.id, surface: "companion-tool", rung: "createdBy-nil")
-            }
-            #endif
             do {
                 let value = try await appState.runBridgeMethod(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: grantedPermissions)
@@ -97,11 +94,6 @@ public final class ToolExecutor {
             let principal = Principal.forCompanionTool(createdBy: createdBy,
                                                        createdByName: createdByName,
                                                        spaceId: spaceId)
-            #if DEBUG
-            if createdBy == nil {
-                ActorProbe.minted(id: principal.id, surface: "companion-tool-stream", rung: "createdBy-nil")
-            }
-            #endif
             do {
                 let value = try await appState.runBridgeStream(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: grantedPermissions,

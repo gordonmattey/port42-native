@@ -6,17 +6,24 @@
 //  THE QUESTION THIS ANSWERS, AND NOTHING ELSE: which callers actually reach a bridge
 //  dispatch WITHOUT an identity of their own, by which surface, and calling what.
 //
-//  Six `Principal` construction sites exist. Two of them fall back to a shared
-//  `"anonymous-tool-caller"` string, one falls back through a three-rung chain, and one uses
-//  the deliberately-shared `local-http` id. Permissions key on `principal.id`, so every caller
-//  that lands on the same fallback string shares one grant bucket: grant `filesystem` to one
-//  and all of them have it, persistently.
+//  WHAT IT FOUND (2026-07-27), which is not what the plans predicted:
 //
-//  I1.3 decides what an unattributed caller IS — refused, or given a per-surface synthetic
-//  identity that never pools. That decision is worth nothing if the set of callers is imagined.
-//  It has been imagined twice in this thread: finding 7's three sweeps each missed a path, and
-//  Spike C's probe mislabelled dictation because the actions were guessed rather than named.
-//  So: measure, then decide.
+//    • `"anonymous-tool-caller"` — the shared fallback BOTH plans led with — never fired. One
+//      production `ToolExecutor` construction site, passing a non-optional `AgentConfig.id`.
+//      Deleted in I1.5 as dead rather than fixed, and `createdBy` made non-optional so it
+//      cannot come back.
+//    • Every gateway-created port authorizes as the shared `local-http` id, so all such ports
+//      in a space share one grant bucket. Dev3 already persists `automation` in one. Still
+//      open: I1.3.
+//    • Chat and ambient ports authorized as a heap address. Fixed in I1.4 (`stableIdentity`).
+//
+//  The method finding outlasts all three: the plans' list came from counting `Principal(`
+//  construction sites and fallback strings, and that could not have found either real hole (one
+//  has no fallback at all, the other needed a caller list). A property about who calls in is not
+//  decidable by reading the callee.
+//
+//  It stays wired as the REGRESSION DETECTOR while I1.3 lands. A `rung=objectIdentifier` line
+//  means I1.4 missed a site; a `surface=companion-tool` line means the deleted fallback is back.
 //
 //  HOW IT WORKS. A fallback identity is registered as SYNTHETIC at the site that mints it. A
 //  dispatch then records itself only when its principal's id is one of those. That is an exact

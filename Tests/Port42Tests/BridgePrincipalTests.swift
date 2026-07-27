@@ -231,6 +231,47 @@ struct BridgePrincipalTests {
                 "PortBridge resolves an identity \(resolves) times; portPrincipal must be the only one")
     }
 
+    // MARK: - I1.4 · no identity is a heap address
+
+    @Test("a port with no creator and no message id authorizes as its stable id, not a heap address")
+    @MainActor
+    func stableIdentityReplacesTheHeapAddress() throws {
+        let w = try makeParityWorld()
+
+        // The chat port's shape: no creator, no message id. Two separate bridge instances for the
+        // same port, which is what a remount or a relaunch produces.
+        let first = PortBridge(appState: w.state, spaceId: "space-1", messageId: nil, createdBy: nil,
+                               stableIdentity: "panel-abc")
+        let second = PortBridge(appState: w.state, spaceId: "space-1", messageId: nil, createdBy: nil,
+                                stableIdentity: "panel-abc")
+
+        #expect(first.portPrincipal.id == "panel-abc")
+        // The point of the fix: a grant made against the first is found by the second. Before I1.4
+        // these were two different heap addresses and so two different grant buckets.
+        #expect(first.portPrincipal.id == second.portPrincipal.id)
+        #expect(!first.portPrincipal.id.contains("ObjectIdentifier"))
+
+        // A distinct port stays distinct: the fix must not collapse ports into a shared bucket,
+        // which is the failure mode at the OTHER end of this (I1.3).
+        let other = PortBridge(appState: w.state, spaceId: "space-1", messageId: nil, createdBy: nil,
+                               stableIdentity: "panel-xyz")
+        #expect(other.portPrincipal.id != first.portPrincipal.id)
+    }
+
+    @Test("the rungs keep their precedence: a creator outranks a stable id, which outranks the heap")
+    @MainActor
+    func stableIdentityIsTheLastRungNotTheFirst() throws {
+        let w = try makeParityWorld()
+        // A creator still wins, or I1.4 would have quietly undone P-260 (a port acts as its author).
+        let authored = PortBridge(appState: w.state, spaceId: "s", messageId: "m", createdBy: "echo",
+                                  stableIdentity: "panel-abc")
+        #expect(authored.portPrincipal.id == "echo")
+        // A message id still outranks the stable id.
+        let human = PortBridge(appState: w.state, spaceId: "s", messageId: "m", createdBy: nil,
+                               stableIdentity: "panel-abc")
+        #expect(human.portPrincipal.id == "m")
+    }
+
     @Test("the ObjectIdentifier rung is passed in, never minted inside Principal (I1.4 has one site)")
     func heapAddressRungIsNamedAtItsCallSite() throws {
         // `instanceFallback` is a parameter so the defect is greppable and I1.4 can find every caller.

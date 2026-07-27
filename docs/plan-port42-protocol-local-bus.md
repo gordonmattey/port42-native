@@ -87,7 +87,7 @@ matters.
 Principal(id: createdBy ?? "anonymous-tool-caller", …)   // ToolExecutor:75, :92
 ```
 
-**That fallback is UNREACHABLE.** `ToolExecutor` has exactly one production construction site
+**That fallback is UNREACHABLE, and I1.5 deleted it.** `ToolExecutor` has exactly one production construction site
 (`AppState.swift:139`), which passes `createdBy: agent.id`, and `AgentConfig.id` is a non-optional
 `String`. All eight test sites pass a real id too. The `= nil` default on the init parameter is the
 only thing that keeps it looking live. Zero probe hits across a full session, agreeing with the source.
@@ -115,25 +115,32 @@ Code works against Port42, so this is the ordinary path.
 author per space" assumes the creator is an author. `local-http` is not an author, it is every local
 process, and extending that sharing to ports was never a decision anyone made.
 
-**2. Every space's chat port authorizes as a heap address.**
+**2. Every space's chat port authorizes as a heap address. FIXED in I1.4 (2026-07-27).**
 
 `PortWindowManager.swift:1020` (`ensureChatPort`) and `ShellView.swift:1512` (the ambient background
 port) both construct with `messageId: nil, createdBy: nil`, so `portPrincipal` falls to rung 3,
 `ObjectIdentifier(self).debugDescription`. That fails in a different direction from pooling: the id
 changes every launch, so a grant against it can never restore, and an address is reused after dealloc,
 so a later object can inherit a grant issued to a different one. **Reachability is proven from the two
-construction sites; no dispatch has been observed yet.** Watch for `MINT rung=objectIdentifier`.
+construction sites; no dispatch was ever observed.** Fixed by giving all three sites an explicit
+`stableIdentity`. The probe still reports `rung=objectIdentifier` if a fourth site appears.
 
 ### Revised steps
 
 | # | Step | Gate |
 |---|---|---|
 | ✅ I1.1 | **Instrument and measure.** | DONE 2026-07-27. Produced a list of real callers that contradicts the list this section was written against. |
-| I1.2 | **One constructor.** `Principal.for(surface:…)` the only way to build one; the memberwise init goes private. | No `Principal(` outside its own file, asserted by source scan. |
-| I1.3 | **A port created by a SHARED identity gets its own, it does not inherit.** | Two gateway-created ports cannot see each other's grants. |
-| I1.4 | **Chat and ambient ports get a stable identity.** `ensureChatPort` already mints a UUID one line above the bridge and does not pass it. | A grant survives a relaunch; no principal id is ever a heap address. |
-| I1.5 | **Delete the dead fallback** and the `= nil` default that keeps it reachable-looking. | `anonymous-tool-caller` is absent from the codebase. |
+| ✅ I1.2 | **One constructor.** | DONE 2026-07-27. Memberwise init private; four surface factories, two policy factories. The gate is the COMPILER (`initializer is inaccessible`), calibrated by reintroducing a call; a package-wide scan is the backstop. |
+| ▶ I1.3 | **A port created by a SHARED identity gets its own, it does not inherit.** | **OPEN, blocked on the GM decision below.** Two gateway-created ports cannot see each other's grants. |
+| ✅ I1.4 | **Chat and ambient ports get a stable identity.** | DONE 2026-07-27. `PortBridge.stableIdentity`, passed by `ensureChatPort` (the panel id), the DB restore path (`row.id`) and the shell background (a fixed constant). Calibrated: reverting the fix fails the test with two different heap addresses for one port. |
+| ✅ I1.5 | **Delete the dead fallback.** | DONE 2026-07-27. Removed as DEAD, not fixed. `ToolExecutor.createdBy` is now non-optional, so the hole cannot be reopened at a call site. |
 | I1.6 | **Presence and token attribute correctly** under I1.3 and I1.4. | Such a write names something a human can act on. |
+
+**Why I1.4 did not just pass `messageId`.** It looked like the one-line fix (`ensureChatPort` mints a
+UUID one line above the bridge and drops it). But `messageId` drives panel dedupe, inline bridge lookup
+and owner routing, which are ADDRESSING concerns, and this is an AUTHORIZATION concern. Overloading it
+would have changed three behaviors to fix one. `stableIdentity` is separate and feeds only the
+principal's last rung.
 
 **I1.2 stops being hygiene and becomes the fix.** Both holes are shapes a memberwise init taking any
 `String` cannot refuse: it cannot tell a heap address from an identity, and it cannot tell an inherited

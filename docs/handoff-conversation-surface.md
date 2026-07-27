@@ -1,10 +1,10 @@
 # Handoff: Port42 Protocol — Address · Actor · Token
 
-## Where this left off (2026-07-26)
+## Where this left off (2026-07-27)
 
-**Branch `l2-right-of-way`**, HEAD `bce909d`, **10 commits** off `3c3f370` on main, tree clean.
+**Branch `l2-right-of-way`**, **12 commits** off `3c3f370` on main, tree clean.
 Fast-forward with `git checkout main && git merge --ff-only l2-right-of-way`.
-Full suite **1102 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
+Full suite **1106 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
 live-verified. **Dev3 builds no longer need GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod
 still do.
 
@@ -24,25 +24,31 @@ a second instance.
 |---|---|
 | **ADDRESS** | ✅ done — `PortRef.key`, one definition where there were three |
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
-| **ACTOR** | ❌ **broken, and MEASURED 2026-07-27** (I1.1). Two live holes: a gateway-created port inherits the shared `local-http` id (Dev3 already pools a persisted `automation` grant), and every space's chat port authorizes as a heap address. The `"anonymous-tool-caller"` id this row used to name is UNREACHABLE. |
+| **ACTOR** | ⚠️ **MEASURED and half fixed 2026-07-27** (I1). Heap-address identities gone (I1.4), the dead `"anonymous-tool-caller"` fallback deleted (I1.5), one `Principal` constructor (I1.2). **Open: I1.3**, where a gateway-created port still inherits the shared `local-http` id, and Dev3 pools a persisted `automation` grant under it. |
 
-### NEXT: I1 · Identity (plan §B), at I1.2
+### NEXT: I1 · Identity (plan §B), at I1.3 · **needs a GM decision**
 
 **I1.1 is DONE (2026-07-27) and it replaced this section's premise rather than confirming it.**
 `ActorProbe.swift` (DEBUG only, live tally at `/tmp/port42-actor.log`) measured what actually calls in:
 
 - **`anonymous-tool-caller` is unreachable.** One production `ToolExecutor` construction site, passing
-  a non-optional `agent.id`. Both plans led with it. It gets deleted, not fixed.
+  a non-optional `agent.id`. Both plans led with it. Deleted in I1.5, not fixed.
 - **Gateway-created ports pool.** `port.create` does `createdBy: p.id`, which from the gateway is the
   shared `local-http`, so every such port in a space shares one grant bucket. Dev3 already persists
   `automation` (AppleScript/JXA) in one of them.
 - **Chat and ambient ports authorize as a heap address** (`ObjectIdentifier`), so a grant cannot
   survive a relaunch and can transfer to a different object after a dealloc.
 
-**Next is I1.2** (one `Principal` constructor), which is the fix rather than hygiene: both live holes
-are shapes a memberwise init taking any `String` cannot refuse. **I1.3 carries an open GM decision**
-(un-pooling gateway ports costs one permission prompt per port until gateway auth P1 lands; the
-recommendation on file is to take the prompts). Full detail and revised steps I1.2–I1.6 in plan §B.
+**I1.2, I1.4 and I1.5 shipped 2026-07-27.** The memberwise `Principal` init is private and every
+identity comes from a named factory (the gate is the compiler, calibrated); chat and ambient ports
+carry a `stableIdentity` instead of a heap address; the dead fallback is deleted and
+`ToolExecutor.createdBy` is non-optional so it cannot be reopened.
+
+**I1.3 is the only one left before I1.6, and it needs a GM decision.** Un-pooling gateway ports costs
+one permission prompt per port until gateway auth P1 lands (`plan-gateway-auth-tls.md`), because the
+gateway authenticates nobody, so there is no session to key a shared bucket on. The recommendation on
+file is to take the prompts: `automation` (AppleScript/JXA) is currently reachable by any
+gateway-created port in that space. Full detail in plan §B.
 
 **The method finding is the durable one.** The premise came from counting `Principal(` construction
 sites and fallback strings, and that method could not have found either real hole. Third instance in
@@ -76,8 +82,8 @@ under the video). `OnboardingShellTests` +2. Suite **1067 green**.
 
 Plans had nested three deep (L2 → the input seam → identity). **`plan-port42-protocol-local-bus.md`
 §A holds the one ordered line of work**, and nothing nests below it (the register carries status, not
-order). Current step is **I1 · Identity**, now at I1.2. See the NEXT section above for what I1.1
-measured. It goes ahead of the input seam because presence and CAS are both built on `principal.id`,
+order). Current step is **I1 · Identity**, now at I1.3. See the NEXT section above for what I1.1
+measured and what shipped. It goes ahead of the input seam because presence and CAS are both built on `principal.id`,
 so anything identity gets wrong is inherited.
 
 The section below is the L2 thread's own detail and stays accurate; the sequence above governs order.

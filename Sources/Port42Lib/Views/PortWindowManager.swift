@@ -191,7 +191,11 @@ public final class PortWindowManager: ObservableObject {
         do {
             let saved = try db.fetchPortPanels()
             for row in saved {
-                let bridge = PortBridge(appState: appState, spaceId: row.spaceId, messageId: row.messageId, createdBy: row.createdBy)
+                // I1.4: `row.id` carries the chat port's identity back across a launch. Without it a
+                // restored bridge with no creator and no message id would fall to a heap address
+                // again, which is exactly the case where a persisted grant needs to be found.
+                let bridge = PortBridge(appState: appState, spaceId: row.spaceId, messageId: row.messageId,
+                                        createdBy: row.createdBy, stableIdentity: row.id)
                 // Restore previously granted permissions so the user isn't re-prompted
                 if let permsStr = row.grantedPermissions {
                     let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
@@ -1017,7 +1021,12 @@ public final class PortWindowManager: ObservableObject {
         guard let appState = appState else { return }
         guard !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
         let newId = UUID().uuidString
-        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: nil, createdBy: nil)
+        // I1.4: the chat port has no creator and no message id, so before this it authorized as a
+        // heap address: a grant against it could never restore across a launch, and an address
+        // reused after dealloc could hand it to an unrelated object. `newId` is the panel id, which
+        // is persisted and restored, so the identity is stable for as long as the port is.
+        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: nil, createdBy: nil,
+                                stableIdentity: newId)
         // A visible default; `ensureChatTiled`/arrange position it on the shell desktop.
         let size = CGSize(width: 520, height: 420)
         let position: CGPoint? = nil

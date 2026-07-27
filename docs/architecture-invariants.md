@@ -24,21 +24,25 @@ why the register exists rather than a note.
 
 ## 1. Identity — the ACTOR noun · **IN THE PLAN, IN PROGRESS**
 
-**Status: BROKEN, live, and MEASURED 2026-07-27** (I1.1, `ActorProbe.swift`). Six `Principal`
-construction sites. **Permissions are keyed on `principal.id`**, presence names the principal, and the
-activity token attributes writes by it. `decision-identity-model.md` settles person/instance/actor in
+**Status: MEASURED 2026-07-27** (I1.1, `ActorProbe.swift`), **one hole fixed, one open.**
+**Permissions are keyed on `principal.id`**, presence names the principal, and the activity token
+attributes writes by it. `decision-identity-model.md` settles person/instance/actor in
 prose; nothing enforces it in code.
 
-Two holes are live. **Neither is the one this entry used to name.**
+Two holes were found. **Neither is the one this entry used to name.**
 
 | what | where | how it fails |
 |---|---|---|
 | a gateway-created port inherits the shared `local-http` id | `BridgeMethods.swift:169` (`createdBy: p.id`) | **pools.** All such ports in a space share one grant bucket. Dev3 already persists `automation` in one and `ai` globally. |
-| a chat or ambient port authorizes as a heap address | `PortWindowManager.swift:1020`, `ShellView.swift:1512` (`ObjectIdentifier`) | **unstable.** Changes per launch so a grant never restores; addresses are reused after dealloc so a grant can transfer to a different object. |
+| ~~a chat or ambient port authorizes as a heap address~~ | `ObjectIdentifier` at three sites | ✅ **FIXED I1.4 (2026-07-27).** `PortBridge.stableIdentity` feeds the principal's last rung, kept separate from `messageId` so addressing and authorization do not share a field. |
 
-**`anonymous-tool-caller` (`ToolExecutor:75,:92`) is UNREACHABLE** and was this entry's headline until
-it was measured. One production construction site, passing a non-optional `agent.id`. It is deleted in
-I1.5 rather than fixed.
+**`anonymous-tool-caller` was this entry's headline until it was measured, and it is now GONE**
+(I1.5, 2026-07-27), deleted as dead rather than fixed. `ToolExecutor.createdBy` is non-optional, so a
+caller that cannot name its companion fails to compile instead of pooling grants.
+
+**One construction site remains, and it is the register's own invariant:** `Principal`'s memberwise
+init is private (I1.2), so every identity comes from a named factory and all identity POLICY is in one
+file. Enforced by the compiler, with a package-wide source scan as the backstop.
 
 **Why it goes first.** Both guarantees shipped this session are built on `principal.id`: presence
 records it and CAS attributes by it. Anything identity gets wrong is inherited by everything above it.

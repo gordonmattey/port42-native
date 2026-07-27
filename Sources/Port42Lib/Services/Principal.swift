@@ -126,15 +126,19 @@ public struct Principal: Equatable {
 
     /// The identity an in-app companion's tool call authorizes as.
     ///
-    /// **The `nil` branch is UNREACHABLE and is deleted in I1.5.** `ToolExecutor` has one production
-    /// construction site (`AppState.swift:139`) passing a non-optional `AgentConfig.id`, every test
-    /// site passes a real id, and the I1.1 probe recorded zero hits across a full session. It is kept
-    /// for this step only so I1.2 changes structure without changing behavior. Both plans led with
-    /// this string as the headline identity defect; it never fired.
-    public static func forCompanionTool(createdBy: String?, createdByName: String?,
+    /// **I1.5 removed a `?? "anonymous-tool-caller"` fallback here, as dead rather than as fixed.**
+    /// Both the plan and the register led with that string as THE identity defect: two sites sharing
+    /// one id, pooling their grants. It never fired. `ToolExecutor` has one production construction
+    /// site (`AppState.swift:139`) passing a non-optional `AgentConfig.id`, every test site passes a
+    /// real id, and the I1.1 probe recorded zero hits across a full session.
+    ///
+    /// `createdBy` is non-optional here BY DESIGN. A caller that cannot name its companion now fails
+    /// to compile rather than silently minting a shared identity, so the hole cannot be reopened by
+    /// someone reintroducing an optional at the call site.
+    public static func forCompanionTool(createdBy: String, createdByName: String?,
                                         spaceId: String?) -> Principal {
-        Principal(id: createdBy ?? "anonymous-tool-caller",
-                  displayName: createdByName ?? createdBy ?? "a companion",
+        Principal(id: createdBy,
+                  displayName: createdByName ?? createdBy,
                   spaceId: spaceId, kind: .companion)
     }
 

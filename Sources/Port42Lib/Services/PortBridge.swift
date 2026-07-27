@@ -36,12 +36,24 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// only in-flight-AI bookkeeping — the old PortAIHandler/activeStreams path is gone.
     public var streamTasks: [Int: Task<Void, Never>] = [:]
 
-    public init(appState: AnyObject, spaceId: String?, messageId: String? = nil, createdBy: String? = nil, title: String? = nil) {
+    /// A STABLE identity for a port that has neither a creator nor a message id (I1.4).
+    ///
+    /// Deliberately separate from `messageId`, which drives panel dedupe, inline bridge lookup and
+    /// owner routing. Those are addressing concerns and this is an authorization concern, so
+    /// overloading `messageId` to fix identity would have changed three behaviours to fix one.
+    ///
+    /// nil means the last rung falls back to a heap address, which is the defect. Only ports with a
+    /// real id of their own should leave this nil, and they resolve on `messageId` before reaching it.
+    public let stableIdentity: String?
+
+    public init(appState: AnyObject, spaceId: String?, messageId: String? = nil, createdBy: String? = nil,
+                title: String? = nil, stableIdentity: String? = nil) {
         self.appState = appState
         self.spaceId = spaceId
         self.messageId = messageId
         self.createdBy = createdBy
         self.title = title
+        self.stableIdentity = stableIdentity
         super.init()
 
         // Restore cached permissions immediately so they're in place before the webview
@@ -119,7 +131,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // are known defects (I1.3, I1.4) and they get fixed in one place.
         let p = Principal.forPortBridge(
             createdBy: createdBy, messageId: messageId,
-            instanceFallback: ObjectIdentifier(self).debugDescription,
+            // I1.4: a supplied stable id, or the heap address that was the only option before it.
+            // The ObjectIdentifier arm survives as the honest answer for a bridge that genuinely
+            // has no identity, and the probe reports it as `rung=objectIdentifier` if one appears.
+            instanceFallback: stableIdentity ?? ObjectIdentifier(self).debugDescription,
             title: title, spaceId: spaceId)
         #if DEBUG
         // I1.1: which rung of the chain a real port actually lands on. Rung 2 (`messageId`) still
@@ -128,7 +143,8 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // dealloc. Only rungs 2 and 3 are unattributed.
         if createdBy == nil {
             ActorProbe.minted(id: p.id, surface: "port-js",
-                              rung: messageId != nil ? "messageId" : "objectIdentifier")
+                              rung: messageId != nil ? "messageId"
+                                  : (stableIdentity != nil ? "stableIdentity" : "objectIdentifier"))
         }
         #endif
         return p

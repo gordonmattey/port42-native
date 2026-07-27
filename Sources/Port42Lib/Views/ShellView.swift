@@ -1499,6 +1499,10 @@ struct ShellSecretsField: View {
 /// live desktop tile, if any, keeps its own — a webview lives in exactly one place). Non-interactive
 /// and ambient: it fills the screen behind everything. The first step of "the chrome is ports too".
 struct ShellBackgroundPort: View {
+    /// The shell background's stable authorization identity (I1.4). One logical port, one identity,
+    /// across every remount and launch.
+    static let identity = "shell.background"
+
     let html: String
     let appState: AppState
     @State private var height: CGFloat = 0
@@ -1509,7 +1513,14 @@ struct ShellBackgroundPort: View {
         self.appState = appState
         // Its own dedicated bridge (ambient: no messageId/space), backed by the real appState so
         // port42.storage / ai / etc. resolve. A background port is a real port.
-        _bridge = State(initialValue: PortBridge(appState: appState, spaceId: nil))
+        //
+        // I1.4: a fixed identity, not a heap address. There is exactly one shell background at a
+        // time and this view remounts (it is the fallback path, mounted fresh from stored HTML when
+        // the live background port was closed), so its grants and storage must survive a remount.
+        // Space-less on purpose: the background is ambient across spaces, so its grant is global to
+        // this identity rather than scoped to whichever space happened to be open.
+        _bridge = State(initialValue: PortBridge(appState: appState, spaceId: nil,
+                                                 stableIdentity: ShellBackgroundPort.identity))
     }
 
     var body: some View {
