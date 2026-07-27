@@ -121,4 +121,30 @@ struct PortOriginSecurityTests {
         #expect(pins >= handlers,
                 "\(handlers) message handlers but only \(pins) origin pins — one accepts foreign input")
     }
+    // MARK: - P0 hardening: a foreign site gets no door, not a guarded one
+
+    @Test("a BROWSER port attaches no bridge namespace and no bridge handler")
+    @MainActor
+    func browserPortGetsNoBridge() {
+        let config = WKWebViewConfiguration()
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil, messageId: "b1")
+        bridge.attach(to: config, foreignSite: true)
+
+        // Nothing to find: no injected namespace, no message handler. The origin pin already
+        // refused every message from a foreign site, so this changes no outcome — it removes the
+        // door rather than trusting the bolt on it. The same class already bit once, when a web
+        // port could navigate away and carry the bridge with it.
+        #expect(config.userContentController.userScripts.isEmpty,
+                "a foreign site must not receive the port42 namespace")
+    }
+
+    @Test("a WEB port still gets the bridge, because its own JS is the legitimate caller")
+    @MainActor
+    func webPortKeepsTheBridge() {
+        let config = WKWebViewConfiguration()
+        let bridge = PortBridge(appState: NSObject(), spaceId: nil, messageId: "w1")
+        bridge.attach(to: config)
+        #expect(!config.userContentController.userScripts.isEmpty,
+                "a web port's document IS port42.local and needs the namespace")
+    }
 }

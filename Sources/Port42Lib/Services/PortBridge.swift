@@ -97,8 +97,25 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         }
     }
 
-    /// Attach this bridge to a WKWebView configuration before content loads
-    public func attach(to config: WKWebViewConfiguration) {
+    /// Attach the `port42.*` namespace and its message handler to a port's webview.
+    ///
+    /// `foreignSite` = a BROWSER port, which shows someone else's website by construction.
+    ///
+    /// P0 HARDENING. Every handler is registered in the PAGE's world, so on a browser port
+    /// `window.webkit.messageHandlers.port42` sits inside the site's own JS context and ONE origin
+    /// comparison is the entire defence. That check works, and it is a guard in front of an open
+    /// door: this exact class already bit once, when a web port could navigate away and carry the
+    /// bridge with it (the origin pin was that fix).
+    ///
+    /// So a foreign site gets NOTHING attached, rather than something guarded. There is no handler
+    /// to find, no namespace to call, and no check to regress. Verified before making the change:
+    /// all three handlers already origin-pin, so a foreign site's messages are refused TODAY — this
+    /// removes a door that was already bolted rather than changing what gets through it.
+    ///
+    /// Known consequence, deliberate: a browser port pointed at a `port42.local` page would have had
+    /// a working bridge and now will not. No caller does that.
+    public func attach(to config: WKWebViewConfiguration, foreignSite: Bool = false) {
+        guard !foreignSite else { return }
         // Inject the port42 JS namespace
         let bridgeScript = WKUserScript(
             source: PortBridge.bridgeJS,

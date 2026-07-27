@@ -885,8 +885,11 @@ public final class PortWindowManager: ObservableObject {
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
-        // Attach bridge (injects port42.* namespace)
-        panel.bridge.attach(to: config)
+        // P0 hardening: a browser port shows a foreign site, so it gets no bridge namespace and no
+        // bridge handler at all. See PortBridge.attach. (Declared here because the console and
+        // height handlers below need the same answer.)
+        let foreignSite = panel.portType == "browser"
+        panel.bridge.attach(to: config, foreignSite: foreignSite)
 
         // Console forwarding script
         let consoleScript = WKUserScript(
@@ -904,28 +907,44 @@ public final class PortWindowManager: ObservableObject {
             appState?.notifyBus.publish(topic: "port:\(portId)", kind: "console",
                                         payload: ["level": level, "message": msg])
         }
-        config.userContentController.addUserScript(consoleScript)
-        config.userContentController.add(handler, name: "portConsole")
-        consoleHandlers[panel.id] = handler
+        // Same reasoning as the bridge: on a foreign site this handler is reachable by the site's
+        // scripts and already refuses everything via the origin pin. Not attaching it is the same
+        // outcome with nothing to regress. (A browser port therefore has no console capture — it had
+        // none before either, for the same reason.)
+        if !foreignSite {
+            config.userContentController.addUserScript(consoleScript)
+            config.userContentController.add(handler, name: "portConsole")
+            consoleHandlers[panel.id] = handler
+        }
 
-        // Viewport tracking script (fires resize events for terminal reflow etc.)
-        let viewportScript = WKUserScript(
-            source: PortWebViewFactory.viewportJS,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-        config.userContentController.addUserScript(viewportScript)
+        // Viewport tracking script (fires resize events for terminal reflow etc.). Not injected into
+        // a foreign site: it exists so a PORT can reflow its own content, and a browser tile is
+        // sized by the tile, not by the page.
+        if !foreignSite {
+            let viewportScript = WKUserScript(
+                source: PortWebViewFactory.viewportJS,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            config.userContentController.addUserScript(viewportScript)
+        }
 
         // Step 8: inline height reporting — lets a registry-owned port auto-size when presented
         // inline. Harmless for floating ports (the window drives their size).
-        let heightScript = WKUserScript(
-            source: PortWebViewFactory.heightJS,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-        config.userContentController.addUserScript(heightScript)
+        //
+        // The third page-world handler, gated for the same reason as the bridge and the console: on
+        // a foreign site it already refuses everything via the origin pin, so not attaching it is the
+        // same outcome with nothing left to regress. A browser port is never inline anyway.
         let heightHandler = PortHeightHandler(manager: self, portId: panel.id)
-        config.userContentController.add(heightHandler, name: "portHeight")
+        if !foreignSite {
+            let heightScript = WKUserScript(
+                source: PortWebViewFactory.heightJS,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            config.userContentController.addUserScript(heightScript)
+            config.userContentController.add(heightHandler, name: "portHeight")
+        }
         heightHandlers[panel.id] = heightHandler
 
         // RIGHT-OF-WAY (L2.d.2): the human typing or clicking INSIDE a web port is driving it, and
