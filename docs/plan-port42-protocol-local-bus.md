@@ -54,8 +54,8 @@ Flat. Each line ships on its own. Plans do not nest below this.
 | ✅ | L2 R3 · CAS + `port.getDom` | token | the first step that refuses anything |
 | ✅ | `PortRef.key` | address | one definition, was three |
 | ✅ | port sandbox (origin pin) | actor | a P0: a port could navigate away and take the bridge |
-| ▶ | **I1 · Identity** | **actor** | §B. A live permission-pooling hole, and presence + CAS both key on `principal.id` |
-| | I2 · the input seam | token | §C. Every way in counts → makes R5 honest |
+| ✅ | I1 · Identity | actor | §B. Measured first, which killed the defect both plans led with and found two nobody had named |
+| ▶ | **I2 · the input seam** | **token** | §C. Every way in counts → makes R5 honest. C0 + C1 done; C2.0 next |
 | | L2 R4 · pty choke point | token | @mention and `port.push` covered identically |
 | | L2 R5 · terminals require a token | token | only sound after I2 |
 | | L2 R6 · presence lifetime | actor | turn-scoped, no chip flicker |
@@ -203,33 +203,95 @@ programmatic**. A person typing, dictating, pasting or dropping touches no bridg
 the missing half of a promise already made.
 
 **Six seams today**, split by surface technology, which is why three separate sweeps each missed a
-path. One door instead:
+path. One door instead. **As built in C1** (2026-07-27):
 
 ```swift
 struct PortInput {
     let port: String        // PortRef.key
     let kind: Kind          // .text(String) | .gesture | .navigation(URL) | .programmatic
-    let actor: ActorRef     // from I1
+    let actor: ActorRef?    // nil = nobody to attribute it to. See below.
+    let actorName: String?  // display only; a label never becomes part of an identity
     let trust: Trust        // .native | .reportedByPage | .principal   ← R7 lives here
 }
-func received(_ input: PortInput)
+struct PortInputSeam {                       // owns the tables; pure, no bus/view/clock
+    mutating func received(_: PortInput, now: Date) -> Outcome   // { token, driverChanged? }
+    mutating func portClosed(_: String)
+}
 ```
+
+**`actor` is OPTIONAL, against this plan's original sketch, and the reason matters.** I1.1 measured
+native input arriving with nobody to attribute it to (before setup completes, `humanPrincipal` is
+nil), and the app writes to a pty at spawn time on behalf of no one. Forcing a value would mean
+inventing an identity for those paths, which is exactly what I1.3 forbade after finding every
+gateway-created port pooled into one shared id. **nil is a real answer: the port changed and we do not
+know who.** The token still moves, because it must; presence records nothing, because naming a driver
+would be a lie.
+
+That is also what kept the design at four fields. Whether to record presence is **not** a flag, it
+follows from whether an actor exists, and a flag would have been the fifth field the recorded risk
+below warns about.
+
+`received` returns what the caller must then do in the world rather than doing it, so the policy
+reaches no bus, view or clock and tests without an app.
 
 **The enforcement is privacy, not discipline.** `portActivity` and `portDrivers` become private to the
 seam, so any path that wants to affect them must build a `PortInput`. A compile error, not a code
 review — "remember to call the thing" has failed four times in this subsystem alone.
 
-**Scope: 6 mutation sites** (3 bump, 1 record, 2 forget) and **8 translators**, 7 existing plus browser
-navigation, which needs KVO on `webView.url` (Spike B: `didCommit` misses SPA route changes).
+**Scope, corrected 2026-07-27: 6 mutation sites** (3 bump, 1 record, 2 forget) **plus 4 READ sites**
+(`BridgeMethods` ×2, and the dispatcher's CAS check and throttle check). Reads travel with writes:
+making the fields private breaks them too, so C4's scope is ten sites, not six. The seam already
+exposes `token(for:)` and `driver(of:)`, so nothing is blocked.
+
+**The translator count is unknown, and this plan should stop asserting one.** It said 8 (7 existing
+plus browser navigation); C0 then collapsed the two terminal translators into one, so it was already
+stale on the day it was written. Re-derive it when C2 runs, and do not trust the result. See the
+reframe below.
 
 | # | Phase | Gate |
 |---|---|---|
-| C0 | **Collapse the terminal duplication.** One factory taking `(panel, config)`. | Deletes `bothHostsWireIt`, a test whose only job is catching a forgotten second wiring. |
-| C1 | The door: `PortInput` + `received(_:)` + `portClosed(_:)`, fields still internal. | Pure tests; nothing calls it yet. |
-| C2 | Move the 7 translators, one commit each. | Each independently green, behaviour identical. |
-| C3 | Translator 8 — browser navigation via KVO. | A page-initiated navigation bumps the token. |
+| ✅ C0 | **Collapse the terminal duplication.** One factory taking `(panel, config)`. | DONE 2026-07-27. Found a THIRD site (`PortWindowManager.restart`) doing one of five steps, leaving a controller bound to no surface. `bothHostsWireIt` replaced by a tree-wide walk asserting exactly one builder. |
+| ✅ C1 | The door: `PortInput` + the seam, fields still internal. | DONE 2026-07-27. Pure tests, nothing calls it. `actor` had to become optional (above). |
+| ▶ C2.0 | **Ownership first.** `AppState` holds ONE seam; its three fields go; reads forward to it. | **This step is new and it is a correctness prerequisite, not tidiness.** See below. |
+| C2.1..n | Move the translators, one commit each, each LIVE-verified. | Independently green, behaviour identical, and the path observed counting in Dev3. |
+| C3 | Browser navigation via KVO on `webView.url`. | A page-initiated navigation bumps the token (Spike B: `didCommit` misses SPA route changes). |
 | C4 | **Flip the fields private.** | The compiler names every path missed. This is the phase that matters. |
 | C5 | The streaming registry joins. | A streaming write verb cannot escape. |
+
+### C2.0 exists because the tables would otherwise be split in two
+
+`AppState` owns `portActivity`, `portDrivers` and `presenceThrottle`; the seam owns its own. **Move one
+translator onto the seam and it bumps the seam's table while every reader still reads AppState's.** A
+port's token would be split across two counters for the length of the migration, which is precisely
+the lie the seam exists to prevent, introduced by the work meant to prevent it.
+
+So ownership transfers atomically first, and only then is "one translator per commit" actually
+independent.
+
+### C2 is preparation. C4 is the phase that delivers the guarantee.
+
+This plan had the weight the wrong way round, treating C2 as the bulk and C4 as a finishing move.
+**Reverse it.** The reason is the finding this whole thread keeps re-proving: **enumeration
+undercounts, every single time.** Five instances now (finding 7's three sweeps, Spike C's 8-of-11,
+C0's third build site, I1's two unlisted holes, I1's dead headline defect).
+
+C2 is an enumeration phase. It will therefore be incomplete, and **effort spent trying to prove it
+complete is wasted**, because C4 achieves completeness by construction: the compiler enumerates what
+people demonstrably cannot. So C2 should be **cheap and unambitious**, move the known translators
+cleanly, and state in its own commits that the list is provisional.
+
+### Method, carried from I1 (all four earned the hard way)
+
+- **A gate scoped to named files is not a gate.** `bothHostsWireIt` named two files and a third site
+  walked past it; the old `Principal` scan was per-file and both live holes hid behind it. Tree-wide
+  walks only.
+- **Calibrate every gate by breaking it.** Two written this session were wrong on first draft and
+  passed anyway (a scan that matched its own source; an attribute orphaned by an insertion). A gate
+  that has never failed has not been shown to work.
+- **Green tests cannot see a lost closure.** C0's suite passed before a real terminal was spawned and
+  its token watched moving. Rewiring is the class of change where the types are satisfied and the
+  behaviour is gone.
+- **Done means live-verified, not committed.** P0 sat three days behind a doc that said `SHIPPED`.
 
 Dictation and remote peers are then translators, not phases — which is the test of whether the seam is
 shaped right, and weak evidence, because both cases were chosen by the person proposing it.
@@ -238,8 +300,11 @@ shaped right, and weak evidence, because both cases were chosen by the person pr
 `beforeinput`); input only, not output; Port42 owns dictation as a translator; per-port, not the old
 spec's per-element.
 
-**Recorded risk:** `PortInput` has four fields because four things need it today. If a fifth is added
-for a CONSUMER rather than a SOURCE, it has become a bag and the design failed.
+**Recorded risk, now PINNED by a test (C1):** `PortInput` has four fields because four things need it
+today. If a fifth is added for a CONSUMER rather than a SOURCE, it has become a bag and the design
+failed. `PortInputSeamTests` asserts the stored-property count, so adding one is a deliberate act with
+a test to change rather than a drift. Calibrated: a fifth field fails it with this reasoning in the
+message.
 
 ---
 

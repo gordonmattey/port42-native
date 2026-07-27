@@ -27,13 +27,14 @@ protects it in transit.
 
 ## Phases
 
-### P0 — bind to loopback — **FIXED IN `main` 2026-07-24, NOT SHIPPED**
+### P0 — bind to loopback — **SHIPPED in v0.5.50, 2026-07-27**
 `GatewayProcess.swift` launches with `-addr 127.0.0.1:<port>` instead of `:<port>`. Sharing
 unaffected: ngrok forwards to a bare port, i.e. localhost. A deliberately-hosted relay still opts
 into `:<port>` by launching the binary itself. GM confirmed nothing was pointing a second device at
 the LAN address.
 
-> **STATUS CORRECTED 2026-07-27. This said "SHIPPED 2026-07-24" and that was false.**
+> **STATUS HISTORY, kept because it is the more useful lesson than the fix.** This said "SHIPPED
+> 2026-07-24" and that was false for three days.
 > The fix (`26a52e6`, 23:42) landed **53 minutes AFTER the v0.5.49 release commit** (`f5204f8`,
 > 22:49). `git merge-base --is-ancestor` confirms it: the shipped build predates the fix, and
 > `dist/Port42.dmg` is still v0.5.49. **Every v0.5.49 install binds every interface.**
@@ -45,7 +46,13 @@ the LAN address.
 > The handoff and `architecture-invariants.md` both repeated "P0 shipped" on this line's authority.
 > **The status was asserted from the source, not measured against the artifact**, which is the same
 > failure the I1 thread recorded one layer out: a source scan cannot see that the build predates the
-> commit. A phase is SHIPPED when a user can install it, never when it is merged.
+> commit. **A phase is SHIPPED when a user can install it, never when it is merged.**
+>
+> Actually shipped in **v0.5.50 on 2026-07-27**, verified on the artifact rather than the log: the LAN
+> request that returned the real port list is now refused, loopback still works, and the DMG mounts
+> as 0.5.50 with `spctl` reporting Notarized Developer ID. `build.sh` was then fixed so release
+> metadata (tag target, notes, version) can no longer disagree with the artifact, which is what let
+> this happen: `gh release create` ran BEFORE `git push`, so GitHub tagged a commit it did not have.
 
 ### P0.5 — ngrok is INTERIM and retires with libp2p (GM, 2026-07-24)
 Stated so nobody invests in it: **ngrok is the interim sharing transport, and libp2p replaces it

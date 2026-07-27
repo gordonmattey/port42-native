@@ -22,7 +22,7 @@ why the register exists rather than a note.
 
 ---
 
-## 1. Identity — the ACTOR noun · **IN THE PLAN, IN PROGRESS**
+## 1. Identity — the ACTOR noun · **RESOLVED**
 
 **Status: ✅ RESOLVED 2026-07-27** (I1.1–I1.6). Measured first, which found two holes neither plan
 had named and killed the one both led with. One private constructor, so identity policy has one home.
@@ -51,31 +51,35 @@ records it and CAS attributes by it. Anything identity gets wrong is inherited b
 **Register note on method.** This entry was originally written from a count of `Principal(`
 construction sites and fallback strings, and **that method could not have found either live hole** (one
 has no fallback, the other needed a caller list). A primitive's STATUS here is only as good as the way
-it was established, so an asserted-from-structure status is weaker evidence than a measured one, and
-§3 already carries that caveat explicitly.
+it was established, so an asserted-from-structure status is weaker evidence than a measured one. The
+register now treats those as different grades; §3 is the remaining asserted entry.
 
 **Left open, and neither is an identity defect:** a migration question (orphaned
 `portPerms.local-http.<space>` grants that nothing reads any more; Dev3 holds an `automation` one),
 and gateway auth P1, after which `Principal.isSharedIdentity` is the single place that changes.
 
-**What this entry cost to get right:** its original status was written from a count of construction
-sites and fallback strings, and that method found neither real hole. The register now treats
-*measured* and *asserted from structure* as different grades of evidence, and §3 is the remaining
-asserted one.
-
 ---
 
 ## 2. Input — every way into a port · the TOKEN noun
 
-**Status: partly fixed, planned.** Six seams split by surface technology, which is why three sweeps
-each missed a path and why dictation, the emoji picker, right-click paste and a cross-app drag were
-all invisible until measured. The web listener is fixed (`beforeinput`); terminals and browser
-navigation are open.
+**Status: IN PROGRESS** (I2 · C0 and C1 done 2026-07-27). Six seams split by surface technology,
+which is why three sweeps each missed a path and why dictation, the emoji picker, right-click paste
+and a cross-app drag were all invisible until measured. The web listener is fixed (`beforeinput`);
+terminals now have one build path (C0, which found a third site doing one of five steps); the door
+exists and nothing calls it yet (C1). Browser navigation is open.
+
+**Scope correction:** making the tables private breaks the four READ sites as well as the six
+mutations, so this is ten sites, not six.
 
 **This is not a separate concern from the token — it is what makes the token honest.** A token claims
 "has this port changed since I looked", and that claim is false for any mutation that does not count.
 
-**Phases C0–C5 are in the plan** (`plan-port42-protocol-local-bus.md` §C). Unblocks R5.
+**Phases are in the plan** (`plan-port42-protocol-local-bus.md` §C). Unblocks R5.
+
+**The weight moved.** C2 (move the translators) was treated as the bulk of the work and C4 (make the
+fields private) as a finishing move. It is the reverse: C2 is an enumeration phase, enumeration has
+undercounted five times in this thread, and C4 is what makes the property complete BY CONSTRUCTION.
+Effort spent proving C2 exhaustive is wasted.
 
 ---
 
@@ -92,10 +96,11 @@ navigation are open.
 **R7 is one instance of this**, not the whole of it. `PortInput.trust` unifies them for input only —
 reads are uncovered, and the gateway authenticates nobody (`plan-gateway-auth-tls` P1, open).
 
-**Live 2026-07-27:** the loopback fix (P0) is in `main` but **was never shipped**, so v0.5.49 binds
-every interface and `/call` assigns the shared `local-http` identity with no `RemoteAddr` check.
-Measured, not asserted: a LAN request returned the real port list unauthenticated. See
-`plan-gateway-auth-tls.md` P0.
+**P0 SHIPPED in v0.5.50 (2026-07-27)** after three days in `main` behind a doc that said it already
+had. Verified on the artifact: a LAN request that returned the real port list before the update is
+refused after it, and loopback is unaffected. `/call` still assigns the shared `local-http` identity
+with **no `RemoteAddr` check**, so the constant's name is doing work its code does not; that is P1,
+open, and it must RETIRE the shared principal rather than gate it.
 
 *Asserted from structure. Unlike §1 and §4, no live defect is proven — the origin pin closed the one
 that was.*
