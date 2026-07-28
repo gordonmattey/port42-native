@@ -142,6 +142,37 @@ struct BridgeErrorCodeTests {
         #expect(o["sessionId"] == .string("s1"), "a report about an error is not a failed call")
     }
 
+    @Test("every code is PUBLISHED, in both places an agent reads")
+    func everyCodeIsDocumented() throws {
+        // The lists drifted the moment they were written, because both were hand-typed: five codes
+        // (js_error, no_body, no_user, no_messages, not_llm) were in the enum and in neither doc,
+        // while the doc claimed "the set is closed". Telling an agent to branch on a closed set and
+        // then publishing an incomplete one is worse than publishing nothing.
+        //
+        // TWO audiences, two files, and both must be complete: `llms-preamble.txt` becomes llms.txt,
+        // which a Claude Code session reads; `ports-context.txt` is what a PORT author gets from
+        // help(topic:"ports").
+        let res = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Port42Lib/Resources")
+        for file in ["llms-preamble.txt", "ports-context.txt"] {
+            let text = try String(contentsOf: res.appendingPathComponent(file), encoding: .utf8)
+            let missing = BridgeErrorCode.allCases.map(\.wire).filter { !text.contains($0) }
+            #expect(missing.isEmpty, "\(file) does not document: \(missing)")
+        }
+    }
+
+    @Test("the code reaches a COMPANION, not just a JSON caller")
+    func codeIsInTheToolUseText() {
+        // The gap that mattered most: an in-app companion reaches the bridge through tool use, and
+        // tool use renders `toToolBlocks`, which carried the message and the details and NOT the
+        // code. So the one caller we most wanted branching had nothing to branch on.
+        let e = BridgeError(code: .staleWrite, message: "moved", details: ["current": "e1:5"])
+        let text = e.toToolBlocks().first?["text"] as? String ?? ""
+        #expect(text.contains("stale_write"), "the code must be in the text a model reads: \(text)")
+        #expect(text.contains("current: e1:5"), "and so must the value it retries with")
+    }
+
     @Test("PortActivity's code constants ARE the enum, not a second spelling of it")
     func tokenCodesShareOneDefinition() {
         #expect(PortActivity.staleCode == BridgeErrorCode.staleWrite.wire)

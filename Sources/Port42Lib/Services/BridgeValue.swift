@@ -125,9 +125,14 @@ public struct BridgeError: Error, Equatable {
     public func toToolBlocks() -> [[String: Any]] {
         // The details go in the TEXT too, not just the JSON: a companion reads prose, and an error
         // it cannot act on costs a whole turn.
+        //
+        // AND THE CODE, since 2026-07-28. It was missing, which quietly defeated the taxonomy on the
+        // one path that needed it most: an in-app companion reaches the bridge through tool use, and
+        // tool use renders THIS text. We had just told every agent to branch on the code and then
+        // handed the LLM path a message with no code in it.
         let extra = details.isEmpty ? ""
             : " (" + details.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + ")"
-        return [["type": "text", "text": "Error: \(message)\(extra)"]]
+        return [["type": "text", "text": "Error [\(code)]: \(message)\(extra)"]]
     }
 
     // Common cases, so bodies don't each invent their own wording.

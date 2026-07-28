@@ -77,7 +77,11 @@ struct BridgeErrorTests {
         let json = e.toJSONObject() as? [String: Any]
         #expect(json?["error"] as? String == "missing required argument 'id'")
         #expect(json?["code"] as? String == "missing_arg")
-        #expect(e.toToolBlocks().first?["text"] as? String == "Error: missing required argument 'id'")
+        // The CODE is in the text, not only in the JSON. A companion reaches the bridge through tool
+        // use, and tool use renders this string — so a code that appears only in `toJSONObject` is a
+        // code the LLM path never sees, while the docs tell it to branch on one.
+        #expect(e.toToolBlocks().first?["text"] as? String
+                == "Error [missing_arg]: missing required argument 'id'")
     }
 }
 

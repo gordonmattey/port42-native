@@ -91,7 +91,11 @@ never on the message text — messages change. The set is closed:
                          a long-lived promise from port_exec — return a plain value instead)
   DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
   SOMETHING FAILED       io · device_error · browser_error · ai_error · script_error (your
-                         AppleScript/JXA) · method_failed · escape (path left the data directory)
+                         AppleScript/JXA) · js_error · method_failed · escape (path left the
+                         data directory)
+  RARELY SEEN            no_body · no_user · no_messages · not_llm (a method that needs an
+                         in-process implementation, a signed-in user, a conversation, or an LLM
+                         companion, where there is none)
 
 ## Available Methods
 
