@@ -25,69 +25,64 @@ a second instance.
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
 | **ACTOR** | ✅ **done 2026-07-27** (I1.1–I1.6). Measured first, which killed the defect both plans led with and found two nobody had named. One private `Principal` constructor; a gateway-created port authorizes as itself, not the shared `local-http`; no identity is a heap address. |
 
-### I1 COMPLETE · I2 in progress (C0, C1, C2.0 done). **NEXT: C2.1** (plan §C)
+### NEXT: L2 step 3 — presence derived from the token (plan §C/§E)
 
-**I1.1 is DONE (2026-07-27) and it replaced this section's premise rather than confirming it.**
-`ActorProbe.swift` (DEBUG only, live tally at `/tmp/port42-actor.log`) measured what actually calls in:
+**I1 and I2 are COMPLETE. R4 and R5 are done.** One design step remains before slice-02.
 
-- **`anonymous-tool-caller` is unreachable.** One production `ToolExecutor` construction site, passing
-  a non-optional `agent.id`. Both plans led with it. Deleted in I1.5, not fixed.
-- **Gateway-created ports pool.** `port.create` does `createdBy: p.id`, which from the gateway is the
-  shared `local-http`, so every such port in a space shares one grant bucket. Dev3 already persists
-  `automation` (AppleScript/JXA) in one of them.
-- **Chat and ambient ports authorize as a heap address** (`ObjectIdentifier`), so a grant cannot
-  survive a relaunch and can transfer to a different object after a dealloc.
+**Step 3:** presence stops being a stored table. `portDrivers` is deleted and the driver becomes
+whoever moved the token last, which is GM's framing: *presence is proven through the token, and humans
+hold one too*. A human holds the current token by construction, because their keystroke is what moves
+it; an agent is not at the surface so it fetches one.
 
-**I1.2, I1.4 and I1.5 shipped 2026-07-27.** The memberwise `Principal` init is private and every
-identity comes from a named factory (the gate is the compiler, calibrated); chat and ambient ports
-carry a `stableIdentity` instead of a heap address; the dead fallback is deleted and
-`ToolExecutor.createdBy` is non-optional so it cannot be reopened.
+**The one visible consequence, undecided:** focusing a port currently confers presence WITHOUT moving
+the token (`PortInputSeam.presenceClaimed`, added in C2.2, because clicking a title bar changes
+nothing). Under step 3 that is incoherent — a focus would assert presence while proving nothing. The
+likely answer is that focus stops making you the driver until you actually type. **That is a behaviour
+change and wants GM's ok before building.**
 
-**I1.3 shipped too (GM 2026-07-27: un-pool everything).** A gateway-created port authorizes as
-ITSELF, not as the shared `local-http`. Accepted cost: one permission prompt per port, because the
-gateway authenticates nobody and there is no session to key a narrower shared bucket on until
-`plan-gateway-auth-tls.md` P1. `Principal.isSharedIdentity` is the one place that changes when it does.
+**R6 (presence lifetime) is probably absorbed** into step 3: if the driver is whoever moved the token
+last, "lifetime" becomes a display question, not an expiry to tune.
 
-**I1.6 closed it (2026-07-27)** and turned up a defect on no list: the driver chip promised *"your
-writes are refused until they finish"*, which R1 made untrue three steps earlier. Presence refuses
-nothing; CAS refuses stale writes. Same untruth as the architecture page (plan §D) but in-product, so
-a defect rather than a positioning call. Fixed and pinned by a scan over user-facing strings.
+**R7 got much cheaper.** It was planned as a native event monitor because `isTrusted` is
+page-shadowable. An isolated `WKContentWorld` makes it unforgeable instead: prototypes are per-world,
+so a page cannot shadow `Event.prototype.isTrusted` out from under a listener that does not share its
+world. Browser ports already took that route; web ports can take the same one.
 
-**Left over, neither blocking:** orphaned `portPerms.local-http.<space>` grants that nothing reads now
-(Dev3 holds an `automation` one, a migration decision), and plan §D's marketing copy, still GM's call.
+### What R5 changed, because it is the live contract now
 
-**I2 is under way.** C0 collapsed terminal surface creation to one factory and found a THIRD site
-(`PortWindowManager.restart`) doing one of five steps, leaving a controller bound to no surface. C1
-built the door (`PortInput` + `PortInputSeam`), pure and uncalled; `actor` had to become OPTIONAL
-against the plan's sketch, because I1.1 measured input arriving with nobody to attribute it to and
-forcing a value would mean inventing an identity, which I1.3 had just forbidden.
+**Every write must carry the port's `token`**, or it is refused with `token_required` carrying
+`current`. No surface carve-out, no exemption for humans. This REVERSED R3's "nothing that works today
+breaks", deliberately: opt-in CAS asked for discipline from the wrong party, since your work's safety
+depended on the OTHER caller volunteering a token and almost nobody did.
 
-**C2.0 moved ownership** (one seam, AppState's three fields gone) and taught the method for the rest:
-deleting `AppState.portActivity` made the COMPILER surface an eleventh site that two careful
-hand-derivations had missed, because it binds the value (`let activity = appState.portActivity`) rather
-than calling through it. **So C2.1..n is now: delete a passthrough, let the compiler name its callers,
-convert those.** No hand-derived list, because two of them were wrong.
+It costs no extra round trips: `ports.list`, `port.create` and **every write** return a token.
+`ports-context.txt` teaches the flow, so generated ports do it correctly.
 
-**THE GAP WORTH KNOWING (plan §C, new).** Two failure classes were being blurred. A WRONG CALLER
-mutates the tables directly and the compiler finds every one once the direct route is gone, so C4
-closes that class completely. A MISSING CALLER changes the port and touches the seam not at all
-(dictation, emoji picker, right-click paste, cross-app drag, SPA route change) and **no compiler can
-ever find those**. R5 depends on the second class. **C6 is new**: re-measure every surface the way
-Spike C did, because declaring the token honest on C4's evidence would prove only that nothing bypasses
-the door, never that everything arrives at it.
+**R1's reasoning survives, its slogan does not.** R1 removed a LEASE (refused you regardless, could not
+be argued with, a vanished holder left a port stuck). R5 refuses only a caller who declined to declare
+state and hands them the answer, so nobody is ever blocked. Two R1 gates were renamed, not deleted.
 
-**The plan's weight moved (§C).** C2 was treated as the bulk and C4 (fields private) as a finishing
-move; it is the reverse. C2 is an enumeration phase, enumeration has undercounted five times in this
-thread, and C4 is what makes the property complete by construction. C2 should be cheap and say so.
+### Open decisions carried forward
 
-**v0.5.50 SHIPPED 2026-07-27** with the loopback bind (P0, three days unshipped behind a doc that said
-otherwise) and the port sandbox origin pin. `build.sh` fixed so release metadata cannot disagree with
-the artifact again.
+- **Focus-confers-presence** (above) — blocks step 3.
+- **The output seam.** Deferred by GM. Input has one door; output still has six publish sites, two of
+  which accept an arbitrary caller-supplied kind. Register §4.
+- **Orphaned `portPerms` grants.** Dev/prod hold keys nothing reads (`ObjectIdentifier(0x…)`,
+  `http-caller-…`, `local-http.<space>`). Park-then-delete vs delete outright, GM's call.
+- **Plan §D marketing copy** — the architecture page still promises right-of-way "decides who acts".
+- **API parity sweep, not started.** Both holes GM found this session (browser ports uncreatable, chat
+  unreachable) were capabilities the UI had and the API did not. Worth measuring the rest.
 
-**The method finding is the durable one.** The premise came from counting `Principal(` construction
-sites and fallback strings, and that method could not have found either real hole. Third instance in
-this thread after finding 7 and Spike C: a property about who calls in is not decidable by reading the
-callee. The probe stays wired as the regression detector.
+### Method rules this session earned (they keep paying)
+
+- **Measure before designing.** I1.1 killed the defect both plans led with as unreachable and found two
+  nobody had named. C6's first pass produced two findings that evaporated on re-measure.
+- **A gate scoped to named files is not a gate.** Tree-wide walks only.
+- **Calibrate every gate by breaking it.** Several were wrong on first write and passed anyway.
+- **Green tests cannot see a lost closure.** Live-verify rewiring.
+- **Done means live-verified, not committed.** P0 sat three days behind a doc that said SHIPPED.
+- **Let the compiler produce the caller list.** Deleting a direct route found an eleventh site two
+  careful hand-derivations had missed.
 
 ### Shipped this thread
 
