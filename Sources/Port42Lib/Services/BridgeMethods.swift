@@ -174,9 +174,17 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             presentation: o["presentation"] as? String,
             initialInput: o["initialInput"] as? String ?? "", url: o["url"] as? String)
         if let err = result["error"] as? String { throw BridgeError.badArg(err) }
+        // WAIT FOR THE DOCUMENT before answering. Measured 2026-07-27: create returned 0.24s before
+        // the port's DOM existed, so `port.exec` on a port you had just made found nothing — and the
+        // manual teaches create-then-write, so a generated port reading its own DOM is exactly the
+        // case that hit it. The panel id (not the udid) is the webview's key.
+        if let id = result["id"] as? String,
+           let panelId = appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id })?.id {
+            await appState.portWindows.awaitDocument(panelId)
+        }
         // The creator holds a token from BIRTH, so its first write needs no read. Without this the
         // one caller who unambiguously knows the port's state (it just made it) would still have to
-        // go and ask.
+        // go and ask. Read AFTER the wait, so it reflects anything the load itself counted.
         var out = result
         if let id = result["id"] as? String, let key = appState.portKey(for: id) {
             out[PortActivity.tokenKey] = appState.portInput.token(for: key)
@@ -1445,7 +1453,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let id = try args.requireString("id")
         let html = try args.requireString("html")
         let target = appState.resolvePortRef(id)?.udid ?? id
-        guard appState.portWindows.updatePort(idOrTitle: target, html: html) else {
+        guard await appState.portWindows.updatePort(idOrTitle: target, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true)])
@@ -1473,7 +1481,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             throw BridgeError.badArg("search string not found in port '\(id)' — read the current HTML with port.getHtml and copy the exact string")
         }
         let patched = current.replacingOccurrences(of: search, with: replace)
-        guard appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
+        guard await appState.portWindows.updatePort(idOrTitle: udid, html: patched) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true)])
@@ -1495,7 +1503,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         guard let html = try? appState.db.fetchPortVersionHtml(udid: udid, version: version) else {
             throw BridgeError.notFound("version \(version) for port '\(id)'")
         }
-        guard appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
+        guard await appState.portWindows.updatePort(idOrTitle: udid, html: html) else {
             throw BridgeError.notFound("port '\(id)'")
         }
         return .object(["ok": .bool(true)])

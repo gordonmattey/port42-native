@@ -759,6 +759,43 @@ public final class PortWindowManager: ObservableObject {
         NSLog("[Port42] Port restarted: %@", panels[idx].title)
     }
 
+    /// Wait until a port's document has actually loaded, or give up after `timeout`.
+    ///
+    /// **MEASURED 2026-07-27: `port.create` returned 0.24s before the document existed.** A caller
+    /// that created a port and immediately ran `port.exec` against its DOM got `null` — the manual
+    /// teaches create-then-write, so a generated port reading its own DOM straight after creating it
+    /// silently found nothing. `port.patch` and `port.update` have the same gap, since each replaces
+    /// the document and answers before the reload lands.
+    ///
+    /// Same defect class as the two already fixed today: the response describing a state the effect
+    /// has not reached yet. The write's token was the first, the deferred terminal Enter the second.
+    ///
+    /// Waits on `didFinish` rather than polling `document.readyState`, because that is the real
+    /// signal and this codebase has been burned by timers standing in for one. A FAILED load settles
+    /// it too: a caller must be released either way, or a bad document hangs the write that made it.
+    ///
+    /// The timeout is a backstop, not the mechanism. If it ever fires, the caller gets the same
+    /// behaviour it had before this existed, which is the honest failure mode.
+    @MainActor
+    func awaitDocument(_ id: String, timeout: TimeInterval = 3.0) async {
+        guard let delegate = navDelegates[id], let wv = webViews[id] else { return }
+        // Already loaded and idle: nothing to wait for. Without this, a write to a settled port
+        // would wait the full timeout for a `didFinish` that already happened.
+        if !wv.isLoading { return }
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            var resumed = false
+            let finish = {
+                guard !resumed else { return }        // didFinish + the timeout can both arrive
+                resumed = true
+                delegate.onDocumentSettled = nil
+                cont.resume()
+            }
+            delegate.onDocumentSettled = finish
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { finish() }
+        }
+    }
+
     /// Reload a registered port's original HTML into the SAME webview (restart-in-place — resets
     /// DOM/JS, re-runs scripts). Unlike `restart`, it does NOT destroy/recreate the webview, so an
     /// inline host showing `webViews[id]` keeps its adopted view (no re-parent needed).
@@ -784,12 +821,18 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// Restore a port to a specific version from its history (no new version snapshot).
+    ///
+    /// The UI path (a click in the version list), so it does not await the reload: nobody is holding
+    /// a token or about to read the DOM, and blocking a menu action on a load would only make the
+    /// click feel slow. The BRIDGE path awaits, because there a caller is answered.
     public func restoreVersion(_ id: String, version: Int) {
         guard let panel = panels.first(where: { $0.id == id }),
               let db = db,
               let html = try? db.fetchPortVersionHtml(udid: panel.udid, version: version) else { return }
-        _ = updatePort(idOrTitle: panel.udid, html: html, skipVersionSnapshot: true)
-        NSLog("[Port42] Port restored to v%d: %@", version, panel.title)
+        Task { @MainActor in
+            await updatePort(idOrTitle: panel.udid, html: html, skipVersionSnapshot: true)
+            NSLog("[Port42] Port restored to v%d: %@", version, panel.title)
+        }
     }
 
     /// Raise a panel to the top of the desktop z-order (the shell's ForEach paints by z).
@@ -813,7 +856,17 @@ public final class PortWindowManager: ObservableObject {
 
     /// Update a port's HTML by UDID or title. Works for windowed and minimized ports.
     /// Returns true if the port was found and updated.
-    public func updatePort(idOrTitle: String, html: String, skipVersionSnapshot: Bool = false) -> Bool {
+    ///
+    /// **ASYNC because it AWAITS the reload it triggers.** Replacing the HTML reloads the document,
+    /// and this used to answer while that was still in flight: a caller that patched a port and then
+    /// read its DOM got the old document or a null. Measured on `create` at 0.24s; `update`,
+    /// `patch` and `restore` all share the gap because all three come through here.
+    ///
+    /// Awaited HERE rather than at the three call sites, for the same reason the token bump lives at
+    /// the surface: a fourth document-replacing verb added tomorrow inherits the wait instead of
+    /// depending on its author having remembered.
+    @discardableResult
+    public func updatePort(idOrTitle: String, html: String, skipVersionSnapshot: Bool = false) async -> Bool {
         guard let idx = panels.firstIndex(where: { $0.udid == idOrTitle }) ??
               panels.firstIndex(where: {
                   let l = idOrTitle.lowercased()
@@ -846,6 +899,9 @@ public final class PortWindowManager: ObservableObject {
             }
         }
 
+        // The document is being replaced right now. Answering before it lands is what made
+        // patch-then-read return the OLD document.
+        await awaitDocument(panelId)
         return true
     }
 
@@ -1450,8 +1506,21 @@ final class PortHeightHandler: NSObject, WKScriptMessageHandler {
 /// This is defence in depth, NOT the primary fix — `PortBridge.isPortOrigin` is, because it holds
 /// even if something reaches a foreign document, and it covers browser ports, which must navigate.
 class PortNavigationBlocker: NSObject, WKNavigationDelegate {
+    /// The port's document finished loading. Fired for a load that SUCCEEDS or FAILS, because a
+    /// caller waiting on "is it there yet" must be released either way — a failed load that never
+    /// resolved would hang the write that triggered it.
+    var onDocumentSettled: (() -> Void)?
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(Self.allows(navigationAction.request.url) ? .allow : .cancel)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { onDocumentSettled?() }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        onDocumentSettled?()
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        onDocumentSettled?()
     }
 
     /// A port may load its own document and nothing else. Pure, so the rule is testable without a
