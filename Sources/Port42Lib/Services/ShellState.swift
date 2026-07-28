@@ -588,7 +588,7 @@ public final class ShellState: ObservableObject {
         let next = presentationSnapshot()
         for delta in Self.presentationDeltas(prev: lastPresentation, next: next) {
             appState.portWindows.panels.first(where: { $0.id == delta.id })?
-                .bridge.pushEvent("presentation", data: delta.presentation.jsonObject)
+                .bridge.pushEvent(.presentation, data: delta.presentation.jsonObject)
         }
         lastPresentation = next
     }

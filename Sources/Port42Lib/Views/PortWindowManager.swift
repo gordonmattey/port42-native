@@ -960,7 +960,7 @@ public final class PortWindowManager: ObservableObject {
         let portId = panel.id
         handler.onConsole = { [weak appState] level, msg in
             // Phase L1: a web port's console output → Notify bus (a third producer, after push + terminal).
-            appState?.notifyBus.publish(topic: "port:\(portId)", kind: "console",
+            appState?.notifyBus.publish(topic: "port:\(portId)", kind: PortEventKind.console.wire,
                                         payload: ["level": level, "message": msg])
         }
         // Same reasoning as the bridge: on a foreign site this handler is reachable by the site's

@@ -1160,7 +1160,7 @@ public final class AppState: ObservableObject {
                     "timestamp": ISO8601DateFormatter().string(from: msg.timestamp),
                     "isCompanion": msg.isAgent
                 ]
-                self.pushEventToBridges("message", data: data)
+                self.pushEventToBridges(.message, data: data)
             }
 
         // Heartbeat timer: ping active ports every 5s so they know push is alive
@@ -1180,11 +1180,11 @@ public final class AppState: ObservableObject {
                 let data: [String: Any] = [
                     "activeNames": Array(names)
                 ]
-                self.pushEventToBridges("companion.activity", data: data)
+                self.pushEventToBridges(.companionActivity, data: data)
             }
     }
 
-    private func pushEventToBridges(_ event: String, data: Any) {
+    private func pushEventToBridges(_ event: PortEventKind, data: Any) {
         activeBridges.removeAll { $0.bridge == nil }
         for weak in activeBridges {
             weak.bridge?.pushEvent(event, data: data)
@@ -2829,7 +2829,7 @@ public final class AppState: ObservableObject {
         let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
                                                    onOutput: { [weak self] out in
                                                        // Phase L1 / backlog 3.4: terminal output → Notify bus.
-                                                       self?.notifyBus.publish(topic: "port:\(panel.id)", kind: "terminal.output", payload: out)
+                                                       self?.notifyBus.publish(topic: "port:\(panel.id)", kind: PortEventKind.terminalOutput.wire, payload: out)
                                                    },
                                                    drainPending: drainPending,
                                                    onSessionStarted: onSessionStarted, onSessionEnded: onSessionEnded)

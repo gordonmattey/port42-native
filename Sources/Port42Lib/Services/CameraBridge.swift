@@ -214,7 +214,7 @@ private final class FrameHandler: NSObject, AVCaptureVideoDataOutputSampleBuffer
         if isStreaming {
             let bridgeRef = bridge
             Task { @MainActor in
-                bridgeRef?.pushEvent("camera.frame", data: frameData)
+                bridgeRef?.pushEvent(.cameraFrame, data: frameData)
             }
         }
     }

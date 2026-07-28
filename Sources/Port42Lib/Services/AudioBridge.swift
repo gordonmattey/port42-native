@@ -110,7 +110,7 @@ public final class AudioBridge: PortOwnedResource {
                     let text = result.bestTranscription.formattedString
                     let isFinal = result.isFinal
                     Task { @MainActor in
-                        bridgeRef?.pushEvent("audio.transcription", data: [
+                        bridgeRef?.pushEvent(.audioTranscription, data: [
                             "text": text,
                             "isFinal": isFinal
                         ])
@@ -122,7 +122,7 @@ public final class AudioBridge: PortOwnedResource {
                     if nsError.code != 216 && nsError.code != 1110 {
                         NSLog("[Port42] speech recognition error: %@", error.localizedDescription)
                         Task { @MainActor in
-                            bridgeRef?.pushEvent("audio.transcription", data: [
+                            bridgeRef?.pushEvent(.audioTranscription, data: [
                                 "text": "",
                                 "isFinal": true,
                                 "error": error.localizedDescription
@@ -147,7 +147,7 @@ public final class AudioBridge: PortOwnedResource {
                 let base64 = data.base64EncodedString()
 
                 Task { @MainActor in
-                    bridgeRef?.pushEvent("audio.data", data: [
+                    bridgeRef?.pushEvent(.audioData, data: [
                         "samples": base64,
                         "sampleRate": sampleRate,
                         "frameCount": frameCount,

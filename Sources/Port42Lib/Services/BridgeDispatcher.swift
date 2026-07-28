@@ -352,7 +352,7 @@ extension AppState {
     func broadcastDriverChange(_ driver: Driver?, port key: String) {
         guard let d = driver else { return }
         NSLog("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
-        notifyBus.publish(topic: "port:\(key)", kind: "driver",
+        notifyBus.publish(topic: "port:\(key)", kind: PortEventKind.driver.wire,
                           payload: ["driver": d.ref.description,
                                     "driverName": d.name,
                                     "until": d.expires.timeIntervalSince1970])

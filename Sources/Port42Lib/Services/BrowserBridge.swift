@@ -331,7 +331,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
             let url = webView.url?.absoluteString ?? ""
 
             // Emit load event
-            bridge?.pushEvent("browser.load", data: [
+            bridge?.pushEvent(.browserLoad, data: [
                 "sessionId": id,
                 "url": url,
                 "title": title
@@ -370,7 +370,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
         Task { @MainActor in
             let url = webView.url?.absoluteString ?? ""
-            bridge?.pushEvent("browser.redirect", data: [
+            bridge?.pushEvent(.browserRedirect, data: [
                 "sessionId": id,
                 "url": url
             ])
@@ -388,7 +388,7 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
         let url = webView.url?.absoluteString ?? ""
         NSLog("[Port42] browser: session %@ navigation error: %@", id, error.localizedDescription)
 
-        bridge?.pushEvent("browser.error", data: [
+        bridge?.pushEvent(.browserError, data: [
             "sessionId": id,
             "url": url,
             "error": error.localizedDescription

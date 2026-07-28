@@ -500,6 +500,11 @@ BRIDGE API REFERENCE:
     payload: any JSON-serializable value
     Returns: {ok: true}
 
+    YOUR KIND IS NAMESPACED UNDER `port.` — you publish 'state', subscribers see 'port.state'.
+    Not decoration: Port42's own events share this topic ('driver', 'browser.load',
+    'terminal.output', 'console'), and without the prefix a port could emit an envelope
+    indistinguishable from one the system sent. Match on the prefixed name.
+
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):
     A port is an actor: input goes IN via port.push, state comes OUT via port.publish, and
     consumers watch via port.subscribe. To let others read your state, PUBLISH it — do NOT make
@@ -509,7 +514,7 @@ BRIDGE API REFERENCE:
     - Producer: on each state change, and on a periodic heartbeat for late joiners, call
         port42.port.publish('state', getState());
     - Consumer: const sub = port42.port.subscribe(id, e => {
-        if (e.kind === 'state') render(e.payload);
+        if (e.kind === 'port.state') render(e.payload);   // 'state' published → 'port.state' seen
       });
     - Agree on the payload shape once: publisher and subscriber must expect the SAME envelope.
       If you publish getState() directly, the subscriber reads e.payload (not e.payload.state).

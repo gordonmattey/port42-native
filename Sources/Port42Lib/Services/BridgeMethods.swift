@@ -214,7 +214,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
         // Phase L1: republish the delivered input on the port's Notify topic (a cheap no-op when nobody
         // subscribes), so an observer can watch what a port is being driven with.
-        appState.notifyBus.publish(topic: "port:\(ref.key ?? id)", kind: "push", payload: data)
+        appState.notifyBus.publish(topic: "port:\(ref.key ?? id)", kind: PortEventKind.push.wire, payload: data)
         switch ref.kind {
         case .terminal:
             guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {
@@ -246,7 +246,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         inputSchema: [
             "type": "object",
             "properties": [
-                "kind": ["type": "string", "description": "Event kind, e.g. 'state', 'progress', 'error'."],
+                "kind": ["type": "string", "description": "Event kind, e.g. 'state', 'progress', 'error'. Namespaced on the way out: you publish 'state', subscribers see 'port.state', so a port cannot emit a system event like 'driver' or 'browser.load'."],
                 "payload": ["description": "Any JSON value (object/array/string/number) delivered as the Notify envelope's payload."]
             ],
             "required": ["kind"]
@@ -260,7 +260,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         guard p.kind == .port, let ref = appState.resolvePortRef(key) else {
             throw BridgeError(code: "no_port", message: "port.publish is only callable from within a port")
         }
-        let kind = try args.requireString("kind")
+        // NAMESPACED (2026-07-28). A port names its own events, and until now that name landed in the
+        // same flat space as `driver`, `browser.load` and `terminal.output` — so a port could emit an
+        // envelope indistinguishable from one Port42 sent. The prefix cannot be escaped, which is why
+        // this is a prefix and not a list of reserved words: a blocklist would rot the moment a system
+        // kind was added.
+        let kind = PortEventKind.fromPort(try args.requireString("kind"))
         let payload = args.any("payload") ?? NSNull()
         appState.notifyBus.publish(topic: "port:\(ref.key ?? key)", kind: kind, payload: payload)
         return .object(["ok": .bool(true)])

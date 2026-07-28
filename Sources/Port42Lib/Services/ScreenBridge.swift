@@ -369,7 +369,7 @@ final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable 
 
         let bridgeRef = bridge
         Task { @MainActor in
-            bridgeRef?.pushEvent("screen.frame", data: frameData)
+            bridgeRef?.pushEvent(.screenFrame, data: frameData)
         }
     }
 }

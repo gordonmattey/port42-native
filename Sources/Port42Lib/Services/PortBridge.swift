@@ -468,9 +468,21 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
 
     // MARK: - Event Pushing
 
-    /// Push an event to the port's JS context
+    /// Push an event to the port's JS context, and mirror it on the port's Notify topic.
+    ///
+    /// Takes `PortEventKind`, not a String: a system event that is not a case here is a compile
+    /// error rather than a new name in the wild. A PORT's own events do not come through this path
+    /// at all — they arrive via `port.publish`, which namespaces them under `port.` so they cannot
+    /// impersonate one of these.
     @MainActor
-    public func pushEvent(_ event: String, data: Any) {
+    public func pushEvent(_ kind: PortEventKind, data: Any) {
+        pushEvent(wire: kind.wire, data: data)
+    }
+
+    /// The wire-level emit. Private on purpose: it is the one place a raw name reaches the bus, and
+    /// keeping it here means `PortEventKind` cannot be bypassed by a caller with a String.
+    @MainActor
+    private func pushEvent(wire event: String, data: Any) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }
@@ -493,7 +505,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     @MainActor
     public func emitCurrentPresentation() {
         guard let mid = messageId, let snap = state?.shell?.presentation(forPortId: mid) else { return }
-        pushEvent("presentation", data: snap.jsonObject)
+        pushEvent(.presentation, data: snap.jsonObject)
     }
 
     // MARK: - Injected JavaScript

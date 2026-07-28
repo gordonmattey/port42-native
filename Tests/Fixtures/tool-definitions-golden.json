@@ -768,7 +768,7 @@
     "input_schema" : {
       "properties" : {
         "kind" : {
-          "description" : "Event kind, e.g. 'state', 'progress', 'error'.",
+          "description" : "Event kind, e.g. 'state', 'progress', 'error'. Namespaced on the way out: you publish 'state', subscribers see 'port.state', so a port cannot emit a system event like 'driver' or 'browser.load'.",
           "type" : "string"
         },
         "payload" : {
