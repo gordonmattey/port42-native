@@ -436,7 +436,7 @@ BRIDGE API REFERENCE:
 
   WRITING TO A PORT REQUIRES ITS TOKEN (R5)
     Every write verb (push, exec, update, patch, rename, move, restore, manage) must say
-    what state it composed against, by passing the port's `token` as `expect`. A write
+    what state it composed against, by passing the port's `token` as `token`. A write
     without one is refused with code 'token_required'.
 
     This is not bureaucracy. Without it, whether YOUR work survives depends on whether the
@@ -460,13 +460,13 @@ BRIDGE API REFERENCE:
     A HUMAN typing into a port holds the current token by construction: their keystroke is
     what moves it. You are not at the surface, so you carry one explicitly.
 
-  port42.port.push(id, data, expect)
+  port42.port.push(id, data, token)
     Push data to a live port via CustomEvent. The target port receives a 'port42:data'
     event with the data in event.detail. Use this to feed live data into ports from
     other ports or from companion tool calls.
     id: port UDID (from ports.list)
     data: any JSON-serializable value
-    expect: the port's token (REQUIRED — see above)
+    token: the port's token (REQUIRED — see above)
     Returns: {ok: true, token}
 
     Receiving port listens with:

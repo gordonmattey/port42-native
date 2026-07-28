@@ -25,7 +25,18 @@ public struct PortActivity: Equatable {
 
     /// The optional argument a writer passes to say "I composed this against THIS state" (R3).
     /// Named once here so the dispatcher, the schema injection and the tests cannot drift.
-    public static let expectParam = "expect"
+    /// The request field a write carries its composed-against token in.
+    ///
+    /// Named `token`, the same word every RESPONSE uses (`ports.list`, `port.create`, and every
+    /// write return one). It was `expect` while CAS was optional; making it mandatory (R5) exposed
+    /// the asymmetry, since a caller held a thing called `token` and had to type `expect`.
+    ///
+    /// The objection to `token` was that a request field of that name reads as a credential. It does
+    /// not here: `token` already means the port's state token throughout this API, and gateway auth
+    /// (plan-gateway-auth-tls P1) is a HEADER, so the two never share a namespace. Renamed while
+    /// adoption was still zero, hours after the rule shipped, because the cost of this rename rises
+    /// every hour that generated ports bake the old name in.
+    public static let expectParam = "token"
 
     /// The key every write's response carries its new token under, and every port-returning read.
     /// One spelling, so a caller threads the same field everywhere.

@@ -19,7 +19,7 @@ port out by re-parenting its live surface into a window — no reload, DOM/JS st
 desktop port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
 [terminal:id] card) so it keeps its place in the conversation.
 
-WRITES CARRY A TOKEN. Every write verb must pass the port's `token` as `expect`, or it is
+WRITES CARRY A TOKEN. Every write verb must pass the port's `token` as `token`, or it is
 refused with 'token_required'. ports.list, port.create and every write RETURN a token, so
 this costs no extra round trip once you hold one. The error carries `current`, so a caller
 that has not looked yet retries once with that. (Why: without it, your work's safety depends
@@ -294,11 +294,11 @@ Generated from the live method registry: every entry below is served exactly as 
         title (string): Port title (default: derived from html <title>, or the command).
         type (string, required): The port type to create.
         url (string): type:"browser" — the page to open (e.g. "https://example.com").
-  port.exec(id, js, expect)
+  port.exec(id, js, token)
       Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID (from ports_list)
         js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response.
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
   port.getDom(id, selector)
       Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'expect' on your next write and it will be refused rather than clobber someone if the port moved in between.
         id (string, required): The port's UDID (from ports_list)
@@ -312,43 +312,43 @@ Generated from the live method registry: every entry below is served exactly as 
         id (string, required): The port's UDID (from ports_list)
   port.info()
       Return the calling port's own id, title, space, capabilities, and activity token.
-  port.manage(id, action, expect)
+  port.manage(id, action, token)
       Manage a port. Actions: focus (raise to the front of the desktop), close, minimize/dock (off the desktop but still running), restore/undock (bring a docked/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.
         action (string, required): One of: focus, close, minimize, dock, restore, undock
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID or title
-  port.move(id, x, y, expect)
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
+  port.move(id, x, y, token)
       Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID (from ports_list)
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         x (number, required): Horizontal position in screen points
         y (number, required): Vertical position in screen points
-  port.patch(id, search, replace, expect)
+  port.patch(id, search, replace, token)
       Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID (from ports_list)
         replace (string, required): The string to replace it with.
         search (string, required): The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
   port.position(id)
       Return a port's position and size.
   port.publish(kind, payload)
       A port emits its OWN state or event on its own Notify topic, for consumers watching via port_subscribe. This is a port broadcasting AS itself — distinct from port_push, which is input sent INTO a port. Only meaningful from inside a port; the topic is the calling port's own id, so there is no target argument. Use this instead of having a consumer reach in with port_exec to read state: the port publishes, consumers subscribe.
         kind (string, required): Event kind, e.g. 'state', 'progress', 'error'.
         payload: Any JSON value (object/array/string/number) delivered as the Notify envelope's payload.
-  port.push(id, data, expect)
+  port.push(id, data, token)
       Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. "ls\n", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.
         data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute).
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID (from ports_list), or a terminal's name.
-  port.rename(id, title, expect)
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
+  port.rename(id, title, token)
       Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID (from ports_list)
         title (string, required): The new title for the port
-  port.restore(id, version, expect)
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
+  port.restore(id, version, token)
       Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         id (string, required): The port's UDID (from ports_list)
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         version (integer, required): The version number to restore to (from port_history)
   port.setCapabilities(capabilities)
       Set the calling port's own capabilities list.
@@ -357,11 +357,11 @@ Generated from the live method registry: every entry below is served exactly as 
   port.subscribe(id)  [streaming]
       Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload } as the port emits them (e.g. terminal.output). The stream stays open until cancelled.
         id (string, required): The port to observe (id / udid / title).
-  port.update(id, html, expect)
+  port.update(id, html, token)
       Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.
-        expect (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
         html (string, required): The new HTML content for the port (full HTML, not a diff)
         id (string, required): The port's UDID or title to identify which port to update
+        token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
 
 ### ports
 

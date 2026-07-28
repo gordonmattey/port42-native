@@ -19,7 +19,7 @@ port out by re-parenting its live surface into a window — no reload, DOM/JS st
 desktop port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
 [terminal:id] card) so it keeps its place in the conversation.
 
-WRITES CARRY A TOKEN. Every write verb must pass the port's `token` as `expect`, or it is
+WRITES CARRY A TOKEN. Every write verb must pass the port's `token` as `token`, or it is
 refused with 'token_required'. ports.list, port.create and every write RETURN a token, so
 this costs no extra round trip once you hold one. The error carries `current`, so a caller
 that has not looked yet retries once with that. (Why: without it, your work's safety depends

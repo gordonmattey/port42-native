@@ -601,16 +601,16 @@
     "description" : "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
     "input_schema" : {
       "properties" : {
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID (from ports_list)",
           "type" : "string"
         },
         "js" : {
           "description" : "JavaScript code to execute in the port's context. Return a value to get it back in the response.",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
@@ -686,12 +686,12 @@
           "description" : "One of: focus, close, minimize, dock, restore, undock",
           "type" : "string"
         },
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID or title",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
@@ -707,12 +707,12 @@
     "description" : "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
     "input_schema" : {
       "properties" : {
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         },
         "x" : {
@@ -737,10 +737,6 @@
     "description" : "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
     "input_schema" : {
       "properties" : {
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID (from ports_list)",
           "type" : "string"
@@ -751,6 +747,10 @@
         },
         "search" : {
           "description" : "The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
@@ -789,12 +789,12 @@
         "data" : {
           "description" : "For web ports: any JSON value (object\/array\/string\/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."
         },
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID (from ports_list), or a terminal's name.",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
@@ -810,16 +810,16 @@
     "description" : "Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.",
     "input_schema" : {
       "properties" : {
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID (from ports_list)",
           "type" : "string"
         },
         "title" : {
           "description" : "The new title for the port",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
@@ -835,12 +835,12 @@
     "description" : "Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.",
     "input_schema" : {
       "properties" : {
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "id" : {
           "description" : "The port's UDID (from ports_list)",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         },
         "version" : {
@@ -860,16 +860,16 @@
     "description" : "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
     "input_schema" : {
       "properties" : {
-        "expect" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
-          "type" : "string"
-        },
         "html" : {
           "description" : "The new HTML content for the port (full HTML, not a diff)",
           "type" : "string"
         },
         "id" : {
           "description" : "The port's UDID or title to identify which port to update",
+          "type" : "string"
+        },
+        "token" : {
+          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
