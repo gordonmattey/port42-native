@@ -1,11 +1,48 @@
 # Handoff: Port42 Protocol — Address · Actor · Token
 
-## Where this left off (2026-07-27)
+## Where this left off (2026-07-28)
 
-**On `main`**, tree clean. `l2-right-of-way` was fast-forwarded in and **released as v0.5.50**
-(notarized, stapled, appcast pushed). Full suite **1129 green**. Dev3 (`./build.sh --dev3 --run`, `:4245`) is running all of it,
-live-verified. **Dev3 builds no longer need GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod
-still do.
+**On `main`**, tree clean, HEAD `6cbcdc6`, **14 commits UNPUSHED**. Suite **1172 green**. Dev3
+(`./build.sh --dev3 --run`, `:4245`) is running all of it, live-verified. **Dev3 builds no longer need
+GM's go-ahead** (GM, 2026-07-26); Dev `:4243` and prod still do.
+
+**THE PROTOCOL THREAD IS COMPLETE.** All three nouns are single-definition, honest and live-verified.
+Slice-02 is now a transport change rather than a redesign. Four things were finished after it, each
+scoped as one item and each with something larger underneath (see "the pattern", below).
+
+**The ORDER of work lives in `docs/summer2026-todo.md` → WORKING ORDER**, added 2026-07-28 so it
+survives a session boundary. Next item there: **gateway auth P1**, whose design is written up in that
+same file (token file, Keychain store, per-instance path, Settings subsection, CLAUDE.md rewrite).
+
+**A BREAKING RELEASE sits between here and slice-02, and GM is testing before cutting it.** v0.5.50
+predates R5, so every shipped install still has opt-in CAS. The release carries: mandatory tokens on
+every write, `port.exec` scalars reshaped to `{value, token}`, `port.push` no longer auto-submitting a
+newline the caller did not send, port event kinds namespaced under `port.`, error codes across the
+surface, and the P0 hardening (`ba6a8f6` + R7) that missed the v0.5.50 cut. **The P0 ESCAPE itself is
+closed in the shipped build** — `df1b07f` predates the release; only the hardening is unshipped.
+
+### What landed after R7 (2026-07-28)
+
+- **The write-response contract** (plan §G). A response now describes the state AFTER its effect. The
+  token is read after the body, the terminal's deferred Enter is awaited, scalar results carry a
+  token, and `port.create`/`update`/`patch`/`restore` await the document (measured: create answered
+  0.24s before the DOM existed).
+- **The output namespace.** `PortEventKind` types every system kind; a port's own kind is prefixed
+  `port.`, so a port cannot emit `driver` or `browser.load`.
+- **The error taxonomy** (register §5, closed on the app side). A code is a value; ~90 device-bridge
+  failures were being RETURNED AS SUCCESSES and now throw with a family or site code; codes are
+  sharpened where the caller's action differs; published to both audiences and gated against drift.
+- **`port.rename` on a missing port answered `{"ok": true}`.** Fixed.
+
+### The pattern worth carrying into P1
+
+**Every item was scoped as one thing and had a larger thing underneath, and the cause was always the
+same: a fix verified on ONE caller path, assumed to hold on the others.** There are three — the JSON
+caller (gateway/curl), tool use (an in-app companion), and port JS (`window.port42`). The error code
+reached the first, then the second, and only after GM asked "is there any testing we need to do inside
+a port?" did it reach the third, where the manual's own documented retry loop had never been able to
+run. **P1 has three paths of its own** (a typed curl, the app's children, the gateway subprocess), so
+verify each rather than one.
 
 ### READ THIS FIRST: the frame
 
@@ -22,7 +59,7 @@ a second instance.
 | Noun | State |
 |---|---|
 | **ADDRESS** | ✅ done — `PortRef.key`, one definition where there were three |
-| **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
+| **TOKEN** | ✅ done — the counter, CAS, every way in counting (I2/C6), and mandatory (R5). Known limit: a browser page mutating its DOM without changing its URL still does not count |
 | **ACTOR** | ✅ **done 2026-07-27** (I1.1–I1.6). Measured first, which killed the defect both plans led with and found two nobody had named. One private `Principal` constructor; a gateway-created port authorizes as itself, not the shared `local-http`; no identity is a heap address. |
 
 ### NEXT: L2 R7, then slice-02
