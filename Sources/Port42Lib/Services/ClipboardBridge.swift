@@ -61,9 +61,9 @@ public final class ClipboardBridge {
                 return ["ok": true]
             }
 
-            return ["error": "unsupported clipboard type: \(type)"]
+            return ["error": "unsupported clipboard type: \(type)", "code": BridgeErrorCode.badArg.wire]
         }
 
-        return ["error": "clipboard.write requires a string or {type, data} object"]
+        return ["error": "clipboard.write requires a string or {type, data} object", "code": BridgeErrorCode.badArg.wire]
     }
 }

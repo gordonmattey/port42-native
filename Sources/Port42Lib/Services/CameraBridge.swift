@@ -46,7 +46,7 @@ public final class CameraBridge: NSObject, PortOwnedResource {
             }
             session.addInput(input)
         } catch {
-            return ["error": "Camera access denied: \(error.localizedDescription)"]
+            return ["error": "Camera access denied: \(error.localizedDescription)", "code": BridgeErrorCode.permissionDenied.wire]
         }
 
         let output = AVCaptureVideoDataOutput()
@@ -95,7 +95,7 @@ public final class CameraBridge: NSObject, PortOwnedResource {
     /// Start continuous camera streaming. Frames pushed as camera.frame events to `owner`, the
     /// PortBridge whose port made the call (nil for a headless caller).
     func stream(opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
-        if isStreaming { return ["error": "Already streaming"] }
+        if isStreaming { return ["error": "Already streaming", "code": BridgeErrorCode.wrongState.wire] }
 
         let scale = opts["scale"] as? Double ?? 0.25
         let clampedScale = CGFloat(min(max(scale, 0.1), 2.0))
@@ -119,7 +119,7 @@ public final class CameraBridge: NSObject, PortOwnedResource {
     /// Stop camera streaming. Tears the session DOWN (released, not merely stopped) — the Tier-A
     /// teardown gate; the old stopRunning-only stop kept the AVCaptureSession allocated.
     func stopStream() -> [String: Any] {
-        guard isStreaming else { return ["error": "Not streaming"] }
+        guard isStreaming else { return ["error": "Not streaming", "code": BridgeErrorCode.wrongState.wire] }
         isStreaming = false
         frameHandler.isStreaming = false
         frameHandler.bridge = nil

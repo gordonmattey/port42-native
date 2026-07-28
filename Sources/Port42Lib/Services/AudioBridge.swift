@@ -45,7 +45,7 @@ public final class AudioBridge: PortOwnedResource {
     /// port made the call (nil for a headless caller): transcription/data events route to it.
     public func capture(opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
         guard !isCapturing else {
-            return ["error": "capture already in progress"]
+            return ["error": "capture already in progress", "code": BridgeErrorCode.wrongState.wire]
         }
 
         let transcribe = opts["transcribe"] as? Bool ?? true
@@ -56,7 +56,7 @@ public final class AudioBridge: PortOwnedResource {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             NSLog("[Port42] audio.capture: system microphone permission denied")
-            return ["error": "microphone access denied by system. Check System Settings > Privacy & Security > Microphone"]
+            return ["error": "microphone access denied by system. Check System Settings > Privacy & Security > Microphone", "code": BridgeErrorCode.permissionDenied.wire]
         }
 
         // If transcribing, request speech recognition authorization
@@ -68,7 +68,7 @@ public final class AudioBridge: PortOwnedResource {
             }
             guard speechStatus == .authorized else {
                 NSLog("[Port42] audio.capture: speech recognition permission denied (status=%d)", speechStatus.rawValue)
-                return ["error": "speech recognition permission denied. Check System Settings > Privacy & Security > Speech Recognition"]
+                return ["error": "speech recognition permission denied. Check System Settings > Privacy & Security > Speech Recognition", "code": BridgeErrorCode.permissionDenied.wire]
             }
         }
 
@@ -94,7 +94,7 @@ public final class AudioBridge: PortOwnedResource {
 
             guard let recognizer, recognizer.isAvailable else {
                 NSLog("[Port42] audio.capture: speech recognizer unavailable for locale %@", language)
-                return ["error": "speech recognizer not available for language '\(language)'"]
+                return ["error": "speech recognizer not available for language '\(language)'", "code": BridgeErrorCode.unsupported.wire]
             }
 
             request = SFSpeechAudioBufferRecognitionRequest()
@@ -184,7 +184,7 @@ public final class AudioBridge: PortOwnedResource {
     /// Stop microphone capture and speech recognition.
     public func stopCapture() -> [String: Any] {
         guard isCapturing else {
-            return ["error": "no active capture"]
+            return ["error": "no active capture", "code": BridgeErrorCode.wrongState.wire]
         }
 
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -228,7 +228,7 @@ public final class AudioBridge: PortOwnedResource {
     /// made the call: its teardown stops the synthesizer so a closed port cannot keep talking.
     public func speak(text: String, opts: [String: Any]?, owner: PortBridge? = nil) async -> [String: Any] {
         guard !text.isEmpty else {
-            return ["error": "audio.speak requires non-empty text"]
+            return ["error": "audio.speak requires non-empty text", "code": BridgeErrorCode.badArg.wire]
         }
 
         let utterance = AVSpeechUtterance(string: text)
@@ -280,11 +280,11 @@ public final class AudioBridge: PortOwnedResource {
     /// call: its teardown stops the player so a closed port cannot keep playing.
     public func play(data: String, opts: [String: Any]?, owner: PortBridge? = nil) -> [String: Any] {
         guard let audioData = Data(base64Encoded: data) else {
-            return ["error": "invalid base64 audio data"]
+            return ["error": "invalid base64 audio data", "code": BridgeErrorCode.badArg.wire]
         }
 
         guard !audioData.isEmpty else {
-            return ["error": "empty audio data"]
+            return ["error": "empty audio data", "code": BridgeErrorCode.badArg.wire]
         }
 
         audioPlayer?.stop()

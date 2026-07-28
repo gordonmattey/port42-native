@@ -84,6 +84,21 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     case jsError = "js_error"
     case jsTimeout = "js_timeout"
 
+    /// The call is fine but the thing is in the wrong state for it: already streaming, not
+    /// streaming, no active capture, session limit reached. **The caller can recover on its own** by
+    /// changing that state and retrying, which is exactly what `device_error` hides.
+    case wrongState = "wrong_state"
+
+    /// It ran too long and was abandoned. Generic ON PURPOSE, unlike `js_timeout` and `ai_timeout`,
+    /// which stay separate because their FIX is specific rather than "wait and retry": a JS timeout
+    /// almost always means the body returned a long-lived promise, and an AI timeout is about the
+    /// model call itself. Where the fix is just "retry, or allow longer", one code says it.
+    case timedOut = "timed_out"
+
+    /// This build of macOS cannot do it (`screen.record` needs macOS 15). Distinct because it is the
+    /// one failure a caller must NOT retry, and no user action fixes it either.
+    case unsupported
+
     /// A failure a body reported without naming a family. Better than nothing: a caller can at least
     /// tell "this did not work" from "this worked", which is the distinction that was missing.
     case methodFailed = "method_failed"

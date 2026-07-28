@@ -461,12 +461,18 @@ BRIDGE API REFERENCE:
     closed set, so matching one is safe:
       RETRY WITH e.current   token_required · stale_write
       FIX YOUR CALL          missing_arg · bad_arg · unknown_method · js_syntax
-      THE TARGET             not_found (no such port) · no_surface (exists, nothing live to write
-                             to yet — wait or respawn) · port_paused
+      THE TARGET             not_found (no such port/session/window) · no_surface (exists, nothing
+                             live to write to yet — wait or respawn) · port_paused
+      CHANGE STATE, RETRY    wrong_state (already streaming, not streaming, no active capture,
+                             session limit reached — stop or close one, then call again)
       ASK THE USER           permission_denied (a capability: they grant it) ·
                              access_denied (a path they never picked: they pick a file)
-      SOMETHING FAILED       io · device_error · browser_error · ai_error · ai_timeout ·
-                             js_error · js_timeout · escape (path left the data directory)
+      WAIT OR ALLOW LONGER   timed_out · ai_timeout · js_timeout (this one usually means you
+                             returned a long-lived promise — return a plain value instead)
+      DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
+      SOMETHING FAILED       io · device_error · browser_error · ai_error · script_error
+                             (your AppleScript/JXA) · method_failed · escape (path left the
+                             data directory)
 
     Branch on the CODE, never on the message text: messages are written for people and change.
 

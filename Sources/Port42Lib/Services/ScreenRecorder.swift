@@ -194,13 +194,13 @@ public final class ScreenRecorder {
                       ownerPortId: String? = nil,
                       portFrameLookup: ((String) -> CGRect?)? = nil) async -> [String: Any] {
         guard #available(macOS 15, *) else {
-            return ["error": "screen.record requires macOS 15 or later"]
+            return ["error": "screen.record requires macOS 15 or later", "code": BridgeErrorCode.unsupported.wire]
         }
         // Invalid parameter combo, rejected before any capture: the cursor is a display-compositor
         // overlay ScreenCaptureKit renders only on display/region captures — a window/self/port target
         // cannot include it. Point the caller at the targets that can.
         if (opts["cursor"] as? Bool) == true, !target.supportsCursor {
-            return ["error": "screen.record: cursor is only supported on a display or region target — a window/port capture cannot include the cursor. Use target:{display:…} or target:{region:{x,y,w,h}}."]
+            return ["error": "screen.record: cursor is only supported on a display or region target — a window/port capture cannot include the cursor. Use target:{display:…} or target:{region:{x,y,w,h}}.", "code": BridgeErrorCode.unsupported.wire]
         }
         // Resolve the target → capture filter + base size (points) + label, from ONE content fetch.
         // self/port/ports/window:id use the occlusion-proof window filter; region/display use the
@@ -219,7 +219,7 @@ public final class ScreenRecorder {
         switch target {
         case .selfWindow, .port, .ports:
             guard let win = selfWindow(in: content) else {
-                return ["error": "screen.record: could not resolve the Port42 window"]
+                return ["error": "screen.record: could not resolve the Port42 window", "code": BridgeErrorCode.notFound.wire]
             }
             filter = SCContentFilter(desktopIndependentWindow: win)
             baseSize = win.frame.size
@@ -227,7 +227,7 @@ public final class ScreenRecorder {
             if case .selfWindow = target {} else { isPortTarget = true }
         case .window(let wid):
             guard let win = content.windows.first(where: { $0.windowID == wid }) else {
-                return ["error": "screen.record: window \(wid) not found"]
+                return ["error": "screen.record: window \(wid) not found", "code": BridgeErrorCode.notFound.wire]
             }
             filter = SCContentFilter(desktopIndependentWindow: win)
             baseSize = win.frame.size
@@ -262,7 +262,7 @@ public final class ScreenRecorder {
             let ids: [String] = { if case .port(let i) = target { return [i] }; if case .ports(let a) = target { return a }; return [] }()
             let rects = ids.compactMap { portFrameLookup?($0) }
             guard let bbox = RecordFraming.unionBBox(rects, padding: paddingOpt(opts)) else {
-                return ["error": "screen.record: no resolvable tiles for the given port(s)"]
+                return ["error": "screen.record: no resolvable tiles for the given port(s)", "code": BridgeErrorCode.notFound.wire]
             }
             contentBBox = bbox
             targetLabel = "ports(\(ids.count))"
@@ -287,7 +287,7 @@ public final class ScreenRecorder {
                     height: RecordConfig.intOpt(opts["height"]),
                     scale: (RecordConfig.numOpt(opts["scale"]) ?? displayScale))
             } catch RecordFramingError.containNotSupported {
-                return ["error": "screen.record: fit:contain (letterbox) is not yet supported; pass fit:cover or fit:exact, or omit aspect"]
+                return ["error": "screen.record: fit:contain (letterbox) is not yet supported; pass fit:cover or fit:exact, or omit aspect", "code": BridgeErrorCode.unsupported.wire]
             } catch {
                 return ["error": "screen.record: framing failed: \(error.localizedDescription)"]
             }
@@ -345,12 +345,12 @@ public final class ScreenRecorder {
     /// Stop + finalize a recording. Returns `{path, width, height, seconds, fps, bytes}` or `{error}`.
     public func stop(recordingId: String) async -> [String: Any] {
         guard let rec = active[recordingId] else {
-            return ["error": "screen.record: no active recording \(recordingId)"]
+            return ["error": "screen.record: no active recording \(recordingId)", "code": BridgeErrorCode.wrongState.wire]
         }
         active[recordingId] = nil
 
         guard #available(macOS 15, *), let writer = rec.writer as? RecordingWriter else {
-            return ["error": "screen.record requires macOS 15 or later"]
+            return ["error": "screen.record requires macOS 15 or later", "code": BridgeErrorCode.unsupported.wire]
         }
 
         // Stop capture, THEN finalize the writer (mark inputs finished + finishWriting), with a 3s

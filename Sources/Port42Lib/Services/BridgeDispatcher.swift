@@ -206,6 +206,12 @@ extension AppState {
         guard case .object(let o) = value,
               case .string(let message)? = o["error"],
               o.keys.allSatisfy({ $0 == "error" || $0 == "code" }) else { return }
+        // A body that NAMED its code wins over the family default: the family is what you can derive
+        // without knowing anything, and the site knows more. "screen recording permission denied" is
+        // a permission failure the user can fix, not a device that broke.
+        if case .string(let named)? = o["code"], !named.isEmpty {
+            throw BridgeError(rawCode: named, message: message)
+        }
         throw BridgeError(code: BridgeErrorCode.forMethod(method), message: message)
     }
 

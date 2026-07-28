@@ -138,7 +138,7 @@ public final class ScreenBridge: PortOwnedResource {
     private func captureWindow(windowId: UInt32, scale: Double, content: SCShareableContent) async -> [String: Any] {
         guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
             NSLog("[Port42] screen.capture: window %u not found", windowId)
-            return ["error": "window not found"]
+            return ["error": "window not found", "code": BridgeErrorCode.notFound.wire]
         }
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
@@ -192,7 +192,7 @@ public final class ScreenBridge: PortOwnedResource {
     /// Start continuous screen streaming. Frames pushed as screen.frame events to `owner`, the
     /// PortBridge whose port made the call (nil for a headless caller).
     func stream(opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
-        if isStreaming { return ["error": "Already streaming"] }
+        if isStreaming { return ["error": "Already streaming", "code": BridgeErrorCode.wrongState.wire] }
 
         let scale = min(2.0, max(0.1, opts["scale"] as? Double ?? 0.5))
         let fps = min(10.0, max(1.0, opts["fps"] as? Double ?? 4.0))
@@ -212,7 +212,7 @@ public final class ScreenBridge: PortOwnedResource {
 
         if let windowId = windowIdOpt {
             guard let window = content.windows.first(where: { $0.windowID == windowId }) else {
-                return ["error": "window not found"]
+                return ["error": "window not found", "code": BridgeErrorCode.notFound.wire]
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
             captureWidth = Int(window.frame.width * scale)
@@ -263,7 +263,7 @@ public final class ScreenBridge: PortOwnedResource {
     /// Stop screen streaming. Releases the SCStream and its delegate (the Tier-A teardown gate).
     func stopStream() async -> [String: Any] {
         guard isStreaming else {
-            return ["error": "Not streaming"]
+            return ["error": "Not streaming", "code": BridgeErrorCode.wrongState.wire]
         }
 
         if let scStream = stream {
@@ -323,7 +323,7 @@ public final class ScreenBridge: PortOwnedResource {
            nsError.localizedDescription.lowercased().contains("permission") ||
            nsError.localizedDescription.lowercased().contains("denied") {
             NSLog("[Port42] %@: TCC permission denied: %@", method, error.localizedDescription)
-            return ["error": "screen recording permission denied. Check System Settings > Privacy & Security > Screen Recording"]
+            return ["error": "screen recording permission denied. Check System Settings > Privacy & Security > Screen Recording", "code": BridgeErrorCode.permissionDenied.wire]
         }
         NSLog("[Port42] %@: failed to get shareable content: %@", method, error.localizedDescription)
         return ["error": "screen capture failed: \(error.localizedDescription)"]

@@ -713,7 +713,7 @@ public final class SyncService: NSObject, ObservableObject {
             if let handler = onCallReceived {
                 result = await handler(senderId, callId, method, input)
             } else {
-                result = ["error": "method not implemented"] as [String: String]
+                result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire] as [String: String]
             }
 
             // Send response back

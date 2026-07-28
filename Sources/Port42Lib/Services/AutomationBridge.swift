@@ -43,7 +43,7 @@ public final class AutomationBridge {
 
             // Enforce timeout
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                guard_.resumeOnce(["error": "AppleScript timed out after \(Int(timeout))s"])
+                guard_.resumeOnce(["error": "AppleScript timed out after \(Int(timeout))s", "code": BridgeErrorCode.timedOut.wire])
             }
         }
     }
@@ -93,7 +93,7 @@ public final class AutomationBridge {
                     DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                         if process.isRunning { process.interrupt() }
                     }
-                    guard_.resumeOnce(["error": "JXA timed out after \(Int(timeout))s"])
+                    guard_.resumeOnce(["error": "JXA timed out after \(Int(timeout))s", "code": BridgeErrorCode.timedOut.wire])
                 }
             }
         }

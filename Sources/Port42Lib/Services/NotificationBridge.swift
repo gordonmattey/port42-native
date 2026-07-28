@@ -40,7 +40,7 @@ public final class NotificationBridge {
     /// opts: { sound?: true, subtitle?: string, badge?: number }
     func send(title: String, body: String, opts: [String: Any]?) async -> [String: Any] {
         guard await ensureAuthorized() else {
-            return ["error": "notification permission denied"]
+            return ["error": "notification permission denied", "code": BridgeErrorCode.permissionDenied.wire]
         }
 
         let content = UNMutableNotificationContent()

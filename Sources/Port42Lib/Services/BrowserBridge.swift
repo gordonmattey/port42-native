@@ -52,11 +52,11 @@ public final class BrowserBridge: PortOwnedResource {
     /// creating port even though the session store itself is shared across all surfaces (registry).
     func open(url urlString: String, opts: [String: Any], owner: PortBridge? = nil) async -> [String: Any] {
         guard sessions.count < maxSessions else {
-            return ["error": "maximum browser sessions reached (\(maxSessions)). Close a session first."]
+            return ["error": "maximum browser sessions reached (\(maxSessions)). Close a session first.", "code": BridgeErrorCode.wrongState.wire]
         }
 
         guard let url = validateURL(urlString) else {
-            return ["error": "invalid or disallowed URL: \(urlString)"]
+            return ["error": "invalid or disallowed URL: \(urlString)", "code": BridgeErrorCode.badArg.wire]
         }
 
         let sessionId = UUID().uuidString.prefix(8).lowercased()
@@ -88,10 +88,10 @@ public final class BrowserBridge: PortOwnedResource {
     /// Navigate an existing session to a new URL.
     func navigate(sessionId: String, url urlString: String) async -> [String: Any] {
         guard let session = sessions[sessionId] else {
-            return ["error": "session not found: \(sessionId)"]
+            return ["error": "session not found: \(sessionId)", "code": BridgeErrorCode.notFound.wire]
         }
         guard let url = validateURL(urlString) else {
-            return ["error": "invalid or disallowed URL: \(urlString)"]
+            return ["error": "invalid or disallowed URL: \(urlString)", "code": BridgeErrorCode.badArg.wire]
         }
 
         let result = await session.navigate(to: url)
@@ -102,7 +102,7 @@ public final class BrowserBridge: PortOwnedResource {
     /// Take a screenshot of a browser session.
     func capture(sessionId: String, opts: [String: Any]) async -> [String: Any] {
         guard let session = sessions[sessionId] else {
-            return ["error": "session not found: \(sessionId)"]
+            return ["error": "session not found: \(sessionId)", "code": BridgeErrorCode.notFound.wire]
         }
         return await session.capture(opts: opts)
     }
@@ -110,7 +110,7 @@ public final class BrowserBridge: PortOwnedResource {
     /// Extract text content from a browser session.
     func text(sessionId: String, opts: [String: Any]) async -> [String: Any] {
         guard let session = sessions[sessionId] else {
-            return ["error": "session not found: \(sessionId)"]
+            return ["error": "session not found: \(sessionId)", "code": BridgeErrorCode.notFound.wire]
         }
         return await session.text(opts: opts)
     }
@@ -118,7 +118,7 @@ public final class BrowserBridge: PortOwnedResource {
     /// Extract HTML from a browser session.
     func html(sessionId: String, opts: [String: Any]) async -> [String: Any] {
         guard let session = sessions[sessionId] else {
-            return ["error": "session not found: \(sessionId)"]
+            return ["error": "session not found: \(sessionId)", "code": BridgeErrorCode.notFound.wire]
         }
         return await session.html(opts: opts)
     }
@@ -126,7 +126,7 @@ public final class BrowserBridge: PortOwnedResource {
     /// Execute JavaScript in a browser session.
     func execute(sessionId: String, js: String) async -> [String: Any] {
         guard let session = sessions[sessionId] else {
-            return ["error": "session not found: \(sessionId)"]
+            return ["error": "session not found: \(sessionId)", "code": BridgeErrorCode.notFound.wire]
         }
         return await session.execute(js: js)
     }
@@ -134,7 +134,7 @@ public final class BrowserBridge: PortOwnedResource {
     /// Close a browser session.
     func close(sessionId: String) -> [String: Any] {
         guard let session = sessions[sessionId] else {
-            return ["error": "session not found: \(sessionId)"]
+            return ["error": "session not found: \(sessionId)", "code": BridgeErrorCode.notFound.wire]
         }
         session.cleanup()
         sessions.removeValue(forKey: sessionId)

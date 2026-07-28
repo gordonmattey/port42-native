@@ -439,7 +439,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // transport-coupled state on THIS bridge instance, not a service method.
         if method == "ai.cancel" {
             guard let targetId = args.first as? Int else {
-                return ["error": "ai.cancel requires a callId"]
+                return ["error": "ai.cancel requires a callId", "code": BridgeErrorCode.badArg.wire]
             }
             // ai.complete / companions.invoke run as tracked Tasks (streaming registry); cancel the
             // Task, which trips runBridgeStream's cancel handler (backend.cancel + core settlement).
@@ -448,7 +448,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 streamTasks.removeValue(forKey: targetId)
                 return ["ok": true]
             }
-            return ["error": "no active stream for callId \(targetId)"]
+            return ["error": "no active stream for callId \(targetId)", "code": BridgeErrorCode.notFound.wire]
         }
 
         // The old switch is GONE (the close-out): every other method is served registry-first
