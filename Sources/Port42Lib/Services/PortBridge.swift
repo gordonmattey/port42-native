@@ -224,8 +224,23 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// Reject a deferred call with an error message.
     @MainActor
     public func rejectCall(_ callId: Int, _ error: String) {
-        let escaped = escapeJSString(error)
-        webView?.evaluateJavaScript("port42._reject(\(callId), \"\(escaped)\")") { _, _ in }
+        rejectCall(callId, envelope: ["error": error])
+    }
+
+    /// Reject with the WHOLE envelope, so `e.code` and `e.current` exist in the port's catch block.
+    ///
+    /// A message alone rejects with `new Error(text)`, which is what the port path did — so a port
+    /// following the manual read `e.code` and got `undefined`, and the retry it was told to make was
+    /// impossible. The envelope's keys become properties on the Error.
+    @MainActor
+    public func rejectCall(_ callId: Int, envelope: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.fragmentsAllowed]),
+              let json = String(data: data, encoding: .utf8) else {
+            let escaped = escapeJSString((envelope["error"] as? String) ?? "error")
+            webView?.evaluateJavaScript("port42._reject(\(callId), \"\(escaped)\")") { _, _ in }
+            return
+        }
+        webView?.evaluateJavaScript("port42._reject(\(callId), \(json))") { _, _ in }
     }
 
     /// Resolve a deferred call with a structured `BridgeValue` (a streaming method's final value, e.g.
@@ -361,7 +376,9 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             case .deferred:
                 return
             case .reject(let errMsg):
-                rejectCall(callId, errMsg)
+                // The full result, not just the message: it carries `code` and any details the
+                // caller needs to act (`current` for a stale write).
+                rejectCall(callId, envelope: (result as? [String: Any]) ?? ["error": errMsg])
             case .resolve(let value):
                 // .fragmentsAllowed: registry methods can return a bare string/number (e.g.
                 // crease.read's "No creases yet" text). Without it, a fragment top level makes
@@ -396,7 +413,13 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                     pregrant: grantedPermissions)
                 return value.toJSONObject()
             } catch let e as BridgeError {
-                return ["error": e.message]
+                // The CODE and the DETAILS travel, not just the prose. `ports-context.txt` teaches
+                // `catch (e) { if (e.code === 'stale_write') retry(e.current) }` — and until
+                // 2026-07-28 both were dropped here, so the documented self-correcting retry could
+                // not work from inside a port at all. R5's whole design rests on that loop.
+                var payload: [String: Any] = ["error": e.message, "code": e.code]
+                for (k, v) in e.details where k != "error" && k != "code" { payload[k] = v }
+                return payload
             } catch {
                 return ["error": error.localizedDescription]
             }
@@ -580,7 +603,17 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                 },
                 _reject: function(callId, error) {
                     const p = _pending[callId];
-                    if (p) { delete _pending[callId]; delete _tokenCallbacks[callId]; p.reject(new Error(error)); }
+                    if (!p) return;
+                    delete _pending[callId]; delete _tokenCallbacks[callId];
+                    // An envelope carries `code` and any details (`current` on a stale write); a
+                    // bare string is still accepted, so nothing that rejected before changes shape.
+                    if (error && typeof error === 'object') {
+                        const err = new Error(error.error || 'port42 call failed');
+                        Object.assign(err, error);
+                        p.reject(err);
+                    } else {
+                        p.reject(new Error(error));
+                    }
                 },
                 _tokenCallback: function(callId, token) {
                     const cb = _tokenCallbacks[callId];

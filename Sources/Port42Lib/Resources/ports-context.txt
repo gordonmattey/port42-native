@@ -535,6 +535,10 @@ BRIDGE API REFERENCE:
     machine — with no code path into your internals.
     - Producer: on each state change, and on a periodic heartbeat for late joiners, call
         port42.port.publish('state', getState());
+    - DO NOT `await` port.subscribe: the promise IS the stream and resolves only on cancel, so
+      awaiting it hangs your script. Registration is still a round trip, so a port that subscribes
+      and publishes in the same breath can miss its own first event. Subscribe at load; publish
+      when there is something to say.
     - Consumer: const sub = port42.port.subscribe(id, e => {
         if (e.kind === 'port.state') render(e.payload);   // 'state' published → 'port.state' seen
       });
