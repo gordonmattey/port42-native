@@ -61,7 +61,7 @@ Flat. Each line ships on its own. Plans do not nest below this.
 | ✅ | L2 step 3 · presence derived from the token | actor | §F. DONE 2026-07-27, live-verified. `DriverRegistry`, `PresenceThrottle` and the seam's second door deleted; focus stops conferring presence (GM). |
 | ✅ | the write-response contract | token | §G. Measured after GM called the double count a smell. Three defects found and fixed; R5's "no extra round trips" is now true on terminals, where it never was. |
 | ⊘ | L2 R6 · presence lifetime | actor | **ABSORBED into step 3.** With a derived driver there is no expiry to tune: lifetime becomes a display fade over the last write's timestamp. |
-| | L2 R7 · native claim | actor | move the human's claim off shadowable `isTrusted`. **Cheaper than planned:** an isolated `WKContentWorld` makes `isTrusted` unforgeable (per-world prototypes), which is how browser input was fixed. Web ports could take the same route instead of a native monitor. |
+| ✅ | L2 R7 · native claim | actor | §H. DONE 2026-07-27. Measuring it killed the premise (`isTrusted` is NOT shadowable in WebKit) and found the real hole: the handler was callable from page JS. Every port type's input listener now lives in an isolated world. |
 | | **then: slice-02** | — | the same three nouns over libp2p |
 
 **Not in this plan**, though real and registered: the output seam, the error taxonomy, trust beyond
@@ -509,6 +509,48 @@ not the source the caller sent when an expression was wrapped. Register §5 clos
 "not submitted" for five cases that had all plainly submitted. Validating it against a known-good
 path is what caught that; the transcript on disk was the honest instrument. Same failure as Spike C's
 guessed labels, caught earlier this time.
+
+---
+
+## H. R7 · the human's claim — measured, and the premise was wrong
+
+**Planned as:** move the human's input claim off `isTrusted`, because a page can shadow that property,
+so what the listener reports is a claim rather than evidence.
+
+**Measured first, against a live web port, three attacks:**
+
+| attack | result |
+|---|---|
+| dispatch a plain synthetic `keydown` | refused by the `isTrusted` check |
+| shadow `Event.prototype.isTrusted`, then dispatch | **refused** — WebKit defines `isTrusted` as an OWN property on each event instance, so the prototype is never consulted |
+| `defineProperty` it on the instance | **TypeError: non-configurable** |
+| `window.webkit.messageHandlers.portInput.postMessage(1)` | **FORGED** — token bumped, human named as driver |
+
+So the threat this step was designed around does not exist in WebKit, and the one that does needs no
+trickery at all: **the handler was simply visible to the page.** There was precedent nobody connected
+— the onboarding shader fired its own pointer events and held the human's presence forever, and the
+`isTrusted` guard added then closed the event path while leaving the door beside it open.
+
+**The fix is the one the plan named, for the other reason.** The listener and its handler move into an
+isolated `WKContentWorld`, for every port type; browser ports have run that way since C6. A page cannot
+see the handler, so there is nothing to call and no origin to check.
+
+**Two deletions fall out, and both are the register's test rather than tidying.** The input handler's
+origin pin goes: it asks WHICH SITE is calling, and it answered wrong in both directions — a web port
+forging its own input really is `port42.local` (passes), while a browser port's honest keystroke
+carries the site's origin (rejected, which is the C6 defect). And `PortInput.Trust.reportedByPage`
+goes: nothing ever constructed it, so every path already claimed `.native`, INCLUDING the one that was
+forgeable. The field recording *how we know* was asserting evidence for the single case that lacked it.
+
+**The security gate was widened, not weakened.** `PortOriginSecurityTests` asserted "every handler is
+pinned"; it now asserts pinned OR isolated, which is the real invariant — no handler accepts a message
+from an unverified sender, and there are two ways to guarantee that. Calibrated: a handler that is
+neither still fails it.
+
+**Verified live:** the forged `postMessage` went from FORGED to a `TypeError` — the page cannot see the
+handler. **Outstanding:** that real human typing in a web port still counts. Automation could not be
+used to produce a trusted keystroke (the call timed out on a pending permission card), and it is the
+check that matters, since silently breaking input is exactly what C6 caught before.
 
 ---
 

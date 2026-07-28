@@ -54,14 +54,23 @@ public struct PortInput: Equatable {
         #endif
     }
 
-    /// How we know this happened. R7 lives here: moving the human's claim off page-reported
-    /// `isTrusted` becomes a change of this value at one translator, not a new mechanism.
+    /// How we know this happened.
+    ///
+    /// **`reportedByPage` was deleted in R7, because nothing ever constructed it.** The case existed
+    /// for input a page told us about via an injected listener's `isTrusted`, and the plan called for
+    /// R7 to move the human's claim off it. Two things turned out to be true instead: every native
+    /// path already claimed `.native`, INCLUDING the web-port listener that was forgeable, so the
+    /// field was asserting evidence for the one path that did not have it; and the forgery it warned
+    /// about is not possible in WebKit anyway (`isTrusted` is a non-configurable own property on each
+    /// event instance, measured). R7 made the label true by isolating the listener's world rather
+    /// than by adding a value.
+    ///
+    /// An enum case nothing constructs is a claim the type makes and the code never honours, which is
+    /// the register's own test for a primitive that has drifted.
     public enum Trust: Equatable {
-        /// Observed by us. A page cannot forge it.
+        /// Observed by us, in a world the page cannot reach. A page can neither forge the event nor
+        /// call the handler.
         case native
-        /// A page told us, via an injected listener's `isTrusted`. A page can shadow that property,
-        /// so this is a claim and not evidence.
-        case reportedByPage
         /// An authenticated caller arrived through the dispatcher.
         case principal
     }

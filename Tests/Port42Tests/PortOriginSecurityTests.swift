@@ -111,15 +111,33 @@ struct PortOriginSecurityTests {
         // The bridge: the verified escalation path.
         #expect(try source("Services/PortBridge.swift").contains("guard Self.isPortOrigin(message)"))
 
-        // And every handler in the manager. Counting rather than naming: the four known ones are
-        // port42/portInput/portConsole/portHeight, and a fifth added later must be pinned too. If
-        // this count is ever LOWER than the number of `didReceive` implementations, one is unpinned.
+        // And every handler in the manager. Counting rather than naming: the known ones are
+        // port42/portInput/portConsole/portHeight, and one added later must be covered too.
+        //
+        // THE INVARIANT IS "no handler accepts a message from an unverified sender", and there are
+        // TWO ways to guarantee it, not one. This test asserted the narrower "every handler is
+        // pinned" until R7, when the input handler moved into an isolated `WKContentWorld` and its
+        // pin was removed.
+        //
+        // That removal is not a relaxation. An origin pin asks WHICH SITE is calling, and it answers
+        // the wrong question twice over: a web port forging its own input really is `port42.local`,
+        // so the pin passes (measured — a port called `postMessage` and bumped its own token), while
+        // a browser port's honest keystroke carries the foreign site's origin, so the pin REJECTS it
+        // (measured in C6 — typing in a browser port counted for nothing). Isolation answers the
+        // question that matters: the page cannot see the handler, so there is no untrusted sender to
+        // judge.
+        //
+        // So: pinned OR isolated, and a handler that is neither fails.
         let mgr = try source("Views/PortWindowManager.swift")
         let handlers = mgr.components(separatedBy: "func userContentController(").count - 1
         let pins = mgr.components(separatedBy: "PortBridge.isPortOrigin(message)").count - 1
+        let isolated = mgr.components(separatedBy: "contentWorld:").count - 1
         #expect(handlers > 0, "the scan found no handlers; the matcher is broken")
-        #expect(pins >= handlers,
-                "\(handlers) message handlers but only \(pins) origin pins — one accepts foreign input")
+        #expect(pins + isolated >= handlers, """
+            \(handlers) message handlers, \(pins) origin pins and \(isolated) isolated \
+            registrations — at least one handler is reachable by a page AND unpinned, so it accepts \
+            whatever that page sends.
+            """)
     }
     // MARK: - P0 hardening: a foreign site gets no door, not a guarded one
 

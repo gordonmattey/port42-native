@@ -96,29 +96,38 @@ would have shipped both as holes.
 
 ---
 
-## 3. Trust — how we know who did it
+## 3. Trust — how we know who did it · **INPUT RESOLVED**
 
-**Status: three mechanisms, no single expression.**
+**Status: ✅ input resolved 2026-07-27 (R7); reads and the gateway still open.**
+
+R7 was planned as "move the human's claim off page-reported `isTrusted`, which a page can shadow".
+**Measuring it killed the premise and found a plainer hole underneath.**
+
+| claim | measured |
+|---|---|
+| ~~a page can shadow `Event.prototype.isTrusted`~~ | **False in WebKit.** `isTrusted` is an OWN property on each event instance, so the prototype is not in the path, and redefining it on the instance throws: it is non-configurable. Three attacks, all refused. |
+| the injected listener is the only way in | **False.** The handler itself was registered in the PAGE world for web ports, so a port's own JS called `window.webkit.messageHandlers.portInput.postMessage(1)` and bumped its own token while naming the human as driver. No event, no trickery. |
+
+**The origin pin was the wrong instrument here, in both directions.** It asks WHICH SITE is calling. A
+web port forging its own input genuinely is `port42.local`, so the pin passed; a browser port's honest
+keystroke carries the foreign site's origin, so the pin rejected it, which is the C6 defect where
+typing in a browser port counted for nothing.
+
+**Now: one mechanism for input, for every port type.** The listener and its handler live in an
+isolated `WKContentWorld`, so a page cannot see the handler, cannot call it, and cannot reach the
+listener's prototypes. `PortInput.Trust.reportedByPage` is DELETED — nothing ever constructed it, so
+the type was promising a distinction the code never made.
 
 | mechanism | where | strength |
 |---|---|---|
-| `isTrusted` on an injected listener | web input | page-reported; a page can shadow it |
-| origin pin (`port42.local`) | every bridge message | native, unforgeable by page content |
+| isolated content world | port input | native; the page has no handle to forge with |
+| origin pin (`port42.local`) | the bridge's own handlers | native, unforgeable by page content |
 | an authenticated principal | bridge dispatch | only as good as §1 |
 
-**R7 is one instance of this**, not the whole of it. `PortInput.trust` unifies them for input only —
-reads are uncovered, and the gateway authenticates nobody (`plan-gateway-auth-tls` P1, open).
-
-**P0 SHIPPED in v0.5.50 (2026-07-27)** after three days in `main` behind a doc that said it already
-had. Verified on the artifact: a LAN request that returned the real port list before the update is
-refused after it, and loopback is unaffected. `/call` still assigns the shared `local-http` identity
-with **no `RemoteAddr` check**, so the constant's name is doing work its code does not; that is P1,
-open, and it must RETIRE the shared principal rather than gate it.
-
-*Asserted from structure. Unlike §1 and §4, no live defect is proven — the origin pin closed the one
-that was.*
-
----
+**Still open, and neither is input:** reads are uncovered, and the gateway authenticates nobody
+(`plan-gateway-auth-tls` P1). P0 shipped in v0.5.50 after three days in `main` behind a doc that said
+it already had; `/call` still assigns the shared `local-http` identity with no `RemoteAddr` check, and
+P1 must RETIRE that principal rather than gate it.
 
 ## 3b. Presence — who is driving · **RESOLVED**
 

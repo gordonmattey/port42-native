@@ -261,6 +261,78 @@ struct PortInputSeamTests {
         #expect(claims.isEmpty, "focus is naming a driver again without proving anything: \(claims)")
     }
 
+    // MARK: - R7 · the input signal lives where a page cannot reach it
+
+    @Test("the input listener and its handler are registered in an ISOLATED world, for every port type")
+    func inputIsIsolatedFromThePage() throws {
+        // R7. This was planned as "move the human's claim off page-reported `isTrusted`, which a page
+        // can shadow". MEASURED, that threat is not real in WebKit: shadowing
+        // `Event.prototype.isTrusted` changes nothing (it is an OWN property on each event instance)
+        // and redefining it on the instance throws, because it is non-configurable.
+        //
+        // The real hole was plainer and needed no trickery. A web port's handler sat in the PAGE
+        // world, so the port's own JS could call it:
+        // `window.webkit.messageHandlers.portInput.postMessage(1)` bumped the token and named the
+        // human as driver, with no event at all. The origin pin passed, because the origin really was
+        // `port42.local` — the forger was the port itself.
+        //
+        // So the property to keep is structural: the registration must name a content world. A branch
+        // that puts SOME port type back in the page world is the regression, and it is invisible to
+        // every behaviour test, because forged input looks exactly like real input.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Port42Lib/Views/PortWindowManager.swift")
+        let src = try String(contentsOf: url, encoding: .utf8)
+
+        // Comments stripped, then joined into ONE string: these are multi-line call sites, so a
+        // line-by-line scan reads `WKUserScript(source: …` and never sees the `in: world` argument
+        // on the next line. (This gate said exactly that on its first run, against correct code.)
+        let code = src.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("//") && !$0.hasPrefix("///") }
+            .joined(separator: " ")
+
+        let registrations = code.components(separatedBy: "name: \"portInput\"").count - 1
+        #expect(registrations == 1,
+                "portInput must be registered exactly once, or one path can differ (found \(registrations))")
+
+        // The registration and the injection must each name a world. Checked on the surrounding
+        // window rather than the line, since both calls wrap.
+        for site in ["name: \"portInput\"", "inputScript.source"] {
+            guard let r = code.range(of: site) else {
+                Issue.record("\(site) is gone — this gate no longer guards anything"); continue
+            }
+            let lower = code.index(r.lowerBound, offsetBy: -220, limitedBy: code.startIndex) ?? code.startIndex
+            let upper = code.index(r.upperBound, offsetBy: 220, limitedBy: code.endIndex) ?? code.endIndex
+            let window = String(code[lower..<upper])
+            #expect(window.contains("contentWorld:") || window.contains("in: world"), """
+                \(site) is wired WITHOUT a content world, so it runs in the page's.
+                There a port calls the handler itself and forges the human's presence — measured, \
+                not theorised.
+                """)
+        }
+    }
+
+    @Test("no path can label input as page-reported, because that case is gone")
+    func trustHasNoPageReportedCase() throws {
+        // It was never constructed: every native path claimed `.native`, including the web listener
+        // that WAS forgeable. The enum promised a distinction the code did not make.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let walker = try #require(FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil))
+        var hits: [String] = []
+        for case let u as URL in walker where u.pathExtension == "swift" {
+            let text = (try? String(contentsOf: u, encoding: .utf8)) ?? ""
+            for line in text.split(separator: "\n") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                guard !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
+                if t.contains("reportedByPage") { hits.append("\(u.lastPathComponent): \(t.prefix(50))") }
+            }
+        }
+        #expect(hits.isEmpty, "page-reported trust is back: \(hits)")
+    }
+
     // MARK: - the recorded risk
 
     @Test("PortInput has exactly four fields plus a display label")

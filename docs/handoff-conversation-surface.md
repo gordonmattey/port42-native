@@ -68,13 +68,31 @@ compile trial in the page was rejected (ports ship a CSP with no `unsafe-eval`) 
 run-then-retry (it re-executes side effects). Failures now carry `js_syntax` / `js_error` /
 `js_timeout` plus `ran`, the body actually executed. Register §5 closed for this verb.
 
+### R7 is DONE (2026-07-27), and measuring it killed its own premise (plan §H)
+
+R7 was "move the human's claim off `isTrusted`, which a page can shadow". **A page cannot shadow it
+in WebKit** — measured three ways: it is a non-configurable OWN property on each event instance. The
+real hole needed no trickery: the input handler sat in the PAGE world for web ports, so a port's own
+JS called `window.webkit.messageHandlers.portInput.postMessage(1)` and bumped its own token while
+naming the human as driver. Precedent nobody connected: the onboarding shader that held the human's
+presence forever, where the `isTrusted` guard closed the event path and left the door beside it.
+
+Fixed as planned but for the other reason: the listener and handler now live in an isolated
+`WKContentWorld` for EVERY port type (browser ports have since C6). The handler's origin pin is
+deleted (it asked which SITE, and answered wrong in both directions) and so is
+`PortInput.Trust.reportedByPage` (never constructed — every path already claimed `.native`, including
+the forgeable one). `PortOriginSecurityTests` now asserts pinned OR isolated, which is the real
+invariant; calibrated by a handler that is neither.
+
+**Live: the forged `postMessage` now throws a TypeError, the page cannot see the handler.**
+
 ### What is left in the protocol thread
 
-- **R7 · native claim.** Move the human's claim off page-reported `isTrusted`. Cheaper than planned:
-  an isolated `WKContentWorld` makes it unforgeable, which is how browser input was fixed.
-- **Then slice-02**, which is now a transport change rather than a redesign.
-- **The visual check GM owns:** click into a port a companion is writing to and confirm the chip
-  stays on the companion until you type. Tests cover the derivation; they cannot see a chip.
+- **Slice-02**, which is now a transport change rather than a redesign: all three nouns are
+  single-definition and honest.
+- **The one check GM owns (R7):** type into a WEB port and confirm the token still moves. Isolation
+  is rewiring, and green tests cannot see a lost listener; automation could not produce a trusted
+  keystroke because a permission card is pending in Dev3. The chip check for step 3 is done.
 - Carried forward: the output seam (six publish sites, GM deferred), orphaned `portPerms` grants,
   plan §D marketing copy, and the rest of the API parity sweep.
 
