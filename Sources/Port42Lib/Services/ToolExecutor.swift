@@ -191,6 +191,9 @@ public final class RemoteToolExecutor: ObservableObject {
         }
 
         // The old switch is GONE (the close-out): nothing falls through.
-        return ["error": "unknown method: \(method)"]
+        // Coded, like every other refusal. This is a dict rather than a throw because the caller is
+        // tool use, whose transport is a result object — but a caller still has to be able to
+        // branch on it, and this one answered with prose alone.
+        return ["error": "unknown method: \(method)", "code": BridgeErrorCode.unknownMethod.wire]
     }
 }

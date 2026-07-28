@@ -454,7 +454,10 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
         // The old switch is GONE (the close-out): every other method is served registry-first
         // above. Nothing falls through.
         NSLog("[Port42] Unknown bridge method: %@", method)
-        return ["error": "unknown method: \(method)"]
+        // Coded, like every other refusal. This is a dict rather than a throw because the caller is
+        // port JS, whose transport is a result object — but a caller still has to be able to
+        // branch on it, and this one answered with prose alone.
+        return ["error": "unknown method: \(method)", "code": BridgeErrorCode.unknownMethod.wire]
     }
 
     // postCapture (capture-to-disk + inline system message) left with the deleted screen/camera

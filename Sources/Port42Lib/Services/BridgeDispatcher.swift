@@ -60,6 +60,7 @@ extension AppState {
 
         // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
         let value = try await method.run(principal, args)
+        try failIfErrorResult(value, method: canonical)
         return withToken(tokenAfter(key), value)
     }
 
@@ -181,6 +182,31 @@ extension AppState {
     func tokenAfter(_ key: String?) -> String? {
         guard let key else { return nil }
         return portInput.token(for: key)
+    }
+
+    /// A body that REPORTED a failure instead of throwing one becomes a thrown, coded error.
+    ///
+    /// **MEASURED 2026-07-28: ~90 device-bridge failures are built as `["error": "…"]` dictionaries**
+    /// (Screen, Camera, Audio, Browser, Automation, Notification, Clipboard, ScreenRecorder), and
+    /// every one of them reaches a caller through `return .fromJSONObject(result)` — as a SUCCESS.
+    /// Not merely uncoded: a caller that catches sees nothing thrown, a caller that checks `code`
+    /// finds none, and a caller that asks "did it work" is told yes. `screen.capture` with no display
+    /// available answered exactly like a capture that worked.
+    ///
+    /// Fixed HERE rather than at the ninety sites, because the ninety share one boundary and each
+    /// would otherwise need its own signature change and its own judgment. The code comes from the
+    /// method's FAMILY (`BridgeErrorCode.forMethod`), which is the only thing derivable without
+    /// guessing at a message.
+    ///
+    /// NARROW ON PURPOSE: only when `error` holds a String AND the object carries no other data. A
+    /// payload that merely mentions an error — `browser.error` events carry `sessionId`, `url` and
+    /// `error` together — is data, not a failure, and must keep flowing. Those travel as events
+    /// rather than method results, so they do not pass here at all; the check is belt and braces.
+    func failIfErrorResult(_ value: BridgeValue, method: String) throws {
+        guard case .object(let o) = value,
+              case .string(let message)? = o["error"],
+              o.keys.allSatisfy({ $0 == "error" || $0 == "code" }) else { return }
+        throw BridgeError(code: BridgeErrorCode.forMethod(method), message: message)
     }
 
     /// Merge the token a write produced into its response.
@@ -398,6 +424,7 @@ extension AppState {
                                             principal: principal)
 
         let value = try await method.run(principal, args, yield)
+        try failIfErrorResult(value, method: canonical)
         return withToken(tokenAfter(key), value)
     }
 }

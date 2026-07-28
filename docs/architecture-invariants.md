@@ -178,12 +178,35 @@ capability is granted by the user, a path is picked with a file picker. Two repa
 agent asks of a failure, so nobody has to keep their own list of which codes self-correct. Pinned to
 exactly `stale_write` + `token_required`.
 
-**What is still open, and it is LARGER than what was fixed: ~90 hand-built `["error": …]`
-dictionaries** across Screen, Camera, Audio, Browser, Automation, Notification, Clipboard,
-ScreenRecorder, ToolExecutor and PortBridge. These never touch `BridgeError`, so they carry no code
-at all — measured live: `{"method":"nope.method"}` answers `{"error":"unknown method: …"}` with
-nothing to branch on. The typed enum does not reach them, and a gate cannot see them, because they
-are not errors as far as the type system is concerned.
+**The ~90 hand-built `["error": …]` dictionaries are CLOSED (2026-07-28), at the boundary rather
+than at the sites.** Across Screen, Camera, Audio, Browser, Automation, Notification, Clipboard and
+ScreenRecorder, a failure was built as a dictionary and returned through
+`return .fromJSONObject(result)` — **as a success**. Not merely uncoded: a caller that caught saw
+nothing thrown, a caller that checked `code` found none, and a caller that asked "did it work" was
+told yes. `screen.capture` with no display available answered like a capture that worked.
+
+Converted in ONE place (`failIfErrorResult`, at the dispatcher every registry method already funnels
+through), because the ninety share one boundary and each would otherwise need its own signature
+change and its own judgment. The code comes from the method's FAMILY, which is the only thing
+derivable without guessing at a message: `screen`/`camera`/`audio`/`clipboard`/`notify` →
+`device_error`, `browser` → `browser_error`, `ai` → `ai_error`, `fs` → `io`, `automation` →
+`script_error`, anything else → `method_failed`.
+
+**Deliberately coarse, and that is the floor rather than the ceiling.** A permission failure inside
+`ScreenBridge` deserves `permission_denied` rather than `device_error`; sharpening one is now a
+one-line change on a surface that carries a code at all.
+
+**`script_error` came out of the live check**, not the design: `run_applescript` with `error "boom"`
+fell through to `method_failed`, which told a caller nothing about whose fault it was. `automation.*`
+runs caller-supplied source exactly as `port.exec` does, so it earns the parallel of `js_error`.
+
+**The rule is narrow on purpose:** only when `error` holds a String and the object carries no other
+data. A `browser.error` payload carries `sessionId`, `url` and `error` together — that is data about
+something that happened, not this call failing. Pinned by a test in both directions.
+
+**Still uncoded, and it is not Swift: the GATEWAY's own errors.** `{"error":"timeout waiting for host
+response"}` comes from the Go gateway, which has no taxonomy of its own. Small surface, real, and it
+belongs with the gateway auth work since that is the next thing to touch that file.
 
 **A defect found by looking, not by the taxonomy:** `port.rename` against a port that does not exist
 answered `{"ok": true}`. **Fixed 2026-07-28.** Worse than a missing code — a caller is told its write

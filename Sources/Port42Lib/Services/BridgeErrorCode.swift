@@ -73,12 +73,44 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     case notLLM = "not_llm"
 
     // MARK: port.exec
+    /// Caller-supplied AppleScript or JXA failed. The parallel of `jsError`: `automation.*` runs
+    /// source the caller wrote, exactly as `port.exec` does, so the failure is the SCRIPT's and not
+    /// the device's. Measured live — `run_applescript` with `error "boom"` fell through to
+    /// `method_failed`, which told a caller nothing about whose fault it was.
+    case scriptError = "script_error"
+
     /// The JS did not compile. Usually a multi-statement body with no explicit `return`.
     case jsSyntax = "js_syntax"
     case jsError = "js_error"
     case jsTimeout = "js_timeout"
 
+    /// A failure a body reported without naming a family. Better than nothing: a caller can at least
+    /// tell "this did not work" from "this worked", which is the distinction that was missing.
+    case methodFailed = "method_failed"
+
     public var wire: String { rawValue }
+
+    /// The code for a failure reported by a method that did not name one, derived from the method's
+    /// FAMILY rather than its individual message.
+    ///
+    /// This exists because ~90 device-bridge failures are returned as `["error": "…"]` dictionaries
+    /// rather than thrown, so they arrive with nothing to branch on. The message is the only thing
+    /// those sites produce, and a message cannot be parsed into a code without guessing. The family
+    /// can: a screen failure is a device failure whatever went wrong inside it.
+    ///
+    /// Deliberately coarse. A per-site code is BETTER (a permission failure inside ScreenBridge
+    /// deserves `permission_denied`, not `device_error`), and sharpening one is a one-line change on
+    /// a surface that now carries a code at all. This is the floor, not the ceiling.
+    public static func forMethod(_ method: String) -> BridgeErrorCode {
+        switch method.split(separator: ".").first.map(String.init) ?? "" {
+        case "screen", "camera", "audio", "clipboard", "notify": return .deviceError
+        case "browser":                                          return .browserError
+        case "automation":                                       return .scriptError
+        case "ai":                                               return .aiError
+        case "fs", "files", "file":                              return .io
+        default:                                                 return .methodFailed
+        }
+    }
 
     /// True when a caller can fix this by re-reading state and trying once more — the
     /// conflict-then-retry loop CAS was built around. The single most useful question an agent asks

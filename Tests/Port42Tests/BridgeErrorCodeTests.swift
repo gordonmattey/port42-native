@@ -90,6 +90,58 @@ struct BridgeErrorCodeTests {
         }
     }
 
+    // MARK: - the ~90 device-bridge failures that were never errors at all
+
+    @Test("a body that REPORTS a failure gets a thrown, coded error")
+    @MainActor
+    func reportedFailureBecomesAThrow() async throws {
+        // Measured: device bridges return `["error": "…"]` and the registry hands that back through
+        // `.fromJSONObject` as a SUCCESS. So `screen.capture` with no display answered like a capture
+        // that worked — nothing thrown, no code, `ok` to any caller that asked. The family gives the
+        // code, because a message cannot be parsed into one without guessing.
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        state.bridgeRegistry["screen.fakeFailure"] = BridgeMethod(permission: nil, description: "test") { _, _ in
+            .fromJSONObject(["error": "no displays available"])
+        }
+        state.bridgeRegistry["port.fakeFailure"] = BridgeMethod(permission: nil, description: "test") { _, _ in
+            .fromJSONObject(["error": "something went wrong"])
+        }
+        let p = Principal.companion(id: "alice", displayName: "alice", spaceId: nil)
+
+        do {
+            _ = try await state.runBridgeMethod("screen.fakeFailure", principal: p, args: BridgeArgs([:]))
+            Issue.record("a reported failure was returned as a success")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.deviceError.wire, "screen.* failures are device failures")
+            #expect(e.message == "no displays available", "the body's own message must survive")
+        }
+
+        do {
+            _ = try await state.runBridgeMethod("port.fakeFailure", principal: p, args: BridgeArgs([:]))
+            Issue.record("a reported failure was returned as a success")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.methodFailed.wire, "an unnamed family still gets a code")
+        }
+    }
+
+    @Test("a PAYLOAD that merely mentions an error keeps flowing")
+    @MainActor
+    func payloadWithAnErrorFieldIsNotAFailure() async throws {
+        // The false positive this rule has to avoid. A `browser.error` event carries sessionId, url
+        // AND error together: that is data describing something that happened, not this call failing.
+        // Narrowing to "error alone, and nothing else" is what keeps it data.
+        let state = AppState(db: try DatabaseService(inMemory: true))
+        state.bridgeRegistry["browser.report"] = BridgeMethod(permission: nil, description: "test") { _, _ in
+            .fromJSONObject(["sessionId": "s1", "url": "https://x", "error": "navigation failed"])
+        }
+        let out = try await state.runBridgeMethod(
+            "browser.report",
+            principal: Principal.companion(id: "alice", displayName: "alice", spaceId: nil),
+            args: BridgeArgs([:]))
+        guard case .object(let o) = out else { Issue.record("expected an object"); return }
+        #expect(o["sessionId"] == .string("s1"), "a report about an error is not a failed call")
+    }
+
     @Test("PortActivity's code constants ARE the enum, not a second spelling of it")
     func tokenCodesShareOneDefinition() {
         #expect(PortActivity.staleCode == BridgeErrorCode.staleWrite.wire)
