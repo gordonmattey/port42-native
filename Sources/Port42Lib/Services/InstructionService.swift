@@ -111,6 +111,12 @@ curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"<meth
 Response: `{"content": "..."}` — the result as a string or JSON. A port is a live interactive \
 surface in the user's chat (web HTML/CSS/JS, or a native terminal), created with `port.create`.
 
+**Every write to a port must carry that port's `token`**, and every write, `ports.list` and \
+`port.create` return one — so you thread it and never re-read a port just to write to it again. \
+A write without one is refused with `token_required`, and a write composed against stale state with \
+`stale_write`; both carry `current`, so one retry with that value lands. This is what stops two \
+callers silently overwriting each other.
+
 ## Learning the platform (on demand, always current)
 
 ```bash
