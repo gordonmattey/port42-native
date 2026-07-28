@@ -460,6 +460,13 @@ BRIDGE API REFERENCE:
     A HUMAN typing into a port holds the current token by construction: their keystroke is
     what moves it. You are not at the surface, so you carry one explicitly.
 
+    TWO CASES WHERE A TOKEN GOES STALE WITH NOBODY WRITING, both because the port changed on
+    its own after you were answered. Read once more; do not treat it as a conflict.
+      • A TERMINAL you just created: its startup command types itself into the shell after
+        port.create has returned, so the token in that response is one behind.
+      • A BROWSER port that navigates: a new URL is a new document, so it counts. Any write
+        that follows a link is answered before the page has gone anywhere.
+
   port42.port.push(id, data, token)
     Push data to a live port via CustomEvent. The target port receives a 'port42:data'
     event with the data in event.detail. Use this to feed live data into ports from
@@ -516,12 +523,17 @@ BRIDGE API REFERENCE:
     reload).
     id: port UDID (from ports.list)
     js: JavaScript string to evaluate
-    Returns: the result of the evaluation, or {ok: true} if the JS returns nothing
-    TWO FOOTGUNS, both surfacing as the opaque "A JavaScript exception occurred":
-    - A multi-statement one-liner needs an explicit `return` or newlines. A bare `foo(); 42` is
-      wrapped as `return (foo(); 42)`, a syntax error. Write `foo(); return 42;` instead.
-    - Never `return` a long-lived promise (e.g. a port.subscribe stream). exec awaits the value
-      and it never resolves. Start it in a variable and return a plain value.
+    Returns: {value, token} when the JS returns a value, or {ok: true, token} when it returns
+      nothing. The token is the port's state AFTER your exec — thread it into your next write
+      and you never re-read the port just to write to it again.
+    A bare expression yields its value; write `return` when you want statements. Multi-line
+    expressions are fine.
+    TWO FOOTGUNS, each reported with a code you can branch on:
+    - `js_syntax`: a multi-statement body needs an explicit `return`. A bare `foo(); 42` is
+      wrapped as `return (foo(); 42)`, a syntax error. Write `foo(); return 42;` instead. The
+      error carries `ran`, the body that was actually executed.
+    - `js_timeout`: never `return` a long-lived promise (e.g. a port.subscribe stream). exec
+      awaits the value and it never resolves. Start it in a variable and return a plain value.
 
   port42.rest.call(url, opts?)
     Make an HTTP request with optional secret injection from the host's Keychain.

@@ -24,7 +24,7 @@ struct TerminalControllerDrainTests {
         let ctl = GhosttyTerminalController(
             panelId: "p1", config: makeConfig(), post: { _ in },
             drainPending: { let q = queue; queue = []; return q })
-        ctl.bindSurface { injected.append($0) }
+        ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
         ctl.handleEvent(.sessionStarted)
 
@@ -39,7 +39,7 @@ struct TerminalControllerDrainTests {
         let ctl = GhosttyTerminalController(
             panelId: "p2", config: makeConfig(), post: { posted.append($0) },
             drainPending: { let q = queue; queue = []; return q })
-        ctl.bindSurface { _ in }
+        ctl.bindSurface { _, done in done() }
 
         ctl.handleEvent(.sessionStarted)                       // drains + injects + arms
         ctl.handleEvent(.turnComplete(text: "Hey gordon", exitCode: 0))
@@ -55,7 +55,7 @@ struct TerminalControllerDrainTests {
         let ctl = GhosttyTerminalController(
             panelId: "p3", config: makeConfig(), post: { _ in },
             drainPending: { drains += 1; return drains == 1 ? ["[gordon]: x\r"] : ["LATE\r"] })
-        ctl.bindSurface { injected.append($0) }
+        ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
         ctl.handleEvent(.sessionStarted)
         ctl.handleEvent(.sessionStarted)                       // second readiness signal
@@ -71,7 +71,7 @@ struct TerminalControllerDrainTests {
         let ctl = GhosttyTerminalController(
             panelId: "p4", config: makeConfig(), post: { _ in },
             drainPending: { [] })
-        ctl.bindSurface { injected.append($0) }
+        ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
 
         ctl.handleEvent(.sessionStarted)
 
@@ -91,7 +91,7 @@ struct TerminalControllerDrainTests {
         #expect(injected.isEmpty)
         #expect(queue == ["[gordon]: hi\r"])                   // still queued, not drained
 
-        ctl.bindSurface { injected.append($0) }
+        ctl.bindSurface { w, done in injected.append(w.text + (w.submit ? "\r" : "")); done() }
         ctl.handleEvent(.sessionStarted)                       // now bound → delivers
         #expect(injected == ["[gordon]: hi\r"])
         ctl.teardown()

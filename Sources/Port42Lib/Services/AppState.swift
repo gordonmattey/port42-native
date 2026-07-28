@@ -860,8 +860,8 @@ public final class AppState: ObservableObject {
     /// Was three separate fields: `portDrivers` (PRESENCE, L2 — who is driving, refusing nothing),
     /// `portActivity` (CORRECTNESS, R2 — the per-port counter a write composes against, which R3
     /// refuses a stale write on), and `presenceThrottle` (the rate limit on presence, never on the
-    /// token). They are one concern and are now owned by one seam, so no path can move one without
-    /// the others being visible to it.
+    /// token). C2.0 gave the three one owner; **step 3 then made them one TABLE**, because presence
+    /// is whoever moved the counter last and a stored copy of that could only ever disagree with it.
     ///
     /// Ownership moved before any translator did, deliberately: with the tables in two places a
     /// half-migrated translator would bump one counter while every reader read the other, and a

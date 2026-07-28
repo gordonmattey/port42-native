@@ -23,8 +23,8 @@ honest. Nothing else belongs here.
 | Noun | Means | State |
 |---|---|---|
 | **ADDRESS** | which port | ✅ **done 2026-07-26.** `PortRef.key` — one definition, was three. Inline ports were unaddressable and had no protection at all. |
-| **TOKEN** | which version of it | ⚠️ **mechanism done, not yet honest.** R2/R3 ship the counter and CAS. But a token only tells the truth if EVERY mutation counts, and today terminals and browsers have ways in that do not. |
-| **ACTOR** | who is writing | ✅ **done 2026-07-27 (I1.1–I1.5).** Measured first, which found two holes neither plan had named and killed the one both led with. One private constructor; a gateway-created port authorizes as itself, not as the shared `local-http`; no identity is a heap address. Remaining: I1.6, attribution follow-through. |
+| **TOKEN** | which version of it | ✅ **done 2026-07-27.** R2/R3 built the counter and CAS, I2 made every way in count (measured surface by surface, C6), R5 made carrying one mandatory. One stated limit: a browser page that mutates its DOM without changing its URL still does not count. |
+| **ACTOR** | who is writing | ✅ **done 2026-07-27.** Identity (I1.1–I1.6) and presence (step 3: the driver is derived from the token, not stored beside it). Measured first, which found two holes neither plan had named and killed the one both led with. One private constructor; a gateway-created port authorizes as itself, not as the shared `local-http`; no identity is a heap address. |
 
 ### Definition of done
 
@@ -57,8 +57,10 @@ Flat. Each line ships on its own. Plans do not nest below this.
 | ✅ | I1 · Identity | actor | §B. Measured first, which killed the defect both plans led with and found two nobody had named |
 | ✅ | I2 · the input seam | token | §C. One door, measured surface by surface (C6). Terminals gained dictation/emoji/IME; browser input and reload now count. |
 | ✅ | L2 R4 · pty choke point | token | Met by R2b's funnel + I2. Verified live: startup bumps, `port.push` bumps, and a STALE token is refused on a terminal. |
-| ▶ | **L2 R5 · terminals REQUIRE a token** | **token** | Unblocked: I2 made every way in count. Now a GM decision, because it BREAKS callers (see §E). |
-| | L2 R6 · presence lifetime | actor | turn-scoped, no chip flicker |
+| ✅ | L2 R5 · every write REQUIRES a token | token | §E. Went further than the plan asked: no surface carve-out, no exemption for humans. A write without one is refused with `token_required` carrying `current`. |
+| ✅ | L2 step 3 · presence derived from the token | actor | §F. DONE 2026-07-27, live-verified. `DriverRegistry`, `PresenceThrottle` and the seam's second door deleted; focus stops conferring presence (GM). |
+| ✅ | the write-response contract | token | §G. Measured after GM called the double count a smell. Three defects found and fixed; R5's "no extra round trips" is now true on terminals, where it never was. |
+| ⊘ | L2 R6 · presence lifetime | actor | **ABSORBED into step 3.** With a derived driver there is no expiry to tune: lifetime becomes a display fade over the last write's timestamp. |
 | | L2 R7 · native claim | actor | move the human's claim off shadowable `isTrusted`. **Cheaper than planned:** an isolated `WKContentWorld` makes `isTrusted` unforgeable (per-world prototypes), which is how browser input was fixed. Web ports could take the same route instead of a native monitor. |
 | | **then: slice-02** | — | the same three nouns over libp2p |
 
@@ -335,25 +337,178 @@ message.
 
 ---
 
-## E. R5 · terminals REQUIRE a token — the open decision
+## E. R5 · every write REQUIRES a token — **DONE 2026-07-27**
 
 **I2 unblocked this.** R5 was unsound while ways into a port went uncounted, because refusing an
 untokened write means claiming the token tells the truth. C6 measured that surface by surface.
 
-**What R5 actually changes:** `expect` becomes MANDATORY for terminal writes instead of optional. A
-`port.push` to a terminal without a token is refused.
+**It shipped wider than this section proposed.** The plan asked for mandatory tokens on TERMINAL
+writes. GM took every write on every surface, with no carve-out and no exemption for humans: a write
+that does not declare what it composed against is refused with `token_required` carrying `current`.
+The parameter was renamed `expect` → `token` at the same time, hours after the rule shipped and while
+adoption was still zero, because a caller held a thing called `token` and had to type `expect`.
 
-**Why it is GM's call and not a detail:** it BREAKS every existing caller. Today CAS is opt-in and
-"nothing that works now breaks" was the explicit design constraint at R3. R5 reverses that for one
-surface. Every script, companion and Claude Code session pushing to a terminal must first read a
-token and then send it.
+**This REVERSED R3's "nothing that works today breaks", deliberately.** Opt-in CAS asked for
+discipline from the wrong party: your write's safety depended on the OTHER caller volunteering a
+token, and almost nobody did. A guarantee that every participant must opt into is not a guarantee.
 
-**Why a terminal and not everything:** a terminal cannot tolerate a splice. Text arrives as a stream
-and two interleaved writes produce a line neither caller wrote, which no retry can detect afterwards.
-A web port's `port.exec` replaces a value; a spliced shell command runs.
+**It costs no extra round trips.** `ports.list`, `port.create` and every write return a token, so a
+writer threads one continuously and never re-reads a port to write to it twice. `ports-context.txt`
+teaches the flow, so generated ports do it correctly by construction.
 
-**Measured state today (2026-07-27):** the mechanism is complete and terminals already honour a token
-when one is supplied. R5 is purely the decision to require it.
+**Why a terminal was the case that forced it:** a terminal cannot tolerate a splice. Text arrives as
+a stream and two interleaved writes produce a line neither caller wrote, which no retry can detect
+afterwards. A web port's `port.exec` replaces a value; a spliced shell command runs.
+
+**R1's reasoning survives, its slogan does not.** R1 removed a LEASE, which refused you regardless,
+could not be argued with, and left a port stuck when its holder vanished. R5 refuses only a caller who
+declined to declare state, and hands them the answer, so nobody is ever blocked. Two R1 gates were
+renamed, not deleted.
+
+---
+
+## F. Step 3 · presence derived from the token — **DECIDED, BUILDING**
+
+**The last stored copy of a fact the token already holds.** `DriverRegistry` is a second table saying
+who acted on a port, beside a counter that already moves when someone does. Two homes for one fact is
+what the register exists to catch, and this is the only remaining instance inside the seam.
+
+**GM's framing:** *presence is proven through the token, and humans hold one too.* A human holds the
+current token by construction, because their keystroke is what moves it. An agent is not at the
+surface, so it fetches one.
+
+### The decision this needed (GM, 2026-07-27): **focus stops conferring presence**
+
+Focus was the one caller of `presenceClaimed`, and it recorded a driver WITHOUT moving the token
+(added in C2.2, because clicking a title bar changes nothing about a port's contents). Under a derived
+driver that is incoherent: it would assert presence while proving nothing.
+
+**The alternative was real and was rejected on a slice-02 argument.** Focus could have written the
+actor into the merged record without touching `seq`, which keeps today's behaviour and still deletes
+the table (so "keep a second table" was never the actual trade). Its defense: the chip's job is "will
+my typing collide with someone", and a human sitting focused on a port is a genuine signal of imminent
+collision. **What killed it:** presence has to cross the wire at slice-02, and a peer receiving a
+driver broadcast cannot verify a focus against anything, because a focus is invisible to them. It is
+an unproven assertion, which is the class of thing R7 exists to remove from input. Derived from the
+token, the claim is checkable from the token itself.
+
+**The behaviour that changes, stated plainly:** zooming into a port with the keyboard (⌘↓, ⌘\`) or by
+double-clicking its header, and then not touching it, no longer names you as the driver. The chip
+keeps naming the companion, which is true, because the companion is the one writing. The gap is narrow
+because pointerdown INSIDE a surface already counts as acting, on terminals and web ports both.
+
+**Not a door that closes.** If it reads wrong live, focus goes back as one write into the same record.
+It does not resurrect a table.
+
+### What it deletes
+
+- `DriverRegistry` and `PresenceThrottle` as types. The throttle exists only because recording was a
+  second write with a cost to rate-limit; derivation makes it the same write as the bump.
+- `DriverRegistry.release` and `handoff`, which have **no production callers at all** — lease-era
+  verbs kept alive by their own tests.
+- `PortInputSeam.presenceClaimed`, the seam's second mutating door.
+
+`ShellState.portDrivers` is unrelated and stays: it is the `@Published` display dict the tile chips
+read, fed by the driver broadcast.
+
+### Step 3 as built (2026-07-27), live-verified
+
+`PortActivity` carries `(seq, actor, name, at)` per port and `driver(of:now:)` derives from it.
+`DriverRegistry`, `PresenceThrottle`, `release`, `handoff` and `presenceClaimed` are deleted; the
+seam is down to one private table and two doors. Suite 1146 green.
+
+**One rule that is load-bearing and is NOT obvious: an unattributed write moves the counter and
+leaves the attribution alone.** A companion's `port.push` to a terminal counts twice, once
+attributed at the dispatch seam and once unattributed at the pty funnel, so clearing on nil would
+blank the chip of every companion the instant it wrote. Green in every unit test, visibly broken
+live. Pinned by its own test.
+
+The throttle was deleted rather than kept: a burst of typing still publishes once, because the
+broadcast keys off the driver CHANGING rather than off a rate limit.
+
+Three gates, each calibrated by breaking it: a stub registry, a reintroduced `presenceClaimed`, and
+a restored `recordHumanFocus` each trip the right test.
+
+### R6 is absorbed
+
+"Presence lifetime" was a TTL to tune. With a derived driver there is nothing to expire: the record
+holds when the last write happened, and how long a chip stays lit is a display question over that
+timestamp.
+
+---
+
+## G. The write-response contract — measured, three defects, 2026-07-27
+
+**Question asked of every write verb, live in Dev3:** does the response describe the port's state
+AFTER the write, and does the body do what the schema says? Nineteen probes across web, terminal and
+browser. The prompt for it was GM's, on being told terminals count twice: *"sounds like a bad
+smell."*
+
+**1. The response token was captured BEFORE the body ran. FIXED.** A `port.push` answered `:2` while
+the port stood at `:4`, so threading the returned token was refused **every single time**. That is
+R5's central promise inverted — "every write returns a token" is worth nothing if the token is stale
+on arrival. The read moved after the body; the bump stays before it, because it is the general
+guarantee (a web `port.exec` has no funnel behind it) and a suspending body must not be composed
+against mid-write. Live: five consecutive pushes threading the returned token, no re-reads, no
+refusals.
+
+**2. `port.push` submitted an Enter the caller never sent. FIXED.** Its schema said *"include your
+own newline… it is NOT added for you"*; pushing `touch <file>` with no newline created the file. The
+cause: `sendRaw` (raw keystrokes) was implemented by calling `inject` (a message, which must submit),
+so two contracts shared one writer. Submission now follows the caller's newline.
+
+**3. A write returning a SCALAR carried no token at all. FIXED.** `withToken` left non-objects
+untouched, so `port.exec` — the verb agents use most — forced a re-read before every next write.
+Scalars are now `{value, token}`. A break, taken deliberately while adoption is near zero, the same
+call as the `expect` → `token` rename.
+
+**The 80ms deferred Enter was measured rather than removed, and the measurement reversed the plan.**
+It looked like a hand-tuned constant to delete. In a plain bash port every form submits, including a
+trailing newline in one burst. In claude's TUI it depends on LENGTH: ~60 characters submits on any
+form, 472 characters does not submit in a single burst, and 1273 characters submits only as
+body-then-separate-Enter. Real prompts are long, so the split is load-bearing and removing it would
+have broken driving claude at all. The fix was to AWAIT it instead, so a push is not finished until
+its Enter has landed.
+
+**Two drifts are honest and are now documented rather than fixed** (`ports-context.txt`): a terminal's
+startup command types itself after `port.create` returns, and a browser navigation is a new document
+(GM: *"a new page is a new URL and so new context, so the token should be updated"*). Both are the
+port changing on its own after you were answered, which no synchronous response could include.
+
+**4. `port.exec` decided how to run your JS by a SUBSTRING MATCH, and it failed silently. FIXED.**
+This started as the known footgun — `foo(); 42` wrapped into a syntax error — and measuring it found
+a worse one underneath. The rule was `contains("return") || contains("throw") || contains("\n")` on
+the raw source, so the word only had to APPEAR. Measured live against a port holding
+`<b id=returned>THE VALUE</b>`:
+
+```
+'hello'                                          → "hello"      correct
+'returned'                                       → {ok: true}   the value vanished
+document.querySelector('#returned').textContent  → {ok: true}   the value vanished
+```
+
+An id, a class, a selector, an identifier like `returnValue`, or a comment was enough to skip the
+wrap, leaving a bare expression statement with no return. **The caller asked for a value and got a
+success holding nothing, with nothing anywhere saying why.** A newline did it too, so any
+pretty-printed expression returned silence. That is strictly worse than the loud case this thread
+started with, and it was invisible because a silent wrong answer looks like a working call.
+
+Replaced with a scan that reads the source as JS rather than as text: string and template literals,
+comments and regex literals are skipped, and only a real `return`/`throw` KEYWORD counts. **Two more
+obvious fixes were rejected for stated reasons.** A compile-only trial in the page (`new Function`
+inside a `try`) is exact and side-effect free, but generated ports ship a CSP with no `unsafe-eval`
+and a browser port carries whatever CSP its site sets. Running it and retrying on failure would
+re-execute a body whose side effects had already landed, on a *runtime* SyntaxError.
+
+`foo(); 42` stays a loud error on purpose: treating it as a body would return undefined and say
+nothing, which is the silent class again. And **the error now carries a code** (`js_syntax`,
+`js_error`, `js_timeout`), the real WebKit message, and `ran` — the body actually executed, which is
+not the source the caller sent when an expression was wrapped. Register §5 closed for this verb.
+
+**Method note.** The first observable for the claude measurement was a space reply, and it reported
+"not submitted" for five cases that had all plainly submitted. Validating it against a known-good
+path is what caught that; the transcript on disk was the honest instrument. Same failure as Spike C's
+guessed labels, caught earlier this time.
 
 ---
 

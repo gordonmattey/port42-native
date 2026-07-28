@@ -25,28 +25,58 @@ a second instance.
 | **TOKEN** | ⚠️ mechanism done (R2/R3), **not yet honest** — a token only tells the truth if EVERY mutation counts, and terminals + browser navigation still have ways in that do not |
 | **ACTOR** | ✅ **done 2026-07-27** (I1.1–I1.6). Measured first, which killed the defect both plans led with and found two nobody had named. One private `Principal` constructor; a gateway-created port authorizes as itself, not the shared `local-http`; no identity is a heap address. |
 
-### NEXT: L2 step 3 — presence derived from the token (plan §C/§E)
+### NEXT: L2 R7, then slice-02
 
-**I1 and I2 are COMPLETE. R4 and R5 are done.** One design step remains before slice-02.
+**Step 3 is DONE and live-verified (2026-07-27), and so is a defect sweep it provoked.** All three
+nouns are now single-definition: ADDRESS, ACTOR (identity + presence) and TOKEN. Suite 1146 green,
+running in Dev3.
 
-**Step 3:** presence stops being a stored table. `portDrivers` is deleted and the driver becomes
-whoever moved the token last, which is GM's framing: *presence is proven through the token, and humans
-hold one too*. A human holds the current token by construction, because their keystroke is what moves
-it; an agent is not at the surface so it fetches one.
+**Step 3:** presence is no longer stored. `DriverRegistry`, `PresenceThrottle`, `release`, `handoff`
+and the seam's second door are deleted; the driver is derived from whoever moved the port's token
+last. GM's call: **focus stops conferring presence** — it named a driver without moving the token,
+which under derivation asserts presence while proving nothing, and a peer cannot verify a focus at
+slice-02. Zooming into a port and not touching it now leaves the chip naming the companion that is
+actually writing. Clicking or typing inside the surface still names you.
 
-**The one visible consequence, undecided:** focusing a port currently confers presence WITHOUT moving
-the token (`PortInputSeam.presenceClaimed`, added in C2.2, because clicking a title bar changes
-nothing). Under step 3 that is incoherent — a focus would assert presence while proving nothing. The
-likely answer is that focus stops making you the driver until you actually type. **That is a behaviour
-change and wants GM's ok before building.**
+**One rule that no test would have caught:** an unattributed write moves the counter and leaves the
+attribution alone. A companion's terminal write counts twice (dispatch seam + pty funnel), so
+clearing on nil would blank every companion's chip the instant it wrote.
 
-**R6 (presence lifetime) is probably absorbed** into step 3: if the driver is whoever moved the token
-last, "lifetime" becomes a display question, not an expiry to tune.
+**R6 is absorbed** — with a derived driver there is no expiry to tune, only a display fade.
 
-**R7 got much cheaper.** It was planned as a native event monitor because `isTrusted` is
-page-shadowable. An isolated `WKContentWorld` makes it unforgeable instead: prototypes are per-world,
-so a page cannot shadow `Event.prototype.isTrusted` out from under a listener that does not share its
-world. Browser ports already took that route; web ports can take the same one.
+### The sweep GM's instinct produced (plan §G) — three defects, all fixed
+
+Told that a terminal write counts twice, GM said *"sounds like a bad smell"*. Measuring it live found
+that **R5's central promise was false on terminals**: the response token was captured before the body
+ran, so threading it was refused every single time. Also: `port.push` submitted an Enter the caller
+never sent, contradicting its own schema; and a write returning a SCALAR (`port.exec`, the verb
+agents use most) carried no token at all, forcing a re-read before every write. All three fixed and
+live-verified; `port.exec` scalars are now `{value, token}`, a deliberate break taken while adoption
+is near zero.
+
+**The 80ms deferred Enter was measured, not deleted, and the measurement reversed the plan.** A plain
+bash port submits on every form; claude's TUI depends on LENGTH (~60 chars submits any way, 1273
+chars only as body-then-separate-Enter). Real prompts are long, so the split is load-bearing. The fix
+was to AWAIT it.
+
+**A fourth defect, found by pulling on that thread and now FIXED.** `port.exec` chose how to run
+your JS by a SUBSTRING match for `return`/`throw`/newline on the raw source, so an id, a selector, a
+comment or an identifier like `returnValue` skipped the wrap and the call **silently returned
+nothing** — `document.querySelector('#returned').textContent` came back `{ok: true}` with the value
+gone. Replaced with a scan that skips strings, comments and regex and counts only real keywords; a
+compile trial in the page was rejected (ports ship a CSP with no `unsafe-eval`) and so was
+run-then-retry (it re-executes side effects). Failures now carry `js_syntax` / `js_error` /
+`js_timeout` plus `ran`, the body actually executed. Register §5 closed for this verb.
+
+### What is left in the protocol thread
+
+- **R7 · native claim.** Move the human's claim off page-reported `isTrusted`. Cheaper than planned:
+  an isolated `WKContentWorld` makes it unforgeable, which is how browser input was fixed.
+- **Then slice-02**, which is now a transport change rather than a redesign.
+- **The visual check GM owns:** click into a port a companion is writing to and confirm the chip
+  stays on the companion until you type. Tests cover the derivation; they cannot see a chip.
+- Carried forward: the output seam (six publish sites, GM deferred), orphaned `portPerms` grants,
+  plan §D marketing copy, and the rest of the API parity sweep.
 
 ### What R5 changed, because it is the live contract now
 

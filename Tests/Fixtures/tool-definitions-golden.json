@@ -606,7 +606,7 @@
           "type" : "string"
         },
         "js" : {
-          "description" : "JavaScript code to execute in the port's context. Return a value to get it back in the response.",
+          "description" : "JavaScript code to execute in the port's context. Return a value to get it back in the response, as {value, token}. A bare expression yields its value (multi-line is fine). A multi-statement body needs an explicit return: `foo(); 42` is a syntax error, `foo(); return 42;` works.",
           "type" : "string"
         },
         "token" : {
@@ -783,7 +783,7 @@
     "name" : "port_publish"
   },
   {
-    "description" : "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. \"ls\\n\", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.",
+    "description" : "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell: end with a newline (e.g. \"ls\\n\") to run the command, or omit it to leave the line waiting unsubmitted. Use the id from ports_list. Prefer this over port_exec for data transfer.",
     "input_schema" : {
       "properties" : {
         "data" : {

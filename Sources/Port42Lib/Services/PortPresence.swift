@@ -14,8 +14,21 @@ import Foundation
 //
 // Pure and time-injected: no AppState, no clock of its own. Expiry is the behaviour most likely to
 // be wrong and the most miserable to test against a real clock, so `now` is always a parameter.
-// The remaining TTL is DISPLAY freshness (when the chip should fade), not correctness — R6 replaces
-// it with turn-scoped events for companions, which have a real end signal.
+//
+// STEP 3 (2026-07-27) LEFT ONLY THE VOCABULARY HERE. `DriverRegistry` and `PresenceThrottle` are
+// gone: presence is DERIVED from the activity record, because whoever moved the token last is the
+// one driving, and a second table storing that fact could only ever disagree with the first. See
+// `PortActivity`. What remains is the two value types the derivation and the broadcast both speak
+// in — an ACTOR and the DRIVER a surface displays.
+//
+// FOCUS NO LONGER CONFERS PRESENCE (GM, 2026-07-27). It used to record a driver without moving the
+// token, which under a derived driver would assert presence while proving nothing. The alternative
+// considered was writing the actor into the same record without touching `seq`, which keeps the old
+// behaviour and still deletes the table; it was rejected because presence has to cross the wire at
+// slice-02, and a peer cannot verify a focus against anything, since a focus is invisible to them.
+// Derived from the token, the claim is checkable from the token itself. Zooming into a port and not
+// touching it now leaves the chip naming the companion that is actually writing, which is true.
+// Pointerdown INSIDE a surface still counts as acting, on terminals and web ports both.
 
 /// WHO is driving, peer-qualified. `decision-identity-model.md`: identity is three axes, and
 /// presence names an ACTOR (a human, a companion, a port) at an INSTANCE. Local is the degenerate form
@@ -49,101 +62,16 @@ public struct ActorRef: Equatable, Hashable, CustomStringConvertible {
     }
 }
 
+/// What a surface SHOWS: who is driving a port, and until when. A derived value since step 3 —
+/// `PortActivity.driver(of:now:)` builds one from the last actor to move the port's token. Nothing
+/// stores it, which is why nothing can disagree about it.
 public struct Driver: Equatable {
     public let ref: ActorRef
     /// What a human reads on the tile ("gordon", "echo"). Never the identity — that is `ref`.
     public let name: String
+    /// When the chip should fade. DISPLAY freshness, not a lock and not a lease: nothing consults
+    /// this to decide whether a write lands. What refuses a write is CAS against the token.
     public let expires: Date
 
     public func isLive(at now: Date) -> Bool { now < expires }
-}
-
-public enum DriverChange: Equatable {
-    /// The driver CHANGED — a free port, a lapsed one, or a different actor taking over.
-    case changed(Driver)
-    /// The same actor again; only the freshness window moved. Deliberately distinct from `.changed`
-    /// so the broadcast can fire on CHANGE only and not spam the topic on every keystroke (§L2.5).
-    case refreshed(Driver)
-}
-
-/// The per-port driver table. A value type: one lives on `AppState`, and tests build their own.
-public struct DriverRegistry: Equatable {
-    /// How long presence survives without use — DISPLAY freshness, not a lock. Short enough that a
-    /// crashed writer stops being shown as driving, long enough that a human thinking between
-    /// keystrokes does not flicker off the chrome.
-    public static let defaultTTL: TimeInterval = 30
-
-    private var drivers: [String: Driver] = [:]
-    public let ttl: TimeInterval
-
-    public init(ttl: TimeInterval = DriverRegistry.defaultTTL) { self.ttl = ttl }
-
-    /// The live driver of a port, or nil when nobody is or the record went stale. Read-only: never
-    /// extends anything.
-    public func driver(of port: String, now: Date) -> Driver? {
-        guard let l = drivers[port], l.isLive(at: now) else { return nil }
-        return l
-    }
-
-    /// Record that this actor just drove the port. ALWAYS succeeds — presence observes, it does not
-    /// arbitrate (R1). The return says only whether the driver CHANGED, which is what the Notify
-    /// broadcast keys off: a refresh fires per keystroke and publishing it would be all noise.
-    @discardableResult
-    public mutating func record(port: String, actor: ActorRef, name: String, now: Date) -> DriverChange {
-        let fresh = Driver(ref: actor, name: name, expires: now.addingTimeInterval(ttl))
-        let sameDriver = drivers[port].map { $0.isLive(at: now) && $0.ref == actor } ?? false
-        drivers[port] = fresh
-        return sameDriver ? .refreshed(fresh) : .changed(fresh)
-    }
-
-    /// Stop being shown as the driver. Only the current one can: a stray release from anyone else is
-    /// a no-op, so nobody can clear someone else's presence out from under them.
-    @discardableResult
-    public mutating func release(port: String, actor: ActorRef, now: Date) -> Bool {
-        guard let current = drivers[port], current.isLive(at: now), current.ref == actor else { return false }
-        drivers.removeValue(forKey: port)
-        return true
-    }
-
-    /// Explicit handoff — the answer to a knock. Only the current driver may hand off; handing off a
-    /// port nobody is driving is not a way to assign it to someone else behind their back.
-    @discardableResult
-    public mutating func handoff(port: String, from: ActorRef, to: ActorRef,
-                                 toName: String, now: Date) -> Bool {
-        guard let current = drivers[port], current.isLive(at: now), current.ref == from else { return false }
-        drivers[port] = Driver(ref: to, name: toName, expires: now.addingTimeInterval(ttl))
-        return true
-    }
-
-    /// Drop a port's presence entirely (the port closed). Not a release: no driver check, because
-    /// the thing being driven no longer exists.
-    public mutating func forget(port: String) {
-        drivers.removeValue(forKey: port)
-    }
-}
-
-/// Rate-limits "the human is interacting with this port" so a claim happens at most once per
-/// interval per port. Typing fires this per KEYSTROKE; the freshness window is 30s, so re-recording
-/// on every character is pure noise, and the claim path resolves the port each time (the one part of
-/// it that is not free). Pure and time-injected, like the registry.
-public struct PresenceThrottle: Equatable {
-    /// Comfortably inside the TTL, so a continuously-used port never goes stale, while an idle one
-    /// still ages out on schedule.
-    public static let defaultInterval: TimeInterval = 5
-
-    private var last: [String: Date] = [:]
-    public let interval: TimeInterval
-
-    public init(interval: TimeInterval = PresenceThrottle.defaultInterval) { self.interval = interval }
-
-    /// True when this port should claim now. The FIRST interaction always passes — the moment you
-    /// touch a port is exactly when the claim matters most.
-    public mutating func allow(port: String, now: Date) -> Bool {
-        if let prev = last[port], now.timeIntervalSince(prev) < interval { return false }
-        last[port] = now
-        return true
-    }
-
-    /// Forget a port's throttle state (it closed), so a reused id starts fresh.
-    public mutating func forget(port: String) { last.removeValue(forKey: port) }
 }

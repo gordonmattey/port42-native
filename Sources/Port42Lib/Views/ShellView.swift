@@ -274,11 +274,9 @@ public struct ShellView: View {
             // move the first responder — hand the keyboard to the focused unit's surface.
             if case .focus(let id) = z {
                 appState.portWindows.focusKeyboard(on: id)
-                // Presence (L2.d, demoted by R1): zooming into a unit is the human saying "I am
-                // driving this", so it records them as the driver. It refuses nothing — a companion
-                // writing here still writes, it just stops being named until its next write.
-                // Deliberately here and not in `focusKeyboard`, which also fires on HOVER.
-                appState.recordHumanFocus(portId: id)
+                // Focus used to record the human as the port's driver here, and stopped at step 3:
+                // presence is derived from whoever moved the token last, and a focus moves nothing.
+                // Your first keystroke or click inside the surface names you (`humanInteracted`).
             }
         }
         // The focused unit left the desktop (closed via API, evaporated, detached) → back to

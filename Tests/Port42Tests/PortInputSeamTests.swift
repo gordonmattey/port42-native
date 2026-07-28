@@ -57,10 +57,11 @@ struct PortInputSeamTests {
         #expect(seam.driver(of: "p1", now: t0) == nil)
     }
 
-    @Test("the token is never throttled, unlike presence")
+    @Test("two writes at the SAME instant still produce two tokens")
     func tokenIsNotThrottled() {
         var seam = PortInputSeam()
-        // Same actor, same instant, twice: presence throttles, the token must not.
+        // Same actor, same instant, twice. Presence says "no change" here (step 3); the token must
+        // still move, because the port changed twice.
         let a = seam.received(input(.text("a"), actor: alice), now: t0).token
         let b = seam.received(input(.text("b"), actor: alice), now: t0).token
         #expect(a != b, """
@@ -87,27 +88,29 @@ struct PortInputSeamTests {
         #expect(out.driverChanged?.name == "alice")
     }
 
-    @Test("a TAKEOVER is never throttled, or the human could never win the chip back")
-    func takeoverIsNotThrottled() {
+    @Test("a TAKEOVER is announced immediately, or the human could never win the chip back")
+    func takeoverIsAnnouncedAtOnce() {
         var seam = PortInputSeam()
         _ = seam.received(input(.programmatic, actor: bob, name: "echo"), now: t0)
-        // A human types one second later, well inside the 5s throttle window.
+        // A human types one second later. Under the old 5s presence throttle this event was dropped.
         let out = seam.received(input(.text("h"), actor: alice, name: "Alice"),
                                 now: t0.addingTimeInterval(1))
         #expect(out.driverChanged?.ref == alice, """
             GM caught this live before R1b: a companion writing every 2s against a 5s throttle \
-            meant the human could never take the chip back. The throttle's premise died with the \
-            lock — under last-driver-wins you do NOT still hold it.
+            meant the human could never take the chip back. Step 3 deleted the throttle rather than \
+            tuning it — a change is announced, a repeat is not, and neither needs a rate limit.
             """)
     }
 
-    @Test("a REFRESH is throttled, so the port's topic is not drowned per keystroke")
-    func refreshIsThrottled() {
+    @Test("a REPEAT is silent, so the port's topic is not drowned per keystroke")
+    func repeatIsSilent() {
         var seam = PortInputSeam()
         #expect(seam.received(input(.text("a"), actor: alice), now: t0).driverChanged != nil)
-        // Same actor again, immediately: still driving, nothing new to say.
+        // Same actor again, immediately: still driving, nothing new to say. This is what replaced
+        // the throttle — the broadcast keys off the driver CHANGING, not off a rate limit, so a
+        // burst of typing publishes once for the reason rather than by suppression.
         #expect(seam.received(input(.text("b"), actor: alice), now: t0).driverChanged == nil)
-        // …but it is still the driver. Throttling silences the broadcast, not the fact.
+        // …and it is still the driver. Silence is about the broadcast, not the fact.
         #expect(seam.driver(of: "p1", now: t0)?.ref == alice)
     }
 
@@ -129,14 +132,14 @@ struct PortInputSeamTests {
             """)
     }
 
-    @Test("after a close, the throttle does not suppress the next driver's first claim")
-    func closeClearsTheThrottle() {
+    @Test("after a close, the next write announces its driver even if it is the same actor")
+    func closeAnnouncesTheNextDriver() {
         var seam = PortInputSeam()
         _ = seam.received(input(.text("a"), actor: alice), now: t0)
         seam.portClosed("p1")
-        // A new port reusing the id, driven by the same actor, inside the throttle window.
+        // A new port reusing the id, driven by the same actor, well inside the display window.
         let out = seam.received(input(.text("b"), actor: alice), now: t0.addingTimeInterval(1))
-        #expect(out.driverChanged != nil, "a stale throttle entry would hide the new driver")
+        #expect(out.driverChanged != nil, "a leftover attribution would hide the new driver")
     }
 
     // MARK: - scoping
@@ -151,7 +154,7 @@ struct PortInputSeamTests {
 
     // MARK: - C2.0 · one owner
 
-    @Test("the three tables have ONE owner: nothing outside the seam holds its own")
+    @Test("the table has ONE owner: nothing outside the seam holds its own")
     func seamIsTheOnlyOwner() throws {
         // C2.0. While `AppState` held `portActivity`/`portDrivers`/`presenceThrottle` and the seam
         // held its own, moving a single translator would have bumped one counter while every reader
@@ -176,8 +179,7 @@ struct PortInputSeamTests {
             for line in src.split(separator: "\n") {
                 let t = line.trimmingCharacters(in: .whitespaces)
                 guard !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
-                if t.contains("= DriverRegistry(") || t.contains("= PortActivity(")
-                    || t.contains("= PresenceThrottle(") {
+                if t.contains("= PortActivity(") {
                     owners.append("\(file): \(t.prefix(60))")
                 }
             }
@@ -189,10 +191,10 @@ struct PortInputSeamTests {
             """)
     }
 
-    // MARK: - C4 · the mutating surface is exactly three doors
+    // MARK: - C4 · the mutating surface is exactly two doors (three until step 3)
 
-    @Test("the seam has exactly THREE mutating entry points, and the tables are private")
-    func threeDoorsAndNoOther() throws {
+    @Test("the seam has exactly TWO mutating entry points, and the table is private")
+    func twoDoorsAndNoOther() throws {
         // C4 was planned as "flip the fields private, and the compiler names every path missed". It
         // landed early and incrementally instead: C1 declared the tables private from the start, and
         // each passthrough deleted in C2 made the compiler produce that phase's caller list. There
@@ -212,30 +214,51 @@ struct PortInputSeamTests {
                 guard let r = line.range(of: "mutating func ") else { return nil }
                 return String(line[r.upperBound...]).components(separatedBy: "(").first
             }
-        #expect(Set(doors) == ["received", "presenceClaimed", "portClosed"], """
+        #expect(Set(doors) == ["received", "portClosed"], """
             The seam's mutating surface changed: \(doors.sorted()).
-            received = input (token always moves). presenceClaimed = a claim that changes nothing \
-            (token must NOT move). portClosed = presence lapses, the token does not. A fourth door \
-            is a second way in, which is what this seam exists to remove.
+            received = input (the token always moves, and presence falls out of it). portClosed = \
+            the attribution lapses, the token does not. A third door is a second way in, which is \
+            what this seam exists to remove — and it is exactly what `presenceClaimed` was before \
+            step 3 derived presence from the token (§F).
             """)
 
-        // And the tables stay private, or the doors are decoration.
-        for table in ["var activity", "var drivers", "var throttle"] {
-            #expect(src.contains("private \(table)"),
-                    "\(table) must be private to the seam, or any path can mutate it directly")
-        }
+        // And the table stays private, or the doors are decoration.
+        #expect(src.contains("private var activity"),
+                "the activity table must be private to the seam, or any path can mutate it directly")
     }
 
-    @Test("presenceClaimed does NOT move the token, which is why it is a separate door")
-    func presenceClaimDoesNotBump() {
+    @Test("nothing can claim presence without moving the token (step 3)")
+    func presenceCannotBeClaimedWithoutAWrite() throws {
+        // `presenceClaimed` was the second door, and focus was its only caller: it named a driver
+        // while proving nothing about the port. Under a derived driver that is incoherent, and GM
+        // decided focus stops conferring presence rather than keeping a claim a peer could not
+        // verify (§F). The seam offers no way to name a driver except by changing the port.
         var seam = PortInputSeam()
         let before = seam.token(for: "p1")
-        let d = seam.presenceClaimed(port: "p1", actor: alice, name: "Alice", now: t0)
-        #expect(d?.ref == alice, "a focus still records presence")
-        #expect(seam.token(for: "p1") == before, """
-            Focusing a port changes nothing about its contents. Bumping on it would invalidate every \
-            reader's token on a click and cost concurrent writers spurious stale_write retries.
-            """)
+        #expect(seam.driver(of: "p1", now: t0) == nil)
+
+        let out = seam.received(input(.text("h"), actor: alice, name: "Alice"), now: t0)
+        #expect(out.driverChanged?.ref == alice)
+        #expect(seam.token(for: "p1") != before, "presence and the token move together, or not at all")
+
+        // And the shell's focus path no longer records anything. Tree-wide: a gate scoped to named
+        // files is not a gate.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let walker = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        var claims: [String] = []
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let src = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            for line in src.split(separator: "\n") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                guard !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
+                if t.contains("recordHumanFocus") || t.contains("recordDriving") {
+                    claims.append("\(url.lastPathComponent): \(t.prefix(60))")
+                }
+            }
+        }
+        #expect(claims.isEmpty, "focus is naming a driver again without proving anything: \(claims)")
     }
 
     // MARK: - the recorded risk

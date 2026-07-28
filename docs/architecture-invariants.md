@@ -120,6 +120,22 @@ that was.*
 
 ---
 
+## 3b. Presence — who is driving · **RESOLVED**
+
+**Status: ✅ RESOLVED 2026-07-27** (L2 step 3). It had two homes: a `DriverRegistry` storing who
+acted on a port, beside an activity counter that already moved when someone did. Now one — the
+driver is **derived** from whoever last moved the port's token, so a stored copy cannot disagree with
+it and a peer can check the claim against the token itself.
+
+Focus stopped conferring presence with it (GM's call): it named a driver without moving the token,
+which under derivation asserts presence while proving nothing.
+
+**The rule that is not obvious:** an UNATTRIBUTED write moves the counter and leaves the attribution
+alone. A companion's terminal write counts twice, attributed at the dispatch seam and unattributed at
+the pty funnel, so clearing on nil would blank every companion's own chip.
+
+---
+
 ## 4. Output — what leaves a port
 
 **Status: ten publish sites**, emitting `console`, `terminal.output`, `push`, `driver`, plus
@@ -136,6 +152,12 @@ output will still have ten.
 **Status: ~20 ad-hoc code strings.** `bad_args` and `bad_arg` coexist; `no_port` sits alongside
 `not_found`. `BridgeError` has canonical helpers (`missingArg`, `notFound`, `badArg`) that nothing
 enforces.
+
+**One instance measured and CLOSED 2026-07-27:** `port.exec` reported every JS failure as the bare
+string "A JavaScript exception occurred" with **no `code` field at all**. It now throws `js_syntax`,
+`js_error` or `js_timeout`, carries the real exception text, and includes `ran` (the body actually
+executed, which differs from the caller's source when an expression is wrapped). Measuring it also
+found the wrap itself deciding by substring match, which failed SILENTLY — see plan §G.
 
 **This got more important on 2026-07-26**, not less: R3 made errors machine-actionable
 (`details.current`), and CAS depends on a caller recognizing `stale_write`. An agent that cannot

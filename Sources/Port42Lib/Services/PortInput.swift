@@ -117,23 +117,20 @@ public struct PortInputSeam {
         public let driverChanged: Driver?
     }
 
+    /// ONE table, since step 3. It was three: the counter, a `DriverRegistry` and a
+    /// `PresenceThrottle`. Presence is now derived from the counter's own record of who moved it
+    /// last, so there is nothing left to keep in sync and nothing left to rate-limit.
     private var activity: PortActivity
-    private var drivers: DriverRegistry
-    private var throttle: PresenceThrottle
 
-    public init(activity: PortActivity = PortActivity(),
-                drivers: DriverRegistry = DriverRegistry(),
-                throttle: PresenceThrottle = PresenceThrottle()) {
+    public init(activity: PortActivity = PortActivity()) {
         self.activity = activity
-        self.drivers = drivers
-        self.throttle = throttle
     }
 
     // MARK: Reads
 
     public func token(for port: String) -> String { activity.token(for: port) }
     public func seq(for port: String) -> Int { activity.seq(for: port) }
-    public func driver(of port: String, now: Date) -> Driver? { drivers.driver(of: port, now: now) }
+    public func driver(of port: String, now: Date) -> Driver? { activity.driver(of: port, now: now) }
 
     /// A CONSISTENT snapshot of every port's counter, for a caller listing many ports at once.
     ///
@@ -161,10 +158,11 @@ public struct PortInputSeam {
     ///    an app writing a startup command into a pty has nobody to name, and naming the app as the
     ///    driver of a port the user just opened would be a lie.
     ///
-    /// The throttle applies to a REFRESH and never to a TAKEOVER. Its original argument was
-    /// "re-claiming a lease you already hold is noise", which died with the lock: under
-    /// last-driver-wins you do not still hold it, so your next keystroke is a genuine change and
-    /// dropping it leaves the chrome naming someone who stopped.
+    /// **STEP 3: presence is not recorded here, it FALLS OUT of the bump.** The driver is whoever
+    /// moved the token last, so there is one write and no second table to keep in step. The
+    /// throttle went with the registry: it existed because recording was a separate write with a
+    /// per-keystroke cost, and a burst of typing still publishes once, because the broadcast keys
+    /// off the driver CHANGING rather than off a rate limit.
     @discardableResult
     public mutating func received(_ input: PortInput, now: Date = Date()) -> Outcome {
         #if DEBUG
@@ -174,45 +172,8 @@ public struct PortInputSeam {
         PortInputProbe.record(kind: input.kind.probeName, trust: "\(input.trust)",
                               attributed: input.actor != nil)
         #endif
-        let token = activity.bump(input.port)
-
-        guard let actor = input.actor else {
-            return Outcome(token: token, driverChanged: nil)
-        }
-
-        if drivers.driver(of: input.port, now: now)?.ref == actor {
-            guard throttle.allow(port: input.port, now: now) else {
-                return Outcome(token: token, driverChanged: nil)
-            }
-        }
-
-        switch drivers.record(port: input.port, actor: actor,
-                              name: input.actorName ?? actor.principal, now: now) {
-        case .changed(let d): return Outcome(token: token, driverChanged: d)
-        case .refreshed:      return Outcome(token: token, driverChanged: nil)
-        }
-    }
-
-    /// Someone CLAIMED a port without changing it: focusing a tile, zooming into a unit.
-    ///
-    /// **Presence only. The token deliberately does not move**, and that is why this exists rather
-    /// than being a `PortInput.Kind`. `received(_:)` bumps unconditionally, because an input by
-    /// definition changed the port. A focus changes nothing: bumping on it would invalidate every
-    /// reader's token for no reason and cost concurrent writers spurious `stale_write` retries.
-    ///
-    /// So the seam has two entry points, not one, because it owns two guarantees and a focus touches
-    /// exactly one of them. "One door for input" was never "one method for everything the seam owns".
-    ///
-    /// Unthrottled, unlike the refresh path in `received`: a focus is a deliberate act and there is
-    /// no keystroke-rate stream of them to drown a topic.
-    ///
-    /// Returns the new driver when presence MOVED, for the caller to broadcast; nil on a refresh.
-    public mutating func presenceClaimed(port: String, actor: ActorRef,
-                                         name: String, now: Date = Date()) -> Driver? {
-        switch drivers.record(port: port, actor: actor, name: name, now: now) {
-        case .changed(let d): return d
-        case .refreshed:      return nil
-        }
+        let bumped = activity.bump(input.port, by: input.actor, named: input.actorName, at: now)
+        return Outcome(token: bumped.token, driverChanged: bumped.driverChanged)
     }
 
     /// A port is gone. Presence forgets it; **the token deliberately does not.**
@@ -222,7 +183,6 @@ public struct PortInputSeam {
     /// id. Presence is a statement about now and must lapse; a token is a statement about history
     /// and must not rewind. The epoch covers a restart; this covers a reused id within one run.
     public mutating func portClosed(_ port: String) {
-        drivers.forget(port: port)
-        throttle.forget(port: port)
+        activity.portClosed(port)
     }
 }

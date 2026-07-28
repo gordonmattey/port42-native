@@ -156,11 +156,16 @@ struct PortLeaseGateTests {
         #expect(p.displayName == "gordon")
     }
 
-    @Test("focusing a port names the human as its driver")
-    func focusClaimsForHuman() async throws {
+    @Test("focusing a port names NOBODY — presence is proven by writing to it (step 3)")
+    func focusNamesNobody() async throws {
         let (state, id) = try makeWorldWithUser()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
-        state.recordHumanFocus(portId: id)
+        // Focus used to record the human here, without moving the token. Once the driver is derived
+        // from whoever moved the token last, that is a claim proving nothing, and GM decided focus
+        // stops making you the driver until you act (§F). Your first keystroke or click inside the
+        // surface names you, which is how most focus arrives anyway.
+        #expect(state.portInput.driver(of: udid, now: Date()) == nil)
+        state.humanInteracted(with: udid)
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
 
         // A companion writing to a port you are focused on is NOT BLOCKED (R1): it becomes the
@@ -176,16 +181,16 @@ struct PortLeaseGateTests {
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
     }
 
-    @Test("focus takes presence back from a companion; a token gets anyone through (R1 + R5)")
-    func focusMovesPresenceBothWays() async throws {
+    @Test("your input takes presence back from a companion; a token gets anyone through (R1 + R5)")
+    func presenceMovesBothWays() async throws {
         let (state, id) = try makeWorldWithUser()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         // Echo is driving first.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
                                             args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
-        // The human focuses it. Under the old gate this was deliberately a no-op so focus could not
-        // seize the pen; with nothing to seize, the honest answer is that the human is now driving.
-        state.recordHumanFocus(portId: id)
+        // The human types into it. Focus alone no longer does this (step 3): presence follows the
+        // token, and only a write moves one.
+        state.humanInteracted(with: udid)
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
         // And echo is still free to write, which is the point of the demotion.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
@@ -224,8 +229,8 @@ struct PortLeaseGateTests {
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
     }
 
-    @Test("a REFRESH is still throttled — holding it does not spam the topic per keystroke")
-    func refreshIsStillThrottled() async throws {
+    @Test("a burst of typing publishes ONCE — the topic is not spammed per keystroke")
+    func repeatDriverIsSilent() async throws {
         let (state, id) = try makeWorldWithUser()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
 
@@ -233,8 +238,10 @@ struct PortLeaseGateTests {
         let sub = state.notifyBus.subscribe(topic: "port:\(udid)") { envelopes.append($0) }
         defer { state.notifyBus.unsubscribe(id: sub, topic: "port:\(udid)") }
 
-        // A burst of typing while nobody else is driving. The first is a change; the rest are
-        // refreshes of presence you already have, which is exactly what the throttle is for.
+        // A burst of typing while nobody else is driving. The first is a change; the rest name the
+        // same driver, and the broadcast keys off the driver CHANGING. Step 3 deleted the throttle
+        // that used to produce this by suppression; the count is unchanged because the reason was
+        // always "there is nothing new to say", not "slow down".
         for _ in 1...10 { state.humanInteracted(with: udid) }
         #expect(envelopes.count == 1, "a burst of keystrokes must publish once, not ten times")
 
@@ -334,9 +341,9 @@ struct PortLeaseGateTests {
         let (state, id) = try makeWorldWithUser()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
 
-        // A burst well inside the ~5s claim throttle. Presence records once; the token must move
-        // per keystroke, or a companion's 4-second-old write would pass CAS against a line you have
-        // been typing into — the exact splice R5 exists to stop.
+        // Presence is announced once, and the token must move per keystroke, or a companion's
+        // 4-second-old write would pass CAS against a line you have been typing into — the exact
+        // splice R5 exists to stop.
         for _ in 1...10 { state.humanInteracted(with: udid) }
         #expect(state.portInput.seq(for: udid) == 10)
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")

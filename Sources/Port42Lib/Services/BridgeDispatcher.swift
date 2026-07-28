@@ -55,10 +55,12 @@ extension AppState {
 
         // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
         // no point recording a driver or moving a port's token for a call about to be denied.
-        let token = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
-                                              principal: principal)
+        let key = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
+                                            principal: principal)
 
-        return withToken(token, try await method.run(principal, args))
+        // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
+        let value = try await method.run(principal, args)
+        return withToken(tokenAfter(key), value)
     }
 
     /// A WRITE'S SIDE EFFECTS, for BOTH dispatchers (I2 · C5).
@@ -76,9 +78,8 @@ extension AppState {
     ///
     /// Throws `stale_write` when CAS refuses. Callers must run this BEFORE the body.
     ///
-    /// RETURNS the token this write produced, or nil for a read. The caller merges it into the
-    /// response so a writer never has to re-read the port just to write again — see
-    /// `withToken(_:_:)`.
+    /// RETURNS the port's key, or nil for a read. **Not the token** — the caller reads that after
+    /// the body has run, because a write's own effects land during the body. See `tokenAfter(_:)`.
     @discardableResult
     func applyWriteSideEffects(writesTarget: String?, args: BridgeArgs, principal: Principal) throws -> String? {
         if let targetParam = writesTarget, let raw = args.string(targetParam),
@@ -130,7 +131,7 @@ extension AppState {
                 throw BridgeError(
                     code: PortActivity.tokenRequiredCode,
                     message: "This write must say what it composed against. Send the port's `token` "
-                           + "as `expect` — every write and `ports.list` returns one.",
+                           + "— every write, `ports.list` and `port.create` return one.",
                     details: ["current": portInput.token(for: key)])
             }
 
@@ -147,9 +148,39 @@ extension AppState {
                 actor: ActorRef(principal: principal.id), actorName: principal.displayName,
                 trust: .principal))
             broadcastDriverChange(outcome.driverChanged, port: key)
-            return outcome.token
+            return key
         }
         return nil
+    }
+
+    /// The port's token AFTER a write's body has run — the value the caller gets back.
+    ///
+    /// **MEASURED DEFECT, fixed 2026-07-27.** This used to return the token from the pre-body bump,
+    /// and on a terminal that value was stale before the caller ever saw it. A `port.push` moves the
+    /// counter three times: once here at the dispatch seam, then twice more at the pty funnel (R2b)
+    /// as the text and the newline enter the surface. Live in Dev3: a push answered `:2` while the
+    /// port stood at `:4`, so **threading the returned token was refused every single time.**
+    ///
+    /// That broke R5's central promise, the one that made "every write must carry a token"
+    /// affordable: *no extra round trips, because every write returns a token*. On terminals it cost
+    /// a re-read per write, or a `stale_write`.
+    ///
+    /// The bump stays where it is. It is the general guarantee — a `port.exec` on a web port has no
+    /// surface funnel behind it, so nothing else would count that write at all — and it stays BEFORE
+    /// the body so a suspending body cannot be composed against mid-write. Only the READ moved, to
+    /// where the answer is true: the port's state after your write, rather than after the dispatcher
+    /// noticed it.
+    ///
+    /// Counting a terminal write more than once is harmless in itself, because a `seq` is opaque and
+    /// only has to be monotonic and to move when the port changes. Reporting a number that was
+    /// already wrong is not.
+    ///
+    /// One case this does NOT fix, and it is stated rather than hidden: `port.create` returns before
+    /// a terminal has spawned, so the startup command's bump lands after the response. A caller
+    /// re-reads once after create, or threads from its first write.
+    func tokenAfter(_ key: String?) -> String? {
+        guard let key else { return nil }
+        return portInput.token(for: key)
     }
 
     /// Merge the token a write produced into its response.
@@ -163,12 +194,25 @@ extension AppState {
     /// forcing for nothing, and it is what made "require a token" look expensive. With it, a writer
     /// writes continuously and each response refreshes what it holds.
     ///
-    /// A non-object result (a bare string, an array) is returned untouched: there is nowhere to put
-    /// the token without changing its shape, and silently reshaping a result would break callers.
+    /// A NON-OBJECT result is wrapped as `{value, token}` rather than returned bare.
+    ///
+    /// This used to return a scalar untouched, on the reasoning that there was nowhere to put the
+    /// token and reshaping would break callers. **R5 turned that into a hole.** Every write must
+    /// carry a token, so a write whose response has no room for one forces the caller to re-read the
+    /// port before its next write — and `port.exec` returns a scalar whenever the JS does, which is
+    /// the common case and the verb agents use most. Measured in Dev3: `port.exec` answered a bare
+    /// `1`, with no token anywhere in the response.
+    ///
+    /// Reshaping IS a break, and it was taken deliberately while adoption is near zero (GM,
+    /// 2026-07-27), the same call as the `expect` → `token` rename: the cost of this change only
+    /// rises with every generated port that bakes the old shape in.
     func withToken(_ token: String?, _ value: BridgeValue) -> BridgeValue {
-        guard let token, case .object(var o) = value else { return value }
-        o[PortActivity.tokenKey] = .string(token)
-        return .object(o)
+        guard let token else { return value }
+        if case .object(var o) = value {
+            o[PortActivity.tokenKey] = .string(token)
+            return .object(o)
+        }
+        return .object(["value": value, PortActivity.tokenKey: .string(token)])
     }
 
     /// The local human as a principal (L2.d). nil before setup completes.
@@ -178,21 +222,17 @@ extension AppState {
                                spaceId: currentSpace?.id)
     }
 
-    /// FOCUSING a unit is the human saying "I am driving this", so it records them as the driver.
-    ///
-    /// Why focus and not `focusKeyboard`: keyboard focus also follows the MOUSE (hover raises a
-    /// tile and hands it the keyboard), so recording on hover would name whoever's mouse crossed the
-    /// desktop as the driver of every port it passed over. Zooming into a unit is deliberate;
-    /// hovering is not. That reasoning survives the demotion — the cost changed from "seizes the pen
-    /// from a companion" to "misreports who is driving", and both are wrong.
-    ///
-    /// Nothing is blocked either way (R1): a companion writing to a port you are focused on still
-    /// writes, it just stops being named as the driver until its next write.
-    func recordHumanFocus(portId: String) {
-        guard let human = humanPrincipal else { return }
-        NSLog("[Port42:presence] path=focus port=%@", portId)
-        recordDriving(on: portId, by: human)
-    }
+    // FOCUS USED TO CONFER PRESENCE, AND STOPPED AT STEP 3 (GM, 2026-07-27).
+    //
+    // `recordHumanFocus` recorded the human as a port's driver on zoom, without moving its token —
+    // deliberately, since focusing a tile changes nothing about its contents. Once the driver is
+    // DERIVED from whoever moved the token last, that claim asserts presence while proving nothing,
+    // and it is the only thing that needed a second door into the seam.
+    //
+    // What changes for a person: zooming into a port with the keyboard or a header double-click, and
+    // then not touching it, leaves the chip naming the companion that is writing. That is true.
+    // Clicking or typing INSIDE the surface still names you, through `humanInteracted` below, which
+    // is how most focus arrives anyway.
 
     /// The human INTERACTED with a port's surface — typed into it, clicked in it (L2.d.2). This is
     /// the signal that makes presence tell the truth: a bridge write is not the only way to drive a
@@ -303,31 +343,6 @@ extension AppState {
         return PortRef.key(ref)
     }
 
-    /// Resolve, then record. For the callers that hold a raw id rather than a key; the dispatch
-    /// seam does its own resolve so it can share one with the token bump.
-    ///
-    /// An unresolvable target records NOTHING: presence on a port that does not exist would name a
-    /// driver of nothing, and would then be shown against whatever later claimed that id.
-    func recordDriving(on rawId: String, by principal: Principal) {
-        guard let key = portKey(for: rawId) else { return }
-        recordDriving(port: key, by: principal)
-    }
-
-    /// Record this principal as the one driving a port, and broadcast the change. NEVER refuses:
-    /// R1 demoted right-of-way to presence, so this reports a fact rather than arbitrating one.
-    /// I2 · C2.2: this is the FOCUS path, and it goes through `presenceClaimed`, not `received`.
-    ///
-    /// Focusing a port changes nothing about its contents, so its token must NOT move. `received`
-    /// bumps unconditionally by design, so routing focus through it would invalidate every reader's
-    /// token on a click and cost concurrent writers spurious `stale_write` retries. The seam has two
-    /// entry points because it owns two guarantees and a focus touches exactly one.
-    func recordDriving(port key: String, by principal: Principal) {
-        let driver = portInput.presenceClaimed(port: key,
-                                               actor: ActorRef(principal: principal.id),
-                                               name: principal.displayName)
-        broadcastDriverChange(driver, port: key)
-    }
-
     /// Announce a driver change on the port's own topic. nil = a refresh, which is silent by design:
     /// publishing per keystroke would drown the topic in non-news.
     ///
@@ -379,9 +394,10 @@ extension AppState {
         }
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch
         // with its own rules; a write is a write whichever registry serves it.
-        let token = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
-                                              principal: principal)
+        let key = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
+                                            principal: principal)
 
-        return withToken(token, try await method.run(principal, args, yield))
+        let value = try await method.run(principal, args, yield)
+        return withToken(tokenAfter(key), value)
     }
 }

@@ -483,7 +483,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onTee: ((String) -> Void)? = nil
     /// Called once the surface exists (and with nil on teardown) to hand the owner a writer
     /// that injects bytes into this surface — used for chat→terminal routing.
-    var onInject: (((String) -> Void)?) -> Void = { _ in }
+    var onInject: ((TerminalSurfaceWriter)?) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onTee: onTee, startupCommand: config.startupCommand, onInject: onInject)
@@ -502,7 +502,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     @MainActor
     static func makeDetached(config: TerminalPortConfig, env: [String: String],
                              onTee: @escaping (String) -> Void,
-                             onInject: @escaping (((String) -> Void)?) -> Void) -> (view: GhosttyInputView, coordinator: Coordinator) {
+                             onInject: @escaping ((TerminalSurfaceWriter)?) -> Void) -> (view: GhosttyInputView, coordinator: Coordinator) {
         let coordinator = Coordinator(onTee: onTee, startupCommand: config.startupCommand, onInject: onInject)
         let view = GhosttyInputView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.retainedCoordinator = coordinator   // keep the coordinator alive with the view (tee cb userdata)
@@ -586,21 +586,31 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Hand the controller a writer for this surface so chat→terminal routing
         // (routeMentionsToTerminals → controller.inject) can reach it. Reads the
         // coordinator's current surface each call, so it no-ops after teardown.
-        coordinator.onInject({ [weak coord = coordinator] line in
-            guard let v = coord?.view else { return }
-            // Send the body, then Enter SEPARATELY after a short delay. Claude Code's TUI
-            // heuristically treats a fast input burst as a paste, so a trailing "\r" in the same
-            // write is kept as a literal newline — the message drafts in the input box and never
-            // submits (worse for longer messages). Splitting Enter into its own keypress, after
-            // the body burst has settled, makes it submit reliably.
+        coordinator.onInject({ [weak coord = coordinator] w, done in
+            guard let v = coord?.view else { done(); return }
+            // Send the body, then Enter SEPARATELY after a short delay. Claude Code's TUI treats a
+            // fast input burst as a paste, so a newline arriving inside the same burst is kept as a
+            // literal newline and the message drafts in the input box instead of submitting.
+            //
+            // MEASURED 2026-07-27, because this used to be a hand-tuned guess. In a plain bash port
+            // every form submits, including a trailing newline in one burst — so the split is
+            // entirely about the TUI. In claude's TUI it depends on LENGTH: a ~60-character prompt
+            // submits on any form, a 472-character one does not submit in a single burst, and a
+            // 1273-character one submits only as body-then-separate-Enter. Real prompts are long, so
+            // the split is load-bearing and removing it would have broken driving claude at all.
+            // (The threshold sits between 60 and 472 characters; it is not bisected further because
+            // nothing here may depend on where it is.)
             //
             // Both halves are writes, so both count: the Enter lands up to 80ms after the body, and
             // in that window the human may have typed. Counting only the body would leave a token
             // that looks current at the exact moment the line is submitted.
-            let body = line.hasSuffix("\r") ? String(line.dropLast()) : line
-            v.write(body, mode: .keys)
+            v.write(w.text, mode: .keys)
+            guard w.submit else { done(); return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak coord] in
                 coord?.view?.write("\r", mode: .keys)
+                // AFTER the Enter, never before: a caller awaiting this is awaiting the token that
+                // Enter moves. Reporting completion early is the defect this replaced.
+                done()
             }
         })
 
@@ -624,12 +634,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var surface: ghostty_surface_t?
         weak var view: GhosttyInputView?
         let onTee: ((String) -> Void)?
-        let onInject: (((String) -> Void)?) -> Void
+        let onInject: ((TerminalSurfaceWriter)?) -> Void
         private let startupCommand: String
         private var startupSent = false
         private var prefillSent = false
         init(onTee: ((String) -> Void)?, startupCommand: String = "",
-             onInject: @escaping (((String) -> Void)?) -> Void = { _ in }) {
+             onInject: @escaping ((TerminalSurfaceWriter)?) -> Void = { _ in }) {
             self.onTee = onTee
             self.startupCommand = startupCommand
             self.onInject = onInject

@@ -19,8 +19,22 @@ import Foundation
 // THE COUNTER-RULE: a port's OWN internal mutation must NOT bump. Only external writes and human
 // input count. An animating port that bumped per frame would invalidate every token every frame,
 // which is the same failure that ruled out an output token.
+//
+// STEP 3 (2026-07-27): PRESENCE IS DERIVED FROM THIS RECORD, not stored beside it.
+//
+// `DriverRegistry` was a second table answering "who acted on this port", next to a counter that
+// already moved when someone did. Two homes for one fact is what the register exists to catch, and
+// it was the last instance inside the seam. So an entry carries WHO moved the counter and WHEN, and
+// the driver is read off it. GM's framing: presence is proven through the token, and humans hold one
+// too, because their keystroke is what moves it.
+//
+// What that deleted: the registry, the presence throttle (recording is no longer a second write with
+// a cost to rate-limit), `release`/`handoff` (lease-era verbs with no production callers), and the
+// seam's second mutating door. R6 went with them: with a derived driver there is no expiry to tune,
+// only a display fade over the last write's timestamp.
 
-/// Per-port activity counters, epoch-qualified. Pure: no AppState, no clock, no IO.
+/// Per-port activity, epoch-qualified: how many times a port changed, plus who changed it last.
+/// Pure: no AppState, no clock, no IO.
 public struct PortActivity: Equatable {
 
     /// The optional argument a writer passes to say "I composed this against THIS state" (R3).
@@ -66,14 +80,35 @@ public struct PortActivity: Equatable {
     /// one so that local was the degenerate form of remote.
     public let epoch: String
 
-    /// port key (`PortRef.key`, the same key presence and the Notify topic use) → count.
+    /// How long the last writer keeps being SHOWN as the driver. Display freshness, never
+    /// correctness: the counter itself never expires, and what refuses a write is CAS.
     ///
-    /// DELIBERATELY NO `forget`, and this is the opposite of what presence does on a close
-    /// (`DriverRegistry.forget`). A dead port has no driver, so presence must drop it; but a counter
-    /// that resets lets a token composed against a DEAD id pass CAS against a reused one. Monotonic
-    /// per id and never reset is strictly safer: a stale token then mismatches by construction. The
-    /// cost of keeping them is one `Int` per port id for the life of the session.
-    private var seqs: [String: Int] = [:]
+    /// Short enough that a crashed writer stops being shown as driving, long enough that a human
+    /// thinking between keystrokes does not flicker off the chrome.
+    public static let driverTTL: TimeInterval = 30
+
+    /// What a port's history amounts to: how many times it changed, and who changed it last.
+    ///
+    /// **The attribution is separate from the count on purpose.** Not every write has someone to
+    /// name — the app writes a startup command into a pty on behalf of nobody, and a browser
+    /// navigation can be a human clicking or the page's own script, which are indistinguishable at
+    /// that seam. Those move `seq` and leave the attribution alone. See `bump`.
+    struct Entry: Equatable {
+        var seq: Int = 0
+        var actor: ActorRef?
+        var actorName: String?
+        /// When `actor` last acted. Not "when the port last changed": an unattributed write must not
+        /// keep a stale name lit, so this moves only when the attribution does.
+        var at: Date?
+    }
+
+    /// port key (`PortRef.key`, the same key the Notify topic uses) → its entry.
+    ///
+    /// DELIBERATELY NO `forget` for the COUNT (see `portClosed`, which drops only the attribution).
+    /// A counter that resets lets a token composed against a DEAD id pass CAS against a reused one.
+    /// Monotonic per id and never reset is strictly safer: a stale token then mismatches by
+    /// construction. The cost of keeping them is one small entry per port id for the session.
+    private var entries: [String: Entry] = [:]
 
     public init(epoch: String = PortActivity.newEpoch()) { self.epoch = epoch }
 
@@ -85,16 +120,74 @@ public struct PortActivity: Equatable {
 
     /// How many times this port has changed. A port nobody has touched is 0 — reading an unknown
     /// port is not an error, because "nothing has happened here" is a true and useful answer.
-    public func seq(for port: String) -> Int { seqs[port] ?? 0 }
+    public func seq(for port: String) -> Int { entries[port]?.seq ?? 0 }
 
     /// The token a writer composes against and hands back: `<epoch>:<seq>`.
     public func token(for port: String) -> String { "\(epoch):\(seq(for: port))" }
 
-    /// Something changed this port. Returns the new token.
+    /// WHO is driving: whoever last moved this port's token, while that is still fresh enough to
+    /// show. Derived, never stored twice — that is step 3 in one method.
+    ///
+    /// Read-only, and it never extends anything: reading who is driving is not driving.
+    public func driver(of port: String, now: Date) -> Driver? {
+        guard let e = entries[port], let actor = e.actor, let at = e.at else { return nil }
+        let expires = at.addingTimeInterval(PortActivity.driverTTL)
+        guard now < expires else { return nil }
+        return Driver(ref: actor, name: e.actorName ?? actor.principal, expires: expires)
+    }
+
+    /// The result of a bump: the new token, and the driver when presence MOVED.
+    ///
+    /// `driverChanged` is non-nil only on a real change (a different actor, or the same one after
+    /// the display window lapsed), because the broadcast keys off it. A refresh must stay silent:
+    /// publishing per keystroke would drown the port's topic in non-news.
+    public struct Bumped: Equatable {
+        public let token: String
+        public let driverChanged: Driver?
+    }
+
+    /// Something changed this port.
+    ///
+    /// **A nil actor moves the counter and leaves the attribution ALONE.** It does not clear the
+    /// driver, and that is load-bearing rather than a nicety: a companion's `port.push` counts twice
+    /// on a terminal, once attributed at the dispatch seam and once unattributed at the pty funnel
+    /// (R2b), so clearing on nil would blank the chip of every companion the instant it wrote. The
+    /// honest reading of an unattributed write is "the port changed and we do not know who", which
+    /// says nothing about who was driving a moment ago.
     @discardableResult
-    public mutating func bump(_ port: String) -> String {
-        let next = seq(for: port) + 1
-        seqs[port] = next
-        return "\(epoch):\(next)"
+    public mutating func bump(_ port: String, by actor: ActorRef? = nil,
+                              named name: String? = nil, at now: Date = Date()) -> Bumped {
+        var e = entries[port] ?? Entry()
+        e.seq += 1
+
+        guard let actor else {
+            entries[port] = e
+            return Bumped(token: "\(epoch):\(e.seq)", driverChanged: nil)
+        }
+
+        let wasLive = e.at.map { now < $0.addingTimeInterval(PortActivity.driverTTL) } ?? false
+        let changed = !(wasLive && e.actor == actor)
+        e.actor = actor
+        e.actorName = name ?? actor.principal
+        e.at = now
+        entries[port] = e
+
+        let driver = Driver(ref: actor, name: e.actorName ?? actor.principal,
+                            expires: now.addingTimeInterval(PortActivity.driverTTL))
+        return Bumped(token: "\(epoch):\(e.seq)", driverChanged: changed ? driver : nil)
+    }
+
+    /// The port is gone. **Attribution drops; the count does not.**
+    ///
+    /// The two have opposite lifecycles, which was Spike A's fourth correction and survives step 3
+    /// unchanged. A dead port has no driver, so a reused id must not inherit the last one's name for
+    /// the rest of the display window. But a counter that reset would let a token composed against
+    /// the dead port pass CAS against the live one that took its id.
+    public mutating func portClosed(_ port: String) {
+        guard var e = entries[port] else { return }
+        e.actor = nil
+        e.actorName = nil
+        e.at = nil
+        entries[port] = e
     }
 }

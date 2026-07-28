@@ -37,6 +37,42 @@ struct PortCASTests {
         _ = try await state.runBridgeMethod("port.rename", principal: principal(who), args: BridgeArgs(a))
     }
 
+    // MARK: - The token a write HANDS BACK
+
+    @Test("a write's response carries the token AFTER its body, not before it")
+    func returnedTokenReflectsTheBody() async throws {
+        // MEASURED IN DEV3, not reasoned about: a `port.push` to a terminal answered `:2` while the
+        // port stood at `:4`, because the response token was captured before the body ran and the
+        // pty funnel counted the text and the newline as they entered the surface (R2b). Threading
+        // the returned token was then refused EVERY time, which is R5's central promise inverted —
+        // "every write returns a token" is only worth anything if the token is usable.
+        //
+        // No terminal here: a headless test has no pty, which is exactly why the defect survived a
+        // green suite. What this pins is the general property — a body that changes the port must be
+        // visible in what the caller gets back — using a stand-in body that counts the way a funnel
+        // does.
+        let (state, id, udid) = try makeWorld()
+        state.bridgeRegistry["test.funnelWrite"] = BridgeMethod(
+            permission: nil, paramNames: ["id"], writesTarget: "id",
+            description: "test only") { _, _ in
+                state.surfaceWrote(port: udid)      // as the text enters the surface
+                state.surfaceWrote(port: udid)      // as the newline does
+                return .object(["ok": .bool(true)])
+            }
+
+        let out = try await state.runBridgeMethod(
+            "test.funnelWrite", principal: principal("alice"),
+            args: BridgeArgs(["id": id, PortActivity.expectParam: state.portInput.token(for: udid)]))
+
+        guard case .object(let o) = out else { Issue.record("expected an object"); return }
+        #expect(o[PortActivity.tokenKey] == .string(state.portInput.token(for: udid)), """
+            The token handed back must be the port's state AFTER the write. Anything else is a \
+            number the caller cannot use, and it costs a re-read on every single write.
+            """)
+        // And it really did move more than once, or this test would pass for the wrong reason.
+        #expect(state.portInput.seq(for: udid) == 3)
+    }
+
     // MARK: - The three behaviours the gate names
 
     @Test("an ABSENT token is REFUSED — a write must say what it composed against (R5)")

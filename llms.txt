@@ -297,7 +297,7 @@ Generated from the live method registry: every entry below is served exactly as 
   port.exec(id, js, token)
       Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
         id (string, required): The port's UDID (from ports_list)
-        js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response.
+        js (string, required): JavaScript code to execute in the port's context. Return a value to get it back in the response, as {value, token}. A bare expression yields its value (multi-line is fine). A multi-statement body needs an explicit return: `foo(); 42` is a syntax error, `foo(); return 42;` works.
         token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.
   port.getDom(id, selector)
       Read a WEB or BROWSER port's LIVE DOM — what is on screen right now, including everything its JS has changed since load. Use this, not port_get_html, when you need current state: port_get_html returns the stored SOURCE, which does not reflect any port_exec or port_push that has run since. Returns {html, token}; pass that token as 'expect' on your next write and it will be refused rather than clobber someone if the port moved in between.
@@ -336,7 +336,7 @@ Generated from the live method registry: every entry below is served exactly as 
         kind (string, required): Event kind, e.g. 'state', 'progress', 'error'.
         payload: Any JSON value (object/array/string/number) delivered as the Notify envelope's payload.
   port.push(id, data, token)
-      Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. "ls\n", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.
+      Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell: end with a newline (e.g. "ls\n") to run the command, or omit it to leave the line waiting unsubmitted. Use the id from ports_list. Prefer this over port_exec for data transfer.
         data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute).
         id (string, required): The port's UDID (from ports_list), or a terminal's name.
         token (string): Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.

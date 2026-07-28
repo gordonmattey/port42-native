@@ -61,6 +61,41 @@ struct CompanionPostGate {
 /// All posting decisions live in `CompanionPostGate`; this class wires the hooks stream / tee /
 /// surface to an injected `post` closure (so it stays testable). Verbosely logged under
 /// `[ctl:<name>]` for introspection of the whole event flow.
+
+/// ONE WRITE INTO A TERMINAL: the text, and whether it ends by submitting.
+///
+/// Two fields, not a bool parameter, because the pair is the unit that travels: the submit half is
+/// sent SEPARATELY and later (see the writer in `GhosttyTerminalView`), so anything that carries the
+/// text without carrying the intent will eventually send one and forget the other.
+struct TerminalWrite {
+    let text: String
+    /// Press Enter after the text lands. A companion's message always does; a `port.push` does it
+    /// only when the caller's data ended with a newline, which is what its schema always said.
+    let submit: Bool
+
+    /// Strip the trailing newline run, and report whether there was one.
+    ///
+    /// ONE trimmer for both callers, because the strip used to live inside the writer and both
+    /// inherited it silently. Pulling submission out into a flag without pulling this out with it
+    /// left the newline in the body AND added an Enter, which typed a blank line into every
+    /// companion mention. The tests caught it; the shape is what stops it recurring.
+    static func trimming(_ s: String) -> (body: String, endedWithNewline: Bool) {
+        var body = s
+        var found = false
+        while body.hasSuffix("\n") || body.hasSuffix("\r") {
+            body.removeLast()
+            found = true
+        }
+        return (body, found)
+    }
+}
+
+/// Puts a `TerminalWrite` into the pty and calls `done` once the WHOLE write has landed, Enter
+/// included. The completion is the point: submitting is deferred, so "the call returned" and "the
+/// write finished" are different moments, and a caller that reads the port's token in between reads
+/// a value its own write is about to change.
+typealias TerminalSurfaceWriter = (TerminalWrite, @escaping () -> Void) -> Void
+
 @MainActor
 final class GhosttyTerminalController {
     let panelId: String
@@ -87,7 +122,10 @@ final class GhosttyTerminalController {
     /// shell stays open). No-op by default.
     private let onSessionEnded: () -> Void
     private var didNotifySessionStart = false
-    private var injectToSurface: ((String) -> Void)?
+    /// How text reaches the pty: the body, whether to submit it, and a completion fired once the
+    /// WHOLE write has landed (see `TerminalSurfaceWriter`). The completion exists because
+    /// submitting is deferred, so "the write is done" is not "the call returned".
+    private var injectToSurface: TerminalSurfaceWriter?
     private var gate: CompanionPostGate
     private let hooksCapable: Bool
     /// True once the CLI has signalled it is ready to receive injected input (SessionStart),
@@ -201,11 +239,15 @@ final class GhosttyTerminalController {
     }
 
     /// Inject a space message into the terminal and arm the next turnComplete to post.
+    ///
+    /// A message ALWAYS submits: that is what makes it a message rather than a draft. Fire and
+    /// forget, because nothing is waiting on a mention's Enter the way a bridge caller waits on its
+    /// token.
     func inject(_ line: String) {
         gate.arm()
         log("inject + armed: \(line.prefix(80).debugDescription)")
         if injectToSurface == nil { log("  WARNING: no surface bound — inject dropped") }
-        injectToSurface?(line)
+        injectToSurface?(TerminalWrite(text: TerminalWrite.trimming(line).body, submit: true)) {}
     }
 
     /// Write raw input to the surface WITHOUT arming the post gate. This is the path for
@@ -214,14 +256,29 @@ final class GhosttyTerminalController {
     /// via `inject`).
     /// Returns `false` when no surface is bound, so callers can surface a real "no live surface"
     /// error instead of dropping silently.
-    func sendRaw(_ data: String) -> Bool {
-        guard let inject = injectToSurface else { return false }
-        inject(data)
+    ///
+    /// **ASYNC, and it AWAITS the Enter.** Submitting is deferred by design (see
+    /// `TerminalWrite.submit`), so a fire-and-forget call returned while the last part of its own
+    /// write was still pending. Measured in Dev3: `port.push` answered with a token the deferred
+    /// Enter then moved, so a caller threading the returned token was refused every single time —
+    /// which is R5's promise inverted, since "every write returns a token" is worth nothing if the
+    /// token is stale on arrival.
+    ///
+    /// **SUBMIT FOLLOWS THE CALLER'S NEWLINE**, which is what `port_push`'s own schema has always
+    /// claimed: *"include your own newline, e.g. `ls\n`, to run a command — it is NOT added for
+    /// you."* It WAS added for you: every push submitted, so `port.push` with a partial line ran it.
+    /// Measured: pushing `touch <file>` with no newline created the file.
+    func sendRaw(_ data: String) async -> Bool {
+        guard let write = injectToSurface else { return false }
+        let (body, submit) = TerminalWrite.trimming(data)
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            write(TerminalWrite(text: body, submit: submit)) { cont.resume() }
+        }
         return true
     }
 
     /// Bind (or clear) the surface writer. Called by the view when the surface is created/freed.
-    func bindSurface(_ inject: ((String) -> Void)?) {
+    func bindSurface(_ inject: TerminalSurfaceWriter?) {
         log(inject == nil ? "surface unbound" : "surface bound")
         injectToSurface = inject
         guard inject != nil else { return }

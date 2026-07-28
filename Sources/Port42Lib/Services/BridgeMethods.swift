@@ -185,7 +185,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"], writesTarget: "id",
-        description: "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell (include your own newline, e.g. \"ls\\n\", to run a command — it is NOT added for you). Use the id from ports_list. Prefer this over port_exec for data transfer.",
+        description: "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell: end with a newline (e.g. \"ls\\n\") to run the command, or omit it to leave the line waiting unsubmitted. Use the id from ports_list. Prefer this over port_exec for data transfer.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -213,7 +213,10 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface")
             }
             let str = (data as? String) ?? (String(data: (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
-            guard controller.sendRaw(str) else { throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface") }
+            // AWAITED: a push is not finished until its Enter has landed, and the response's token
+            // is read after this returns. Fire-and-forget handed back a token the deferred Enter
+            // then moved, so threading it was refused every time (measured in Dev3).
+            guard await controller.sendRaw(str) else { throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface") }
             return .object(["ok": .bool(true)])
         case .web, .browser:
             guard let wv = webView(ref.id ?? ref.messageId ?? id) else {
@@ -261,7 +264,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
-                "js": ["type": "string", "description": "JavaScript code to execute in the port's context. Return a value to get it back in the response."]
+                "js": ["type": "string", "description": "JavaScript code to execute in the port's context. Return a value to get it back in the response, as {value, token}. A bare expression yields its value (multi-line is fine). A multi-statement body needs an explicit return: `foo(); 42` is a syntax error, `foo(); return 42;` works."]
             ],
             "required": ["id", "js"]
         ]) { _, args in
@@ -271,8 +274,19 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         guard let ref = appState.resolvePortRef(id), ref.kind == .web || ref.kind == .browser,
               let wv = webView(ref.id ?? ref.messageId ?? id) else { throw BridgeError.notFound("port '\(id)'") }
         // #5: PortExecJS awaits promises + marshals objects; nil = undefined/no-return.
-        guard let result = try await PortExecJS.run(wv, js) else { return .object(["ok": .bool(true)]) }
-        return .fromJSONObject(result)
+        //
+        // The catch is what makes a failure ACTIONABLE. Thrown as-is, a JS error reached the caller
+        // as the bare string "A JavaScript exception occurred" with no code, so an agent could not
+        // branch on it and a human got no hint (register §5). Now: `js_syntax` or `js_error`, the
+        // real exception text, and the body that actually ran — which differs from the source when
+        // an expression was wrapped.
+        do {
+            guard let result = try await PortExecJS.run(wv, js) else { return .object(["ok": .bool(true)]) }
+            return .fromJSONObject(result)
+        } catch let e as PortExecError {
+            throw BridgeError(code: e.code, message: e.errorDescription ?? "port.exec failed",
+                              details: ["ran": { if case .jsFailed(_, let ran) = e { return ran } else { return js } }()])
+        }
     }
 
     r["port.getDom"] = BridgeMethod(permission: nil, paramNames: ["id", "selector"],

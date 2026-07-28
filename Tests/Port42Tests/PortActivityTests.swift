@@ -4,8 +4,10 @@ import Foundation
 
 /// R2 — the activity token, pure layer (docs/plan-port42-protocol-local-bus.md §"Phase L2 REVISED").
 ///
-/// This is the CORRECTNESS half of what the lease used to do badly. `PortLeaseTests` covers the
-/// presence half; R3 wires the comparison into the dispatch seam.
+/// This is the CORRECTNESS half of what the lease used to do badly, and since step 3 it carries the
+/// other half too: the record names whoever last moved the counter, so presence is derived from it
+/// rather than stored beside it. `PortPresenceTests` covers that derivation; R3 wires the comparison
+/// into the dispatch seam.
 @Suite("PortActivity — the state token (R2)")
 struct PortActivityTests {
 
@@ -19,9 +21,9 @@ struct PortActivityTests {
     @Test("bumping is monotonic per port")
     func monotonic() {
         var a = PortActivity(epoch: "e1")
-        #expect(a.bump("P") == "e1:1")
-        #expect(a.bump("P") == "e1:2")
-        #expect(a.bump("P") == "e1:3")
+        #expect(a.bump("P").token == "e1:1")
+        #expect(a.bump("P").token == "e1:2")
+        #expect(a.bump("P").token == "e1:3")
         #expect(a.seq(for: "P") == 3)
     }
 
@@ -64,11 +66,12 @@ struct PortActivityTests {
     func neverResets() {
         var a = PortActivity(epoch: "e1")
         a.bump("P"); a.bump("P")
-        // A close drops PRESENCE (`DriverRegistry.forget`) because a dead port has no driver. There
-        // is deliberately no counterpart here: if a closed id is reused and the count restarted, a
+        // A close drops PRESENCE (`portClosed` clears the attribution) because a dead port has no
+        // driver. There is deliberately no counterpart for the COUNT: if a closed id is reused and
+        // the count restarted, a
         // token composed against the DEAD port would match the new one. Monotonic-and-never-reset
         // means a stale token mismatches by construction. This asserts the type offers no way back.
         #expect(a.seq(for: "P") == 2)
-        #expect(a.bump("P") == "e1:3")
+        #expect(a.bump("P").token == "e1:3")
     }
 }
