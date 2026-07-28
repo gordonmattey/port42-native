@@ -30,19 +30,19 @@ struct PortLeaseGateTests {
         Principal.companion(id: id, displayName: name, spaceId: nil)
     }
 
-    @Test("a second principal's write SUCCEEDS, and presence follows it (R1)")
+    @Test("a second principal's write SUCCEEDS with a token, and presence follows it (R1 + R5)")
     func secondWriterSucceeds() async throws {
         let (state, id) = try makeWorld()
         let alice = principal("alice", "alice"), bob = principal("bob", "bob")
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
 
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
-                                            args: BridgeArgs(["id": id, "title": "alice's"]))
+                                            args: BridgeArgs(["id": id, "title": "alice's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "alice")
 
         // No throw. This is the whole of R1: presence observes, it does not arbitrate.
         _ = try await state.runBridgeMethod("port.rename", principal: bob,
-                                            args: BridgeArgs(["id": id, "title": "bob's"]))
+                                            args: BridgeArgs(["id": id, "title": "bob's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "bob's")
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "bob")
     }
@@ -53,7 +53,7 @@ struct PortLeaseGateTests {
         let alice = principal("alice", "alice")
         for title in ["one", "two", "three"] {
             _ = try await state.runBridgeMethod("port.rename", principal: alice,
-                                                args: BridgeArgs(["id": id, "title": title]))
+                                                args: BridgeArgs(["id": id, "title": title, PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         }
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "three")
     }
@@ -64,7 +64,7 @@ struct PortLeaseGateTests {
         let alice = principal("alice", "alice"), bob = principal("bob", "bob")
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
-                                            args: BridgeArgs(["id": id, "title": "alice's"]))
+                                            args: BridgeArgs(["id": id, "title": "alice's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         // `ports.list` is the read that works headless (getHtml reads the DB, and an inline port is
         // deliberately never persisted). Bob looking must not make Bob the driver.
         _ = try await state.runBridgeMethod("ports.list", principal: bob, args: BridgeArgs([:]))
@@ -95,7 +95,7 @@ struct PortLeaseGateTests {
         defer { state.notifyBus.unsubscribe(id: sub, topic: "port:\(id)") }
 
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
-                                            args: BridgeArgs(["id": id, "title": "a"]))
+                                            args: BridgeArgs(["id": id, "title": "a", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         let afterFirst = envelopes.count
         #expect(afterFirst == 1, "the first writer on a port nobody was driving is a change")
         #expect(envelopes[0].contains("\"kind\":\"driver\"") || envelopes[0].contains("holder"))
@@ -103,13 +103,13 @@ struct PortLeaseGateTests {
 
         // Same driver writing again is NOT news.
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
-                                            args: BridgeArgs(["id": id, "title": "b"]))
+                                            args: BridgeArgs(["id": id, "title": "b", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(envelopes.count == afterFirst, "a refresh must not publish")
 
         // A DIFFERENT driver is news immediately — no waiting for the record to go stale, which is
         // what the old gate forced (the take-over could not happen until the TTL lapsed).
         _ = try await state.runBridgeMethod("port.rename", principal: bob,
-                                            args: BridgeArgs(["id": id, "title": "c"]))
+                                            args: BridgeArgs(["id": id, "title": "c", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(envelopes.count == afterFirst + 1, "a new driver is a change")
         #expect(envelopes.last?.contains("bob") == true)
     }
@@ -119,7 +119,7 @@ struct PortLeaseGateTests {
         let (state, id) = try makeWorld()
         let alice = principal("alice", "alice"), bob = principal("bob", "bob")
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
-                                            args: BridgeArgs(["id": id, "title": "a"]))
+                                            args: BridgeArgs(["id": id, "title": "a", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         state.portWindows.close(id)
 
         _ = state.portWindows.registerInlinePort(
@@ -133,7 +133,7 @@ struct PortLeaseGateTests {
         #expect(state.portInput.driver(of: id, now: Date()) == nil)
 
         _ = try await state.runBridgeMethod("port.rename", principal: bob,
-                                            args: BridgeArgs(["id": id, "title": "b"]))
+                                            args: BridgeArgs(["id": id, "title": "b", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "b")
     }
 
@@ -163,28 +163,33 @@ struct PortLeaseGateTests {
         state.recordHumanFocus(portId: id)
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
 
-        // A companion writing to a port you are focused on is NOT refused (R1) — it just becomes
-        // the driver, because it is the one that acted most recently.
+        // A companion writing to a port you are focused on is NOT BLOCKED (R1): it becomes the
+        // driver, because it acted most recently. R5 amended the SLOGAN, not the substance — the
+        // write must now say what it composed against, and once it does it always lands.
+        //
+        // The difference from the lease R1 removed: that refused you regardless, you could not argue
+        // with it, and a vanished holder left a port stuck, which is why it could never cross the
+        // wire. This asks you to declare state and hands you the answer when you have not.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
-                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+                                            args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "echo's")
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
     }
 
-    @Test("focus takes presence back from a companion, and blocks nothing either way")
+    @Test("focus takes presence back from a companion; a token gets anyone through (R1 + R5)")
     func focusMovesPresenceBothWays() async throws {
         let (state, id) = try makeWorldWithUser()
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         // Echo is driving first.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
-                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+                                            args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         // The human focuses it. Under the old gate this was deliberately a no-op so focus could not
         // seize the pen; with nothing to seize, the honest answer is that the human is now driving.
         state.recordHumanFocus(portId: id)
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "gordon")
         // And echo is still free to write, which is the point of the demotion.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
-                                            args: BridgeArgs(["id": id, "title": "still echo's"]))
+                                            args: BridgeArgs(["id": id, "title": "still echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "still echo's")
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
     }
@@ -208,7 +213,7 @@ struct PortLeaseGateTests {
 
         // A companion writes: it becomes the driver.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
-                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+                                            args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "echo")
 
         // You touch it again IMMEDIATELY — far inside the ~5s throttle window opened by your first
@@ -235,7 +240,7 @@ struct PortLeaseGateTests {
 
         // A companion takes it, then you take it straight back: two more CHANGES, neither throttled.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
-                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+                                            args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         state.humanInteracted(with: udid)
         #expect(envelopes.count == 3)
         #expect(envelopes.last?.contains("gordon") == true)
@@ -264,7 +269,7 @@ struct PortLeaseGateTests {
 
         // A companion takes the pen → the shell should hear it and show it.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
-                                            args: BridgeArgs(["id": id, "title": "echo's"]))
+                                            args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         // Only ports on the desktop are subscribed, so drive the parse directly for the headless case.
         shell.applyDriverEnvelopeForTesting(
             #"{"topic":"port:\#(udid)","kind":"driver","payload":{"driver":"echo","driverName":"echo","until":\#(Date().addingTimeInterval(30).timeIntervalSince1970)}}"#,
@@ -299,7 +304,7 @@ struct PortLeaseGateTests {
 
         for title in ["a", "b"] {
             _ = try await state.runBridgeMethod("port.rename", principal: principal("alice", "alice"),
-                                                args: BridgeArgs(["id": id, "title": title]))
+                                                args: BridgeArgs(["id": id, "title": title, PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         }
         #expect(state.portInput.seq(for: udid) == 2)
         // Same key as presence and the Notify topic — three tables that must never disagree about

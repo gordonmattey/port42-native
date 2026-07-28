@@ -434,13 +434,40 @@ BRIDGE API REFERENCE:
   port42.port.restore(id, version)
     Restore a port to a specific earlier version. Returns {ok: true} on success.
 
-  port42.port.push(id, data)
+  WRITING TO A PORT REQUIRES ITS TOKEN (R5)
+    Every write verb (push, exec, update, patch, rename, move, restore, manage) must say
+    what state it composed against, by passing the port's `token` as `expect`. A write
+    without one is refused with code 'token_required'.
+
+    This is not bureaucracy. Without it, whether YOUR work survives depends on whether the
+    OTHER caller bothered to declare state — a careless writer overwrites a careful one and
+    the careful one cannot defend itself.
+
+    You never need an extra round trip:
+      • ports.list returns each port's token
+      • port.create returns the new port's token
+      • EVERY write returns the token it produced, so you can keep writing
+
+    const { id, token } = await port42.port.create({ type: 'web', html });
+    let t = token;
+    ({ token: t } = await port42.port.push(id, data, t));   // t is now current again
+    ({ token: t } = await port42.port.push(id, more, t));   // no read in between
+
+    If a write is refused, the error carries `current` — retry once with that instead of
+    clobbering whoever moved it:
+      catch (e) { if (e.code === 'token_required' || e.code === 'stale_write') retry(e.current); }
+
+    A HUMAN typing into a port holds the current token by construction: their keystroke is
+    what moves it. You are not at the surface, so you carry one explicitly.
+
+  port42.port.push(id, data, expect)
     Push data to a live port via CustomEvent. The target port receives a 'port42:data'
     event with the data in event.detail. Use this to feed live data into ports from
     other ports or from companion tool calls.
     id: port UDID (from ports.list)
     data: any JSON-serializable value
-    Returns: {ok: true}
+    expect: the port's token (REQUIRED — see above)
+    Returns: {ok: true, token}
 
     Receiving port listens with:
       window.addEventListener('port42:data', (e) => {

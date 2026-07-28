@@ -46,7 +46,8 @@ struct BridgeStreamWriteTests {
 
         _ = try await state.runBridgeStream(
             "test.streamWrite", principal: .peer(id: "p", displayName: "p"),
-            args: BridgeArgs(["id": udid]), yield: { _ in })
+            args: BridgeArgs(["id": udid, PortActivity.expectParam: state.portInput.token(for: udid)]),
+            yield: { _ in })
 
         #expect(state.portInput.seq(for: udid) == before + 1,
                 "a streaming write must count; before C5 the streaming registry had no writesTarget")
@@ -61,7 +62,8 @@ struct BridgeStreamWriteTests {
         // Someone else writes, moving the port past what our caller read.
         _ = try await state.runBridgeStream(
             "test.streamWrite", principal: .peer(id: "other", displayName: "other"),
-            args: BridgeArgs(["id": udid]), yield: { _ in })
+            args: BridgeArgs(["id": udid, PortActivity.expectParam: state.portInput.token(for: udid)]),
+            yield: { _ in })
 
         await #expect(throws: BridgeError.self) {
             _ = try await state.runBridgeStream(
@@ -77,7 +79,8 @@ struct BridgeStreamWriteTests {
         let stale = state.portInput.token(for: udid)
         _ = try await state.runBridgeStream(
             "test.streamWrite", principal: .peer(id: "other", displayName: "other"),
-            args: BridgeArgs(["id": udid]), yield: { _ in })
+            args: BridgeArgs(["id": udid, PortActivity.expectParam: state.portInput.token(for: udid)]),
+            yield: { _ in })
         let afterOther = state.portInput.seq(for: udid)
 
         _ = try? await state.runBridgeStream(
@@ -95,7 +98,8 @@ struct BridgeStreamWriteTests {
 
         _ = try await state.runBridgeStream(
             "test.streamWrite", principal: .peer(id: "peer-7", displayName: "Claude Code"),
-            args: BridgeArgs(["id": udid]), yield: { _ in })
+            args: BridgeArgs(["id": udid, PortActivity.expectParam: state.portInput.token(for: udid)]),
+            yield: { _ in })
 
         #expect(state.portInput.driver(of: udid, now: Date())?.name == "Claude Code")
     }
@@ -111,7 +115,8 @@ struct BridgeStreamWriteTests {
 
         _ = try await state.runBridgeStream(
             "test.streamRead", principal: .peer(id: "p", displayName: "p"),
-            args: BridgeArgs(["id": udid]), yield: { _ in })
+            args: BridgeArgs(["id": udid, PortActivity.expectParam: state.portInput.token(for: udid)]),
+            yield: { _ in })
 
         #expect(state.portInput.seq(for: udid) == before, "a read must not move the token")
         #expect(state.portInput.driver(of: udid, now: Date()) == nil, "a read must not claim presence")

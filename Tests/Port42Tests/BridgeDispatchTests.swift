@@ -78,7 +78,10 @@ struct BridgeDispatchTests {
         let w = try makeParityWorld()
         let id = try makePortWithHtml(w, "<div>seed</div>")
         let exec = RemoteToolExecutor(appState: w.state, senderId: "peer-1", senderName: "Claude Code")
-        _ = await exec.execute(method: "port.update", input: ["id": id, "html": "<div>current</div>"])
+        let tok = w.state.portInput.token(for: w.state.portKey(for: id) ?? id)
+        _ = await exec.execute(method: "port.update",
+                               input: ["id": id, "html": "<div>current</div>",
+                                       PortActivity.expectParam: tok])
         let html = await exec.execute(method: "port.getHtml", input: ["id": id])
         #expect(html as? String == "<div>current</div>")
     }

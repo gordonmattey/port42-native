@@ -103,6 +103,37 @@ extension AppState {
                         details: ["current": current, "expected": expected])
                 }
             }
+            // R5 (GM 2026-07-27): A WRITE MUST SAY WHAT IT COMPOSED AGAINST.
+            //
+            // Opt-in CAS asked for discipline from the WRONG PARTY. Supplying a token protected you
+            // from writing over someone else; whether YOUR work survived depended on the OTHER
+            // caller supplying one. A careless writer clobbered a careful one and the careful one
+            // could not defend itself. Almost nobody supplied a token, because nothing required it.
+            //
+            // GM's framing is what made this simple: PRESENCE IS PROVEN THROUGH THE TOKEN, and
+            // humans hold one too, under the hood. When you type, your keystroke IS what moves the
+            // token, so you hold the current one by construction — not exempt, just standing where
+            // it is minted. An agent is not at the surface, so it fetches one. One rule, no surface
+            // carve-out, no special case for people.
+            //
+            // So the rule is: you must have LOOKED at the port before writing to it. A caller with
+            // no token has, by definition, not looked.
+            //
+            // NOT the lease R1 removed. That refused you regardless and you could not argue with it;
+            // a holder could vanish and leave a port stuck, which is why it could never cross the
+            // wire. This refuses only a caller who declined to declare state, and hands them the
+            // answer in the error, so one retry always converges. Nobody is ever blocked.
+            //
+            // R1's REASONING survives whole. R1's slogan ("presence refuses nothing") does not, and
+            // `PortPresenceGateTests` is rewritten to the amended contract rather than deleted.
+            guard args.string(PortActivity.expectParam) != nil else {
+                throw BridgeError(
+                    code: PortActivity.tokenRequiredCode,
+                    message: "This write must say what it composed against. Send the port's `token` "
+                           + "as `expect` — every write and `ports.list` returns one.",
+                    details: ["current": portInput.token(for: key)])
+            }
+
             // CORRECTNESS (R2). Bumped BEFORE the body runs, deliberately: `method.run` is async and
             // can suspend, so a token read mid-write would be read against a port already moving.
             // A body that then throws leaves a bump for a write that did not land — which costs a

@@ -26,18 +26,33 @@ struct PortCASTests {
         Principal.companion(id: id, displayName: id, spaceId: nil)
     }
 
+    /// `expect` defaults to the port's CURRENT token, because since R5 every write must carry one
+    /// and most tests here are about something else. A test that means "no token" passes `.none`
+    /// explicitly, which now reads as the deliberate act it is.
     func rename(_ state: AppState, _ id: String, _ title: String,
-                by who: String = "alice", expect: String? = nil) async throws {
+                by who: String = "alice", expect: String?? = nil) async throws {
         var a: [String: Any] = ["id": id, "title": title]
-        if let expect { a[PortActivity.expectParam] = expect }
+        let resolved: String? = expect ?? state.portInput.token(for: state.portWindows.panels.first(where: { $0.id == id })?.udid ?? id)
+        if let resolved { a[PortActivity.expectParam] = resolved }
         _ = try await state.runBridgeMethod("port.rename", principal: principal(who), args: BridgeArgs(a))
     }
 
     // MARK: - The three behaviours the gate names
 
-    @Test("an ABSENT token still succeeds — nothing that works today breaks")
-    func absentTokenIsAllowed() async throws {
+    @Test("an ABSENT token is REFUSED — a write must say what it composed against (R5)")
+    func absentTokenIsRefused() async throws {
         let (state, id, udid) = try makeWorld()
+        // R3 shipped CAS opt-in so "nothing that works today breaks". R5 reverses that, because
+        // opt-in asked for discipline from the wrong party: your work's safety depended on the OTHER
+        // caller volunteering a token, and almost nobody did.
+        await #expect(throws: BridgeError.self) {
+            try await rename(state, id, "no token", expect: .some(nil))
+        }
+        do { try await rename(state, id, "no token", expect: .some(nil)) }
+        catch let e as BridgeError {
+            #expect(e.code == PortActivity.tokenRequiredCode)
+            #expect(e.details["current"] == state.portInput.token(for: udid))   // actionable: retry with this
+        }
         try await rename(state, id, "no token")
         #expect(state.portWindows.panels.first(where: { $0.id == id })?.userTitle == "no token")
         #expect(state.portInput.seq(for: udid) == 1)
@@ -199,7 +214,8 @@ struct PortCASTests {
         let (state, id, udid) = try makeWorld()
         let out = try await state.runBridgeMethod(
             "port.rename", principal: principal("alice"),
-            args: BridgeArgs(["id": id, "title": "renamed"]))
+            args: BridgeArgs(["id": id, "title": "renamed",
+                              PortActivity.expectParam: state.portInput.token(for: udid)]))
 
         guard case .object(let o) = out else { Issue.record("expected an object"); return }
         let token = try #require(o[PortActivity.tokenKey])
