@@ -84,15 +84,17 @@ deleted (it asked which SITE, and answered wrong in both directions) and so is
 the forgeable one). `PortOriginSecurityTests` now asserts pinned OR isolated, which is the real
 invariant; calibrated by a handler that is neither.
 
-**Live: the forged `postMessage` now throws a TypeError, the page cannot see the handler.**
+**Live-verified in full** (trusted input produced via System Events, which needs both Automation and
+Accessibility): the forged `postMessage` throws a TypeError; a real click inside the tile counts once;
+a click outside does not; four idle seconds do not; and really typing "hello" moves the token twelve
+times while the characters arrive in the DOM (`keydown` + `beforeinput` per character, by design).
 
 ### What is left in the protocol thread
 
 - **Slice-02**, which is now a transport change rather than a redesign: all three nouns are
   single-definition and honest.
-- **The one check GM owns (R7):** type into a WEB port and confirm the token still moves. Isolation
-  is rewiring, and green tests cannot see a lost listener; automation could not produce a trusted
-  keystroke because a permission card is pending in Dev3. The chip check for step 3 is done.
+- Nothing outstanding in the protocol thread. Step 3's chip check and R7's typing check are both
+  done; every noun is single-definition, honest and live-verified.
 - Carried forward: the output seam (six publish sites, GM deferred), orphaned `portPerms` grants,
   plan §D marketing copy, and the rest of the API parity sweep.
 

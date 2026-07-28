@@ -547,10 +547,27 @@ pinned"; it now asserts pinned OR isolated, which is the real invariant — no h
 from an unverified sender, and there are two ways to guarantee that. Calibrated: a handler that is
 neither still fails it.
 
-**Verified live:** the forged `postMessage` went from FORGED to a `TypeError` — the page cannot see the
-handler. **Outstanding:** that real human typing in a web port still counts. Automation could not be
-used to produce a trusted keystroke (the call timed out on a pending permission card), and it is the
-check that matters, since silently breaking input is exactly what C6 caught before.
+**Verified live, both halves, and the second is the one that mattered.** Isolation is rewiring, and
+green tests cannot see a lost listener, so "the forgery is closed" proves only half of it. Real
+trusted input was produced through the automation API (System Events), which needs BOTH the Automation
+and Accessibility permissions:
+
+| | |
+|---|---|
+| forged `postMessage` from page JS | **TypeError** — the page cannot see the handler |
+| a real click inside the tile | token +1 |
+| a real click outside the tile | no change |
+| idle, 4s, no input | no change |
+| really typing "hello" | token +12, and the characters arrive in the DOM |
+
+Twelve for five characters is expected and not a defect: `keydown` and `beforeinput` both fire per
+character, and a `seq` is opaque — it only has to move when the port changes. It is also the point of
+R5, since a human mid-word invalidates a companion's stale write on every keystroke.
+
+**A false alarm worth recording.** The first two attempts showed no bump and looked like R7 having
+broken input. Both were the instrument: keystrokes went to the app while the webview was not the first
+responder, so nothing reached the document at all (the field stayed empty, which is what proved it).
+A control run — wait four seconds, touch nothing — is what made the later numbers trustworthy.
 
 ---
 
