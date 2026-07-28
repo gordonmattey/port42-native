@@ -2,6 +2,28 @@
 
 ---
 
+## WORKING ORDER (2026-07-28) — what we are actually doing, in sequence
+
+*Added so the sequence survives a session boundary. This list says ORDER; each item's detail lives
+in its own section below or in the plan it names.*
+
+| | | where |
+|---|---|---|
+| ✅ | **The protocol thread** — address · actor · token, each single-definition and live-verified | `plan-port42-protocol-local-bus.md` §A |
+| ✅ | **The write-response contract** — a response describes the state AFTER its effect | plan §G |
+| ✅ | **The output namespace** — a port cannot name its event `driver` | plan §G follow-on |
+| ▶ | **The error taxonomy** — a code is a value, not a string literal | `architecture-invariants.md` §5 |
+| | **Gateway auth P1** — retire the shared `local-http` identity; token file + Settings + CLAUDE.md rewrite | below, and `plan-gateway-auth-tls.md` |
+| | **Trust on the read path** — a reader is neither authenticated nor scoped | below (needs P1 first) |
+| | **Slice-02** — the same three nouns over libp2p | `membrane/slice-02-cross-instance.md` (re-headed 07-28) |
+
+**A release sits between here and slice-02, and it is a BREAKING one.** v0.5.50 predates R5, so every
+shipped install still has opt-in CAS. The next release makes a token mandatory on every write, changes
+`port.exec` scalars to `{value, token}`, stops `port.push` auto-submitting a newline the caller did not
+send, and namespaces a port's own event kinds. GM is testing before cutting it.
+
+---
+
 ## ~~SECURITY P0: a web port can navigate to any site and TAKE THE BRIDGE WITH IT~~ — FIXED and SHIPPED
 
 **STATUS (established by git, 2026-07-28, because the doc read as open):**
@@ -482,6 +504,46 @@ straight into the bridge registry (files, clipboard, screen, terminal, automatio
 is not "traffic is unencrypted", it is "anything that can route to this machine can drive the app".
 HTTPS on top of that just encrypts the commands. Auth first, then TLS, and local TLS is mostly
 theatre once the gateway is on loopback with a token. Phases + open questions in the plan doc.
+
+### The P1 design, as decided 2026-07-28 (GM)
+
+**HTTPS is NOT part of P1.** The gateway is on loopback, and TLS there protects against nothing an
+attacker already on the machine cannot bypass, while costing a certificate story that is genuinely
+unpleasant locally (self-signed needs a trust exception per client; a real cert needs a name and a
+CA). TLS becomes necessary when the door stops being loopback — the tunnel and the relay — and it
+stays scoped to those. **Authentication is the part that matters now**, because today anything on the
+machine is `local-http` with full grants and no check at all.
+
+**A long-lived token in a file, not a short-lived one** (GM: "i dont want a short lived token").
+
+- **The Keychain is the store.** 32 random bytes, minted by the app on first launch. The file is a
+  PROJECTION of it, so a deleted file is a recoverable state rather than a broken one.
+- **The file is `~/.port42/<instance>/token`**, `0600` inside a `0700` directory, rewritten at launch
+  if missing or loosely permissioned. **Per instance, not one shared file** — prod, Dev and Dev3 run
+  side by side on different ports, and a single path would let a Dev client authenticate against
+  production.
+- **The gateway never reads the file.** It is a subprocess, so it takes the token from its environment
+  at spawn: one less reader, and no path where the gateway trusts the filesystem.
+- **A caller sends a header:** `curl -H "Authorization: Bearer $(cat ~/.port42/<instance>/token)"`.
+  A header, so it never collides with the port-state `token` in the body.
+- **Children get their own.** Anything the app spawns (companion terminals, command agents) is handed
+  a per-child token in its environment, so it never reads the file and can be revoked individually.
+  **This is the piece that gives grants a session to key on** — the cost accepted at I1.3 when
+  un-pooling meant a session creating four ports prompts four times.
+- **Rotation, not expiry.** A Settings button regenerates; every current holder is refused. With
+  rotation available, a long-lived secret is the right trade for a local socket.
+- **Stated limit:** this authenticates the USER'S SESSION, not each program. Any process running as
+  you can read the file. Per-program identity is the permission-manager thread, not this one.
+
+**Two deliverables ride with it, and they are easy to forget:**
+
+1. **Settings → a token subsection**, beside Remote Access (GM: in the secrets tab). Masked value, a
+   Copy button, **the file path shown** (the whole point of the file is that a shell reads it without
+   clicking, and a path you cannot see is a path you will not use), and Regenerate with a plain
+   warning about what stops working.
+2. **The generated CLAUDE.md block is rewritten** (`InstructionService.buildMarkdown`). Not a content
+   tweak: the `curl` examples themselves gain the header, because without it the call does not work at
+   all. Do it once, when auth lands, rather than twice.
 
 **Rolled in with the libp2p track** (GM): the transport endgame is already decided in
 `membrane/slice-02-cross-instance.md` (go-libp2p, PeerID as the instance address, Circuit-Relay v2 +
