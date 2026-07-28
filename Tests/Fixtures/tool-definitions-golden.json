@@ -610,13 +610,14 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
       "required" : [
         "id",
-        "js"
+        "js",
+        "token"
       ],
       "type" : "object"
     },
@@ -691,13 +692,14 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
       "required" : [
         "id",
-        "action"
+        "action",
+        "token"
       ],
       "type" : "object"
     },
@@ -712,7 +714,7 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         },
         "x" : {
@@ -727,7 +729,8 @@
       "required" : [
         "id",
         "x",
-        "y"
+        "y",
+        "token"
       ],
       "type" : "object"
     },
@@ -750,14 +753,15 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
       "required" : [
         "id",
         "search",
-        "replace"
+        "replace",
+        "token"
       ],
       "type" : "object"
     },
@@ -794,13 +798,14 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
       "required" : [
         "id",
-        "data"
+        "data",
+        "token"
       ],
       "type" : "object"
     },
@@ -819,13 +824,14 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
       "required" : [
         "id",
-        "title"
+        "title",
+        "token"
       ],
       "type" : "object"
     },
@@ -840,7 +846,7 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         },
         "version" : {
@@ -850,7 +856,8 @@
       },
       "required" : [
         "id",
-        "version"
+        "version",
+        "token"
       ],
       "type" : "object"
     },
@@ -869,13 +876,14 @@
           "type" : "string"
         },
         "token" : {
-          "description" : "Optional. The port's `token` from ports_list, as it was when you composed this write. If the port has changed since, the write is refused with code 'stale_write' carrying the current token — retry with that instead of clobbering whoever moved it.",
+          "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         }
       },
       "required" : [
         "id",
-        "html"
+        "html",
+        "token"
       ],
       "type" : "object"
     },

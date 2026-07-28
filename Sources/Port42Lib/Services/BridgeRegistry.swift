@@ -89,12 +89,24 @@ public extension BridgeMethod {
                 // Names `ports_list`, NOT `port_info`: port_info is `toolExposed: false`, so a
                 // companion can never call it — pointing there would send the model to a tool that
                 // does not exist for it. ports_list is the call it already makes to find the id.
-                "description": "Optional. The port's `token` from ports_list, as it was when you "
-                             + "composed this write. If the port has changed since, the write is "
-                             + "refused with code 'stale_write' carrying the current token — retry "
-                             + "with that instead of clobbering whoever moved it."
+                // REQUIRED since R5, and this said "Optional" until 2026-07-28 — in the GENERATED
+                // tool schema, which is the text every agent actually reads. The rule and its own
+                // documentation disagreed, so a model following the docs wrote a call that is
+                // refused. Declaration and behaviour must agree; that is register §5's whole point.
+                "description": "REQUIRED. The port's `token`, as it was when you composed this "
+                             + "write — from ports_list, port_create, or whatever your last write "
+                             + "returned. Without it the write is refused with 'token_required'; if "
+                             + "the port has changed since, with 'stale_write'. Both carry the "
+                             + "current token, so retry once with that instead of clobbering "
+                             + "whoever moved it."
             ] as [String: Any]
             schema["properties"] = props
+            // And REQUIRED in the schema, not just in the prose. A model reads the required array to
+            // decide what it must supply; leaving the token out of it told every agent the rule was
+            // optional in the one place a machine actually checks.
+            var required = schema["required"] as? [String] ?? []
+            if !required.contains(PortActivity.expectParam) { required.append(PortActivity.expectParam) }
+            schema["required"] = required
         }
         return BridgeMethod(permission: permission,
                             paramNames: paramNames + [PortActivity.expectParam],
@@ -166,12 +178,21 @@ public struct BridgeStreamMethod {
             var props = schema["properties"] as? [String: Any] ?? [:]
             props[PortActivity.expectParam] = [
                 "type": "string",
-                "description": "Optional. The port's `token` from ports_list, as it was when you "
-                             + "composed this write. If the port has changed since, the write is "
-                             + "refused with code 'stale_write' carrying the current token — retry "
-                             + "with that instead of clobbering whoever moved it."
+                // REQUIRED since R5, and this said "Optional" until 2026-07-28 — in the GENERATED
+                // tool schema, which is the text every agent actually reads. The rule and its own
+                // documentation disagreed, so a model following the docs wrote a call that is
+                // refused. Declaration and behaviour must agree; that is register §5's whole point.
+                "description": "REQUIRED. The port's `token`, as it was when you composed this "
+                             + "write — from ports_list, port_create, or whatever your last write "
+                             + "returned. Without it the write is refused with 'token_required'; if "
+                             + "the port has changed since, with 'stale_write'. Both carry the "
+                             + "current token, so retry once with that instead of clobbering "
+                             + "whoever moved it."
             ] as [String: Any]
             schema["properties"] = props
+            var required = schema["required"] as? [String] ?? []
+            if !required.contains(PortActivity.expectParam) { required.append(PortActivity.expectParam) }
+            schema["required"] = required
         }
         return BridgeStreamMethod(permission: permission,
                                   paramNames: paramNames + [PortActivity.expectParam],
