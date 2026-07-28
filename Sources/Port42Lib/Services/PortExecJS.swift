@@ -45,10 +45,10 @@ public enum PortExecError: LocalizedError {
     }
 
     /// The machine-actionable code. A caller branches on this; the message is for a human.
-    public var code: String {
+    public var code: BridgeErrorCode {
         switch self {
-        case .timedOut:  return "js_timeout"
-        case .jsFailed(let m, _): return m.contains("SyntaxError") ? "js_syntax" : "js_error"
+        case .timedOut:  return .jsTimeout
+        case .jsFailed(let m, _): return m.contains("SyntaxError") ? .jsSyntax : .jsError
         }
     }
 }

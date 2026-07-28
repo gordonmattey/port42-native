@@ -457,6 +457,19 @@ BRIDGE API REFERENCE:
     clobbering whoever moved it:
       catch (e) { if (e.code === 'token_required' || e.code === 'stale_write') retry(e.current); }
 
+    EVERY error carries a `code` you can branch on, and a `message` for a human. The codes are a
+    closed set, so matching one is safe:
+      RETRY WITH e.current   token_required · stale_write
+      FIX YOUR CALL          missing_arg · bad_arg · unknown_method · js_syntax
+      THE TARGET             not_found (no such port) · no_surface (exists, nothing live to write
+                             to yet — wait or respawn) · port_paused
+      ASK THE USER           permission_denied (a capability: they grant it) ·
+                             access_denied (a path they never picked: they pick a file)
+      SOMETHING FAILED       io · device_error · browser_error · ai_error · ai_timeout ·
+                             js_error · js_timeout · escape (path left the data directory)
+
+    Branch on the CODE, never on the message text: messages are written for people and change.
+
     A HUMAN typing into a port holds the current token by construction: their keystroke is
     what moves it. You are not at the surface, so you carry one explicitly.
 

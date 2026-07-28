@@ -274,7 +274,7 @@ func registerKeeperService(into r: inout BridgeRegistry, appState: AppState) {
 
     registerManifest(keeperManifest(), into: &r) { canonical, principal, args in
         guard let body = bodies[canonical] else {
-            throw BridgeError(code: "no_body", message: "keeper: no in-process body for \(canonical)")
+            throw BridgeError(code: .noBody, message: "keeper: no in-process body for \(canonical)")
         }
         return try await body(principal, args)
     }

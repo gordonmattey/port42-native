@@ -29,7 +29,7 @@ struct BridgeStreamTests {
     func throwsPropagate() async throws {
         let method = BridgeStreamMethod(permission: .ai) { _, _, yield in
             yield("partial")
-            throw BridgeError(code: "ai_error", message: "model refused")
+            throw BridgeError(code: .aiError, message: "model refused")
         }
         var tokens: [String] = []
         let p = Principal.port(id: "port-1", displayName: "a port", spaceId: nil)

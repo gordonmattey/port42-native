@@ -58,14 +58,14 @@ public struct PortActivity: Equatable {
 
     /// The error code a stale write is refused with. The response also carries `current`, so the
     /// caller's retry needs no extra round trip to discover it.
-    public static let staleCode = "stale_write"
+    public static let staleCode = BridgeErrorCode.staleWrite.wire
 
     /// R5: a write arrived with NO token while someone ELSE was driving the port.
     ///
     /// Distinct from `stale_write`, which means "your token is out of date". This means "you did not
     /// say what you composed against, and it matters right now". Both carry `current`, so either way
     /// one retry converges.
-    public static let tokenRequiredCode = "token_required"
+    public static let tokenRequiredCode = BridgeErrorCode.tokenRequired.wire
 
     /// This launch. Two runs of the app never share one, which is what makes a token from before a
     /// restart mismatch BY CONSTRUCTION rather than by luck.

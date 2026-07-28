@@ -105,13 +105,13 @@ func registerAIServiceStream(into r: inout BridgeStreamRegistry, appState: AppSt
         // port principal maps to a suspendable surface; gateway/companion callers are never suspended.
         let bridge = appState.streamPortBridge(for: principal)
         if let bridge, bridge.isSuspended {
-            throw BridgeError(code: "port_paused",
+            throw BridgeError(code: .portPaused,
                               message: "port is paused (parked or backgrounded). Bring it to the desktop to use AI.")
         }
 
         let prompt = try args.requireString("prompt")
         guard !prompt.isEmpty else {
-            throw BridgeError(code: "bad_args", message: "ai.complete requires a prompt")
+            throw BridgeError(code: .badArg, message: "ai.complete requires a prompt")
         }
         let opts = args.object("options")
         let createdBy = appState.createdBy(for: principal, bridge: bridge)

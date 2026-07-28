@@ -44,7 +44,7 @@ public final class LLMStreamCollector: NSObject, LLMStreamDelegate {
             watchdog = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 guard !Task.isCancelled else { return }
-                self?.finish(.failure(BridgeError(code: "ai_timeout",
+                self?.finish(.failure(BridgeError(code: .aiTimeout,
                     message: "stream settled by watchdog: no terminal response within \(Int(timeout))s")))
             }
         }
@@ -91,7 +91,7 @@ public final class LLMStreamCollector: NSObject, LLMStreamDelegate {
 
     nonisolated public func llmDidError(_ error: Error) {
         Task { @MainActor in
-            let bridgeErr = (error as? BridgeError) ?? BridgeError(code: "ai_error", message: error.localizedDescription)
+            let bridgeErr = (error as? BridgeError) ?? BridgeError(code: .aiError, message: error.localizedDescription)
             self.finish(.failure(bridgeErr))
         }
     }

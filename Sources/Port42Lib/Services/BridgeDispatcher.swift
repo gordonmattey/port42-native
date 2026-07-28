@@ -28,7 +28,7 @@ extension AppState {
                                 pregrant: Set<PortPermission> = []) async throws -> BridgeValue {
         let canonical = resolveBridgeAlias(canonicalOrAlias)
         guard let method = bridgeRegistry[canonical] else {
-            throw BridgeError(code: "unknown_method", message: "Unknown method: \(canonical)")
+            throw BridgeError(code: .unknownMethod, message: "Unknown method: \(canonical)")
         }
 
         #if DEBUG
@@ -99,7 +99,7 @@ extension AppState {
                     // not what to compose against — so the retry would be a guess, and a naive
                     // caller could never converge. With it: write → conflict → write, once.
                     throw BridgeError(
-                        code: PortActivity.staleCode,
+                        code: .staleWrite,
                         message: "This port has changed since you read it. Re-read it and retry.",
                         details: ["current": current, "expected": expected])
                 }
@@ -129,7 +129,7 @@ extension AppState {
             // `PortPresenceGateTests` is rewritten to the amended contract rather than deleted.
             guard args.string(PortActivity.expectParam) != nil else {
                 throw BridgeError(
-                    code: PortActivity.tokenRequiredCode,
+                    code: .tokenRequired,
                     message: "This write must say what it composed against. Send the port's `token` "
                            + "— every write, `ports.list` and `port.create` return one.",
                     details: ["current": portInput.token(for: key)])
@@ -373,7 +373,7 @@ extension AppState {
                                 yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue {
         let canonical = resolveBridgeAlias(canonicalOrAlias)
         guard let method = bridgeStreamRegistry[canonical] else {
-            throw BridgeError(code: "unknown_method", message: "Unknown streaming method: \(canonical)")
+            throw BridgeError(code: .unknownMethod, message: "Unknown streaming method: \(canonical)")
         }
         #if DEBUG
         ActorProbe.dispatch(method: canonical, principal: principal,

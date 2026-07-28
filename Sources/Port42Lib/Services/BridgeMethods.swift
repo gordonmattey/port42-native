@@ -87,22 +87,22 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
     ) { principal, args, yield in
         let identifier = try args.requireString("identifier")
         guard !identifier.isEmpty else {
-            throw BridgeError(code: "bad_args", message: "companions.invoke requires a companion id or name")
+            throw BridgeError(code: .badArg, message: "companions.invoke requires a companion id or name")
         }
         let prompt = args.string("prompt") ?? ""
 
         let companion = appState.companions.first(where: { $0.id == identifier })
             ?? appState.companions.first(where: { $0.displayName.lowercased() == identifier.lowercased() })
         guard let companion else {
-            throw BridgeError(code: "not_found", message: "companion not found: \(identifier)")
+            throw BridgeError(code: .notFound, message: "companion not found: \(identifier)")
         }
         guard companion.mode == .llm else {
-            throw BridgeError(code: "not_llm", message: "companion '\(companion.displayName)' is not an LLM companion")
+            throw BridgeError(code: .notLLM, message: "companion '\(companion.displayName)' is not an LLM companion")
         }
 
         let bridge = appState.streamPortBridge(for: principal)
         if let bridge, bridge.isSuspended {
-            throw BridgeError(code: "port_paused",
+            throw BridgeError(code: .portPaused,
                               message: "port is paused (parked or backgrounded). Bring it to the desktop to use AI.")
         }
 
@@ -111,7 +111,7 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         let systemPrompt = appState.companionInvokeSystemPrompt(companion: companion, spaceId: principal.spaceId)
         let messages = appState.companionInvokeMessages(companion: companion, prompt: prompt)
         guard !messages.isEmpty else {
-            throw BridgeError(code: "no_messages", message: "no messages to send")
+            throw BridgeError(code: .noMessages, message: "no messages to send")
         }
 
         // The target companion's own backend (fixes a latent bug: the old path always used a bare
@@ -218,13 +218,13 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         switch ref.kind {
         case .terminal:
             guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {
-                throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface")
+                throw BridgeError(code: .noSurface, message: "terminal '\(id)' has no live surface")
             }
             let str = (data as? String) ?? (String(data: (try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "")
             // AWAITED: a push is not finished until its Enter has landed, and the response's token
             // is read after this returns. Fire-and-forget handed back a token the deferred Enter
             // then moved, so threading it was refused every time (measured in Dev3).
-            guard await controller.sendRaw(str) else { throw BridgeError(code: "no_surface", message: "terminal '\(id)' has no live surface") }
+            guard await controller.sendRaw(str) else { throw BridgeError(code: .noSurface, message: "terminal '\(id)' has no live surface") }
             return .object(["ok": .bool(true)])
         case .web, .browser:
             guard let wv = webView(ref.id ?? ref.messageId ?? id) else {
@@ -258,7 +258,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // that subscribed to this port receives it. Retires the port.exec(getState) hydration path.
         let key = p.portId ?? p.id
         guard p.kind == .port, let ref = appState.resolvePortRef(key) else {
-            throw BridgeError(code: "no_port", message: "port.publish is only callable from within a port")
+            throw BridgeError(code: .notFound, message: "port.publish is only callable from within a port")
         }
         // NAMESPACED (2026-07-28). A port names its own events, and until now that name landed in the
         // same flat space as `driver`, `browser.load` and `terminal.output` — so a port could emit an
@@ -548,7 +548,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     // dicts the old switches returned).
     let browser = appState.browserDevice
     func browserResult(_ r: [String: Any]) throws -> BridgeValue {
-        if let err = r["error"] as? String { throw BridgeError(code: "browser_error", message: err) }
+        if let err = r["error"] as? String { throw BridgeError(code: .browserError, message: err) }
         return .fromJSONObject(r)
     }
     func owningPortBridge(_ p: Principal) -> PortBridge? {
@@ -653,7 +653,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     // methods keep the old permission split: audio.stopCapture rides the .microphone grant its
     // start acquired; the two stopStreams are ungated (stopping an already-permitted stream).
     func avResult(_ result: [String: Any]) throws -> BridgeValue {
-        if let err = result["error"] as? String { throw BridgeError(code: "device_error", message: err) }
+        if let err = result["error"] as? String { throw BridgeError(code: .deviceError, message: err) }
         return .fromJSONObject(result)
     }
 
@@ -710,7 +710,7 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         let target: RecordTarget
         switch RecordTarget.parse(opts) {
         case .success(let t): target = t
-        case .failure(let e): throw BridgeError(code: "device_error", message: e.message)
+        case .failure(let e): throw BridgeError(code: .deviceError, message: e.message)
         }
         let audio = (opts["audio"] as? String) ?? "none"
         if audio == "mic" || audio == "both" {
@@ -777,16 +777,16 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         inputSchema: recordSchema) { p, args in
         let opts = args.object("options") ?? args.dictionary
         guard let seconds = RecordConfig.numOpt(opts["seconds"]), seconds > 0 else {
-            throw BridgeError(code: "device_error", message: "screen.record convenience requires options.seconds > 0; use screen.record.start for start/stop handles")
+            throw BridgeError(code: .deviceError, message: "screen.record convenience requires options.seconds > 0; use screen.record.start for start/stop handles")
         }
         let (target, dir, outputURL) = try await resolveRecordStart(opts, p)
         let started = await screen.recorder.start(
             target: target, opts: opts, destinationDir: dir, outputURL: outputURL,
             ownerPortId: p.portId,
             portFrameLookup: { appState.portWindows.portFrame(by: $0) })
-        if let err = started["error"] as? String { throw BridgeError(code: "device_error", message: err) }
+        if let err = started["error"] as? String { throw BridgeError(code: .deviceError, message: err) }
         guard let rid = started["recordingId"] as? String else {
-            throw BridgeError(code: "device_error", message: "screen.record: start returned no recordingId")
+            throw BridgeError(code: .deviceError, message: "screen.record: start returned no recordingId")
         }
         try? await Task.sleep(nanoseconds: UInt64(min(seconds, 3600) * 1_000_000_000))
         return try avResult(await screen.recorder.stop(recordingId: rid))
@@ -958,7 +958,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         if path.hasPrefix("/") {
             let standardized = (path as NSString).standardizingPath
             guard appState.principalHasPickedPath(standardized, principalId: p.id) else {
-                throw BridgeError(code: "access_denied", message: "absolute paths require a file picked by this caller — use fs.pick")
+                throw BridgeError(code: .accessDenied, message: "absolute paths require a file picked by this caller — use fs.pick")
             }
             return standardized
         }
@@ -966,7 +966,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
         let joined = (BridgeFilePaths.dataDir as NSString).appendingPathComponent(path)
         let standardized = (joined as NSString).standardizingPath
         guard standardized.hasPrefix((BridgeFilePaths.dataDir as NSString).standardizingPath) else {
-            throw BridgeError(code: "escape", message: "path escapes the data directory")
+            throw BridgeError(code: .pathEscape, message: "path escapes the data directory")
         }
         return standardized
     }
@@ -1004,7 +1004,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
             let text = try String(contentsOfFile: path, encoding: .utf8)
             return .object(["data": .string(text)])
         } catch {
-            throw BridgeError(code: "io", message: error.localizedDescription)
+            throw BridgeError(code: .io, message: error.localizedDescription)
         }
     }
 
@@ -1032,7 +1032,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
             }
             return .object(["ok": .bool(true)])
         } catch {
-            throw BridgeError(code: "io", message: error.localizedDescription)
+            throw BridgeError(code: .io, message: error.localizedDescription)
         }
     }
 
@@ -1050,7 +1050,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
             let items = try FileManager.default.contentsOfDirectory(atPath: path)
             return .object(["items": .array(items.sorted().map { .string($0) })])
         } catch {
-            throw BridgeError(code: "io", message: error.localizedDescription)
+            throw BridgeError(code: .io, message: error.localizedDescription)
         }
     }
 
@@ -1068,7 +1068,7 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
             try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
             return .object(["ok": .bool(true)])
         } catch {
-            throw BridgeError(code: "io", message: error.localizedDescription)
+            throw BridgeError(code: .io, message: error.localizedDescription)
         }
     }
 }
@@ -1114,14 +1114,14 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         case "ports":
             return .string(AppState.portsContext)
         case let other?:
-            throw BridgeError(code: "not_found", message: "unknown help topic '\(other)' — known topics: ports")
+            throw BridgeError(code: .notFound, message: "unknown help topic '\(other)' — known topics: ports")
         }
     }
 
     r["user.get"] = BridgeMethod(permission: nil,
         description: "Get the current user's identity (id and display name)",
         inputSchema: ["type": "object", "properties": [String: Any]()]) { _, _ in
-        guard let user = appState.currentUser else { throw BridgeError(code: "no_user", message: "no user signed in") }
+        guard let user = appState.currentUser else { throw BridgeError(code: .noUser, message: "no user signed in") }
         return .object(["id": .string(user.id), "displayName": .string(user.displayName)])
     }
 
@@ -1528,8 +1528,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let title = try args.requireString("title")
         guard !title.isEmpty else { throw BridgeError.badArg("port.rename requires a non-empty title") }
         let ref = appState.resolvePortRef(id)
-        appState.portWindows.renamePort(id: ref?.udid ?? id, title: title)
-        if let bridge = appState.findInlineBridge(by: ref?.messageId ?? id) { bridge.title = title }
+        // BOTH paths count, and the port may live in either: a desktop panel, or an inline bridge in
+        // a chat message. Reporting success when NEITHER matched is what this verb used to do.
+        let renamedPanel = appState.portWindows.renamePort(id: ref?.udid ?? id, title: title)
+        var renamedInline = false
+        if let bridge = appState.findInlineBridge(by: ref?.messageId ?? id) {
+            bridge.title = title
+            renamedInline = true
+        }
+        guard renamedPanel || renamedInline else { throw BridgeError.notFound("port '\(id)'") }
         return .object(["ok": .bool(true)])
     }
 

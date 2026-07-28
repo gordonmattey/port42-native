@@ -119,7 +119,7 @@ public extension AppState {
                 } catch {
                     self.releaseStreamCollector(c)
                     cont.resume(throwing: (error as? BridgeError)
-                        ?? BridgeError(code: "ai_error", message: error.localizedDescription))
+                        ?? BridgeError(code: .aiError, message: error.localizedDescription))
                 }
             }
         } onCancel: {

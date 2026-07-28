@@ -690,10 +690,17 @@ public final class PortWindowManager: ObservableObject {
     }
 
     /// Rename a floating panel by panel UDID.
-    public func renamePort(id: String, title: String) {
-        guard let idx = panels.firstIndex(where: { $0.udid == id || $0.id == id }) else { return }
+    ///
+    /// Returns whether it found one. It used to return Void, so `port.rename` against a port that
+    /// does not exist answered `{"ok": true}` — measured 2026-07-28 while checking error codes. That
+    /// is worse than a missing code: a caller is told its write landed when nothing happened, and no
+    /// retry or correction is possible because nothing looks wrong.
+    @discardableResult
+    public func renamePort(id: String, title: String) -> Bool {
+        guard let idx = panels.firstIndex(where: { $0.udid == id || $0.id == id }) else { return false }
         panels[idx].userTitle = title
         persistPanel(panels[idx].id)
+        return true
     }
 
     /// Set stored capabilities for a floating panel by UDID.

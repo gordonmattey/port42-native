@@ -99,8 +99,19 @@ public struct BridgeError: Error, Equatable {
     /// where the code alone is the whole story.
     public let details: [String: String]
 
-    public init(code: String, message: String, details: [String: String] = [:]) {
-        self.code = code
+    /// The canonical constructor: a code is a VALUE, so the set stays enumerable and two spellings
+    /// of one meaning cannot coexist (`bad_args` beside `bad_arg` is how it drifted before).
+    public init(code: BridgeErrorCode, message: String, details: [String: String] = [:]) {
+        self.code = code.wire
+        self.message = message
+        self.details = details
+    }
+
+    /// A raw code, for the ONE case that genuinely has no fixed set: an error crossing a boundary
+    /// that already carries its own code (a remote peer, a service's own taxonomy). Not for new
+    /// codes — `BridgeErrorCodeTests` fails on a literal at a throw site.
+    public init(rawCode: String, message: String, details: [String: String] = [:]) {
+        self.code = rawCode
         self.message = message
         self.details = details
     }
@@ -121,15 +132,15 @@ public struct BridgeError: Error, Equatable {
 
     // Common cases, so bodies don't each invent their own wording.
     public static func missingArg(_ key: String) -> BridgeError {
-        BridgeError(code: "missing_arg", message: "missing required argument '\(key)'")
+        BridgeError(code: .missingArg, message: "missing required argument '\(key)'")
     }
     public static func notFound(_ what: String) -> BridgeError {
-        BridgeError(code: "not_found", message: "\(what) not found")
+        BridgeError(code: .notFound, message: "\(what) not found")
     }
     public static func permissionDenied(_ perm: String) -> BridgeError {
-        BridgeError(code: "permission_denied", message: "Permission denied: \(perm)")
+        BridgeError(code: .permissionDenied, message: "Permission denied: \(perm)")
     }
     public static func badArg(_ message: String) -> BridgeError {
-        BridgeError(code: "bad_arg", message: message)
+        BridgeError(code: .badArg, message: message)
     }
 }

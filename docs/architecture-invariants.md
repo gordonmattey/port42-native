@@ -156,27 +156,41 @@ output will still have ten.
 
 ---
 
-## 5. Errors — what a caller can act on
+## 5. Errors — what a caller can act on · **CODED SURFACE RESOLVED, DICT SURFACE OPEN**
 
-**Status: ~20 ad-hoc code strings.** `bad_args` and `bad_arg` coexist; `no_port` sits alongside
-`not_found`. `BridgeError` has canonical helpers (`missingArg`, `notFound`, `badArg`) that nothing
-enforces.
+**Status: ✅ every `BridgeError` carries a typed code (2026-07-28). ⚠️ ~90 device-bridge errors are
+still built as bare dictionaries and carry NO code at all.**
 
-**One instance measured and CLOSED 2026-07-27:** `port.exec` reported every JS failure as the bare
-string "A JavaScript exception occurred" with **no `code` field at all**. It now throws `js_syntax`,
-`js_error` or `js_timeout`, carries the real exception text, and includes `ran` (the body actually
-executed, which differs from the caller's source when an expression is wrapped). Measuring it also
-found the wrap itself deciding by substring match, which failed SILENTLY — see plan §G.
+**What was fixed.** Twenty codes had accumulated as string literals at their throw sites, which is
+how `bad_args` came to sit beside `bad_arg` and `no_port` beside `not_found` — same meaning, two
+spellings, so a caller matching one silently missed the other. A code is now a VALUE
+(`BridgeErrorCode`), `BridgeError(code:)` takes it, and the set is enumerable, which is what lets it
+be documented without going stale. Published in `ports-context.txt`, grouped by what a caller should
+DO: retry with `current`, fix your call, the target, ask the user, something failed.
 
-**This got more important on 2026-07-26**, not less: R3 made errors machine-actionable
-(`details.current`), and CAS depends on a caller recognizing `stale_write`. An agent that cannot
-branch on failure cannot self-correct, which is the entire premise of the conflict-then-retry design.
+**Two collapses, and one that was reverted by its own criterion.** `bad_args` → `bad_arg` and
+`no_port` → `not_found` merged as true synonyms. `access_denied` → `permission_denied` was made and
+then undone, because the suite caught it and the test is the caller's FIX, not the English: a
+capability is granted by the user, a path is picked with a file picker. Two repairs, two codes.
+`no_surface` stayed apart from `not_found` for the same reason.
 
-Also on record: `port.push` with a missing required `data` returns `ok:true` and types the string
-`null` into a live shell (`summer2026-todo.md`). A verb whose schema says "required" and whose body
-defaults is the same class of defect — the declaration and the behaviour disagreeing.
+**`isRetryableWithCurrentState` is the useful part**, not the enum. It answers the single question an
+agent asks of a failure, so nobody has to keep their own list of which codes self-correct. Pinned to
+exactly `stale_write` + `token_required`.
 
----
+**What is still open, and it is LARGER than what was fixed: ~90 hand-built `["error": …]`
+dictionaries** across Screen, Camera, Audio, Browser, Automation, Notification, Clipboard,
+ScreenRecorder, ToolExecutor and PortBridge. These never touch `BridgeError`, so they carry no code
+at all — measured live: `{"method":"nope.method"}` answers `{"error":"unknown method: …"}` with
+nothing to branch on. The typed enum does not reach them, and a gate cannot see them, because they
+are not errors as far as the type system is concerned.
+
+**A defect found by looking, not by the taxonomy:** `port.rename` against a port that does not exist
+answered `{"ok": true}`. **Fixed 2026-07-28.** Worse than a missing code — a caller is told its write
+landed when nothing happened, and nothing looks wrong enough to retry. Same class as `port.push` with
+a missing `data` typing the string `null` into a live shell (`summer2026-todo.md`), and the reason
+that class matters is that a verb whose declaration and behaviour disagree cannot be reasoned about
+by a caller at all.
 
 ## Not primitives
 

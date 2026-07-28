@@ -113,7 +113,7 @@ func registerStorageService(into r: inout BridgeRegistry, appState: AppState) {
 
     registerManifest(storageManifest(), into: &r) { canonical, principal, args in
         guard let body = bodies[canonical] else {
-            throw BridgeError(code: "no_body", message: "storage: no in-process body for \(canonical)")
+            throw BridgeError(code: .noBody, message: "storage: no in-process body for \(canonical)")
         }
         return try await body(principal, args)
     }

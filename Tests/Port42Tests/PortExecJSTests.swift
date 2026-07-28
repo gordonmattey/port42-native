@@ -87,14 +87,14 @@ struct PortExecJSTests {
         // no code at all, so an agent could not branch on it.
         let syntax = PortExecError.jsFailed(message: "SyntaxError: Unexpected token ';'",
                                             ran: "return (foo(); 42);")
-        #expect(syntax.code == "js_syntax")
+        #expect(syntax.code == .jsSyntax)
         #expect(syntax.errorDescription?.contains("explicit `return`") == true,
                 "a syntax error from a WRAPPED expression must name the fix")
 
         let runtime = PortExecError.jsFailed(message: "TypeError: undefined is not an object", ran: "return (x.y);")
-        #expect(runtime.code == "js_error")
+        #expect(runtime.code == .jsError)
         #expect(runtime.errorDescription?.contains("TypeError") == true)
-        #expect(PortExecError.timedOut(seconds: 30).code == "js_timeout")
+        #expect(PortExecError.timedOut(seconds: 30).code == .jsTimeout)
     }
 
     @Test("FOOTGUN: a multi-statement one-liner with no return mis-wraps to invalid JS")
