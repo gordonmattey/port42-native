@@ -174,7 +174,14 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             presentation: o["presentation"] as? String,
             initialInput: o["initialInput"] as? String ?? "", url: o["url"] as? String)
         if let err = result["error"] as? String { throw BridgeError.badArg(err) }
-        return .fromJSONObject(result)   // { id, title }
+        // The creator holds a token from BIRTH, so its first write needs no read. Without this the
+        // one caller who unambiguously knows the port's state (it just made it) would still have to
+        // go and ask.
+        var out = result
+        if let id = result["id"] as? String, let key = appState.portKey(for: id) {
+            out[PortActivity.tokenKey] = appState.portInput.token(for: key)
+        }
+        return .fromJSONObject(out)   // { id, title, token }
     }
 
     r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"], writesTarget: "id",

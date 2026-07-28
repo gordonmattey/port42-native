@@ -192,4 +192,38 @@ struct PortCASTests {
             }
         }
     }
+    // MARK: - a write REPORTS the token it produced (R5 step 1)
+
+    @Test("every write returns its new token, so a writer never re-reads to write again")
+    func writesReturnTheirToken() async throws {
+        let (state, id, udid) = try makeWorld()
+        let out = try await state.runBridgeMethod(
+            "port.rename", principal: principal("alice"),
+            args: BridgeArgs(["id": id, "title": "renamed"]))
+
+        guard case .object(let o) = out else { Issue.record("expected an object"); return }
+        let token = try #require(o[PortActivity.tokenKey])
+        guard case .string(let t) = token else { Issue.record("token must be a string"); return }
+        #expect(t == state.portInput.token(for: udid))
+
+        // The point: that token is immediately usable for the NEXT write, with no read between.
+        try await rename(state, id, "again", expect: t)
+    }
+
+    @Test("port.create hands back a token, so the creator's first write needs no read")
+    @MainActor
+    func createReturnsAToken() async throws {
+        let db = try DatabaseService(inMemory: true)
+        let state = AppState(db: db)
+        let space = Space.create(name: "s"); try db.saveSpace(space); state.spaces = [space]
+
+        let out = try await state.runBridgeMethod(
+            "port.create", principal: principal("alice"),
+            args: BridgeArgs(["options": ["type": "web", "html": "<body>x</body>",
+                                          "space_id": space.id]]))
+        guard case .object(let o) = out else { Issue.record("expected an object"); return }
+        // The one caller who unambiguously knows a port's state is the one that just made it.
+        // Without this it would still have to go and ask.
+        #expect(o[PortActivity.tokenKey] != nil, "port.create must return the new port's token")
+    }
 }

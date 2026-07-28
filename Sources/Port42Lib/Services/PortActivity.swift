@@ -27,9 +27,20 @@ public struct PortActivity: Equatable {
     /// Named once here so the dispatcher, the schema injection and the tests cannot drift.
     public static let expectParam = "expect"
 
+    /// The key every write's response carries its new token under, and every port-returning read.
+    /// One spelling, so a caller threads the same field everywhere.
+    public static let tokenKey = "token"
+
     /// The error code a stale write is refused with. The response also carries `current`, so the
     /// caller's retry needs no extra round trip to discover it.
     public static let staleCode = "stale_write"
+
+    /// R5: a write arrived with NO token while someone ELSE was driving the port.
+    ///
+    /// Distinct from `stale_write`, which means "your token is out of date". This means "you did not
+    /// say what you composed against, and it matters right now". Both carry `current`, so either way
+    /// one retry converges.
+    public static let tokenRequiredCode = "token_required"
 
     /// This launch. Two runs of the app never share one, which is what makes a token from before a
     /// restart mismatch BY CONSTRUCTION rather than by luck.

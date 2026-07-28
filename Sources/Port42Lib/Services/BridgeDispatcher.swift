@@ -55,9 +55,10 @@ extension AppState {
 
         // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
         // no point recording a driver or moving a port's token for a call about to be denied.
-        try applyWriteSideEffects(writesTarget: method.writesTarget, args: args, principal: principal)
+        let token = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
+                                              principal: principal)
 
-        return try await method.run(principal, args)
+        return withToken(token, try await method.run(principal, args))
     }
 
     /// A WRITE'S SIDE EFFECTS, for BOTH dispatchers (I2 · C5).
@@ -74,7 +75,12 @@ extension AppState {
     /// `PortRef.key`, so resolving more than once would double the expensive half for nothing.
     ///
     /// Throws `stale_write` when CAS refuses. Callers must run this BEFORE the body.
-    func applyWriteSideEffects(writesTarget: String?, args: BridgeArgs, principal: Principal) throws {
+    ///
+    /// RETURNS the token this write produced, or nil for a read. The caller merges it into the
+    /// response so a writer never has to re-read the port just to write again — see
+    /// `withToken(_:_:)`.
+    @discardableResult
+    func applyWriteSideEffects(writesTarget: String?, args: BridgeArgs, principal: Principal) throws -> String? {
         if let targetParam = writesTarget, let raw = args.string(targetParam),
            let key = portKey(for: raw) {
             // CAS (R3). A writer may declare the state it composed against. If the port has moved
@@ -110,7 +116,28 @@ extension AppState {
                 actor: ActorRef(principal: principal.id), actorName: principal.displayName,
                 trust: .principal))
             broadcastDriverChange(outcome.driverChanged, port: key)
+            return outcome.token
         }
+        return nil
+    }
+
+    /// Merge the token a write produced into its response.
+    ///
+    /// Done here, ONCE, rather than in each of the eight write verbs — the same reasoning as the
+    /// central `acceptingExpect()` injection: a write verb added tomorrow reports its token by
+    /// construction instead of by its author remembering.
+    ///
+    /// Why it matters beyond tidiness: without it, a caller that has just written holds a token it
+    /// knows is stale and must re-read the port before writing again. That is a round trip we were
+    /// forcing for nothing, and it is what made "require a token" look expensive. With it, a writer
+    /// writes continuously and each response refreshes what it holds.
+    ///
+    /// A non-object result (a bare string, an array) is returned untouched: there is nowhere to put
+    /// the token without changing its shape, and silently reshaping a result would break callers.
+    func withToken(_ token: String?, _ value: BridgeValue) -> BridgeValue {
+        guard let token, case .object(var o) = value else { return value }
+        o[PortActivity.tokenKey] = .string(token)
+        return .object(o)
     }
 
     /// The local human as a principal (L2.d). nil before setup completes.
@@ -321,8 +348,9 @@ extension AppState {
         }
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch
         // with its own rules; a write is a write whichever registry serves it.
-        try applyWriteSideEffects(writesTarget: method.writesTarget, args: args, principal: principal)
+        let token = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
+                                              principal: principal)
 
-        return try await method.run(principal, args, yield)
+        return withToken(token, try await method.run(principal, args, yield))
     }
 }
