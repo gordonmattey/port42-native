@@ -1,5 +1,44 @@
 # Slice 02 · Cross-Instance — Detailed Design
 
+> **RE-HEADED 2026-07-28. The concurrency mechanism in this document is OBSOLETE, and the rest still
+> stands.** This was written on 2026-07-15 against a per-port **lease**: one holder, a write requires
+> it, no lease means the write is rejected. **That mechanism was built locally, then deleted.** The
+> local protocol thread (`plan-port42-protocol-local-bus.md`) replaced it with three nouns —
+> ADDRESS · ACTOR · TOKEN — and the replacement is not a refinement of the lease, it is a different
+> answer to the same question:
+>
+> | this doc says | what actually exists |
+> |---|---|
+> | a lease grants the right to write | **a TOKEN says what you composed against**; a write carrying a stale one is refused with `stale_write` + `current`, and an untokened write with `token_required` (R5) |
+> | one holder per port, others rejected | **nobody is ever blocked.** Refusing a caller who declined to declare state is not the same as refusing a caller who did not win a race |
+> | the holder is broadcast so both UIs show the pen | **presence is DERIVED** from whoever moved the token last (step 3). It shows; it refuses nothing |
+> | request → grant/deny → handoff | **no verbs.** `release` and `handoff` were deleted as lease-era code with no callers |
+>
+> **Why the lease died, and why it matters MORE across the wire than it did locally.** A lease is a
+> lock with a TTL, and a TTL has no principled value; worse, it depends on clocks agreeing between
+> peers, which they do not. A vanished holder leaves a port stuck. R1 removed it locally for those
+> reasons, and every one of them is sharper at a distance. **The token is correct whether the writer
+> thought for 3ms or 3 hours, and identical locally and remotely** — which is exactly why it was built
+> peer-qualified from day one (`ActorRef` is `<peerID>/<principal>`, with local as the degenerate
+> form) and epoch-qualified (`<epoch>:<seq>`).
+>
+> **What this means for the slice.** The Address, Query-in and Stream-out sections below are unchanged
+> and still correct. Wherever this document says *lease*, *holder*, *grant/deny* or *take the pen*,
+> read: **the write carries a token; if the port moved, it is refused and told the current one; and
+> presence names whoever wrote last.** The acceptance row for right-of-way is rewritten in place. The
+> open questions O-1 and O-4 are answered rather than open — see the bottom of this note.
+>
+> **O-1 (lease authority) is void.** There is no grant, so there is no authority to locate and no
+> owner-versus-requester disagreement to resolve.
+>
+> **O-4 (causality under lease churn) survives in a better form.** The concern was a late delta from a
+> prior holder being misapplied. Under CAS that delta carries a token the port has already moved past,
+> so it is refused BY CONSTRUCTION rather than by ordering rules. What remains open is Notify ordering
+> for DISPLAY, not for correctness.
+>
+> **Read `plan-port42-protocol-local-bus.md` §A before building from this file.**
+
+
 *2026-07-15 — the second **vertical slice**: prove the **bus crosses instances**. Where
 [`slice-01-trust-core.md`](slice-01-trust-core.md) validated the trust core (Controller/Guard/Runner) on
 one machine, this validates the **Synchronizer** ([`bus-architecture.md`](bus-architecture.md)) across
@@ -53,7 +92,7 @@ transport question; it stands on libp2p's primitives and tests the *app contract
 | Role (ID) | Build only this | Skip |
 |---|---|---|
 | **Synchronizer** (F2) | remote address + query-in/stream-out + per-port right-of-way over libp2p | per-element right-of-way; unified 4-way subscription; CRDT/OT merge |
-| **Controller** (S3) | who-may-write across the wire — the ownership lease | full delegation matrix, cross-instance identity/auth beyond peer keys |
+| **Controller** (S3) | who-may-write across the wire — CAS on the port's token (was: the ownership lease) | full delegation matrix, cross-instance identity/auth beyond peer keys |
 | **Coordinator** (R1) | two peers discover + connect | N-peer swarm, conflict detection among agents |
 
 **Not in this slice:** Keeper, Sensor, Gatekeeper, Guard, Librarian, Presenter-beyond-terminal, agents
@@ -66,7 +105,7 @@ writing to the remote port. Human-driven both ends first.
 The bus already exists **locally**: the port bridge ships `getHtml` (snapshot), `patch` (delta), `push`,
 `update`, `history`/`restore`, and a local event stream (P-400, Mar 2026). The slice is **not** a new
 system — it is: *make those same verbs cross a libp2p stream to a port on another instance, and add a
-lease so only one side writes at a time.* (Same move as Slice 01 naming git as the Guard's substrate:
+token so a write composed against stale state is refused rather than applied.* (Same move as Slice 01 naming git as the Guard's substrate:
 here the substrate is the existing bridge + libp2p.)
 
 ### The shape
@@ -84,7 +123,8 @@ here the substrate is the existing bridge + libp2p.)
         Circuit-Relay v2 ─── DCUtR hole-punch ──▶ direct conn (or stay relayed)
 
    ADDRESS   port42://<peerID>/space/<space>/<portId>     ← instance = PeerID
-   WRITE     B wants the pen → requests lease → A grants/denies → B patches → A applies → Notify to both
+   WRITE     B reads P's token → B patches, carrying it → A applies, or refuses `stale_write`
+             with `current` → B retries once → Notify to both (see the re-head note: no lease)
 ```
 
 ### The contract, made concrete
@@ -98,14 +138,19 @@ here the substrate is the existing bridge + libp2p.)
 - **Stream out (F2).** A publishes every port delta to gossipsub topic `port42/<space>/<portId>`;
   B (and any subscriber) receives `Notify`. One publish, many subscribers — the unified-subscription
   shape, minimally.
-- **Right-of-way (S3) — the lease.** One **holder** per port at a time. A write requires the lease;
-  B requests it, A (the owner) grants or denies, the grant carries a short TTL and is broadcast on the
-  Notify topic so both UIs show who holds the pen. No lease → write rejected. Explicit handoff, not
-  optimistic merge. *(This is the deliberate concurrency choice: pessimistic ownership, not CRDT/OT.)*
+- **Right-of-way (S3) — the TOKEN, not a lease.** *(Rewritten 2026-07-28; the original paragraph
+  specified a lease and is quoted in the re-head note.)* Every write carries the token it was composed
+  against. A writes it through its own local bridge, which either applies it or refuses `stale_write`
+  carrying `current`, so B self-corrects in one retry with no extra round trip. An untokened write is
+  refused with `token_required`, also carrying `current`. **Nobody is blocked and nothing is granted.**
+  Presence is derived from whoever moved the token last and is broadcast on the Notify topic as
+  `kind: "driver"`, so both UIs show who is driving — a display fact that refuses nothing.
+  *(The deliberate concurrency choice: optimistic CAS on a per-port monotonic counter, not pessimistic
+  ownership and not CRDT/OT. A lock cannot cross the wire, because clocks do not agree between peers.)*
 
 ### Milestones (isolate app-contract from traversal)
 
-- **A · same-LAN (mDNS).** Prove the *contract* — address, query, stream, lease — with traversal taken
+- **A · same-LAN (mDNS).** Prove the *contract* — address, query, stream, token — with traversal taken
   out of the equation. If this doesn't feel instant on a LAN, nothing else matters.
 - **B · cross-NAT (relay + DCUtR).** Prove *traversal* — two instances on different networks. Instrument
   the hole-punch: record direct-vs-relayed, and the success rate.
@@ -119,12 +164,14 @@ here the substrate is the existing bridge + libp2p.)
 | **Address** | `port42://<peerID>/…` reaches the remote port; the same verb path works local and remote | remote needs a different API than local |
 | **Query in** | B's `patch`/`getHtml` executes on A's port via A's existing bridge | remote writes bypass A's local bridge/authority |
 | **Stream out** | a delta on A appears on B within one round-trip; multiple subscribers get it from one publish | B must poll; or fan-out needs bespoke per-subscriber code |
-| **Right-of-way** | only the lease holder writes; handoff is visible on both ends; no double-apply under contention | both sides write and A's state diverges from B's view |
+| **Right-of-way** | a write composed against stale state is REFUSED with `current`, and one retry lands; presence names whoever wrote last, on both ends; no double-apply under contention | a stale write is applied and A's state diverges from B's view; or a caller is blocked outright, which is the lease failure again |
 | **Traversal (B)** | direct connection via DCUtR where NAT allows, clean relay fallback otherwise; success rate recorded | connection only works same-LAN; or fails silently behind NAT |
 
 **Slice-level acceptance:** on two instances across two networks — B addresses A's port, reads its
-state, takes the lease, patches it, both UIs converge on the new state and show B as holder, B releases,
-A writes again. Location-transparent; the same verbs as local.
+state and token, patches it carrying that token, both UIs converge on the new state and show B as the
+driver; A then writes with a token it read BEFORE B's patch and is refused `stale_write` with
+`current`; A retries once and lands. Location-transparent; the same verbs, and the same refusal, as
+local.
 
 **The measured number (the falsifier):** hole-punch **direct-connection success rate** across ≥4 real
 network settings (home, café, corporate, tethered mobile). ≥~80% direct + clean relay fallback →
@@ -147,15 +194,19 @@ not part of this contract).
 
 ## Open questions (marked — not asserted)
 
-- **O-1 · Lease authority.** The owning instance grants the lease. What happens when the *owner* is the
-  one who should yield, or when owner and requester disagree? A single-owner lease is the thin start; a
+- **O-1 · ~~Lease authority~~ · VOID (2026-07-28).** There is no grant, so there is no authority to
+  locate. Kept for the record: the question was — the owning instance grants the lease, so what happens
+  when the *owner* is the one who should yield, or when owner and requester disagree? A single-owner lease is the thin start; a
   neutral arbiter is deferred.
 - **O-2 · Availability when the host leaves.** If A goes offline, P is gone. Multiplayer usually wants
   the room to persist. Pure p2p vs. a designated always-on node is unresolved — and bears on the
   sovereignty story.
 - **O-3 · Discovery trust.** DHT/rendezvous tells B where A is; what stops a hostile peer from answering
   for A's address? Out of scope here, real later.
-- **O-4 · Causality under lease churn.** Rapid lease handoffs + in-flight deltas need ordering
+- **O-4 · ~~Causality under lease churn~~ · ANSWERED for correctness (2026-07-28).** A late delta from
+  a prior writer carries a token the port has already moved past, so CAS refuses it BY CONSTRUCTION.
+  What remains is Notify ordering for DISPLAY, which is a rendering question, not a correctness one.
+  The original: rapid lease handoffs + in-flight deltas need ordering
   (sequence/causal tag on Notify) so a late delta from the prior holder isn't misapplied.
 - **O-5 · Per-element, later.** Per-port locking is coarse; real co-holding wants per-element. Whether
   that stays locking or moves to CRDT/OT is the next slice's central decision, explicitly deferred.

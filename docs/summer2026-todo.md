@@ -2,7 +2,20 @@
 
 ---
 
-## SECURITY P0 (found 2026-07-26 during Spike B): a web port can navigate to any site and TAKE THE BRIDGE WITH IT
+## ~~SECURITY P0: a web port can navigate to any site and TAKE THE BRIDGE WITH IT~~ — FIXED and SHIPPED
+
+**STATUS (established by git, 2026-07-28, because the doc read as open):**
+
+- **The escape is CLOSED IN THE SHIPPED BUILD.** `df1b07f` (2026-07-26 16:25) replaced the inverted
+  navigation policy with `PortNavigationBlocker.allows`, and it is an ancestor of the v0.5.50 release
+  commit `ce25781` (2026-07-27 09:20). Users on v0.5.50 are not exposed to the escalation below.
+- **NOT shipped: the later hardening.** `ba6a8f6` (2026-07-27 15:43) moved every browser-port message
+  handler out of the page's world, and `R7` (2026-07-27) did the same for web ports and deleted the
+  input handler's origin pin. Both land after the v0.5.50 cut, so they ride the next release.
+
+Kept in full below, because the reasoning is the useful part: the rule was INVERTED relative to its
+own doc comment, which is how it survived review, and the bridge follows a navigation because it
+belongs to the WEBVIEW rather than to the document.
 
 **LIVE-VERIFIED in Dev3, end to end.** Not a code-reading inference.
 
@@ -201,6 +214,28 @@ times.
 **Do not fix against a list of missing events** (dictation, IME, context-menu paste, autofill are
 suspected but unverified). Finish Spike C's live probe first — guessing the list is the mistake this
 item exists to stop making.
+
+---
+
+## TODO (2026-07-28, GM): TRUST ON THE READ PATH — a reader is neither authenticated nor scoped
+
+R7 closed input: a port cannot forge the human, because the listener and its handler live in a world
+the page cannot reach. **Reads got none of that**, and GM's call was that it is fine for now and
+belongs on the roadmap rather than in the protocol thread.
+
+**What is actually open.** A token answers "has this changed since I looked", so it is the wrong
+instrument here: a read changes nothing and there is no CAS to apply. The gap is AUTHORIZATION and
+SCOPE, which is a different axis:
+
+- **Nothing authenticates a reader.** `/call` assigns the shared `local-http` identity with no
+  `RemoteAddr` check (`plan-gateway-auth-tls.md` P1, open), so every local process is the same caller.
+- **Nothing scopes a read.** `ports.list` returns every port ACROSS SPACES to any caller. That is not
+  a theory: during the P0 above, a page on example.com called it and got the user's real port list
+  back. The origin pin and R7 closed how that page got in; they did not decide what a legitimate
+  caller is entitled to see.
+
+**Order matters:** P1 comes first, because scoping decisions are meaningless while every caller shares
+one identity. See `architecture-invariants.md` §3.
 
 ---
 
