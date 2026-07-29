@@ -152,11 +152,13 @@ struct PrincipalTests {
         #expect(p.spaceId == nil)
     }
 
-    @Test("a spaceless principal scopes its grant globally, not unpersistably")
+    @Test("a spaceless principal scopes its grant everywhere, not unpersistably")
     func spacelessScope() {
         let p = Principal.peer(id: "peer-abc", displayName: "Claude Code")
         // nil spaceId = the coordinator's "everywhere" wording, not "ask every time".
-        #expect(p.scopeDescription.contains("globally"))
+        #expect(p.scopeDescription.contains("everywhere"))
+        // …and since A.3 the card names its OBJECT, which for a machine capability is port 0.
+        #expect(p.scopeDescription.contains("in Port42"))
     }
 
     @Test("a port principal in a space scopes its grant to that space")

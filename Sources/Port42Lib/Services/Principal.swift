@@ -183,14 +183,20 @@ public struct Principal: Equatable {
         senderId == localGatewayID ? "Local (gateway)" : senderId
     }
 
-    /// What "Allow" will actually do, in the human's words, on the permission card. A grant is a
-    /// statement about this principal in this space (nil space = global to this principal), and the
-    /// card says so — the old code silently wrote a grant the human was never shown the scope of.
+    /// What "Allow" will actually do, in the human's words, on the permission card.
+    ///
+    /// **It names the OBJECT** (slice-02 A.3). A grant is a statement about this principal, acting
+    /// on a named port, optionally qualified by a zone — and until step 1 the object had no name at
+    /// all, so the card could not say what was being granted access TO. Machine capabilities belong
+    /// to port 0, whose name is the app's own name, which is why this reads "in Port42" rather than
+    /// in an invented word like "desktop".
+    ///
+    /// **It also says how to undo it**, which it could not honestly do before: until step 2 there
+    /// was nowhere to go and a grant was permanent and invisible from the moment it was given.
     public var scopeDescription: String {
-        if let spaceId, !spaceId.isEmpty {
-            _ = spaceId
-            return "Allow for \(displayName) in this space — future ports it makes won't ask again."
-        }
-        return "Allow for \(displayName) everywhere — it isn't in a space, so this applies globally."
+        let where_ = (spaceId?.isEmpty == false)
+            ? "in Port42, while working in this space"
+            : "in Port42, everywhere"
+        return "Allow for \(displayName) \(where_). Take it back any time in Settings → Access."
     }
 }

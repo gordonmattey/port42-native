@@ -120,7 +120,7 @@ struct PortObjectGrantTests {
         d.set("automation", forKey: "portGrant.local-http.0.global")   // from the retired migration
         d.set(true, forKey: "portGrantObjectMigrated")                 // its retired flag
         // Not grants. Must survive: a reap that reaches past its own prefixes is a different bug.
-        d.set("1", forKey: "remoteAllowTerminal")
+        d.set("1", forKey: "unrelatedSetting")
         d.set("keep me", forKey: "portGrantsEnabled")   // prefix-adjacent, deliberately
 
         #expect(PortGrantKey.reapGrantStore(in: d) == 5)
@@ -130,7 +130,7 @@ struct PortObjectGrantTests {
         #expect(d.string(forKey: "portPerms.Claude Code.global") == nil)
         #expect(d.string(forKey: "portGrant.local-http.0.global") == nil)
         #expect(d.object(forKey: "portGrantObjectMigrated") == nil)
-        #expect(d.string(forKey: "remoteAllowTerminal") == "1")
+        #expect(d.string(forKey: "unrelatedSetting") == "1")
         #expect(d.string(forKey: "portGrantsEnabled") == "keep me")
     }
 
@@ -321,6 +321,41 @@ struct PortObjectGrantTests {
         #expect(PortGrantDisplay.objectLabel("12D3KooWabc/0") == "Port42 on 12D3KooWabc")
         #expect(PortGrantDisplay.objectLabel("tile-7") == "a port")
         #expect(PortGrantDisplay.objectLabel("12D3KooWabc/tile-7") == "a port on 12D3KooWabc")
+    }
+
+    // MARK: - The card, and the pre-grant that is gone (A.3)
+
+    @Test("the card names its OBJECT, and says how to take the grant back")
+    func cardNamesItsObject() {
+        let zoned = Principal.companion(id: "echo", displayName: "Echo", spaceId: "SPACE-1")
+        #expect(zoned.scopeDescription.contains("in Port42"),
+                "the card must name what is being granted access TO")
+        #expect(zoned.scopeDescription.contains("this space"))
+        #expect(zoned.scopeDescription.contains("Settings → Access"),
+                "a grant that cannot be found again is the invisibility this slice exists to fix")
+
+        let global = Principal.peer(id: "claude-code", displayName: "Claude Code")
+        #expect(global.scopeDescription.contains("in Port42"))
+        #expect(global.scopeDescription.contains("everywhere"))
+    }
+
+    @Test("NO blanket pre-grant survives anywhere in the source tree")
+    func noBlanketPreGrant() throws {
+        // D12. Three UserDefaults flags used to union terminal, filesystem and screen into every
+        // gateway call BEFORE the principal was constructed — authority handed out without naming
+        // anybody, and all three were ON in production. A grep gate rather than a unit test,
+        // because the property is "this does not exist", and a deleted thing comes back by being
+        // re-added somewhere new.
+        var offenders: [String] = []
+        for (name, text) in try sourceFiles() {
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                guard !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
+                if t.contains("remoteAllow") { offenders.append("\(name):\(i + 1) \(t)") }
+            }
+        }
+        let found = offenders.joined(separator: "\n")
+        #expect(offenders.isEmpty, "the blanket pre-grant is back:\n\(found)")
     }
 
     // MARK: - The gate

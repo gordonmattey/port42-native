@@ -22,9 +22,6 @@ public struct SignOutSheet: View {
     @State private var geminiTestResult: TestConnectionResult = .idle
     @State private var compatibleBaseURL: String = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
     @State private var compatibleKeyInput = ""
-    @AppStorage("remoteAllowTerminal") private var remoteAllowTerminal = false
-    @AppStorage("remoteAllowFS") private var remoteAllowFS = false
-    @AppStorage("remoteAllowScreen") private var remoteAllowScreen = false
     @StateObject private var instructionsSvc = InstructionService.shared
     @State private var pluginUpgradeInProgress = false
     @State private var pluginUpgradeResult: String?
@@ -653,18 +650,14 @@ public struct SignOutSheet: View {
 
                 Spacer().frame(height: 10)
 
-                // Permission toggles
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("allow CLIs and OpenClaw agents to call Port42 APIs without prompting:")
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 10) {
-                        remoteApiToggle("Terminal", value: $remoteAllowTerminal)
-                        remoteApiToggle("Filesystem", value: $remoteAllowFS)
-                        remoteApiToggle("Screen", value: $remoteAllowScreen)
-                    }
-                }
+                // The three blanket "allow without prompting" toggles are GONE (D12, A.3). They
+                // granted terminal, filesystem and screen to anything that called, which is not a
+                // caller and so could never be revoked from one. What replaced them is the Access
+                // tab: every capability is asked for once, per grantee, and can be withdrawn there.
+                Text("Callers ask for each capability once. See what you have allowed, and take it back, under Access.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
 
                 // CLI install (CLAUDE.md/GEMINI.md + openclaw) moved to the AI tab — it wires the CLI LLMs.
             }

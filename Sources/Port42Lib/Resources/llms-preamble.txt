@@ -47,7 +47,7 @@ curl -s http://127.0.0.1:4242/call \
 Response: `{"content": "..."}` — the result as a string or JSON.
 
 Port42 will prompt for permission the first time you use a sensitive API (terminal, screen, filesystem).
-Pre-approve categories in Port42 Settings → Remote Access to skip future prompts.
+A grant is per caller and per capability; the user can see and revoke it in Port42 Settings → Access.
 
 ## Quick examples
 

@@ -136,13 +136,19 @@ public final class RemoteToolExecutor: ObservableObject {
         // reach the same method and kills the `port.getHtml` → Unknown-tool class.
         let canonical = method.contains(".") ? method : (appState?.canonicalFromTool(method) ?? method)
 
-        // "Always Allow" settings become pre-grants for the registry path (and the old path below).
-        var pregrant: Set<PortPermission> = []
-        for (key, perm): (String, PortPermission) in [("remoteAllowTerminal", .terminal),
-                                                       ("remoteAllowFS", .filesystem),
-                                                       ("remoteAllowScreen", .screen)] {
-            if UserDefaults.standard.bool(forKey: key) { pregrant.insert(perm) }
-        }
+        // THE BLANKET PRE-GRANT IS GONE (D12, GM 2026-07-28; deleted at A.3).
+        //
+        // Three UserDefaults flags used to union terminal, filesystem and screen into EVERY gateway
+        // call, before the principal was constructed — the one thing in the system that could hand
+        // out authority without naming anybody, and all three were ON in production. It made sense
+        // only while callers were anonymous, when the choice was prompt-on-every-call or trust
+        // everything, because there was nothing to attach a grant TO. Per-grantee grants are that
+        // missing third thing, so the flags became redundant rather than merely unsafe.
+        //
+        // Every capability now goes through the permission request path, and what it costs is one
+        // ask per capability per caller, once — cushioned by the manager, where a grant can now be
+        // seen and withdrawn.
+        let pregrant: Set<PortPermission> = []
 
         // Registry-first (Phase 2): the unified path serves every extracted method, identically for
         // JS / tool-use / gateway. Anything not yet extracted (the live-only families) falls through

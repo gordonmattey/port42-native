@@ -1647,84 +1647,11 @@ struct WindowRefAccessor: NSViewRepresentable {
     }
 }
 
-// MARK: - Permission Overlay
+// The second, DEAD permission overlay used to live here (`PortPermissionOverlay`). It had no call
+// site: it was the pre-shell window mode's prompt and retired with that mode, while the live card
+// is `ShellPermissionOverlay`. Deleted at slice-02 A.3 (touchpoint 2) — a second implementation of
+// a consent prompt is exactly the kind of thing that gets edited by mistake and then believed.
 
-/// Inline permission prompt rendered directly in the view hierarchy.
-/// Unlike confirmationDialog (which requires key window status to present as a sheet),
-/// this always renders reliably regardless of window state.
-/// Unified permission prompt used for both port JS and tool-use paths.
-/// Renders inline in the view hierarchy (avoids confirmationDialog key-window issues).
-struct PortPermissionOverlay: View {
-    let permission: PortPermission
-    var createdBy: String? = nil
-    let onAllow: () -> Void
-    let onDeny: () -> Void
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.6)
-
-            VStack(spacing: 16) {
-                if let name = createdBy {
-                    Text(name)
-                        .font(Port42Theme.monoBold(12))
-                        .foregroundStyle(Port42Theme.accent)
-                }
-
-                Image(systemName: permission.iconName)
-                    .font(.system(size: 28))
-                    .foregroundStyle(Port42Theme.accent)
-
-                Text(permission.permissionDescription.title)
-                    .font(Port42Theme.monoBold(14))
-                    .foregroundStyle(Port42Theme.textPrimary)
-
-                Text(permission.permissionDescription.message)
-                    .font(Port42Theme.mono(12))
-                    .foregroundStyle(Port42Theme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 12) {
-                    Button(action: onDeny) {
-                        Text("Deny")
-                            .font(Port42Theme.mono(12))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                            .frame(width: 80, height: 28)
-                            .background(Port42Theme.bgSecondary)
-                            .cornerRadius(6)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Port42Theme.border, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onAllow) {
-                        Text("Allow")
-                            .font(Port42Theme.mono(12))
-                            .fontWeight(.medium)
-                            .foregroundStyle(.black)
-                            .frame(width: 80, height: 28)
-                            .background(Port42Theme.accent)
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(24)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Port42Theme.bgPrimary)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Port42Theme.border, lineWidth: 1)
-                    )
-            )
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
 
 // MARK: - WebView Container (preserves first responder on click)
 

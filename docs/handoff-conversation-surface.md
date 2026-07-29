@@ -34,7 +34,32 @@ ONE primitive, a port. Port 0 is the Port42 window itself (its title is the user
 grantee and a space and **no object at all**. The object was always the machine; having no name it
 left an empty slot and the space slid into it. Register entry: `architecture-invariants.md` §6.
 
-### STEPS 1 AND 2 DONE (2026-07-29, live-verified in Dev3). NEXT: step 3, then half two.
+### HALF ONE IS COMPLETE (2026-07-29, all three steps live-verified in Dev3). NEXT: half two.
+
+**Step 3: the card names its object, and the blanket pre-grant is gone** (slice doc §10a3).
+`scopeDescription` reads "Allow for Claude Code **in Port42**, everywhere. Take it back any time in
+Settings → Access" — two things it could not say before, because until step 1 the object had no name
+and until step 2 there was nowhere to take it back. `remoteAllow*` is deleted from the source tree
+rather than defaulted off, and **verified by falsification**: with `remoteAllowFS` written back to
+`1`, a gateway `fs.read` BLOCKED on a prompt for a full 12 seconds instead of returning the file.
+A tree-wide grep gate keeps it out, calibrated by re-adding a flag read. The dead
+`PortPermissionOverlay` (no call site) is deleted. Both generated docs lost the pre-approval line and
+`llms.txt` was regenerated. Suite **1206 green**.
+
+**GM's decision, 2026-07-29: grants are PERMANENT.** No expiry, no auto-reap; revocation is manual in
+Settings → Access. `lastUsedAt` still records use (throttled, one write per key per minute) because
+it cannot be backfilled if that changes, but nothing consumes it. Open question 3 is closed.
+
+**NEXT IS HALF TWO** — the credential, and it is where authentication starts. §9's order: (4) store
+and mint, root secret and token files, clients appear in the manager as a grantee kind, nothing
+enforces yet; (5) the seam and verifier together, `principal_id` written only by the verifier, a call
+without one refused, `local-http` DELETED rather than preserved; (6) per-child registration at spawn,
+which is where the pooled bucket actually dies. Step 5 is the only one with a blast radius, and by
+then every caller has a token and the refusal teaches the fix. **Verify per door and per caller** —
+the failure mode this whole scope is built on is a fix verified on one caller path and assumed to
+hold on the others.
+
+### STEPS 1 AND 2 (2026-07-29, live-verified in Dev3)
 
 **Step 2: the grant store is a TABLE and the permission manager exists** (slice doc §10a2). Migration
 `v43-grants`, one row per permission, so revoking a single capability is a DELETE where the old

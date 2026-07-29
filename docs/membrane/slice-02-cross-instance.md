@@ -145,11 +145,11 @@ gateway, by either door.
 | FR6 | A pairing request is approved or denied by the user, who is shown the requested name |
 | FR7 | Children the app spawns are registered with no prompt, and keep a stable identity across respawns |
 | FR8 | Permission grants key on the client, so one caller's grant is never inherited by another |
-| FR9 | The user can see every enrolled client and revoke any of them |
+| FR9 | ✅ **2026-07-29** for grants (Settings → Access, per capability and per grantee). Clients themselves arrive with half two |
 | FR10 | Every refusal states how to fix it |
-| FR11 | No permission reaches a caller without passing through its principal and the permission request path. No blanket pre-grant exists (see D12) |
-| FR12 | Every permission names its OBJECT, and the object is always a port. Machine capabilities (clipboard, filesystem, automation, notify, rest, screen, camera) are port 0's (see §4) |
-| FR13 | A zone qualifies the ACTOR on a grant. It is never an object, and never the only thing a key names |
+| FR11 | ✅ **2026-07-29.** No permission reaches a caller without passing through its principal and the permission request path. No blanket pre-grant exists (D12, deleted at A.3) |
+| FR12 | ✅ **2026-07-29.** Every permission names its OBJECT, and the object is always a port. Machine capabilities (clipboard, filesystem, automation, notify, rest, screen, camera) are port 0's (see §4) |
+| FR13 | ✅ **2026-07-29.** A zone qualifies the ACTOR on a grant. It is never an object, and never the only thing a key names |
 
 **Behavioral**
 
@@ -708,9 +708,10 @@ nothing here can strand a caller.
 2. **The permission manager** (D13). **DONE 2026-07-29, live-verified in Dev3.** Grants moved to a
    table, grouped by grantee, revocable per capability and per grantee. The first time in the
    product's life that a granted permission can be seen. See "Step 2 as built" below.
-3. **The card names its object.** "Claude Code wants to read the clipboard in Port42." Delete the
-   dead `PortPermissionOverlay`, and delete the `remoteAllow*` pre-grant (D12) now that every
-   capability has a place to be granted and revoked per grantee.
+3. **The card names its object. DONE 2026-07-29, live-verified in Dev3.** `scopeDescription` reads
+   "Allow for Claude Code in Port42, everywhere. Take it back any time in Settings → Access." The
+   dead `PortPermissionOverlay` and the `remoteAllow*` pre-grant are both deleted. See "Step 3 as
+   built" below. **Half one is complete.**
 
 **Half two: the credential.** Every step here has the manager from step 2 to make it legible.
 
@@ -822,6 +823,42 @@ Suite **1204 green**. **Live-verified in Dev3** end to end: the table was create
 swept clean at launch; a gateway call raised a prompt; approving it wrote
 `local-http | 0 | zone="" | automation` — the object slot holding port 0 through the real permission
 path; a second call ran with no prompt and `lastUsedAt` was recorded 24 seconds later.
+
+### 10a3. Step 3 as built (2026-07-29) — HALF ONE IS COMPLETE
+
+**The card names its object.** `Principal.scopeDescription` now reads "Allow for Claude Code **in
+Port42**, everywhere. Take it back any time in Settings → Access." Two things it could not say
+before: what the grant is ABOUT (until step 1 the object had no name), and how to undo it (until
+step 2 there was nowhere to go, and a grant was permanent and invisible from the moment it was
+given).
+
+**The blanket pre-grant is deleted** (D12). `remoteAllow*` is gone from the source tree rather than
+defaulted off: the `@AppStorage` declarations, the three Remote Access toggles, and the `pregrant`
+construction in `RemoteToolExecutor`. **Live-verified by falsification, which is the only way to
+prove a bypass is dead:** with `remoteAllowFS` written back to `1` on Dev3, a gateway `fs.read`
+BLOCKED on a permission prompt for a full 12 seconds instead of returning the file instantly. A grep
+gate over the whole tree keeps it from coming back, calibrated by re-adding a flag read and watching
+it fail.
+
+**The dead second overlay is deleted.** `PortPermissionOverlay` had no call site — it was the
+pre-shell window mode's prompt and retired with that mode, while the live card is
+`ShellPermissionOverlay`. A second implementation of a consent prompt is exactly the kind of thing
+that gets edited by mistake and then believed.
+
+**Both generated docs lost the pre-approval line.** `InstructionService.buildMarkdown` and
+`llms-preamble.txt` now say a grant is per caller and revocable under Settings → Access.
+`llms.txt` regenerated through `PORT42_REGEN_DOCS=1`; the diff was the one line.
+
+Suite **1206 green**.
+
+**What half one delivers, with no authentication anywhere in it:** every permission names its object,
+port 0 exists, 144 invisible grants are gone, every grant that exists from now on can be seen and
+withdrawn per capability, and the one mechanism that could hand out authority without naming anybody
+is deleted.
+
+**One process note.** A full-suite run failed a streaming-cancel test on a 60s time limit, taking
+445s. It passes alone in 0.4s; the cause was contention from concurrent builds, not the change. Worth
+knowing that suite is load-sensitive before treating it as a real failure.
 
 ### 10b. What step 1 learned, and what it changes for steps 2 and 3
 
@@ -947,8 +984,10 @@ beside them in `#if DEBUG` probe blocks that retire with the constant.
 
 1. The wording on the pairing prompt and on a hand-made client's permission card.
 2. Whether add-by-hand in Settings ships in step 1 or waits.
-3. Whether anything stops the store re-accumulating. The reap emptied it once, but nothing expires or
-   reaps a grant, so it grows again from zero. Related to the expiry question D13 puts out of scope.
+3. ~~Whether anything stops the store re-accumulating.~~ **CLOSED 2026-07-29 (GM): grants are
+   PERMANENT.** No expiry and no auto-reap; revocation is manual, in the manager. `lastUsedAt` keeps
+   recording use (throttled) because it cannot be backfilled if that ever changes, but nothing
+   consumes it — it is informational, not load-bearing.
 4. Whether pairing can be switched off entirely in Settings, for a machine that wants no new clients.
 
 **Closed:** the `remoteAllow*` pre-grant, removed outright (D12, GM 2026-07-28). Park or delete the

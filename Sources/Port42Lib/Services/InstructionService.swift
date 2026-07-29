@@ -134,7 +134,7 @@ https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
 
 Port42 prompts the user on first use of a sensitive API (terminal, screen, clipboard, files, \
 camera, automation, browser, REST). Denials are never permanent — a later call re-asks. \
-Pre-approval lives in Port42 Settings → Remote Access.
+A granted permission is per caller, and the user can see and revoke it in Port42 Settings → Access.
 """
     }
 }

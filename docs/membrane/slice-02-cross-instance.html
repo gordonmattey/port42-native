@@ -465,7 +465,9 @@ inherited by another</td>
 </tr>
 <tr>
 <td>FR9</td>
-<td>The user can see every enrolled client and revoke any of them</td>
+<td>✅ <strong>2026-07-29</strong> for grants (Settings → Access, per
+capability and per grantee). Clients themselves arrive with half
+two</td>
 </tr>
 <tr>
 <td>FR10</td>
@@ -473,20 +475,21 @@ inherited by another</td>
 </tr>
 <tr>
 <td>FR11</td>
-<td>No permission reaches a caller without passing through its principal
-and the permission request path. No blanket pre-grant exists (see
-D12)</td>
+<td>✅ <strong>2026-07-29.</strong> No permission reaches a caller
+without passing through its principal and the permission request path.
+No blanket pre-grant exists (D12, deleted at A.3)</td>
 </tr>
 <tr>
 <td>FR12</td>
-<td>Every permission names its OBJECT, and the object is always a port.
-Machine capabilities (clipboard, filesystem, automation, notify, rest,
-screen, camera) are port 0’s (see §4)</td>
+<td>✅ <strong>2026-07-29.</strong> Every permission names its OBJECT,
+and the object is always a port. Machine capabilities (clipboard,
+filesystem, automation, notify, rest, screen, camera) are port 0’s (see
+§4)</td>
 </tr>
 <tr>
 <td>FR13</td>
-<td>A zone qualifies the ACTOR on a grant. It is never an object, and
-never the only thing a key names</td>
+<td>✅ <strong>2026-07-29.</strong> A zone qualifies the ACTOR on a
+grant. It is never an object, and never the only thing a key names</td>
 </tr>
 </tbody>
 </table>
@@ -1565,11 +1568,12 @@ built” below.</li>
 grouped by grantee, revocable per capability and per grantee. The first
 time in the product’s life that a granted permission can be seen. See
 “Step 2 as built” below.</li>
-<li><strong>The card names its object.</strong> “Claude Code wants to
-read the clipboard in Port42.” Delete the dead
-<code>PortPermissionOverlay</code>, and delete the
-<code>remoteAllow*</code> pre-grant (D12) now that every capability has
-a place to be granted and revoked per grantee.</li>
+<li><strong>The card names its object. DONE 2026-07-29, live-verified in
+Dev3.</strong> <code>scopeDescription</code> reads “Allow for Claude
+Code in Port42, everywhere. Take it back any time in Settings → Access.”
+The dead <code>PortPermissionOverlay</code> and the
+<code>remoteAllow*</code> pre-grant are both deleted. See “Step 3 as
+built” below. <strong>Half one is complete.</strong></li>
 </ol>
 <p><strong>Half two: the credential.</strong> Every step here has the
 manager from step 2 to make it legible.</p>
@@ -1710,6 +1714,48 @@ clean at launch; a gateway call raised a prompt; approving it wrote
 <code>local-http | 0 | zone=&quot;&quot; | automation</code> — the object slot
 holding port 0 through the real permission path; a second call ran with
 no prompt and <code>lastUsedAt</code> was recorded 24 seconds later.</p>
+<h3 id="a3.-step-3-as-built-2026-07-29-half-one-is-complete">10a3. Step
+3 as built (2026-07-29) — HALF ONE IS COMPLETE</h3>
+<p><strong>The card names its object.</strong>
+<code>Principal.scopeDescription</code> now reads “Allow for Claude Code
+<strong>in Port42</strong>, everywhere. Take it back any time in
+Settings → Access.” Two things it could not say before: what the grant
+is ABOUT (until step 1 the object had no name), and how to undo it
+(until step 2 there was nowhere to go, and a grant was permanent and
+invisible from the moment it was given).</p>
+<p><strong>The blanket pre-grant is deleted</strong> (D12).
+<code>remoteAllow*</code> is gone from the source tree rather than
+defaulted off: the <code>@AppStorage</code> declarations, the three
+Remote Access toggles, and the <code>pregrant</code> construction in
+<code>RemoteToolExecutor</code>. <strong>Live-verified by falsification,
+which is the only way to prove a bypass is dead:</strong> with
+<code>remoteAllowFS</code> written back to <code>1</code> on Dev3, a
+gateway <code>fs.read</code> BLOCKED on a permission prompt for a full
+12 seconds instead of returning the file instantly. A grep gate over the
+whole tree keeps it from coming back, calibrated by re-adding a flag
+read and watching it fail.</p>
+<p><strong>The dead second overlay is deleted.</strong>
+<code>PortPermissionOverlay</code> had no call site — it was the
+pre-shell window mode’s prompt and retired with that mode, while the
+live card is <code>ShellPermissionOverlay</code>. A second
+implementation of a consent prompt is exactly the kind of thing that
+gets edited by mistake and then believed.</p>
+<p><strong>Both generated docs lost the pre-approval line.</strong>
+<code>InstructionService.buildMarkdown</code> and
+<code>llms-preamble.txt</code> now say a grant is per caller and
+revocable under Settings → Access. <code>llms.txt</code> regenerated
+through <code>PORT42_REGEN_DOCS=1</code>; the diff was the one line.</p>
+<p>Suite <strong>1206 green</strong>.</p>
+<p><strong>What half one delivers, with no authentication anywhere in
+it:</strong> every permission names its object, port 0 exists, 144
+invisible grants are gone, every grant that exists from now on can be
+seen and withdrawn per capability, and the one mechanism that could hand
+out authority without naming anybody is deleted.</p>
+<p><strong>One process note.</strong> A full-suite run failed a
+streaming-cancel test on a 60s time limit, taking 445s. It passes alone
+in 0.4s; the cause was contention from concurrent builds, not the
+change. Worth knowing that suite is load-sensitive before treating it as
+a real failure.</p>
 <h3 id="b.-what-step-1-learned-and-what-it-changes-for-steps-2-and-3">10b.
 What step 1 learned, and what it changes for steps 2 and 3</h3>
 <p><strong>Measure whether the data is worth migrating before designing
@@ -1881,9 +1927,12 @@ in <code>ToolExecutor.swift</code>, and two
 <li>The wording on the pairing prompt and on a hand-made client’s
 permission card.</li>
 <li>Whether add-by-hand in Settings ships in step 1 or waits.</li>
-<li>Whether anything stops the store re-accumulating. The reap emptied
-it once, but nothing expires or reaps a grant, so it grows again from
-zero. Related to the expiry question D13 puts out of scope.</li>
+<li><del>Whether anything stops the store re-accumulating.</del>
+<strong>CLOSED 2026-07-29 (GM): grants are PERMANENT.</strong> No expiry
+and no auto-reap; revocation is manual, in the manager.
+<code>lastUsedAt</code> keeps recording use (throttled) because it
+cannot be backfilled if that ever changes, but nothing consumes it — it
+is informational, not load-bearing.</li>
 <li>Whether pairing can be switched off entirely in Settings, for a
 machine that wants no new clients.</li>
 </ol>
