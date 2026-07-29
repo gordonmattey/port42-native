@@ -961,6 +961,51 @@ model-agnostic / bring-your-own-agent positioning directly.
 **Sizing:** M–L. Per-CLI turn detection is the hard part (claude's hooks were the enabling asset;
 gemini/codex may not offer the same, so a wrapper/watcher could be needed for each).
 
+### SPIKE 2026-07-29: the sizing above is wrong. Both CLIs have real hook mechanisms.
+
+The premise of the M–L sizing was that turn detection might need a PTY watcher per CLI. It does
+not. Findings against the installed binaries:
+
+**Codex — turn detection is essentially free.**
+- `~/.codex/config.toml` takes `notify = ["<program>", "<arg>"]`, and the event vocabulary already
+  includes **`turn-ended`**. It is in use on this machine today by the Codex Computer Use app, so
+  it is a supported path, not a discovery.
+- `-c key=value` overrides ANY config key per invocation, so Port42 injects `-c notify=[...]`
+  per session. Same property as claude's `--settings`: no mutation of the user's global config.
+  (Note it REPLACES the user's own notify for that session; theirs still applies elsewhere.)
+- `codex resume` (with `--last`) **and `codex fork`** both exist, so resume/session-id discipline
+  is available, and `fork` is a direct analogue of `--fork-session` — teleport for codex is
+  reachable on the same shape.
+- Session state lives under `~/.codex` (sqlite: `logs_2.sqlite`, `goals_1.sqlite`).
+
+**Gemini — hooks exist and are deliberately Claude-shaped.**
+- `gemini hooks migrate` migrates hooks FROM Claude Code, reading `.claude/settings.json` and
+  writing `.gemini/settings.json`. The hook model is intentionally compatible, so the shim's
+  existing event translation is close to reusable.
+- `-r/--resume` takes `latest` or an index; `--list-sessions` enumerates per project.
+- `-o stream-json` gives a machine-readable output stream, a second possible turn signal.
+- History and session state under `~/.gemini/history/<project>/` and `~/.gemini/tmp/<project>/`.
+- **The open risk, and the only real one left:** no `--settings` equivalent was found, so
+  PER-SESSION hook injection is unproven. If hooks can only come from a settings FILE, Port42
+  would have to write `.gemini/settings.json` into the user's project — the same project-file
+  mutation antipattern already abandoned for CLAUDE.md (see `PORT42_COMPANION_PROMPT`). Needs an
+  env var or config-dir override to be found, or a different injection route.
+
+**Also corrected:** `isHooksCapable` (`GhosttyTerminalController.swift:201`) matches only
+`claude` and `gemini`, NOT codex, despite the prose above claiming all three. `CLIPreset` has no
+codex case at all.
+
+**Re-sizing:** codex looks S. Gemini is S for turn detection and unknown for injection until the
+override question is settled. The PTY watcher is a fallback nobody may need.
+
+**Unrun proof** (blocked from this session, one command): confirm codex's notify actually fires
+and see its payload —
+`codex -c notify='["/path/to/probe.sh"]' exec "reply with exactly: ok"` where the probe logs
+`"$@"` and stdin.
+
+**Adjacent:** both ship skills directories (`gemini skills`, `~/.codex/skills`), which is where
+the config-packs item lands for them.
+
 ---
 
 ## TODO (2026-07-23, GM): inspect a port's console output via the API
