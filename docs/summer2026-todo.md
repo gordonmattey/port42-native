@@ -1040,6 +1040,28 @@ per-invocation injection. Gemini becomes bring-your-own-key, and whether it is w
 all depends on whether the CLI survives the Antigravity migration. Do not block codex parity on
 answering that.
 
+### The gemini slot's successor is ANTIGRAVITY CLI, and it looks supportable (2026-07-29)
+
+The sign-in error points at Antigravity, and that is a real terminal coding agent from Google with
+its own CLI (`antigravity.google/docs/cli/overview`, `github.com/google-antigravity/antigravity-cli`).
+It has **JSON hooks configured by file**, with lifecycle stages covering before-a-tool-call,
+after-a-model-call, and **loop stop conditions** — a Stop equivalent, which is exactly the
+turn-end signal this item needs. It also has skills and slash commands, and MCP server config,
+which is the same surface the config-packs item wants.
+
+So the three-way parity story becomes claude / codex / antigravity, and all three have
+Claude-Code-shaped hooks. The "wrapper or PTY watcher per CLI" premise this item was written on is
+wrong for every one of them.
+
+**Not investigated, because it is not installed here:** the hook config file's location and
+whether it can be injected per session (the question that took a HOME-redirect answer for gemini),
+its resume/session-id story, and its auth model. Install it first, then re-run the same three
+questions this spike answered for gemini and codex.
+
+**GM has no paid Gemini API key or Vertex access**, so gemini parity is currently UNTESTABLE here.
+Park it rather than build blind. Antigravity is the better target for that slot if it authenticates
+without a paid tier.
+
 **Unrun proof** (blocked from this session, one command): confirm codex's notify actually fires
 and see its payload —
 `codex -c notify='["/path/to/probe.sh"]' exec "reply with exactly: ok"` where the probe logs
