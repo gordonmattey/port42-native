@@ -47,6 +47,14 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         }
         if ActorProbe.enabled { ActorProbe.reset() }
 
+        // The chat-input beachball (summer2026-todo.md): `sample` cannot tell ONE unbounded layout
+        // pass from a non-terminating LOOP of them, and which it is decides the fix. Off by default
+        // because it adds a runloop observer on every activity; arm with
+        // `defaults write <domain> PORT42_MAINLOOP_PROBE -bool true`, then `tail -f
+        // /tmp/port42-mainloop.log` while reproducing.
+        MainLoopProbe.enabled = UserDefaults.standard.bool(forKey: "PORT42_MAINLOOP_PROBE")
+        MainLoopProbe.install()
+
         // Spike 3 (I6) hands-free trigger: `defaults write <domain> PORT42_SPIKE3_AUTORUN -bool true`
         // → the resize spike opens at launch and runs its full sequence. One-shot (self-clearing),
         // so normal launches are untouched. Exists because permission-gated remote automation can't

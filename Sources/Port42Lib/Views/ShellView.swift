@@ -80,6 +80,14 @@ public struct ShellView: View {
                 // fresh copy from its stored HTML.
                 ShellBackgroundPort(html: bgHtml, appState: appState)
                     .ignoresSafeArea()
+            } else if ShellBackground.isDisabledForMeasurement {
+                // A/B for the scroll-jitter + beachball investigation (summer2026-todo.md). Measured
+                // on Dev3 during real wheel-scroll jitter: `CanvasDisplayList` was 8327 main-thread
+                // samples against ~2700 for the ENTIRE conversation layout, so the animated
+                // background costs about three times the thing the scroll was actually doing.
+                // Toggle without a rebuild:
+                //   defaults write com.port42.dev3 PORT42_NO_SHELL_BG -bool true   (then relaunch)
+                Color.black.ignoresSafeArea()
             } else {
                 ShellBackground(shell: shell)
                     .ignoresSafeArea()
