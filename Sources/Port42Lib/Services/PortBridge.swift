@@ -64,10 +64,11 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
             if let mid = messageId, let cached = state.cachedPortPermissions[mid] {
                 grantedPermissions = cached
             }
-            // 2. Companion-level persistence (P-260): auto-restore permissions for same companion+space
-            //    (spaceId nil = a spaceless caller's global grant — see AppState.companionPermKey)
+            // 2. Companion-level persistence (P-260): auto-restore what this companion was granted
+            //    on port 0 in this zone (zone nil = a zoneless caller's global grant — see
+            //    AppState.grants). The OBJECT is port 0: these are machine capabilities.
             if let by = createdBy {
-                let companionPerms = state.companionPermissions(createdBy: by, spaceId: spaceId)
+                let companionPerms = state.grants(grantee: by, on: .machine, zone: spaceId)
                 if !companionPerms.isEmpty {
                     grantedPermissions.formUnion(companionPerms)
                 }

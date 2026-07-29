@@ -33,14 +33,30 @@ ONE primitive, a port. Port 0 is the Port42 window itself (its title is the user
 grantee and a space and **no object at all**. The object was always the machine; having no name it
 left an empty slot and the space slid into it. Register entry: `architecture-invariants.md` §6.
 
-### IMMEDIATE NEXT STEP — slice-02 milestone A, step 1
+### STEP 1 IS DONE (2026-07-29, live-verified in Dev3). NEXT: step 2, the permission manager.
 
-**Port 0 exists, and the grant key gains its object slot.** `<grantee> × <port> [× zone]`. `"global"`
-becomes port 0; a space id moves from the object slot to the qualifier slot. The 143 existing grants
-migrate mechanically and must widen nothing (CR5). Then step 2 is the permission manager (D13), which
-is what makes step 1's migration verifiable — nothing in `Sources/Port42Lib/Views/` has ever read a
-grant. Step 3 is the card naming its object plus the deletions. That is half one, and it is a
-coherent release on its own with no authentication in it.
+**Port 0 exists and the grant key has its object slot**: `portGrant.<grantee>.<object>.<zone>`, with
+`PortObject.machine` as port 0 and an object peer-qualified by construction (`<peerID>/0`). The store
+API is now `grants(grantee:on:zone:)` / `saveGrants(…)`, three parameters for three key parts, so no
+site can read a grant without naming its object (tree-wide gate). Suite **1183 green**. Detail in the
+slice doc §10a.
+
+**THE STORE IS REAPED, not migrated** (GM, 2026-07-29). Re-measuring it is what changed the call:
+144 grants, not 143, and only **9 of them could ever fire again**. A grant is read with the caller's
+LIVE zone, and 135 named a deleted space, so they were unreachable rather than untidy. 43 of 58
+grantees matched nothing live, including `"Claude Code"`, `"Gemini CLI"` and `claude1`–`claude101` —
+§1's weaker door showing up in the data. Nothing reaps a grant (119 → 143 → 144 across three days),
+so the store starts empty and every caller asks once more. The raw store was dumped to
+`~/Library/Application Support/Port42/grants-before-reap-2026-07-29.txt` before the reap ran.
+
+**Step 2 is the permission manager** (D13) — nothing in `Sources/Port42Lib/Views/` has ever read a
+grant. It now opens on an EMPTY store and fills only with grants a human actually gives, so its job
+is legibility and revocation rather than cleanup. Step 3 is the card naming its object plus the
+deletions (`remoteAllow*`, the dead `PortPermissionOverlay`). That is half one, a coherent release
+with no authentication in it.
+
+**Still open, and the reap did not fix it:** nothing expires or reaps a grant, so the same
+accumulation restarts from zero (slice doc §13.3).
 
 Half two (the credential, the `principal_id` seam, deleting `local-http`) follows. §9 has the order.
 

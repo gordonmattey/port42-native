@@ -588,15 +588,21 @@ legible, which is also the only way anyone would have noticed the pooling in I1.
 **Sketch:** Settings surface listing grants grouped by grantee (companion, port, gateway, peer), each
 row showing the scope the card promised at grant time (`Principal.scopeDescription` already generates
 that sentence), with revoke per row and per grantee. Reads and writes the same
-`companionPermissions` / `saveCompanionPermissions` pair, so no new storage.
+`grants(grantee:on:zone:)` / `saveGrants(…)` pair, so no new storage.
+
+**This IS slice-02 milestone A step 2** (`docs/membrane/slice-02-cross-instance.md` D13). Step 1 is
+done, so the store it reads is now `portGrant.<grantee>.<object>.<zone>`, and a grant names its
+object.
 
 **Open, deliberately not decided here:** whether grants should expire. Everything today is permanent,
 which is what makes an invisible grant serious.
 
-**Related, still open (GM's call):** the orphan cleanup itself. Options on file are park-then-delete
-(rewrite the three provably-unreachable classes under a `portPermsOrphaned.` prefix, delete a release
-later) or delete outright. `remote-http-cal` and the retired `swim-` spaces are probably dead but not
-provably so, and should be left alone either way.
+**RESOLVED 2026-07-29 (GM): the orphan cleanup was a reap, all of it.** The objectless store is
+deleted at launch and nothing carries forward, so every caller asks once more. The number that
+decided it: of the 144 grants, **only 9 could ever fire again** — a grant is read with the caller's
+LIVE zone, and 135 named a deleted space. The raw store was dumped to
+`~/Library/Application Support/Port42/grants-before-reap-2026-07-29.txt` first. **What this did NOT
+fix is the cause**: nothing expires or reaps a grant, so accumulation restarts from zero.
 
 ---
 

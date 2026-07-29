@@ -36,9 +36,10 @@ public final class ToolExecutor {
         self.createdBy = createdBy
         self.createdByName = createdByName
         self.inChat = inChat
-        // Restore previously granted permissions so the user isn't re-prompted. spaceId nil = a
-        // spaceless caller (the gateway) → its global grant, which never restored before.
-        self.grantedPermissions = appState.companionPermissions(createdBy: createdBy, spaceId: spaceId)
+        // Restore previously granted permissions so the user isn't re-prompted. The OBJECT is
+        // port 0 (machine capabilities); spaceId nil = a zoneless caller (the gateway) → its global
+        // grant, which never restored before.
+        self.grantedPermissions = appState.grants(grantee: createdBy, on: .machine, zone: spaceId)
     }
 
     /// A single tool result over this many UTF-8 bytes is truncated before it reaches the model — a

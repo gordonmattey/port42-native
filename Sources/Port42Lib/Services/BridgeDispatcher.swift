@@ -37,19 +37,23 @@ extension AppState {
         // identity, not who succeeds. The grants are read here because this is the one place that
         // knows the bucket a synthetic id is already sharing.
         ActorProbe.dispatch(method: canonical, principal: principal,
-                            grants: companionPermissions(createdBy: principal.id,
-                                                         spaceId: principal.spaceId))
+                            grants: grants(grantee: principal.id, on: .machine,
+                                           zone: principal.spaceId))
         ActorProbe.anyDispatch(surface: principal.kind.rawValue)
         #endif
 
         if let perm = method.permission {
-            var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
+            // OBJECT = port 0. Every gated method here is a machine capability (clipboard,
+            // filesystem, terminal, screen, …), which is precisely what port 0 names. A grant about
+            // a specific port becomes expressible at slice-02's wire half; nothing local produces
+            // one, so nothing local passes anything else.
+            var granted = grants(grantee: principal.id, on: .machine, zone: principal.spaceId)
                 .union(pregrant)
             if !granted.contains(perm) {
                 let ok = await permissions.request(perm, from: principal)
                 if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
                 granted.insert(perm)
-                saveCompanionPermissions(granted, createdBy: principal.id, spaceId: principal.spaceId)
+                saveGrants(granted, grantee: principal.id, on: .machine, zone: principal.spaceId)
             }
         }
 
@@ -409,19 +413,21 @@ extension AppState {
         }
         #if DEBUG
         ActorProbe.dispatch(method: canonical, principal: principal,
-                            grants: companionPermissions(createdBy: principal.id,
-                                                         spaceId: principal.spaceId),
+                            grants: grants(grantee: principal.id, on: .machine,
+                                           zone: principal.spaceId),
                             streaming: true)
         ActorProbe.anyDispatch(surface: principal.kind.rawValue)
         #endif
         if let perm = method.permission {
-            var granted = companionPermissions(createdBy: principal.id, spaceId: principal.spaceId)
+            // OBJECT = port 0, for the same reason as the one-shot path above. Streaming is not a
+            // second set of rules; it is the same grant on the same object.
+            var granted = grants(grantee: principal.id, on: .machine, zone: principal.spaceId)
                 .union(pregrant)
             if !granted.contains(perm) {
                 let ok = await permissions.request(perm, from: principal)
                 if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
                 granted.insert(perm)
-                saveCompanionPermissions(granted, createdBy: principal.id, spaceId: principal.spaceId)
+                saveGrants(granted, grantee: principal.id, on: .machine, zone: principal.spaceId)
             }
         }
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch

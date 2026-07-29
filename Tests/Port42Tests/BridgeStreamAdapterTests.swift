@@ -16,7 +16,7 @@ struct BridgeStreamAdapterTests {
     func gatewayAiComplete() async throws {
         let w = try makeParityWorld()
         w.state.streamBackendOverride = { _ in StubStreamBackend(tokens: ["Hel", "lo"], finalText: "Hello") }
-        w.state.saveCompanionPermissions([.ai], createdBy: "peer-1", spaceId: nil)   // pre-grant .ai
+        w.state.saveGrants([.ai], grantee: "peer-1", on: .machine, zone: nil)   // pre-grant .ai
         let exec = RemoteToolExecutor(appState: w.state, senderId: "peer-1", senderName: "curl")
         let result = await exec.execute(method: "ai.complete", input: ["prompt": "hi"])
         #expect((result as? [String: Any])?["text"] as? String == "Hello")
@@ -26,7 +26,7 @@ struct BridgeStreamAdapterTests {
     @MainActor
     func gatewayAiCompleteError() async throws {
         let w = try makeParityWorld()
-        w.state.saveCompanionPermissions([.ai], createdBy: "peer-1", spaceId: nil)
+        w.state.saveGrants([.ai], grantee: "peer-1", on: .machine, zone: nil)
         let exec = RemoteToolExecutor(appState: w.state, senderId: "peer-1", senderName: "curl")
         let result = await exec.execute(method: "ai.complete", input: ["prompt": ""])   // empty -> BridgeError
         #expect((result as? [String: Any])?["error"] as? String == "ai.complete requires a prompt")

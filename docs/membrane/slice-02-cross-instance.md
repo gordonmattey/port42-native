@@ -180,7 +180,7 @@ gateway, by either door.
 | CR2 | Remote peers and the ngrok tunnel are unaffected |
 | CR3 | On upgrade, no client exists, so every gateway caller is refused until it pairs. This is a deliberate break, and FR10 is what makes it survivable |
 | CR4 | A caller with no human present (cron, a background script) cannot pair, and needs a token made by hand in Settings. Stated regression |
-| CR5 | The 143 existing `portPerms.*` grants migrate without widening. A space-keyed grant becomes the same grantee, on port 0, qualified by that zone. No grant gains reach it did not have |
+| CR5 | ~~The existing `portPerms.*` grants migrate without widening.~~ **SUPERSEDED 2026-07-29 (GM): nothing migrates.** The objectless store is REAPED and every grant is asked for again. Only 9 of its 144 keys could ever have fired, so a faithful migration would have preserved nothing. The replacement requirement: no grant survives the reap, and no caller inherits one |
 
 ### 4. The model, and the user-facing surface (UX down)
 
@@ -196,15 +196,16 @@ screen and camera are not portless capabilities sitting outside the model. They 
 | **ports** | tiles, terminals, browsers, chat. Done: address, actor and token are each single-definition |
 | **zones** | a grouping OVER ports, a space being the first one. On top of the primitive, never a kind of object (GM, 2026-07-28) |
 
-**The measurement that settles it.** Production holds 143 grants. What they grant:
+**The measurement that settles it.** Production holds 144 grants (re-measured 2026-07-29; it was
+143 on 07-28, and the extra one is a `terminal` grant). What they grant:
 
 ```
-120 terminal    18 screen      8 clipboard     2 microphone
+121 terminal    18 screen      8 clipboard     2 microphone
  21 rest        18 filesystem  6 automation    1 notification
                 12 ai
 ```
 
-Every one is a port 0 capability, and 140 of the 143 keys are space-scoped. So the current key,
+Every one is a port 0 capability, and 141 of the 144 keys are space-scoped. So the current key,
 `portPerms.<grantee>.<spaceId ?? "global">`, holds a grantee and a space and **no object at all**.
 The object was always the machine; it simply had no name, so the space slid into the slot where the
 object belonged and has been impersonating it. That is why the model read as muddled.
@@ -218,8 +219,29 @@ after     <grantee> × <port>  [× zone]    the object is named; the zone qualif
 different questions sharing one key. Naming port 0 separates them, and it is also why a zone
 qualifying a subject is not doing a primitive's job.
 
-**The migration widens nothing.** Those 140 keys become "grantee G, acting in zone Z, may use port 0's
-terminal": the same information, with the object finally written down.
+**Nothing migrates. The store is reaped** (GM, 2026-07-29), for the reason in the next paragraph:
+the grants that would have been carried forward were almost entirely unreachable, so preserving them
+faithfully would have been preserving nothing.
+
+**What the same measurement says about the store itself, and it is worse than the count suggests
+(2026-07-29).** Only **9 of the 144 grants point at anything that still exists**: 6 are qualified by
+a live space and 3 are `global`. The other **135 name a space that has been deleted** (18 of them
+carrying the legacy `swim-<uuid>` form). On the other axis, **43 of the 58 grantees match no live
+agent** — agent ids are UUIDs now, and 10 of the 15 UUID-shaped grantees are live companions, while
+the named ones are `echo`, `forge`, `claude`, `claude1` … `claude101`, `claudeSat1`, `"Claude Code"`,
+`"Claude Codetest"` and `"Gemini CLI"`. **Those last three are §1's weaker door showing up in the
+data**: a caller that named itself in `identify` became that principal, and now holds standing
+capability that nobody can see or revoke. Nothing reaps any of it, which is why the count went
+119 (07-27) → 143 (07-28) → 144 (07-29).
+
+**So the store is reaped and the model starts from an empty one** (GM, 2026-07-29). The deciding
+number is that **only 9 of the 144 could ever fire again**: a grant is read with the caller's LIVE
+zone, so 135 keys naming a deleted space were unreachable rather than merely untidy. Carrying them
+forward would have preserved nothing and opened the permission manager on 135 rows describing a
+world that no longer exists. What it costs is one more ask per companion per capability per space,
+which is the same shape as D12 and lands in the same release. What it discards is the record above,
+which is why the census is written down here and the raw store was dumped beside the production
+database before the reap ran.
 
 This section is mapped UX first, deliberately. The protocol serves these surfaces; the surfaces are
 not a rendering of the protocol.
@@ -255,9 +277,9 @@ The second names the object (port 0), the actor (Echo) and the zone that qualifi
 exactly the three parts of the key above.
 
 **The consequence to be honest about.** The grant key gains an object and the space becomes a
-qualifier. That is a change to the permission model, not only to the gateway, and it needs
-a migration for existing `portPerms.*` keys. It is the reason this phase grew: P1 began as
-authenticating a socket and is now also where authorization gets its missing noun.
+qualifier. That is a change to the permission model, not only to the gateway, and every existing
+`portPerms.*` key is discarded by it rather than translated (§4). It is the reason this phase grew:
+P1 began as authenticating a socket and is now also where authorization gets its missing noun.
 
 ### 5. Design
 
@@ -313,11 +335,11 @@ clients
 flow is "read a known path, pair only if it is missing". A UUID would make the path unknowable before
 the first pairing, which is the inconsistency that has to be avoided.
 
-**The grant key gains its missing object.** Today `portPerms.<grantee>.<spaceId ?? "global">`; after,
-a key names grantee, object port, and optionally the zone that qualified the actor (§4). The
-migration is mechanical and widens nothing (CR5): `"global"` becomes port 0, and a space id moves
-from the object slot to the qualifier slot. `companionPermissions` / `saveCompanionPermissions` stay
-the one read/write pair, so the permission manager (D13) and this share a store.
+**The grant key gains its missing object. DONE 2026-07-29** (§10a). Was
+`portPerms.<grantee>.<spaceId ?? "global">`; now `portGrant.<grantee>.<object>.<zone>`, naming
+grantee, object port, and the zone that qualified the actor (§4). The old keys are REAPED, not
+translated (CR5, superseded). `grants(grantee:on:zone:)` / `saveGrants(…)` are the one read/write
+pair, so the permission manager (D13) and this share a store.
 
 **A child's id is derived, not random**, so a companion terminal keeps its grants across respawns:
 `child-<companionId>-<spaceId>`, slugged. Re-pairing an existing slug re-issues onto the same row,
@@ -541,11 +563,18 @@ The backlog already carries it (`summer2026-todo.md`, 2026-07-27: "you cannot se
 granted"). It is in P1 rather than after it because P1 cannot satisfy FR9 without it, and because
 building a client list first would produce a second screen answering the same question.
 
-**Measured 2026-07-28:** production holds **143 grant keys**, dev 41, Dev3 2. Nothing in
-`Sources/Port42Lib/Views/` reads `portPerms` or `companionPermissions`, so no UI has ever displayed
-one. The backlog item recorded 119 keys on 07-27; either the store is growing daily or the two counts
-differ in method, and that is worth resolving when the screen is built, because a store that grows
-and is never reaped is the actual defect.
+**Measured 2026-07-28, re-measured 07-29:** production held **144 grant keys** (143 the day before,
+119 on 07-27), dev 41, Dev3 2. Nothing in `Sources/Port42Lib/Views/` reads a grant, so no UI has ever
+displayed one. **The count question is answered: the store was growing, not the counts differing.**
+It was never reaped, which was the actual defect, and §4 has the shape of it: 135 of the 144 were
+qualified by a space that no longer exists, and 43 of the 58 grantees matched nothing live.
+
+**Step 1 reaped all of it, so the manager now opens on an empty store** and fills only with grants a
+human actually gives. That is a better first screen than 144 rows of archaeology, and it means the
+manager's job is legibility and revocation rather than cleanup. **What it does NOT fix is the cause:
+nothing expires or reaps a grant, so the same accumulation starts again from zero.** Expiry stays out
+of scope (below), but the reaping question is now a live one for the manager rather than a historical
+one.
 
 **One screen, grouped by grantee**, which is the backlog's own sketch. A client is a grantee kind
 beside companion, port and peer, so "who is connected" and "what did I grant" are one list:
@@ -560,12 +589,12 @@ Echo                               companion
 ```
 
 `Principal.scopeDescription` already generates the sentence a row needs, and the screen reads and
-writes the existing `companionPermissions` / `saveCompanionPermissions` pair, so it adds no storage.
+writes the existing `grants` / `saveGrants` pair, so it adds no storage.
 
-**It is also the only way the rest of P1 is verifiable by the person it protects.** The scope change
-(space id → port key), the orphan cleanup, and revocation all happen inside a store nobody can see.
-The backlog item makes this point about itself and it applies doubly here: a migration you cannot
-look at is a migration you have to take on trust.
+**It is also the only way the rest of P1 is verifiable by the person it protects.** The object slot
+and revocation both happen inside a store nobody can see, and every grant it will hold from now on
+was given by a human who was never shown it again. The backlog item makes this point about itself and
+it applies doubly here.
 
 **Out of scope within it, and stated so it does not creep:** whether grants expire. Everything is
 permanent today, which is what makes an invisible grant serious, but expiry is a policy decision and
@@ -673,9 +702,9 @@ is not meaningful without it. Each step leaves the app shippable.
 **Half one: the object, and making consent visible.** Nothing here authenticates anything, and
 nothing here can strand a caller.
 
-1. **Port 0 exists.** The Port42 window gets an identity, and the grant key gains its object slot:
-   grantee × port [× zone]. `"global"` becomes port 0 and a space id moves to the qualifier slot.
-   The 143 existing grants migrate mechanically and widen nothing (CR5).
+1. **Port 0 exists. DONE 2026-07-29, live-verified in Dev3.** The grant key gained its object slot:
+   grantee × port [× zone]. The objectless store is REAPED rather than migrated (CR5, superseded),
+   so the model starts from an empty one. See "Step 1 as built" below.
 2. **The permission manager** (D13). Grants grouped by grantee, revoke per row and per grantee. This
    is the first time in the product's life that a granted permission can be seen, and it is what
    makes step 1's migration verifiable rather than trusted.
@@ -698,8 +727,49 @@ Step 5 is the only one with a blast radius, and by then every caller has a token
 the fix, and the manager shows what happened.
 
 **If you want to ship less:** half one is a coherent release by itself. It names the primitive, makes
-143 invisible grants visible and revocable, and removes the blanket pre-grant, without touching
+144 invisible grants visible and revocable, and removes the blanket pre-grant, without touching
 authentication at all.
+
+### 10a. Step 1 as built (2026-07-29)
+
+`PortObject` (new, `Sources/Port42Lib/Services/PortObject.swift`) is the object a grant is about:
+`PortObject.machine` is port 0, and an object is peer-qualified by construction
+(`<peerID>/0`, `<peerID>/<portKey>`), in the same grammar as the address, so the wire half adds a
+peer and no concept. `PortGrantKey` beside it owns the key `portGrant.<grantee>.<object>.<zone>`.
+
+`AppState.companionPermissions(createdBy:spaceId:)` and its save pair became
+`grants(grantee:on:zone:)` / `saveGrants(_:grantee:on:zone:)`. **Three parameters because the key has
+three parts**, so a caller cannot read or write a grant without naming its object. Five production
+sites, all passing port 0: both dispatchers, `PortBridge`, `ToolExecutor`, and the DEBUG actor probe.
+
+**Reap, once** (GM, 2026-07-29). `PortGrantKey.reapGrantStore` deletes every `portPerms.*` key at
+launch and carries nothing forward, so the grant store starts empty. Both prefixes go, because
+neither the new key nor the copy-forward migration it replaced ever shipped: after this a
+`portGrant.*` key can only mean a grant a human actually gave. The once-only flag is load-bearing
+rather than an optimization, since a reap on every launch would delete grants continuously and the
+store could never accumulate the consent it exists to remember.
+
+**Why reap rather than migrate**, which reversed the first decision of the day: only 9 of the 144
+grants could ever fire again (§4). A grant is read with the caller's live zone, so the 135 naming a
+deleted space were unreachable, and migrating them faithfully would have been preserving nothing
+while opening the manager on 135 dead rows.
+
+**Honest about what the slot can prove today.** Every `PortPermission` case is a machine capability,
+so no production path can name an object other than port 0, and a migration that only ever writes `0`
+is indistinguishable from a key rename. The tests therefore exercise a non-zero object deliberately:
+a tile key and a peer-qualified object, each isolated from port 0 in both directions.
+
+`PortObjectGrantTests`, 11 tests, suite **1183 green**. Four gates, every one calibrated by breaking
+it: dropping the object from the key was caught by the separation tests (a tile grant leaked onto
+port 0); a hand-built key planted in `ToolExecutor` was caught by the tree-wide scan that permits a
+grant key nowhere but `PortObject.swift`; a reap matching on the bare prefix ate a
+prefix-adjacent default; and a reap with no once-only guard ate a grant given after it ran.
+
+**Live-verified in Dev3**, which is what "done" means here. All five of its keys (two `portPerms.*`,
+two `portGrant.*` from the retired migration, and that migration's flag) were gone after launch, with
+only the reap flag left. `automation.runAppleScript` over the gateway had returned `{"result":"42"}`
+silently before the reap; after it, the same call blocks on a permission prompt. That is the whole
+user-visible consequence, measured rather than asserted.
 
 ### 11. Verification
 
@@ -782,10 +852,14 @@ beside them in `#if DEBUG` probe blocks that retire with the constant.
 
 1. The wording on the pairing prompt and on a hand-made client's permission card.
 2. Whether add-by-hand in Settings ships in step 1 or waits.
-3. Park or delete the orphaned `local-http` grants.
+3. Whether anything stops the store re-accumulating. The reap emptied it once, but nothing expires or
+   reaps a grant, so it grows again from zero. Related to the expiry question D13 puts out of scope.
 4. Whether pairing can be switched off entirely in Settings, for a machine that wants no new clients.
 
-**Closed:** the `remoteAllow*` pre-grant, removed outright (D12, GM 2026-07-28).
+**Closed:** the `remoteAllow*` pre-grant, removed outright (D12, GM 2026-07-28). Park or delete the
+orphaned grants — **delete, all of them** (GM, 2026-07-29): the objectless store is reaped at launch
+and nothing carries forward, so every caller asks once more and the model starts from an empty store.
+Only 9 of the 144 could ever have fired, which is what made a faithful migration pointless.
 
 
 ---
@@ -895,7 +969,7 @@ here the substrate is the existing bridge + libp2p.)
 | Seam | PASS | FAIL |
 |---|---|---|
 | **Actor (A)** | a call with no verified `principal_id` is refused on BOTH doors; a caller cannot name itself; `local-http` is gone | a caller still picks its own identity on either door |
-| **Object (A)** | every grant names the port it is about; port 0 exists; the 143 existing grants migrated without widening | a grant still names a grantee and a space and no object |
+| **Object (A)** | ✅ **2026-07-29.** every grant names the port it is about; port 0 exists; the 144 objectless grants were reaped, so none survives to be inherited | a grant still names a grantee and a space and no object |
 | **Legibility (A)** | every grant is visible and revocable in one screen, grouped by grantee | a grant is still invisible after the moment it is given |
 | **Address** | `port42://<peerID>/…` reaches the remote port; the same verb path works local and remote | remote needs a different API than local |
 | **Query in** | B's `patch`/`getHtml` executes on A's port via A's existing bridge | remote writes bypass A's local bridge/authority |

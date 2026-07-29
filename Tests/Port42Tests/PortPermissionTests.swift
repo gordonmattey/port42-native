@@ -198,61 +198,61 @@ struct PortPermissionTests {
     // ("pending permission starts nil" retired: a bridge no longer owns pending-permission state.
     //  Asks live on the one PermissionCoordinator — see PermissionCoordinatorTests.)
 
-    // MARK: - Companion-Level Persistence (P-260)
+    // MARK: - Grant Persistence (P-260; the object slot, slice-02 milestone A step 1)
 
-    @Test("companionPermissions returns empty set for unknown companion+space")
+    @Test("grants returns an empty set for an unknown grantee+zone")
     @MainActor
-    func companionPermissionsUnknown() throws {
+    func grantsUnknown() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
-        let perms = appState.companionPermissions(createdBy: "unknown-companion", spaceId: "unknown-space")
+        let perms = appState.grants(grantee: "unknown-companion", on: .machine, zone: "unknown-space")
         #expect(perms.isEmpty)
     }
 
-    @Test("saveCompanionPermissions and companionPermissions round-trip")
+    @Test("saveGrants and grants round-trip")
     @MainActor
-    func companionPermissionsRoundTrip() throws {
+    func grantsRoundTrip() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
         let key = "test-companion-\(UUID().uuidString)"
         let spaceId = "test-space-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal, .ai], createdBy: key, spaceId: spaceId)
-        let restored = appState.companionPermissions(createdBy: key, spaceId: spaceId)
+        appState.saveGrants([.terminal, .ai], grantee: key, on: .machine, zone: spaceId)
+        let restored = appState.grants(grantee: key, on: .machine, zone: spaceId)
         #expect(restored.contains(.terminal))
         #expect(restored.contains(.ai))
         #expect(!restored.contains(.camera))
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: key, spaceId: spaceId)
+        appState.saveGrants([], grantee: key, on: .machine, zone: spaceId)
     }
 
-    @Test("companion permissions are scoped to spaceId — different space gets empty set")
+    @Test("a grant is scoped to its ZONE — a different zone gets an empty set")
     @MainActor
-    func companionPermissionsScopedToSpace() throws {
+    func grantsScopedToZone() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
         let companion = "test-companion-\(UUID().uuidString)"
         let spaceA = "space-a-\(UUID().uuidString)"
         let spaceB = "space-b-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: spaceA)
-        let permsB = appState.companionPermissions(createdBy: companion, spaceId: spaceB)
+        appState.saveGrants([.terminal], grantee: companion, on: .machine, zone: spaceA)
+        let permsB = appState.grants(grantee: companion, on: .machine, zone: spaceB)
         #expect(permsB.isEmpty)
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: companion, spaceId: spaceA)
+        appState.saveGrants([], grantee: companion, on: .machine, zone: spaceA)
     }
 
-    @Test("companion permissions are scoped to createdBy — different companion gets empty set")
+    @Test("a grant is scoped to its GRANTEE — a different grantee gets an empty set")
     @MainActor
-    func companionPermissionsScopedToCompanion() throws {
+    func grantsScopedToGrantee() throws {
         let db = try DatabaseService(inMemory: true)
         let appState = AppState(db: db)
         let spaceId = "test-space-\(UUID().uuidString)"
         let companionA = "companion-a-\(UUID().uuidString)"
         let companionB = "companion-b-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companionA, spaceId: spaceId)
-        let permsB = appState.companionPermissions(createdBy: companionB, spaceId: spaceId)
+        appState.saveGrants([.terminal], grantee: companionA, on: .machine, zone: spaceId)
+        let permsB = appState.grants(grantee: companionB, on: .machine, zone: spaceId)
         #expect(permsB.isEmpty)
         // Cleanup
-        appState.saveCompanionPermissions([], createdBy: companionA, spaceId: spaceId)
+        appState.saveGrants([], grantee: companionA, on: .machine, zone: spaceId)
     }
 
     @Test("saving empty permissions removes the entry")
@@ -262,9 +262,9 @@ struct PortPermissionTests {
         let appState = AppState(db: db)
         let companion = "test-companion-\(UUID().uuidString)"
         let spaceId = "test-space-\(UUID().uuidString)"
-        appState.saveCompanionPermissions([.terminal], createdBy: companion, spaceId: spaceId)
-        appState.saveCompanionPermissions([], createdBy: companion, spaceId: spaceId)
-        let perms = appState.companionPermissions(createdBy: companion, spaceId: spaceId)
+        appState.saveGrants([.terminal], grantee: companion, on: .machine, zone: spaceId)
+        appState.saveGrants([], grantee: companion, on: .machine, zone: spaceId)
+        let perms = appState.grants(grantee: companion, on: .machine, zone: spaceId)
         #expect(perms.isEmpty)
     }
 }

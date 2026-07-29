@@ -44,17 +44,17 @@ struct BridgePrincipalTests {
         let a = "test-peer-A-grantsKeyOnId"
         let b = "test-peer-B-grantsKeyOnId"
         defer {
-            w.state.saveCompanionPermissions([], createdBy: a, spaceId: nil)
-            w.state.saveCompanionPermissions([], createdBy: b, spaceId: nil)
+            w.state.saveGrants([], grantee: a, on: .machine, zone: nil)
+            w.state.saveGrants([], grantee: b, on: .machine, zone: nil)
         }
 
-        w.state.saveCompanionPermissions([.screen], createdBy: a, spaceId: nil)
+        w.state.saveGrants([.screen], grantee: a, on: .machine, zone: nil)
 
         // A is granted; B (a different id) is a separate bucket — no shared label collapse.
-        #expect(w.state.companionPermissions(createdBy: a, spaceId: nil).contains(.screen))
-        #expect(!w.state.companionPermissions(createdBy: b, spaceId: nil).contains(.screen))
+        #expect(w.state.grants(grantee: a, on: .machine, zone: nil).contains(.screen))
+        #expect(!w.state.grants(grantee: b, on: .machine, zone: nil).contains(.screen))
         // A second read still resolves: the grant persists (the property a per-call synthetic id lacked).
-        #expect(w.state.companionPermissions(createdBy: a, spaceId: nil).contains(.screen))
+        #expect(w.state.grants(grantee: a, on: .machine, zone: nil).contains(.screen))
     }
 
     @Test("a nil-space (gateway) caller keys under the global bucket, not a space bucket")
@@ -63,15 +63,15 @@ struct BridgePrincipalTests {
         let w = try makeParityWorld()
         let id = "test-local-http-globalBucket"
         defer {
-            w.state.saveCompanionPermissions([], createdBy: id, spaceId: nil)
-            w.state.saveCompanionPermissions([], createdBy: id, spaceId: "some-space")
+            w.state.saveGrants([], grantee: id, on: .machine, zone: nil)
+            w.state.saveGrants([], grantee: id, on: .machine, zone: "some-space")
         }
 
         // Grant with spaceId: nil, as RemoteToolExecutor does for a gateway caller.
-        w.state.saveCompanionPermissions([.terminal], createdBy: id, spaceId: nil)
-        #expect(w.state.companionPermissions(createdBy: id, spaceId: nil).contains(.terminal))
+        w.state.saveGrants([.terminal], grantee: id, on: .machine, zone: nil)
+        #expect(w.state.grants(grantee: id, on: .machine, zone: nil).contains(.terminal))
         // The same id in a real space is a different bucket (global is not space-wide).
-        #expect(!w.state.companionPermissions(createdBy: id, spaceId: "some-space").contains(.terminal))
+        #expect(!w.state.grants(grantee: id, on: .machine, zone: "some-space").contains(.terminal))
     }
 
     // MARK: - the negative gate (the label can never be a key again)

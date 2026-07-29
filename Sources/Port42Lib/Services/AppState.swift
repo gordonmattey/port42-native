@@ -1119,26 +1119,29 @@ public final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Companion-Level Permission Persistence (P-260)
+    // MARK: - Grant Persistence (P-260; the object slot, slice-02 milestone A step 1)
 
-    /// `spaceId: nil` = a caller with no space (the gateway: Claude Code, curl). It keys under
-    /// "global" rather than being unpersistable — the old signature required a space, so
+    /// What a grantee may do to an OBJECT, in a zone.
+    ///
+    /// The three parameters are the three parts of the key (`PortGrantKey`), which is the point:
+    /// before step 1 this read `companionPermissions(createdBy:spaceId:)` and named no object at
+    /// all, so the space had been standing in the object's empty slot. A caller now cannot ask what
+    /// is granted without saying what it is granted ON.
+    ///
+    /// `zone: nil` = a caller qualified by no zone (the gateway: Claude Code, curl). It keys under
+    /// `global` rather than being unpersistable — the pre-P-260 signature required a space, so
     /// `RemoteToolExecutor` (which passes nil) never restored OR saved a grant: every gateway call
     /// re-asked, forever.
-    private func companionPermKey(createdBy: String, spaceId: String?) -> String {
-        "portPerms.\(createdBy).\(spaceId ?? "global")"
-    }
-
-    /// Load permissions previously granted to a companion in a space (auto-restore on new ports).
-    public func companionPermissions(createdBy: String, spaceId: String?) -> Set<PortPermission> {
-        let key = companionPermKey(createdBy: createdBy, spaceId: spaceId)
+    public func grants(grantee: String, on object: PortObject, zone: String?) -> Set<PortPermission> {
+        let key = PortGrantKey.key(grantee: grantee, object: object, zone: zone)
         guard let raw = UserDefaults.standard.string(forKey: key), !raw.isEmpty else { return [] }
         return Set(raw.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
     }
 
-    /// Persist a companion's granted permissions so future ports by the same companion auto-grant.
-    public func saveCompanionPermissions(_ permissions: Set<PortPermission>, createdBy: String, spaceId: String?) {
-        let key = companionPermKey(createdBy: createdBy, spaceId: spaceId)
+    /// Persist what a grantee may do to an object, so it is not asked again.
+    public func saveGrants(_ permissions: Set<PortPermission>, grantee: String,
+                           on object: PortObject, zone: String?) {
+        let key = PortGrantKey.key(grantee: grantee, object: object, zone: zone)
         if permissions.isEmpty {
             UserDefaults.standard.removeObject(forKey: key)
         } else {
@@ -1303,6 +1306,14 @@ public final class AppState: ObservableObject {
 
             // Migrate old auth format
             Port42AuthStore.shared.migrateIfNeeded()
+
+            // The grant key gains its object (slice-02 milestone A step 1), and the objectless
+            // store is REAPED rather than migrated: 135 of its 144 grants named a deleted space and
+            // could never fire again. Once-only; see `PortGrantKey.reapGrantStore`. Never from a
+            // test process, which runs against the real user defaults domain.
+            if !AppState.isTestProcess {
+                PortGrantKey.reapGrantStore(in: .standard)
+            }
 
             // Proactive auth check
             authStatus = .checking
