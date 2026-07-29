@@ -705,9 +705,9 @@ nothing here can strand a caller.
 1. **Port 0 exists. DONE 2026-07-29, live-verified in Dev3.** The grant key gained its object slot:
    grantee × port [× zone]. The objectless store is REAPED rather than migrated (CR5, superseded),
    so the model starts from an empty one. See "Step 1 as built" below.
-2. **The permission manager** (D13). Grants grouped by grantee, revoke per row and per grantee. This
-   is the first time in the product's life that a granted permission can be seen, and it is what
-   makes step 1's migration verifiable rather than trusted.
+2. **The permission manager** (D13). **DONE 2026-07-29, live-verified in Dev3.** Grants moved to a
+   table, grouped by grantee, revocable per capability and per grantee. The first time in the
+   product's life that a granted permission can be seen. See "Step 2 as built" below.
 3. **The card names its object.** "Claude Code wants to read the clipboard in Port42." Delete the
    dead `PortPermissionOverlay`, and delete the `remoteAllow*` pre-grant (D12) now that every
    capability has a place to be granted and revoked per grantee.
@@ -771,6 +771,58 @@ only the reap flag left. `automation.runAppleScript` over the gateway had return
 silently before the reap; after it, the same call blocks on a permission prompt. That is the whole
 user-visible consequence, measured rather than asserted.
 
+### 10a2. Step 2 as built (2026-07-29)
+
+**The store is a table** (GM, 2026-07-29), migration `v43-grants`, taken deliberately because step 2
+is the first thing that reads the whole store and the window was free: the store was empty after the
+reap, and that window closes the moment real grants accumulate.
+
+```
+grants(grantee, object, zone, permission, grantedAt, lastUsedAt)
+  PRIMARY KEY (grantee, object, zone, permission)
+```
+
+**One row per permission**, which is the point: revoking a single capability is a DELETE, where the
+comma-joined defaults key made the smallest withdrawable unit *everything*. `zone` is NOT NULL with
+`""` for unzoned rather than nullable, because SQLite treats NULLs as DISTINCT and a nullable column
+in a primary key would not enforce uniqueness. Nothing migrated in; the table starts empty.
+
+**`lastUsedAt` is in from the start**, throttled to one write per key per minute. The read side is
+every gated dispatch, so an unthrottled touch would turn a permission CHECK into a database WRITE per
+call. It is the only honest basis for reaping later (open question 3) and it cannot be backfilled:
+the old store grew 119 → 144 in three days precisely because nothing observed use.
+
+**The hot path needed a cache**, and this is the one thing the swap could have broken silently.
+`grants()` used to read `UserDefaults`, an in-memory dictionary; the table is not, so without a cache
+on `AppState` the swap would have put a SQLite read in front of every permission check. Revocation
+drops the cache wholesale rather than surgically, because a stale entry there means a capability the
+user just withdrew still answering yes, which is the one error this store must not make.
+
+**The sweep became unconditional**, and losing its once-only flag is the point. While grants lived in
+defaults the flag was load-bearing; with the table authoritative there is nothing there left to
+protect, so it was a piece of subtle reasoning guarding nothing.
+
+**The manager** is the Access tab in `SignOutSheet.swift`, grouped by grantee, one revocable chip per
+capability, `lastUsedAt` rendered as "used 3 days ago" / "never used".
+
+**The dead-zone rule is pure and tested** (`PortGrantDisplay.zoneLabel`), not asserted by a view, in
+the same shape as `RootScreen.decide`. A zone renders by SPACE NAME, and says "in a space that no
+longer exists" when it is gone, with a test asserting the uuid never reaches the screen. **That one
+rule is the manager's actual job**: 135 of the 144 old grants were qualified by a deleted space, and
+a uuid on screen would have hidden that exactly as well as having no screen did.
+
+**Calibration caught a weak TEST, not just weak code, and that is the lesson.** Breaking `saveGrants`
+to reset a grant's age on every re-save left the test passing: two `Date()` values written
+microseconds apart land in the same stored millisecond, so a `grantedAt` comparison proves nothing.
+Rewritten to assert on `lastUsedAt`, which is nil-or-not and therefore unambiguous, it caught the
+break. **A gate that has never been broken is not known to be a gate**, and this one would have
+shipped looking like a guarantee.
+
+Suite **1204 green**. **Live-verified in Dev3** end to end: the table was created and the defaults
+swept clean at launch; a gateway call raised a prompt; approving it wrote
+`local-http | 0 | zone="" | automation` — the object slot holding port 0 through the real permission
+path; a second call ran with no prompt and `lastUsedAt` was recorded 24 seconds later.
+
 ### 10b. What step 1 learned, and what it changes for steps 2 and 3
 
 **Measure whether the data is worth migrating before designing the migration.** The day began on a
@@ -798,7 +850,11 @@ regression: assets, bundle resolution, signature, gating and layering were each 
 A clean rebuild fixed it. **Rule: if a build reports a signing or copy failure, the bundle is not
 evidence. Rebuild before debugging any behavior in it.**
 
-**Concrete input for step 2: the store cannot be enumerated.** `grants(grantee:on:zone:)` is a point
+**Concrete input for step 2, and it was acted on: the store could not be enumerated.** Resolved in
+§10a2 by moving to a table rather than by parsing keys. The rest of this note is kept as the record
+of why the question came up.
+
+**Original note: the store cannot be enumerated.** `grants(grantee:on:zone:)` is a point
 lookup, and the only walk over the store lives inside the reap. The manager needs an enumeration that
 parses `portGrant.<grantee>.<object>.<zone>` back into its three parts, **splitting from the RIGHT**:
 zone last, object second to last, grantee everything before. That is sound because an object segment
@@ -1009,7 +1065,7 @@ here the substrate is the existing bridge + libp2p.)
 |---|---|---|
 | **Actor (A)** | a call with no verified `principal_id` is refused on BOTH doors; a caller cannot name itself; `local-http` is gone | a caller still picks its own identity on either door |
 | **Object (A)** | ✅ **2026-07-29.** every grant names the port it is about; port 0 exists; the 144 objectless grants were reaped, so none survives to be inherited | a grant still names a grantee and a space and no object |
-| **Legibility (A)** | every grant is visible and revocable in one screen, grouped by grantee | a grant is still invisible after the moment it is given |
+| **Legibility (A)** | ✅ **2026-07-29.** every grant is visible and revocable in one screen, grouped by grantee, per capability; a zone whose space is gone says so | a grant is still invisible after the moment it is given |
 | **Address** | `port42://<peerID>/…` reaches the remote port; the same verb path works local and remote | remote needs a different API than local |
 | **Query in** | B's `patch`/`getHtml` executes on A's port via A's existing bridge | remote writes bypass A's local bridge/authority |
 | **Stream out** | a delta on A appears on B within one round-trip; multiple subscribers get it from one publish | B must poll; or fan-out needs bespoke per-subscriber code |

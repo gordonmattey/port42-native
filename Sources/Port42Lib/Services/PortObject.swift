@@ -85,6 +85,37 @@ public struct PortObject: Equatable, Hashable {
     }
 }
 
+// MARK: - PortGrantDisplay
+
+/// How a grant reads to the person who gave it. Pure, so the manager's central claim is testable
+/// headlessly rather than asserted by a view (same shape as `RootScreen.decide`).
+public enum PortGrantDisplay {
+
+    /// The object, in the user's words. Port 0 is the app itself, and its name is the app's name —
+    /// which is why port 0 is not called "desktop" or anything else invented.
+    public static func objectLabel(_ object: String) -> String {
+        if object == PortObject.machinePortKey { return "Port42" }
+        guard let slash = object.firstIndex(of: "/") else { return "a port" }
+        let peer = String(object[object.startIndex..<slash])
+        let port = String(object[object.index(after: slash)...])
+        return port == PortObject.machinePortKey ? "Port42 on \(peer)" : "a port on \(peer)"
+    }
+
+    /// The zone, BY NAME rather than by uuid, and honest when the space is gone.
+    ///
+    /// **This is the manager's real job.** 135 of the 144 grants in the old store were qualified by
+    /// a space that had been deleted, so they could never fire again, and nothing anywhere said so.
+    /// A uuid on screen would have hidden that exactly as well as having no screen did.
+    ///
+    /// `spaceNames` maps a live space id to its name; a zone missing from it is dead.
+    public static func zoneLabel(_ zone: String,
+                                 spaceNames: [String: String]) -> (text: String, isDead: Bool) {
+        if zone.isEmpty { return ("everywhere", false) }
+        if let name = spaceNames[zone] { return ("in #\(name)", false) }
+        return ("in a space that no longer exists", true)
+    }
+}
+
 // MARK: - PortGrantKey
 
 /// The grant key's grammar, and the one-time reap that cleared the objectless store.
@@ -108,45 +139,37 @@ public enum PortGrantKey {
         return "\(prefix).\(grantee).\(object.keySegment).\(zoneSegment)"
     }
 
-    /// Dead defaults the reap also removes: the flag of the copy-forward migration this replaced,
-    /// which never shipped.
-    static let retiredKeys = ["portGrantObjectMigrated"]
+    /// Dead defaults the sweep also removes: the flag of the copy-forward migration that never
+    /// shipped, and the flag of the once-only reap that this sweep replaced (see below).
+    static let retiredKeys = ["portGrantObjectMigrated", "portGrantStoreReapedV1"]
 
-    /// The one-shot default that records the reap as done.
-    public static let reapFlag = "portGrantStoreReapedV1"
-
-    /// **REAP, once. The grant store starts empty** (GM, 2026-07-29).
+    /// **The defaults sweep. Grants do not live here any more** (A.2).
     ///
-    /// Every objectless `portPerms.*` key is DELETED rather than migrated onto port 0, and nothing
-    /// carries forward. This replaced a copy-forward migration, and the measurement is what changed
-    /// the decision: of the 144 grants in production, **only 9 could ever fire again**. A grant is
-    /// read with the caller's live zone, and 135 of them named a space that has been deleted, so
-    /// they were unreachable rather than merely untidy. Migrating them faithfully would have been
-    /// faithfully preserving nothing, and the permission manager would have opened on 135 rows
-    /// describing a world that no longer exists.
+    /// Every `portPerms.*` and `portGrant.*` key is deleted. Nothing is carried into the `grants`
+    /// table: the objectless store was reaped in step 1 because of the measurement — of the 144
+    /// grants in production, **only 9 could ever fire again**, since a grant is read with the
+    /// caller's live zone and 135 named a space that has been deleted. Preserving that faithfully
+    /// would have preserved nothing and opened the permission manager on 135 rows describing a
+    /// world that no longer exists.
     ///
     /// **What it costs, stated because it is what the user feels:** each companion asks once more
-    /// per capability, in the space it is working in, and then never again. That is the same shape
-    /// as D12's removal of the blanket pre-grant, and it lands in the same release.
+    /// per capability, in the space it is working in, and then never again. Same shape as D12's
+    /// removal of the blanket pre-grant, and it lands in the same release.
     ///
     /// **What it discards, stated because deletion is not reversible:** the record of what had been
     /// granted to callers that named themselves over the WS door (`"Claude Code"`, `"Gemini CLI"`,
-    /// `claude1`…`claude101`). That record is evidence for §1, so it is written down in the slice
-    /// doc's §4 and dumped in full beside the production database before the reap ran.
+    /// `claude1`…`claude101`). That is evidence for §1, so the census is in the slice doc's §4 and
+    /// the raw store was dumped beside the production database before the first reap ran.
     ///
-    /// **Both prefixes go**, because neither the new key nor the migration it replaced has ever
-    /// shipped: the only `portGrant.*` keys that can exist are ones the retired migration wrote on a
-    /// dev instance. After this, a `portGrant.*` key can only mean a grant a human actually gave.
-    ///
-    /// **The flag is load-bearing, not an optimization.** A reap that ran on every launch would
-    /// delete grants continuously, so the store could never accumulate the consent it exists to
-    /// remember.
+    /// **This is now UNCONDITIONAL, and losing its once-only flag is the point.** While grants lived
+    /// in `UserDefaults` the flag was load-bearing: a sweep on every launch would have deleted real
+    /// grants continuously, so the store could never accumulate the consent it exists to remember.
+    /// With the table authoritative there is nothing here left to protect, so the flag became a
+    /// piece of subtle reasoning guarding nothing, and it is deleted along with the keys.
     ///
     /// Returns how many keys were removed.
     @discardableResult
     public static func reapGrantStore(in defaults: UserDefaults) -> Int {
-        guard !defaults.bool(forKey: reapFlag) else { return 0 }
-
         var removed = 0
         for key in defaults.dictionaryRepresentation().keys {
             guard key.hasPrefix(legacyPrefix + ".") || key.hasPrefix(prefix + ".")
@@ -154,8 +177,6 @@ public enum PortGrantKey {
             defaults.removeObject(forKey: key)
             removed += 1
         }
-
-        defaults.set(true, forKey: reapFlag)
         return removed
     }
 }

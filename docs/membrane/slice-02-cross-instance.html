@@ -1560,10 +1560,11 @@ Dev3.</strong> The grant key gained its object slot: grantee × port [×
 zone]. The objectless store is REAPED rather than migrated (CR5,
 superseded), so the model starts from an empty one. See “Step 1 as
 built” below.</li>
-<li><strong>The permission manager</strong> (D13). Grants grouped by
-grantee, revoke per row and per grantee. This is the first time in the
-product’s life that a granted permission can be seen, and it is what
-makes step 1’s migration verifiable rather than trusted.</li>
+<li><strong>The permission manager</strong> (D13). <strong>DONE
+2026-07-29, live-verified in Dev3.</strong> Grants moved to a table,
+grouped by grantee, revocable per capability and per grantee. The first
+time in the product’s life that a granted permission can be seen. See
+“Step 2 as built” below.</li>
 <li><strong>The card names its object.</strong> “Claude Code wants to
 read the clipboard in Port42.” Delete the dead
 <code>PortPermissionOverlay</code>, and delete the
@@ -1648,6 +1649,67 @@ migration’s flag) were gone after launch, with only the reap flag left.
 <code>{&quot;result&quot;:&quot;42&quot;}</code> silently before the reap; after it, the
 same call blocks on a permission prompt. That is the whole user-visible
 consequence, measured rather than asserted.</p>
+<h3 id="a2.-step-2-as-built-2026-07-29">10a2. Step 2 as built
+(2026-07-29)</h3>
+<p><strong>The store is a table</strong> (GM, 2026-07-29), migration
+<code>v43-grants</code>, taken deliberately because step 2 is the first
+thing that reads the whole store and the window was free: the store was
+empty after the reap, and that window closes the moment real grants
+accumulate.</p>
+<pre><code>grants(grantee, object, zone, permission, grantedAt, lastUsedAt)
+  PRIMARY KEY (grantee, object, zone, permission)</code></pre>
+<p><strong>One row per permission</strong>, which is the point: revoking
+a single capability is a DELETE, where the comma-joined defaults key
+made the smallest withdrawable unit <em>everything</em>.
+<code>zone</code> is NOT NULL with <code>&quot;&quot;</code> for unzoned rather
+than nullable, because SQLite treats NULLs as DISTINCT and a nullable
+column in a primary key would not enforce uniqueness. Nothing migrated
+in; the table starts empty.</p>
+<p><strong><code>lastUsedAt</code> is in from the start</strong>,
+throttled to one write per key per minute. The read side is every gated
+dispatch, so an unthrottled touch would turn a permission CHECK into a
+database WRITE per call. It is the only honest basis for reaping later
+(open question 3) and it cannot be backfilled: the old store grew 119 →
+144 in three days precisely because nothing observed use.</p>
+<p><strong>The hot path needed a cache</strong>, and this is the one
+thing the swap could have broken silently. <code>grants()</code> used to
+read <code>UserDefaults</code>, an in-memory dictionary; the table is
+not, so without a cache on <code>AppState</code> the swap would have put
+a SQLite read in front of every permission check. Revocation drops the
+cache wholesale rather than surgically, because a stale entry there
+means a capability the user just withdrew still answering yes, which is
+the one error this store must not make.</p>
+<p><strong>The sweep became unconditional</strong>, and losing its
+once-only flag is the point. While grants lived in defaults the flag was
+load-bearing; with the table authoritative there is nothing there left
+to protect, so it was a piece of subtle reasoning guarding nothing.</p>
+<p><strong>The manager</strong> is the Access tab in
+<code>SignOutSheet.swift</code>, grouped by grantee, one revocable chip
+per capability, <code>lastUsedAt</code> rendered as “used 3 days ago” /
+“never used”.</p>
+<p><strong>The dead-zone rule is pure and tested</strong>
+(<code>PortGrantDisplay.zoneLabel</code>), not asserted by a view, in
+the same shape as <code>RootScreen.decide</code>. A zone renders by
+SPACE NAME, and says “in a space that no longer exists” when it is gone,
+with a test asserting the uuid never reaches the screen. <strong>That
+one rule is the manager’s actual job</strong>: 135 of the 144 old grants
+were qualified by a deleted space, and a uuid on screen would have
+hidden that exactly as well as having no screen did.</p>
+<p><strong>Calibration caught a weak TEST, not just weak code, and that
+is the lesson.</strong> Breaking <code>saveGrants</code> to reset a
+grant’s age on every re-save left the test passing: two
+<code>Date()</code> values written microseconds apart land in the same
+stored millisecond, so a <code>grantedAt</code> comparison proves
+nothing. Rewritten to assert on <code>lastUsedAt</code>, which is
+nil-or-not and therefore unambiguous, it caught the break. <strong>A
+gate that has never been broken is not known to be a gate</strong>, and
+this one would have shipped looking like a guarantee.</p>
+<p>Suite <strong>1204 green</strong>. <strong>Live-verified in
+Dev3</strong> end to end: the table was created and the defaults swept
+clean at launch; a gateway call raised a prompt; approving it wrote
+<code>local-http | 0 | zone=&quot;&quot; | automation</code> — the object slot
+holding port 0 through the real permission path; a second call ran with
+no prompt and <code>lastUsedAt</code> was recorded 24 seconds later.</p>
 <h3 id="b.-what-step-1-learned-and-what-it-changes-for-steps-2-and-3">10b.
 What step 1 learned, and what it changes for steps 2 and 3</h3>
 <p><strong>Measure whether the data is worth migrating before designing
@@ -1683,10 +1745,14 @@ bundle resolution, signature, gating and layering were each checked and
 cleared. A clean rebuild fixed it. <strong>Rule: if a build reports a
 signing or copy failure, the bundle is not evidence. Rebuild before
 debugging any behavior in it.</strong></p>
-<p><strong>Concrete input for step 2: the store cannot be
-enumerated.</strong> <code>grants(grantee:on:zone:)</code> is a point
-lookup, and the only walk over the store lives inside the reap. The
-manager needs an enumeration that parses
+<p><strong>Concrete input for step 2, and it was acted on: the store
+could not be enumerated.</strong> Resolved in §10a2 by moving to a table
+rather than by parsing keys. The rest of this note is kept as the record
+of why the question came up.</p>
+<p><strong>Original note: the store cannot be enumerated.</strong>
+<code>grants(grantee:on:zone:)</code> is a point lookup, and the only
+walk over the store lives inside the reap. The manager needs an
+enumeration that parses
 <code>portGrant.&lt;grantee&gt;.&lt;object&gt;.&lt;zone&gt;</code> back
 into its three parts, <strong>splitting from the RIGHT</strong>: zone
 last, object second to last, grantee everything before. That is sound
@@ -2039,8 +2105,9 @@ survives to be inherited</td>
 </tr>
 <tr>
 <td><strong>Legibility (A)</strong></td>
-<td>every grant is visible and revocable in one screen, grouped by
-grantee</td>
+<td>✅ <strong>2026-07-29.</strong> every grant is visible and revocable
+in one screen, grouped by grantee, per capability; a zone whose space is
+gone says so</td>
 <td>a grant is still invisible after the moment it is given</td>
 </tr>
 <tr>

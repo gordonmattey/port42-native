@@ -2,8 +2,9 @@
 
 ## Where this left off (2026-07-29)
 
-**On `main`**, HEAD `041eef1`, tree clean (one untracked file, `docs/plan-teleport.md`, which is
-GM's and was left alone). **17 commits UNPUSHED.** Suite **1172 green**.
+**On `main`**, tree clean apart from one untracked file, `docs/plan-teleport.md`, which is GM's and
+was left alone. Suite **1204 green**. **Half one of slice-02 is 2 of 3 steps done** (port 0 and the
+grant object; the table and the permission manager). Everything is UNPUSHED.
 
 **READ `docs/membrane/slice-02-cross-instance.md` IN FULL FIRST.** It is now the single document for
 this thread: the model, the requirements, the design D1-D14, the deliverables, the build order, the
@@ -33,7 +34,29 @@ ONE primitive, a port. Port 0 is the Port42 window itself (its title is the user
 grantee and a space and **no object at all**. The object was always the machine; having no name it
 left an empty slot and the space slid into it. Register entry: `architecture-invariants.md` §6.
 
-### STEP 1 IS DONE (2026-07-29, live-verified in Dev3). NEXT: step 2, the permission manager.
+### STEPS 1 AND 2 DONE (2026-07-29, live-verified in Dev3). NEXT: step 3, then half two.
+
+**Step 2: the grant store is a TABLE and the permission manager exists** (slice doc §10a2). Migration
+`v43-grants`, one row per permission, so revoking a single capability is a DELETE where the old
+comma-joined key made the smallest withdrawable unit everything. `lastUsedAt` from the start,
+throttled to one write per key per minute, because it is the only honest basis for reaping later and
+cannot be backfilled. The hot path needed a cache: `grants()` is read on every gated dispatch and used
+to hit `UserDefaults`, an in-memory dictionary. The defaults sweep is now unconditional, its
+once-only flag deleted as reasoning guarding nothing. The manager is the Access tab in
+`SignOutSheet.swift`; `PortGrantDisplay.zoneLabel` is pure and tested, renders a zone by SPACE NAME,
+and says "in a space that no longer exists" when it is gone — the one rule that would have made the
+135 dead grants visible. Suite **1204 green**.
+
+**Step 3 is what remains of half one:** the card names its object ("Claude Code wants to read the
+clipboard in Port42"), delete the dead `PortPermissionOverlay` (no call site), and delete the
+`remoteAllow*` blanket pre-grant (D12, five sites listed there, all three flags ON in production).
+
+**Method note worth keeping (slice doc §10a2):** calibration caught a weak TEST this time, not just
+weak code. Breaking `saveGrants` to reset a grant's age left the test green, because two `Date()`
+values microseconds apart land in the same stored millisecond. A gate that has never been broken is
+not known to be a gate.
+
+### STEP 1 (2026-07-29, live-verified in Dev3)
 
 **Port 0 exists and the grant key has its object slot**: `portGrant.<grantee>.<object>.<zone>`, with
 `PortObject.machine` as port 0 and an object peer-qualified by construction (`<peerID>/0`). The store
@@ -49,19 +72,13 @@ grantees matched nothing live, including `"Claude Code"`, `"Gemini CLI"` and `cl
 so the store starts empty and every caller asks once more. The raw store was dumped to
 `~/Library/Application Support/Port42/grants-before-reap-2026-07-29.txt` before the reap ran.
 
-**Step 2 is the permission manager** (D13) — nothing in `Sources/Port42Lib/Views/` has ever read a
-grant. It now opens on an EMPTY store and fills only with grants a human actually gives, so its job
-is legibility and revocation rather than cleanup. **Its first task is that the store cannot be
-enumerated**: `grants(grantee:on:zone:)` is a point lookup and the only walk lives inside the reap.
-The manager needs an enumeration that parses the key from the RIGHT (zone last, object second to
-last, grantee the rest), which is sound because an object uses `/` not `.` and a zone never contains
-a dot. Whether the store stays in `UserDefaults` or becomes a table is a step 2 call worth taking
-deliberately, now that something will finally read all of it. Step 3 is the card naming its object
-plus the deletions (`remoteAllow*`, the dead `PortPermissionOverlay`). That is half one, a coherent
-release with no authentication in it.
+**What step 1 handed to step 2, and how it was answered:** the store could not be enumerated
+(`grants(grantee:on:zone:)` was a point lookup, and the only walk lived inside the reap). Rather than
+parse defaults keys back into three parts, the store moved to a table — taken deliberately because
+the window was free while the store was empty, and it closes the moment real grants accumulate.
 
-**Still open, and the reap did not fix it:** nothing expires or reaps a grant, so the same
-accumulation restarts from zero (slice doc §13.3).
+**Still open, and neither step fixed it:** nothing expires a grant. `lastUsedAt` now records use,
+which is the input a reap would need, but no policy consumes it (slice doc §13.3).
 
 **Learnings from step 1 are in slice doc §10b**, including two that change how later steps are run:
 measure whether data is worth migrating before designing the migration (a count is not a census, and

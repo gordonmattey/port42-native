@@ -597,6 +597,10 @@ object.
 **Open, deliberately not decided here:** whether grants should expire. Everything today is permanent,
 which is what makes an invisible grant serious.
 
+**DONE 2026-07-29: the manager ships as Settings -> Access** (slice-02 A.2). Grants live in a
+`grants` table, grouped by grantee, revocable per capability. A zone renders by space name and says
+so when the space is gone.
+
 **RESOLVED 2026-07-29 (GM): the orphan cleanup was a reap, all of it.** The objectless store is
 deleted at launch and nothing carries forward, so every caller asks once more. The number that
 decided it: of the 144 grants, **only 9 could ever fire again** — a grant is read with the caller's

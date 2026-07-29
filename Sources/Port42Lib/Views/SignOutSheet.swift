@@ -48,8 +48,11 @@ public struct SignOutSheet: View {
         case failure(String)
     }
 
-    enum SettingsTab: String, CaseIterable { case ai = "AI", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
+    enum SettingsTab: String, CaseIterable { case ai = "AI", grants = "Access", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
     @State private var tab: SettingsTab = .ai
+    /// Bumped on revoke. The grant store is not `@Published` (it is read on every gated dispatch and
+    /// publishing it would redraw the world per permission check), so the manager re-reads on demand.
+    @State private var grantsRefresh: UInt = 0
     @State private var providerSel = "Anthropic"     // AI tab provider picker (was a radio-accordion)
 
     /// Space accent — keys the whole panel like the companion cards. Defaults to the theme accent for
@@ -90,6 +93,7 @@ public struct SignOutSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     aiConnectionSection
+                    grantsSection
                     secretsSection
                     remoteAccessSection
                     displaySection
@@ -955,6 +959,164 @@ public struct SignOutSheet: View {
                     }
                 }
             }
+        }
+    }
+
+    /// One revocable chip per capability, wrapping.
+    private struct FlowChips: View {
+        let permissions: [PortPermission]
+        let onRevoke: (PortPermission) -> Void
+
+        var body: some View {
+            HStack(spacing: 5) {
+                ForEach(permissions, id: \.rawValue) { perm in
+                    Button { onRevoke(perm) } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: perm.iconName).font(.system(size: 8))
+                            Text(perm.rawValue).font(Port42Theme.mono(9))
+                            Image(systemName: "xmark").font(.system(size: 7)).opacity(0.5)
+                        }
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 3))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Revoke \(perm.rawValue)")
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    // MARK: - Access (the permission manager, slice-02 milestone A step 2 / D13)
+    //
+    // THE FIRST TIME IN THE PRODUCT'S LIFE THAT A GRANTED PERMISSION CAN BE SEEN. Nothing under
+    // `Views/` had ever read the grant store, so consent was invisible from the moment it was given:
+    // the store grew to 144 grants, of which only 9 could still fire, and nobody could have known.
+    //
+    // Grouped by GRANTEE, because "who can do things to my machine" is the question a person
+    // actually has. Each row is one object in one zone, with its capabilities and a revoke.
+
+    /// One grantee's grants, assembled for display.
+    private struct GranteeGrants: Identifiable {
+        let id: String                       // the grantee id
+        let scopes: [Scope]
+        struct Scope: Identifiable {
+            let id: String                   // object + zone
+            let object: String
+            let zone: String                 // "" = unzoned
+            let permissions: [PortPermission]
+            let lastUsedAt: Date?
+        }
+    }
+
+    private var granteeGrants: [GranteeGrants] {
+        let rows = appState.allGrants()
+        let byGrantee = Dictionary(grouping: rows, by: \.grantee)
+        return byGrantee.keys.sorted().map { grantee in
+            let scopes = Dictionary(grouping: byGrantee[grantee] ?? [],
+                                    by: { "\($0.object)\u{1}\($0.zone)" })
+            let ordered = scopes.keys.sorted().map { key -> GranteeGrants.Scope in
+                let group = scopes[key] ?? []
+                return GranteeGrants.Scope(
+                    id: key,
+                    object: group[0].object,
+                    zone: group[0].zone,
+                    permissions: group.map(\.permission).sorted { $0.rawValue < $1.rawValue },
+                    lastUsedAt: group.compactMap(\.lastUsedAt).max())
+            }
+            return GranteeGrants(id: grantee, scopes: ordered)
+        }
+    }
+
+    /// Both labels are pure and live in `PortGrantDisplay`, so the dead-zone rule the manager exists
+    /// to surface is unit-tested rather than asserted by a view.
+    private func objectLabel(_ object: String) -> String {
+        PortGrantDisplay.objectLabel(object)
+    }
+
+    private func zoneLabel(_ zone: String) -> (text: String, isDead: Bool) {
+        PortGrantDisplay.zoneLabel(zone, spaceNames: liveSpaceNames)
+    }
+
+    private var liveSpaceNames: [String: String] {
+        Dictionary(appState.spaces.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    private func usedLabel(_ date: Date?) -> String {
+        guard let date else { return "never used" }
+        let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0
+        if days <= 0 { return "used today" }
+        if days == 1 { return "used yesterday" }
+        return "used \(days) days ago"
+    }
+
+    @ViewBuilder
+    private var grantsSection: some View {
+        if tab == .grants {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Everything you have allowed, and who holds it. Revoking takes effect on the next call.")
+                    .font(Port42Theme.mono(10))
+                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+
+                let all = granteeGrants
+                if all.isEmpty {
+                    Text("Nothing has been granted yet.")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(all) { grantee in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Text(grantee.id)
+                                    .font(Port42Theme.monoBold(12))
+                                    .foregroundStyle(Port42Theme.textPrimary)
+                                Spacer()
+                                Button("revoke all") {
+                                    appState.revokeAllGrants(grantee: grantee.id)
+                                    grantsRefresh &+= 1
+                                }
+                                .font(Port42Theme.mono(10))
+                                .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                                .buttonStyle(.plain)
+                            }
+
+                            ForEach(grantee.scopes) { scope in
+                                let zone = zoneLabel(scope.zone)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 6) {
+                                        Text(objectLabel(scope.object))
+                                            .font(Port42Theme.mono(11))
+                                            .foregroundStyle(Port42Theme.textPrimary)
+                                        Text(zone.text)
+                                            .font(Port42Theme.mono(10))
+                                            .foregroundStyle(zone.isDead ? Color.orange.opacity(0.8)
+                                                                       : Port42Theme.textSecondary)
+                                        Spacer()
+                                        Text(usedLabel(scope.lastUsedAt))
+                                            .font(Port42Theme.mono(9))
+                                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
+                                    }
+                                    // One chip per capability, each individually revocable — which is
+                                    // what the table bought. Under the old comma-joined defaults key
+                                    // the smallest thing you could withdraw was everything.
+                                    FlowChips(permissions: scope.permissions) { perm in
+                                        appState.revokeGrant(grantee: grantee.id, object: scope.object,
+                                                             zone: scope.zone, permission: perm)
+                                        grantsRefresh &+= 1
+                                    }
+                                }
+                                .padding(.leading, 10)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        .id("\(grantee.id)-\(grantsRefresh)")
+                    }
+                }
+            }
+            .padding(.bottom, 12)
         }
     }
 

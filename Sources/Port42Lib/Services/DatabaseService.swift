@@ -653,7 +653,155 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v43-grants") { db in
+            // The grant store moves out of UserDefaults (slice-02 milestone A step 2). It lived
+            // there as `portGrant.<grantee>.<object>.<zone>` = a comma-joined permission set, which
+            // was fine while nothing read the whole store and untenable the moment something did:
+            // the permission manager needs to enumerate, group by grantee, and revoke ONE
+            // capability, and all three were string surgery over defaults keys.
+            //
+            // ONE ROW PER PERMISSION, which is the point of the move. Revoking a single capability
+            // is a DELETE, and the manager's grouping is a query.
+            //
+            // `zone` is NOT NULL with "" for unzoned rather than nullable, because SQLite treats
+            // NULLs as DISTINCT: a nullable column in a primary key would not enforce uniqueness,
+            // so the same global grant could be inserted twice.
+            //
+            // Nothing is migrated in. The objectless store was reaped in step 1 (only 9 of its 144
+            // grants could ever fire again), so this table starts empty by construction and every
+            // caller asks once more.
+            try db.create(table: "grants") { t in
+                t.column("grantee", .text).notNull()      // the principal id
+                t.column("object", .text).notNull()       // "0" (port 0), a port key, or "<peer>/<port>"
+                t.column("zone", .text).notNull()         // space id, or "" for unzoned
+                t.column("permission", .text).notNull()   // one PortPermission rawValue
+                t.column("grantedAt", .datetime).notNull()
+                // The only honest basis for reaping later, and it cannot be backfilled — the store
+                // grew 119 → 144 in three days precisely because nothing observed use. Written
+                // through a throttle so a hot-path check is not a write per call.
+                t.column("lastUsedAt", .datetime)
+                t.primaryKey(["grantee", "object", "zone", "permission"])
+            }
+            // The manager groups by grantee; the hot path looks up (grantee, object, zone).
+            try db.create(index: "grants_lookup", on: "grants",
+                          columns: ["grantee", "object", "zone"])
+        }
+
         try migrator.migrate(dbQueue)
+    }
+
+    // MARK: - Grants (slice-02 milestone A step 2)
+
+    /// One granted capability, as the permission manager displays it.
+    public struct GrantRow: Equatable {
+        public let grantee: String
+        public let object: String
+        public let zone: String          // "" = unzoned
+        public let permission: PortPermission
+        public let grantedAt: Date
+        public let lastUsedAt: Date?
+
+        public init(grantee: String, object: String, zone: String, permission: PortPermission,
+                    grantedAt: Date, lastUsedAt: Date?) {
+            self.grantee = grantee
+            self.object = object
+            self.zone = zone
+            self.permission = permission
+            self.grantedAt = grantedAt
+            self.lastUsedAt = lastUsedAt
+        }
+    }
+
+    /// What this grantee may do to this object in this zone.
+    public func grants(grantee: String, object: String, zone: String) throws -> Set<PortPermission> {
+        try dbQueue.read { db in
+            let raw = try String.fetchAll(
+                db, sql: "SELECT permission FROM grants WHERE grantee = ? AND object = ? AND zone = ?",
+                arguments: [grantee, object, zone])
+            return Set(raw.compactMap(PortPermission.init(rawValue:)))
+        }
+    }
+
+    /// Replace the permission set for one (grantee, object, zone). Grants that survive keep their
+    /// `grantedAt` and `lastUsedAt`, so re-granting an existing capability does not reset its age —
+    /// which is what makes "unused for 90 days" mean anything.
+    public func saveGrants(_ permissions: Set<PortPermission>,
+                           grantee: String, object: String, zone: String) throws {
+        try dbQueue.write { db in
+            let keep = permissions.map(\.rawValue)
+            if keep.isEmpty {
+                try db.execute(
+                    sql: "DELETE FROM grants WHERE grantee = ? AND object = ? AND zone = ?",
+                    arguments: [grantee, object, zone])
+                return
+            }
+            let holes = databaseQuestionMarks(count: keep.count)
+            try db.execute(
+                sql: """
+                     DELETE FROM grants WHERE grantee = ? AND object = ? AND zone = ?
+                       AND permission NOT IN (\(holes))
+                     """,
+                arguments: StatementArguments([grantee, object, zone] + keep))
+            for p in keep {
+                try db.execute(
+                    sql: """
+                         INSERT OR IGNORE INTO grants
+                           (grantee, object, zone, permission, grantedAt) VALUES (?, ?, ?, ?, ?)
+                         """,
+                    arguments: [grantee, object, zone, p, Date()])
+            }
+        }
+    }
+
+    /// Every grant, for the permission manager. Newest grantee activity first is decided in the
+    /// view; this is the raw set.
+    public func allGrants() throws -> [GrantRow] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db, sql: """
+                         SELECT grantee, object, zone, permission, grantedAt, lastUsedAt
+                         FROM grants ORDER BY grantee, object, zone, permission
+                         """)
+            return rows.compactMap { r in
+                guard let perm = PortPermission(rawValue: r["permission"]) else { return nil }
+                return GrantRow(grantee: r["grantee"], object: r["object"], zone: r["zone"],
+                                permission: perm, grantedAt: r["grantedAt"],
+                                lastUsedAt: r["lastUsedAt"])
+            }
+        }
+    }
+
+    /// Revoke exactly one capability.
+    public func revokeGrant(grantee: String, object: String, zone: String,
+                            permission: PortPermission) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                     DELETE FROM grants
+                     WHERE grantee = ? AND object = ? AND zone = ? AND permission = ?
+                     """,
+                arguments: [grantee, object, zone, permission.rawValue])
+        }
+    }
+
+    /// Revoke everything this grantee holds, everywhere.
+    public func revokeAllGrants(grantee: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM grants WHERE grantee = ?", arguments: [grantee])
+        }
+    }
+
+    /// Record that a grant was actually exercised. Callers throttle; see `AppState.grants`.
+    public func touchGrants(grantee: String, object: String, zone: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE grants SET lastUsedAt = ? WHERE grantee = ? AND object = ? AND zone = ?",
+                arguments: [Date(), grantee, object, zone])
+        }
+    }
+
+    private func databaseQuestionMarks(count: Int) -> String {
+        Array(repeating: "?", count: count).joined(separator: ", ")
     }
 
     /// Migrate one legacy swim space (`swim-<companionId>`, isSwim=1) per the v35 pre-pass:

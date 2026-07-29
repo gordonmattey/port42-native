@@ -1119,7 +1119,18 @@ public final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Grant Persistence (P-260; the object slot, slice-02 milestone A step 1)
+    // MARK: - Grant Persistence (P-260; the object slot A.1; the table A.2)
+
+    /// The hot-path cache. `grants` is read on EVERY gated dispatch, and it used to read
+    /// `UserDefaults`, which is an in-memory dictionary. The table is not, so without this the
+    /// store swap would have put a SQLite read in front of every permission check.
+    struct GrantCacheKey: Hashable {
+        let grantee: String
+        let object: String
+        let zone: String
+    }
+    private var grantCache: [GrantCacheKey: Set<PortPermission>] = [:]
+    private var grantTouchedAt: [GrantCacheKey: Date] = [:]
 
     /// What a grantee may do to an OBJECT, in a zone.
     ///
@@ -1133,20 +1144,54 @@ public final class AppState: ObservableObject {
     /// `RemoteToolExecutor` (which passes nil) never restored OR saved a grant: every gateway call
     /// re-asked, forever.
     public func grants(grantee: String, on object: PortObject, zone: String?) -> Set<PortPermission> {
-        let key = PortGrantKey.key(grantee: grantee, object: object, zone: zone)
-        guard let raw = UserDefaults.standard.string(forKey: key), !raw.isEmpty else { return [] }
-        return Set(raw.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
+        let k = GrantCacheKey(grantee: grantee, object: object.keySegment, zone: zone ?? "")
+        if let hit = grantCache[k] {
+            touchIfDue(k)
+            return hit
+        }
+        let loaded = (try? db.grants(grantee: k.grantee, object: k.object, zone: k.zone)) ?? []
+        grantCache[k] = loaded
+        touchIfDue(k)
+        return loaded
     }
 
     /// Persist what a grantee may do to an object, so it is not asked again.
     public func saveGrants(_ permissions: Set<PortPermission>, grantee: String,
                            on object: PortObject, zone: String?) {
-        let key = PortGrantKey.key(grantee: grantee, object: object, zone: zone)
-        if permissions.isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
-        } else {
-            UserDefaults.standard.set(permissions.map(\.rawValue).joined(separator: ","), forKey: key)
-        }
+        let k = GrantCacheKey(grantee: grantee, object: object.keySegment, zone: zone ?? "")
+        try? db.saveGrants(permissions, grantee: k.grantee, object: k.object, zone: k.zone)
+        grantCache[k] = permissions
+    }
+
+    /// Every grant, for the permission manager (D13).
+    public func allGrants() -> [DatabaseService.GrantRow] {
+        (try? db.allGrants()) ?? []
+    }
+
+    /// Revoke one capability, or everything a grantee holds. Both drop the cache wholesale rather
+    /// than surgically: a revoke is rare and a stale cache entry here means a capability the user
+    /// just withdrew still answering yes, which is the one error this store must not make.
+    public func revokeGrant(grantee: String, object: String, zone: String,
+                            permission: PortPermission) {
+        try? db.revokeGrant(grantee: grantee, object: object, zone: zone, permission: permission)
+        grantCache.removeAll()
+    }
+
+    public func revokeAllGrants(grantee: String) {
+        try? db.revokeAllGrants(grantee: grantee)
+        grantCache.removeAll()
+    }
+
+    /// `lastUsedAt`, throttled. The read side is the hot path — every gated dispatch — so an
+    /// unthrottled write would turn a permission CHECK into a database WRITE per call. One touch
+    /// per key per minute is enough to answer "has this grant been used in 90 days", which is the
+    /// only honest basis for reaping the store later (open question 3).
+    private func touchIfDue(_ k: GrantCacheKey) {
+        let now = Date()
+        if let last = grantTouchedAt[k], now.timeIntervalSince(last) < 60 { return }
+        grantTouchedAt[k] = now
+        let key = k
+        Task.detached { [db] in try? db.touchGrants(grantee: key.grantee, object: key.object, zone: key.zone) }
     }
 
     private func setupPortEventObservers() {

@@ -134,21 +134,34 @@ struct PortObjectGrantTests {
         #expect(d.string(forKey: "portGrantsEnabled") == "keep me")
     }
 
-    @Test("the reap runs ONCE, so a grant given after it survives the next launch")
-    func reapRunsOnce() {
+    @Test("the sweep is unconditional and idempotent, because grants no longer live here")
+    func sweepIsUnconditional() {
         let d = scratchDefaults()
         d.set("terminal", forKey: "portPerms.echo.SPACE-1")
+        d.set(true, forKey: "portGrantStoreReapedV1")   // the retired once-only flag
 
-        #expect(PortGrantKey.reapGrantStore(in: d) == 1)
-        #expect(d.bool(forKey: PortGrantKey.reapFlag))
+        #expect(PortGrantKey.reapGrantStore(in: d) == 2)   // the key AND the dead flag
+        #expect(d.object(forKey: "portGrantStoreReapedV1") == nil)
 
-        // The user grants something afterwards. A reap on every launch would eat it, and the store
-        // could never accumulate the consent it exists to remember.
-        d.set("clipboard", forKey: "portGrant.echo.0.SPACE-1")
-
+        // Running again is a no-op rather than a hazard. While grants lived in defaults the flag was
+        // load-bearing — a sweep per launch would have eaten real consent. With the table
+        // authoritative there is nothing here left to protect.
         #expect(PortGrantKey.reapGrantStore(in: d) == 0)
-        #expect(d.string(forKey: "portGrant.echo.0.SPACE-1") == "clipboard",
-                "a second reap deleted a grant the user had just given")
+        #expect(PortGrantKey.reapGrantStore(in: d) == 0)
+    }
+
+    @Test("a grant lives in the TABLE, so the defaults sweep cannot touch it")
+    @MainActor
+    func sweepCannotTouchARealGrant() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let g = "grantee-\(UUID().uuidString)"
+        appState.saveGrants([.terminal], grantee: g, on: .machine, zone: nil)
+
+        PortGrantKey.reapGrantStore(in: .standard)
+
+        #expect(appState.grants(grantee: g, on: .machine, zone: nil) == [.terminal],
+                "the defaults sweep reached a grant in the table")
+        appState.revokeAllGrants(grantee: g)
     }
 
     @Test("the reap leaves an empty store, so nothing is inherited from before it")
@@ -161,6 +174,153 @@ struct PortObjectGrantTests {
         // Read back through the key the app actually uses.
         let key = PortGrantKey.key(grantee: "Claude Code", object: .machine, zone: nil)
         #expect(d.string(forKey: key) == nil)
+    }
+
+    // MARK: - The table (A.2)
+    //
+    // The store moved out of UserDefaults so the permission manager can enumerate, group and revoke
+    // ONE capability. The object/zone separation tests above are the real regression check on the
+    // swap — they pass against either store, which is the point. These cover what only a table can
+    // do, plus the two things the swap could break silently.
+
+    @Test("re-granting an existing capability does not reset its history")
+    @MainActor
+    func regrantKeepsHistory() throws {
+        let db = try DatabaseService(inMemory: true)
+        let g = "grantee-\(UUID().uuidString)"
+        try db.saveGrants([.terminal], grantee: g, object: "0", zone: "")
+        try db.touchGrants(grantee: g, object: "0", zone: "")   // it has now been USED
+
+        // Grant a second capability. The first must survive untouched, or "unused for 90 days"
+        // means nothing the moment anything re-saves the set — and re-saving is what every grant
+        // prompt does.
+        //
+        // Asserted on `lastUsedAt` rather than `grantedAt` deliberately: two `Date()` values written
+        // microseconds apart land in the same stored millisecond, so a `grantedAt` comparison passes
+        // whether the row was preserved or replaced. It was calibrated by breaking it and did not
+        // fail. `lastUsedAt` is nil-or-not, so a replaced row is unambiguous.
+        try db.saveGrants([.terminal, .clipboard], grantee: g, object: "0", zone: "")
+
+        let terminal = try #require(try db.allGrants().first {
+            $0.grantee == g && $0.permission == .terminal })
+        #expect(terminal.lastUsedAt != nil, "re-granting replaced the row and erased its use history")
+        let clipboard = try #require(try db.allGrants().first {
+            $0.grantee == g && $0.permission == .clipboard })
+        #expect(clipboard.lastUsedAt == nil, "a newly granted capability cannot already have been used")
+        #expect(try db.grants(grantee: g, object: "0", zone: "") == [.terminal, .clipboard])
+    }
+
+    @Test("using a grant records it, which is what makes reaping possible later")
+    func touchRecordsUse() throws {
+        let db = try DatabaseService(inMemory: true)
+        let g = "grantee-\(UUID().uuidString)"
+        try db.saveGrants([.terminal], grantee: g, object: "0", zone: "")
+        #expect(try db.allGrants().first { $0.grantee == g }?.lastUsedAt == nil)
+
+        try db.touchGrants(grantee: g, object: "0", zone: "")
+        #expect(try db.allGrants().first { $0.grantee == g }?.lastUsedAt != nil)
+    }
+
+    @Test("saving a smaller set revokes what is missing")
+    func saveDropsMissing() throws {
+        let db = try DatabaseService(inMemory: true)
+        let g = "grantee-\(UUID().uuidString)"
+        try db.saveGrants([.terminal, .clipboard, .screen], grantee: g, object: "0", zone: "")
+        try db.saveGrants([.terminal], grantee: g, object: "0", zone: "")
+        #expect(try db.grants(grantee: g, object: "0", zone: "") == [.terminal])
+    }
+
+    @Test("one capability can be revoked without touching the others")
+    func revokeOne() throws {
+        let db = try DatabaseService(inMemory: true)
+        let g = "grantee-\(UUID().uuidString)"
+        try db.saveGrants([.terminal, .clipboard], grantee: g, object: "0", zone: "")
+        try db.revokeGrant(grantee: g, object: "0", zone: "", permission: .clipboard)
+        #expect(try db.grants(grantee: g, object: "0", zone: "") == [.terminal])
+    }
+
+    @Test("revoking a grantee clears it everywhere, and leaves other grantees alone")
+    func revokeGrantee() throws {
+        let db = try DatabaseService(inMemory: true)
+        let a = "a-\(UUID().uuidString)", b = "b-\(UUID().uuidString)"
+        try db.saveGrants([.terminal], grantee: a, object: "0", zone: "zone-1")
+        try db.saveGrants([.screen], grantee: a, object: "0", zone: "zone-2")
+        try db.saveGrants([.terminal], grantee: b, object: "0", zone: "zone-1")
+
+        try db.revokeAllGrants(grantee: a)
+        #expect(try db.grants(grantee: a, object: "0", zone: "zone-1").isEmpty)
+        #expect(try db.grants(grantee: a, object: "0", zone: "zone-2").isEmpty)
+        #expect(try db.grants(grantee: b, object: "0", zone: "zone-1") == [.terminal])
+    }
+
+    @Test("the store can finally be ENUMERATED, which is the whole reason for the table")
+    func enumerateAll() throws {
+        let db = try DatabaseService(inMemory: true)
+        let g = "grantee-\(UUID().uuidString)"
+        try db.saveGrants([.terminal, .clipboard], grantee: g, object: "0", zone: "zone-1")
+        try db.saveGrants([.screen], grantee: g, object: "peerA/0", zone: "")
+
+        let mine = try db.allGrants().filter { $0.grantee == g }
+        #expect(mine.count == 3)                                   // one ROW per permission
+        #expect(Set(mine.map(\.object)) == ["0", "peerA/0"])
+        #expect(mine.allSatisfy { $0.lastUsedAt == nil })           // never exercised yet
+    }
+
+    @Test("a revoked capability stops answering yes THROUGH the cache")
+    @MainActor
+    func revokeBeatsTheCache() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let g = "grantee-\(UUID().uuidString)"
+
+        appState.saveGrants([.terminal], grantee: g, on: .machine, zone: nil)
+        #expect(appState.grants(grantee: g, on: .machine, zone: nil) == [.terminal])  // now cached
+
+        appState.revokeGrant(grantee: g, object: "0", zone: "", permission: .terminal)
+        #expect(appState.grants(grantee: g, on: .machine, zone: nil).isEmpty,
+                "a withdrawn capability was still granted from cache — the one error this store must not make")
+    }
+
+    @Test("a write is visible to the next read through the cache")
+    @MainActor
+    func writeThenReadIsCoherent() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let g = "grantee-\(UUID().uuidString)"
+
+        #expect(appState.grants(grantee: g, on: .machine, zone: nil).isEmpty)   // caches the miss
+        appState.saveGrants([.screen], grantee: g, on: .machine, zone: nil)
+        #expect(appState.grants(grantee: g, on: .machine, zone: nil) == [.screen],
+                "the cached MISS survived a write")
+    }
+
+    // MARK: - The manager's display rule (A.2 / D13)
+    //
+    // The one thing the permission manager exists to do. 135 of the 144 grants in the old store were
+    // qualified by a space that had been deleted, and nothing anywhere said so. Rendering a zone as
+    // a raw uuid would hide that exactly as well as having no screen did.
+
+    @Test("a zone whose space is gone is named as gone, not printed as a uuid")
+    func deadZoneIsNamedAsDead() {
+        let live = ["SPACE-1": "port42-app"]
+
+        let ok = PortGrantDisplay.zoneLabel("SPACE-1", spaceNames: live)
+        #expect(ok.text == "in #port42-app")
+        #expect(!ok.isDead)
+
+        let dead = PortGrantDisplay.zoneLabel("SPACE-DELETED", spaceNames: live)
+        #expect(dead.isDead)
+        #expect(!dead.text.contains("SPACE-DELETED"), "a uuid on screen hides exactly what this exists to show")
+
+        let everywhere = PortGrantDisplay.zoneLabel("", spaceNames: live)
+        #expect(everywhere.text == "everywhere")
+        #expect(!everywhere.isDead)
+    }
+
+    @Test("port 0 reads as the app's own name, local and remote")
+    func objectReadsAsPort42() {
+        #expect(PortGrantDisplay.objectLabel("0") == "Port42")
+        #expect(PortGrantDisplay.objectLabel("12D3KooWabc/0") == "Port42 on 12D3KooWabc")
+        #expect(PortGrantDisplay.objectLabel("tile-7") == "a port")
+        #expect(PortGrantDisplay.objectLabel("12D3KooWabc/tile-7") == "a port on 12D3KooWabc")
     }
 
     // MARK: - The gate
