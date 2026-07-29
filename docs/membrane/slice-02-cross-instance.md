@@ -771,6 +771,45 @@ only the reap flag left. `automation.runAppleScript` over the gateway had return
 silently before the reap; after it, the same call blocks on a permission prompt. That is the whole
 user-visible consequence, measured rather than asserted.
 
+### 10b. What step 1 learned, and what it changes for steps 2 and 3
+
+**Measure whether the data is worth migrating before designing the migration.** The day began on a
+copy-forward migration with a careful verification story, and it was correct and pointless. One
+census killed it: 135 of 144 grants named a deleted space, so they could never fire. The recorded
+measurement (a count and a permission breakdown) was accurate and told us nothing that mattered. The
+question that decided the design was **how many can still fire**, which needed a join against the
+live `spaces` table and had not been asked. A count is not a census.
+
+**A slot with one possible value is indistinguishable from a rename.** Every `PortPermission` case is
+a machine capability, so nothing in production can name an object other than port 0. The tests
+therefore had to use a tile key and a peer-qualified object deliberately. **This recurs at the wire
+half**, where `principal_id` will have exactly one verifier until libp2p adds the second: the same
+discipline applies, or the seam is asserted rather than tested.
+
+**The escalation in §1 is not theoretical, and the store is the evidence.** 43 of the 58 grantees
+matched nothing live, and among them are `"Claude Code"`, `"Gemini CLI"` and `claude1`…`claude101` —
+callers that chose their own `sender_id` over the WS door and accumulated standing capability. That
+is the case for half two written in production data rather than in a spike.
+
+**A failed build leaves a bundle that runs and lies.** A `./build.sh` run that reported a codesign
+error and `Operation not permitted` on a resource copy still produced a launchable app, in which the
+dreamscape and cinematic videos rendered black. That cost real time and read exactly like a
+regression: assets, bundle resolution, signature, gating and layering were each checked and cleared.
+A clean rebuild fixed it. **Rule: if a build reports a signing or copy failure, the bundle is not
+evidence. Rebuild before debugging any behavior in it.**
+
+**Concrete input for step 2: the store cannot be enumerated.** `grants(grantee:on:zone:)` is a point
+lookup, and the only walk over the store lives inside the reap. The manager needs an enumeration that
+parses `portGrant.<grantee>.<object>.<zone>` back into its three parts, **splitting from the RIGHT**:
+zone last, object second to last, grantee everything before. That is sound because an object segment
+uses `/` and never `.`, and a zone is a space id or `global`, neither of which contains a dot; a
+grantee may contain anything, including spaces, as the production keys show. Whether to keep this in
+`UserDefaults` or move it to a table is a step 2 decision, and worth taking deliberately now that
+something will finally read the whole store.
+
+**The reap emptied the store but did not touch the cause.** Nothing expires or reaps a grant, so it
+accumulates again from zero. Open question 3.
+
 ### 11. Verification
 
 Live, per door and per caller, rather than once. The lesson this scope is built on is that a fix

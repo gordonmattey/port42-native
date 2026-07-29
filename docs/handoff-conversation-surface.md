@@ -51,12 +51,23 @@ so the store starts empty and every caller asks once more. The raw store was dum
 
 **Step 2 is the permission manager** (D13) — nothing in `Sources/Port42Lib/Views/` has ever read a
 grant. It now opens on an EMPTY store and fills only with grants a human actually gives, so its job
-is legibility and revocation rather than cleanup. Step 3 is the card naming its object plus the
-deletions (`remoteAllow*`, the dead `PortPermissionOverlay`). That is half one, a coherent release
-with no authentication in it.
+is legibility and revocation rather than cleanup. **Its first task is that the store cannot be
+enumerated**: `grants(grantee:on:zone:)` is a point lookup and the only walk lives inside the reap.
+The manager needs an enumeration that parses the key from the RIGHT (zone last, object second to
+last, grantee the rest), which is sound because an object uses `/` not `.` and a zone never contains
+a dot. Whether the store stays in `UserDefaults` or becomes a table is a step 2 call worth taking
+deliberately, now that something will finally read all of it. Step 3 is the card naming its object
+plus the deletions (`remoteAllow*`, the dead `PortPermissionOverlay`). That is half one, a coherent
+release with no authentication in it.
 
 **Still open, and the reap did not fix it:** nothing expires or reaps a grant, so the same
 accumulation restarts from zero (slice doc §13.3).
+
+**Learnings from step 1 are in slice doc §10b**, including two that change how later steps are run:
+measure whether data is worth migrating before designing the migration (a count is not a census, and
+the number that reversed the design was one nobody had asked for); and **a seam with one possible
+value must be tested with a second one**, which recurs at the wire half where `principal_id` has a
+single verifier until libp2p adds the next.
 
 Half two (the credential, the `principal_id` seam, deleting `local-http`) follows. §9 has the order.
 
@@ -97,6 +108,11 @@ Half two (the credential, the `principal_id` seam, deleting `local-http`) follow
 - **Test in Dev3 (`:4245`) only**, `./build.sh --dev3 --run`. Dev `:4243` and prod need GM's
   go-ahead. Dev3 builds do not.
 - Every build runs the full suite and aborts on red. **Do not commit or refactor unless asked.**
+- **A build that reported a signing or copy failure is NOT evidence.** A `./build.sh` run that hit a
+  codesign error and `Operation not permitted` on a resource copy still produced a launchable app in
+  which every bundled video rendered black. It read exactly like a regression and cost real time.
+  Rebuild clean before debugging any behavior. (On the copy failure: `xattr -cr
+  .build/arm64-apple-macosx/debug`, and quit a running Dev3 so signing is not blocked.)
 - Generated artifacts (`llms.txt`, `Tests/Fixtures/tool-definitions-golden.json`) have regen paths —
   READ THE DIFF. Never pipe `build.sh` through head/tail.
 - No em dashes, US spelling, report style in docs. Present choices to GM as plain text, never an

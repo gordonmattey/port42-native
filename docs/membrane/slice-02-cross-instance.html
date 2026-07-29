@@ -1648,6 +1648,57 @@ migration’s flag) were gone after launch, with only the reap flag left.
 <code>{&quot;result&quot;:&quot;42&quot;}</code> silently before the reap; after it, the
 same call blocks on a permission prompt. That is the whole user-visible
 consequence, measured rather than asserted.</p>
+<h3 id="b.-what-step-1-learned-and-what-it-changes-for-steps-2-and-3">10b.
+What step 1 learned, and what it changes for steps 2 and 3</h3>
+<p><strong>Measure whether the data is worth migrating before designing
+the migration.</strong> The day began on a copy-forward migration with a
+careful verification story, and it was correct and pointless. One census
+killed it: 135 of 144 grants named a deleted space, so they could never
+fire. The recorded measurement (a count and a permission breakdown) was
+accurate and told us nothing that mattered. The question that decided
+the design was <strong>how many can still fire</strong>, which needed a
+join against the live <code>spaces</code> table and had not been asked.
+A count is not a census.</p>
+<p><strong>A slot with one possible value is indistinguishable from a
+rename.</strong> Every <code>PortPermission</code> case is a machine
+capability, so nothing in production can name an object other than port
+0. The tests therefore had to use a tile key and a peer-qualified object
+deliberately. <strong>This recurs at the wire half</strong>, where
+<code>principal_id</code> will have exactly one verifier until libp2p
+adds the second: the same discipline applies, or the seam is asserted
+rather than tested.</p>
+<p><strong>The escalation in §1 is not theoretical, and the store is the
+evidence.</strong> 43 of the 58 grantees matched nothing live, and among
+them are <code>&quot;Claude Code&quot;</code>, <code>&quot;Gemini CLI&quot;</code> and
+<code>claude1</code>…<code>claude101</code> — callers that chose their
+own <code>sender_id</code> over the WS door and accumulated standing
+capability. That is the case for half two written in production data
+rather than in a spike.</p>
+<p><strong>A failed build leaves a bundle that runs and lies.</strong> A
+<code>./build.sh</code> run that reported a codesign error and
+<code>Operation not permitted</code> on a resource copy still produced a
+launchable app, in which the dreamscape and cinematic videos rendered
+black. That cost real time and read exactly like a regression: assets,
+bundle resolution, signature, gating and layering were each checked and
+cleared. A clean rebuild fixed it. <strong>Rule: if a build reports a
+signing or copy failure, the bundle is not evidence. Rebuild before
+debugging any behavior in it.</strong></p>
+<p><strong>Concrete input for step 2: the store cannot be
+enumerated.</strong> <code>grants(grantee:on:zone:)</code> is a point
+lookup, and the only walk over the store lives inside the reap. The
+manager needs an enumeration that parses
+<code>portGrant.&lt;grantee&gt;.&lt;object&gt;.&lt;zone&gt;</code> back
+into its three parts, <strong>splitting from the RIGHT</strong>: zone
+last, object second to last, grantee everything before. That is sound
+because an object segment uses <code>/</code> and never <code>.</code>,
+and a zone is a space id or <code>global</code>, neither of which
+contains a dot; a grantee may contain anything, including spaces, as the
+production keys show. Whether to keep this in <code>UserDefaults</code>
+or move it to a table is a step 2 decision, and worth taking
+deliberately now that something will finally read the whole store.</p>
+<p><strong>The reap emptied the store but did not touch the
+cause.</strong> Nothing expires or reaps a grant, so it accumulates
+again from zero. Open question 3.</p>
 <h3 id="verification">11. Verification</h3>
 <p>Live, per door and per caller, rather than once. The lesson this
 scope is built on is that a fix verified on one caller path was assumed
