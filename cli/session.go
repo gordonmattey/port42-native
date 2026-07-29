@@ -19,21 +19,28 @@ type Session struct {
 	ModTime time.Time
 }
 
-// projectSlug is claude's cwd-to-directory rule: every "/" becomes "-". Used as a FAST PATH
-// only. It is an internal convention of another tool, so `sessionsForCwd` falls back to reading
-// the cwd recorded inside the transcripts when the slug directory yields nothing. The shim
-// sidesteps the same rule the same way, by globbing (shim/main.go:82-88).
+// projectSlug is claude's cwd-to-directory rule: "/" and "." both become "-". The dot matters
+// more than it looks — any path with a dotted component (a worktree under .claude/, a dotfile
+// directory) lands somewhere else entirely without it, and the miss is silent.
+//
+// A FAST PATH only. This is an internal convention of another tool, so `SessionsForCwd` falls
+// back to reading the cwd recorded inside the transcripts when the slug directory yields
+// nothing. The shim sidesteps the same rule the same way, by globbing (shim/main.go:82-88).
 func projectSlug(cwd string) string {
-	return strings.ReplaceAll(cwd, "/", "-")
+	return strings.NewReplacer("/", "-", ".", "-").Replace(cwd)
 }
 
-// transcriptCwd reads the `cwd` field out of a transcript. Not every line carries one (the
-// opening line is often a "mode" record), so scan a bounded number of lines and give up rather
-// than read a large file to its end. Returns "" when the file records no cwd.
-func transcriptCwd(path string) string {
+// transcriptCwds reads the working directories a transcript records. Not every line carries one
+// (the opening line is often a "mode" record), so scan a bounded number of lines rather than
+// read a large file to its end.
+//
+// Plural, because a session can CHANGE directory: start in a repo, move into a worktree, and
+// the transcript holds both. Matching only the first one hides exactly the session the user is
+// most likely reaching for, which is the one they were in most recently.
+func transcriptCwds(path string) []string {
 	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer f.Close()
 
@@ -42,18 +49,31 @@ func transcriptCwd(path string) string {
 	// which would otherwise abort the scan with ErrTooLong and read as "no cwd here".
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
-	for i := 0; i < 40 && sc.Scan(); i++ {
+	seen := map[string]bool{}
+	var out []string
+	for i := 0; i < 200 && sc.Scan(); i++ {
 		var rec struct {
 			Cwd string `json:"cwd"`
 		}
 		if err := json.Unmarshal(sc.Bytes(), &rec); err != nil {
 			continue
 		}
-		if rec.Cwd != "" {
-			return rec.Cwd
+		if rec.Cwd != "" && !seen[rec.Cwd] {
+			seen[rec.Cwd] = true
+			out = append(out, rec.Cwd)
 		}
 	}
-	return ""
+	return out
+}
+
+// transcriptRanIn reports whether a transcript records the given working directory.
+func transcriptRanIn(path, cwd string) bool {
+	for _, c := range transcriptCwds(path) {
+		if c == cwd {
+			return true
+		}
+	}
+	return false
 }
 
 // sessionsFromDir collects the transcripts in one project directory, newest first. `wantCwd`
@@ -69,10 +89,10 @@ func sessionsFromDir(dir, wantCwd string) []Session {
 		}
 		cwd := ""
 		if wantCwd != "" {
-			cwd = transcriptCwd(path)
-			if cwd != wantCwd {
+			if !transcriptRanIn(path, wantCwd) {
 				continue
 			}
+			cwd = wantCwd
 		}
 		out = append(out, Session{
 			ID:      strings.TrimSuffix(filepath.Base(path), ".jsonl"),

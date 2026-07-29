@@ -38,6 +38,11 @@ func TestProjectSlug(t *testing.T) {
 		{"/Users/gordon/code", "-Users-gordon-code"},
 		{"/", "-"},
 		{"/a/b-c/d", "-a-b-c-d"},
+		// A dot becomes a dash too. Missing this sent every path with a dotted component
+		// (a worktree under .claude/, any dotfile directory) to a directory that does not
+		// exist, and the fast path failed silently.
+		{"/Users/g/repo/.claude/worktrees/x", "-Users-g-repo--claude-worktrees-x"},
+		{"/Users/g/my.app/src", "-Users-g-my-app-src"},
 	}
 	for _, c := range cases {
 		if got := projectSlug(c.cwd); got != c.want {
@@ -46,29 +51,49 @@ func TestProjectSlug(t *testing.T) {
 	}
 }
 
-func TestTranscriptCwd(t *testing.T) {
+func TestTranscriptCwds(t *testing.T) {
 	home := t.TempDir()
 
 	// The opening record often carries no cwd, so the scan must look past it.
 	p := writeTranscript(t, home, "proj", "s1", 0,
 		`{"type":"mode","sessionId":"s1"}`,
 		cwdLine("/Users/gordon/code"))
-	if got := transcriptCwd(p); got != "/Users/gordon/code" {
-		t.Errorf("transcriptCwd = %q, want /Users/gordon/code", got)
+	if !transcriptRanIn(p, "/Users/gordon/code") {
+		t.Error("should find the cwd recorded after a cwd-less opening record")
 	}
 
-	// A transcript that records no cwd at all yields "" rather than a false match.
+	// A transcript that records no cwd at all matches nothing rather than matching falsely.
 	p2 := writeTranscript(t, home, "proj", "s2", 0, `{"type":"mode"}`)
-	if got := transcriptCwd(p2); got != "" {
-		t.Errorf("transcriptCwd on a cwd-less transcript = %q, want empty", got)
+	if got := transcriptCwds(p2); len(got) != 0 {
+		t.Errorf("cwd-less transcript = %v, want none", got)
 	}
 
 	// Lines far larger than bufio's 64KB default must not abort the scan. That failure mode
 	// would read as "no cwd here" and silently drop the session from the fallback path.
 	huge := `{"type":"assistant","text":"` + strings.Repeat("x", 200_000) + `"}`
 	p3 := writeTranscript(t, home, "proj", "s3", 0, huge, cwdLine("/Users/gordon/big"))
-	if got := transcriptCwd(p3); got != "/Users/gordon/big" {
-		t.Errorf("transcriptCwd past a 200KB line = %q, want /Users/gordon/big", got)
+	if !transcriptRanIn(p3, "/Users/gordon/big") {
+		t.Error("should find a cwd recorded past a 200KB line")
+	}
+}
+
+func TestTranscriptMatchesAnyDirectoryItRanIn(t *testing.T) {
+	// A session that moves (repo -> worktree) records both. Matching only the FIRST hides the
+	// session from the directory the user is most likely standing in when they teleport.
+	home := t.TempDir()
+	p := writeTranscript(t, home, "proj", "moved", 0,
+		cwdLine("/Users/gordon/repo"),
+		`{"type":"assistant","text":"switching"}`,
+		cwdLine("/Users/gordon/repo/.claude/worktrees/feature"))
+
+	if !transcriptRanIn(p, "/Users/gordon/repo") {
+		t.Error("should still match the directory it started in")
+	}
+	if !transcriptRanIn(p, "/Users/gordon/repo/.claude/worktrees/feature") {
+		t.Error("should match the directory it moved into")
+	}
+	if transcriptRanIn(p, "/Users/gordon/somewhere-else") {
+		t.Error("must not match a directory it never ran in")
 	}
 }
 
