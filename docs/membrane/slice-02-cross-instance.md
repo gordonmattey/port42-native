@@ -715,9 +715,8 @@ nothing here can strand a caller.
 
 **Half two: the credential.** Every step here has the manager from step 2 to make it legible.
 
-4. **Store and mint.** Root secret, derived tokens, the token file, minting from the acts that
-   already exist (connect a tool, spawn a child, add by hand). Clients appear in the manager as a
-   grantee kind. Nothing enforces yet.
+4. **Store and mint. DONE 2026-07-29.** Root secret, derived tokens, the token file, the `clients`
+   table, and clients in the manager as a grantee kind. Nothing enforces yet. See "Step 4 as built".
 5. **Seam and verifier together.** `principal_id` exists, is written only by the verifier, and a
    call without one is refused. `local-http` is deleted rather than preserved: carrying a transport
    label through a transition step would seed the new field with exactly the kind of value it
@@ -859,6 +858,41 @@ is deleted.
 **One process note.** A full-suite run failed a streaming-cancel test on a 60s time limit, taking
 445s. It passes alone in 0.4s; the cause was contention from concurrent builds, not the change. Worth
 knowing that suite is load-sensitive before treating it as a real failure.
+
+### 10a4. Step 4 as built (2026-07-29) — half two begins, and enforces nothing
+
+`ClientRegistry` is the only place a token is minted, named or revoked. `clients` table
+(migration `v44-clients`): id (slug), name, kind (paired | child | manual), createdAt, lastSeenAt,
+revokedAt. The root secret is 32 random bytes in the Keychain, **instance-qualified** as
+`gateway-root-<instance>` off `PORT42_DATA_DIR`, so instance separation falls out of the secret
+rather than a path check (NFR4) — and a Dev3 token simply fails production's verification.
+
+Token is `p42_<id>_<mac>`, mac = base64url-unpadded HMAC-SHA256 over the **id**, so a token cannot be
+replayed as another client. `id` is constrained to `[a-z0-9-]`, which is also what stops a
+caller-supplied name smuggling a path separator into the token FILE's name — the name is a claim, and
+slugging is what makes it safe to use as a filename and a key. Files land at 0600 inside a 0700
+directory; revoking deletes the file (BR5).
+
+A child's id is DERIVED (`child-<companionId>-<spaceId>`), so a companion terminal keeps its grants
+across respawns. Re-registering an existing slug re-issues onto the same row and clears `revokedAt`,
+because re-enrolling is a deliberate act by the same user.
+
+**Nothing enforces.** Tokens exist and clients show in the manager under CONNECTED; no call is
+refused for lacking one. That is step 5, by which point every caller has a token and the refusal can
+teach the fix.
+
+**NFR1 got a STRUCTURAL gate, because the behavioral one was a lie.** A test named "constant-time"
+that only asserts a near-miss fails is satisfied by plain `==` — and when the naive comparison was
+substituted, that test stayed green. The real gate scans `verify`'s body: it must route through
+`constantTimeEquals` and must not compare a MAC with `==`. **Timing is not unit-testable, so the
+guarantee has to be structural.** This is the second time in two days that calibration caught a weak
+TEST rather than weak code (§10a2), and both were tests whose NAME claimed more than their body
+checked.
+
+Also calibrated by breaking: a MAC that stops binding the id (caught — a token replayed as another
+client), and a slug that lets `/` and `.` through (caught — `../../etc/passwd` survived).
+
+Suite **1219 green**.
 
 ### 10b. What step 1 learned, and what it changes for steps 2 and 3
 

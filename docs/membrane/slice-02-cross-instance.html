@@ -1578,10 +1578,10 @@ built” below. <strong>Half one is complete.</strong></li>
 <p><strong>Half two: the credential.</strong> Every step here has the
 manager from step 2 to make it legible.</p>
 <ol start="4" type="1">
-<li><strong>Store and mint.</strong> Root secret, derived tokens, the
-token file, minting from the acts that already exist (connect a tool,
-spawn a child, add by hand). Clients appear in the manager as a grantee
-kind. Nothing enforces yet.</li>
+<li><strong>Store and mint. DONE 2026-07-29.</strong> Root secret,
+derived tokens, the token file, the <code>clients</code> table, and
+clients in the manager as a grantee kind. Nothing enforces yet. See
+“Step 4 as built”.</li>
 <li><strong>Seam and verifier together.</strong>
 <code>principal_id</code> exists, is written only by the verifier, and a
 call without one is refused. <code>local-http</code> is deleted rather
@@ -1756,6 +1756,50 @@ streaming-cancel test on a 60s time limit, taking 445s. It passes alone
 in 0.4s; the cause was contention from concurrent builds, not the
 change. Worth knowing that suite is load-sensitive before treating it as
 a real failure.</p>
+<h3 id="a4.-step-4-as-built-2026-07-29-half-two-begins-and-enforces-nothing">10a4.
+Step 4 as built (2026-07-29) — half two begins, and enforces
+nothing</h3>
+<p><code>ClientRegistry</code> is the only place a token is minted,
+named or revoked. <code>clients</code> table (migration
+<code>v44-clients</code>): id (slug), name, kind (paired | child |
+manual), createdAt, lastSeenAt, revokedAt. The root secret is 32 random
+bytes in the Keychain, <strong>instance-qualified</strong> as
+<code>gateway-root-&lt;instance&gt;</code> off
+<code>PORT42_DATA_DIR</code>, so instance separation falls out of the
+secret rather than a path check (NFR4) — and a Dev3 token simply fails
+production’s verification.</p>
+<p>Token is <code>p42_&lt;id&gt;_&lt;mac&gt;</code>, mac =
+base64url-unpadded HMAC-SHA256 over the <strong>id</strong>, so a token
+cannot be replayed as another client. <code>id</code> is constrained to
+<code>[a-z0-9-]</code>, which is also what stops a caller-supplied name
+smuggling a path separator into the token FILE’s name — the name is a
+claim, and slugging is what makes it safe to use as a filename and a
+key. Files land at 0600 inside a 0700 directory; revoking deletes the
+file (BR5).</p>
+<p>A child’s id is DERIVED
+(<code>child-&lt;companionId&gt;-&lt;spaceId&gt;</code>), so a companion
+terminal keeps its grants across respawns. Re-registering an existing
+slug re-issues onto the same row and clears <code>revokedAt</code>,
+because re-enrolling is a deliberate act by the same user.</p>
+<p><strong>Nothing enforces.</strong> Tokens exist and clients show in
+the manager under CONNECTED; no call is refused for lacking one. That is
+step 5, by which point every caller has a token and the refusal can
+teach the fix.</p>
+<p><strong>NFR1 got a STRUCTURAL gate, because the behavioral one was a
+lie.</strong> A test named “constant-time” that only asserts a near-miss
+fails is satisfied by plain <code>==</code> — and when the naive
+comparison was substituted, that test stayed green. The real gate scans
+<code>verify</code>’s body: it must route through
+<code>constantTimeEquals</code> and must not compare a MAC with
+<code>==</code>. <strong>Timing is not unit-testable, so the guarantee
+has to be structural.</strong> This is the second time in two days that
+calibration caught a weak TEST rather than weak code (§10a2), and both
+were tests whose NAME claimed more than their body checked.</p>
+<p>Also calibrated by breaking: a MAC that stops binding the id (caught
+— a token replayed as another client), and a slug that lets
+<code>/</code> and <code>.</code> through (caught —
+<code>../../etc/passwd</code> survived).</p>
+<p>Suite <strong>1219 green</strong>.</p>
 <h3 id="b.-what-step-1-learned-and-what-it-changes-for-steps-2-and-3">10b.
 What step 1 learned, and what it changes for steps 2 and 3</h3>
 <p><strong>Measure whether the data is worth migrating before designing

@@ -379,7 +379,52 @@ public final class Port42AuthStore {
         NSLog("[Port42:auth] Migration complete (oldMode=%@)", oldMode ?? "nil")
     }
 
+    // MARK: - Gateway root secret (slice-02 half two, D2)
+    //
+    // The ONE thing that can mint a client token. 32 random bytes, created on first use, and
+    // INSTANCE-QUALIFIED: prod, Dev and Dev3 hold different secrets, so a token minted by one fails
+    // another's verification. Instance separation therefore falls out of the secret rather than out
+    // of a path check (NFR4).
+    //
+    // Spike A validated the Keychain for this: a new RELEASE, same identifier and certificate but a
+    // different cdhash, reads it back silently. It also explains the dev-instance prompt exactly —
+    // a dev build has a different bundle id AND certificate — which is the second reason to qualify
+    // the account by instance.
+
+    private func rootSecretAccount(_ instance: String) -> String { "gateway-root-\(instance)" }
+
+    public func gatewayRootSecret(instance: String) -> String? {
+        loadKeychainValue(account: rootSecretAccount(instance))
+    }
+
+    public func saveGatewayRootSecret(_ value: String, instance: String) {
+        saveKeychainValue(value, account: rootSecretAccount(instance))
+    }
+
+    public func deleteGatewayRootSecret(instance: String) {
+        deleteKeychainValue(account: rootSecretAccount(instance))
+    }
+
     // MARK: - Private
+
+    private func saveKeychainValue(_ value: String, account: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ] as CFDictionary)
+        let status = SecItemAdd([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data
+        ] as CFDictionary, nil)
+        if status != errSecSuccess {
+            // NEVER log the value (NFR2) — only that it failed, and with what code.
+            NSLog("[Port42] Failed to save keychain value for %@: %d", account, status)
+        }
+    }
 
     private func loadKeychainValue(account: String) -> String? {
         let query: [String: Any] = [

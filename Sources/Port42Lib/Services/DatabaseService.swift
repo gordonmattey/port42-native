@@ -687,7 +687,87 @@ public final class DatabaseService {
                           columns: ["grantee", "object", "zone"])
         }
 
+        migrator.registerMigration("v44-clients") { db in
+            // Slice-02 half two (D1): a caller becomes a NAMED thing. Today every local process
+            // collapses into one shared `local-http` principal, which is why the permission card is
+            // anonymous and why a grant given to one tool is inherited by every other.
+            //
+            // `id` is a slug rather than a UUID because it is also the token FILE's name, and the
+            // documented client flow is "read a known path, pair only if it is missing" — a UUID
+            // would make that path unknowable before the first pairing.
+            //
+            // The HOST is not a row: it is ephemeral, holds no grants, and is regenerated per
+            // gateway spawn, which is what makes `is_host` unforgeable by anything on disk.
+            try db.create(table: "clients") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()       // the label on permission cards, fixed at mint
+                t.column("kind", .text).notNull()       // paired | child | manual
+                t.column("createdAt", .datetime).notNull()
+                t.column("lastSeenAt", .datetime)
+                t.column("revokedAt", .datetime)        // null = active
+            }
+        }
+
         try migrator.migrate(dbQueue)
+    }
+
+    // MARK: - Clients (slice-02 half two, D1)
+
+    /// Register or re-issue. Re-registering an existing slug keeps `createdAt` and any grants, and
+    /// CLEARS `revokedAt` — re-enrolling a revoked client is a deliberate act by the same user.
+    public func upsertClient(id: String, name: String, kind: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                     INSERT INTO clients (id, name, kind, createdAt) VALUES (?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET name = excluded.name,
+                                                   kind = excluded.kind,
+                                                   revokedAt = NULL
+                     """,
+                arguments: [id, name, kind, Date()])
+        }
+    }
+
+    public func allClients() throws -> [Port42Client] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                                      SELECT id, name, kind, createdAt, lastSeenAt, revokedAt
+                                      FROM clients ORDER BY createdAt
+                                      """).compactMap(Self.client(from:))
+        }
+    }
+
+    public func client(id: String) throws -> Port42Client? {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db, sql: """
+                         SELECT id, name, kind, createdAt, lastSeenAt, revokedAt
+                         FROM clients WHERE id = ?
+                         """, arguments: [id]) else { return nil }
+            return Self.client(from: row)
+        }
+    }
+
+    public func revokeClient(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE clients SET revokedAt = ? WHERE id = ?",
+                           arguments: [Date(), id])
+        }
+    }
+
+    /// Stamped on each accepted call once the verifier lands (D6 step 5).
+    public func touchClient(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE clients SET lastSeenAt = ? WHERE id = ?",
+                           arguments: [Date(), id])
+        }
+    }
+
+    private static func client(from row: Row) -> Port42Client? {
+        guard let kind = Port42Client.Kind(rawValue: row["kind"]) else { return nil }
+        return Port42Client(id: row["id"], name: row["name"], kind: kind,
+                            createdAt: row["createdAt"], lastSeenAt: row["lastSeenAt"],
+                            revokedAt: row["revokedAt"])
     }
 
     // MARK: - Grants (slice-02 milestone A step 2)

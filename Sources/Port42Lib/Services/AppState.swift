@@ -1168,6 +1168,24 @@ public final class AppState: ObservableObject {
         (try? db.allGrants()) ?? []
     }
 
+    // MARK: - Clients (slice-02 half two, step 4)
+
+    /// The one registry. Lazy so an instance that never mints a token never touches the Keychain.
+    public private(set) lazy var clientRegistry = ClientRegistry(db: db)
+
+    /// Enrolled, non-revoked clients — a grantee kind in the manager beside companion, port and peer.
+    public func enrolledClients() -> [Port42Client] {
+        clientRegistry.clients().filter(\.isActive)
+    }
+
+    /// Revoke a client: marks the row and deletes its token file. Its GRANTS are separate and are
+    /// revoked separately — a client that pairs again keeps what it was given, which is deliberate
+    /// (D1: re-issuing onto the same row is what stops a deleted token file costing the user their
+    /// consent history).
+    public func revokeClient(id: String) {
+        clientRegistry.revoke(id: id)
+    }
+
     /// Revoke one capability, or everything a grantee holds. Both drop the cache wholesale rather
     /// than surgically: a revoke is rare and a stale cache entry here means a capability the user
     /// just withdrew still answering yes, which is the one error this store must not make.

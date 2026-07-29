@@ -1053,6 +1053,45 @@ public struct SignOutSheet: View {
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
 
+                // Enrolled clients (slice-02 half two, step 4). A client is a GRANTEE KIND beside
+                // companion, port and peer, which is why "who is connected" and "what did I grant"
+                // are one screen rather than two answering the same question (D13).
+                //
+                // Nothing enforces a token yet, so a client listed here is enrolled and named but
+                // not yet required to authenticate. That lands with the verifier in step 5.
+                let clients = appState.enrolledClients()
+                if !clients.isEmpty {
+                    Text("CONNECTED")
+                        .font(Port42Theme.mono(9)).tracking(2)
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.top, 4)
+                    ForEach(clients) { client in
+                        HStack(spacing: 8) {
+                            Text(client.name)
+                                .font(Port42Theme.monoBold(12))
+                                .foregroundStyle(Port42Theme.textPrimary)
+                            Text(client.kind.rawValue)
+                                .font(Port42Theme.mono(9))
+                                .foregroundStyle(Port42Theme.textSecondary)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 3))
+                            Spacer()
+                            Button("revoke client") {
+                                appState.revokeClient(id: client.id)
+                                grantsRefresh &+= 1
+                            }
+                            .font(Port42Theme.mono(10))
+                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+                            .buttonStyle(.plain)
+                        }
+                        .id("client-\(client.id)-\(grantsRefresh)")
+                    }
+                    Text("GRANTED")
+                        .font(Port42Theme.mono(9)).tracking(2)
+                        .foregroundStyle(Port42Theme.textSecondary)
+                        .padding(.top, 8)
+                }
+
                 let all = granteeGrants
                 if all.isEmpty {
                     Text("Nothing has been granted yet.")
