@@ -1,3 +1,102 @@
+# Handoff: Slice-02 — one slice, local seams through libp2p
+
+## Where this left off (2026-07-29)
+
+**On `main`**, HEAD `041eef1`, tree clean (one untracked file, `docs/plan-teleport.md`, which is
+GM's and was left alone). **17 commits UNPUSHED.** Suite **1172 green**.
+
+**READ `docs/membrane/slice-02-cross-instance.md` IN FULL FIRST.** It is now the single document for
+this thread: the model, the requirements, the design D1-D14, the deliverables, the build order, the
+verification matrix, the four spikes and the open questions. There is an HTML rendering beside it
+(`slice-02-cross-instance.html`, self-contained, regenerate with pandoc if the markdown moves).
+
+### THE RESCOPE (GM, 2026-07-28) — this is the thing that changed
+
+**Gateway auth P1 is no longer a phase BEFORE slice-02. It IS slice-02's local half**, built in the
+shape that lets libp2p slot in rather than land on a refactor. The permission manager rides with it.
+One slice, one document. `plan-gateway-auth-tls.md` keeps P0 (shipped) and the TLS phases only; its
+P1 section is a pointer.
+
+**Part 0 of the slice doc is the spine**: per noun, what the local half must build and what libp2p
+then adds, with the test written down — *adding libp2p should mean writing a verifier and a transport
+and touching nothing above the seam.*
+
+### THE MODEL (GM): the desktop is a port. PORT 0.
+
+ONE primitive, a port. Port 0 is the Port42 window itself (its title is the user-facing name). Zones
+(a space is the first) group ports ON TOP of the primitive and are never a kind of object. So
+`caller -> port -> action -> permission` holds with no exceptions.
+
+**The measurement that settles it:** production holds 143 grants, EVERY one a port 0 capability
+(120 terminal, 21 rest, 18 screen, 18 filesystem, 12 ai, 8 clipboard, 6 automation, 2 microphone,
+1 notification), and 140 of the 143 keys are space-scoped. So `portPerms.<grantee>.<spaceId>` names a
+grantee and a space and **no object at all**. The object was always the machine; having no name it
+left an empty slot and the space slid into it. Register entry: `architecture-invariants.md` §6.
+
+### IMMEDIATE NEXT STEP — slice-02 milestone A, step 1
+
+**Port 0 exists, and the grant key gains its object slot.** `<grantee> × <port> [× zone]`. `"global"`
+becomes port 0; a space id moves from the object slot to the qualifier slot. The 143 existing grants
+migrate mechanically and must widen nothing (CR5). Then step 2 is the permission manager (D13), which
+is what makes step 1's migration verifiable — nothing in `Sources/Port42Lib/Views/` has ever read a
+grant. Step 3 is the card naming its object plus the deletions. That is half one, and it is a
+coherent release on its own with no authentication in it.
+
+Half two (the credential, the `principal_id` seam, deleting `local-http`) follows. §9 has the order.
+
+### DECIDED, do not re-litigate
+
+- **`remoteAllow*` is REMOVED** (GM 2026-07-28). Three UserDefaults flags union terminal, filesystem
+  and screen into every gateway call before the principal exists, and **all three are ON in
+  production**. Everything goes through the permission request path. Five sites, listed in D12.
+- **No root token.** Every token is minted by a named act (connect a tool in Settings, spawn a child,
+  add by hand). Pairing was designed and then dropped as the only genuinely new machinery.
+- **The Keychain stays.** Spike A proved a new RELEASE does not prompt.
+- **The permission manager is IN**, as touchpoint 3, not a follow-on.
+
+### MEASURED THIS SESSION, and two of them corrected an earlier claim
+
+- **Two doors, not one.** A local WebSocket client that names itself in `identify` IS that principal,
+  and inherited a standing grant to run AppleScript with no prompt. Gating `/call` alone would have
+  left the weaker door open.
+- **`ps -E` publishes a subprocess environment** to any process running as the user, so the gateway
+  takes its secrets over stdin (spike C: both arrive, and the EOF-on-death watch still fires).
+- **The idle burn was the dreamscape, not Ghostty** — the first diagnosis was wrong. `sample` counts
+  a parked thread and a busy one identically, so a thread census is not a CPU measurement. Fixed and
+  committed (`90c34d6`): 24fps default, 27.4% -> 9.6%.
+
+### OPEN, and both have everything they need
+
+- **The chat-input beachball.** Caught live with `sample`. Full stack, database counts and ranked
+  fixes are in `summer2026-todo.md`. **One question decides which fix works and it is unanswered:**
+  ONE unbounded layout pass, or a non-terminating LOOP? `MainLoopProbe` is built and armed for it
+  (`defaults write com.port42.dev3 PORT42_MAINLOOP_PROBE -bool true`, then
+  `tail -f /tmp/port42-mainloop.log`). It reports from a background queue so it keeps working while
+  the main thread is wedged. Likely explains the undiagnosed 2026-07-16 "app froze mid-demo".
+- **A BREAKING release is pending.** v0.5.50 predates R5, so every shipped install still has opt-in
+  CAS. GM was testing before cutting it.
+
+### HARD RULES (survive the boundary)
+
+- **Test in Dev3 (`:4245`) only**, `./build.sh --dev3 --run`. Dev `:4243` and prod need GM's
+  go-ahead. Dev3 builds do not.
+- Every build runs the full suite and aborts on red. **Do not commit or refactor unless asked.**
+- Generated artifacts (`llms.txt`, `Tests/Fixtures/tool-definitions-golden.json`) have regen paths —
+  READ THE DIFF. Never pipe `build.sh` through head/tail.
+- No em dashes, US spelling, report style in docs. Present choices to GM as plain text, never an
+  option box.
+- **Booting a dev instance rewrites the global `~/.claude/CLAUDE.md` port42 block** to that instance's
+  port, so a Claude session leaning on it curls that instance.
+
+### METHOD (earned, and it kept paying this session)
+
+Measure before designing; calibrate every gate by breaking it (the Keychain spike was wrong on its
+first run because `codesign` derives the identifier from the filename); a thread census is not a CPU
+measurement; let the compiler produce the caller list; done means live-verified, not committed; and
+when you claim something about GM's data or usage, go and look rather than assert.
+
+---
+
 # Handoff: Port42 Protocol — Address · Actor · Token
 
 ## Where this left off (2026-07-28)
