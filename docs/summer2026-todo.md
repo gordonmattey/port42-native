@@ -2721,9 +2721,13 @@ logic, and the boot pass re-points a link left dangling by moving the app. Each 
 own command name from the bundle id (`port42`, `port42-dev3`), so dev builds cannot fight the
 daily driver over one link. Verified live end to end.
 
+Confirmed live: the fork writes its transcript on the FIRST TURN, not at launch, and it carries the
+prior conversation (1.7MB / 541 lines under the derived id). So "context intact" is verified, not
+inferred.
+
 Still open, deliberately: companion registration, so a teleported port is watchable but not
-`@mention`-addressable. Handoff mode for CLIs without resume becomes `port42 handoff`, which
-pairs with the config-packs item.
+`@mention`-addressable — now its own item directly below. Handoff mode for CLIs without resume
+becomes `port42 handoff`, which pairs with the config-packs item.
 
 **The idea.** Ship a `teleport` CLI with the Mac install. You are Claude Code (or any resumable CLI
 agent) in some terminal, anywhere. You run `teleport` and your current session re-launches INSIDE a
@@ -2762,6 +2766,42 @@ item.
 
 Cross-ref: distinct from `## TODO: port teleport — moving a port between instances` below. That one
 moves a PORT between instances; this one moves an agent SESSION into Port42.
+
+## TODO (2026-07-29, GM): a teleported session must become a COMPANION, not just a terminal port
+
+**GM, after the first live teleport:** "it works but the claude doesn't become a companion which it
+should."
+
+Teleport lands the session in a port that is visible, tiled, watchable, and wired to the hooks. It
+is NOT a member of the space: you cannot `@mention` it, it has no member row, and nothing announces
+its arrival. So the pitch the feature exists to serve — "the agent stops being a process in a pane
+and becomes a participant in a place" — is delivered only halfway. It arrives in the room and then
+cannot be spoken to.
+
+**Why it stops there.** `port.create` routes to `createPort`, whose terminal branch calls
+`spawnNativeTerminalPort` with a `companionName` but **no `companionId`**, and never reaches
+`joinCompanionToSpace` (`AppState.swift:3081-3083`). That seam — assign membership, refresh the
+space's crew, announce the arrival once on the real not-member → member transition — lives only on
+the `spawnTerminalAgentPort` path (`:3251-3274`), which `port.create` does not take.
+
+**Scope sketch:**
+- **Register a companion.** A teleported port needs an `AgentConfig` and an id, so membership and
+  mention-routing have something to key on. Decide whether this is a new `port.create` option
+  (`companion: true`) or a distinct verb, since every `port.create({type:"terminal"})` caller
+  inherits whatever is chosen.
+- **Join the space** through the existing `joinCompanionToSpace` seam, so the announce-once
+  discipline and crew refresh come for free rather than being reimplemented.
+- **A handle worth typing.** The spawn currently frames the CLI as a companion named after the port
+  title, so the live test produced one called `teleport: main` — the operational prompt is already
+  there, but the name is a title, not a handle. Derive something mentionable (branch, directory, or
+  a `--name` flag on the CLI).
+- **Identity across relaunch.** Companion session ids are per-(space, companion) UUIDv5
+  (`ClaudeSessionId.derive`); a teleported session arrives with an id of its own from the fork.
+  Work out which wins so a rebuilt terminal reopens the teleported conversation rather than a fresh
+  companion one.
+
+**Sizing:** S–M. The membership machinery exists and is exercised daily; the work is choosing the
+API shape and the naming, not building the seam.
 
 ## TODO: companions as bus actors — a `busWatch` trigger (2026-07-23, GM) → `docs/spike-synth-tick-architecture.md`
 
