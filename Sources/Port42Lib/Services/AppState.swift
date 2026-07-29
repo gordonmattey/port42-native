@@ -1300,8 +1300,16 @@ public final class AppState: ObservableObject {
             // NEVER from a test process: this boot path runs in test worlds too, and unguarded it
             // rewrote the user's REAL instruction files during a test run (same escape class as
             // the gateway-reclaim incident; canaried in GatewayReclaimSafetyTests).
+            // Boot install: put the bundled `port42` CLI on the user's PATH and keep it there.
+            // Unlike the instruction blocks above this is unconditional, because the CLI ships
+            // WITH the app rather than being opted into: `port42 teleport` has to be there the
+            // first time someone reaches for it. Idempotent, and it re-points a link left stale
+            // by moving the app (Downloads -> /Applications).
+            // Same test-process guard, and for the same reason: this writes to the user's real
+            // ~/.local/bin, which a test run must never touch.
             if !AppState.isTestProcess {
                 InstructionService.shared.refreshInstalled()
+                CLIInstallService.shared.install()
             }
 
             // Migrate old auth format

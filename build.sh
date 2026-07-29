@@ -14,6 +14,15 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 # Auto-created here so it's never a manual step (and you can see where builds go).
 if [[ "$DIR" == */Dropbox/* ]] && [ ! -L "$DIR/.build" ]; then
     EXTERNAL_BUILD="$HOME/port42-build"
+    # Every checkout needs its OWN build dir. A git worktree is a separate source tree, so
+    # pointing it at the main checkout's build dir has two trees compiling into one place —
+    # which surfaces as incoherent errors deep in dependencies ("FileManager has no member
+    # 'default'") and reads like a broken toolchain rather than a collision. The main checkout
+    # keeps the original path so switching to worktrees never throws away an existing build.
+    if [ "$(git -C "$DIR" rev-parse --git-dir 2>/dev/null)" \
+       != "$(git -C "$DIR" rev-parse --git-common-dir 2>/dev/null)" ]; then
+        EXTERNAL_BUILD="$HOME/port42-build-$(basename "$DIR")"
+    fi
     if [ -d "$DIR/.build" ]; then
         echo "[build] .build is a real dir inside Dropbox — relocating outside Dropbox..."
         rm -rf "$DIR/.build"
@@ -219,6 +228,14 @@ cd "$DIR/shim"
 SHIM_BIN="$DIR/.build/port42-claude-shim"
 go build -o "$SHIM_BIN" .
 
+# port42 — the user-facing command line (standalone Go module, sibling of gateway/).
+# Bundled in MacOS/ and symlinked onto the user's PATH at boot by CLIInstallService.
+echo "[build] Go CLI (port42)..."
+cd "$DIR/cli"
+go test ./... >/dev/null || { echo "[build] CLI tests failed"; exit 1; }
+CLI_BIN="$DIR/.build/port42"
+go build -o "$CLI_BIN" .
+
 # Kill any running app + gateway BEFORE we overwrite/re-sign the bundle in place.
 # `cp` and `codesign --force` modify Contents/MacOS/Port42 in place (same inode);
 # doing that to a *live* process corrupts its memory mapping, and the next lazy
@@ -260,6 +277,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/$EXEC"
 cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
 cp "$SHIM_BIN" "$MACOS/port42-claude-shim"
+cp "$CLI_BIN" "$MACOS/port42"
 
 # Add rpath so the binary can find frameworks in Contents/Frameworks/
 install_name_tool -add_rpath "@loader_path/../Frameworks" "$MACOS/$EXEC" 2>/dev/null || true
@@ -316,6 +334,7 @@ if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     [ -f "$RELEASE_PROFILE" ] && cp "$RELEASE_PROFILE" "$APP/Contents/embedded.provisionprofile"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-gateway"
     codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42-claude-shim"
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$MACOS/port42"
     # Sign Sparkle framework and all nested components (inside-out)
     if [ -d "$FRAMEWORKS/Sparkle.framework" ]; then
         SPARKLE_ENT="$DIR/Sparkle.entitlements"
