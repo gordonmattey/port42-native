@@ -2707,15 +2707,23 @@ throwaway proofs; they sit above the space-experience polish as *platform* moves
 
 ## TODO: `teleport` — bring an existing Claude Code session into a Port42 port (2026-07-23, GM)
 
-**S1 DONE 2026-07-29** → `cli/`, plan in `docs/plan-teleport.md`. The CLI works and was verified
-live: `port42 teleport` resolves the session, finds the running instance, asks which space, and
-lands the resumed session in a port. Shipped as `port42` with verbs rather than a bare `teleport`
-binary, which collides with Gravitational's Teleport (and a bare `port` would collide with
-MacPorts, and with this repo's own `port teleport` item below). No app or shim changes were
-needed: `--fork-session` makes the shim's injected `--session-id` legal alongside `--resume`.
-**Remaining: S2** (bundle in `build.sh`, sign, Settings install action symlinking
-`~/.local/bin/port42`, boot-time re-point). Companion registration stays out of scope, so a
-teleported port is watchable but not `@mention`-addressable yet.
+**DONE 2026-07-29** → `cli/`, `CLIInstallService.swift`, plan in `docs/plan-teleport.md`.
+`port42 teleport` resolves the session for `$PWD`, finds the running instance, asks which space,
+and lands the resumed session in a port. Shipped as `port42` with verbs rather than a bare
+`teleport` binary, which collides with Gravitational's Teleport (and a bare `port` would collide
+with MacPorts, and with this repo's own `port teleport` item below). No app or shim changes were
+needed for the resume itself: `--fork-session` makes the shim's injected `--session-id` legal
+alongside `--resume`.
+
+Installed WITH the app rather than opted into: bundled next to the gateway and shim, signed with
+them, symlinked onto PATH at boot. A symlink rather than a copy, so an upgrade needs no version
+logic, and the boot pass re-points a link left dangling by moving the app. Each instance owns its
+own command name from the bundle id (`port42`, `port42-dev3`), so dev builds cannot fight the
+daily driver over one link. Verified live end to end.
+
+Still open, deliberately: companion registration, so a teleported port is watchable but not
+`@mention`-addressable. Handoff mode for CLIs without resume becomes `port42 handoff`, which
+pairs with the config-packs item.
 
 **The idea.** Ship a `teleport` CLI with the Mac install. You are Claude Code (or any resumable CLI
 agent) in some terminal, anywhere. You run `teleport` and your current session re-launches INSIDE a
