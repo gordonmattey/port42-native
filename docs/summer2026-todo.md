@@ -2767,41 +2767,40 @@ item.
 Cross-ref: distinct from `## TODO: port teleport — moving a port between instances` below. That one
 moves a PORT between instances; this one moves an agent SESSION into Port42.
 
-## TODO (2026-07-29, GM): a teleported session must become a COMPANION, not just a terminal port
+## BUG (2026-07-29, GM): a teleported session does not join the space as a companion
 
 **GM, after the first live teleport:** "it works but the claude doesn't become a companion which it
-should."
+should… that works normally, it's just a bug in the teleport scenario."
 
-Teleport lands the session in a port that is visible, tiled, watchable, and wired to the hooks. It
-is NOT a member of the space: you cannot `@mention` it, it has no member row, and nothing announces
-its arrival. So the pitch the feature exists to serve — "the agent stops being a process in a pane
-and becomes a participant in a place" — is delivered only halfway. It arrives in the room and then
-cannot be spoken to.
+Spawning a terminal companion the normal way works and is exercised daily. Teleport is the one path
+that misses it: the session lands visible, tiled, watchable and wired to the hooks, but it is not a
+member of the space, so you cannot `@mention` it, it has no member row, and nothing announces its
+arrival. The pitch the feature exists to serve — the agent stops being a process in a pane and
+becomes a participant in a place — arrives in the room and then cannot be spoken to.
 
-**Why it stops there.** `port.create` routes to `createPort`, whose terminal branch calls
+**Where it diverges.** `port.create` routes to `createPort`, whose terminal branch calls
 `spawnNativeTerminalPort` with a `companionName` but **no `companionId`**, and never reaches
-`joinCompanionToSpace` (`AppState.swift:3081-3083`). That seam — assign membership, refresh the
-space's crew, announce the arrival once on the real not-member → member transition — lives only on
-the `spawnTerminalAgentPort` path (`:3251-3274`), which `port.create` does not take.
+`joinCompanionToSpace` (`AppState.swift:3081-3083`). The membership seam — assign, refresh the
+space's crew, announce once on the real not-member → member transition — lives on
+`spawnTerminalAgentPort` (`:3251-3274`), which `port.create` does not take.
 
-**Scope sketch:**
-- **Register a companion.** A teleported port needs an `AgentConfig` and an id, so membership and
-  mention-routing have something to key on. Decide whether this is a new `port.create` option
-  (`companion: true`) or a distinct verb, since every `port.create({type:"terminal"})` caller
-  inherits whatever is chosen.
-- **Join the space** through the existing `joinCompanionToSpace` seam, so the announce-once
-  discipline and crew refresh come for free rather than being reimplemented.
-- **A handle worth typing.** The spawn currently frames the CLI as a companion named after the port
-  title, so the live test produced one called `teleport: main` — the operational prompt is already
-  there, but the name is a title, not a handle. Derive something mentionable (branch, directory, or
-  a `--name` flag on the CLI).
+That default is CORRECT for the general API: `port.create({type:"terminal"})` also runs `htop`, and
+a shell running a pager has no business joining the crew. The defect is that teleport, which is
+unambiguously bringing an agent into a room, has no way to say so and silently gets the plain-shell
+treatment.
+
+**The fix is a way to opt in**, not new machinery:
+- A companion flag on `port.create` (or a distinct verb), which teleport sets. Whatever is chosen is
+  inherited by every `port.create({type:"terminal"})` caller, so the shape is the real decision.
+- Then the existing `joinCompanionToSpace` seam, so announce-once and crew refresh come for free.
+- **A handle worth typing.** The spawn already frames the CLI as a companion named after the port
+  title, so the live run produced one called `teleport: main`. The operational prompt is there; the
+  name is a title, not a handle. Derive something mentionable (branch, directory, or `--name`).
 - **Identity across relaunch.** Companion session ids are per-(space, companion) UUIDv5
-  (`ClaudeSessionId.derive`); a teleported session arrives with an id of its own from the fork.
-  Work out which wins so a rebuilt terminal reopens the teleported conversation rather than a fresh
-  companion one.
+  (`ClaudeSessionId.derive`); a teleported session arrives with its own id from the fork. Decide
+  which wins, so a rebuilt terminal reopens the teleported conversation rather than a fresh one.
 
-**Sizing:** S–M. The membership machinery exists and is exercised daily; the work is choosing the
-API shape and the naming, not building the seam.
+**Sizing:** S. Nothing to build, one decision to make.
 
 ## TODO: companions as bus actors — a `busWatch` trigger (2026-07-23, GM) → `docs/spike-synth-tick-architecture.md`
 
