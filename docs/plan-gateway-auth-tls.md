@@ -64,37 +64,24 @@ The one thing this DOES put on the map: **invite links currently carry an ngrok 
 sharing surface has to be re-expressed as a peer address when libp2p lands. That is a slice-02
 follow-on, not gateway work, but it is where the tunnel's retirement will actually be felt.
 
-### P1 — authenticate `/call`
-A per-install secret, generated on first launch, stored in the Keychain, required on every `/call`
-as a header. The work is not the check, it is the **callers**, and they are the reason this needs a
-plan rather than a patch:
-- the global `~/.claude/CLAUDE.md` block that tells every Claude Code session to
-  `curl http://127.0.0.1:4245/call` (rewritten per dev instance at boot — the same seam can inject
-  the token)
-- `port42-claude-shim` and the terminal hooks
-- ports calling through `window.port42` (they go via the bridge, not HTTP — verify)
-- any of GM's own scripts and skills
-Decide: one shared install secret, or per-caller tokens with per-caller permission scope. The
-second is the real answer long-term (a companion's terminal should not silently inherit the app's
-whole authority) and folds into the existing `portPrincipal` model.
+### P1 — MOVED to `membrane/slice-02-cross-instance.md` (2026-07-28)
 
-**Evidence added 2026-07-27 (measured, not asserted).** Two facts sharpen this from "add auth" to
-"auth alone is not enough":
+**GM rescoped it: the auth work, port 0 and the permission object, and the permission manager are not
+a phase before slice-02. They are its local half**, built in the shape that lets libp2p slot in
+rather than land on a refactor. Keeping the design here and the wire there would have split one
+question across two homes.
 
-1. `gateway.go` sets `SenderID: localPrincipalID` **unconditionally, with no check of
-   `r.RemoteAddr`**. The constant is named `localPrincipalID` and its comment says "a local HTTP
-   caller", but nothing enforces local. That was only ever true because of P0's bind, so a naming
-   assumption was load-bearing for a security property.
-2. **A standing grant already exists for that identity.** GM's production install holds
-   `portPerms.local-http.global = ai, screen, filesystem, terminal`. So the pooled bucket is not
-   theoretical: authenticating callers while leaving one shared `local-http` principal in place
-   would still hand every local process filesystem, screen and terminal with no prompt.
+`slice-02-cross-instance.md` now carries all of it: the measured state, the requirements, the model
+(one primitive, port 0, zones on top), the design D1-D14, the deliverables, the build order, the
+verification matrix, the four spikes, and the open questions. Its **Part 0** is the seam list that
+states, per noun, what the local half must build for the wire to be an addition.
 
-**Therefore P1 must retire the shared principal, not merely gate it.** `Principal.isSharedIdentity`
-(added by I1.3, `plan-port42-protocol-local-bus.md` §B) is the single place in the app that encodes
-"this id is shared by callers who are not the same actor", and it is what changes when P1 lands.
-Dealing with the existing `local-http` grants is part of the phase, not a follow-up: see the
-permission-manager item in `summer2026-todo.md`.
+What stays in this document: P0 (shipped), the ngrok note, and the TLS phases below, which are a
+transport concern rather than a protocol one.
+
+**The one-line summary, so this file is not misleading on its own:** `/call` and `/ws` are two
+unauthenticated doors into the same bridge, the second lets a caller pick its own principal and
+inherit standing grants, and both are fixed by one seam rather than two patches.
 
 ### P2 — TLS, scoped by the libp2p decision
 **The transport endgame is already decided** (`membrane/slice-02-cross-instance.md`): go-libp2p,

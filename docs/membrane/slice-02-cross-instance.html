@@ -1,0 +1,1814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slice 02 · Cross-Instance — one slice, local seams through
+libp2p</title>
+<style>
+</style>
+</head>
+<body>
+<div id="wrap">
+<nav id="TOC">
+<ul>
+<li><a href="#slice-02--cross-instance--one-slice-local-seams-through-libp2p" id="toc-slice-02--cross-instance--one-slice-local-seams-through-libp2p">Slice
+02 · Cross-Instance — one slice, local seams through libp2p</a>
+<ul>
+<li><a href="#the-slice-in-one-line" id="toc-the-slice-in-one-line">The
+slice in one line</a></li>
+<li><a href="#part-0--the-seams-libp2p-slots-into" id="toc-part-0--the-seams-libp2p-slots-into">Part 0 · The seams libp2p
+slots into</a></li>
+</ul></li>
+<li><a href="#the-local-half" id="toc-the-local-half">The local half</a>
+<ul>
+<li><a href="#2-the-root-cause-stated-once" id="toc-2-the-root-cause-stated-once">2. The root cause, stated
+once</a></li>
+<li><a href="#3-requirements" id="toc-3-requirements">3.
+Requirements</a></li>
+<li><a href="#4-the-model-and-the-user-facing-surface-ux-down" id="toc-4-the-model-and-the-user-facing-surface-ux-down">4. The model,
+and the user-facing surface (UX down)</a></li>
+<li><a href="#5-design" id="toc-5-design">5. Design</a></li>
+<li><a href="#6-what-this-buys-in-the-users-terms" id="toc-6-what-this-buys-in-the-users-terms">6. What this buys, in the
+user&#39;s terms</a></li>
+<li><a href="#7-deliverables" id="toc-7-deliverables">7.
+Deliverables</a></li>
+<li><a href="#8-out-of-scope-deliberately" id="toc-8-out-of-scope-deliberately">8. Out of scope,
+deliberately</a></li>
+<li><a href="#9-stated-limits" id="toc-9-stated-limits">9. Stated
+limits</a></li>
+<li><a href="#10-build-order" id="toc-10-build-order">10. Build
+order</a></li>
+<li><a href="#11-verification" id="toc-11-verification">11.
+Verification</a></li>
+<li><a href="#12-spikes-run-2026-07-28" id="toc-12-spikes-run-2026-07-28">12. Spikes run, 2026-07-28</a></li>
+<li><a href="#13-open-for-gm" id="toc-13-open-for-gm">13. Open for
+GM</a></li>
+</ul></li>
+<li><a href="#the-wire-half" id="toc-the-wire-half">The wire half</a>
+<ul>
+<li><a href="#why-this-slice-what-it-validates" id="toc-why-this-slice-what-it-validates">Why this slice (what it
+validates)</a></li>
+<li><a href="#scope--jobs-this-slice-touches" id="toc-scope--jobs-this-slice-touches">Scope — jobs this slice
+touches</a></li>
+<li><a href="#scope--roles-this-slice-cuts" id="toc-scope--roles-this-slice-cuts">Scope — roles this slice
+cuts</a></li>
+<li><a href="#the-reference-implementation--extend-the-local-bridge-over-the-wire" id="toc-the-reference-implementation--extend-the-local-bridge-over-the-wire">The
+reference implementation — extend the local bridge over the wire</a>
+<ul>
+<li><a href="#the-shape" id="toc-the-shape">The shape</a></li>
+<li><a href="#the-contract-made-concrete" id="toc-the-contract-made-concrete">The contract, made concrete</a></li>
+<li><a href="#milestones-isolate-the-seams-from-the-contract-from-traversal" id="toc-milestones-isolate-the-seams-from-the-contract-from-traversal">Milestones
+(isolate the seams from the contract from traversal)</a></li>
+</ul></li>
+<li><a href="#acceptance--passfail-per-seam" id="toc-acceptance--passfail-per-seam">Acceptance — pass/fail per
+seam</a></li>
+<li><a href="#what-a-green-slice-means--and-doesnt" id="toc-what-a-green-slice-means--and-doesnt">What a green slice means —
+and doesn&#39;t</a></li>
+<li><a href="#explicitly-out-of-scope" id="toc-explicitly-out-of-scope">Explicitly out of scope</a></li>
+<li><a href="#open-questions-marked--not-asserted" id="toc-open-questions-marked--not-asserted">Open questions (marked —
+not asserted)</a></li>
+<li><a href="#risk--what-this-slice-retires-vs-leaves" id="toc-risk--what-this-slice-retires-vs-leaves">Risk — what this slice
+retires vs. leaves</a></li>
+</ul></li>
+</ul>
+</nav>
+<main>
+<h1 id="slice-02--cross-instance--one-slice-local-seams-through-libp2p">Slice
+02 · Cross-Instance — one slice, local seams through libp2p</h1>
+<blockquote>
+<p><strong>RESCOPED 2026-07-28 (GM): this is now ONE slice, and
+everything in flight lives here.</strong> The gateway-auth work, port 0
+and the permission object, and the permission manager are not a phase
+before the slice. They are the slice&#39;s local half, and they are here so
+the wire half slots in rather than lands on a refactor.
+<code>plan-gateway-auth-tls.md</code> keeps P0 (shipped), the ngrok
+note, and the TLS phases; its P1 section now points here.</p>
+<p><strong>The old concurrency mechanism in the wire half is OBSOLETE
+and the rest still stands.</strong> The sections below were written
+2026-07-15 against a per-port <strong>lease</strong>: one holder, a
+write requires it, no lease means rejection. That mechanism was built
+locally and then deleted. The local protocol thread replaced it with
+three nouns, ADDRESS · ACTOR · TOKEN, and the replacement is a different
+answer rather than a refinement:</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>this doc used to say</th>
+<th>what actually exists</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a lease grants the right to write</td>
+<td><strong>a TOKEN says what you composed against</strong>; a stale one
+is refused with <code>stale_write</code> + <code>current</code>, an
+untokened write with <code>token_required</code> (R5)</td>
+</tr>
+<tr>
+<td>one holder per port, others rejected</td>
+<td><strong>nobody is ever blocked.</strong> Refusing a caller who
+declined to declare state is not refusing a caller who lost a race</td>
+</tr>
+<tr>
+<td>the holder is broadcast so both UIs show the pen</td>
+<td><strong>presence is DERIVED</strong> from whoever moved the token
+last. It shows; it refuses nothing</td>
+</tr>
+<tr>
+<td>request → grant/deny → handoff</td>
+<td><strong>no verbs.</strong> <code>release</code> and
+<code>handoff</code> were deleted as lease-era code with no callers</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Why the lease died, and why it matters MORE across the
+wire.</strong> A lease is a lock with a TTL, a TTL has no principled
+value, and it depends on clocks agreeing between peers, which they do
+not. A vanished holder leaves a port stuck. Every one of those is
+sharper at a distance. <strong>The token is correct whether the writer
+thought for 3ms or 3 hours, and identical locally and remotely</strong>,
+which is why it was built peer-qualified (<code>ActorRef</code> is
+<code>&lt;peerID&gt;/&lt;principal&gt;</code>) and epoch-qualified
+(<code>&lt;epoch&gt;:&lt;seq&gt;</code>) from day one.</p>
+<p><strong>O-1 is void</strong> (no grant, so no authority to locate).
+<strong>O-4 survives in a better form</strong>: a late delta carries a
+token the port has moved past, so CAS refuses it by construction; what
+remains open is Notify ordering for DISPLAY, not for correctness.</p>
+<p><strong>Read <code>plan-port42-protocol-local-bus.md</code> §A before
+building from this file.</strong></p>
+</blockquote>
+<h2 id="the-slice-in-one-line">The slice in one line</h2>
+<blockquote>
+<p>A port lives on <strong>instance A</strong>. From <strong>instance
+B</strong> you address it, send it a query, and see its stream, as if it
+were local. Every caller on both ends is a <strong>named actor</strong>
+acting on a <strong>named object</strong>, and you can see and revoke
+what each one may do. When B writes, A sees B driving, and neither
+overwrites the other. Location is transparent; the wire is libp2p.</p>
+</blockquote>
+<hr />
+<h2 id="part-0--the-seams-libp2p-slots-into">Part 0 · The seams libp2p
+slots into</h2>
+<p><strong>This is the whole reason the local half is in this
+document.</strong> Each row is a seam built locally, in a shape where
+the wire is an addition rather than a rewrite. If a row is skipped,
+libp2p arrives as a migration instead of a plug.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>seam</th>
+<th>what the local half builds</th>
+<th>what libp2p adds</th>
+<th>why it then slots in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ADDRESS</strong></td>
+<td><code>PortRef.key</code>, one definition. <strong>Port 0 is the
+machine itself</strong></td>
+<td>a <code>&lt;peerID&gt;/</code> prefix</td>
+<td><code>port42://&lt;peerID&gt;/space/&lt;id&gt;/&lt;portId&gt;</code>
+already assumed. Port 0 makes <code>&lt;peerID&gt;/0</code> mean
+<em>that machine</em>, so a peer can name a machine and not only a
+tile</td>
+</tr>
+<tr>
+<td><strong>ACTOR</strong></td>
+<td><code>principal_id</code>, stamped ONLY by a verifier, written
+peer-qualified from day one</td>
+<td>a third verifier: PeerID → principal</td>
+<td>libp2p authenticates a peer cryptographically. Today that
+authenticated peer is flattened to a string and thrown away
+(<code>Principal.swift</code>&#39;s own header says so). The seam is where
+it lands instead</td>
+</tr>
+<tr>
+<td><strong>TOKEN</strong></td>
+<td><code>&lt;epoch&gt;:&lt;seq&gt;</code>, CAS, peer- and
+epoch-qualified</td>
+<td>nothing</td>
+<td>already transport-independent by construction. Done</td>
+</tr>
+<tr>
+<td><strong>OBJECT</strong></td>
+<td>the grant key gains its missing slot:
+<code>&lt;grantee&gt; × &lt;port&gt; [× zone]</code>, both sides
+peer-qualifiable</td>
+<td>peers on both sides</td>
+<td>&quot;peer B may act on my port 0&#39;s clipboard&quot; becomes expressible with
+no new concept. Without the slot, adding it later is a migration across
+two instances rather than one</td>
+</tr>
+<tr>
+<td><strong>OUTPUT</strong></td>
+<td>one publish door with a typed kind</td>
+<td>a gossipsub topic per port</td>
+<td>ten publish sites today, two of which accept a caller-supplied kind.
+Gossipsub needs ONE payload definition, so the seam has to exist
+first</td>
+</tr>
+<tr>
+<td><strong>LEGIBILITY</strong></td>
+<td>the permission manager: every grant visible, revocable, grouped by
+grantee</td>
+<td>remote peers are grantees too</td>
+<td>a grant to a peer you cannot see is the local invisibility problem
+with a network attached</td>
+</tr>
+<tr>
+<td><strong>ERRORS</strong></td>
+<td>typed codes, app and gateway</td>
+<td>the same codes on the wire</td>
+<td>a remote caller acts on <code>stale_write</code> /
+<code>token_required</code> exactly as a local one does</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>The test for each row:</strong> adding libp2p should mean
+writing a verifier and a transport, and touching nothing above the seam.
+Anything that would force a change above the seam belongs in the local
+half.</p>
+<hr />
+<h1 id="the-local-half">The local half</h1>
+<p><em>Everything from here to &quot;The wire half&quot; was
+<code>plan-gateway-auth-tls.md</code> §P1, moved here 2026-07-28 so the
+slice has one home. Section numbering is that document&#39;s.</em></p>
+<h4 id="1-what-is-true-today-measured-2026-07-28-dev3-and-gms-live-defaults">1.
+What is true today (measured 2026-07-28, Dev3 and GM&#39;s live
+defaults)</h4>
+<p><strong>There are two doors into the same bridge, and the second one
+is weaker than the one the design named.</strong> <code>/call</code>
+(HTTP) stamps a constant identity. <code>/ws</code> copies an identity
+off the wire. A local WebSocket client that names itself in
+<code>identify</code> is that principal:</p>
+<pre><code>identify as sender_id=local-http, no credential   → accepted
+ports.list                                        → returned the user&#39;s real port list
+automation.runAppleScript                         → ran, no prompt</code></pre>
+<p>Both were run against Dev3. The second inherited a standing grant, so
+this is the full escalation and not merely an identity defect.</p>
+<p><strong>The standing grants are wider than the earlier note
+recorded.</strong> Production holds
+<code>portPerms.local-http.global = ai, screen, filesystem, terminal</code>.
+Dev holds
+<code>filesystem, automation, rest, microphone, browser, ai, terminal, screen, clipboard</code>.</p>
+<p><strong><code>is_host</code> is unchecked</strong>
+(<code>gateway.go:283</code>, established from source, not measured,
+because testing it live would wedge the instance&#39;s routing). Any peer
+claiming <code>is_host: true</code> becomes <code>globalHostID</code>,
+which is the peer every <code>/call</code> is routed to.</p>
+<p><strong>Two facts recorded 2026-07-27, still accurate.</strong>
+<code>gateway.go</code> sets <code>SenderID: localPrincipalID</code>
+with no check of <code>r.RemoteAddr</code>; the constant&#39;s name was
+load-bearing for a security property that only P0&#39;s bind actually
+provided.</p>
+<p><strong>A THIRD authorization path exists that never consults a
+principal at all, and it is ON in production.</strong>
+<code>ToolExecutor.swift:140</code> builds a <code>pregrant</code> set
+from three UserDefaults flags and unions it into the permissions for
+every gateway call, before the principal is constructed:</p>
+<pre><code>remoteAllowTerminal   remoteAllowFS   remoteAllowScreen</code></pre>
+<p>Measured on GM&#39;s installs: production has <strong>all three set to
+1</strong>; Dev has <code>remoteAllowTerminal = 0</code> and the others
+unset; Dev3 has none set. This is the &quot;Remote Access&quot; pre-approval the
+generated CLAUDE.md block already points at.</p>
+<p><strong>This is independent of the <code>local-http</code> grants and
+survives everything above it.</strong> Naming and authenticating every
+caller does not touch it: with these flags on, an enrolled client still
+receives terminal, filesystem and screen with no prompt and no
+per-client scoping, which is FR8 violated by construction. It was found
+by the caller sweep (spike D), not by reading the design, and the
+decision about it belongs in this phase rather than after it.</p>
+<p><strong>The environment is not a private channel.</strong>
+<code>ps -E</code> against a same-user process returns its full
+environment, so handing the gateway a secret at spawn publishes it to
+every process running as the user. The decided design said &quot;the gateway
+takes it from its environment at spawn&quot;; that part does not hold. The
+app already holds the gateway&#39;s stdin pipe open for the EOF-on-death
+watch and never writes to it, so the secret goes over stdin as one line
+at startup and appears in no process table.</p>
+<h3 id="2-the-root-cause-stated-once">2. The root cause, stated
+once</h3>
+<p>Authentication, addressing and authorization are smeared across three
+components and none of them owns any of it. The gateway, a transport,
+decides identity. <code>sender_id</code> is simultaneously a routing
+address for channel messages and a permission key for calls. The app
+trusts whatever arrives.</p>
+<p>This is the same conflation the protocol thread already fixed twice:
+<code>PortRef.key</code> (one address, three definitions) and
+<code>createdBy</code> (provenance doing authorization&#39;s job). Here an
+ADDRESS is doing an ACTOR&#39;s job on the wire, while the app side of the
+same noun was resolved at I1.</p>
+<h3 id="3-requirements">3. Requirements</h3>
+<p>Numbered so a test can name the one it covers. &quot;Caller&quot; means
+anything reaching the app through the gateway, by either door.</p>
+<p><strong>Functional</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FR1</td>
+<td>No bridge method is invocable without a verified principal, on
+either door</td>
+</tr>
+<tr>
+<td>FR2</td>
+<td>A principal is acquired only by presenting a credential minted by
+THIS instance</td>
+</tr>
+<tr>
+<td>FR3</td>
+<td>Every credential names exactly one client, and every client carries
+a human-legible label fixed at mint time</td>
+</tr>
+<tr>
+<td>FR4</td>
+<td>A client is revocable individually, effective on its next call, with
+no gateway restart</td>
+</tr>
+<tr>
+<td>FR5</td>
+<td>A caller with no credential can do exactly one thing: request
+pairing</td>
+</tr>
+<tr>
+<td>FR6</td>
+<td>A pairing request is approved or denied by the user, who is shown
+the requested name</td>
+</tr>
+<tr>
+<td>FR7</td>
+<td>Children the app spawns are registered with no prompt, and keep a
+stable identity across respawns</td>
+</tr>
+<tr>
+<td>FR8</td>
+<td>Permission grants key on the client, so one caller&#39;s grant is never
+inherited by another</td>
+</tr>
+<tr>
+<td>FR9</td>
+<td>The user can see every enrolled client and revoke any of them</td>
+</tr>
+<tr>
+<td>FR10</td>
+<td>Every refusal states how to fix it</td>
+</tr>
+<tr>
+<td>FR11</td>
+<td>No permission reaches a caller without passing through its principal
+and the permission request path. No blanket pre-grant exists (see
+D12)</td>
+</tr>
+<tr>
+<td>FR12</td>
+<td>Every permission names its OBJECT, and the object is always a port.
+Machine capabilities (clipboard, filesystem, automation, notify, rest,
+screen, camera) are port 0&#39;s (see §4)</td>
+</tr>
+<tr>
+<td>FR13</td>
+<td>A zone qualifies the ACTOR on a grant. It is never an object, and
+never the only thing a key names</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Behavioral</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BR1</td>
+<td>Channel and message traffic is unaffected by authentication. Sharing
+does not regress</td>
+</tr>
+<tr>
+<td>BR2</td>
+<td>A gateway with no secret serves channel routing only, and refuses
+<code>call</code> and <code>is_host</code></td>
+</tr>
+<tr>
+<td>BR3</td>
+<td>The app is host only of a gateway it spawned itself</td>
+</tr>
+<tr>
+<td>BR4</td>
+<td>At most one pairing request is pending at a time, and a pending
+request expires</td>
+</tr>
+<tr>
+<td>BR5</td>
+<td>Revoking a client removes its token file</td>
+</tr>
+<tr>
+<td>BR6</td>
+<td>Rotating the root secret invalidates every client at once, and is
+the only thing that does</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Non-functional</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NFR1</td>
+<td>Credential comparison is constant-time</td>
+</tr>
+<tr>
+<td>NFR2</td>
+<td>Secrets and tokens are never logged, never placed in an error body,
+never sent to analytics</td>
+</tr>
+<tr>
+<td>NFR3</td>
+<td>Verification adds no round trip to a call</td>
+</tr>
+<tr>
+<td>NFR4</td>
+<td>Instances are separated by their secrets, not by a path check</td>
+</tr>
+<tr>
+<td>NFR5</td>
+<td>The gateway holds no client table and touches no filesystem</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Compatibility</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CR1</td>
+<td>Ports calling <code>window.port42</code> are unaffected. They reach
+the bridge in-process and never traverse the gateway</td>
+</tr>
+<tr>
+<td>CR2</td>
+<td>Remote peers and the ngrok tunnel are unaffected</td>
+</tr>
+<tr>
+<td>CR3</td>
+<td>On upgrade, no client exists, so every gateway caller is refused
+until it pairs. This is a deliberate break, and FR10 is what makes it
+survivable</td>
+</tr>
+<tr>
+<td>CR4</td>
+<td>A caller with no human present (cron, a background script) cannot
+pair, and needs a token made by hand in Settings. Stated regression</td>
+</tr>
+<tr>
+<td>CR5</td>
+<td>The 143 existing <code>portPerms.*</code> grants migrate without
+widening. A space-keyed grant becomes the same grantee, on port 0,
+qualified by that zone. No grant gains reach it did not have</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="4-the-model-and-the-user-facing-surface-ux-down">4. The model,
+and the user-facing surface (UX down)</h3>
+<p><strong>GM, 2026-07-28: &quot;the DESKTOP IS A PORT. PORT 0.&quot;</strong>
+Clipboard, filesystem, automation, notify, rest, screen and camera are
+not portless capabilities sitting outside the model. They are port 0&#39;s.
+So <code>caller → port → action → permission</code> holds with no
+exceptions.</p>
+<p><strong>ONE primitive: a port.</strong></p>
+<div class="tablewrap"><table>
+<tbody>
+<tr>
+<td><strong>port 0</strong></td>
+<td>the Port42 window itself. Its title is already its name, so the
+user-facing word is &quot;Port42&quot;, not an invented one like &quot;desktop&quot;</td>
+</tr>
+<tr>
+<td><strong>ports</strong></td>
+<td>tiles, terminals, browsers, chat. Done: address, actor and token are
+each single-definition</td>
+</tr>
+<tr>
+<td><strong>zones</strong></td>
+<td>a grouping OVER ports, a space being the first one. On top of the
+primitive, never a kind of object (GM, 2026-07-28)</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>The measurement that settles it.</strong> Production holds
+143 grants. What they grant:</p>
+<pre><code>120 terminal    18 screen      8 clipboard     2 microphone
+ 21 rest        18 filesystem  6 automation    1 notification
+                12 ai</code></pre>
+<p>Every one is a port 0 capability, and 140 of the 143 keys are
+space-scoped. So the current key,
+<code>portPerms.&lt;grantee&gt;.&lt;spaceId ?? &quot;global&quot;&gt;</code>,
+holds a grantee and a space and <strong>no object at all</strong>. The
+object was always the machine; it simply had no name, so the space slid
+into the slot where the object belonged and has been impersonating it.
+That is why the model read as muddled.</p>
+<pre><code>today     &lt;grantee&gt; × &lt;space&gt;             the object is implicit and unnamed
+after     &lt;grantee&gt; × &lt;port&gt;  [× zone]    the object is named; the zone qualifies the ACTOR</code></pre>
+<p><strong>A space was never scoping what is acted on. It was scoping
+the context the actor acted in.</strong> Two different questions sharing
+one key. Naming port 0 separates them, and it is also why a zone
+qualifying a subject is not doing a primitive&#39;s job.</p>
+<p><strong>The migration widens nothing.</strong> Those 140 keys become
+&quot;grantee G, acting in zone Z, may use port 0&#39;s terminal&quot;: the same
+information, with the object finally written down.</p>
+<p>This section is mapped UX first, deliberately. The protocol serves
+these surfaces; the surfaces are not a rendering of the protocol.</p>
+<p><strong>Every touchpoint, and its state</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>touchpoint</th>
+<th>where</th>
+<th>state</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>the permission card</td>
+<td><code>ShellPermissionOverlay.swift</code></td>
+<td>exists. Says &quot;Local (gateway)&quot;. Must name the caller and the port it
+wants to act on</td>
+</tr>
+<tr>
+<td>2</td>
+<td>a second, dead permission overlay</td>
+<td><code>PortWindowManager.swift:1657</code></td>
+<td><code>PortPermissionOverlay</code> has no call site. Retired with
+the window mode. Delete</td>
+</tr>
+<tr>
+<td>3</td>
+<td>who is connected, and revoke</td>
+<td>Settings</td>
+<td>does not exist. <strong>IS the permission manager</strong>
+(<code>summer2026-todo.md</code>, 2026-07-27), not a second screen
+beside it. See D13</td>
+</tr>
+<tr>
+<td>4</td>
+<td>connect a tool</td>
+<td>Settings, the instruction-block buttons</td>
+<td>exists as &quot;install instructions&quot;. Becomes the enrollment act that
+mints a token</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Remote Access pre-approval</td>
+<td>Settings → Remote</td>
+<td>three blanket toggles, all ON in production. DELETED (D12)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>the driver chip</td>
+<td>tile header</td>
+<td>exists. Names whoever last moved a port&#39;s token. Extends to port 0
+for free</td>
+</tr>
+<tr>
+<td>7</td>
+<td>port 0, the Port42 window</td>
+<td><code>ShellDesktop.swift</code></td>
+<td>exists as a view with no identity. Port 0 is what gives it one</td>
+</tr>
+<tr>
+<td>8</td>
+<td>a zone (a space)</td>
+<td><code>NewSpaceSheet</code>, the galaxy</td>
+<td>exists. Becomes an actor qualifier on a grant, not an object</td>
+</tr>
+<tr>
+<td>9</td>
+<td>⌘K switcher</td>
+<td><code>QuickSwitcher.swift</code></td>
+<td>exists. Lists port 0 once it has an identity</td>
+</tr>
+<tr>
+<td>10</td>
+<td>the generated instruction block</td>
+<td><code>InstructionService</code></td>
+<td>a touchpoint for the agent AND for GM reading it. Loses the Remote
+Access line, gains the header</td>
+</tr>
+<tr>
+<td>11</td>
+<td>onboarding</td>
+<td><code>SetupView</code> → shell</td>
+<td>never mentions callers or grants. Open question whether it
+should</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>What the card should say.</strong> Uniform, because the model
+is uniform:</p>
+<pre><code>Claude Code wants to read the clipboard in Port42
+Allow for Claude Code in Port42. Revoke it any time in Settings.</code></pre>
+<pre><code>Echo wants filesystem access in Port42, while working in #port42-app</code></pre>
+<p>The second names the object (port 0), the actor (Echo) and the zone
+that qualifies it, which is exactly the three parts of the key
+above.</p>
+<p><strong>The consequence to be honest about.</strong> The grant key
+gains an object and the space becomes a qualifier. That is a change to
+the permission model, not only to the gateway, and it needs a migration
+for existing <code>portPerms.*</code> keys. It is the reason this phase
+grew: P1 began as authenticating a socket and is now also where
+authorization gets its missing noun.</p>
+<h3 id="5-design">5. Design</h3>
+<p><strong>D0. The decomposition, and the invariant on each
+interface</strong></p>
+<pre><code>  ClientRegistry (app)        the only place a token is minted, named or revoked
+        │ root secret, over the gateway&#39;s stdin at spawn
+        ▼
+  Verifier (gateway)          credential → principal id, or nothing. Stateless.
+        │ principal_id
+        ▼
+  Router (gateway)            envelopes, addressing, host routing
+        │
+        ▼
+  Authorizer (app)            principal → enrolled? → grants → allow / prompt / deny</code></pre>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>interface</th>
+<th>invariant</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>registry → gateway</td>
+<td>the gateway holds one secret and no table, and never reads the
+filesystem</td>
+</tr>
+<tr>
+<td>caller → verifier</td>
+<td>a credential is the only way to acquire a principal</td>
+</tr>
+<tr>
+<td>verifier → app</td>
+<td><code>principal_id</code> is written ONLY by the verifier, and is
+unconditionally overwritten on every inbound envelope</td>
+</tr>
+<tr>
+<td>router</td>
+<td><code>sender_id</code> addresses. It never authorizes. It stays
+caller-supplied and untrusted</td>
+</tr>
+<tr>
+<td>authorizer</td>
+<td><code>Principal.peer</code> is constructed only from
+<code>principal_id</code>. <code>sender_id</code> never reaches it</td>
+</tr>
+</tbody>
+</table></div>
+<p>The last one is greppable and testable, and it is the gate.
+<code>Principal.peer</code> has exactly two production construction
+sites, both in <code>ToolExecutor.swift</code>, both currently taking
+<code>senderId</code>.</p>
+<p><strong>Under this decomposition there is no &quot;HTTP work&quot; and no &quot;WS
+work&quot;.</strong> Both doors reduce to &quot;produce a verified
+<code>principal_id</code> or don&#39;t&quot;, so neither can be fixed while the
+other is forgotten. That is the structural answer to the failure mode
+this session kept repeating: a fix verified on one caller path and
+assumed to hold on the others.</p>
+<p>It is also what makes slice-02 cheap. libp2p adds a verifier that
+maps a PeerID to a principal, and nothing above the seam changes.</p>
+<p><strong>D1. The data model</strong></p>
+<p>One new GRDB table, added as a new migration (never edit an existing
+one).</p>
+<pre><code>clients
+  id          TEXT PRIMARY KEY    slug, [a-z0-9-]+, stable for the life of the client
+  name        TEXT NOT NULL       the label shown on permission cards
+  kind        TEXT NOT NULL       paired | child | manual
+  createdAt   DATETIME NOT NULL
+  lastSeenAt  DATETIME            updated on each accepted call
+  revokedAt   DATETIME            null means active</code></pre>
+<p><code>id</code> is a slug rather than a UUID because it is also the
+token file&#39;s name, and the documented client flow is &quot;read a known path,
+pair only if it is missing&quot;. A UUID would make the path unknowable
+before the first pairing, which is the inconsistency that has to be
+avoided.</p>
+<p><strong>The grant key gains its missing object.</strong> Today
+<code>portPerms.&lt;grantee&gt;.&lt;spaceId ?? &quot;global&quot;&gt;</code>;
+after, a key names grantee, object port, and optionally the zone that
+qualified the actor (§4). The migration is mechanical and widens nothing
+(CR5): <code>&quot;global&quot;</code> becomes port 0, and a space id moves from
+the object slot to the qualifier slot. <code>companionPermissions</code>
+/ <code>saveCompanionPermissions</code> stay the one read/write pair, so
+the permission manager (D13) and this share a store.</p>
+<p><strong>A child&#39;s id is derived, not random</strong>, so a companion
+terminal keeps its grants across respawns:
+<code>child-&lt;companionId&gt;-&lt;spaceId&gt;</code>, slugged.
+Re-pairing an existing slug re-issues onto the same row, so a user who
+deletes a token file gets a new credential and keeps their grants.</p>
+<p><strong>The host is not a row.</strong> It is ephemeral and holds no
+grants, so it never enters this table.</p>
+<p><strong>D2. Secrets, and how they reach the gateway</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>secret</th>
+<th>where it lives</th>
+<th>lifetime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>root</td>
+<td>Keychain, service <code>Port42-credentials</code>, account
+<code>gateway-root-&lt;instance&gt;</code></td>
+<td>until rotated</td>
+</tr>
+<tr>
+<td>host</td>
+<td>app memory only, never written anywhere</td>
+<td>one gateway spawn</td>
+</tr>
+</tbody>
+</table></div>
+<p>Both are 32 random bytes. The root secret is created on first launch
+if absent, and is the only thing that can mint a client token. The host
+secret is regenerated on every gateway spawn, which is what makes
+<code>is_host</code> unforgeable by anything on disk.</p>
+<p><strong>Both reach the gateway on stdin, not in its
+environment</strong>, for the reason measured in §1: <code>ps -E</code>
+publishes a subprocess environment to every process running as the user.
+The app already holds the write end of the gateway&#39;s stdin for the
+EOF-on-death watch and never writes to it, so it writes two lines at
+startup and then leaves the pipe open exactly as before.</p>
+<p><strong>The read is gated on <code>-watch-parent</code></strong>, the
+flag that already distinguishes an app-spawned gateway from a manually
+launched one. A relay started by hand has an interactive stdin, and a
+blocking read there would hang it.</p>
+<p><strong>D3. Token format and verification</strong></p>
+<pre><code>p42_&lt;id&gt;_&lt;mac&gt;          mac = base64url-unpadded( HMAC-SHA256(secret, id) )</code></pre>
+<p><code>id</code> is constrained to <code>[a-z0-9-]</code>, so
+splitting on <code>_</code> always yields exactly three parts. The
+gateway recomputes the MAC and compares in constant time (NFR1). On
+success it stamps <code>principal_id = id</code>. It consults no table
+and stores nothing, which is what keeps NFR5 true and makes the verifier
+survive its own restart.</p>
+<p>The host credential is the same construction over the host secret
+with <code>id = host</code>, so one routine covers both and they differ
+only in which secret is used.</p>
+<p><strong>D4. The wire</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>door</th>
+<th>where the credential rides</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HTTP <code>/call</code></td>
+<td><code>Authorization: Bearer &lt;token&gt;</code></td>
+</tr>
+<tr>
+<td>WS <code>/ws</code></td>
+<td>a <code>token</code> field in the <code>identify</code>
+envelope</td>
+</tr>
+</tbody>
+</table></div>
+<p>The WebSocket API cannot set request headers, so
+<code>identify</code> is the only place available on that door. It is
+already the auth point the Apple verifier uses.</p>
+<p>The envelope gains one field:</p>
+<pre><code>principal_id   string, omitempty</code></pre>
+<p>It is <strong>stripped and re-stamped on every inbound envelope in
+the gateway&#39;s read loop, before dispatch</strong>. Unconditional
+overwrite is the mechanism, not a check, so a caller-supplied value
+cannot survive by any path. <code>sender_id</code> is untouched and
+keeps its routing meaning.</p>
+<p>Two new envelope types carry pairing between the gateway and the app:
+<code>pair_request</code> (gateway to host) and <code>pair_result</code>
+(host to gateway).</p>
+<p><strong>D5. Enrollment: a token is minted by a named act, never
+picked up</strong></p>
+<p><strong>There is no root token and no ambient token file.</strong> An
+unconsented enrollment is the same hole one level out: anything that can
+read a shared file becomes a legitimate principal with no human in the
+loop, and a caller that enrolled itself has no name anyone gave it,
+which is what produces today&#39;s anonymous permission card.</p>
+<p>Every token is minted by <code>ClientRegistry</code> at a moment that
+already carries consent:</p>
+<ol type="1">
+<li><strong>Pairing</strong>, for a caller Port42 did not spawn. One
+unauthenticated verb whose only power is to ask.</li>
+<li><strong>Spawn</strong>, for children (companion terminals, command
+agents). Registered directly with no prompt, because the user spawning
+them is the consent and the app is both parties.</li>
+<li><strong>By hand</strong>, in Settings, for the user&#39;s own scripts
+and for any caller with no human present.</li>
+</ol>
+<p>The pairing protocol:</p>
+<pre><code>POST /pair            {&quot;name&quot;: &quot;Claude Code&quot;}
+  202  {&quot;request_id&quot;: &quot;...&quot;, &quot;expires_in&quot;: 120}
+  429  pair_busy       a request is already pending
+  503  no_host         Port42 is not running
+  403  pair_disabled   the user turned pairing off
+
+GET /pair/&lt;request_id&gt;
+  {&quot;status&quot;: &quot;pending&quot;}
+  {&quot;status&quot;: &quot;denied&quot;}
+  {&quot;status&quot;: &quot;expired&quot;}
+  {&quot;status&quot;: &quot;approved&quot;, &quot;token&quot;: &quot;p42_...&quot;, &quot;path&quot;: &quot;~/.port42/&lt;instance&gt;/tokens/claude-code&quot;}</code></pre>
+<p>State machine: <code>pending → approved | denied | expired</code>.
+TTL 120 seconds, one pending request at a time (BR4), held in gateway
+memory only. An approved result is handed to the polling client once and
+then forgotten, so the gateway never retains a token.</p>
+<p>Port42 writes the approved token to
+<code>~/.port42/&lt;instance&gt;/tokens/&lt;id&gt;</code> at 0600 inside
+a 0700 directory. The app owns the file, so revoking removes it.</p>
+<p>The requested name is caller-asserted. It is shown to the user at the
+moment of approval, so it is a claim under review rather than a trusted
+fact, which is the same contract every pairing UX makes.</p>
+<p><strong>Instance separation falls out of the secret</strong>, not out
+of a path check: prod, Dev and Dev3 hold different root secrets, so a
+token minted by one fails another&#39;s verification.</p>
+<p><strong>D6. What happens on a call, in order</strong></p>
+<ol type="1">
+<li>The credential arrives, in a header or in
+<code>identify</code>.</li>
+<li><strong>Gateway</strong> verifies it and stamps
+<code>principal_id</code>, or refuses with <code>auth_required</code> /
+<code>auth_invalid</code>.</li>
+<li><strong>Router</strong> forwards to the host as it does today, keyed
+on <code>CallID</code>.</li>
+<li><strong>App</strong> refuses a call carrying no
+<code>principal_id</code>.</li>
+<li><strong>App</strong> looks the client up. Missing or revoked gives
+<code>auth_revoked</code>. Otherwise <code>lastSeenAt</code> is
+updated.</li>
+<li><code>Principal.peer(id: principal_id, displayName: client.name)</code>.</li>
+<li>The existing permission coordinator runs unchanged: grant lookup,
+prompt if needed, dispatch.</li>
+</ol>
+<p><strong>Steps 2 and 5 are deliberately in different
+components.</strong> The gateway proves the token was minted here. The
+app decides whether that client still exists. That split is what makes
+revocation instant without the gateway holding state or needing a
+restart (FR4, NFR5).</p>
+<p><strong>D7. Revocation and rotation</strong></p>
+<p><strong>Revoke</strong> sets <code>revokedAt</code>, deletes the
+token file, and closes any live WS peer holding that credential. It
+takes effect on the client&#39;s next call. The gateway is not involved and
+is not restarted.</p>
+<p><strong>Rotate</strong> replaces the root secret, deletes every token
+file, and restarts the gateway. Every client must pair again. It is the
+panic button, and it is the only thing that invalidates everything at
+once (BR6).</p>
+<p><strong>D8. Startup, restart, and degraded modes</strong></p>
+<p>A gateway&#39;s lifetime is contained by the app&#39;s, through the
+<code>willTerminate</code> observer plus the <code>-watch-parent</code>
+EOF watch. So a new app launch always means a new gateway and a new host
+secret, and there is no path where an old host credential outlives the
+app that minted it.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>situation</th>
+<th>behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gateway spawned by the app</td>
+<td>receives both secrets on stdin, full function</td>
+</tr>
+<tr>
+<td>gateway launched by hand, or a remote <code>gatewayURL</code></td>
+<td>no secrets, so it serves channel routing only and refuses
+<code>call</code> and <code>is_host</code> (BR2). The app cannot be its
+host (BR3)</td>
+</tr>
+<tr>
+<td>gateway restarts mid-pair</td>
+<td>the pending request is lost, the client polls and sees
+<code>expired</code>, and retries</td>
+</tr>
+<tr>
+<td>app restarts mid-pair</td>
+<td>same</td>
+</tr>
+<tr>
+<td>user deletes a token file</td>
+<td>that client can no longer authenticate and pairs again. The row
+survives, so re-pairing the same slug re-issues onto it and the grants
+are kept</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>D9. What happens to an existing install on
+upgrade</strong></p>
+<p>On first launch after the upgrade the root secret is minted and the
+client table is empty, so every gateway caller is refused until it
+pairs. That is the deliberate break in CR3, and FR10 is what makes it
+survivable rather than a wall.</p>
+<p><code>InstructionService.refreshInstalled()</code> already rewrites
+the instruction block at every boot, so a new Claude Code, Gemini or
+Codex session reads the new flow. <strong>A session already running
+holds the old block in its context and will not</strong>, which is
+exactly why the refusal has to carry the fix.</p>
+<p>The orphaned <code>portPerms.local-http.*</code> grants become
+unreachable the moment <code>localGatewayID</code> is deleted, so they
+are inert. Whether to park or delete them is open (§13).</p>
+<p><strong>D10. Errors, and the refusal that carries its own
+fix</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>code</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auth_required</code></td>
+<td>no credential presented</td>
+</tr>
+<tr>
+<td><code>auth_invalid</code></td>
+<td>malformed token, or a MAC that does not verify</td>
+</tr>
+<tr>
+<td><code>auth_revoked</code></td>
+<td>verified, but the client no longer exists</td>
+</tr>
+<tr>
+<td><code>pair_busy</code></td>
+<td>a pairing request is already pending</td>
+</tr>
+<tr>
+<td><code>pair_disabled</code></td>
+<td>the user turned pairing off</td>
+</tr>
+<tr>
+<td><code>pair_expired</code></td>
+<td>the request outlived its TTL</td>
+</tr>
+<tr>
+<td><code>no_host</code>, <code>host_offline</code>,
+<code>timeout</code>, <code>bad_request</code></td>
+<td>the gateway&#39;s own failures, previously uncoded</td>
+</tr>
+</tbody>
+</table></div>
+<p>The last row closes the register §5 item that was parked for &quot;the
+next thing to touch that file&quot;.</p>
+<p><code>auth_required</code> names the header, the token path and the
+pairing verb, in the same shape as <code>stale_write</code> carrying
+<code>current</code>. A stale caller self-corrects in one retry, and a
+caller that was never enrolled is walked into pairing by the error
+itself, so one mechanism does both jobs. No error body ever echoes a
+token (NFR2).</p>
+<p><strong>D11. User-facing surfaces</strong></p>
+<ul>
+<li><strong>The pairing prompt.</strong> Shows the requested name,
+marked as the caller&#39;s own claim, and states that the request arrived on
+loopback, which is the only thing we actually know about it. Allow or
+Deny, and dismissing means Deny.</li>
+<li><strong>Settings, secrets tab.</strong> The client list with name,
+kind, created, last seen, and Revoke. Add by hand for a caller that
+cannot pair.</li>
+<li><strong>The permission card.</strong> Named by the client, so it
+reads &quot;Echo&#39;s terminal in #port42-app wants filesystem access&quot; rather
+than &quot;Local (gateway)&quot;.</li>
+</ul>
+<p><strong>D12. The blanket pre-grant (<code>remoteAllow*</code>) is
+REMOVED (GM, 2026-07-28)</strong></p>
+<p>Three UserDefaults flags union terminal, filesystem and screen into
+every gateway call before the principal exists (§1). They are the one
+thing in the system that can hand out authority without naming
+anybody.</p>
+<p><strong>Decision: delete them. Every capability goes through the
+permission request path.</strong> GM: &quot;has to go through permission
+request path... it does seem unnecessary.&quot;</p>
+<p>The mechanism made sense while callers were anonymous, because there
+were only two options and both were bad: prompt on every single call, or
+trust everything. There was nothing to attach a grant to. Per-client
+grants are that missing third thing, so the flags become redundant
+rather than merely unsafe. Grants already persist per principal
+(<code>portPerms.&lt;id&gt;.&lt;space|global&gt;</code>), which is why
+the pooled <code>local-http</code> bucket accumulated one in the first
+place. So the flags were never buying standing access, only skipping the
+FIRST prompt per capability per client.</p>
+<p>What it costs, stated because it is what a user feels: after
+upgrading, a client asks once for terminal, once for filesystem, once
+for screen, and then never again.</p>
+<p><strong>The existing production values are not migrated</strong>, for
+the same reason the <code>local-http</code> grants are not: they were
+granted to &quot;anything that calls&quot;, which is not a client, so there is no
+client to attach them to without inventing a consent that was never
+given.</p>
+<p>Five sites, and the flags are gone from the codebase rather than
+defaulted off: <code>SignOutSheet.swift:25-27</code> (the
+<code>@AppStorage</code> declarations), <code>:659-661</code> (the
+Remote Access toggles), and <code>ToolExecutor.swift:140-144</code> (the
+<code>pregrant</code> construction). The generated instruction block&#39;s
+line &quot;Pre-approval lives in Port42 Settings → Remote Access&quot; goes with
+them.</p>
+<p><strong>D13. The permission manager is IN SCOPE, and it is touchpoint
+3</strong></p>
+<p>The backlog already carries it (<code>summer2026-todo.md</code>,
+2026-07-27: &quot;you cannot see or revoke what you granted&quot;). It is in P1
+rather than after it because P1 cannot satisfy FR9 without it, and
+because building a client list first would produce a second screen
+answering the same question.</p>
+<p><strong>Measured 2026-07-28:</strong> production holds <strong>143
+grant keys</strong>, dev 41, Dev3 2. Nothing in
+<code>Sources/Port42Lib/Views/</code> reads <code>portPerms</code> or
+<code>companionPermissions</code>, so no UI has ever displayed one. The
+backlog item recorded 119 keys on 07-27; either the store is growing
+daily or the two counts differ in method, and that is worth resolving
+when the screen is built, because a store that grows and is never reaped
+is the actual defect.</p>
+<p><strong>One screen, grouped by grantee</strong>, which is the
+backlog&#39;s own sketch. A client is a grantee kind beside companion, port
+and peer, so &quot;who is connected&quot; and &quot;what did I grant&quot; are one list:</p>
+<pre><code>Claude Code                        connected · revoke client
+  desktop        clipboard, filesystem            revoke
+  #port42-app    terminal                         revoke
+
+Echo                               companion
+  #port42-app    filesystem, ai                   revoke</code></pre>
+<p><code>Principal.scopeDescription</code> already generates the
+sentence a row needs, and the screen reads and writes the existing
+<code>companionPermissions</code> /
+<code>saveCompanionPermissions</code> pair, so it adds no storage.</p>
+<p><strong>It is also the only way the rest of P1 is verifiable by the
+person it protects.</strong> The scope change (space id → port key), the
+orphan cleanup, and revocation all happen inside a store nobody can see.
+The backlog item makes this point about itself and it applies doubly
+here: a migration you cannot look at is a migration you have to take on
+trust.</p>
+<p><strong>Out of scope within it, and stated so it does not
+creep:</strong> whether grants expire. Everything is permanent today,
+which is what makes an invisible grant serious, but expiry is a policy
+decision and this phase is about legibility and revocation.</p>
+<p><strong>D14. Alternatives rejected, and why</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>rejected</th>
+<th>reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a root token in a shared file</td>
+<td>enrollment with no human in it, and it is what produces the
+anonymous card</td>
+</tr>
+<tr>
+<td>dropping the Keychain for a plain file</td>
+<td>the only motivation was a dev-instance launch prompt, and release
+builds do not have it</td>
+</tr>
+<tr>
+<td>handing the gateway its secret in the environment</td>
+<td><code>ps -E</code> publishes it to every process running as the
+user</td>
+</tr>
+<tr>
+<td>minting inside <code>InstructionService</code></td>
+<td>gives a documentation writer a second job, fires on the wrong event,
+and does not generalize past the three tools that have instruction
+files</td>
+</tr>
+<tr>
+<td>a token that carries capabilities</td>
+<td>bootstrapping goes circular, and per-actor grants stop being
+expressible</td>
+</tr>
+<tr>
+<td>the gateway holding a client table</td>
+<td>needs a push channel and state that survives its own restart, for no
+gain over HMAC plus an app-side enrollment check</td>
+</tr>
+<tr>
+<td>gating <code>/call</code> only</td>
+<td>the WS door is the weaker one, and lets a caller pick its own
+principal</td>
+</tr>
+<tr>
+<td>a soft-enforcement window</td>
+<td>a door left open behind a doc that says it is closed, which is the
+P0 lesson</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="6-what-this-buys-in-the-users-terms">6. What this buys, in the
+user&#39;s terms</h3>
+<p>The visible payoff is naming, not encryption. Today a prompt is
+anonymous and pooled:</p>
+<pre><code>Local (gateway) wants filesystem access</code></pre>
+<p>Allowing it once grants it to every local process, forever. After
+P1:</p>
+<pre><code>Echo&#39;s terminal in #port42-app wants filesystem access</code></pre>
+<p>The grant lands on that caller alone, and it can be revoked by
+itself. <code>Principal.gatewayDisplayName(for:)</code> is the single
+site that changes.</p>
+<h3 id="7-deliverables">7. Deliverables</h3>
+<p>Where the design above lands in the tree. The design says what it is;
+this says what changes.</p>
+<p><strong>App</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>what</th>
+<th>where</th>
+<th>design</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ClientRegistry</code>, the only minting site</td>
+<td>new file</td>
+<td>D1, D3, D5</td>
+</tr>
+<tr>
+<td><code>clients</code> table, new migration</td>
+<td><code>DatabaseService.swift</code></td>
+<td>D1</td>
+</tr>
+<tr>
+<td>root secret, per instance</td>
+<td><code>AgentAuth.swift</code> (<code>Port42AuthStore</code>)</td>
+<td>D2</td>
+</tr>
+<tr>
+<td>host secret, generated per spawn, and both secrets written to
+stdin</td>
+<td><code>GatewayProcess.swift</code></td>
+<td>D2</td>
+</tr>
+<tr>
+<td>token file write and removal</td>
+<td><code>ClientRegistry</code></td>
+<td>D5, D7</td>
+</tr>
+<tr>
+<td>the pairing prompt and its approval path</td>
+<td>new view, <code>AppState</code></td>
+<td>D5, D11</td>
+</tr>
+<tr>
+<td>refuse a call with no <code>principal_id</code>, and refuse a
+revoked client</td>
+<td><code>AppState.onCallReceived</code> (:1364)</td>
+<td>D6</td>
+</tr>
+<tr>
+<td>two <code>Principal.peer</code> sites take
+<code>principal_id</code></td>
+<td><code>ToolExecutor.swift</code> (:150, :175)</td>
+<td>D0, D6</td>
+</tr>
+<tr>
+<td>children registered at spawn</td>
+<td><code>TerminalHooksService.swift</code> (:218),
+<code>AgentProcess.swift</code></td>
+<td>D1, D5</td>
+</tr>
+<tr>
+<td><code>isSharedIdentity</code> and <code>localGatewayID</code>
+deleted, not gated</td>
+<td><code>Principal.swift</code> (:110, :178)</td>
+<td>D9</td>
+</tr>
+<tr>
+<td>the permission manager: grants grouped by grantee, revoke per row
+and per grantee, clients as a grantee kind, add by hand</td>
+<td><code>SignOutSheet.swift</code>, new screen</td>
+<td>D11, D13</td>
+</tr>
+<tr>
+<td>delete the dead <code>PortPermissionOverlay</code> (no call
+site)</td>
+<td><code>PortWindowManager.swift:1657</code></td>
+<td>§4 touchpoint 2</td>
+</tr>
+<tr>
+<td>the three <code>remoteAllow*</code> flags and their Remote Access
+toggles deleted</td>
+<td><code>SignOutSheet.swift</code> (:25-27, :659-661),
+<code>ToolExecutor.swift</code> (:140-144)</td>
+<td>D12</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Gateway</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>what</th>
+<th>where</th>
+<th>design</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>read two secrets from stdin when <code>-watch-parent</code> is set,
+then keep the EOF watch</td>
+<td><code>main.go</code></td>
+<td>D2</td>
+</tr>
+<tr>
+<td>verify a credential and stamp <code>principal_id</code>,
+constant-time</td>
+<td><code>gateway.go</code></td>
+<td>D3, D4</td>
+</tr>
+<tr>
+<td>strip and re-stamp <code>principal_id</code> on every inbound
+envelope</td>
+<td>the read loop, <code>gateway.go</code> (:340)</td>
+<td>D4</td>
+</tr>
+<tr>
+<td><code>Authorization: Bearer</code> on <code>/call</code></td>
+<td><code>HandleHTTPCall</code> (:802)</td>
+<td>D4</td>
+</tr>
+<tr>
+<td><code>token</code> in <code>identify</code>, and refuse
+<code>call</code> from an unauthenticated peer</td>
+<td><code>routeCall</code> (:907)</td>
+<td>D4, D6</td>
+</tr>
+<tr>
+<td><code>is_host</code> honored only for the host credential</td>
+<td>identify (:283)</td>
+<td>D2, D8</td>
+</tr>
+<tr>
+<td><code>POST /pair</code>, <code>GET /pair/&lt;id&gt;</code>, rate
+limited, in-memory state</td>
+<td><code>main.go</code>, <code>gateway.go</code></td>
+<td>D5</td>
+</tr>
+<tr>
+<td>the gateway&#39;s own error codes</td>
+<td><code>gateway.go</code></td>
+<td>D10</td>
+</tr>
+<tr>
+<td>never log a secret or a token</td>
+<td>throughout</td>
+<td>NFR2</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Docs and generated artifacts</strong></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>what</th>
+<th>where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>curl examples gain the header; the block documents
+read-the-file-then-pair, mints nothing, contains no token; the
+&quot;Pre-approval lives in Settings → Remote Access&quot; line is dropped</td>
+<td><code>InstructionService.buildMarkdown</code></td>
+</tr>
+<tr>
+<td>the same header on every example</td>
+<td><code>llms-preamble.txt</code>, <code>README.md</code></td>
+</tr>
+<tr>
+<td>the auth codes beside the existing taxonomy</td>
+<td><code>ports-context.txt</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>llms.txt</code> and
+<code>Tests/Fixtures/tool-definitions-golden.json</code> are generated.
+Regenerate through their existing paths and read the diff.</p>
+<h3 id="8-out-of-scope-deliberately">8. Out of scope, deliberately</h3>
+<ul>
+<li><strong>HTTPS.</strong> The gateway is on loopback. TLS there
+protects against nothing an attacker on the machine cannot bypass, and
+costs a certificate story that is unpleasant locally. It becomes
+necessary when the door stops being loopback, and stays scoped to the
+tunnel and the relay. P2.</li>
+<li><strong>Relay auth (F-511)</strong> and remote peer identity.
+Channel traffic is untouched.</li>
+<li><strong>Per-program identity.</strong> That is the
+permission-manager thread.</li>
+<li><strong>Resistance to a process running as the user.</strong> See
+limits.</li>
+</ul>
+<h3 id="9-stated-limits">9. Stated limits</h3>
+<ul>
+<li>This does not defeat a process running as the user, and no
+local-socket design will. A token file is readable by anything with the
+user&#39;s uid. What P1 buys is that every caller is named, enrolled by a
+deliberate act, and individually revocable.</li>
+<li>A leaked token stays valid until it is revoked or the root secret is
+rotated.</li>
+<li>The name a pairing client supplies is its own claim, reviewed by a
+human at approval.</li>
+</ul>
+<h3 id="10-build-order">10. Build order</h3>
+<p>Two halves, in this order, because the naming half is meaningful on
+its own and the credential half is not meaningful without it. Each step
+leaves the app shippable.</p>
+<p><strong>Half one: the object, and making consent visible.</strong>
+Nothing here authenticates anything, and nothing here can strand a
+caller.</p>
+<ol type="1">
+<li><strong>Port 0 exists.</strong> The Port42 window gets an identity,
+and the grant key gains its object slot: grantee × port [× zone].
+<code>&quot;global&quot;</code> becomes port 0 and a space id moves to the
+qualifier slot. The 143 existing grants migrate mechanically and widen
+nothing (CR5).</li>
+<li><strong>The permission manager</strong> (D13). Grants grouped by
+grantee, revoke per row and per grantee. This is the first time in the
+product&#39;s life that a granted permission can be seen, and it is what
+makes step 1&#39;s migration verifiable rather than trusted.</li>
+<li><strong>The card names its object.</strong> &quot;Claude Code wants to
+read the clipboard in Port42.&quot; Delete the dead
+<code>PortPermissionOverlay</code>, and delete the
+<code>remoteAllow*</code> pre-grant (D12) now that every capability has
+a place to be granted and revoked per grantee.</li>
+</ol>
+<p><strong>Half two: the credential.</strong> Every step here has the
+manager from step 2 to make it legible.</p>
+<ol start="4" type="1">
+<li><strong>Store and mint.</strong> Root secret, derived tokens, the
+token file, minting from the acts that already exist (connect a tool,
+spawn a child, add by hand). Clients appear in the manager as a grantee
+kind. Nothing enforces yet.</li>
+<li><strong>Seam and verifier together.</strong>
+<code>principal_id</code> exists, is written only by the verifier, and a
+call without one is refused. <code>local-http</code> is deleted rather
+than preserved: carrying a transport label through a transition step
+would seed the new field with exactly the kind of value it exists to
+eliminate.</li>
+<li><strong>Children.</strong> Per-child registration at spawn, which is
+where the pooled bucket actually dies.</li>
+</ol>
+<p>Step 5 is the only one with a blast radius, and by then every caller
+has a token, the refusal teaches the fix, and the manager shows what
+happened.</p>
+<p><strong>If you want to ship less:</strong> half one is a coherent
+release by itself. It names the primitive, makes 143 invisible grants
+visible and revocable, and removes the blanket pre-grant, without
+touching authentication at all.</p>
+<h3 id="11-verification">11. Verification</h3>
+<p>Live, per door and per caller, rather than once. The lesson this
+scope is built on is that a fix verified on one caller path was assumed
+to hold on the others, three times in one session.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th></th>
+<th><code>/call</code> (HTTP)</th>
+<th><code>/ws</code> (envelope)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>typed curl</td>
+<td>with token, without token, with a revoked token</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>the app&#39;s children</td>
+<td>a companion terminal&#39;s own token</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>the gateway subprocess</td>
+<td>n/a</td>
+<td>host credential accepted, forged <code>is_host</code> refused</td>
+</tr>
+<tr>
+<td>a port&#39;s <code>window.port42</code></td>
+<td>goes via the bridge, not the gateway. Confirm it is unaffected</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p>Plus: the probe above re-run and refused, an unauthenticated
+<code>ports.list</code> over <code>/ws</code> refused, channel messages
+still routing with no credential, and a revoke taking effect without a
+gateway restart.</p>
+<p><code>gateway_httpcall_test.go</code> already exercises
+<code>/call</code> end to end. Calibrate every new gate by breaking it
+before trusting it.</p>
+<h3 id="12-spikes-run-2026-07-28">12. Spikes run, 2026-07-28</h3>
+<p>Four, run before building, in the session&#39;s own discipline: measure
+first, and calibrate every gate by breaking it.</p>
+<p><strong>A. Does a NEW RELEASE prompt on the Keychain?</strong> No.
+<strong>The store choice is validated.</strong></p>
+<p>A signed probe created an item and read it back, then a second build
+with the same identifier and the same Developer ID certificate but a
+different cdhash read it silently (<code>OSStatus=0</code>), with user
+interaction disabled so a would-be dialog returns an error code instead
+of blocking.</p>
+<p>Calibrated by breaking it three ways, all correctly refused with
+<code>errSecAuthFailed</code>: a different bundle id, a different
+certificate, and ad-hoc signing. The control kept working
+throughout.</p>
+<p><strong>The first run of this spike was wrong and the harness was the
+reason.</strong> <code>codesign</code> derives the identifier from the
+filename, so the two builds had different identifiers and the refusal
+proved nothing about a release. The ACL binds to (identifier, signing
+certificate), not to the exact binary.</p>
+<p>That also explains the dev-instance prompt exactly, and it is two
+causes at once rather than one: a dev build has a different bundle id
+<strong>and</strong> a different certificate from the app that created
+the shared <code>Port42-credentials</code> items. Instance-qualifying
+the account fixes it, and is not P1.</p>
+<p><strong>B. Is the pairing refusal followable by a real Claude Code
+session?</strong> Yes, first attempt, no hand-holding. <strong>D5 and
+D10 are validated.</strong></p>
+<p>A stub gateway served the proposed 401 body and the pairing
+endpoints, approving after a delay to stand in for a human clicking
+Allow. A headless session was given the proposed instruction block and
+one task. Its trace:</p>
+<pre><code>POST /call  method=help        NO TOKEN  -&gt; 401 auth_required
+POST /call  method=space.list  NO TOKEN  -&gt; 401 auth_required
+POST /pair  name=&#39;claude-code&#39;           -&gt; 202
+GET  /pair/&lt;id&gt;                          -&gt; APPROVED, token written
+POST /call  method=space.list  AUTHENTICATED -&gt; 200</code></pre>
+<p>It read the hint, enrolled under a sensible name, waited, retried,
+and then told the user the response looked like a stub. The file landed
+at <code>0600</code> in a <code>0700</code> directory.</p>
+<p><strong>Not measured, and worth a follow-up:</strong> the approval
+came back on the client&#39;s first poll, so the <code>pending</code> branch
+was never exercised. How patiently a session polls while a human takes a
+minute to reach the dialog is still unknown, and it is the realistic
+case.</p>
+<p><strong>C. The stdin handover.</strong> Works, both ways. <strong>D2
+is validated.</strong></p>
+<p>A faithful stand-in for <code>GatewayProcess</code> (Process plus a
+Pipe on <code>standardInput</code>, write end held) and for
+<code>main.go</code>&#39;s watch-parent: both secrets arrived intact, and
+after a <code>kill -9</code> of the parent, which runs no cleanup on
+either side, the child still exited on EOF. A hand-launched instance
+with no <code>-watch-parent</code> skipped the read and did not block,
+which is the relay case.</p>
+<p>One detail that has to survive into the real code: resume
+<code>io.Copy</code> from the <strong>same buffered reader</strong>, not
+from <code>os.Stdin</code>, or anything already pulled into the buffer
+is lost.</p>
+<p><strong>D. Who else treats <code>sender_id</code> as
+authority?</strong> This found the <code>remoteAllow*</code> pre-grant
+in §1, which is the finding that changed the design. Confirmed alongside
+it: <code>Principal.peer</code> has exactly two production sites, both
+in <code>ToolExecutor.swift</code>, and two
+<code>senderId == localGatewayID</code> comparisons beside them in
+<code>#if DEBUG</code> probe blocks that retire with the constant.</p>
+<h3 id="13-open-for-gm">13. Open for GM</h3>
+<ol type="1">
+<li>The wording on the pairing prompt and on a hand-made client&#39;s
+permission card.</li>
+<li>Whether add-by-hand in Settings ships in step 1 or waits.</li>
+<li>Park or delete the orphaned <code>local-http</code> grants.</li>
+<li>Whether pairing can be switched off entirely in Settings, for a
+machine that wants no new clients.</li>
+</ol>
+<p><strong>Closed:</strong> the <code>remoteAllow*</code> pre-grant,
+removed outright (D12, GM 2026-07-28).</p>
+<hr />
+<h1 id="the-wire-half">The wire half</h1>
+<h2 id="why-this-slice-what-it-validates">Why this slice (what it
+validates)</h2>
+<ol type="1">
+<li><strong>It proves keystone #1 — address across instances.</strong>
+The single foundational decision in <a href="bus-architecture.md"><code>bus-architecture.md</code></a>: extend
+<code>port42://space/&lt;id&gt;/&lt;portId&gt;</code> to carry the
+instance, so a query reaches a remote port the same way it reaches a
+local one.</li>
+<li><strong>It proves a coarse keystone #2 — right-of-way across the
+wire.</strong> Per-<em>port</em> ownership (not yet per-element): two
+drivers on two instances never double-write.</li>
+<li><strong>It cashes out the hardest sentence.</strong> My own earlier
+critique flagged the Synchronizer&#39;s real-time surface as the deepest
+unsolved piece stated as one bullet. This is where it meets code.</li>
+<li><strong>It measures the honest falsifier.</strong> Hole-punch
+success rate under real networks — the number that decides whether &quot;p2p
+= sovereignty&quot; is viable or whether relay dominates in practice.</li>
+</ol>
+<h2 id="scope--jobs-this-slice-touches">Scope — jobs this slice
+touches</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Job</th>
+<th>What the slice exercises</th>
+<th>Kept thin by…</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>J8</strong> working on the same thing together</td>
+<td>co-hold one port across two instances</td>
+<td>one port, per-port right-of-way (not per-element)</td>
+</tr>
+<tr>
+<td><strong>J16</strong> working with other people</td>
+<td>A&#39;s surface driveable by B (another person)</td>
+<td>two peers, no teams / no fan-out to N</td>
+</tr>
+<tr>
+<td><strong>J13</strong> wherever &amp; whenever I am</td>
+<td>the same port reachable from another instance/device</td>
+<td>no mobile; two desktop gateways</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="scope--roles-this-slice-cuts">Scope — roles this slice cuts</h2>
+<p><em>Build <strong>only</strong> the one thing named.</em></p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Role (ID)</th>
+<th>Build only this</th>
+<th>Skip</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Synchronizer</strong> (F2)</td>
+<td>remote address + query-in/stream-out + per-port right-of-way over
+libp2p</td>
+<td>per-element right-of-way; unified 4-way subscription; CRDT/OT
+merge</td>
+</tr>
+<tr>
+<td><strong>Controller</strong> (S3)</td>
+<td>who-may-write across the wire — CAS on the port&#39;s token (was: the
+ownership lease)</td>
+<td>full delegation matrix</td>
+</tr>
+<tr>
+<td><strong>Gatekeeper</strong> (S2)</td>
+<td><strong>IN as of the rescope.</strong> every caller named and
+enrolled, one verifier per door, the permission object (port 0), and the
+permission manager</td>
+<td>per-program identity; expiring grants</td>
+</tr>
+<tr>
+<td><strong>Coordinator</strong> (R1)</td>
+<td>two peers discover + connect</td>
+<td>N-peer swarm, conflict detection among agents</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Not in this slice:</strong> Keeper, Sensor, Guard, Librarian,
+Presenter-beyond-terminal, agents writing to the remote port.
+Human-driven both ends first. <strong>The Gatekeeper moved IN</strong>
+with the 2026-07-28 rescope: without it the actor arriving over the wire
+is asserted rather than verified, which is the one thing libp2p cannot
+fix from outside the seam.</p>
+<hr />
+<h2 id="the-reference-implementation--extend-the-local-bridge-over-the-wire">The
+reference implementation — extend the local bridge over the wire</h2>
+<p>The bus already exists <strong>locally</strong>: the port bridge
+ships <code>getHtml</code> (snapshot), <code>patch</code> (delta),
+<code>push</code>, <code>update</code>,
+<code>history</code>/<code>restore</code>, and a local event stream
+(P-400, Mar 2026). The slice is <strong>not</strong> a new system — it
+is: <em>make those same verbs cross a libp2p stream to a port on another
+instance, and add a token so a write composed against stale state is
+refused rather than applied.</em> (Same move as Slice 01 naming git as
+the Guard&#39;s substrate: here the substrate is the existing bridge +
+libp2p.)</p>
+<h3 id="the-shape">The shape</h3>
+<pre><code>   INSTANCE A (owns port P)                         INSTANCE B (remote driver)
+   ┌───────────────────────┐                        ┌───────────────────────┐
+   │  port P (actor)        │                        │  proxy handle → P      │
+   │   state · stream       │                        │   renders P&#39;s stream   │
+   └─────────┬─────────────┘                        └──────────┬────────────┘
+             │ gossipsub topic: port42/&lt;space&gt;/&lt;P&gt;  (Notify deltas)          │
+             │◀───────────────────────────────────────────────────────────▶ │
+             │ libp2p stream /port42/uerp/1.0.0     (Query / Update in)      │
+             │◀───────────────────────────────────────────────────────────▶ │
+        Circuit-Relay v2 ─── DCUtR hole-punch ──▶ direct conn (or stay relayed)
+
+   ADDRESS   port42://&lt;peerID&gt;/space/&lt;space&gt;/&lt;portId&gt;     ← instance = PeerID
+   WRITE     B reads P&#39;s token → B patches, carrying it → A applies, or refuses `stale_write`
+             with `current` → B retries once → Notify to both (see the re-head note: no lease)</code></pre>
+<h3 id="the-contract-made-concrete">The contract, made concrete</h3>
+<ul>
+<li><strong>Address (F2).</strong>
+<code>port42://&lt;peerID&gt;/space/&lt;id&gt;/&lt;portId&gt;</code>.
+Resolve <code>&lt;peerID&gt;</code> → live multiaddr via mDNS (milestone
+A) or DHT/rendezvous (milestone B). A local port keeps its short
+address; the instance segment is what&#39;s new.</li>
+<li><strong>Query in (F2).</strong> B opens a
+<code>/port42/uerp/1.0.0</code> stream to A and sends a UERP-framed
+<code>Update</code> (<code>patch</code>/<code>push</code>) or
+<code>Query</code> (<code>getHtml</code>, incl. as-of). A executes it
+<strong>through its existing local bridge</strong> — the remote caller
+is just another origin.</li>
+<li><strong>Stream out (F2).</strong> A publishes every port delta to
+gossipsub topic <code>port42/&lt;space&gt;/&lt;portId&gt;</code>; B (and
+any subscriber) receives <code>Notify</code>. One publish, many
+subscribers — the unified-subscription shape, minimally.</li>
+<li><strong>Right-of-way (S3) — the TOKEN, not a lease.</strong>
+<em>(Rewritten 2026-07-28; the original paragraph specified a lease and
+is quoted in the re-head note.)</em> Every write carries the token it
+was composed against. A writes it through its own local bridge, which
+either applies it or refuses <code>stale_write</code> carrying
+<code>current</code>, so B self-corrects in one retry with no extra
+round trip. An untokened write is refused with
+<code>token_required</code>, also carrying <code>current</code>.
+<strong>Nobody is blocked and nothing is granted.</strong> Presence is
+derived from whoever moved the token last and is broadcast on the Notify
+topic as <code>kind: &quot;driver&quot;</code>, so both UIs show who is driving —
+a display fact that refuses nothing. <em>(The deliberate concurrency
+choice: optimistic CAS on a per-port monotonic counter, not pessimistic
+ownership and not CRDT/OT. A lock cannot cross the wire, because clocks
+do not agree between peers.)</em></li>
+</ul>
+<h3 id="milestones-isolate-the-seams-from-the-contract-from-traversal">Milestones
+(isolate the seams from the contract from traversal)</h3>
+<ul>
+<li><strong>A · the local seams.</strong> Part 0&#39;s rows, on one machine:
+port 0 and the grant object, the permission manager, then the credential
+and the <code>principal_id</code> seam. No wire at all. Shippable on its
+own, and it is where the falsifier is cheapest: if a seam needs changing
+above the line, find that here.</li>
+<li><strong>B · same-LAN (mDNS).</strong> Prove the <em>contract</em> —
+address, query, stream, token — with traversal taken out of the
+equation. If this doesn&#39;t feel instant on a LAN, nothing else
+matters.</li>
+<li><strong>C · cross-NAT (relay + DCUtR).</strong> Prove
+<em>traversal</em> — two instances on different networks. Instrument the
+hole-punch: record direct-vs-relayed, and the success rate.</li>
+</ul>
+<hr />
+<h2 id="acceptance--passfail-per-seam">Acceptance — pass/fail per
+seam</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>Seam</th>
+<th>PASS</th>
+<th>FAIL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Actor (A)</strong></td>
+<td>a call with no verified <code>principal_id</code> is refused on BOTH
+doors; a caller cannot name itself; <code>local-http</code> is gone</td>
+<td>a caller still picks its own identity on either door</td>
+</tr>
+<tr>
+<td><strong>Object (A)</strong></td>
+<td>every grant names the port it is about; port 0 exists; the 143
+existing grants migrated without widening</td>
+<td>a grant still names a grantee and a space and no object</td>
+</tr>
+<tr>
+<td><strong>Legibility (A)</strong></td>
+<td>every grant is visible and revocable in one screen, grouped by
+grantee</td>
+<td>a grant is still invisible after the moment it is given</td>
+</tr>
+<tr>
+<td><strong>Address</strong></td>
+<td><code>port42://&lt;peerID&gt;/…</code> reaches the remote port; the
+same verb path works local and remote</td>
+<td>remote needs a different API than local</td>
+</tr>
+<tr>
+<td><strong>Query in</strong></td>
+<td>B&#39;s <code>patch</code>/<code>getHtml</code> executes on A&#39;s port via
+A&#39;s existing bridge</td>
+<td>remote writes bypass A&#39;s local bridge/authority</td>
+</tr>
+<tr>
+<td><strong>Stream out</strong></td>
+<td>a delta on A appears on B within one round-trip; multiple
+subscribers get it from one publish</td>
+<td>B must poll; or fan-out needs bespoke per-subscriber code</td>
+</tr>
+<tr>
+<td><strong>Right-of-way</strong></td>
+<td>a write composed against stale state is REFUSED with
+<code>current</code>, and one retry lands; presence names whoever wrote
+last, on both ends; no double-apply under contention</td>
+<td>a stale write is applied and A&#39;s state diverges from B&#39;s view; or a
+caller is blocked outright, which is the lease failure again</td>
+</tr>
+<tr>
+<td><strong>Traversal (B)</strong></td>
+<td>direct connection via DCUtR where NAT allows, clean relay fallback
+otherwise; success rate recorded</td>
+<td>connection only works same-LAN; or fails silently behind NAT</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Slice-level acceptance:</strong> on two instances across two
+networks — B addresses A&#39;s port, reads its state and token, patches it
+carrying that token, both UIs converge on the new state and show B as
+the driver; A then writes with a token it read BEFORE B&#39;s patch and is
+refused <code>stale_write</code> with <code>current</code>; A retries
+once and lands. Location-transparent; the same verbs, and the same
+refusal, as local.</p>
+<p><strong>The measured number (the falsifier):</strong> hole-punch
+<strong>direct-connection success rate</strong> across ≥4 real network
+settings (home, café, corporate, tethered mobile). ≥~80% direct + clean
+relay fallback → p2p-as-sovereignty is viable. Mostly-relayed → the moat
+thins; know it now, not later.</p>
+<h2 id="what-a-green-slice-means--and-doesnt">What a green slice means —
+and doesn&#39;t</h2>
+<ul>
+<li><strong>Means:</strong> the bus is real across instances on libp2p;
+<code>port42://</code> is a working protocol, not a paper one; the
+sovereignty thesis (direct peer connections, no central node holding
+state) has a walking skeleton.</li>
+<li><strong>Does <em>not</em> mean:</strong> per-element co-editing
+works (that&#39;s the next slice), agents drive remote ports, N-peer rooms
+scale, or the traversal rate holds at population scale.</li>
+</ul>
+<h2 id="explicitly-out-of-scope">Explicitly out of scope</h2>
+<p>Per-element right-of-way (CRDT/OT vs. finer locks); agents as remote
+drivers; N&gt;2 swarms; mobile; persistence when the owning instance
+goes offline (room outlives host); TLS on any transport
+(<code>plan-gateway-auth-tls.md</code> P2); per-program identity and
+expiring grants; the Keeper/epistemic layer entirely (a Keeper, if
+present, is <em>a gossipsub subscriber</em> like persist — not part of
+this contract).</p>
+<h2 id="open-questions-marked--not-asserted">Open questions (marked —
+not asserted)</h2>
+<ul>
+<li><strong>O-1 · <del>Lease authority</del> · VOID
+(2026-07-28).</strong> There is no grant, so there is no authority to
+locate. Kept for the record: the question was — the owning instance
+grants the lease, so what happens when the <em>owner</em> is the one who
+should yield, or when owner and requester disagree? A single-owner lease
+is the thin start; a neutral arbiter is deferred.</li>
+<li><strong>O-2 · Availability when the host leaves.</strong> If A goes
+offline, P is gone. Multiplayer usually wants the room to persist. Pure
+p2p vs. a designated always-on node is unresolved — and bears on the
+sovereignty story.</li>
+<li><strong>O-3 · Discovery trust.</strong> DHT/rendezvous tells B where
+A is; what stops a hostile peer from answering for A&#39;s address? Out of
+scope here, real later.</li>
+<li><strong>O-4 · <del>Causality under lease churn</del> · ANSWERED for
+correctness (2026-07-28).</strong> A late delta from a prior writer
+carries a token the port has already moved past, so CAS refuses it BY
+CONSTRUCTION. What remains is Notify ordering for DISPLAY, which is a
+rendering question, not a correctness one. The original: rapid lease
+handoffs + in-flight deltas need ordering (sequence/causal tag on
+Notify) so a late delta from the prior holder isn&#39;t misapplied.</li>
+<li><strong>O-5 · Per-element, later.</strong> Per-port locking is
+coarse; real co-holding wants per-element. Whether that stays locking or
+moves to CRDT/OT is the next slice&#39;s central decision, explicitly
+deferred.</li>
+</ul>
+<h2 id="risk--what-this-slice-retires-vs-leaves">Risk — what this slice
+retires vs. leaves</h2>
+<ul>
+<li><strong>Retires:</strong> that every caller on both ends is a named
+actor acting on a named object, and that a grant can be seen and
+withdrawn; cross-instance addressing correctness (keystone #1); that the
+local verb set replicates over the wire unchanged; that libp2p traversal
+is viable <em>for this workload</em> (the measured rate).</li>
+<li><strong>Early signal on:</strong> the p2p-as-sovereignty bet — the
+direct-connection rate is the first real evidence it holds under real
+networks.</li>
+<li><strong>Leaves untouched (by design):</strong> per-element
+concurrency (CRDT/OT vs. locks), host-offline persistence, N-peer scale,
+agent-driven remote writes, and the entire epistemic/Keeper layer.</li>
+</ul>
+</main>
+</div>
+</body>
+</html>

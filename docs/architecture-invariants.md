@@ -215,6 +215,39 @@ a missing `data` typing the string `null` into a live shell (`summer2026-todo.md
 that class matters is that a verb whose declaration and behaviour disagree cannot be reasoned about
 by a caller at all.
 
+## 6. The OBJECT of a permission · **NAMED 2026-07-28, NOT BUILT**
+
+**Status: ⚠️ open. The primitive is named; the code still has no object slot.**
+
+**GM, 2026-07-28: "the DESKTOP IS A PORT. PORT 0."** There is ONE primitive, a port. Port 0 is the
+Port42 window itself. A zone (a space is the first) is a grouping OVER ports, sitting on top of the
+primitive and never a kind of object.
+
+**Measured, and it is what makes this a register entry rather than an opinion.** Production holds 143
+grants: 120 `terminal`, 21 `rest`, 18 `screen`, 18 `filesystem`, 12 `ai`, 8 `clipboard`, 6
+`automation`, 2 `microphone`, 1 `notification`. Every one is a machine capability, and 140 of the 143
+keys are space-scoped.
+
+So `portPerms.<grantee>.<spaceId ?? "global">` names a grantee and a space and **no object at all**.
+The object was always the machine. Having no name, it left an empty slot, and the space slid into it.
+
+| | key names | the object |
+|---|---|---|
+| today | grantee × space | implicit, unnamed, always the machine |
+| after | grantee × port [× zone] | port 0, or a specific port |
+
+**A space was never scoping what is acted on. It was scoping the context the actor acted in.** Two
+questions sharing one key, which is this register's exact test: a reader cannot tell a deliberate
+difference from an omission.
+
+**This is the same failure as §1 and §3b, one layer out.** `createdBy` was provenance doing
+authorization's job; `sender_id` is an address doing an actor's job; a space id is an actor qualifier
+doing an object's job. Three instances of one shape.
+
+**Where it is being built:** `plan-gateway-auth-tls.md` §P1, requirements FR12/FR13 and CR5. The
+migration widens nothing, and the permission manager (D13) is what makes it verifiable by the person
+it protects, since nothing in `Sources/Port42Lib/Views/` has ever read a grant.
+
 ## Not primitives
 
 Kept here so they are not mistaken for the list.

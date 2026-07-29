@@ -12,10 +12,16 @@ in its own section below or in the plan it names.*
 | ✅ | **The protocol thread** — address · actor · token, each single-definition and live-verified | `plan-port42-protocol-local-bus.md` §A |
 | ✅ | **The write-response contract** — a response describes the state AFTER its effect | plan §G |
 | ✅ | **The output namespace** — a port cannot name its event `driver` | plan §G follow-on |
-| ▶ | **The error taxonomy** — a code is a value, not a string literal | `architecture-invariants.md` §5 |
-| | **Gateway auth P1** — retire the shared `local-http` identity; token file + Settings + CLAUDE.md rewrite | below, and `plan-gateway-auth-tls.md` |
-| | **Trust on the read path** — a reader is neither authenticated nor scoped | below (needs P1 first) |
-| | **Slice-02** — the same three nouns over libp2p | `membrane/slice-02-cross-instance.md` (re-headed 07-28) |
+| ✅ | **The error taxonomy** — a code is a value, not a string literal. The gateway's own errors ride with P1, same file | `architecture-invariants.md` §5 |
+| ▶ | **Slice-02, milestone A: the local seams** — port 0 and the permission object, the permission manager, then every caller named, enrolled and revocable | `membrane/slice-02-cross-instance.md` |
+| | **Slice-02, milestone B and C** — the same three nouns over libp2p, same-LAN then cross-NAT | same document |
+| | **The output seam** — ten publish sites, two taking a caller-supplied kind. On the path: it is gossipsub's payload | `architecture-invariants.md` §4 |
+| | **Trust on the read path** — a reader is neither authenticated nor scoped | below (needs milestone A first) |
+
+**RESCOPED 2026-07-28 (GM): gateway auth P1 is not a phase before slice-02, it is slice-02's local
+half**, and the permission manager rides with it. One slice, one document. Part 0 of that document is
+the seam list that says, per noun, what the local half must build so libp2p is an addition rather than
+a refactor. `plan-gateway-auth-tls.md` keeps P0 (shipped) and the TLS phases only.
 
 **A release sits between here and slice-02, and it is a BREAKING one.** v0.5.50 predates R5, so every
 shipped install still has opt-in CAS. The next release makes a token mandatory on every write, changes
@@ -261,7 +267,292 @@ one identity. See `architecture-invariants.md` §3.
 
 ---
 
+## BUG (2026-07-28, measured live): clicking the chat input beachballs a conversation with inline ports
+
+**Two incidents, same trigger, caught live on Dev with `sample` while it was still hung.** GM was
+in the chat box both times. It does not recover: re-sampled 30 seconds later, identical state.
+
+**The main thread, 2543 of 2543 samples:**
+
+```
+NSTextField mouseDown:
+  SelectionTextField.Cell._selectOrEdit            ← the click on the chat input
+    NSTextView mouseDown:
+      _bellerophonTrackMouseWithMouseDownEvent:    ← AppKit NESTED modal tracking loop
+        _nextEventMatchingEventMask:...            ← pumps the runloop from inside the click
+          __CFRunLoopDoObservers
+            GraphDelegate.beginTransaction         ← SwiftUI transaction on a runloop observer
+              GraphHost.runTransaction
+                AG::Subgraph::update
+                  GeometryReaderLayout.placeSubviews
+                    _ZStackLayout.sizeThatFits
+                      ViewDimensions.subscript.getter
+                        explicitAlignment → childPlacement → _FrameLayout.placement
+                          LayoutProxy.dimensions(in:) → sizeThatFits → StackLayout…
+```
+
+**Why the click is what kills it.** The layout cost exists all the time; normally it is spread
+across frames. AppKit's text-field mouse-down enters a nested event-tracking loop and SwiftUI's
+layout transaction runs INSIDE it, so the pass cannot be deferred and the click never returns.
+
+**Inline ports are in both.** Confirmed from the databases rather than assumed:
+
+| instance | space | messages | with inline ports |
+|---|---|---|---|
+| Dev | `crm` | 53 | 7 |
+| prod | `port42-app` | 81 | 4 (at positions 4, 70, 74, 76) |
+
+Position 4 is from 2026-07-09, far back in the scrollback, and still costs. An
+`NSViewRepresentable` being sized appears inside the hung layout pass, which is what an inline
+port is.
+
+**The list is already a `LazyVStack`** (`ConversationContent.swift:306`), so laziness is not the
+gap. It sits under `.defaultScrollAnchor(.bottom)` and feeds a `GeometryReader` preference for
+scroll offset (`:337`), both of which force total content height. Once realized, a port keeps
+participating in every pass regardless of how far up it is.
+
+**This file already knows the class.** Eight lines below that GeometryReader: *"RCA 2.3: commit only
+once the offset has stopped moving for ~120ms… without this, one animated port pins the main thread
+at 100% CPU."* That debounce stops the state-commit storm and does nothing about the cost of the
+layout pass itself, which is what blocks here.
+
+**INVESTIGATED 2026-07-28. Two things asserted earlier are WRONG.**
+
+- **The inline ports cost ZERO main-thread samples.** No WebKit and no Ghostty symbol appears
+  anywhere in the hang. The `NSViewRepresentable` seen being sized is SwiftUI's own `SelectionOverlay`
+  for the text field, not a port. **Ports are the MULTIPLIER, not the worker**: they make rows tall,
+  variably sized, un-cacheable and never evicted.
+- **`.defaultScrollAnchor(.bottom)` does not appear in the sample at all.** It was a guess and it is
+  not supported.
+
+**The dominant cost is ALIGNMENT FAN-OUT.** `explicitAlignment` on a `_FrameLayout` / `StackLayout` /
+`_ZStackLayout` is not answered from the size cache: it calls `childPlacement` →
+`LayoutProxy.dimensions(in:)` → **a full `sizeThatFits` re-descent of the subtree**. Five
+alignment-bearing containers sit on one path, so cost multiplies rather than adds. Thirteen nested
+layout containers run between the desktop `GeometryReader` (`ShellDesktop.swift:195`) and the
+`LazyVStack` (`ConversationContent.swift:306`).
+
+Inclusive share of the 2543 main-thread samples:
+
+```
+explicitAlignment (all sites)   25%      GeometryReader              17%
+_ZStackLayout                   19%      PlatformViewChild.update    13%
+LazyLayoutViewCache             19%      ForEachList.applyNodes      11%
+StackLayout prioritize           7%      AG::propagate_dirty          7%
+ScrollViewLayoutComputer         7%      LazyStack.measureEstimates   6%
+WKWebView / PortWebView / Ghostty          0%
+```
+
+**Three app-side alignment sites**, each forcing a full row re-descent: `ShellDesktop.swift:201`
+(ZStack over every desktop tile, so sizing the desktop fully sizes the chat);
+`ConversationContent.swift:306` + `:835` (a `LazyVStack(alignment: .leading)` AND a redundant per-row
+`.frame(maxWidth: .infinity, alignment: .leading)`, two resolutions per row); and `:962` (a third,
+inside the most expensive rows).
+
+**`MessageRow` declares `Equatable` and the optimization is INERT.** The conformance and `==` are at
+`:817` / `:824` with the comment "Equatable for diff-only re-render", but the call site at `:310`
+never applies `.equatable()`. A View's `Equatable` is only honored through `EquatableView`, so every
+row re-evaluates.
+
+**The parent `VStack` at `:302` forces two full conversation measurements per pass.**
+`StackLayout.prioritize` → `insertionSort(by:)` → `lengthThatFits` asks the ScrollView for min and
+max with INDEFINITE proposals, and it can only answer by measuring all content. That is why
+`ScrollViewLayoutComputer` and `LazyStack.measureEstimates` run at all during a text-field click.
+
+**Things write to the graph WHILE the pass runs**, which is why it is permanent rather than merely
+slow. `LazyLayoutViewCache.updateItemPhases()` → `AG::Graph::value_set` → `propagate_dirty` (175
+samples). `-[NSTextField updateCell:]` → `PlatformViewHost._layoutMetricsInvalidatedForHostedView()`
+→ `enqueueLayoutInvalidation()`, from inside SwiftUI's own update of that field. And in app code, the
+per-row `.onAppear` at `:312-324` mutates three pieces of state, fired by the item-phase churn above.
+
+**Ports are NEVER derealized.** `cachedActivePortIDs` (`:239`) only gains members, reset only on a
+space switch (`:367`); `activatedPortIndices` (`:822`) only gains; `webViews` / `inlineHeights` are
+removed only on explicit close (`PortWindowManager.swift:1145`). A port realized 77 messages up keeps
+a live WKWebView running its JS. There is no viewport-distance eviction anywhere in the codebase.
+
+**One amplifier worth its own line:** `inlineHeights` is `@Published` on `PortWindowManager` and
+`RegisteredInlinePortView` observes the whole object (`:1205`, `:1215`), so **one port's height
+message invalidates every other inline port and the desktop**.
+
+**The intra-pass port height cycle does NOT exist**, and that part of the design is already right:
+`RegisteredInlinePortView.height` (`:1228`) reads a state dictionary, not a measured value, and
+`PortWebViewHost` pins four edges with no intrinsic size, so SwiftUI never asks a webview how tall it
+wants to be.
+
+**RCA 2.3's debounce (`:348-350`) does exactly what it claims and nothing more.** It prevents a body
+re-evaluation per frame. It does not touch this: the GeometryReader body still runs every pass, the
+preference graph still recombines every pass, and a 120 ms debounce is irrelevant to a pass costing
+more than 120 ms. Right fix, different problem.
+
+### THE question that decides the fix, and it is not yet answered
+
+**One unbounded pass, or a non-terminating LOOP of passes?** `sample` merges by symbol, so a repeated
+`beginTransaction` and one long one look identical. **If it is a livelock, the layout fixes below only
+shorten each iteration and the beachball stays**; the fix would have to be the re-dirty source.
+
+Settle it in DEBUG with a `CFRunLoopObserver` on `.beforeWaiting` / `.afterWaiting` in common modes
+that counts and logs every 100 hits, then reproduce. Climbing counter = livelock. Frozen = one pass.
+(Equivalent: an auto-continuing lldb breakpoint on `GraphHost.runTransaction`, counting hits.)
+
+### Fix options, in order, AFTER that measurement
+
+1. **Kill the ideal-size probe.** `.fixedSize(horizontal: false, vertical: true)` +
+   `.layoutPriority(1)` on the input bar in the `VStack` at `:302`, so the ScrollView gets a definite
+   remaining height. Two lines, no behavior change.
+2. **Cut alignment sites.** Drop the redundant `.frame(…, alignment: .leading)` at `:835` and the
+   `alignment:` at `:962`, and apply `.equatable()` at `:310` so the existing `==` becomes live.
+   Attacks the 25% limb. Needs a read-through of `==` first, since anything not in it stops
+   triggering updates.
+3. **Make an inline port row a constant-size box** (`.frame(width:height:)` + `.fixedSize()`) so the
+   lazy stack can size a row without descending into the port, and give
+   `RegisteredInlinePortView` a single-port publisher instead of the whole manager.
+4. **Evict ports by viewport distance.** The only option that bounds cost as a conversation grows.
+   Product decision: a port that scrolls away loses DOM/JS state unless kept alive detached.
+
+**Also open:** do the `:312-324` `onAppear` closures fire during the hang (NSLog and reproduce); does
+port count or message count drive the curve; and is the click load-bearing or would Tab-focus hang too
+(if Tab hangs, the nested tracking loop is incidental).
+
+**How to catch the next one**, since a beachball produces no crash report and macOS captured no hang
+report either: `sample $(pgrep -x Port42) 5 -f ~/port42-hang.txt` from any terminal while it is stuck.
+
+---
+
+## PERF (2026-07-28, measured): ~30% of a core burned per instance while idle — it is the shell background
+
+**Cause: `ShellBackground`'s `TimelineView(.animation)` + `Canvas`, redrawn every display frame,
+forever, on the main thread, even when fully covered by opaque tiles.**
+
+**The first diagnosis in this session was WRONG and the correction is the useful part.** A `sample`
+showed 15 `CVDisplayLink` + 17 `renderer` threads whose stack ended in Ghostty's event loop, and that
+was read as the cause. It is not: `sample` counts a parked thread and a busy one identically, so a
+thread census is not a CPU measurement.
+
+**The natural experiment that settles it.** Two instances, 20-second CPU-time deltas:
+
+| instance | CPU | threads | `renderer` | `CVDisplayLink` | `terminalhooks` |
+|---|---|---|---|---|---|
+| prod | **33.6%** | 130 | 18 | 15 | 18 |
+| Dev3 | **30.4%** | 20 | **0** | **0** | **0** |
+
+**Dev3 has no terminal ports at all and burns within 3 points of prod.** Any hypothesis resting on
+terminal surfaces fails on that row.
+
+**Measured by thread class** (samples not in a blocking syscall, as a fraction of a core), prod:
+
+```
+main thread (the Canvas)      19.8%
+18 renderer threads            7.4%
+15 CVDisplayLink threads       1.3%
+18 terminalhooks queues        0.0%    (all parked in accept)
+```
+
+The main-thread chain is `NS_setFlushesWithDisplayLink` → `NSHostingView.layout()` →
+`ViewRendererHost.render` → `CanvasDisplayList.updateValue()` → `closure #1 in ShellBackground.body`
+(`ShellBackground.swift:55`), then `CA::Transaction::commit` → Metal submit.
+
+**What it draws per frame** (`ShellBackground.swift:15-57`): 1 linear + 2 radial gradients, **160
+ellipse fills** (`:34-41`), 24 floor strokes (`:46-51`), 23 perspective strokes (`:53-56`), full
+window, on a 3456x2234 ProMotion panel, so `TimelineView(.animation)` runs up to **120Hz**.
+
+**It is never paused.** Mounted unconditionally as layer 0 (`ShellView.swift:84`), so it runs at every
+zoom rung and keeps running while completely covered. No cadence cap, no occlusion check.
+
+**Ghostty is real but secondary: ~8.7% of a core for 18 surfaces, about 0.5% each.** It scales
+linearly with terminal count, which the Canvas does not.
+
+**Two throttling APIs exist in the header and are called ZERO times** (`ghostty.h:1145`, `:1245`):
+
+```c
+ghostty_surface_set_occlusion(ghostty_surface_t, bool);
+ghostty_surface_set_renderer_realized(ghostty_surface_t, bool);
+```
+
+`grep -rn "set_occlusion\|renderer_realized" Sources/ Tests/` returns nothing. No port state (tiled,
+parked, peek, focus, space switch) throttles a renderer; only `close` frees a surface
+(`GhosttyTerminalView.swift:679`). An unmounted surface in a non-active space keeps its renderer
+thread and display link running.
+
+**Terminal surfaces are built EAGERLY at launch** for every persisted terminal in every space, with no
+filter on the active space (`PortWindowManager.swift:249-252` → `rebuildTiledTerminal` :266-287).
+That is why a freshly launched instance already had 17.
+
+**The hook accept loops do NOT leak** — a second wrong suspicion, corrected. Teardown works
+(`TerminalHooksService.stop()` :61-64 ← `GhosttyTerminalController.teardown()` :319-326 ←
+`AppState.teardownTerminalController` :2841-2844), and 18 queues for 18 live terminals is 1:1 at 0.0%
+CPU. The real cost is one GCD worker thread and its stack per terminal, which a `kevent`-based accept
+would not need.
+
+**Fix order (agent's recommendation):**
+
+1. **Cap the Canvas cadence and pause it when it cannot be seen.**
+   `TimelineView(.animation(minimumInterval: 1.0/12.0, paused: shouldPause))`, driven by
+   `NSWindow.occlusionState`. Two lines, our own code, no dependency on Ghostty semantics. Predicted:
+   30.4% → under 8%.
+2. **Wire Ghostty occlusion** from `GhosttyInputView.viewDidMoveToWindow`
+   (`GhosttyTerminalView.swift:167`), where focus and display-id plumbing already lives. Recovers the
+   ~8.7% and stops it growing with terminal count.
+3. Static starfield, and lazy surface construction. Only if 1 and 2 miss the number. Lazy
+   construction changes product behavior (a companion in a background space stops being live), so it
+   is GM's call rather than a perf decision.
+
+**Unverified, and stated as such:** what `set_occlusion` actually does in this fork (the xcframework
+ships no source), whether `set_renderer_realized(false)` is safe to toggle back, whether the sampled
+windows were occluded (if they were, the visible-window cost is HIGHER than 33%), and the panel's
+active refresh rate.
+
+### A/B RUN 2026-07-29 — confirmed, and it is bigger than predicted
+
+`PORT42_NO_SHELL_BG` (read once at launch, `ShellBackground.isDisabledForMeasurement`) swaps Layer 0
+for flat black. Dev3, same data, same build otherwise:
+
+| | background ON | background OFF |
+|---|---|---|
+| idle CPU (5s delta) | 29-30% | **0.4%** |
+| main-thread runloop activities / 250ms | 200-360 | **1-11** |
+| wheel-scroll jitter | bad, reproducible on demand | **gone** (GM, live) |
+
+**About 75x less CPU at idle, and the runloop actually rests.** The prediction was "30% to under 8%".
+Everything else in the app, including zero terminal surfaces on this instance, is rounding error
+against Layer 0.
+
+**The scroll jitter was the background, not the conversation.** Measured during real jitter before
+the A/B: `CanvasDisplayList` 8327 main-thread samples against roughly 2700 for the ENTIRE
+conversation layout. The background cost about three times the thing the scroll was actually doing,
+so it ate the frame budget the scroll needed.
+
+**`explicitAlignment` is still confirmed as the top conversation-layout cost** (1541 samples), live,
+in a wheel-scroll scenario the static analysis never looked at. That work is real and still worth
+doing; it is now a smaller, separate optimization rather than the headline.
+
+**The fix is NOT to delete the background.** Cap its cadence and pause it when it cannot be seen:
+`TimelineView(.animation(minimumInterval: 1.0/12.0, paused: shouldPause))` driven by
+`NSWindow.occlusionState`. At 120Hz roughly 90% of those frames draw something nobody can perceive.
+
+**Open, and possibly the same family:** GM reports a separate symptom where the screen goes black
+until the mouse is moved. That is the signature of nothing forcing a repaint until an event arrives,
+which is what Layer 0 was doing by accident. Worth re-testing with the background off, since the
+symptom could either vanish or get worse, and which one it does says what was really driving the
+display cycle.
+
+---
+
 ## TODO (2026-07-27, GM): a permission manager. You cannot see or revoke what you granted
+
+> **IN SCOPE FOR P1 as of 2026-07-28** (`plan-gateway-auth-tls.md` §P1 D13). It is not a follow-on:
+> P1 cannot satisfy "the user can see every enrolled client and revoke any of them" without it, and
+> a separate client list would be a second screen answering this screen's question. A client becomes
+> a grantee kind beside companion, port and peer.
+>
+> **Re-measured 2026-07-28: 143 grant keys in production** (119 on 07-27), dev 41, Dev3 2. By
+> permission: 120 `terminal`, 21 `rest`, 18 `screen`, 18 `filesystem`, 12 `ai`, 8 `clipboard`, 6
+> `automation`, 2 `microphone`, 1 `notification`. Either the store grows daily or the two counts were
+> taken differently, and resolving that is part of building the screen, since a store that grows and
+> is never reaped is the defect underneath the invisibility.
+>
+> **Every one of those is a port 0 capability, and 140 of 143 keys are space-scoped**, which is what
+> exposed the missing primitive: the key names a grantee and a space and no object. See
+> `architecture-invariants.md` §6.
 
 **The gap, measured 2026-07-27 while closing I1.** The production install holds **119 live grant
 buckets** covering `ai`, `automation`, `clipboard`, `filesystem`, `notification`, `rest`, `screen` and
@@ -506,6 +797,19 @@ HTTPS on top of that just encrypts the commands. Auth first, then TLS, and local
 theatre once the gateway is on loopback with a token. Phases + open questions in the plan doc.
 
 ### The P1 design, as decided 2026-07-28 (GM)
+
+> **SUPERSEDED 2026-07-28. The P1 scope now lives in `docs/plan-gateway-auth-tls.md` §P1**, which is
+> the single home for it. Three measurements and one objection moved it, all recorded there: `/ws` is
+> a second door that lets a caller pick its own principal and inherit the standing grants (verified
+> live); `ps -E` publishes a subprocess environment to any same-user process, so the gateway takes
+> its secret over stdin rather than from its environment; and there is no root token, because an
+> ambient file anyone can read is enrollment with no human in it. Every token is minted by a named
+> act (pairing, spawn, or by hand in Settings), which is what makes a permission card say "Echo's
+> terminal" instead of "Local (gateway)".
+>
+> The section below is kept because the parts that survived are stated here first: HTTPS is not part
+> of P1, rotation rather than expiry, per-instance separation, the Settings subsection, and the
+> `InstructionService.buildMarkdown` rewrite.
 
 **HTTPS is NOT part of P1.** The gateway is on loopback, and TLS there protects against nothing an
 attacker already on the machine cannot bypass, while costing a certificate story that is genuinely
@@ -3072,7 +3376,26 @@ Same for the reverse case in the permission-UX item.
 
 ---
 
-## BUG: the app froze mid-demo, every port went grey (2026-07-16) — UNDIAGNOSED
+## BUG: the app froze mid-demo, every port went grey (2026-07-16) — LIKELY EXPLAINED 2026-07-28
+
+> **UPDATE 2026-07-28.** The diagnostic this entry asked for was finally run, on a live hang, and it
+> names a blocker. See the 2026-07-28 chat-input beachball item near the top of this file. **The
+> main actor is blocked by a SwiftUI LAYOUT pass over a conversation containing inline ports**, run
+> inside an AppKit nested mouse-tracking loop, so it cannot be deferred.
+>
+> Of this entry's three candidates, the sample **kills two and confirms the third**:
+>
+> | candidate | verdict from the sample |
+> |---|---|
+> | a blocked main actor via a sync wait or re-entrant bridge call | **partly right, wrong mechanism.** The main actor IS blocked, but by layout, not by a bridge wait. No bridge frame appears |
+> | the permission hang (a gated call with nowhere to render) | **not present.** No permission continuation anywhere in the stack |
+> | accumulation: most ports, most live webviews, none evicting | **this one.** An `NSViewRepresentable` is being sized inside the hung pass, and a port realized on July 9 still costs on every pass |
+>
+> The trigger may not be identical (this entry is a demo, the new one is a click into the chat
+> input), so treat it as the same mechanism rather than proven to be the same incident.
+>
+> **The ask in this entry was right and it worked.** The watchdog idea at the bottom is still worth
+> having, and the manual command is now proven: `sample $(pgrep -x Port42) 5 -f ~/port42-hang.txt`.
 
 **Reported by GM, live, during a demo.** First two demos fine. On the **third**, it started glitching:
 **every port turned grey**, nothing could be interacted with, **LLM calls stopped working**, and the
