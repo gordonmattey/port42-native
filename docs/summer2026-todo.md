@@ -985,18 +985,60 @@ not. Findings against the installed binaries:
 - `-r/--resume` takes `latest` or an index; `--list-sessions` enumerates per project.
 - `-o stream-json` gives a machine-readable output stream, a second possible turn signal.
 - History and session state under `~/.gemini/history/<project>/` and `~/.gemini/tmp/<project>/`.
-- **The open risk, and the only real one left:** no `--settings` equivalent was found, so
-  PER-SESSION hook injection is unproven. If hooks can only come from a settings FILE, Port42
-  would have to write `.gemini/settings.json` into the user's project — the same project-file
-  mutation antipattern already abandoned for CLAUDE.md (see `PORT42_COMPANION_PROMPT`). Needs an
-  env var or config-dir override to be found, or a different injection route.
+- **The injection question is SETTLED (spiked 2026-07-29).** There is no `--settings` flag and no
+  config-dir env var (`GEMINI_DIR` is an internal constant, not an override). But gemini resolves
+  its settings from `$HOME/.gemini/settings.json`, and it honors a redirected `HOME`. Verified:
+  with `HOME` pointed at a temp dir, gemini created `<temp>/.gemini/` and asked for auth in
+  `<temp>/.gemini/settings.json`.
+
+  So injection uses the mechanism Port42 already owns. `TerminalSessionBootstrap` writes a zshrc
+  defining `claude()` to route through the shim (`TerminalHooksService.swift:309-336`); add a
+  `gemini()` function that runs the real gemini with `HOME` pointed at the per-session temp dir.
+  **HOME is redirected for the gemini invocation only, never for the shell**, so git, ssh and npm
+  are untouched — the same containment the `claude()` function already gives.
+
+  The per-session `.gemini` should MIRROR the user's real one by symlinking its entries
+  (`oauth_creds.json`, `google_accounts.json`, `history/`, `tmp/`, `projects.json`) and writing
+  only `settings.json` itself. Auth and resumable history stay real; only the hooks are ours.
+  Structurally identical to the ZDOTDIR files, which source the user's real dotfiles and then add
+  Port42's bits.
+
+  No project-file mutation, so the CLAUDE.md antipattern is avoided.
 
 **Also corrected:** `isHooksCapable` (`GhosttyTerminalController.swift:201`) matches only
 `claude` and `gemini`, NOT codex, despite the prose above claiming all three. `CLIPreset` has no
 codex case at all.
 
-**Re-sizing:** codex looks S. Gemini is S for turn detection and unknown for injection until the
-override question is settled. The PTY watcher is a fallback nobody may need.
+**Re-sizing: S for both.** Codex injects via `-c notify=[...]` per invocation; gemini injects via
+a `gemini()` shell function redirecting HOME at a mirrored per-session `.gemini`. Both reuse
+machinery that already exists for claude. The PTY watcher this item was named after is a fallback
+nobody needs.
+
+**What is still unproven** (both need a real model call, so they are the first thing to do when
+building): that codex's `notify` fires with a usable payload, and that gemini honors hooks placed
+in the redirected `settings.json`. Everything up to those two facts is confirmed.
+
+### GEMINI AUTH IS THE REAL BLOCKER, not the plumbing (2026-07-29, GM)
+
+Signing in to the Gemini CLI now fails outright:
+
+> Failed to sign in. This client is no longer supported for Gemini Code Assist for individuals.
+> To continue using Gemini, please migrate to the Antigravity suite of products.
+
+So the free Google sign-in path is gone for individuals. The CLI still runs on the other auth
+methods it names (`GEMINI_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_GCA`), so the
+injection work above is not wasted — but a gemini companion now requires the user to bring a paid
+API key or Vertex access, which is a real adoption barrier that claude and codex do not have.
+
+Port42 already has the shape for this: the CLI credential goes in the secrets store and is
+injected as an env var per session, exactly as `claude-oauth` becomes `CLAUDE_CODE_OAUTH_TOKEN`
+(`TerminalSessionBootstrap.claudeOAuthSecretName`). A `gemini-api-key` secret injected as
+`GEMINI_API_KEY` is the same seam.
+
+**Consequence for sequencing:** build CODEX first. It has working auth, a `turn-ended` event, and
+per-invocation injection. Gemini becomes bring-your-own-key, and whether it is worth finishing at
+all depends on whether the CLI survives the Antigravity migration. Do not block codex parity on
+answering that.
 
 **Unrun proof** (blocked from this session, one command): confirm codex's notify actually fires
 and see its payload —
