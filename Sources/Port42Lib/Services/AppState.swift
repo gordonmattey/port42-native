@@ -3011,7 +3011,17 @@ public final class AppState: ObservableObject {
                                                        self?.notifyBus.publish(topic: "port:\(panel.id)", kind: PortEventKind.terminalOutput.wire, payload: out)
                                                    },
                                                    drainPending: drainPending,
-                                                   onSessionStarted: onSessionStarted, onSessionEnded: onSessionEnded)
+                                                   onSessionStarted: onSessionStarted, onSessionEnded: onSessionEnded,
+                                                   // Waiting-for-input → a peek into whatever space
+                                                   // the human is looking at now (backlog 1.4).
+                                                   onNeedsAttention: { [weak self] reason in
+                                                       guard let self else { return }
+                                                       self.shell?.handleNeedsAttention(
+                                                           id: panel.id,
+                                                           spaceId: config.spaceId,
+                                                           title: config.companionName,
+                                                           reason: reason)
+                                                   })
         terminalControllers[panel.id] = controller
         return controller
     }

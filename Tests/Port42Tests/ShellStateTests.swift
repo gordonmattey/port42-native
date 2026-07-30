@@ -109,6 +109,86 @@ struct ShellStateTests {
         #expect(shell.zoom == .space)
     }
 
+    // MARK: - Waiting-for-input peek (backlog 1.4)
+
+    @Test("a companion waiting on you in ANOTHER space raises a peek")
+    @MainActor
+    func needsAttentionPeeksFromElsewhere() throws {
+        let (shell, state) = try makeState()
+        let here = Space.create(name: "here")
+        let there = Space.create(name: "there")
+        state.spaces = [here, there]; state.currentSpace = here
+
+        shell.handleNeedsAttention(id: "waiting", spaceId: there.id, title: "Maker",
+                                   reason: "Claude needs your permission to use Bash")
+
+        #expect(shell.peekingPorts.map(\.id) == ["waiting"])
+        #expect(shell.peekingPorts.first?.spaceName == "there")
+        // The peek must say WHAT is wanted. A name alone tells you someone is waiting, which is
+        // not enough to decide whether to get up.
+        #expect(shell.peekingPorts.first?.title == "Maker — needs your permission to use Bash")
+    }
+
+    @Test("the peek names the companion first, then the reason, and drops the CLI's own name")
+    @MainActor
+    func attentionTitleComposition() {
+        // The companion name leads: with several sessions waiting, WHICH one is the first question.
+        #expect(ShellState.attentionTitle(companion: "Maker",
+                                          reason: "Claude needs your permission to use Bash")
+                == "Maker — needs your permission to use Bash")
+        // "Claude is waiting…" under a companion called Maker reads as the wrong agent.
+        #expect(ShellState.attentionTitle(companion: "Maker", reason: "Claude is waiting for your input")
+                == "Maker — is waiting for your input")
+        // No reason supplied (any CLI that sends none) falls back to the bare name rather than
+        // rendering a dangling separator.
+        #expect(ShellState.attentionTitle(companion: "Maker", reason: "") == "Maker")
+        #expect(ShellState.attentionTitle(companion: "Maker", reason: "   ") == "Maker")
+    }
+
+    @Test("a companion waiting in the space you are LOOKING AT does not peek")
+    @MainActor
+    func needsAttentionInCurrentSpaceIsSilent() throws {
+        // It is already on screen. A peek over the top of the thing it points at is noise.
+        let (shell, state) = try makeState()
+        let here = Space.create(name: "here")
+        state.spaces = [here]; state.currentSpace = here
+
+        shell.handleNeedsAttention(id: "waiting", spaceId: here.id, title: "Maker")
+
+        #expect(shell.peekingPorts.isEmpty)
+    }
+
+    @Test("repeat notifications for the same session do not stack up peeks")
+    @MainActor
+    func needsAttentionDedupes() throws {
+        // Load-bearing: an UNANSWERED permission prompt re-notifies, so repeats are the norm here
+        // rather than the exception. Without dedup, walking away would return you to a wall of them.
+        let (shell, state) = try makeState()
+        let here = Space.create(name: "here")
+        let there = Space.create(name: "there")
+        state.spaces = [here, there]; state.currentSpace = here
+
+        for _ in 0..<5 {
+            shell.handleNeedsAttention(id: "waiting", spaceId: there.id, title: "Maker")
+        }
+
+        #expect(shell.peekingPorts.count == 1)
+    }
+
+    @Test("a rested space stays silent even when a companion there is waiting")
+    @MainActor
+    func needsAttentionRespectsRestedSpaces() throws {
+        let (shell, state) = try makeState()
+        let here = Space.create(name: "here")
+        var there = Space.create(name: "there")
+        there.restedAt = Date()          // isResting is derived from this
+        state.spaces = [here, there]; state.currentSpace = here
+
+        shell.handleNeedsAttention(id: "waiting", spaceId: there.id, title: "Maker")
+
+        #expect(shell.peekingPorts.isEmpty)
+    }
+
     // MARK: - Dock restore + launch z-order (Bug 1)
 
     @MainActor

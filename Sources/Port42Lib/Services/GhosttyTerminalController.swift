@@ -121,6 +121,9 @@ final class GhosttyTerminalController {
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
     private let onSessionEnded: () -> Void
+    /// Fired when the CLI says it is waiting on the human (permission, or idle at the prompt).
+    /// AppState raises a peek from it. Carries the CLI's own reason so the peek can name it.
+    private let onNeedsAttention: (String) -> Void
     private var didNotifySessionStart = false
     /// How text reaches the pty: the body, whether to submit it, and a completion fired once the
     /// WHOLE write has landed (see `TerminalSurfaceWriter`). The completion exists because
@@ -143,7 +146,8 @@ final class GhosttyTerminalController {
          onOutput: @escaping @MainActor (String) -> Void = { _ in },
          drainPending: @escaping () -> [String] = { [] },
          onSessionStarted: @escaping () -> Void = {},
-         onSessionEnded: @escaping () -> Void = {}) {
+         onSessionEnded: @escaping () -> Void = {},
+         onNeedsAttention: @escaping (String) -> Void = { _ in }) {
         self.panelId = panelId
         self.config = config
         self.post = post
@@ -151,6 +155,7 @@ final class GhosttyTerminalController {
         self.drainPending = drainPending
         self.onSessionStarted = onSessionStarted
         self.onSessionEnded = onSessionEnded
+        self.onNeedsAttention = onNeedsAttention
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
 
@@ -220,6 +225,9 @@ final class GhosttyTerminalController {
                 log("  turnComplete NOT posted (skip=\(gate.lastSkipReason.isEmpty ? "not-armed" : gate.lastSkipReason))")
             }
             for c in out { deliver(c, via: "turnComplete") }
+        case .needsAttention(let message):
+            log("event=needsAttention message=\(message.prefix(80).debugDescription)")
+            onNeedsAttention(message)
         case .toolStarting(let tool, let input):
             log("event=toolStarting tool=\(tool) input=\(input.prefix(40).debugDescription)")
         case .toolFinished(let tool, let output):

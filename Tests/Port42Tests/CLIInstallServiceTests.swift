@@ -19,6 +19,9 @@ struct CLIInstallServiceTests {
         #expect(CLIInstallService.commandName(bundleID: "com.port42.dev") == "port42-dev")
         #expect(CLIInstallService.commandName(bundleID: "com.port42.dev2") == "port42-dev2")
         #expect(CLIInstallService.commandName(bundleID: "com.port42.dev3") == "port42-dev3")
+        // Dev4 is the standing test target (build.sh --dev4). The name is DERIVED from the bundle
+        // id, so a new instance needs no change here — this pins that it stays that way.
+        #expect(CLIInstallService.commandName(bundleID: "com.port42.dev4") == "port42-dev4")
     }
 
     // MARK: - Install planning

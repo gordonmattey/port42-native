@@ -17,6 +17,10 @@ import Darwin
 /// Port42's CLI-agnostic hook events. A notifier translates each CLI's raw events into these.
 public enum TerminalHookEvent: Sendable, Equatable {
     case turnComplete(text: String, exitCode: Int)
+    /// The CLI is WAITING ON THE HUMAN — a tool needs permission, or it has gone idle at the
+    /// prompt. Distinct from `turnComplete`, which fires on every turn whether or not anything is
+    /// wanted. `message` is the CLI's own reason, so a peek can say what it is waiting for.
+    case needsAttention(message: String)
     case toolStarting(tool: String, input: String)
     case toolFinished(tool: String, output: String)
     case approvalRequired(tool: String, input: String, sessionId: String)
@@ -157,6 +161,9 @@ public actor TerminalHooksService {
                   w.transcript ?? "nil", w.transcriptBytes ?? -1, (w.text ?? "").count,
                   w.sessionId ?? "nil")
             return .turnComplete(text: w.text ?? "", exitCode: w.exitCode ?? 0)
+        case "needsAttention":
+            NSLog("[hooks] needsAttention: %@", w.text ?? "")
+            return .needsAttention(message: w.text ?? "")
         case "toolStarting":   return .toolStarting(tool: w.tool ?? "", input: w.input ?? "")
         case "toolFinished":   return .toolFinished(tool: w.tool ?? "", output: w.output ?? "")
         case "approvalRequired": return .approvalRequired(tool: w.tool ?? "", input: w.input ?? "", sessionId: w.sessionId ?? "")
