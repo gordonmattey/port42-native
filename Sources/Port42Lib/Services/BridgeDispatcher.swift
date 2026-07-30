@@ -50,8 +50,9 @@ extension AppState {
 
         // AFTER the permission gate, which DOES refuse: a prompt is about the CALLER, and there is
         // no point recording a driver or moving a port's token for a call about to be denied.
-        let key = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
-                                            principal: principal)
+        let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
+                                            needsLiveSurface: method.needsLiveSurface,
+                                            args: args, principal: principal)
 
         // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
         let value = try await method.run(principal, args)
@@ -100,9 +101,28 @@ extension AppState {
     /// RETURNS the port's key, or nil for a read. **Not the token** — the caller reads that after
     /// the body has run, because a write's own effects land during the body. See `tokenAfter(_:)`.
     @discardableResult
-    func applyWriteSideEffects(writesTarget: String?, args: BridgeArgs, principal: Principal) throws -> String? {
+    func applyWriteSideEffects(writesTarget: String?, needsLiveSurface: Bool = false,
+                               args: BridgeArgs, principal: Principal) throws -> String? {
         if let targetParam = writesTarget, let raw = args.string(targetParam),
-           let key = portKey(for: raw) {
+           let ref = resolvePortRef(raw), let key = PortRef.key(ref) {
+            // LIVENESS, FIRST — before CAS and before the token moves.
+            //
+            // A write that delivers to a surface must have a surface to deliver to. `.unknown` is
+            // precisely "a known port with no live surface" (the DB row outlived the process), which
+            // is the state GM measured: four pushes to a terminal whose app had exited each answered
+            // `{"ok": true}` and advanced the token, and nothing ran.
+            //
+            // The ORDER is the fix, not just the check. Refusing here means a rejected write does
+            // not move the counter, so a later CAS write is not told it raced a mutation that never
+            // happened. A token that advances for a dropped write makes CAS lie — locally, and
+            // undetectably across the wire at slice-02.
+            if needsLiveSurface, ref.kind == .unknown {
+                throw BridgeError(
+                    code: .noSurface,
+                    message: "port '\(raw)' has no live surface — it is known but nothing is running "
+                           + "behind it. Reopen it, then retry.",
+                    details: ["id": raw])
+            }
             // CAS (R3). A writer may declare the state it composed against. If the port has moved
             // since, the write is REFUSED — the first thing in this phase that refuses anything, and
             // the replacement for the lock R1 removed.
@@ -440,8 +460,9 @@ extension AppState {
         }
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch
         // with its own rules; a write is a write whichever registry serves it.
-        let key = try applyWriteSideEffects(writesTarget: method.writesTarget, args: args,
-                                            principal: principal)
+        let key = try applyWriteSideEffects(writesTarget: method.writesTarget,
+                                            needsLiveSurface: method.needsLiveSurface,
+                                            args: args, principal: principal)
 
         let value = try await method.run(principal, args, yield)
         try failIfErrorResult(value, method: canonical)

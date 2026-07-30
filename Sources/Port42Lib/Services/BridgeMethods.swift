@@ -228,6 +228,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.push"] = BridgeMethod(permission: nil, paramNames: ["id", "data"], writesTarget: "id",
+        needsLiveSurface: true,
         description: "Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell: end with a newline (e.g. \"ls\\n\") to run the command, or omit it to leave the line waiting unsubmitted. Use the id from ports_list. Prefer this over port_exec for data transfer.",
         inputSchema: [
             "type": "object",
@@ -307,6 +308,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.exec"] = BridgeMethod(permission: nil, paramNames: ["id", "js"], writesTarget: "id",
+        needsLiveSurface: true,
         description: "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
         inputSchema: [
             "type": "object",
@@ -1576,6 +1578,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
     }
 
     r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y"], writesTarget: "id",
+        needsLiveSurface: true,
         description: "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
         inputSchema: [
             "type": "object",

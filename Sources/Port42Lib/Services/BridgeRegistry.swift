@@ -43,6 +43,26 @@ public struct BridgeMethod {
     /// `BridgeParamConsistencyTests` rather than silently escaping the lease.
     /// Reading is not driving: `getHtml`/`history`/`info`/`position`/`subscribe` stay nil.
     public let writesTarget: String?
+    /// **Does this write need the target's surface to be ALIVE?** (2026-07-29.)
+    ///
+    /// GM measured the fourth instance of register §5's class: four `port.push` calls to a terminal
+    /// whose app had exited each returned `{"ok": true}` and advanced the activity token
+    /// (`:0 → :1 → :3 → :5 → :8`), and nothing ran. The port was in `ports.list` throughout, because
+    /// the DB row outlived the process. "Target present, argument fine, BACKING PROCESS DEAD", which
+    /// neither of the earlier two fixes reached — those covered "target absent" and "argument wrong".
+    ///
+    /// **Worse than a plain lie, because it corrupts the token.** The counter moved, so a later CAS
+    /// write believes it raced a real mutation. The register's own words: a token claims *has this
+    /// port changed since I looked*, and that claim is false for any mutation that does not count —
+    /// here a mutation counted that never happened.
+    ///
+    /// **Declared per verb rather than enforced for all writes**, because it is genuinely not
+    /// uniform: `restore`, `rename` and `patch` operate on the STORED port and are documented to work
+    /// on a DB-only one (`PortSurfaceKind.unknown` exists for exactly that). Only a write that
+    /// DELIVERS to a live surface needs it. Declared here beside `writesTarget` for the same reason
+    /// that one is: it is the same shape of decision, at the same choke point, and enforced once in
+    /// `applyWriteSideEffects` so no verb can escape it.
+    public let needsLiveSurface: Bool
     /// The single implementation. Named args in, one `BridgeValue` out, throws `BridgeError`.
     /// `@MainActor` because a body reaches into `AppState` (which is `@MainActor`), exactly as the
     /// two executors do today.
@@ -51,6 +71,7 @@ public struct BridgeMethod {
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
                 writesTarget: String? = nil,
+                needsLiveSurface: Bool = false,
                 wired: Bool = true,
                 toolExposed: Bool = true,
                 description: String = "",
@@ -63,6 +84,7 @@ public struct BridgeMethod {
         self.description = description
         self.inputSchema = inputSchema
         self.writesTarget = writesTarget
+        self.needsLiveSurface = needsLiveSurface
         self.run = run
     }
 }
@@ -111,6 +133,14 @@ public extension BridgeMethod {
         return BridgeMethod(permission: permission,
                             paramNames: paramNames + [PortActivity.expectParam],
                             writesTarget: writesTarget,
+                            // MUST be carried, and a test caught it being dropped. This copy runs on
+                            // EVERY write verb (`mapValues { $0.acceptingExpect() }`), so a field
+                            // missing here is silently erased from the whole registry: `port.push`
+                            // declared `needsLiveSurface: true` and the dispatcher read `false`.
+                            // A copy constructor that has to be kept in sync by hand is the hazard;
+                            // `PortLiveSurfaceTests` asserts on the LIVE registry, after this copy,
+                            // which is what made it visible.
+                            needsLiveSurface: needsLiveSurface,
                             wired: wired,
                             toolExposed: toolExposed,
                             description: description,
@@ -150,6 +180,10 @@ public struct BridgeStreamMethod {
     /// input seam exists to replace with a structural one. Same meaning as `BridgeMethod.writesTarget`
     /// and dispatched through the same `applyWriteSideEffects`.
     public let writesTarget: String?
+    /// Same meaning as `BridgeMethod.needsLiveSurface`, and present here for the same reason
+    /// `writesTarget` is: the two registries must not be able to disagree about what a write is.
+    /// C5's lesson was that a field existing on only one of them is a divergence waiting to happen.
+    public let needsLiveSurface: Bool
     /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
     public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
 
@@ -157,6 +191,7 @@ public struct BridgeStreamMethod {
                 paramNames: [String] = [],
                 toolExposed: Bool = true,
                 writesTarget: String? = nil,
+                needsLiveSurface: Bool = false,
                 description: String = "",
                 inputSchema: [String: Any] = [:],
                 run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
@@ -164,6 +199,7 @@ public struct BridgeStreamMethod {
         self.paramNames = paramNames
         self.toolExposed = toolExposed
         self.writesTarget = writesTarget
+        self.needsLiveSurface = needsLiveSurface
         self.description = description
         self.inputSchema = inputSchema
         self.run = run
@@ -197,6 +233,10 @@ public struct BridgeStreamMethod {
         return BridgeStreamMethod(permission: permission,
                                   paramNames: paramNames + [PortActivity.expectParam],
                                   toolExposed: toolExposed, writesTarget: writesTarget,
+                                  // Carried for the same reason as the one-shot copy above, and
+                                  // fixed at the same time rather than waiting for the streaming
+                                  // path to grow its first write verb and inherit the bug.
+                                  needsLiveSurface: needsLiveSurface,
                                   description: description, inputSchema: schema, run: run)
     }
 }

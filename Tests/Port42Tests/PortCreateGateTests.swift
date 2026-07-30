@@ -58,6 +58,22 @@ struct PortCreateGateTests {
 
     // MARK: - Behavior: the gate remembers
 
+    /// Wait for the card to actually be raised, rather than sleeping a fixed interval and hoping.
+    ///
+    /// A fixed `Task.sleep` is a RACE, not a synchronization: it assumes the child task has hopped
+    /// to `@MainActor` and set `current` within the interval. Alone it does, in ~0.3s. In the full
+    /// suite, many `@MainActor` tests run concurrently, the child had not run yet, `resolveCurrent`
+    /// found `current == nil` and no-opped — and the `await` below then waited for a card nobody
+    /// would ever answer. Passes in isolation, hangs in the suite, which is the worst shape a test
+    /// can have because the failure looks like an unrelated flake.
+    @MainActor
+    private func awaitCard(_ appState: AppState) async throws {
+        for _ in 0..<200 {                     // 5s ceiling, ~0ms in practice
+            if appState.permissions.current != nil { return }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
     @Test("a caller that already holds .terminal is NOT re-asked")
     @MainActor
     func existingGrantIsHonored() async throws {
@@ -88,7 +104,7 @@ struct PortCreateGateTests {
 
         // Answer the card as the human would, then assert the answer was remembered.
         async let asked = appState.ensurePermission(.browser, for: p)
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await awaitCard(appState)
         appState.permissions.resolveCurrent(granted: true)
         #expect(await asked == true)
 
@@ -105,8 +121,10 @@ struct PortCreateGateTests {
         let appState = AppState(db: try DatabaseService(inMemory: true))
         let p = Principal.peer(id: "cli-\(UUID().uuidString)", displayName: "port42 CLI")
 
+        // Same fix as above, and this one mattered MORE: no time limit here, so under contention it
+        // did not fail, it hung forever.
         async let asked = appState.ensurePermission(.terminal, for: p)
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await awaitCard(appState)
         appState.permissions.resolveCurrent(granted: false)
         #expect(await asked == false)
 
