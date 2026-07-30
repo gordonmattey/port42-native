@@ -1,111 +1,64 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
 
-// Slice-02 half two, 5a — the gateway's verifier.
+// Slice-02 half two, 5a — the gateway's half of authentication.
 //
-// **The single real hazard in this file is format drift**: `p42_<id>_<mac>` has two implementations,
-// `ClientRegistry.token` in Swift and `tokenMAC` here, and a mismatch means every token is silently
-// rejected. `TestKnownVectorMatchesSwift` pins it against a value computed by the Swift side.
+// **The most useful test in this file is `TestNoTokenFormatLivesInTheGateway`**, which asserts an
+// ABSENCE. The first version of this file reimplemented `p42_<id>_<mac>` alongside Swift and pinned the
+// two with a shared vector; a gate is not a fix, because two implementations can still diverge and the
+// symptom is every token silently rejected while both sides stay green. The duplicate is deleted, and
+// that test is what stops it coming back.
 
-const testSecret = "dGVzdC1zZWNyZXQtbm90LWEtcmVhbC1vbmU="
-
-func TestVerifyRoundTrip(t *testing.T) {
-	tok := "p42_claude-code_" + tokenMAC("claude-code", testSecret)
-	if got := VerifyToken(tok, testSecret); got != "claude-code" {
-		t.Fatalf("want claude-code, got %q", got)
+func TestHostCredentialMatchesOnlyItself(t *testing.T) {
+	h, _ := ReadHostCredential(strings.NewReader("the-host-credential-for-this-spawn\n"))
+	if !h.Configured() {
+		t.Fatal("credential not read")
 	}
-}
-
-// NFR4: instances are separated by their SECRETS, not by a path check.
-func TestAnotherInstancesSecretDoesNotVerify(t *testing.T) {
-	tok := "p42_claude-code_" + tokenMAC("claude-code", testSecret)
-	if got := VerifyToken(tok, "a-different-instances-secret"); got != "" {
-		t.Fatalf("a foreign token verified as %q", got)
+	if !h.Matches("the-host-credential-for-this-spawn") {
+		t.Fatal("the real credential did not match")
 	}
-}
-
-// The MAC is over the ID, so a token cannot be presented as a different client.
-func TestTokenCannotBeReplayedAsAnotherClient(t *testing.T) {
-	mac := tokenMAC("claude-code", testSecret)
-	if got := VerifyToken("p42_gemini-cli_"+mac, testSecret); got != "" {
-		t.Fatalf("a token was replayed as %q", got)
-	}
-}
-
-func TestForgeriesAndJunkAreRefused(t *testing.T) {
-	for _, tok := range []string{
-		"", "claude-code", "p42_claude-code", "p42_claude-code_deadbeef",
-		"xxx_claude-code_" + tokenMAC("claude-code", testSecret),
-		// Not a valid slug: this is what stops a crafted id reaching a token file's name.
-		"p42_../../etc/passwd_" + tokenMAC("../../etc/passwd", testSecret),
-		"p42_UPPER_" + tokenMAC("UPPER", testSecret),
+	for _, wrong := range []string{
+		"", "the-host-credential-for-this-spaw", // truncated: length mismatch must fail
+		"the-host-credential-for-this-spawnX",
+		"THE-HOST-CREDENTIAL-FOR-THIS-SPAWN", // no case folding on a credential
 	} {
-		if got := VerifyToken(tok, testSecret); got != "" {
-			t.Errorf("token %q verified as %q", tok, got)
+		if h.Matches(wrong) {
+			t.Errorf("%q was accepted as the host", wrong)
 		}
 	}
 }
 
-// With no secret the gateway can name nobody, and must not accidentally accept everybody.
-func TestNoSecretVerifiesNothing(t *testing.T) {
-	tok := "p42_claude-code_" + tokenMAC("claude-code", testSecret)
-	if got := VerifyToken(tok, ""); got != "" {
-		t.Fatalf("verified %q with no secret", got)
+// A gateway launched by hand has no pipe. It must not block, and must not accept everybody by
+// answering "no expectation, so anything matches".
+func TestUnconfiguredCredentialAcceptsNothing(t *testing.T) {
+	h, _ := ReadHostCredential(strings.NewReader(""))
+	if h.Configured() {
+		t.Fatal("an empty pipe produced a credential")
 	}
-	if (Credentials{}).HasRoot() {
-		t.Fatal("empty credentials claimed to have a root secret")
-	}
-}
-
-// `is_host` is unforgeable by anything on disk: the host secret is regenerated per spawn, so only a
-// token minted with THIS spawn's secret is the host. Today any peer claiming is_host becomes it.
-func TestHostCredentialIsDistinctFromAClientToken(t *testing.T) {
-	c := Credentials{Root: testSecret, Host: "host-secret-for-this-spawn"}
-
-	hostTok := "p42_host_" + tokenMAC("host", c.Host)
-	if id, isHost := c.PrincipalFor(hostTok); !isHost || id != "host" {
-		t.Fatalf("host credential not recognised: id=%q isHost=%v", id, isHost)
-	}
-
-	// A CLIENT token, even one naming itself "host", is not the host — it is signed with the wrong key.
-	clientClaimingHost := "p42_host_" + tokenMAC("host", c.Root)
-	if _, isHost := c.PrincipalFor(clientClaimingHost); isHost {
-		t.Fatal("a client-signed token claiming to be host was accepted as host")
-	}
-
-	// And an ordinary client still resolves, as itself, not as host.
-	clientTok := "p42_claude-code_" + tokenMAC("claude-code", c.Root)
-	id, isHost := c.PrincipalFor(clientTok)
-	if id != "claude-code" || isHost {
-		t.Fatalf("client resolved wrong: id=%q isHost=%v", id, isHost)
+	for _, claim := range []string{"", "anything", "p42_host_whatever"} {
+		if h.Matches(claim) {
+			t.Errorf("unconfigured credential accepted %q", claim)
+		}
 	}
 }
 
 // Spike C's carried detail: the death-watch must resume from the SAME buffered reader, or whatever the
 // buffer already pulled in is lost. A test rather than a comment, because the loss is invisible.
-func TestReadCredentialsReturnsAReaderThatKeepsTheRest(t *testing.T) {
-	stdin := strings.NewReader("root-secret\nhost-secret\nleftover-payload\n")
-	creds, r := ReadCredentials(stdin)
+func TestReadReturnsAReaderThatKeepsTheRest(t *testing.T) {
+	stdin := strings.NewReader("host-credential\nleftover-payload\n")
+	h, r := ReadHostCredential(stdin)
 
-	if creds.Root != "root-secret" || creds.Host != "host-secret" {
-		t.Fatalf("secrets wrong: %+v", creds)
+	if h.expected != "host-credential" {
+		t.Fatalf("credential wrong: %q", h.expected)
 	}
 	rest, _ := r.ReadString('\n')
 	if strings.TrimRight(rest, "\n") != "leftover-payload" {
-		t.Fatalf("the buffered reader lost data after the secrets: %q", rest)
-	}
-}
-
-func TestReadCredentialsToleratesAnEmptyPipe(t *testing.T) {
-	// A hand-launched relay has no pipe. It must not block or panic, and must report no root secret
-	// so it serves routing only rather than pretending it can name callers.
-	creds, _ := ReadCredentials(strings.NewReader(""))
-	if creds.HasRoot() {
-		t.Fatal("an empty pipe produced a root secret")
+		t.Fatalf("the buffered reader lost data after the credential: %q", rest)
 	}
 }
 
@@ -127,18 +80,51 @@ func TestBearerTokenParsing(t *testing.T) {
 	}
 }
 
-// THE DRIFT GATE, and the only real hazard in this file.
+// **THE GATE THAT MATTERS: no token format may exist in the gateway.**
 //
-// `p42_<id>_<mac>` has TWO implementations — `ClientRegistry.mac` in Swift and `tokenMAC` here. If
-// they diverge, every token the app mints is silently rejected by the gateway, and nothing anywhere
-// says so: the symptom is "authentication just doesn't work", with both sides individually correct.
+// Client tokens are minted AND verified by the app, in `ClientRegistry`, so there is exactly one
+// implementation of `p42_<id>_<mac>` and nothing to drift from. This gateway forwards a credential as an
+// opaque string and never inspects it.
 //
-// This vector was computed independently of both (HMAC-SHA256, base64url, unpadded), so it pins the
-// FORMAT rather than one implementation's opinion of it. The matching assertion on the Swift side is
-// `ClientRegistryTests.tokenFormatMatchesTheGateway`.
-func TestKnownVectorMatchesSwift(t *testing.T) {
-	const wantMAC = "5U2Q9QduHVJNxsiJy6go6uItuDpLFuVdtf8pD4zRFHA"
-	if got := tokenMAC("claude-code", testSecret); got != wantMAC {
-		t.Fatalf("MAC format drifted:\n got:  %s\n want: %s", got, wantMAC)
+// Asserted structurally, because the failure it prevents is invisible: a well-meaning change that
+// "helpfully" verifies here would recreate the duplicate, both suites would stay green, and the two
+// implementations would drift apart later under a change to one of them.
+func TestNoTokenFormatLivesInTheGateway(t *testing.T) {
+	src := readSource(t, "credentials.go")
+	for _, forbidden := range []string{
+		"crypto/hmac",   // verifying a MAC means reimplementing the format
+		"crypto/sha256", // …
+		"p42_",          // parsing the token's shape
+		"base64",        // decoding its MAC
+	} {
+		if strings.Contains(stripComments(src), forbidden) {
+			t.Errorf("the token format is creeping back into the gateway (%q). "+
+				"Client tokens are verified by the app — one implementation, nothing to drift.",
+				forbidden)
+		}
 	}
+}
+
+// readSource reads a file in this package, for the structural gate above.
+func readSource(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", name, err)
+	}
+	return string(b)
+}
+
+// stripComments removes // line comments so the gate does not fire on the prose EXPLAINING what must
+// not be here — this file and credentials.go both name `p42_` and `crypto/hmac` while forbidding them.
+func stripComments(src string) string {
+	var out strings.Builder
+	for _, line := range strings.Split(src, "\n") {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		out.WriteString(line)
+		out.WriteString("\n")
+	}
+	return out.String()
 }

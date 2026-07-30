@@ -36,18 +36,20 @@ struct ClientRegistryTests {
         #expect(ClientRegistry.verify(token: t, secret: secret) == "claude-code")
     }
 
-    /// **THE CROSS-LANGUAGE GATE, and the only real hazard in this format.**
+    /// **THIS IS THE ONLY IMPLEMENTATION OF THE TOKEN FORMAT** (GM, 2026-07-29).
     ///
-    /// `p42_<id>_<mac>` has TWO implementations: this one and `tokenMAC` in `gateway/credentials.go`.
-    /// The app mints; the gateway verifies. If they diverge, every token is silently rejected and
-    /// nothing says so — the symptom is "authentication just doesn't work" while both sides are
-    /// individually correct and individually green.
+    /// It briefly had a twin in `gateway/credentials.go`, pinned to it by a shared test vector. GM's
+    /// call was that a gate is not a fix: two implementations of one format can still drift, and the
+    /// failure mode is the worst available — every token silently rejected while both sides stay
+    /// individually correct and individually green. So the duplicate was deleted, not guarded. The
+    /// gateway forwards a credential as an opaque string; the app mints AND verifies.
     ///
-    /// This vector was computed independently of both (HMAC-SHA256, base64url, unpadded), so it pins
-    /// the FORMAT rather than either implementation's opinion of it. Its twin is
-    /// `TestKnownVectorMatchesSwift`, asserting the same constant from the Go side.
-    @Test("the token format matches the gateway's verifier, byte for byte")
-    func tokenFormatMatchesTheGateway() {
+    /// The vector is kept because it pins the format against an INDEPENDENT computation (HMAC-SHA256
+    /// over the id, base64url, unpadded) rather than against this code's opinion of itself — so it
+    /// still catches an accidental change here, which is now the only place one could happen.
+    /// `TestNoTokenFormatLivesInTheGateway` is what keeps the twin from returning.
+    @Test("the token format is stable against an independently computed vector")
+    func tokenFormatIsStable() {
         #expect(ClientRegistry.mac(id: "claude-code", secret: secret)
                     == "5U2Q9QduHVJNxsiJy6go6uItuDpLFuVdtf8pD4zRFHA")
     }

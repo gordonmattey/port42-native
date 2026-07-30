@@ -245,6 +245,90 @@ item exists to stop making.
 
 ---
 
+## FIELD REPORT (2026-07-29, GM): OPEN SYNTH shared canvas — 10 findings, 3 of them ours to fix now
+
+Source: `~/Dropbox/Working Files/testfolder/port42-feedback.md`, with instruments beside it
+(`beacon-lab.html`, `bus-inspector.html`, `port-dev-console.html`, `beat.sh`). **Everything below was
+MEASURED while building a real thing**, which is why it outranks anything on this list that was
+reasoned about. The headline is positive and worth keeping in view: **a companion can already push
+into a shared port on its own initiative, with `port_push` as a native tool** — distributed
+participation needs no orchestrator, and the external driver they built was scaffolding for fictional
+personas, not a platform limit.
+
+### Three that are defects in what we just shipped, not feature requests
+
+**1. R5 HAS A SURFACE CARVE-OUT AFTER ALL — in-port writes are exempt.** `port42.port.push(id, data)`
+with the token argument OMITTED **succeeds** from inside a port, while a stale token fails. R5's whole
+claim was "no surface carve-out, no exemption for humans", and the safest in-port strategy is
+currently to not pass the thing the contract says is required. Either port JS is deliberately exempt
+(defensible — the bridge knows its caller's identity by construction) and the docs must say so, or
+this is a hole. **Decide and write it down**; right now the rule and the behavior disagree, which is
+register §5's own definition of a defect.
+
+**2. THE ERROR TAXONOMY STILL DOES NOT REACH PORT JS.** The bridge flattens every host error to a
+bare `Error` with only `message`/`line`/`column`/`sourceURL`/`stack`. `e.code` and `e.current` are
+`undefined` and `JSON.stringify(e)` is `{}`. So the documented single-retry recovery is **impossible
+from a port** — `current` is the only way to learn the token you should have used, and the workaround
+is the full `ports.list` round trip the token design existed to remove. `js_syntax` and its `ran`
+payload never arrive either, so the commonest `port.exec` footgun gives no diagnosis. Fix: preserve
+`code`, `current` and `ran` on the bridge's rejection object. **This is the third caller path again**
+— the same shape as the R7-era finding that the manual's own retry loop had never been runnable from
+inside a port.
+
+**3. REST PERMISSION IS NOT CONTAINED BY THE BRIDGE'S NAMESPACE.** A port with `rest` can call
+`http://127.0.0.1:<port>/call` and reach **the entire gateway method registry**, including every
+method the bridge deliberately does not expose, with whatever permissions the answering instance
+holds. So the namespace boundary is a convenience, not a containment boundary. Directly relevant to
+half two: naming callers does nothing here, because the port is calling as the GATEWAY, not as itself.
+Options: scope `rest` away from loopback gateways, or state the equivalence plainly.
+
+### The primitive that is actually missing: delivery to a SLEEPING subscriber
+
+**One identifier, `port:{id}`, addresses two disjoint stores** — verified from both sides.
+`bus.publish` is durable, sender-attributed and readable via `bus.read`, and is **never** delivered to
+`port.subscribe`. `port.push` is delivered live and leaves **nothing** on the bus topic. The envelope
+even carries `topic: "port:{id}"`, which reads as though they are one channel.
+
+That collision is the mechanism behind the gap: **the channel a companion can write cheaply and
+durably is the one the port cannot hear, and the channel the port hears cannot be written without an
+active caller.** Cheapest fix, and they name it: let `port.subscribe` also deliver its own `port:{id}`
+bus topic — one line of routing, and it makes the shared name honest. Otherwise rename one.
+
+Second half of the same gap: **a port cannot emit at all** (no `bus` namespace on `window.port42`), so
+a beat cannot originate where it belongs. Suggested `port42.bus.publish` scoped to the port's own
+topic.
+
+**Scheduling is NOT the gap, and they proved it rather than assuming.** An external scheduler woke a
+sleeping companion 6/6 times and it emitted every cycle — so "no durable home for the emitter" is
+already solved by an OS scheduler with no platform change. But waking the emitter does nothing for the
+recipients: a durable beat reaches a participant only if that participant polls, so every participant
+needs its own driver — the driver they were trying to retire, now one per player. Also measured:
+cadence was 63.4s mean against a 60s target with ~10s jitter, and **each beat costs a full model
+inference**, so a companion wake is the wrong shape for a beat regardless of the routing fix.
+
+### Smaller, all with a named fix
+
+- **A port number is not an identity.** Two instances (4243, 4245) report different current spaces and
+  do not share a bus, even when `space_id` names the other's space. Any doc that hardcodes a gateway
+  port must say what to do when the answer comes from a different instance. Their inspector now probes
+  candidates and accepts only the gateway whose `space.current` matches.
+- **Coercing a bridge namespace fires phantom RPCs.** `String(port42.port)` — or any accidental
+  template-literal or log — dispatches `port.toString`/`valueOf` as host methods and rejects with
+  `unknown method`, as untraceable unhandled rejections. Fix: `Symbol.toPrimitive`/`toString`/`valueOf`
+  on the bridge proxies.
+- **`port.subscribe` exists in the bridge but not in the public registry.** Either publish it or
+  explain the omission.
+- **AI return shapes.** `ai.complete` and `companions.invoke` both return `{text}`, and invoke
+  frequently wraps JSON in ```json fences, forcing client-side regex. A structured-output option or
+  consistent unwrapping would remove it.
+
+### What worked, recorded because it is evidence about the design
+
+`port.push` → `port42:data` CustomEvent is clean and needs no port-side support; one shared local
+surface means human viewers converge for free; `port.update`/`patch`/`exec` made live iteration fast.
+
+---
+
 ## ROADMAP (2026-07-29, GM): authenticate the PROGRAM, not a bearer token — code signature over a unix socket
 
 **The trust boundary is between Port42 and a calling program**, not between users. GM's correction, and
