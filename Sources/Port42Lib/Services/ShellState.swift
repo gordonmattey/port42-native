@@ -292,12 +292,19 @@ public final class ShellState: ObservableObject {
     /// Claude's messages are already prefixed with "Claude " ("Claude needs your permission…"), which
     /// reads wrong under a companion's own name, so that prefix is dropped.
     static func attentionTitle(companion: String, reason: String) -> String {
-        let r = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !r.isEmpty else { return companion }
-        var body = r
+        // A turn's reply is the usual reason and can be paragraphs, so take the FIRST LINE and cap
+        // it. A peek is a glance, not a transcript — the port is one click away for the rest.
+        let firstLine = reason.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        var body = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return companion }
+        // Notification messages are phrased "Claude is waiting…", which reads as the wrong agent
+        // under a companion's own name.
         for prefix in ["Claude Code ", "Claude "] where body.hasPrefix(prefix) {
             body = String(body.dropFirst(prefix.count))
             break
+        }
+        if body.count > 60 {
+            body = body.prefix(60).trimmingCharacters(in: .whitespaces) + "…"
         }
         return "\(companion) — \(body)"
     }

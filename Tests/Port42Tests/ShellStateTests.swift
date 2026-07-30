@@ -143,6 +143,15 @@ struct ShellStateTests {
         // rendering a dangling separator.
         #expect(ShellState.attentionTitle(companion: "Maker", reason: "") == "Maker")
         #expect(ShellState.attentionTitle(companion: "Maker", reason: "   ") == "Maker")
+
+        // A finished turn's reply is the usual reason and runs long. A peek is a glance: first
+        // line only, capped — the port itself is one click away for the rest.
+        let long = "Done. I refactored the parser and all 40 tests pass now, including the ones that\nwere flaky before.\n\nNext I could look at the linter."
+        let got = ShellState.attentionTitle(companion: "Maker", reason: long)
+        #expect(got.hasPrefix("Maker — Done. I refactored"))
+        #expect(got.hasSuffix("…"))
+        #expect(!got.contains("\n"))
+        #expect(got.count < 80)
     }
 
     @Test("a companion waiting in the space you are LOOKING AT does not peek")

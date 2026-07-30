@@ -225,6 +225,12 @@ final class GhosttyTerminalController {
                 log("  turnComplete NOT posted (skip=\(gate.lastSkipReason.isEmpty ? "not-armed" : gate.lastSkipReason))")
             }
             for c in out { deliver(c, via: "turnComplete") }
+            // END OF TURN IS THE SIGNAL. A session in another space finished doing something and
+            // stopped — that is the thing worth glancing at, and it needs no reading of the turn's
+            // content to decide. The peek itself is already gated to other spaces and deduped, so
+            // the "peeking every turn is noise" worry is handled by WHERE it peeks, not by
+            // interpreting WHAT was said.
+            onNeedsAttention(text)
         case .needsAttention(let message):
             log("event=needsAttention message=\(message.prefix(80).debugDescription)")
             onNeedsAttention(message)
