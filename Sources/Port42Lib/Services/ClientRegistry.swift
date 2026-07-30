@@ -153,8 +153,29 @@ public final class ClientRegistry {
             out.append(ch)
         }
         while out.hasSuffix("-") { out.removeLast() }
-        return out.isEmpty ? "client" : String(out.prefix(64))
+        guard !out.isEmpty else { return "client" }
+
+        // **TRUNCATION MUST NOT LOSE WHAT DISTINGUISHES TWO CLIENTS**, and live verification is what
+        // caught this: a real child id is `child-<companionUUID>-<spaceUUID>`, 79 characters, and a
+        // plain `prefix(64)` cut the SPACE uuid in half —
+        // `child-ac9b2306-…-778bd2e4a22f-4b60409c-e6c1-4ec0-85`. Two spaces sharing a 21-character
+        // prefix would then be ONE client and inherit each other's grants, which is exactly the
+        // pooling step 6 exists to end.
+        //
+        // The unit test missed it because it used `"echo"` and `"SPACE-1"` — toy values that never
+        // reach the cap. A slug over the limit now keeps a readable head and appends a short digest
+        // of the WHOLE input, so the result stays bounded, stays a valid slug, and stays unique for
+        // inputs that differ anywhere at all. That covers a long pairing name as well as a child id.
+        guard out.count > maxSlugLength else { return out }
+        let digest = SHA256.hash(data: Data(out.utf8)).prefix(6)
+            .map { String(format: "%02x", $0) }.joined()
+        let head = String(out.prefix(maxSlugLength - digest.count - 1))
+        return "\(head)-\(digest)"
     }
+
+    /// Bounded so a client id is always a comfortable filename. Long enough that a derived child id
+    /// (`child-` + two uuids = 79) keeps both uuids readable ahead of the digest.
+    nonisolated static let maxSlugLength = 96
 
     /// A child's id is DERIVED, not random, so a companion terminal keeps its grants across
     /// respawns (D1). Re-registering the same slug re-issues onto the same row.

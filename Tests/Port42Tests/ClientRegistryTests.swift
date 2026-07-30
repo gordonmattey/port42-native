@@ -244,6 +244,41 @@ struct ClientRegistryTests {
                 "children sharing an id would inherit each other's grants, which is today's defect")
     }
 
+    /// **With REAL uuids, which is the whole point of this test existing.**
+    ///
+    /// The version above uses `"echo"` and `"SPACE-1"` and passed while production silently broke: a
+    /// real child id is `child-<companionUUID>-<spaceUUID>`, 79 characters, and the old 64-character
+    /// truncation cut the SPACE uuid in half. Two spaces sharing a 21-character prefix collapsed into
+    /// ONE client — the pooling this step exists to end. Found by looking at the row Dev3 actually
+    /// wrote, not by any test.
+    @Test("real UUID-shaped ids stay distinct despite the length cap")
+    func realUuidChildrenDoNotCollide() {
+        let companion = "ac9b2306-cea3-4430-ab5e-778bd2e4a22f"
+        // Two spaces agreeing for 21 characters, differing only after the old cut point.
+        // Dev3's real space id, and a twin agreeing past where the old cut fell
+        // (`…-4b60409c-e6c1-4ec0-85`), so the collision is the one that actually happened.
+        let spaceA = "4b60409c-e6c1-4ec0-8571-223e6ee5bec5"
+        let spaceB = "4b60409c-e6c1-4ec0-8571-999999999999"
+        #expect(spaceA.prefix(24) == spaceB.prefix(24), "the fixture must actually share a prefix")
+
+        let a = ClientRegistry.childId(companionId: companion, spaceId: spaceA)
+        let b = ClientRegistry.childId(companionId: companion, spaceId: spaceB)
+        #expect(a != b, "two spaces collapsed into one client, so their grants would merge")
+        #expect(ClientRegistry.isValidSlug(a) && ClientRegistry.isValidSlug(b))
+        #expect(a.count <= ClientRegistry.maxSlugLength)
+        // And still derived: the same inputs give the same id, or a respawn loses its grants.
+        #expect(a == ClientRegistry.childId(companionId: companion, spaceId: spaceA))
+    }
+
+    @Test("an over-long name is bounded but still unique")
+    func longNamesStayUnique() {
+        let a = ClientRegistry.slug(String(repeating: "a", count: 300) + "-one")
+        let b = ClientRegistry.slug(String(repeating: "a", count: 300) + "-two")
+        #expect(a != b, "truncation collapsed two different names into one client")
+        #expect(a.count <= ClientRegistry.maxSlugLength)
+        #expect(ClientRegistry.isValidSlug(a))
+    }
+
     @Test("the path the child is handed is the path the registry writes")
     @MainActor
     func envPathMatchesWhereTheTokenLands() throws {
