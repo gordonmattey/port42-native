@@ -87,19 +87,20 @@ never on the message text — messages change. The set is closed:
                          session limit reached — stop or close one, then call again)
   ASK THE USER           permission_denied (a capability: they grant it) · access_denied (a path
                          they never picked: they pick a file)
-  ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a client
-                         in Settings -> Access and you send it as `Authorization: Bearer <token>`)
-                         · auth_revoked (it knew you and the user withdrew it; ask them, do not
-                         retry — the credential is real, so re-sending it will never help)
-  WAIT OR ALLOW LONGER   timed_out · ai_timeout · js_timeout (this one usually means you returned
-                         a long-lived promise from port_exec — return a plain value instead)
+  ENROL FIRST            auth_required (Port42 does not know who you are — the user adds a
+                         client in Settings -> Access and you send it as `Authorization: Bearer
+                         <token>`) · auth_revoked (it knew you and the user withdrew it; ask
+                         them, do not retry — the credential is real, so re-sending it will
+                         never help)
+  WAIT OR ALLOW LONGER   ai_timeout · js_timeout (usually means you returned a long-lived
+                         promise from port_exec — return a plain value instead) · timed_out
   DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
-  SOMETHING FAILED       io · device_error · browser_error · ai_error · script_error (your
-                         AppleScript/JXA) · js_error · method_failed · escape (path left the
-                         data directory)
-  RARELY SEEN            no_body · no_user · no_messages · not_llm (a method that needs an
-                         in-process implementation, a signed-in user, a conversation, or an LLM
-                         companion, where there is none)
+  SOMETHING FAILED       escape (path left the data directory) · io · device_error ·
+                         browser_error · ai_error · script_error (your AppleScript/JXA) ·
+                         js_error · method_failed
+  RARELY SEEN            no_body · no_user · no_messages · not_llm — each names a specific
+                         absence: no in-process implementation, no signed-in user, no
+                         conversation, or no LLM companion
 
 ## Available Methods
 

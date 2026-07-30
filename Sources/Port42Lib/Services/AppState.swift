@@ -702,7 +702,9 @@ public final class AppState: ObservableObject {
     static let portsContext: String = {
         if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text
+            // The error-code block is RENDERED FROM THE ENUM, not written here. One list, one
+            // definition; a code cannot be published under the wrong repair or omitted at all.
+            return BridgeErrorCode.publish(into: text, indent: "      ")
         }
         return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
     }()
