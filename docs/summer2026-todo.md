@@ -970,17 +970,48 @@ gemini/codex may not offer the same, so a wrapper/watcher could be needed for ea
 The premise of the M–L sizing was that turn detection might need a PTY watcher per CLI. It does
 not. Findings against the installed binaries:
 
-**Codex — turn detection is essentially free.**
-- `~/.codex/config.toml` takes `notify = ["<program>", "<arg>"]`, and the event vocabulary already
-  includes **`turn-ended`**. It is in use on this machine today by the Codex Computer Use app, so
-  it is a supported path, not a discovery.
-- `-c key=value` overrides ANY config key per invocation, so Port42 injects `-c notify=[...]`
-  per session. Same property as claude's `--settings`: no mutation of the user's global config.
-  (Note it REPLACES the user's own notify for that session; theirs still applies elsewhere.)
-- `codex resume` (with `--last`) **and `codex fork`** both exist, so resume/session-id discipline
-  is available, and `fork` is a direct analogue of `--fork-session` — teleport for codex is
-  reachable on the same shape.
-- Session state lives under `~/.codex` (sqlite: `logs_2.sqlite`, `goals_1.sqlite`).
+**Codex — full hook parity, PROVEN END TO END 2026-07-29.**
+
+Measured payload from a real interactive turn, arriving on **stdin** as **snake_case** JSON,
+exactly as `developers.openai.com/codex/hooks` documents:
+
+```json
+{"session_id":"019fb076-…","turn_id":"019fb076-…",
+ "transcript_path":"/private/tmp/p42ch/sessions/2026/07/29/rollout-….jsonl",
+ "cwd":"/private/tmp","hook_event_name":"Stop","model":"gpt-5.5",
+ "permission_mode":"default","stop_hook_active":false,
+ "last_assistant_message":"ok"}
+```
+
+- **The full event vocabulary is available**, not just a turn-complete signal: `Stop`,
+  `SessionStart`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `UserPromptSubmit`,
+  `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`. So this is real parity, not a
+  reduced fallback.
+- **Injection is `CODEX_HOME`** pointed at a per-session directory. Codex's purpose-built
+  config-dir override, already used in GM's own config by the `node_repl` MCP entry. No mutation
+  of the user's real config.
+- That directory needs FOUR things, all learned the hard way: `[features] hooks = true`; a
+  `[projects."<cwd>"] trust_level = "trusted"` entry, or codex refuses to run at all; the hook
+  block; and `auth.json` symlinked to the real one.
+- **`transcript_path` lands INSIDE the per-session home**, so `resume` and `--list-sessions` only
+  see sessions from that home. `sessions/` must be symlinked back like `auth.json` or resumable
+  history is silently lost per session. This is the detail most likely to be got wrong.
+- Hooks fire in the **interactive TUI, NOT under `codex exec`**. Port42 companions are
+  interactive, so this is the case we need — but it is why three `exec` probes read as "hooks are
+  dead".
+- Trust: non-managed hooks need review against a hash. `--dangerously-bypass-hook-trust` is the
+  documented automation escape, and Port42 spawning its own shim is that case.
+- `codex resume --last` **and `codex fork`** both exist, so teleport reaches codex on the same
+  shape `--fork-session` gave claude.
+
+**`notify` is a dead end, and was the wrong path.** It works (`agent-turn-complete` on **argv**,
+kebab-case, carrying `last-assistant-message`) but it is `hooks/src/legacy_notify.rs`, and it
+emits ONE event. Do not build on it.
+
+**Corrections to earlier entries in this doc, all from the same session:** "hooks are not live in
+v0.140" was false; the first isolated-home run never completed a turn (it hit the trust check, and
+its initialized sqlite files were misread as success); `[features].codex_hooks` is deprecated in
+favour of `[features].hooks`; and `--skip-git-repo-check` belongs to `exec`, not the top level.
 
 **Gemini — hooks exist and are deliberately Claude-shaped.**
 - `gemini hooks migrate` migrates hooks FROM Claude Code, reading `.claude/settings.json` and
@@ -1013,14 +1044,112 @@ not. Findings against the installed binaries:
 `claude` and `gemini`, NOT codex, despite the prose above claiming all three. `CLIPreset` has no
 codex case at all.
 
-**Re-sizing: S for both.** Codex injects via `-c notify=[...]` per invocation; gemini injects via
-a `gemini()` shell function redirecting HOME at a mirrored per-session `.gemini`. Both reuse
-machinery that already exists for claude. The PTY watcher this item was named after is a fallback
-nobody needs.
+**Re-sizing: codex S and PROVEN. Gemini S but blocked on auth.** The PTY watcher this item was
+named after is a fallback nobody needs.
 
-**What is still unproven** (both need a real model call, so they are the first thing to do when
-building): that codex's `notify` fires with a usable payload, and that gemini honors hooks placed
-in the redirected `settings.json`. Everything up to those two facts is confirmed.
+**Still unproven:** that gemini honours hooks placed in the redirected `settings.json`. Untestable
+here without a paid key, so it stays parked.
+
+---
+
+### The adapter shape: what claude and codex share, and where they differ
+
+The reason to name this is that the two are close enough that a THIRD CLI is a table row, and the
+differences are all in one place. `TerminalHooksService` already declares the receiver CLI-agnostic
+with translation pushed to a per-CLI notifier; that seam turns out to be in the right place, and
+codex is the first thing to test it.
+
+**Identical, and therefore not per-CLI at all:**
+- The hook config JSON is the SAME SHAPE. Claude's `--settings` and codex's `hooks.json` both take
+  `{"hooks": {"<Event>": [{"matcher": "", "hooks": [{"type":"command","command":"…"}]}]}}`, so
+  `shim/main.go:buildSettings` already emits valid codex hook config.
+- The event NAMES overlap almost entirely: `Stop`, `SessionStart`, `PreToolUse`, `PostToolUse`,
+  `UserPromptSubmit`, `PermissionRequest`, `PreCompact`. Codex adds `PostCompact`/`SubagentStart`
+  and lacks `SessionEnd`.
+- The hook is invoked as a shell command with a JSON payload on stdin, so the shim's `notify` mode
+  needs no new entry point.
+- Both pin a session id, so the per-(space, companion) UUIDv5 discipline carries over unchanged.
+
+**The four things that differ, which IS the adapter:**
+
+| | claude | codex |
+|---|---|---|
+| how hooks are injected | `--settings <json>` on the command line | `CODEX_HOME` → per-session dir holding `config.toml` |
+| what the dir/flag must carry | nothing else | `[features] hooks = true`, a `[projects."<cwd>"]` trust entry, `auth.json` + `sessions/` symlinked |
+| the reply text | ABSENT from the Stop payload; parse `transcript_path` JSONL, and poll because the flush is async | `last_assistant_message`, handed over directly and synchronously |
+| resume / fork | `--resume <id>` + `--session-id`, needs `--fork-session` to combine | `codex resume --last`, `codex fork` |
+
+**Only the third row is already done** (shim `turnComplete`: prefer the supplied field, fall back to
+the transcript, and treat an empty field as absent). The other three are the build.
+
+**Where each belongs.** Rows 1 and 2 are `TerminalSessionBootstrap.make` — today it hardcodes the
+claude shim symlink, the `claude()` zsh function, and `PORT42_CLAUDE_*` env vars. Those become
+per-CLI. Row 4 is `CLIPreset`, which currently carries only name/path/args and needs the resume
+flags. `isHooksCapable` stops being a substring match over hardcoded names and reads the table.
+
+**The interactive-only constraint is a real design input, not a footnote.** Codex hooks do not fire
+under `codex exec`, so a codex companion must be a TUI in a terminal port. That rules out driving
+one headlessly for a background task, which the `companions.invoke` thread would otherwise want.
+
+---
+
+## BUG (2026-07-29): `port.push` returns `ok:true` to a port whose PTY is dead
+
+**Symptom.** Four pushes to terminal port `97279FD8` on Dev3 each returned `{"ok":true}` and
+advanced the activity token (`:0` → `:1` → `:3` → `:5` → `:8`). Nothing executed;
+`touch /tmp/p42-alive` created no file. The port was in `ports.list` the whole time.
+
+**Cause.** The app had exited, so the port record survived with no live terminal behind it. The
+write was accepted, counted, and dropped.
+
+**Why it is a register concern.** Third instance of the `architecture-invariants.md` §5 class,
+after `port.rename` on a missing port (fixed 2026-07-28) and `port.push` with missing `data`. Those
+cover *target absent* and *argument wrong*. This is *target present, argument fine, backing process
+dead*, which neither fix reaches.
+
+Worse than a plain lie because it corrupts the token. §2's guarantee is that a token answers "has
+this port changed since I looked" — here a mutation counted that never happened, so the next CAS
+write believes it raced something real.
+
+**Cost, and the reason it is worth logging rather than shrugging at:** it burned an hour twice, and
+led to the wrong conclusion that terminal pushes were unsupported.
+
+**Fix.** Resolve the target and require a live PTY before accepting. Absent → throw a coded error;
+`no_surface` fits, and §5 already keeps it distinct from `not_found` precisely because the caller's
+repair differs (relaunch the port vs. find the right id). Do not move the token on a rejected write.
+
+**Test.** Create a terminal port, kill its process, push, expect a coded throw and an unchanged
+token.
+
+---
+
+## SECURITY (2026-07-29): any local process can spawn an agent into a space, unprompted
+
+**Symptom.** `port42 teleport` creates a terminal port and starts a live claude session in the
+user's current space with no permission prompt. `port.create` is declared `permission: nil`
+(`BridgeMethods.swift:148`) and `/call` authenticates nobody.
+
+**Scope.** Not teleport-specific. Anything that can reach `127.0.0.1:<gateway>` can spawn an agent
+and choose its command and cwd. The gateway binds loopback only, so local code execution is a
+prerequisite, which lowers severity without removing it: anything already running as the user can
+put an agent in the user's room and drive it.
+
+**Where it closes.** A consequence of `plan-gateway-auth-tls.md` P1 rather than its own change.
+`architecture-invariants.md` §1/§3: `/call` assigns the shared `local-http` principal with no
+`RemoteAddr` check, and P1 must RETIRE that principal rather than gate it.
+
+**Recorded error:** `plan-teleport.md` §3.1 files "`/call` needs no credential. No token, no
+keychain, no setup" under a heading reading *everything else on the path is already open*. True,
+and filed as a convenience. It is a finding.
+
+**Two decisions P1 forces:**
+- Whether spawning an AGENT needs a permission distinct from creating a port. Opening an `htop`
+  tile and starting an autonomous agent are not the same act.
+- What credential `port42` presents once `local-http` is gone, given the CLI runs outside the app
+  with no keychain access today.
+
+**Interaction with the companion bug above:** if a teleported port becomes a companion it joins the
+space and gains a mention handle, so approval should gate the JOIN, not only the spawn.
 
 ### GEMINI AUTH IS THE REAL BLOCKER, not the plumbing (2026-07-29, GM)
 
