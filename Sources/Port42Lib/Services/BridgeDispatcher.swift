@@ -43,17 +43,8 @@ extension AppState {
         #endif
 
         if let perm = method.permission {
-            // OBJECT = port 0. Every gated method here is a machine capability (clipboard,
-            // filesystem, terminal, screen, …), which is precisely what port 0 names. A grant about
-            // a specific port becomes expressible at slice-02's wire half; nothing local produces
-            // one, so nothing local passes anything else.
-            var granted = grants(grantee: principal.id, on: .machine, zone: principal.spaceId)
-                .union(pregrant)
-            if !granted.contains(perm) {
-                let ok = await permissions.request(perm, from: principal)
-                if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
-                granted.insert(perm)
-                saveGrants(granted, grantee: principal.id, on: .machine, zone: principal.spaceId)
+            guard await ensurePermission(perm, for: principal, pregrant: pregrant) else {
+                throw BridgeError.permissionDenied(perm.rawValue)
             }
         }
 
@@ -66,6 +57,29 @@ extension AppState {
         let value = try await method.run(principal, args)
         try failIfErrorResult(value, method: canonical)
         return withToken(tokenAfter(key), value)
+    }
+
+    /// **Does this principal hold this permission — asking, and remembering the answer.**
+    ///
+    /// The one implementation of the permission gate, extracted because a SECOND caller appeared:
+    /// `port.create` gates on its `type` argument (creating a terminal IS using the terminal), and
+    /// the obvious way to write that — calling `permissions.request` in the method body — asks the
+    /// human EVERY TIME, because the request path prompts and the *dispatcher* was the only thing
+    /// that persisted the answer. `screen.record`'s in-body `.microphone` ask has exactly that shape
+    /// and exactly that flaw.
+    ///
+    /// OBJECT = port 0. Every capability gated here is a machine capability (clipboard, filesystem,
+    /// terminal, screen, …), which is precisely what port 0 names. A grant about a specific port
+    /// becomes expressible at slice-02's wire half; nothing local produces one yet.
+    func ensurePermission(_ perm: PortPermission, for principal: Principal,
+                          pregrant: Set<PortPermission> = []) async -> Bool {
+        var granted = grants(grantee: principal.id, on: .machine, zone: principal.spaceId)
+            .union(pregrant)
+        if granted.contains(perm) { return true }
+        guard await permissions.request(perm, from: principal) else { return false }
+        granted.insert(perm)
+        saveGrants(granted, grantee: principal.id, on: .machine, zone: principal.spaceId)
+        return true
     }
 
     /// A WRITE'S SIDE EFFECTS, for BOTH dispatchers (I2 · C5).
@@ -419,15 +433,9 @@ extension AppState {
         ActorProbe.anyDispatch(surface: principal.kind.rawValue)
         #endif
         if let perm = method.permission {
-            // OBJECT = port 0, for the same reason as the one-shot path above. Streaming is not a
-            // second set of rules; it is the same grant on the same object.
-            var granted = grants(grantee: principal.id, on: .machine, zone: principal.spaceId)
-                .union(pregrant)
-            if !granted.contains(perm) {
-                let ok = await permissions.request(perm, from: principal)
-                if !ok { throw BridgeError.permissionDenied(perm.rawValue) }
-                granted.insert(perm)
-                saveGrants(granted, grantee: principal.id, on: .machine, zone: principal.spaceId)
+            // The SAME function the one-shot path runs. Streaming is not a second set of rules.
+            guard await ensurePermission(perm, for: principal, pregrant: pregrant) else {
+                throw BridgeError.permissionDenied(perm.rawValue)
             }
         }
         // I2 · C5 — the SAME function the one-shot path runs. Streaming is not a second dispatch

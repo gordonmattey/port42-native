@@ -166,6 +166,41 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         ] as [String: Any]) { p, args in
         let o = args.object("options") ?? args.dictionary
         let sid = (o["space_id"] as? String) ?? p.spaceId ?? appState.currentSpace?.id ?? ""
+
+        // THE GATE IS ON THE FIRST COMMAND, NOT THE SECOND (slice-02, GM 2026-07-29).
+        //
+        // `terminal.exec` requires `.terminal` and `browser.open` requires `.browser`, but creating
+        // the PORT did neither — so both gates could be skipped by making a port instead of calling
+        // the verb. `port42 teleport` is the live case: it created a terminal already running
+        // `claude`, in the user's current space, with no prompt, and so could any local process that
+        // reached the gateway.
+        //
+        // This needs NO NEW PERMISSION. Creating a terminal IS using the terminal; creating a
+        // browser IS browsing. The escalation is keyed on `type`, in the body, which is the pattern
+        // `screen.record` already uses when it asks for `.microphone` only because `audio` said so.
+        //
+        // `web` and `chat` stay ungated deliberately: a web port renders inert HTML, and `chat` only
+        // reveals the space's own chat port and is idempotent. Neither starts anything.
+        //
+        // Landing this AFTER the grant reap matters. Had it come first, the 121 `.terminal` grants
+        // given for `exec` would silently have started authorizing process spawning. With the store
+        // empty, every caller consents to the wider meaning rather than inheriting it.
+        // Through `ensurePermission`, not `permissions.request` — the request path PROMPTS, and only
+        // the dispatcher's gate remembered the answer, so asking directly here would re-ask on every
+        // single create.
+        let needed: PortPermission? = {
+            switch (o["type"] as? String)?.lowercased() {
+            case "terminal": return .terminal
+            case "browser": return .browser
+            default: return nil          // web renders inert HTML; chat reveals an existing port
+            }
+        }()
+        if let needed {
+            guard await appState.ensurePermission(needed, for: p) else {
+                throw BridgeError.permissionDenied(needed.rawValue)
+            }
+        }
+
         let result = appState.createPort(
             type: o["type"] as? String, title: o["title"] as? String, html: o["html"] as? String,
             command: o["command"] as? String, args: o["args"] as? [String] ?? [], cwd: o["cwd"] as? String,
