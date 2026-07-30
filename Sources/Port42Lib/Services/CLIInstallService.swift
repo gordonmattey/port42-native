@@ -95,9 +95,16 @@ public final class CLIInstallService: ObservableObject {
 
     // MARK: - Install
 
+    /// The CLI's client id and label. FIXED, not derived: the CLI must be able to compute the path to
+    /// its own token file without asking anything, which is the same reason a client id is a slug
+    /// rather than a UUID.
+    public static let clientID = "port42-cli"
+    public static let clientName = "port42 CLI"
+
     /// Idempotent. Safe to call on every boot, which is exactly how it is wired.
     @discardableResult
-    public func install(bundleID: String? = Bundle.main.bundleIdentifier) -> Bool {
+    public func install(bundleID: String? = Bundle.main.bundleIdentifier,
+                        registry: ClientRegistry? = nil) -> Bool {
         guard let bundled = Self.bundledCLIPath() else {
             NSLog("[cli-install] no bundled \(Self.bundledExecutableName) in this build; skipping")
             return false
@@ -136,6 +143,41 @@ public final class CLIInstallService: ObservableObject {
         }
 
         installedPath = link
+
+        // ENROL THE CLI AT INSTALL TIME (GM, 2026-07-29).
+        //
+        // The CLI posts to `/call` and, until now, carried the comment "No credential is involved:
+        // /call is loopback-only and authenticates nobody". It is not a child, so step 6's spawn-time
+        // enrolment does not reach it, and CR3's stated remedy — pairing — was dropped. Without this
+        // there is no way for it to ever hold a token, and enforcement (5b) would lock the door with
+        // nobody able to knock.
+        //
+        // **Installing is the named act.** The user is present and is deliberately putting this tool
+        // on their machine, which is the same consent argument that lets a spawned child enrol with no
+        // prompt. That also answers D14's objection to minting inside `InstructionService`: this fires
+        // on the install, not on a documentation refresh, and the doc writer keeps one job.
+        //
+        // Runs on EVERY install, including a re-point after the app moves, because minting is
+        // idempotent: the id is fixed, so it re-issues onto the same row and the same token file, and
+        // a CLI that lost its file gets it back.
+        if let registry {
+            if registry.register(id: Self.clientID, name: Self.clientName, kind: .installed) != nil {
+                NSLog("[cli-install] enrolled as '\(Self.clientID)'")   // never the token (NFR2)
+                // WHICH INSTANCE IS ON WHICH PORT. The CLI targets a PORT (it probes 4242, 4243,
+                // 4245…), but a token lives under an INSTANCE directory, and nothing connected the
+                // two — a dev machine runs several instances at once and a token minted by one fails
+                // another's verification by design (NFR4). So the app, which knows both, writes the
+                // mapping down. Without it the CLI would have to guess, and guessing here means
+                // presenting one instance's credential to another.
+                let portFile = registry.tokenDirectory().deletingLastPathComponent()
+                    .appendingPathComponent("gateway-port")
+                try? Data("\(GatewayProcess.shared.port)".utf8).write(to: portFile, options: .atomic)
+            } else {
+                // Not fatal: the CLI still works, it is simply unnamed, exactly as it is today.
+                NSLog("[cli-install] WARNING: could not enrol \(Self.clientID); it will call unnamed")
+            }
+        }
+
         notOnPath = !Self.pathContains(installDir, path: ProcessInfo.processInfo.environment["PATH"])
         if notOnPath {
             NSLog("[cli-install] installed at \(link) but \(installDir) is not on PATH")

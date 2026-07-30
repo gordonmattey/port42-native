@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -23,8 +25,45 @@ type callResponse struct {
 	Error   string          `json:"error"`
 }
 
-// Call invokes one bridge method over the gateway's local HTTP surface. No credential is
-// involved: /call is loopback-only and authenticates nobody (gateway/gateway.go:802-856).
+// tokenForPort finds this CLI's credential for the instance listening on `port`.
+//
+// A token lives under an INSTANCE directory (`~/.port42/<instance>/tokens/port42-cli`) while the CLI
+// targets a PORT, and a dev machine runs several instances at once — prod on 4242, dev builds on
+// 4243/4245 — whose tokens deliberately do not interoperate (they are separated by their secrets, not
+// by a path check). So the app writes the mapping down at install time and this reads it back.
+// Guessing here would mean presenting one instance's credential to another.
+//
+// Returns "" for every failure, and that is deliberate: an unenrolled CLI must keep working exactly
+// as it does today. Nothing refuses an unnamed caller yet.
+func tokenForPort(port int) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dirs, err := filepath.Glob(filepath.Join(home, ".port42", "*"))
+	if err != nil {
+		return ""
+	}
+	for _, dir := range dirs {
+		p, err := os.ReadFile(filepath.Join(dir, "gateway-port"))
+		if err != nil || strings.TrimSpace(string(p)) != fmt.Sprint(port) {
+			continue
+		}
+		tok, err := os.ReadFile(filepath.Join(dir, "tokens", "port42-cli"))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(tok))
+	}
+	return ""
+}
+
+// Call invokes one bridge method over the gateway's local HTTP surface.
+//
+// It presents a CREDENTIAL when it has one (slice-02 half two). This comment used to read "No
+// credential is involved: /call is loopback-only and authenticates nobody" — which was true, and was
+// the reason any local process could name itself whatever it liked and inherit another tool's grants.
+// The CLI is enrolled at install time, because installing it is a named act with the user present.
 func Call(port int, method string, args any) (json.RawMessage, error) {
 	body, err := json.Marshal(map[string]any{"method": method, "args": args})
 	if err != nil {
@@ -33,7 +72,15 @@ func Call(port int, method string, args any) (json.RawMessage, error) {
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/call", port)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if tok := tokenForPort(port); tok != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		// Connection refused is the ordinary "app is not running" case, not a fault worth
 		// showing a Go network error for.

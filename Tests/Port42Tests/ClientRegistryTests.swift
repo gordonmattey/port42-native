@@ -286,6 +286,58 @@ struct ClientRegistryTests {
         #expect(appState.resolveGatewayCaller(credential: orphan, senderId: "x").id == "x")
     }
 
+    // MARK: - Install-time enrolment (GM, 2026-07-29)
+    //
+    // The CLI is not a child, so step 6's spawn-time enrolment never reaches it, and CR3's stated
+    // remedy — pairing — was dropped. Installing is the named act instead: the user is present and is
+    // deliberately putting the tool on their machine, the same consent that lets a child enrol
+    // silently. Without this there is no way for the CLI to hold a token, and 5b would lock the door
+    // with nobody able to knock.
+
+    @Test("installing the CLI enrols it, and re-installing keeps the same row and token")
+    @MainActor
+    func installEnrolsTheCLI() throws {
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        let first = reg.register(id: CLIInstallService.clientID,
+                                 name: CLIInstallService.clientName, kind: .installed)
+        let client = try #require(reg.client(id: "port42-cli"))
+        #expect(client.kind == .installed, "the user did not name this one; Port42 knows what it is")
+        #expect(client.name == "port42 CLI")
+
+        // Install runs on EVERY boot and re-points after the app moves, so enrolment must be
+        // idempotent — a new token each time would invalidate the CLI's stored file on every launch.
+        let second = reg.register(id: CLIInstallService.clientID,
+                                  name: CLIInstallService.clientName, kind: .installed)
+        #expect(first == second)
+        #expect(reg.clients().filter { $0.id == "port42-cli" }.count == 1)
+    }
+
+    @Test("the CLI's id is FIXED, because the CLI must compute its own token path")
+    func cliIdIsFixed() {
+        // The CLI reads a known path with no way to ask what its id is — the same reason a client id
+        // is a slug rather than a UUID. A derived or random id here would be unreadable to it.
+        #expect(CLIInstallService.clientID == "port42-cli")
+        #expect(ClientRegistry.isValidSlug(CLIInstallService.clientID))
+        #expect(ClientRegistry.slug(CLIInstallService.clientID) == CLIInstallService.clientID,
+                "the id must survive slugging unchanged, or the row and the file would disagree")
+    }
+
+    @Test("an enrolled CLI is named on a call; an unenrolled one still works, unnamed")
+    @MainActor
+    func cliCallIsNamed() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let token = try #require(appState.clientRegistry.register(
+            id: CLIInstallService.clientID, name: CLIInstallService.clientName, kind: .installed))
+
+        #expect(appState.resolveGatewayCaller(credential: token, senderId: "local-http").id == "port42-cli")
+        // And with no credential it is still served, because nothing is refused until 5b.
+        #expect(appState.resolveGatewayCaller(credential: nil, senderId: "local-http").id == "local-http")
+    }
+
     // MARK: - Children (step 6) — where the pooled bucket actually dies
 
     @Test("a spawned child is told its ID and its token PATH, never its token")

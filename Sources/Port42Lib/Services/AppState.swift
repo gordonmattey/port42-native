@@ -1392,7 +1392,7 @@ public final class AppState: ObservableObject {
             // ~/.local/bin, which a test run must never touch.
             if !AppState.isTestProcess {
                 InstructionService.shared.refreshInstalled()
-                CLIInstallService.shared.install()
+                CLIInstallService.shared.install(registry: self.clientRegistry)
             }
 
             // Migrate old auth format
