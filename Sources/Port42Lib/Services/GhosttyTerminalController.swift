@@ -198,9 +198,16 @@ final class GhosttyTerminalController {
         }
     }
 
+    /// Only `claude`. `gemini` was matched here too and that was a claim nothing backed: its turn
+    /// detection was never wired, so a gemini terminal was declared hooks-capable and then emitted
+    /// no events. Same defect as the gemini CLIPreset, removed with it (2026-07-29).
+    ///
+    /// Codex is deliberately absent despite HAVING working hooks, because this flag is not what
+    /// provisions them — a spike confirmed the hooks socket is created and delivered to with
+    /// `hooksCapable=N`. Adding a name here without a loop behind it is how the last wrong claim
+    /// got in.
     nonisolated static func isHooksCapable(_ startupCommand: String) -> Bool {
-        let c = startupCommand.lowercased()
-        return c.contains("claude") || c.contains("gemini")
+        startupCommand.lowercased().contains("claude")
     }
 
     /// Handle one normalized hook event. Logs EVERY event for introspection.
