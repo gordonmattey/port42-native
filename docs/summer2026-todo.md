@@ -1186,14 +1186,44 @@ So the three-way parity story becomes claude / codex / antigravity, and all thre
 Claude-Code-shaped hooks. The "wrapper or PTY watcher per CLI" premise this item was written on is
 wrong for every one of them.
 
-**Not investigated, because it is not installed here:** the hook config file's location and
-whether it can be injected per session (the question that took a HOME-redirect answer for gemini),
-its resume/session-id story, and its auth model. Install it first, then re-run the same three
-questions this spike answered for gemini and codex.
+**MEASURED 2026-07-29 once GM installed it. The binary is `agy`** (`~/.local/bin/agy`; the
+installer only adds `~/.local/bin` to PATH, which is why nothing named `antigravity` exists).
 
-**GM has no paid Gemini API key or Vertex access**, so gemini parity is currently UNTESTABLE here.
-Park it rather than build blind. Antigravity is the better target for that slot if it authenticates
-without a paid tier.
+| question | answer |
+|---|---|
+| hooks | ✅ `Stop`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`. Config in `hooks.json` / `settings.json` under `~/.gemini/antigravity-cli/` |
+| resume | ✅ `--continue` / `-c`, `--conversation <ID>`, plus `--project` |
+| auth | ✅ free Google OAuth, no paid tier — works in GM's real home |
+| **per-session injection** | ❌ **the blocker** |
+
+**Why injection fails, and it is not the hooks.** There is no config-dir env override (no
+`AGY_HOME`; the `GEMINI_DIR`-style names in the binary are internal constants). A redirected `HOME`
+IS honoured for config — it creates `<home>/.gemini/antigravity-cli/` — but it **loses auth**, and
+symlinking the whole real `~/.gemini` in does not rescue it. Credentials are in the macOS Keychain
+(entry `antigravity`) and something about the redirect invalidates the lookup.
+
+**So antigravity has no route that leaves the user's config untouched**, which is the property
+codex gets from `CODEX_HOME` and gemini gets from `HOME`. The only remaining route is writing the
+Port42 hook into the user's real `antigravity-cli/settings.json` — the project-file mutation
+antipattern already rejected for CLAUDE.md.
+
+**The reframe worth keeping:** a ONE-TIME, opted-into install of a hook into the user's real agy
+config is legitimate — that is exactly what the config-packs item is. **So antigravity is a
+config-pack target, not a per-session companion target.** Different mechanism, different item.
+
+**Also worth noting for onboarding:** agy's OAuth requires pasting a code back into the terminal,
+unlike claude and codex where following the link is enough. A first-run login inside a Port42
+terminal port would need the human to paste into that port. Workable, worse.
+
+**PARKED 2026-07-29: gemini AND antigravity.** Gemini is untestable here without a paid key;
+antigravity cannot be injected per session. Codex remains the only CLI where full parity is
+reachable on the existing pattern.
+
+**Acted on the same day:** `CLIPreset.gemini` and gemini's `isHooksCapable` match were both
+REMOVED. Offering gemini was the defect — a preset with no turn detection behind it and, after
+Google's withdrawal, no way to authenticate either. `isHooksCapable` additionally declared gemini
+terminals hooks-capable while nothing emitted events. A test now pins claude as the only preset, so
+the next CLI cannot be added as a button without the loop behind it.
 
 **Unrun proof** (blocked from this session, one command): confirm codex's notify actually fires
 and see its payload —
