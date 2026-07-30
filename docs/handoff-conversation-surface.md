@@ -2,15 +2,56 @@
 
 ## Where this left off (2026-07-30)
 
-**On `main`**, tree clean apart from one untracked file, `docs/plan-teleport.md`, which is GM's and
-was left alone. Suite **1256 green** (plus the `gateway/` and `cli/` Go suites). Everything is
-UNPUSHED, deliberately — GM: no shipping and no pushing until the slice completes.
+**On `main`**, HEAD `2061191`, tree clean (the untracked `docs/plan-teleport.md` noted earlier is no
+longer present). Suite **1267 green** in 147 suites, plus the `gateway/` and `cli/` Go suites, all
+re-run 2026-07-30. **56 commits UNPUSHED, deliberately.** GM: no shipping and no pushing until the
+slice completes.
 
-### THE LOCAL HALF OF SLICE-02 IS COMPLETE. Next is milestone B, the wire.
+### THE LOCAL HALF IS COMPLETE, all seven Part 0 rows. Next is milestone B, the wire.
 
-Every row of Part 0 that the local half owns is built, so adding libp2p should now mean writing a
-verifier and a transport and touching nothing above the seam. That claim is the thing milestone B
-tests.
+**Corrected 2026-07-30 by an audit against the tree.** This section previously read "every row of
+Part 0 that the local half owns is built". That was wrong, and it was wrong in the way a build order
+makes easy: all six steps in §10 were ticked, so the document declared victory on a list that never
+contained the two rows in question. One of those two has since been built.
+
+**ALL SEVEN of Part 0's rows are now built**, OUTPUT and ERRORS both on 2026-07-30:
+
+- **OUTPUT: BUILT 2026-07-30** (slice doc §10c, §10d). A Notify's payload is `BridgeValue` instead
+  of `Any`, every envelope carries the port's token, and events now leave the process as `stream`
+  frames on the gateway's WS door. Live-verified: a subscriber received `driver` and two `push`
+  frames with the token advancing per event, where the same test returned zero frames before.
+  Building it found three shipped defects, all of the same shape (a value silently absent or wrong,
+  with both ends internally consistent): an OPTIONAL interpolated into a topic, so `browser.*`,
+  `screen.frame`, `camera.frame`, `audio.*` and `presentation` had never reached the bus at all; the
+  gateway discarding every streamed event via `yield: { _ in }`; and a new field left out of an
+  explicit `CodingKeys`, so it never decoded. Each now has a calibrated gate.
+- **ERRORS: BUILT 2026-07-30** (slice doc §10e). The gateway's own failures were bare English, which
+  a caller cannot branch on and which a remote caller meets before anything the app says. Now
+  `no_host`, `host_offline`, `transport_failed`, `timed_out`, `missing_arg`, `unknown_method`,
+  declared once in `BridgeErrorCode` and mirrored in Go behind a gate that fails if the gateway
+  spells a code the app does not have. The channel/message path stays uncoded on purpose (BR1).
+
+**So the local half is genuinely complete now, and the Part 0 claim is ready to be tested.** OUTPUT
+was built rather than deferred (GM, 2026-07-30) on the grounds that "an agent cannot watch a port"
+was a hole in the product regardless of libp2p, and that a stream transport debugged over loopback is
+debugged once. Milestone B inherits a working pipe and a typed transport edge instead of proving
+both. Detail at the top of `docs/membrane/slice-02-cross-instance.md`, "Part 0's state, stated
+exactly".
+
+**A process note worth keeping:** the local half was declared complete twice on the strength of a
+fully ticked build order. Both times the build order was right and incomplete, because it could only
+report on its own rows. Part 0 is the list that matters, and it is not the list §10 walks.
+
+**Also corrected in the slice doc, all as-built rather than as-designed:** the verifier lives in the
+APP, not the gateway, so the root secret never leaves the app and only the host secret goes over
+stdin; there is no `principal_id` field and no `auth_invalid` code; BR2 was rewritten because the
+code deliberately does the opposite on a hand-launched relay and is right to; and §10a5 now records
+steps 5 and 6, which had shipped with no entry in the build order at all.
+
+**Status.** Suite **1267 green** in 147 suites plus both Go suites, and the §11 auth matrix WAS re-run
+on a freshly built Dev3 (no token refused, garbage refused, a production token refused on Dev3 which
+live-verifies NFR4, the CLI's own token served). The streaming exit is live-verified on the same
+instance.
 
 **Half one** (no authentication in it): port 0 exists and every grant names its object
 (`portGrant.<grantee>.<object>.<zone>`, peer-qualifiable); the store is a TABLE with one row per
@@ -20,7 +61,8 @@ capability; the card names its object; the `remoteAllow*` blanket pre-grant is d
 **Half two** (authentication): `ClientRegistry` is the only place a token is minted. Enrolment has a
 route for every caller — a child at spawn, the `port42` CLI at install, anything else by hand in
 Settings. `is_host` is proven by a per-spawn credential rather than believed. **`local-http` is
-deleted and an unnamed caller is refused** with a message that names the fix.
+deleted as an IDENTITY and an unnamed caller is refused** with a message that names the fix. It
+survives as a routing `sender_id` on the HTTP door, inert because nothing authorizes on it.
 
 **Verify like this, in Dev3:**
 

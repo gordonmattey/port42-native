@@ -47,18 +47,55 @@
 in a shape where the wire is an addition rather than a rewrite. If a row is skipped, libp2p arrives
 as a migration instead of a plug.
 
-| seam | what the local half builds | what libp2p adds | why it then slots in |
-|---|---|---|---|
-| **ADDRESS** | `PortRef.key`, one definition. **Port 0 is the machine itself** | a `<peerID>/` prefix | `port42://<peerID>/space/<id>/<portId>` already assumed. Port 0 makes `<peerID>/0` mean *that machine*, so a peer can name a machine and not only a tile |
-| **ACTOR** | `principal_id`, stamped ONLY by a verifier, written peer-qualified from day one | a third verifier: PeerID → principal | libp2p authenticates a peer cryptographically. Today that authenticated peer is flattened to a string and thrown away (`Principal.swift`'s own header says so). The seam is where it lands instead |
-| **TOKEN** | `<epoch>:<seq>`, CAS, peer- and epoch-qualified | nothing | already transport-independent by construction. Done |
-| **OBJECT** | the grant key gains its missing slot: `<grantee> × <port> [× zone]`, both sides peer-qualifiable | peers on both sides | "peer B may act on my port 0's clipboard" becomes expressible with no new concept. Without the slot, adding it later is a migration across two instances rather than one |
-| **OUTPUT** | one publish door with a typed kind | a gossipsub topic per port | ten publish sites today, two of which accept a caller-supplied kind. Gossipsub needs ONE payload definition, so the seam has to exist first |
-| **LEGIBILITY** | the permission manager: every grant visible, revocable, grouped by grantee | remote peers are grantees too | a grant to a peer you cannot see is the local invisibility problem with a network attached |
-| **ERRORS** | typed codes, app and gateway | the same codes on the wire | a remote caller acts on `stale_write` / `token_required` exactly as a local one does |
+| seam | state | what the local half builds | what libp2p adds | why it then slots in |
+|---|---|---|---|---|
+| **ADDRESS** | ✅ | `PortRef.key`, one definition. **Port 0 is the machine itself** | a `<peerID>/` prefix | `port42://<peerID>/space/<id>/<portId>` already assumed. Port 0 makes `<peerID>/0` mean *that machine*, so a peer can name a machine and not only a tile |
+| **ACTOR** | ✅ | a verified caller identity, established ONLY by presenting a credential, written peer-qualified from day one | a second verifier: PeerID → principal | libp2p authenticates a peer cryptographically. Before half two that authenticated peer was flattened to a string and thrown away. The seam is where it lands instead |
+| **TOKEN** | ✅ | `<epoch>:<seq>`, CAS, peer- and epoch-qualified | nothing | already transport-independent by construction. Done |
+| **OBJECT** | ✅ | the grant key gains its missing slot: `<grantee> × <port> [× zone]`, both sides peer-qualifiable | peers on both sides | "peer B may act on my port 0's clipboard" becomes expressible with no new concept. Without the slot, adding it later is a migration across two instances rather than one |
+| **OUTPUT** | ✅ **2026-07-30** | one publish door with a typed kind and a typed payload, and a way OUT of the process | a gossipsub topic per port | payload is `BridgeValue`, every envelope carries the port's token, and a subscriber outside the app now receives events as `stream` frames. Gossipsub becomes a second subscriber to a stream that already exists |
+| **LEGIBILITY** | ✅ | the permission manager: every grant visible, revocable, grouped by grantee | remote peers are grantees too | a grant to a peer you cannot see is the local invisibility problem with a network attached |
+| **ERRORS** | ✅ **2026-07-30** | typed codes, app and gateway, from ONE list | the same codes on the wire | a remote caller acts on `stale_write` / `token_required` as a local one does, and on `no_host` / `host_offline` before it reaches the app at all |
 
 **The test for each row:** adding libp2p should mean writing a verifier and a transport, and touching
 nothing above the seam. Anything that would force a change above the seam belongs in the local half.
+
+### Part 0's state, stated exactly (2026-07-30)
+
+Five of the seven rows are built and live-verified. **Two are not, and the earlier claim that the
+local half had built every row it owns was wrong.** Both gaps land on milestone B rather than beside
+it.
+
+**OUTPUT is built (§10c, §10d).** The payload is `BridgeValue` rather than `Any`, every envelope
+carries the emitting port's token, and events now leave the process as `stream` frames. Two defects
+surfaced on the way, both shipping at HEAD and neither visible from either end alone:
+
+- **`PortBridge` interpolated an OPTIONAL into its topic**, publishing to `port:Optional("abc")`
+  while subscribers listen on `port:abc`. Every event on that path had never reached the bus:
+  `browser.*`, `screen.frame`, `camera.frame`, `audio.*`, `presentation`. The compiler had been
+  warning on that line the whole time.
+- **The gateway threw every streamed event away.** `RemoteToolExecutor` served streaming methods with
+  `yield: { _ in }`, and no `stream` frame existed to carry one anyway. So nothing outside the app
+  could ever watch a port.
+
+**Sizing it made it smaller, and this is the reusable part.** "Ten publish sites" was the number in
+the register; the real surface was one funnel plus five direct calls, because eleven `pushEvent`
+callers all route through a single private method. Measuring before designing changed the shape of
+the work here exactly as the grant census did at step 1.
+
+**ERRORS is built (§10e).** The app side has been typed since 2026-07-28; the gateway's own failures
+were bare English until 2026-07-30 (`"no host available"`, `"host is offline"`, `"failed to reach
+host"`), which a caller cannot branch on and which a REMOTE caller meets before anything the app
+says. They are now `no_host`, `host_offline`, `transport_failed`, `timed_out`, `missing_arg` and
+`unknown_method`, declared in the app's `BridgeErrorCode` and mirrored in Go behind a gate that fails
+if the gateway spells a code the app has never heard of.
+
+**Deliberately still uncoded: the channel and message path.** Rate limits, channel membership and
+token-count failures are the MESSAGING protocol, which BR1 leaves untouched and which no bridge
+caller meets. Typing them would mean inventing codes, or bending messaging failures into names built
+for the RPC surface. The line is what a CALLER can act on, which is what this row is about.
+
+**ALL SEVEN PART 0 ROWS ARE NOW BUILT.**
 
 ---
 
@@ -156,7 +193,7 @@ gateway, by either door.
 | | requirement |
 |---|---|
 | BR1 | Channel and message traffic is unaffected by authentication. Sharing does not regress |
-| BR2 | A gateway with no secret serves channel routing only, and refuses `call` and `is_host` |
+| BR2 | ⚠️ **REWRITTEN 2026-07-30, because the code deliberately does the opposite and is right.** Was: "a gateway with no secret serves channel routing only, and refuses `call` and `is_host`." A gateway with no host credential is the HAND-LAUNCHED RELAY, which has no stdin pipe to receive one. Refusing `is_host` there breaks the relay case rather than closing a hole, so `gateway.go` honors the claim when nothing is configured and checks it when something is (`hostCredentialConfigured() && !matches` → refuse). `call` is likewise not refused at the transport. **The enforcement moved rather than vanished:** a credential is verified by the APP on both doors, so an unauthenticated call is refused wherever the gateway came from. The requirement now reads: an APP-SPAWNED gateway refuses an unproven `is_host`, and no gateway of any provenance can produce a call the app will serve without a credential |
 | BR3 | The app is host only of a gateway it spawned itself |
 | BR4 | ~~At most one pairing request is pending at a time, and a pending request expires.~~ **VOID 2026-07-30** — no request exists to be pending. The state machine, its TTL and its one-at-a-time rule all went with pairing |
 | BR5 | Revoking a client removes its token file |
@@ -285,29 +322,42 @@ P1 began as authenticating a socket and is now also where authorization gets its
 
 **D0. The decomposition, and the invariant on each interface**
 
+**AS BUILT (corrected 2026-07-30).** The design put the verifier on the transport. It ended up in the
+app, and the diagram below is what exists:
+
 ```
   ClientRegistry (app)        the only place a token is minted, named or revoked
-        │ root secret, over the gateway's stdin at spawn
+        │ host secret only, over the gateway's stdin at spawn
+        ▼                     (the ROOT secret never leaves the app)
+  Router (gateway)            envelopes, addressing, host routing.
+        │                     Carries `credential` OPAQUELY: parses nothing, verifies nothing
+        │ credential
         ▼
-  Verifier (gateway)          credential → principal id, or nothing. Stateless.
-        │ principal_id
-        ▼
-  Router (gateway)            envelopes, addressing, host routing
+  Verifier (app)              credential → client id, or a refusal. Stateless.
         │
         ▼
-  Authorizer (app)            principal → enrolled? → grants → allow / prompt / deny
+  Authorizer (app)            client → enrolled? → grants → allow / prompt / deny
 ```
 
 | interface | invariant |
 |---|---|
-| registry → gateway | the gateway holds one secret and no table, and never reads the filesystem |
+| registry → gateway | the gateway holds one secret (the host one), no table, and never reads the filesystem |
 | caller → verifier | a credential is the only way to acquire a principal |
-| verifier → app | `principal_id` is written ONLY by the verifier, and is unconditionally overwritten on every inbound envelope |
+| verifier → authorizer | a caller identity is produced ONLY by `resolveGatewayCaller`, from a credential, on the app side of the boundary |
 | router | `sender_id` addresses. It never authorizes. It stays caller-supplied and untrusted |
-| authorizer | `Principal.peer` is constructed only from `principal_id`. `sender_id` never reaches it |
+| authorizer | `Principal.peer` is constructed only from a verified client id. `sender_id` never reaches it |
 
 The last one is greppable and testable, and it is the gate. `Principal.peer` has exactly two
-production construction sites, both in `ToolExecutor.swift`, both currently taking `senderId`.
+production construction sites, both in `ToolExecutor.swift`, and both now receive the verified id
+that `AppState.onCallReceived` resolved.
+
+**Why the verifier moved, and it is the better answer.** Splitting mint from verify across two
+languages gives the token format two implementations that can drift, and it requires the root secret
+to cross a process boundary in order to be useful on the far side. Keeping both in the app means the
+format has one implementation, the root secret never leaves, and the gateway's job shrinks to
+carrying an opaque string. **What the original split bought was instant revocation without gateway
+state, and that survives intact.** The app was always going to be the one deciding whether a client
+still exists.
 
 **Under this decomposition there is no "HTTP work" and no "WS work".** Both doors reduce to "produce
 a verified `principal_id` or don't", so neither can be fixed while the other is forgotten. That is
@@ -325,11 +375,19 @@ One new GRDB table, added as a new migration (never edit an existing one).
 clients
   id          TEXT PRIMARY KEY    slug, [a-z0-9-]+, stable for the life of the client
   name        TEXT NOT NULL       the label shown on permission cards
-  kind        TEXT NOT NULL       paired | child | manual
+  kind        TEXT NOT NULL       child | installed | manual   (paired is unreachable, below)
   createdAt   DATETIME NOT NULL
   lastSeenAt  DATETIME            updated on each accepted call
   revokedAt   DATETIME            null means active
 ```
+
+**`kind` as built.** `installed` was added (GM, 2026-07-29) for a first-party tool Port42 installs,
+enrolled at install time: installing is itself a named act with the user present, which is the same
+argument that lets a spawned child enrol with no prompt. It is distinct from `manual` because the
+user did not NAME this one, Port42 knows what it is. **`paired` survives in the enum with no
+production construction site**, since pairing was dropped (FR5). It is reachable only from tests.
+Left rather than deleted so a stored row from an early build still decodes; nothing new can be
+written with it.
 
 `id` is a slug rather than a UUID because it is also the token file's name, and the documented client
 flow is "read a known path, pair only if it is missing". A UUID would make the path unknowable before
@@ -354,14 +412,23 @@ so a user who deletes a token file gets a new credential and keeps their grants.
 | root | Keychain, service `Port42-credentials`, account `gateway-root-<instance>` | until rotated |
 | host | app memory only, never written anywhere | one gateway spawn |
 
-Both are 32 random bytes. The root secret is created on first launch if absent, and is the only thing
-that can mint a client token. The host secret is regenerated on every gateway spawn, which is what
-makes `is_host` unforgeable by anything on disk.
+Both are 32 random bytes. The root secret is created lazily, on the first mint rather than at launch,
+so a build that never enrols anything never writes to the Keychain. It is the only thing that can
+mint a client token. The host secret is regenerated on every gateway spawn, which is what makes
+`is_host` unforgeable by anything on disk.
 
-**Both reach the gateway on stdin, not in its environment**, for the reason measured in §1: `ps -E`
-publishes a subprocess environment to every process running as the user. The app already holds the
-write end of the gateway's stdin for the EOF-on-death watch and never writes to it, so it writes two
-lines at startup and then leaves the pipe open exactly as before.
+**AS BUILT, ONE secret reaches the gateway and it is the host one** (corrected 2026-07-30; this
+section planned two). The root secret never leaves the app, because the gateway was given nothing to
+verify: a client credential rides through it OPAQUELY and the app both mints and checks it (D4). That
+is strictly better than the design and it is worth naming as the reason. **A secret that never
+crosses a process boundary cannot be leaked by the process on the other side**, and the token format
+ends up with exactly one implementation instead of one per language.
+
+**The host secret reaches the gateway on stdin, not in its environment**, for the reason measured in
+§1: `ps -E` publishes a subprocess environment to every process running as the user. The app already
+holds the write end of the gateway's stdin for the EOF-on-death watch and never writes to it, so it
+writes one line **after `run()`** (the read end does not exist until the child does) and then leaves
+the pipe open exactly as before.
 
 **The read is gated on `-watch-parent`**, the flag that already distinguishes an app-spawned gateway
 from a manually launched one. A relay started by hand has an interactive stdin, and a blocking read
@@ -373,13 +440,25 @@ there would hang it.
 p42_<id>_<mac>          mac = base64url-unpadded( HMAC-SHA256(secret, id) )
 ```
 
-`id` is constrained to `[a-z0-9-]`, so splitting on `_` always yields exactly three parts. The
-gateway recomputes the MAC and compares in constant time (NFR1). On success it stamps
-`principal_id = id`. It consults no table and stores nothing, which is what keeps NFR5 true and makes
-the verifier survive its own restart.
+`id` is constrained to `[a-z0-9-]`, so splitting on `_` always yields exactly three parts. **The MAC
+covers the id**, so a token cannot be replayed as another client. The slug constraint is also what
+stops a caller-supplied name smuggling a path separator into the token FILE's name: the name is a
+claim, and slugging is what makes it safe as both a filename and a key.
 
-The host credential is the same construction over the host secret with `id = host`, so one routine
-covers both and they differ only in which secret is used.
+**AS BUILT, the APP recomputes the MAC, not the gateway** (corrected 2026-07-30; this section put the
+verifier on the transport). `ClientRegistry.verify` compares in constant time (NFR1) and
+`AppState.resolveGatewayCaller` then decides whether that client still exists. The gateway consults
+no table, stores nothing and parses nothing, which keeps NFR5 true more completely than the original
+design did.
+
+**NFR1's gate is STRUCTURAL, because the behavioral one was a lie.** A test named "constant-time"
+that only asserts a near-miss fails is satisfied by plain `==`, and when the naive comparison was
+substituted that test stayed green. The real gate scans `verify`'s body: it must route through
+`constantTimeEquals` and must not compare a MAC with `==`. Timing is not unit-testable, so the
+guarantee has to be structural.
+
+The host credential is the same construction over the host secret, so one routine covers both and
+they differ only in which secret is used.
 
 **D4. The wire**
 
@@ -463,18 +542,29 @@ different root secrets, so a token minted by one fails another's verification.
 
 **D6. What happens on a call, in order**
 
-1. The credential arrives, in a header or in `identify`.
-2. **Gateway** verifies it and stamps `principal_id`, or refuses with `auth_required` / `auth_invalid`.
-3. **Router** forwards to the host as it does today, keyed on `CallID`.
-4. **App** refuses a call carrying no `principal_id`.
+**AS BUILT (corrected 2026-07-30).** Steps 2 and 4 planned a gateway-side verifier and a
+`principal_id` field. Neither exists. The order is:
+
+1. The credential arrives, in `Authorization: Bearer` on `/call` or in the envelope on `/ws`.
+2. **Router** forwards it to the host untouched, keyed on `CallID`. It does not parse it and cannot
+   refuse it.
+3. **App** (`AppState.onCallReceived` → `resolveGatewayCaller`) refuses a call carrying no
+   credential, with `auth_required`.
+4. **App** recomputes the MAC in constant time. A token that does not verify is refused with
+   `auth_required`, whose message says it may belong to a different instance, which is the one
+   failure a caller cannot diagnose from the outside.
 5. **App** looks the client up. Missing or revoked gives `auth_revoked`. Otherwise `lastSeenAt` is
    updated.
-6. `Principal.peer(id: principal_id, displayName: client.name)`.
+6. `Principal.peer(id: <verified client id>, displayName: client.name)`.
 7. The existing permission coordinator runs unchanged: grant lookup, prompt if needed, dispatch.
 
-**Steps 2 and 5 are deliberately in different components.** The gateway proves the token was minted
-here. The app decides whether that client still exists. That split is what makes revocation instant
-without the gateway holding state or needing a restart (FR4, NFR5).
+**BOTH DOORS REDUCE TO THE SAME FUNCTION, and that is the structural answer** to the failure mode
+this scope was built on. There is no HTTP path and no WS path to verify separately: the two doors
+differ in where the credential sits and in nothing else, and they meet at one `onCallReceived`.
+
+**There is no `auth_invalid`.** D10 listed it; a bad MAC returns `auth_required` instead, deliberately,
+because the caller's fix is the same in both cases and a second code would only ask them to tell apart
+two states they cannot observe.
 
 **D7. Revocation and rotation**
 
@@ -529,22 +619,28 @@ deleted, so they are inert. Whether to park or delete them is open (§13).
 
 **D10. Errors, and the refusal that carries its own fix**
 
-| code | meaning |
-|---|---|
-| `auth_required` | no credential presented |
-| `auth_invalid` | malformed token, or a MAC that does not verify |
-| `auth_revoked` | verified, but the client no longer exists |
-| `pair_busy` | a pairing request is already pending |
-| `pair_disabled` | the user turned pairing off |
-| `pair_expired` | the request outlived its TTL |
-| `no_host`, `host_offline`, `timeout`, `bad_request` | the gateway's own failures, previously uncoded |
+**REWRITTEN 2026-07-30 against the enum, which is the only honest source.** Codes are values in
+`BridgeErrorCode.swift` and the published docs render from it, so this table names what exists rather
+than restating it:
 
-The last row closes the register §5 item that was parked for "the next thing to touch that file".
+| code | state | meaning |
+|---|---|---|
+| `auth_required` | ✅ built | no credential presented, OR a MAC that does not verify |
+| `auth_revoked` | ✅ built | verified, but the client no longer exists or was withdrawn |
+| ~~`auth_invalid`~~ | ❌ never built | folded into `auth_required` (D6): same fix, and the caller cannot tell the two states apart anyway |
+| ~~`pair_busy`~~, ~~`pair_disabled`~~, ~~`pair_expired`~~ | ❌ void | went with pairing (FR5/FR6) |
+| `no_host`, `host_offline`, `timeout`, `bad_request` | ❌ **STILL OPEN** | the gateway's own failures are still bare strings: `"no host available"`, `"no host available in channel"`, `"host is offline"`, `"failed to reach host"`, `"timeout waiting for host response"` |
 
-`auth_required` names the header, the token path and the pairing verb, in the same shape as
+**The last row does NOT close the register §5 item, and this doc claimed it did.** It is the ERRORS
+row of Part 0, half built: the app side is typed and the transport side is not. A remote caller
+reaching a peer through a relay meets the untyped strings first, which is why it belongs with
+milestone B rather than after it.
+
+`auth_required` names the header, the token path and where to add a client, in the same shape as
 `stale_write` carrying `current`. A stale caller self-corrects in one retry, and a caller that was
-never enrolled is walked into pairing by the error itself, so one mechanism does both jobs. No error
-body ever echoes a token (NFR2).
+never enrolled is walked into enrolment by the error itself, so one mechanism does both jobs.
+`isRetryableWithCurrentState` is pinned to exactly `stale_write` + `token_required`, so neither auth
+code invites a retry that cannot work. No error body ever echoes a token (NFR2).
 
 **D11. User-facing surfaces**
 
@@ -663,35 +759,45 @@ Where the design above lands in the tree. The design says what it is; this says 
 
 **App**
 
-| what | where | design |
-|---|---|---|
-| `ClientRegistry`, the only minting site | new file | D1, D3, D5 |
-| `clients` table, new migration | `DatabaseService.swift` | D1 |
-| root secret, per instance | `AgentAuth.swift` (`Port42AuthStore`) | D2 |
-| host secret, generated per spawn, and both secrets written to stdin | `GatewayProcess.swift` | D2 |
-| token file write and removal | `ClientRegistry` | D5, D7 |
-| the pairing prompt and its approval path | new view, `AppState` | D5, D11 |
-| refuse a call with no `principal_id`, and refuse a revoked client | `AppState.onCallReceived` (:1364) | D6 |
-| two `Principal.peer` sites take `principal_id` | `ToolExecutor.swift` (:150, :175) | D0, D6 |
-| children registered at spawn | `TerminalHooksService.swift` (:218), `AgentProcess.swift` | D1, D5 |
-| `isSharedIdentity` and `localGatewayID` deleted, not gated | `Principal.swift` (:110, :178) | D9 |
+**Marked against the tree, 2026-07-30.** Line numbers are the ones that were true when the row was
+written and are not maintained.
+
+| what | state | where | design |
+|---|---|---|---|
+| `ClientRegistry`, the only minting site | ✅ | `Services/ClientRegistry.swift` | D1, D3, D5 |
+| `clients` table, new migration | ✅ | `DatabaseService.swift`, `v44-clients` | D1 |
+| root secret, per instance | ✅ | `AgentAuth.swift`, account `gateway-root-<instance>` | D2 |
+| host secret per spawn, written to stdin | ✅ **one secret, not two** | `GatewayProcess.swift` | D2 |
+| token file write and removal | ✅ 0600 in a 0700 dir | `ClientRegistry` | D5, D7 |
+| ~~the pairing prompt and its approval path~~ | ❌ **void** | n/a | dropped with FR5 |
+| refuse a call with no credential, and refuse a revoked client | ✅ | `AppState.onCallReceived` → `resolveGatewayCaller` | D6 |
+| two `Principal.peer` sites take the verified id | ✅ | `ToolExecutor.swift` | D0, D6 |
+| children registered at spawn | ✅ | `AppState`, `TerminalHooksService.swift` | D1, D5 |
+| the `port42` CLI enrolled at install | ✅ **added, not in the original list** | `CLIInstallService.swift` | D1 |
+| `localGatewayID` deleted, `isSharedIdentity` kept returning false | ✅ | `Principal.swift` | D9 |
 | the permission manager: grants grouped by grantee, revoke per row and per grantee, clients as a grantee kind, add by hand | `SignOutSheet.swift`, new screen | D11, D13 |
 | delete the dead `PortPermissionOverlay` (no call site) | `PortWindowManager.swift:1657` | §4 touchpoint 2 |
 | the three `remoteAllow*` flags and their Remote Access toggles deleted | `SignOutSheet.swift` (:25-27, :659-661), `ToolExecutor.swift` (:140-144) | D12 |
 
 **Gateway**
 
-| what | where | design |
-|---|---|---|
-| read two secrets from stdin when `-watch-parent` is set, then keep the EOF watch | `main.go` | D2 |
-| verify a credential and stamp `principal_id`, constant-time | `gateway.go` | D3, D4 |
-| strip and re-stamp `principal_id` on every inbound envelope | the read loop, `gateway.go` (:340) | D4 |
-| `Authorization: Bearer` on `/call` | `HandleHTTPCall` (:802) | D4 |
-| `token` in `identify`, and refuse `call` from an unauthenticated peer | `routeCall` (:907) | D4, D6 |
-| `is_host` honored only for the host credential | identify (:283) | D2, D8 |
-| `POST /pair`, `GET /pair/<id>`, rate limited, in-memory state | `main.go`, `gateway.go` | D5 |
-| the gateway's own error codes | `gateway.go` | D10 |
-| never log a secret or a token | throughout | NFR2 |
+| what | state | where | design |
+|---|---|---|---|
+| read the host secret from stdin when `-watch-parent` is set, then resume the EOF watch from the SAME buffered reader | ✅ **one secret** | `main.go`, `credentials.go` | D2 |
+| ~~verify a credential and stamp `principal_id`~~ | ❌ **moved to the app** | n/a | D0, D3 |
+| ~~strip and re-stamp `principal_id` on every inbound envelope~~ | ❌ **void** | n/a | the field does not exist; there is nothing to forge and nothing to remember to overwrite |
+| carry `credential` OPAQUELY on the envelope | ✅ | `gateway.go` | D4 |
+| `Authorization: Bearer` on `/call` | ✅ | `HandleHTTPCall` | D4 |
+| `is_host` proven by the host credential when one is configured | ✅ | identify | D2, D8, BR2 |
+| ~~`POST /pair`, `GET /pair/<id>`~~ | ❌ **void** | n/a | dropped with FR5 |
+| the gateway's own error codes | ❌ **STILL OPEN** | `gateway.go` | D10, Part 0 ERRORS |
+| never log a secret or a token | ✅ | throughout | NFR2 |
+
+**Two rows in this table are the wire half's inbox, not oversights.** The gateway's own failures are
+still untyped strings (D10), and `sender_id` is still stamped `local-http` on the HTTP door as a
+ROUTING address. The second is harmless by construction, because nothing authorizes on `sender_id`
+any more, but it is a value the rest of the tree describes as deleted and it will read as a live
+identity to whoever meets it next.
 
 **Docs and generated artifacts**
 
@@ -744,10 +850,11 @@ nothing here can strand a caller.
 
 4. **Store and mint. DONE 2026-07-29.** Root secret, derived tokens, the token file, the `clients`
    table, and clients in the manager as a grantee kind. Nothing enforces yet. See "Step 4 as built".
-5. **Seam and verifier together.** `principal_id` exists, is written only by the verifier, and a
-   call without one is refused. `local-http` is deleted rather than preserved: carrying a transport
-   label through a transition step would seed the new field with exactly the kind of value it
-   exists to eliminate.
+5. **Seam and verifier together. DONE 2026-07-29/30, in two parts.** **5a**: a caller's identity comes
+   from its CREDENTIAL, never from `sender_id`. **5b**: an unnamed caller is REFUSED, and
+   `local-http` is deleted as an identity rather than preserved. Carrying a transport label through
+   a transition step would have seeded the new field with exactly the kind of value it exists to
+   eliminate. See "Step 5 as built" below.
 6. **Children. BUILT 2026-07-29** (taken BEFORE step 5, see below). Per-child registration at
    spawn, which is where the pooled bucket actually dies. A companion terminal is enrolled as a
    `child` client with a DERIVED id, and its process is handed `PORT42_CLIENT_ID` and
@@ -762,6 +869,11 @@ window where the user's own companions are locked out.
 
 Step 5 is the only one with a blast radius, and by then every caller has a token, the refusal teaches
 the fix, and the manager shows what happened.
+
+**ALL SIX STEPS ARE DONE, and so are the two Part 0 rows this list never contained.** OUTPUT (§10c,
+§10d) and ERRORS (§10e) were both built on 2026-07-30, after an audit found the document claiming the
+local half was complete on the strength of a fully ticked build order that did not mention them.
+**Worth keeping as a process note: a checklist can only report on its own rows.**
 
 **If you want to ship less:** half one is a coherent release by itself. It names the primitive, makes
 144 invisible grants visible and revocable, and removes the blanket pre-grant, without touching
@@ -930,6 +1042,223 @@ Also calibrated by breaking: a MAC that stops binding the id (caught — a token
 client), and a slug that lets `/` and `.` through (caught — `../../etc/passwd` survived).
 
 Suite **1219 green**.
+
+### 10a5. Steps 5 and 6 as built (2026-07-29/30). HALF TWO IS COMPLETE
+
+*Written 2026-07-30. This section was missing: the code shipped and the build order above still read
+"step 5" as pending, so the document understated itself by a whole step.*
+
+**Step 6 first, deliberately** (the swap above). A companion terminal is enrolled as a `child` client
+with a DERIVED id (`child-<companionId>-<spaceId>`), so a respawn keeps its grants. Its process is
+handed `PORT42_CLIENT_ID` and `PORT42_TOKEN_FILE`, **the id and the PATH, never the token**, because
+`ps -E` publishes a subprocess environment to every process running as the user. An ad-hoc terminal
+with no companion gets no identity rather than sharing one. The `port42` CLI enrols at install
+(`CLIInstallService`), which the app performs at every boot, so it is idempotent onto the same row and
+the same file. That closed the last route: **every caller now has a named act to hang enrolment on,
+except the one nobody installs.**
+
+**5a: the credential decides, `sender_id` never does.** `AppState.onCallReceived` resolves the caller
+through `resolveGatewayCaller(credential:)`. `sender_id` keeps its routing meaning and loses every
+other one. That is the line that ends the escalation §1 measured: `"Claude Code"`, `"Gemini CLI"` and
+`claude1`…`claude101` held standing capability precisely because naming yourself in `identify` made
+you that principal.
+
+**5b: an unnamed caller is REFUSED, and `local-http` is gone as an identity.** `localGatewayID` and
+`gatewayDisplayName` are deleted. `isSharedIdentity` is KEPT, returning `false`, not as a gate but
+because rung 1 of `forPortBridge` asks a real question ("is this creator an actual author"), and a
+future shared id should have to answer it in one place rather than be rediscovered at a call site.
+
+**The refusal carries the fix (FR10)**, in three messages that differ by what the caller can actually
+do: no credential says add a client in Settings → Access and send `Authorization: Bearer`; a MAC that
+does not verify says it may belong to a DIFFERENT INSTANCE, which is the one failure invisible from
+outside; a revoked client is told to ask the human and not to retry. **This matters more than a
+generic 401 because a session already running holds the old instruction block in its context and will
+never re-read it.** The error is the only thing that teaches.
+
+**Both doors reduce to one function, which is the whole structural claim of D0.** There was no HTTP
+fix and no WS fix to verify separately, because there is no second place a caller identity can be
+formed. That is the answer to the failure mode this scope was built on: a fix verified on one caller
+path and assumed to hold on the others, three times in one session.
+
+**`is_host` stopped being believed.** It is now proven by a credential the app generates per gateway
+spawn, hands over on stdin, and stores nowhere, so nothing on disk can forge it and a stale one
+cannot outlive the app that minted it. A hand-launched relay, which has no pipe, still honors the
+claim; see the rewritten BR2 for why that is the relay case and not a hole.
+
+**What 5b did NOT delete, and it should be said plainly.** The gateway still stamps
+`SenderID: "local-http"` on the HTTP door as a routing address, and its comment still claims nothing
+enforces yet. The value is inert, because nothing authorizes on `sender_id`. The comment is false.
+
+**VERIFICATION STATUS, stated honestly (2026-07-30 audit).** Suite **1256 green** in 145 suites, plus
+the `gateway/` and `cli/` Go suites, all re-run at the audit. The code paths were read end to end and
+the enforcement is structurally sound. **The §11 live matrix has NOT been re-run at this HEAD**: Dev3
+was not running at audit time, and the recorded live checks belong to the session that built the
+step. Under this thread's own rule (*done means live-verified, not committed*), half two's live
+column is inherited rather than confirmed, and §11 is the thing to run first at milestone B, on a
+freshly built Dev3, per door and per caller.
+
+### 10c. The OUTPUT payload as built (2026-07-30)
+
+**`PortNotify` is what leaves a port**: `{ topic, kind, payload, token }`, one definition, one
+encoder. `NotifyBus.publish` takes `BridgeValue` and will not accept `Any`.
+
+**The payload type is `BridgeValue`, deliberately not a new one.** It is already the single result
+shape every bridge method returns, it already round-trips JSON both ways, it already crosses the
+gateway, and `.data(base64:mime:)` already carries binary, which matters because `screen.frame` and
+`camera.frame` push frames. A purpose-built Notify type would have solved all of that a second time
+and could then disagree with the request side. Requests were typed and responses were typed; events
+were the third of the system that was not.
+
+**The envelope carries the token, and the BUS resolves it.** A Notify used to say what changed but
+not what state it left the port in, so a subscriber that wanted to write next had to call `getHtml`
+first, which is the second round trip the "Stream out" acceptance row forbids. `AppState` injects
+`notifyBus.tokenForTopic`, so no publish site passes a token and a site added tomorrow carries one by
+construction. **It also closes O-4's remaining half**: the token is `<epoch>:<seq>`, monotonic per
+port, so it IS the display ordering key and no sequence field was needed.
+
+**DEFECT FOUND BY TYPING IT, and it had been shipping.** `PortBridge.pushEvent` built its topic as
+`"port:\(messageId)"` with `messageId` an OPTIONAL, so it published to `port:Optional("abc")` while
+every subscriber listens on `port:abc`. **Every event on that path missed the bus entirely**: all
+three `browser.*`, `screen.frame`, `camera.frame`, both `audio.*` and `presentation`. The port's own
+JS was unaffected, because `port42._emit` needs no topic, which is exactly why nobody noticed.
+`console`, `terminal.output`, `push` and `driver` publish elsewhere with an unwrapped key and always
+worked, so the paths in daily use were the working ones.
+
+**The compiler had been reporting it the whole time**, as a string-interpolation warning on that
+line. Worth stating plainly: a warning nobody reads is a test nobody wrote.
+
+**The gate is structural and calibrated against that exact defect.** No source file may build a port
+topic by hand; every one goes through `PortNotify.topic(forPortKey:)` / `portKey(fromTopic:)`.
+Calibrated by reinstating the original interpolation, watching the gate fail naming the file and
+line, and restoring. **The gate immediately found the other half of the same disagreement**: three
+SUBSCRIBE sites (`port.subscribe`, and two in `ShellState`) were hand-building topics too. No unit
+test of either end alone could have caught this, because each end was internally consistent; only a
+rule about the string itself reaches it.
+
+`NotifyBusTests` +6, suite **1262 green**. Dev3 rebuilt clean and the auth matrix re-run on it.
+
+**What is NOT proven live, and why:** that a `pushEvent` event now reaches a remote subscriber. It
+cannot be, because the stream has no way out of the app (the section under Part 0). The fix is
+covered by the round-trip test, the calibrated gate, and the disappearance of the compiler warning.
+
+### 10d. The exit as built (2026-07-30)
+
+**A `stream` frame is a response that does not end the call.** The gateway gained one envelope type,
+routed to `TargetID` like a response but deliberately NOT consulted against `httpCallbacks`: `/call`
+is request/response and must be completed by exactly one `response`, so a stream frame resolving that
+callback would truncate the call at its first event. Pinned by a Go test that asserts the callback
+survives.
+
+**`Streamable` is set by the GATEWAY, on the WS door only**, never taken from the caller: a client
+must not be able to claim it can receive streams on a transport that cannot carry them.
+
+**A method now declares whether it ENDS.** `BridgeStreamMethod.endless` separates a subscription from
+a completion, which is the distinction a one-shot transport needs. `ai.complete` finishes, so
+collect-into-final gives an HTTP caller the whole answer; `port.subscribe` does not, so the same
+treatment gave them a hang and then a timeout. Declared rather than inferred from the name, so the
+refusal cannot drift from behavior. Both one-shot surfaces refuse an endless method up front now, the
+gateway's HTTP door and tool use, the latter because a companion calling one would wedge its own turn.
+
+**The refusal names the door that works** (FR10), the same contract as `stale_write` carrying
+`current`. Measured: 36ms to refuse, against 30 seconds of hanging before.
+
+**`acceptingExpect()` had to carry `endless` too.** It rebuilds the struct, and a rebuild that omits
+a declared property turns it off silently. This struct has now lost two fields that way, so the
+comment beside `needsLiveSurface` gained a third case.
+
+**A THIRD instance of the same class of bug, found live.** `SyncEnvelope` has explicit `CodingKeys`,
+so the new `streamable` property compiled, ran, and was never decoded: always nil, turning every WS
+caller into an HTTP one and refusing the subscription on the door that supports it. Explicit coding
+keys make an added field silently absent, exactly as an interpolated optional makes a topic silently
+wrong.
+
+**CALIBRATION, and it caught the TEST rather than the code, again.** Removing `endless: true` did not
+fail the gate: it HUNG it, because the un-refused method runs until cancelled, which is the very
+behavior being replaced. A gate that hangs on a regression is worse than one that fails, since a
+wedged suite reads as an environment problem. Rewritten to a bounded race where losing IS the
+assertion; the same break now fails in seconds naming the cause. **The first bound, 3 seconds, then
+flaked under full-suite load** (passes alone in 0.18s, lost the race at 18.8s in a full run, the same
+MainActor contention §10a3 recorded). Widened to 60s, which costs nothing on the passing path because
+the group returns the moment the call does.
+
+**Live-verified in Dev3, which is what closed it.** A WS subscriber received `driver` and two `push`
+frames while a port was driven from a separate HTTP caller, each carrying the port's token and the
+token advancing per event. The same test returned zero frames in ten seconds before the fix.
+
+`NotifyBusTests` +9 and three Go tests; suite **1265 green** plus both Go suites.
+
+### 10e. The gateway's error codes (2026-07-30), Part 0's last row
+
+**The app has owned the code list since 2026-07-28 and the gateway did not use it.** A caller could
+branch on every error the app raised and none of the ones the transport raised. That is the wrong way
+round for slice-02, because a remote peer meets the transport first.
+
+Now `no_host`, `host_offline`, `transport_failed`, `timed_out`, `missing_arg` and `unknown_method`, on
+both doors, in the WS envelope (a new `code` field) and in the HTTP body.
+
+**Kept apart only where the repair differs**, the register's own rule. `no_host` means Port42 is not
+running, so go start it; `host_offline` means it was there and its connection dropped, so retry. Two
+codes for two next actions, not for two internal states.
+
+**The new repair group carries the sentence that actually helps:** *your call never reached Port42, so
+nothing was executed and nothing changed. Retrying is always safe.* It belongs to the group rather
+than being repeated per code. Explicitly NOT `isRetryableWithCurrentState`, which is CAS and means
+something else: these never reached a port at all.
+
+**One list, two languages, and a gate between them.** `BridgeErrorCode` declares, `gateway/errorcodes.go`
+mirrors, and a Swift test scans the Go file and fails if it spells a code the enum lacks. Calibrated
+by adding `totally_made_up` to the Go and watching it fail by name. Without it the second language is
+free to invent, and the published docs (which render from the enum) would silently stop describing
+what the gateway sends.
+
+**The agent-facing docs moved with it.** `llms.txt` gained the THE GATEWAY group, regenerated from the
+enum with the diff read. More importantly, both `llms.txt` and `ports-context.txt` had been
+documenting the Notify envelope as `{ topic, kind, payload }`, with no `token` and no mention that the
+gateway serves the stream on `/ws` only. A port author reading the old text would not have known the
+token was there, which is the one thing that lets them write back without a read first.
+
+Suite **1267 green**.
+
+### 10f. Why the docs went stale, and the rule that stops it (2026-07-30)
+
+**GM's question, and it is the right one: why was this not automatic?** The agent-facing docs went
+stale the moment the Notify envelope gained a field, and a human had to notice.
+
+**The gate that existed checks the wrong property.** `BridgeDocsExportTests` asserts
+`llms.txt == what the registry generates`. That is CONSISTENCY: it proves the artifact was
+regenerated. It cannot know the registry's own `description` string is wrong, so generated-from-wrong
+passes it byte for byte. `ports-context.txt` had no gate at all beyond the one rendered block.
+
+**The mechanism to fix it already existed and had been used once.** `{{ERROR_CODES}}` is substituted
+at load from `BridgeErrorCode`, so the codes cannot be restated wrongly because they are not restated
+at all. That was built 2026-07-28 and then not applied to anything else.
+
+**THE RULE, stated once: a fact about a code structure is RENDERED from that structure, never typed
+into prose.** `PublishedDocs.render` is the single place every renderer is applied, so adding one is
+one line. Two more now exist:
+
+- `{{NOTIFY_ENVELOPE}}` from `PortNotify`. Add a field to the struct and both documents gain it.
+- `{{EVENT_KINDS}}` from `PortEventKind.allCases`. The hand-written list named four kinds; there are
+  sixteen, so it was not merely stale, it had always been wrong.
+
+**The gate is that no marker survives into served text.** Calibrated twice: an unwired `{{FOO}}` in a
+document is caught, and deleting a renderer from `render` is caught, both naming the marker. That is
+what catches the next one, because the failure mode is writing a marker and forgetting to wire it.
+
+**Two findings about the existing gates, from making this one pass.**
+
+`PortEventKindTests.coversWhatIsEmitted` kept a HAND-WRITTEN list of the enum's non-case members, and
+it broke the moment the enum grew legitimate API (`publish`, `docsMarker`). A gate that fails because
+the type gained a method is a gate people edit rather than read. Its exclusion list is now derived
+from the type's own source.
+
+**That same test is largely redundant with the compiler and weaker than it looks.** It scans for the
+spelling `PortEventKind.<case>`, which only 4 of the 16 kinds use; every other emit site uses
+leading-dot inference and is invisible to it. What it claims to catch (a case deleted while a caller
+names it) is a COMPILE ERROR in Swift, for both spellings, always. Its sibling gate, no bare string
+literal at a publish site, catches something the compiler cannot and is the one carrying the weight.
+Left in place rather than removed, and recorded here so the next reader knows which of the two is
+load-bearing.
 
 ### 10b. What step 1 learned, and what it changes for steps 2 and 3
 
@@ -1173,12 +1502,12 @@ here the substrate is the existing bridge + libp2p.)
 
 | Seam | PASS | FAIL |
 |---|---|---|
-| **Actor (A)** | a call with no verified `principal_id` is refused on BOTH doors; a caller cannot name itself; `local-http` is gone | a caller still picks its own identity on either door |
+| **Actor (A)** | ✅ **2026-07-30 (code; live matrix owed).** a call with no verified credential is refused on BOTH doors, and there is only one function that can form a caller identity; a caller cannot name itself; `local-http` is gone as an identity, surviving only as a routing address | a caller still picks its own identity on either door |
 | **Object (A)** | ✅ **2026-07-29.** every grant names the port it is about; port 0 exists; the 144 objectless grants were reaped, so none survives to be inherited | a grant still names a grantee and a space and no object |
 | **Legibility (A)** | ✅ **2026-07-29.** every grant is visible and revocable in one screen, grouped by grantee, per capability; a zone whose space is gone says so | a grant is still invisible after the moment it is given |
 | **Address** | `port42://<peerID>/…` reaches the remote port; the same verb path works local and remote | remote needs a different API than local |
 | **Query in** | B's `patch`/`getHtml` executes on A's port via A's existing bridge | remote writes bypass A's local bridge/authority |
-| **Stream out** | a delta on A appears on B within one round-trip; multiple subscribers get it from one publish | B must poll; or fan-out needs bespoke per-subscriber code |
+| **Stream out** | ✅ **locally, 2026-07-30.** a subscriber outside the app receives every event as a `stream` frame carrying the port's token, so it can write next with no extra read. Live-verified over the WS door. The wire half adds a transport, not a mechanism | B must poll; or fan-out needs bespoke per-subscriber code |
 | **Right-of-way** | a write composed against stale state is REFUSED with `current`, and one retry lands; presence names whoever wrote last, on both ends; no double-apply under contention | a stale write is applied and A's state diverges from B's view; or a caller is blocked outright, which is the lease failure again |
 | **Traversal (B)** | direct connection via DCUtR where NAT allows, clean relay fallback otherwise; success rate recorded | connection only works same-LAN; or fails silently behind NAT |
 
