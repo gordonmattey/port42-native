@@ -286,6 +286,58 @@ struct ClientRegistryTests {
         #expect(appState.resolveGatewayCaller(credential: orphan, senderId: "x").id == "x")
     }
 
+    // MARK: - Add by hand (CR4) — the route for a caller nobody installs
+
+    @Test("a hand-added client is enrolled, named as typed, and its token is readable at the path")
+    @MainActor
+    func addByHandEnrols() throws {
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        // What Settings does: slug the typed name for the id, keep the typed name for the card.
+        let typed = "My Backup Script"
+        let id = ClientRegistry.slug(typed)
+        let token = try #require(reg.register(id: id, name: typed, kind: .manual))
+
+        let client = try #require(reg.client(id: "my-backup-script"))
+        #expect(client.name == typed, "the card must show what the user typed, not the slug")
+        #expect(client.kind == .manual)
+
+        // The user is shown a PATH, so the file has to actually be there with the token in it.
+        let path = reg.tokenPath(id: id)
+        #expect(try String(contentsOf: path, encoding: .utf8) == token)
+    }
+
+    @Test("a hand-added client can then name a call")
+    @MainActor
+    func handAddedClientIsNamedOnCalls() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let token = try #require(appState.clientRegistry.register(
+            id: ClientRegistry.slug("scripts"), name: "scripts", kind: .manual))
+        // The whole point: a script with no installer and no human at call time can still be named.
+        let who = appState.resolveGatewayCaller(credential: token, senderId: "local-http")
+        #expect(who.id == "scripts")
+        #expect(who.name == "scripts")
+    }
+
+    @Test("two names that slug the same way are ONE client, not two")
+    @MainActor
+    func slugCollisionsReuseTheRow() throws {
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        // "My Script" and "my-script" are the same id. Re-adding re-issues onto the same row rather
+        // than silently creating a second client the user cannot tell apart in the list.
+        reg.register(id: ClientRegistry.slug("My Script"), name: "My Script", kind: .manual)
+        reg.register(id: ClientRegistry.slug("my-script"), name: "my-script", kind: .manual)
+        #expect(reg.clients().filter { $0.id == "my-script" }.count == 1)
+        #expect(reg.client(id: "my-script")?.name == "my-script", "the later name wins")
+    }
+
     // MARK: - Install-time enrolment (GM, 2026-07-29)
     //
     // The CLI is not a child, so step 6's spawn-time enrolment never reaches it, and CR3's stated
