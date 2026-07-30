@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Combine
+import GhosttyKit
 
 // MARK: - Terminal working directory
 
@@ -2849,6 +2850,14 @@ public final class AppState: ObservableObject {
             config: config, env: controller.env,
             onTee: { controller.receiveTee($0) },
             onInject: { controller.bindSurface($0) })
+        // Ask ghostty, not an event, whether the shell is still running. A push to a terminal whose
+        // shell had exited used to answer `{"ok": true}` with the keystrokes discarded, because a
+        // bound surface was treated as a live one. `.sessionEnded` cannot answer this — it fires when
+        // the CLI exits while the shell happily keeps taking input.
+        controller.bindAliveProbe { [weak view = built.view] in
+            guard let s = view?.surface else { return false }
+            return !ghostty_surface_process_exited(s)
+        }
         // Native input records presence (L2.d.2): a keystroke here never reaches the bridge, so
         // without this the chrome cannot see the human driving a terminal.
         let udid = panel.udid
