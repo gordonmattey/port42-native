@@ -245,6 +245,42 @@ item exists to stop making.
 
 ---
 
+## ROADMAP (2026-07-29, GM): authenticate the PROGRAM, not a bearer token — code signature over a unix socket
+
+**The trust boundary is between Port42 and a calling program**, not between users. GM's correction, and
+it is the load-bearing one: "same user, same machine, so no real boundary" is the reasoning that would
+justify doing nothing, and half two exists precisely because that reasoning is wrong. Anything running
+as the user can reach the gateway, so what Port42 must distinguish is WHICH BINARY is calling.
+
+**A bearer token names a caller but cannot authenticate a program.** Half two's HMAC token is a real
+improvement — every caller is named, enrolled by a deliberate act, and individually revocable — but the
+credential is a file readable by anything with the user's uid. Steal the file, become the client. §9's
+stated limit is honest about it: no local design defeats a process running as the user.
+
+**What actually authenticates a program:** on a unix socket, read the peer's audit token and verify its
+CODE SIGNATURE (`SecCodeCopyGuestWithAttributes` with `kSecGuestAttributeAudit`). Then there is no
+secret at all — nothing to mint, nothing to store, nothing to steal — and a copied or patched binary
+fails because it is not signed by the same identity. Strictly stronger than any token for first-party
+tools, and it needs no enrolment step for them.
+
+**Why not OAuth**, since it comes up: OAuth authenticates a USER'S DELEGATION to a client. It does not
+authenticate which binary is calling, and its client credentials on a local machine are readable by
+anything with the uid — so against this boundary it buys nothing a token file does not, while adding an
+authorization server, a browser round trip and refresh. It also adds expiry, which GM has decided
+against for grants. For the WIRE half the equivalent question is answered better by libp2p, where a
+PeerID is cryptographically authenticated with no authorization server.
+
+**Cost, and why it is deferrable:** `/call` is TCP on `127.0.0.1` today, so this needs a unix socket
+transport plus every client moved onto it. The hooks shim already uses a unix socket, so the precedent
+is in-repo. **It is a TRANSPORT change, not an authorization change** — the principal, the grants, the
+manager and the object slot all stay exactly as built, and the verifier is simply asked a better
+question. That is why finishing half two with tokens costs nothing here.
+
+**Shape when it lands:** a third verifier beside the token verifier and (at slice-02) the PeerID
+verifier. Part 0's ACTOR row already says the seam takes "a verifier"; this is another one.
+
+---
+
 ## TODO (2026-07-28, GM): TRUST ON THE READ PATH — a reader is neither authenticated nor scoped
 
 R7 closed input: a port cannot forge the human, because the listener and its handler live in a world

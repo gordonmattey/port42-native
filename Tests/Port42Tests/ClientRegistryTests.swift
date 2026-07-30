@@ -36,6 +36,22 @@ struct ClientRegistryTests {
         #expect(ClientRegistry.verify(token: t, secret: secret) == "claude-code")
     }
 
+    /// **THE CROSS-LANGUAGE GATE, and the only real hazard in this format.**
+    ///
+    /// `p42_<id>_<mac>` has TWO implementations: this one and `tokenMAC` in `gateway/credentials.go`.
+    /// The app mints; the gateway verifies. If they diverge, every token is silently rejected and
+    /// nothing says so — the symptom is "authentication just doesn't work" while both sides are
+    /// individually correct and individually green.
+    ///
+    /// This vector was computed independently of both (HMAC-SHA256, base64url, unpadded), so it pins
+    /// the FORMAT rather than either implementation's opinion of it. Its twin is
+    /// `TestKnownVectorMatchesSwift`, asserting the same constant from the Go side.
+    @Test("the token format matches the gateway's verifier, byte for byte")
+    func tokenFormatMatchesTheGateway() {
+        #expect(ClientRegistry.mac(id: "claude-code", secret: secret)
+                    == "5U2Q9QduHVJNxsiJy6go6uItuDpLFuVdtf8pD4zRFHA")
+    }
+
     @Test("a token minted by ANOTHER instance's secret does not verify")
     func instanceSeparation() {
         // NFR4: instances are separated by their SECRETS, not by a path check. Prod, Dev and Dev3
