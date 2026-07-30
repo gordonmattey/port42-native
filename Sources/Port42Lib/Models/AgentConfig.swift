@@ -164,15 +164,26 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     // MARK: - CLI Presets
 
     /// Known command-line AI tools that can run as terminal agents in Port42.
+    ///
+    /// **Gemini CLI was REMOVED 2026-07-29, and offering it was the defect.** It was a preset with
+    /// no working loop behind it: turn detection was never wired, and then Google withdrew the free
+    /// sign-in for individuals ("this client is no longer supported for Gemini Code Assist for
+    /// individuals"), so a gemini companion now needs a paid API key or Vertex access that nothing
+    /// in Port42 asks for. A button that yields a companion which cannot authenticate and could not
+    /// have replied anyway is worse than no button.
+    ///
+    /// Codex is the next preset, and it is not here yet because parity needs one more thing than a
+    /// preset: a companion has to be able to RECEIVE a message, which no `port.create` terminal can
+    /// today (see the companion-registration bug in `summer2026-todo.md`). Antigravity is parked
+    /// separately — its hooks are fine, but its auth does not survive the per-session config
+    /// redirect that injection depends on. Both are tracked in the CLI-parity item.
     public enum CLIPreset: String, CaseIterable {
         case claude
-        case gemini
 
         /// Single-word name used as @mention handle and companion display name
         public var displayName: String {
             switch self {
             case .claude: return "claude"
-            case .gemini: return "gemini"
             }
         }
 
@@ -180,7 +191,6 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
         public var label: String {
             switch self {
             case .claude: return "Claude Code"
-            case .gemini: return "Gemini CLI"
             }
         }
 
@@ -194,12 +204,6 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
                     "/usr/local/bin/claude",
                     "/opt/homebrew/bin/claude",
                     "/usr/bin/claude"
-                ]
-            case .gemini:
-                candidates = [
-                    "/usr/local/bin/gemini",
-                    "/opt/homebrew/bin/gemini",
-                    "/usr/bin/gemini"
                 ]
             }
             // Also try nvm/nenv paths
@@ -221,7 +225,6 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
             // per-(space,companion)), which both supersedes --continue and would conflict with a
             // pinned session id (docs/plan-companion-cwd.md).
             case .claude: return []
-            case .gemini: return []
             }
         }
 

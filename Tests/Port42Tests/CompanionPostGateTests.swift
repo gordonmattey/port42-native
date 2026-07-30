@@ -87,11 +87,13 @@ struct CompanionPostGateTests {
 
     // MARK: hooks-capable detection
 
-    @Test("isHooksCapable matches claude / gemini startup commands")
+    @Test("isHooksCapable matches claude, and ONLY claude")
     func hooksCapableDetection() {
         #expect(GhosttyTerminalController.isHooksCapable("claude") == true)
         #expect(GhosttyTerminalController.isHooksCapable("/Users/x/.local/bin/claude --continue") == true)
-        #expect(GhosttyTerminalController.isHooksCapable("gemini") == true)
+        // gemini asserted a capability nothing implemented: declared hooks-capable, emitted no
+        // events. Removed with its CLIPreset (2026-07-29).
+        #expect(GhosttyTerminalController.isHooksCapable("gemini") == false)
         #expect(GhosttyTerminalController.isHooksCapable("bash -c 'echo hi'") == false)
         #expect(GhosttyTerminalController.isHooksCapable("python repl.py") == false)
     }

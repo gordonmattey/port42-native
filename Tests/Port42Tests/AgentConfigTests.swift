@@ -329,12 +329,12 @@ struct AgentConfigTests {
         #expect(preset.displayName == "claude")
     }
 
-    @Test("Gemini CLI preset has expected shape")
-    func geminiPreset() {
-        let preset = AgentConfig.CLIPreset.gemini
-        #expect(preset.args == [])
-        #expect(preset.systemPrompt.isEmpty)   // empty by design (framing baked at spawn)
-        #expect(preset.displayName == "gemini")
+    /// Gemini CLI was removed as a preset (2026-07-29). Claude is the only CLI with a working
+    /// companion loop, so it is the only one offered — this pins that, and will fail the moment a
+    /// preset is added without the loop behind it, which is exactly how gemini got there.
+    @Test("claude is the ONLY CLI preset offered")
+    func claudeIsTheOnlyPreset() {
+        #expect(AgentConfig.CLIPreset.allCases.map(\.rawValue) == ["claude"])
     }
 
     @Test("Creating command agent from claude preset sets openInTerminal")
