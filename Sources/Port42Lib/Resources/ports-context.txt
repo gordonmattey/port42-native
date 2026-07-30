@@ -467,6 +467,11 @@ BRIDGE API REFERENCE:
                              session limit reached — stop or close one, then call again)
       ASK THE USER           permission_denied (a capability: they grant it) ·
                              access_denied (a path they never picked: they pick a file)
+      ENROL FIRST            auth_required (Port42 does not know who is calling; the user adds a
+                             client in Settings -> Access) · auth_revoked (it did know, and the
+                             user withdrew it). Neither reaches a PORT: window.port42 is
+                             in-process and never traverses the gateway. You will see these only
+                             if you call the gateway over rest.call.
       WAIT OR ALLOW LONGER   timed_out · ai_timeout · js_timeout (this one usually means you
                              returned a long-lived promise — return a plain value instead)
       DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)

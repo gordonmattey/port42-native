@@ -1188,14 +1188,38 @@ public final class AppState: ObservableObject {
     ///
     /// Falls back to the caller-supplied `senderId` while nothing is enforced. That fallback is the
     /// whole of what 5b deletes.
-    func resolveGatewayCaller(credential: String?, senderId: String) -> (id: String, name: String) {
-        if let credential, !credential.isEmpty,
-           let clientId = ClientRegistry.verify(token: credential, secret: clientRegistry.rootSecret()),
-           let client = clientRegistry.client(id: clientId), client.isActive {
-            try? db.touchClient(id: clientId)
-            return (clientId, client.name)
+    func resolveGatewayCaller(credential: String?, senderId: String) throws -> (id: String, name: String) {
+        guard let credential, !credential.isEmpty else {
+            throw BridgeError(
+                code: .authRequired,
+                message: "This call carries no credential, so Port42 does not know who is asking. "
+                       + "Add a client in Port42 Settings → Access, then send its token as "
+                       + "`Authorization: Bearer <token>`.")
         }
-        return (senderId, Principal.gatewayDisplayName(for: senderId))
+        guard let clientId = ClientRegistry.verify(token: credential,
+                                                   secret: clientRegistry.rootSecret()) else {
+            // Includes a token minted by a DIFFERENT instance, which is not an error the caller can
+            // see from the outside — so the message says so rather than leaving them re-sending a
+            // credential that is perfectly valid somewhere else.
+            throw BridgeError(
+                code: .authRequired,
+                message: "This credential does not verify. It may belong to a different Port42 "
+                       + "instance — each one mints its own. Add a client in Settings → Access "
+                       + "on THIS instance and use that token.")
+        }
+        guard let client = clientRegistry.client(id: clientId) else {
+            throw BridgeError(
+                code: .authRevoked,
+                message: "Client '\(clientId)' no longer exists. Add it again in Settings → Access.")
+        }
+        guard client.isActive else {
+            throw BridgeError(
+                code: .authRevoked,
+                message: "Client '\(client.name)' was revoked. Add it again in Settings → Access "
+                       + "if you want it back.")
+        }
+        try? db.touchClient(id: clientId)
+        return (clientId, client.name)
     }
 
     /// Revoke a client: marks the row and deletes its token file. Its GRANTS are separate and are
@@ -1474,11 +1498,21 @@ public final class AppState: ObservableObject {
             // enrolled, and the grant lands on THAT rather than on the shared `local-http` bucket
             // every local process collapses into.
             //
-            // **Nothing is refused here yet**, deliberately. An unnamed caller still gets the pooled
-            // principal, because the `port42` CLI has no way to obtain a token until install-time
-            // minting lands, and CR3's stated remedy — pairing — was dropped. 5b flips this to a
-            // refusal once every first-party caller demonstrably carries one.
-            let identity = self.resolveGatewayCaller(credential: credential, senderId: senderId)
+            // **AN UNNAMED CALLER IS NOW REFUSED** (5b). Every route to a credential exists: a child
+            // enrols at spawn, the CLI at install, anything else by hand in Settings. Ports and the
+            // hooks shim never come through this door at all.
+            //
+            // The refusal carries the fix (FR10), because a session already running holds the old
+            // instruction block in its context and will never re-read it — so the error has to be
+            // the thing that teaches, not the docs.
+            let identity: (id: String, name: String)
+            do {
+                identity = try self.resolveGatewayCaller(credential: credential, senderId: senderId)
+            } catch let e as BridgeError {
+                return e.toJSONObject()
+            } catch {
+                return ["error": error.localizedDescription]
+            }
             let executor = self.remoteExecutors[identity.id]
                 ?? RemoteToolExecutor(appState: self, senderId: identity.id, senderName: identity.name)
             self.remoteExecutors[identity.id] = executor

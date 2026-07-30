@@ -232,38 +232,79 @@ struct ClientRegistryTests {
 
         // The caller also claims to be someone else entirely — exactly how `"Claude Code"`,
         // `"Gemini CLI"` and claude1…claude101 came to hold standing grants in production.
-        let who = appState.resolveGatewayCaller(credential: token, senderId: "i-am-whoever-i-say")
+        let who = try appState.resolveGatewayCaller(credential: token, senderId: "i-am-whoever-i-say")
         #expect(who.id == "claude-code", "sender_id must not be able to name a caller")
         #expect(who.name == "Claude Code", "the name is fixed at mint time, not asserted per call")
     }
 
-    @Test("no credential still falls back to the pooled principal — nothing is enforced yet")
+    /// **THE FLIP (5b).** An unnamed caller used to get the pooled `local-http` principal. It is now
+    /// refused, and every refusal names where to fix it (FR10) — because a session already running
+    /// holds the old instruction block in its context and will never re-read it, so the error is the
+    /// only thing that can teach.
+    @Test("a call with NO credential is refused, and the refusal says where to fix it")
     @MainActor
-    func unnamedCallerStillWorks() throws {
+    func unnamedCallerIsRefused() throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
-        // 5b deletes this fallback. Until then it is what keeps the `port42` CLI working, since it has
-        // no way to obtain a token yet and CR3's stated remedy (pairing) was dropped.
-        let who = appState.resolveGatewayCaller(credential: nil, senderId: Principal.localGatewayID)
-        #expect(who.id == Principal.localGatewayID)
-        #expect(who.name == "Local (gateway)")
+        do {
+            _ = try appState.resolveGatewayCaller(credential: nil, senderId: "local-http")
+            Issue.record("an unnamed caller was accepted")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.authRequired.rawValue)
+            #expect(e.message.contains("Settings → Access"), "the refusal must carry the fix (FR10)")
+        }
     }
 
-    @Test("a REVOKED client's token stops naming it, with no gateway restart")
+    @Test("a credential from ANOTHER instance is refused, and says so")
     @MainActor
-    func revokedClientIsNotNamed() throws {
+    func foreignInstanceCredentialIsRefused() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        // Instances are separated by their secrets (NFR4), so this verifies perfectly somewhere else.
+        // That is invisible from the caller's side, which is why the message names the cause.
+        let foreign = ClientRegistry.token(id: "port42-cli", secret: "another-instances-secret")
+        do {
+            _ = try appState.resolveGatewayCaller(credential: foreign, senderId: "x")
+            Issue.record("a foreign instance's credential was accepted")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.authRequired.rawValue)
+            #expect(e.message.lowercased().contains("different port42"))
+        }
+    }
+
+    @Test("a REVOKED client is refused with auth_revoked, not auth_required")
+    @MainActor
+    func revokedClientIsRefusedDistinctly() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let token = try #require(appState.clientRegistry.register(
+            id: "old-tool", name: "Old Tool", kind: .manual))
+        appState.revokeClient(id: "old-tool")
+        do {
+            _ = try appState.resolveGatewayCaller(credential: token, senderId: "x")
+            Issue.record("a revoked client was accepted")
+        } catch let e as BridgeError {
+            // Kept apart from auth_required on purpose: the credential is REAL, so re-sending it will
+            // never help. Same rule that keeps no_surface apart from not_found — the repair differs.
+            #expect(e.code == BridgeErrorCode.authRevoked.rawValue)
+            #expect(e.message.contains("Old Tool"), "name the client, since the user chose that name")
+        }
+    }
+
+    @Test("revocation is the APP's decision, not the credential's — D6's split")
+    @MainActor
+    func revocationIsCheckedAgainstTheRow() throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
         let reg = appState.clientRegistry
         let token = try #require(reg.register(id: "old-tool", name: "Old Tool", kind: .manual))
-        #expect(appState.resolveGatewayCaller(credential: token, senderId: "x").id == "old-tool")
+        #expect(try appState.resolveGatewayCaller(credential: token, senderId: "x").id == "old-tool")
 
-        // D6's split, and the point of it: the GATEWAY proves the token was minted here, the APP
-        // decides whether that client still exists. The token still verifies cryptographically —
-        // revocation works because the app checks the row, not because the credential became invalid.
         appState.revokeClient(id: "old-tool")
-        #expect(ClientRegistry.verify(token: token, secret: reg.rootSecret()) == "old-tool",
-                "the token itself is unchanged — that is why revocation needs no gateway restart")
-        #expect(appState.resolveGatewayCaller(credential: token, senderId: "x").id == "x",
-                "a revoked client was still named")
+
+        // THE POINT: the token still verifies CRYPTOGRAPHICALLY. Revocation works because the app
+        // checks the row, not because the credential became invalid — which is exactly why it takes
+        // effect on the next call with no gateway restart and no client table on the transport.
+        #expect(ClientRegistry.verify(token: token, secret: reg.rootSecret()) == "old-tool")
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: token, senderId: "x")
+        }
     }
 
     @Test("a forged credential does not name anybody")
@@ -271,9 +312,11 @@ struct ClientRegistryTests {
     func forgedCredentialIsIgnored() throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
         appState.clientRegistry.register(id: "claude-code", name: "Claude Code", kind: .manual)
-        // Right shape, wrong MAC. Must not resolve, and must not crash.
-        let who = appState.resolveGatewayCaller(credential: "p42_claude-code_deadbeef", senderId: "x")
-        #expect(who.id == "x")
+        // Right shape, wrong MAC. Refused, and `senderId` gets no say — that string is caller-chosen
+        // and was never an identity.
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: "p42_claude-code_deadbeef", senderId: "x")
+        }
     }
 
     @Test("a credential for a client that was never enrolled names nobody")
@@ -283,7 +326,9 @@ struct ClientRegistryTests {
         // Correctly signed by this instance's secret, but no row exists — a token file left behind
         // after the row was deleted, for instance.
         let orphan = ClientRegistry.token(id: "ghost", secret: appState.clientRegistry.rootSecret())
-        #expect(appState.resolveGatewayCaller(credential: orphan, senderId: "x").id == "x")
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: orphan, senderId: "x")
+        }
     }
 
     // MARK: - Add by hand (CR4) — the route for a caller nobody installs
@@ -317,7 +362,7 @@ struct ClientRegistryTests {
         let token = try #require(appState.clientRegistry.register(
             id: ClientRegistry.slug("scripts"), name: "scripts", kind: .manual))
         // The whole point: a script with no installer and no human at call time can still be named.
-        let who = appState.resolveGatewayCaller(credential: token, senderId: "local-http")
+        let who = try appState.resolveGatewayCaller(credential: token, senderId: "local-http")
         #expect(who.id == "scripts")
         #expect(who.name == "scripts")
     }
@@ -378,16 +423,18 @@ struct ClientRegistryTests {
                 "the id must survive slugging unchanged, or the row and the file would disagree")
     }
 
-    @Test("an enrolled CLI is named on a call; an unenrolled one still works, unnamed")
+    @Test("an enrolled CLI is named on a call; an unenrolled one is refused")
     @MainActor
     func cliCallIsNamed() throws {
         let appState = AppState(db: try DatabaseService(inMemory: true))
         let token = try #require(appState.clientRegistry.register(
             id: CLIInstallService.clientID, name: CLIInstallService.clientName, kind: .installed))
 
-        #expect(appState.resolveGatewayCaller(credential: token, senderId: "local-http").id == "port42-cli")
-        // And with no credential it is still served, because nothing is refused until 5b.
-        #expect(appState.resolveGatewayCaller(credential: nil, senderId: "local-http").id == "local-http")
+        #expect(try appState.resolveGatewayCaller(credential: token, senderId: "local-http").id == "port42-cli")
+        // And an UNENROLLED one is refused (5b). There is no anonymous lane left.
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: nil, senderId: "local-http")
+        }
     }
 
     // MARK: - Children (step 6) — where the pooled bucket actually dies

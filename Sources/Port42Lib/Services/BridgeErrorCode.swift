@@ -54,6 +54,16 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
 
     // MARK: Refused on purpose
     case permissionDenied = "permission_denied"
+    /// The caller presented no credential, or one that does not verify (slice-02 half two, 5b).
+    ///
+    /// Distinct from `permission_denied`, because the caller's repair is different in kind: a denied
+    /// permission means "you are known and the user said no", and asking again may work. This means
+    /// "I do not know who you are", and no amount of retrying changes that — the fix is to enrol.
+    /// FR10 is why the message names where to do it.
+    case authRequired = "auth_required"
+    /// Verified, but the client has been revoked. Kept apart from `auth_required` for the same
+    /// reason: the credential is real and re-sending it will never help.
+    case authRevoked = "auth_revoked"
     /// A path the user never picked. Distinct from `permissionDenied`: the fix is a file picker, not
     /// a capability grant.
     case accessDenied = "access_denied"

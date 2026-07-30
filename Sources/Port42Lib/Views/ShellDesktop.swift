@@ -1394,7 +1394,9 @@ struct PortVersionsPopover: View {
     /// rows written before the fix. Otherwise show the id (a peer's own identity) rather than a raw token.
     private func who(_ raw: String?) -> String {
         guard let raw, !raw.isEmpty else { return "you" }
-        if raw == Principal.localGatewayID { return "Local (gateway)" }
+        // `local-http` is deleted (5b): a gateway caller is a named client, so its label comes from
+        // its client row rather than being guessed from an id.
+
         if raw.hasPrefix("remote-http") { return "API / agent" }
         return raw
     }

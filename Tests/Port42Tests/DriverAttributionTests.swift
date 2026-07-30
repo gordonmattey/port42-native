@@ -31,22 +31,31 @@ struct DriverAttributionTests {
         #expect(!p.displayName.isEmpty)
     }
 
-    @Test("the local gateway reads as a place, not as a raw token")
-    func gatewayNamesAPlace() {
-        let p = Principal.peer(id: Principal.localGatewayID,
-                               displayName: Principal.gatewayDisplayName(for: Principal.localGatewayID))
-        #expect(p.displayName == "Local (gateway)")
-        #expect(p.displayName != Principal.localGatewayID)
+    /// Rewritten at 5b. This used to assert that "local-http" renders as the place "Local (gateway)".
+    /// Both the id and the function that dressed it up are deleted: a gateway caller is an enrolled
+    /// client whose name was fixed when it was minted, so there is no id left to make presentable.
+    ///
+    /// The property worth keeping is the one underneath — **a driver chip shows a NAME, never a key**
+    /// — and it is now satisfied by construction rather than by a lookup table.
+    @Test("a gateway caller reads as its client's name, not as its key")
+    func gatewayCallerNamesItsClient() {
+        let p = Principal.peer(id: "port42-cli", displayName: "port42 CLI")
+        #expect(p.displayName == "port42 CLI")
+        #expect(p.displayName != p.id, "display is never the permission key")
     }
 
-    @Test("a gateway-created port names ITSELF, which is the visible half of I1.3")
-    func gatewayCreatedPortNamesItself() {
-        let p = Principal.forPortBridge(createdBy: Principal.localGatewayID, messageId: "port-a",
+    /// Inverted at 5b, like its twin in `BridgePrincipalTests`, and for the same reason.
+    ///
+    /// I1.3 made a gateway-created port name ITSELF, because its creator was `local-http` — not an
+    /// author but every local process on the machine. With that id deleted, the creator is an
+    /// enrolled client with a real name, so the chip names the client and the grant lands on it. The
+    /// invariant underneath is unchanged: **the chip and the grant describe the same thing.**
+    @Test("a client-created port names its client, and the chip matches the grant")
+    func clientCreatedPortNamesItsClient() {
+        let p = Principal.forPortBridge(createdBy: "port42-cli", messageId: "port-a",
                                         instanceFallback: "unused", title: "weather", spaceId: "s")
-        // Before I1.3 this chip read "local-http" while the grant covered every gateway-made port in
-        // the space. Now the name and the grant describe the same single thing.
-        #expect(p.displayName == "weather")
-        #expect(p.id == "port-a")
+        #expect(p.displayName == "port42-cli")
+        #expect(p.id == "port42-cli", "the chip names exactly what the grant is keyed on")
     }
 
     @Test("a companion-created port names its author, so P-260 stays legible in the chrome")
@@ -60,8 +69,7 @@ struct DriverAttributionTests {
     func noSurfaceProducesAnUnreadableName() {
         let all: [Principal] = [
             .forCompanionTool(createdBy: "a", createdByName: nil, spaceId: nil),
-            .peer(id: Principal.localGatewayID,
-                  displayName: Principal.gatewayDisplayName(for: Principal.localGatewayID)),
+            .peer(id: "port42-cli", displayName: "port42 CLI"),
             .human(id: "u1", displayName: "Gordon", spaceId: "s"),
             // A port with nothing at all: no creator, no title. The last-resort label.
             .forPortBridge(createdBy: nil, messageId: nil, instanceFallback: "panel-1",

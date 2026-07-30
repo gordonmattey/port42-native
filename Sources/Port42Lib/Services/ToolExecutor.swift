@@ -156,13 +156,11 @@ public final class RemoteToolExecutor: ObservableObject {
         if let appState, appState.bridgeHandles(canonical) {
             let principal = Principal.peer(id: senderId, displayName: senderName)
             #if DEBUG
-            // `local-http` is a DELIBERATE shared bucket (every local process is one principal
-            // because none of them authenticate), which makes it the closest thing to a working
-            // precedent for whatever I1.3 decides. Counted so the decision is made against how
-            // much traffic actually rides it, not against the fact that it exists.
-            if senderId == Principal.localGatewayID {
-                ActorProbe.minted(id: principal.id, surface: "gateway", rung: "local-http-shared")
-            }
+            // The `local-http` counter is GONE with the bucket it measured (5b). It existed to size
+            // how much traffic rode the shared principal before deciding what to do about it; the
+            // answer was to delete it, so counting it is counting nothing. A gateway caller now
+            // arrives verified and named, or does not arrive.
+            ActorProbe.minted(id: principal.id, surface: "gateway", rung: "verified-client")
             #endif
             do {
                 let value = try await appState.runBridgeMethod(canonical, principal: principal,
@@ -181,9 +179,7 @@ public final class RemoteToolExecutor: ObservableObject {
         if let appState, appState.bridgeStreamHandles(canonical) {
             let principal = Principal.peer(id: senderId, displayName: senderName)
             #if DEBUG
-            if senderId == Principal.localGatewayID {
-                ActorProbe.minted(id: principal.id, surface: "gateway-stream", rung: "local-http-shared")
-            }
+            ActorProbe.minted(id: principal.id, surface: "gateway-stream", rung: "verified-client")
             #endif
             do {
                 let value = try await appState.runBridgeStream(canonical, principal: principal,
