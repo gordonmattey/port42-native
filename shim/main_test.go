@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -204,6 +205,85 @@ func TestBuildSettingsSessionEnd(t *testing.T) {
 	}
 	if got := parsed.Hooks.SessionEnd[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify sessionEnded` {
 		t.Fatalf("SessionEnd command = %q", got)
+	}
+}
+
+// notifyRoundTrip runs `runNotify` against a throwaway socket with `payload` on stdin and
+// returns the normalized event the receiver got.
+func notifyRoundTrip(t *testing.T, payload string) normalizedEvent {
+	t.Helper()
+	// NOT t.TempDir(): its path plus a long test name overruns sockaddr_un.sun_path (104 on
+	// macOS) and bind fails with EINVAL. Same limit TerminalHooksService keeps short ids for.
+	sock := fmt.Sprintf("/tmp/p42t%d.sock", time.Now().UnixNano()%1_000_000)
+	defer os.Remove(sock)
+
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 8192)
+		n, _ := c.Read(buf)
+		got <- string(buf[:n])
+	}()
+
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+	go func() { w.Write([]byte(payload)); w.Close() }()
+
+	t.Setenv("PORT42_HOOKS_SOCKET", sock)
+	runNotify("turnComplete")
+
+	select {
+	case msg := <-got:
+		var ev normalizedEvent
+		if err := json.Unmarshal([]byte(msg), &ev); err != nil {
+			t.Fatalf("bad normalized JSON: %v (%s)", err, msg)
+		}
+		return ev
+	case <-time.After(3 * time.Second):
+		t.Fatal("no event received")
+		return normalizedEvent{}
+	}
+}
+
+// Codex's Stop payload hands over the reply text directly, so the shim must take it and never
+// go near a transcript. Claude's carries no text at all — that difference is the whole reason
+// the extraction branches, so both shapes are pinned here.
+func TestNotifyPrefersSuppliedAssistantMessage(t *testing.T) {
+	ev := notifyRoundTrip(t, `{"session_id":"cx1","hook_event_name":"Stop",`+
+		`"last_assistant_message":"ok","transcript_path":"/nonexistent/should-not-be-read.jsonl"}`)
+
+	if ev.Text != "ok" {
+		t.Errorf("Text = %q, want the supplied last_assistant_message", ev.Text)
+	}
+	if ev.SessionID != "cx1" {
+		t.Errorf("SessionID = %q, want cx1", ev.SessionID)
+	}
+}
+
+// An EMPTY supplied message must not shadow the transcript. Otherwise a CLI that sets the field
+// but leaves it blank on some turns would post nothing, which is the silent-empty-post class
+// the transcript logging exists to catch.
+func TestNotifyFallsBackWhenSuppliedMessageIsEmpty(t *testing.T) {
+	tp := filepath.Join(t.TempDir(), "transcript.jsonl")
+	_ = os.WriteFile(tp, []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"from-transcript"}]}}`+"\n"), 0o644)
+
+	ev := notifyRoundTrip(t, `{"session_id":"cx2","hook_event_name":"Stop",`+
+		`"last_assistant_message":"","transcript_path":"`+tp+`"}`)
+
+	if ev.Text != "from-transcript" {
+		t.Errorf("Text = %q, want the transcript to be read when the field is empty", ev.Text)
 	}
 }
 

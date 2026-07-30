@@ -218,11 +218,19 @@ func runNotify(event string) {
 	}
 	switch event {
 	case "turnComplete":
-		// The Stop payload carries no response text — read the transcript for it.
-		// The final assistant message can lag the Stop hook by a few ms (the
-		// transcript is flushed asynchronously), so poll briefly until non-empty.
 		tp, _ := payload["transcript_path"].(string)
-		if tp != "" {
+		// Where the reply text comes from is the ONE place the CLIs genuinely differ, so it
+		// is the one place that branches. Codex's Stop payload hands over
+		// `last_assistant_message` directly. Claude's carries no response text at all, only
+		// a transcript path, and the final assistant message can lag the Stop hook by a few
+		// ms because the transcript is flushed asynchronously — hence the polling read.
+		//
+		// Prefer the field when it is there. It is authoritative, synchronous, and skips both
+		// the file parse and the retry window. Falling back rather than switching on a CLI
+		// name means a CLI that starts supplying the text simply gets faster.
+		if msg, ok := payload["last_assistant_message"].(string); ok && msg != "" {
+			out.Text = msg
+		} else if tp != "" {
 			out.Text = lastAssistantTextWithRetry(tp)
 		}
 		// Carry the transcript path + size to the app log (see struct note): an empty post
