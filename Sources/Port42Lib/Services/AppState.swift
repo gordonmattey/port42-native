@@ -1179,6 +1179,25 @@ public final class AppState: ObservableObject {
         clientRegistry.clients().filter(\.isActive)
     }
 
+    /// **Who a gateway caller is: the credential decides, not `sender_id`.**
+    ///
+    /// Returns the enrolled client when a credential verifies AND that client still exists and is not
+    /// revoked — which is the split D6 describes across two components. The gateway proves a token was
+    /// minted here; the APP decides whether that client still exists. That is what makes revocation
+    /// instant with no gateway restart and no client table on the transport (FR4, NFR5).
+    ///
+    /// Falls back to the caller-supplied `senderId` while nothing is enforced. That fallback is the
+    /// whole of what 5b deletes.
+    func resolveGatewayCaller(credential: String?, senderId: String) -> (id: String, name: String) {
+        if let credential, !credential.isEmpty,
+           let clientId = ClientRegistry.verify(token: credential, secret: clientRegistry.rootSecret()),
+           let client = clientRegistry.client(id: clientId), client.isActive {
+            try? db.touchClient(id: clientId)
+            return (clientId, client.name)
+        }
+        return (senderId, Principal.gatewayDisplayName(for: senderId))
+    }
+
     /// Revoke a client: marks the row and deletes its token file. Its GRANTS are separate and are
     /// revoked separately — a client that pairs again keeps what it was given, which is deliberate
     /// (D1: re-issuing onto the same row is what stops a deleted token file costing the user their
@@ -1444,10 +1463,25 @@ public final class AppState: ObservableObject {
         sync.onPresenceChanged = { [weak self] spaceId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(spaceId: spaceId, senderId: senderId, senderName: senderName, status: status)
         }
-        sync.onCallReceived = { [weak self] senderId, callId, method, input in
+        sync.onCallReceived = { [weak self] senderId, callId, method, input, credential in
             guard let self = self else { return ["error": "app state deallocated"] }
-            let executor = self.remoteExecutors[senderId] ?? RemoteToolExecutor(appState: self, senderId: senderId, senderName: Principal.gatewayDisplayName(for: senderId))
-            self.remoteExecutors[senderId] = executor
+
+            // WHO IS CALLING — from the CREDENTIAL, never from `sender_id` (slice-02 half two, 5a).
+            //
+            // `sender_id` addresses; it has never authorized anything and a caller picks it freely,
+            // which is how `"Claude Code"`, `"Gemini CLI"` and `claude1`…`claude101` came to hold
+            // standing grants in production. A verified credential names a client Port42 actually
+            // enrolled, and the grant lands on THAT rather than on the shared `local-http` bucket
+            // every local process collapses into.
+            //
+            // **Nothing is refused here yet**, deliberately. An unnamed caller still gets the pooled
+            // principal, because the `port42` CLI has no way to obtain a token until install-time
+            // minting lands, and CR3's stated remedy — pairing — was dropped. 5b flips this to a
+            // refusal once every first-party caller demonstrably carries one.
+            let identity = self.resolveGatewayCaller(credential: credential, senderId: senderId)
+            let executor = self.remoteExecutors[identity.id]
+                ?? RemoteToolExecutor(appState: self, senderId: identity.id, senderName: identity.name)
+            self.remoteExecutors[identity.id] = executor
             return await executor.execute(method: method, input: input)
         }
 

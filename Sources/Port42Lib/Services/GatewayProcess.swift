@@ -24,6 +24,18 @@ public final class GatewayProcess: ObservableObject {
     /// so the gateway can never orphan and hold the port. See the "-watch-parent" flag in main.go.
     private var parentPipe: Pipe?
 
+    /// The credential this spawn's gateway must present to claim `is_host`. In memory only, never
+    /// written anywhere, and replaced on every spawn (D2). Readable so the host side can present it.
+    public private(set) var hostCredential: String?
+
+    /// 32 random bytes. Not a token in the `p42_` format — the gateway does not parse it, it only
+    /// compares against it, which is exactly why no format needs to exist in two languages.
+    static func freshHostCredential() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+    }
+
     public static let shared = GatewayProcess()
 
     private var terminationObserver: NSObjectProtocol?
@@ -75,6 +87,24 @@ public final class GatewayProcess: ObservableObject {
         proc.standardInput = stdinPipe
         self.parentPipe = stdinPipe
 
+        // THE HOST CREDENTIAL, regenerated per spawn (slice-02 half two, D2).
+        //
+        // Written to the pipe we already hold rather than passed in the environment, and that is
+        // measured rather than stylistic: `ps -E` returns a same-user process's full environment, so
+        // an env var here would publish the credential to every process running as the user — the
+        // exact escalation this slice exists to close.
+        //
+        // ONE line, not two. The root secret stays in the app, because the app is now the only thing
+        // that verifies a client token as well as the only thing that mints one. What the gateway
+        // gets is the finished string it should compare host claims against — no secret it could mint
+        // with, and no token format to reimplement.
+        //
+        // Fresh every spawn and stored nowhere, which is what makes `is_host` unforgeable by anything
+        // on disk: a stale host credential cannot outlive the app that minted it. Today the claim is
+        // simply believed, and whoever makes it becomes the peer every `/call` is routed to.
+        let host = GatewayProcess.freshHostCredential()
+        self.hostCredential = host
+
         // Log gateway output
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -93,6 +123,17 @@ public final class GatewayProcess: ObservableObject {
         do {
             try proc.run()
             self.process = proc
+
+            // AFTER run(), because the read end does not exist until the child does. The gateway's
+            // watch-parent goroutine reads this one line, then resumes the EOF death-watch from the
+            // SAME buffered reader — resuming from os.Stdin would discard whatever the buffer had
+            // already pulled in (spike C's carried detail, pinned by a Go test).
+            //
+            // Never logged, here or there (NFR2).
+            if let data = (host + "\n").data(using: .utf8) {
+                try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
+            }
+
             isRunning = true
             print("[gateway] started on port \(port), pid \(proc.processIdentifier)")
 

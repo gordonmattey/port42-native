@@ -221,6 +221,71 @@ struct ClientRegistryTests {
         #expect(Data(base64Encoded: a)?.count == 32)
     }
 
+    // MARK: - Who is calling (5a) — the CREDENTIAL decides, not sender_id
+
+    @Test("a verified credential names the enrolled client, not the caller's chosen sender_id")
+    @MainActor
+    func credentialWinsOverSenderId() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let reg = appState.clientRegistry
+        let token = try #require(reg.register(id: "claude-code", name: "Claude Code", kind: .manual))
+
+        // The caller also claims to be someone else entirely — exactly how `"Claude Code"`,
+        // `"Gemini CLI"` and claude1…claude101 came to hold standing grants in production.
+        let who = appState.resolveGatewayCaller(credential: token, senderId: "i-am-whoever-i-say")
+        #expect(who.id == "claude-code", "sender_id must not be able to name a caller")
+        #expect(who.name == "Claude Code", "the name is fixed at mint time, not asserted per call")
+    }
+
+    @Test("no credential still falls back to the pooled principal — nothing is enforced yet")
+    @MainActor
+    func unnamedCallerStillWorks() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        // 5b deletes this fallback. Until then it is what keeps the `port42` CLI working, since it has
+        // no way to obtain a token yet and CR3's stated remedy (pairing) was dropped.
+        let who = appState.resolveGatewayCaller(credential: nil, senderId: Principal.localGatewayID)
+        #expect(who.id == Principal.localGatewayID)
+        #expect(who.name == "Local (gateway)")
+    }
+
+    @Test("a REVOKED client's token stops naming it, with no gateway restart")
+    @MainActor
+    func revokedClientIsNotNamed() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let reg = appState.clientRegistry
+        let token = try #require(reg.register(id: "old-tool", name: "Old Tool", kind: .manual))
+        #expect(appState.resolveGatewayCaller(credential: token, senderId: "x").id == "old-tool")
+
+        // D6's split, and the point of it: the GATEWAY proves the token was minted here, the APP
+        // decides whether that client still exists. The token still verifies cryptographically —
+        // revocation works because the app checks the row, not because the credential became invalid.
+        appState.revokeClient(id: "old-tool")
+        #expect(ClientRegistry.verify(token: token, secret: reg.rootSecret()) == "old-tool",
+                "the token itself is unchanged — that is why revocation needs no gateway restart")
+        #expect(appState.resolveGatewayCaller(credential: token, senderId: "x").id == "x",
+                "a revoked client was still named")
+    }
+
+    @Test("a forged credential does not name anybody")
+    @MainActor
+    func forgedCredentialIsIgnored() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.clientRegistry.register(id: "claude-code", name: "Claude Code", kind: .manual)
+        // Right shape, wrong MAC. Must not resolve, and must not crash.
+        let who = appState.resolveGatewayCaller(credential: "p42_claude-code_deadbeef", senderId: "x")
+        #expect(who.id == "x")
+    }
+
+    @Test("a credential for a client that was never enrolled names nobody")
+    @MainActor
+    func unknownClientIsIgnored() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        // Correctly signed by this instance's secret, but no row exists — a token file left behind
+        // after the row was deleted, for instance.
+        let orphan = ClientRegistry.token(id: "ghost", secret: appState.clientRegistry.rootSecret())
+        #expect(appState.resolveGatewayCaller(credential: orphan, senderId: "x").id == "x")
+    }
+
     // MARK: - Children (step 6) — where the pooled bucket actually dies
 
     @Test("a spawned child is told its ID and its token PATH, never its token")
