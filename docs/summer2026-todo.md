@@ -363,6 +363,41 @@ question. That is why finishing half two with tokens costs nothing here.
 **Shape when it lands:** a third verifier beside the token verifier and (at slice-02) the PeerID
 verifier. Part 0's ACTOR row already says the seam takes "a verifier"; this is another one.
 
+### How this composes with enrolment, and what it does NOT replace (GM, 2026-07-30)
+
+**Identity and consent are different questions, and signatures only answer the first.** A signature
+says WHO IS THIS, REALLY — unforgeable, no secret, no enrolment. It does not say whether that identity
+should be allowed. That is a decision a human makes once, and something has to carry it.
+
+So a signature does not retire the consent step; **it makes the consent step better.** The plan's own
+stated weakness in pairing is that the prompt shows a name the CALLER chose — "a claim under review",
+and anything can claim to be `Claude Code`. With a verified signature the prompt names the actual
+program instead of a self-chosen string, which is the difference between reviewing a claim and reading
+a fact. Pairing, if it ever comes back, is more defensible after this lands, not redundant.
+
+**What signatures WOULD retire, and it is most of half two's machinery — but only for first-party
+tools.** The `port42` CLI is signed by us, so Port42 could recognise it by signature and skip minting
+it a token, writing its token file, and maintaining the port-to-instance map that exists only so the
+CLI can find the right credential. Same for anything else we ship and sign.
+
+**What they CANNOT do, and this is the load-bearing limit:** a script has no code identity worth
+checking. A bash or python job is signed by nothing — the interpreter is signed by Apple, and every
+script on the machine shares that identity, so a signature check cannot tell one from another. **Token
+files therefore stay necessary for exactly the CR4 case add-by-hand exists for**, whatever else
+changes. Anyone reading this later and hoping signatures delete the credential store should stop
+here: they delete it for signed binaries and for nothing else.
+
+**So the end state is two lanes, not a replacement:**
+
+| caller | identity | consent |
+|---|---|---|
+| a binary we sign (the CLI, the shim) | code signature, nothing stored | implicit — we shipped it |
+| a third-party signed binary | code signature | once, naming the verified program |
+| a script, cron, curl | a token file (unchanged) | add by hand, once |
+
+The middle row is the one that is genuinely better than anything available today, and the bottom row
+is why the work in slice-02 half two is not throwaway.
+
 ---
 
 ## TODO (2026-07-28, GM): TRUST ON THE READ PATH — a reader is neither authenticated nor scoped
