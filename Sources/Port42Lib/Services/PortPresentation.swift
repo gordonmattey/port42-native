@@ -49,10 +49,19 @@ public struct PortPresentation: Equatable {
     }
 
     /// The wire shape the port receives (`pushEvent` payload / the `presentation()` getter).
+    ///
+    /// `BridgeValue` is the definition and `jsonObject` is derived from it, not the other way round:
+    /// the same value goes to a port's JS, to a bridge method's result, and onto the Notify topic, so
+    /// having two encoders would be two chances for those three to disagree.
+    public var bridgeValue: BridgeValue {
+        var o: [String: BridgeValue] = ["state": .string(state.rawValue), "visible": .bool(visible),
+                                        "w": .int(w), "h": .int(h)]
+        if let reason { o["reason"] = .string(reason) }
+        return .object(o)
+    }
+
     public var jsonObject: [String: Any] {
-        var o: [String: Any] = ["state": state.rawValue, "visible": visible, "w": w, "h": h]
-        if let reason { o["reason"] = reason }
-        return o
+        (bridgeValue.toJSONObject() as? [String: Any]) ?? [:]
     }
 
     /// The same value with a transition cause attached (Step 3 diff site).

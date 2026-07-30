@@ -94,6 +94,11 @@ never on the message text — messages change. The set is closed:
                          never help)
   WAIT OR ALLOW LONGER   ai_timeout · js_timeout (usually means you returned a long-lived
                          promise from port_exec — return a plain value instead) · timed_out
+  THE GATEWAY            no_host (Port42 is not running, or not connected to this gateway —
+                         start it) · host_offline (it was there and its connection dropped;
+                         retry shortly) · transport_failed (the gateway could not hand your call
+                         over; retry) — your call never reached Port42, so nothing was executed
+                         and nothing changed. Retrying is always safe
   DO NOT RETRY           unsupported (this macOS cannot do it; no user action fixes it)
   SOMETHING FAILED       escape (path left the data directory) · io · device_error ·
                          browser_error · ai_error · script_error (your AppleScript/JXA) ·
@@ -380,7 +385,7 @@ Generated from the live method registry: every entry below is served exactly as 
   port.setTitle(title)
       Set the calling port's own title.
   port.subscribe(id)  [streaming]
-      Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload } as the port emits them (e.g. terminal.output). The stream stays open until cancelled.
+      Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output). `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.
         id (string, required): The port to observe (id / udid / title).
   port.update(id, html, token)
       Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.

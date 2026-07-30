@@ -23,7 +23,7 @@ public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> 
         // The error-code block is RENDERED FROM THE ENUM (`BridgeErrorCode.publish`), not written
         // in the preamble. One list, one definition — the same reason the token format has a single
         // implementation rather than a shared test vector.
-        let published = BridgeErrorCode.publish(into: preamble)
+        let published = PublishedDocs.render(preamble)
         let live = published.replacingOccurrences(of: "127.0.0.1:4242",
                                                  with: "127.0.0.1:\(port)")
         out += live.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"

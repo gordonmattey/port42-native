@@ -197,11 +197,16 @@ private final class FrameHandler: NSObject, AVCaptureVideoDataOutputSampleBuffer
         guard let pngData = bitmapRep.representation(using: .png, properties: [:]) else { return }
 
         let base64 = pngData.base64EncodedString()
-        let frameData: [String: Any] = [
-            "image": base64,
-            "width": scaledWidth,
-            "height": scaledHeight
-        ]
+        // One definition, two consumers: the capture continuation wants a dictionary and the Notify
+        // topic wants a BridgeValue, so the BridgeValue is authoritative and the dictionary is
+        // derived. `.data` keeps the mime with the bytes, which is what lets the same value render
+        // as a real image block on the tool-use surface.
+        let frame: BridgeValue = .object([
+            "image": .data(base64: base64, mime: "image/png"),
+            "width": .int(scaledWidth),
+            "height": .int(scaledHeight)
+        ])
+        let frameData: [String: Any] = (frame.toJSONObject() as? [String: Any]) ?? [:]
 
         // Single capture mode: resume continuation and stop
         if let continuation = captureContinuation {
@@ -214,7 +219,7 @@ private final class FrameHandler: NSObject, AVCaptureVideoDataOutputSampleBuffer
         if isStreaming {
             let bridgeRef = bridge
             Task { @MainActor in
-                bridgeRef?.pushEvent(.cameraFrame, data: frameData)
+                bridgeRef?.pushEvent(.cameraFrame, data: frame)
             }
         }
     }

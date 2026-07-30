@@ -74,6 +74,22 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     /// A path that would leave the data directory.
     case pathEscape = "escape"
 
+    // MARK: The transport itself failed (slice-02, Part 0's ERRORS row)
+    //
+    // These come from the GATEWAY, not from a bridge method, and until now they were bare English
+    // strings: "no host available", "host is offline", "failed to reach host". A caller could not
+    // branch on them, and a remote caller through a relay meets them BEFORE it meets anything the
+    // app says. They live in this enum rather than in Go so there is one list, published once, and a
+    // gate asserts the gateway cannot spell a code this enum does not have.
+
+    /// Nothing is registered as the host: Port42 is not running, or not connected to this gateway.
+    case noHost = "no_host"
+    /// A host was registered and its connection is gone. Distinct from `no_host` because the repair
+    /// differs: this one usually fixes itself, so retry rather than go looking for the app.
+    case hostOffline = "host_offline"
+    /// The gateway reached the host and the send failed. Rare, and not the caller's fault.
+    case transportFailed = "transport_failed"
+
     // MARK: It went wrong out there
     case io
     case deviceError = "device_error"
@@ -140,6 +156,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case askTheUser         = "ASK THE USER"
         case enrolFirst         = "ENROL FIRST"
         case waitOrAllowLonger  = "WAIT OR ALLOW LONGER"
+        case theGateway         = "THE GATEWAY"
         case doNotRetry         = "DO NOT RETRY"
         case somethingFailed    = "SOMETHING FAILED"
         case rarelySeen         = "RARELY SEEN"
@@ -154,6 +171,9 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .rarelySeen:
             return "each names a specific absence: no in-process implementation, no signed-in user, "
                  + "no conversation, or no LLM companion"
+        case .theGateway:
+            return "your call never reached Port42, so nothing was executed and nothing changed. "
+                 + "Retrying is always safe"
         default: return ""
         }
     }
@@ -172,6 +192,7 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .io, .deviceError, .browserError, .aiError,
              .scriptError, .jsError, .methodFailed, .pathEscape: return .somethingFailed
         case .noBody, .noUser, .noMessages, .notLLM:        return .rarelySeen
+        case .noHost, .hostOffline, .transportFailed:       return .theGateway
         }
     }
 
@@ -190,6 +211,9 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
         case .unsupported:     return "this macOS cannot do it; no user action fixes it"
         case .scriptError:     return "your AppleScript/JXA"
         case .pathEscape:      return "path left the data directory"
+        case .noHost:          return "Port42 is not running, or not connected to this gateway — start it"
+        case .hostOffline:     return "it was there and its connection dropped; retry shortly"
+        case .transportFailed: return "the gateway could not hand your call over; retry"
         default:               return ""
         }
     }

@@ -501,22 +501,42 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     /// error rather than a new name in the wild. A PORT's own events do not come through this path
     /// at all — they arrive via `port.publish`, which namespaces them under `port.` so they cannot
     /// impersonate one of these.
+    /// **Takes `BridgeValue`, not `Any`** (slice-02 OUTPUT seam). The kind was typed here already;
+    /// the body was not, so an event's name could not drift while its contents could be anything at
+    /// all. A payload that cannot be expressed as a `BridgeValue` is a payload that could not have
+    /// crossed a wire, and this is where that becomes a compile error instead of a slice-02 surprise.
     @MainActor
-    public func pushEvent(_ kind: PortEventKind, data: Any) {
+    public func pushEvent(_ kind: PortEventKind, data: BridgeValue) {
         pushEvent(wire: kind.wire, data: data)
     }
 
     /// The wire-level emit. Private on purpose: it is the one place a raw name reaches the bus, and
     /// keeping it here means `PortEventKind` cannot be bypassed by a caller with a String.
     @MainActor
-    private func pushEvent(wire event: String, data: Any) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: data, options: [.fragmentsAllowed]),
+    private func pushEvent(wire event: String, data: BridgeValue) {
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: data.toJSONObject(),
+                                                        options: [.fragmentsAllowed]),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("port42._emit('\(event)', \(jsonString))") { _, _ in }
         // Phase L1: mirror the event on the port's Notify topic so subscribers see it too — this is the
         // browser attach point (browser.load/redirect/error push to the owner port), and also covers
         // filedrop / presentation. Cheap no-op when nobody subscribes.
-        (appState as? AppState)?.notifyBus.publish(topic: "port:\(messageId)", kind: event, payload: data)
+        //
+        // **THIS LINE WAS BROKEN AND THE COMPILER HAD BEEN SAYING SO** (found 2026-07-30, while typing
+        // the payload). It read `topic: "port:\(messageId)"` with `messageId` an OPTIONAL, so it
+        // interpolated the debug description and published to `port:Optional("abc")` while every
+        // subscriber listens on `port:abc`. Every event on this path missed the bus entirely: all
+        // three `browser.*`, `screen.frame`, `camera.frame`, both `audio.*`, `presentation` and
+        // `filedrop`. The port's own JS was unaffected, because `port42._emit` above needs no topic,
+        // which is why nobody noticed. `console`, `terminal.output`, `push` and `driver` publish
+        // elsewhere with an unwrapped key and always worked.
+        //
+        // A bridge with no `messageId` has no port to address, so there is nothing to publish — and
+        // going through `PortNotify.topic(forPortKey:)` means the topic is built in one place that a
+        // subscriber can share, rather than interpolated by hand at each end.
+        guard let key = messageId else { return }
+        (appState as? AppState)?.notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
+                                                   kind: event, payload: data)
     }
 
     /// Send heartbeat to keep connection status alive
@@ -532,7 +552,7 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
     @MainActor
     public func emitCurrentPresentation() {
         guard let mid = messageId, let snap = state?.shell?.presentation(forPortId: mid) else { return }
-        pushEvent(.presentation, data: snap.jsonObject)
+        pushEvent(.presentation, data: snap.bridgeValue)
     }
 
     // MARK: - Injected JavaScript

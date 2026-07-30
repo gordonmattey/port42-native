@@ -92,6 +92,16 @@ public final class ToolExecutor {
         // Streaming registry (item 8): tool-use is one-shot, so collect-into-final — ignore tokens,
         // render the accumulated result as tool blocks.
         if let appState, appState.bridgeStreamHandles(canonical) {
+            // Tool use is one-shot, so an endless method would wedge the companion's whole turn
+            // waiting for a value that never comes. Refused for the same reason and with the same
+            // rule as the gateway's HTTP door.
+            if appState.bridgeStreamIsEndless(canonical) {
+                return BridgeError(
+                    code: .unsupported,
+                    message: "'\(canonical)' streams events and never returns, so it cannot be "
+                           + "called as a tool. Ports subscribe in-process via window.port42.")
+                    .toToolBlocks()
+            }
             let principal = Principal.forCompanionTool(createdBy: createdBy,
                                                        createdByName: createdByName,
                                                        spaceId: spaceId)
@@ -130,7 +140,11 @@ public final class RemoteToolExecutor: ObservableObject {
         self.senderName = senderName
     }
 
-    public func execute(method: String, input: [String: Any]) async -> Any {
+    /// `emit` is how a STREAMING method reaches this caller before it finishes. nil means the
+    /// caller's door cannot carry mid-call frames (HTTP `/call`), and a streaming method is then
+    /// refused rather than run.
+    public func execute(method: String, input: [String: Any],
+                        emit: (@MainActor (Any) -> Void)? = nil) async -> Any {
         // Resolve the incoming name to canonical: a dotted name IS canonical (`port.getHtml`,
         // `ports.list`); a snake tool name maps through ToolNaming. This is what makes both spellings
         // reach the same method and kills the `port.getHtml` → Unknown-tool class.
@@ -173,18 +187,37 @@ public final class RemoteToolExecutor: ObservableObject {
             }
         }
 
-        // Streaming registry (item 8): HTTP/RPC is one-shot, so collect-into-final — the tokens are
-        // ignored and the accumulated result is returned. A failed call returns {error} in the body
-        // (correct for a request/response transport; not the never-reject shim).
+        // Streaming registry (item 8).
+        //
+        // **THIS USED TO PASS `yield: { _ in }` AND THROW EVERY EVENT AWAY.** For `ai.complete` that
+        // was survivable, because it finishes and its final value carries the whole completion. For a
+        // SUBSCRIPTION it was not: `port.subscribe` only returns when cancelled, so a gateway caller
+        // watching a port received nothing and then timed out. Measured live before the fix, a WS
+        // subscriber saw zero events in ten seconds across two updates of the port it was watching.
+        //
+        // Now the events go back as `stream` frames on the same call_id, and collect-into-final stays
+        // as the behavior of the FINAL value. Both are true at once: a caller gets each event as it
+        // happens and still gets a result when the call ends.
         if let appState, appState.bridgeStreamHandles(canonical) {
             let principal = Principal.peer(id: senderId, displayName: senderName)
             #if DEBUG
             ActorProbe.minted(id: principal.id, surface: "gateway-stream", rung: "verified-client")
             #endif
+            // A door that cannot stream says so, instead of accepting a subscription it would drop.
+            // Only endless methods are refused: a finite one (`ai.complete`) still answers over HTTP
+            // with its final value, which is what that door is for.
+            if emit == nil, appState.bridgeStreamIsEndless(canonical) {
+                return BridgeError(
+                    code: .unsupported,
+                    message: "'\(canonical)' streams events and never returns, so it cannot be served "
+                           + "over HTTP /call. Connect to the gateway's WebSocket door (/ws) and send "
+                           + "it as a `call` envelope; events arrive as `stream` frames on the same "
+                           + "call_id.").toJSONObject()
+            }
             do {
                 let value = try await appState.runBridgeStream(canonical, principal: principal,
                                                                args: BridgeArgs(input), pregrant: pregrant,
-                                                               yield: { _ in })
+                                                               yield: { event in emit?(event) })
                 return value.toJSONObject()
             } catch let e as BridgeError {
                 return e.toJSONObject()

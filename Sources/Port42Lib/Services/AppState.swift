@@ -704,7 +704,7 @@ public final class AppState: ObservableObject {
            let text = try? String(contentsOf: url, encoding: .utf8) {
             // The error-code block is RENDERED FROM THE ENUM, not written here. One list, one
             // definition; a code cannot be published under the wrong repair or omitted at all.
-            return BridgeErrorCode.publish(into: text, indent: "      ")
+            return PublishedDocs.render(text, indent: "      ")
         }
         return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
     }()
@@ -1050,6 +1050,14 @@ public final class AppState: ObservableObject {
         portWindows.setDatabase(db)
         portWindows.appState = self
         TokenTracker.shared.db = db
+        // Every Notify carries the emitting port's activity token, and the BUS resolves it rather
+        // than each publish site attaching one (slice-02 OUTPUT seam). A site that had to remember
+        // would be a to-do list; resolved here, an emitter added tomorrow carries a token by
+        // construction. Weak, because the bus is owned by this object.
+        notifyBus.tokenForTopic = { [weak self] topic in
+            guard let self, let key = PortNotify.portKey(fromTopic: topic) else { return nil }
+            return self.portInput.token(for: key)
+        }
         loadInitialState()
         setupPortEventObservers()
         // Restore persisted port panels after a brief delay so the window is ready,
@@ -1188,8 +1196,16 @@ public final class AppState: ObservableObject {
     /// minted here; the APP decides whether that client still exists. That is what makes revocation
     /// instant with no gateway restart and no client table on the transport (FR4, NFR5).
     ///
-    /// Falls back to the caller-supplied `senderId` while nothing is enforced. That fallback is the
-    /// whole of what 5b deletes.
+    /// **There is no fallback. An unnamed caller is REFUSED** (5b). Every route to a credential
+    /// exists first, which is what made the refusal safe to turn on: a child enrols at spawn, the
+    /// `port42` CLI at install, anything else by hand in Settings → Access. What is left is the
+    /// caller nobody installs (a script, cron, a bare `curl`), and FR10 is why that refusal is
+    /// survivable: each message below names the specific fix rather than saying no.
+    ///
+    /// **`senderId` is taken and deliberately never read.** It is the ROUTING address, and the
+    /// parameter exists so a test can hand this function `"i-am-whoever-i-say"` and prove the
+    /// identity does not move (`ClientRegistryTests`). A seam with one possible value is
+    /// indistinguishable from a rename, so the second value has to be passed on purpose.
     func resolveGatewayCaller(credential: String?, senderId: String) throws -> (id: String, name: String) {
         guard let credential, !credential.isEmpty else {
             throw BridgeError(
@@ -1265,14 +1281,13 @@ public final class AppState: ObservableObject {
             .removeDuplicates { $0.count == $1.count && $0.last?.id == $1.last?.id }
             .sink { [weak self] msgs in
                 guard let self, let msg = msgs.last else { return }
-                let data: [String: Any] = [
-                    "id": msg.id,
-                    "sender": msg.senderName,
-                    "content": msg.content,
-                    "timestamp": ISO8601DateFormatter().string(from: msg.timestamp),
-                    "isCompanion": msg.isAgent
-                ]
-                self.pushEventToBridges(.message, data: data)
+                self.pushEventToBridges(.message, data: .object([
+                    "id": .string(msg.id),
+                    "sender": .string(msg.senderName),
+                    "content": .string(msg.content),
+                    "timestamp": .string(ISO8601DateFormatter().string(from: msg.timestamp)),
+                    "isCompanion": .bool(msg.isAgent)
+                ]))
             }
 
         // Heartbeat timer: ping active ports every 5s so they know push is alive
@@ -1289,14 +1304,13 @@ public final class AppState: ObservableObject {
             .sink { [weak self] bySpace in
                 guard let self else { return }
                 let names = self.currentSpace.flatMap { bySpace[$0.id] } ?? []
-                let data: [String: Any] = [
-                    "activeNames": Array(names)
-                ]
-                self.pushEventToBridges(.companionActivity, data: data)
+                self.pushEventToBridges(.companionActivity, data: .object([
+                    "activeNames": .array(names.map { .string($0) })
+                ]))
             }
     }
 
-    private func pushEventToBridges(_ event: PortEventKind, data: Any) {
+    private func pushEventToBridges(_ event: PortEventKind, data: BridgeValue) {
         activeBridges.removeAll { $0.bridge == nil }
         for weak in activeBridges {
             weak.bridge?.pushEvent(event, data: data)
@@ -1489,7 +1503,7 @@ public final class AppState: ObservableObject {
         sync.onPresenceChanged = { [weak self] spaceId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(spaceId: spaceId, senderId: senderId, senderName: senderName, status: status)
         }
-        sync.onCallReceived = { [weak self] senderId, callId, method, input, credential in
+        sync.onCallReceived = { [weak self] senderId, callId, method, input, credential, emit in
             guard let self = self else { return ["error": "app state deallocated"] }
 
             // WHO IS CALLING — from the CREDENTIAL, never from `sender_id` (slice-02 half two, 5a).
@@ -1518,7 +1532,7 @@ public final class AppState: ObservableObject {
             let executor = self.remoteExecutors[identity.id]
                 ?? RemoteToolExecutor(appState: self, senderId: identity.id, senderName: identity.name)
             self.remoteExecutors[identity.id] = executor
-            return await executor.execute(method: method, input: input)
+            return await executor.execute(method: method, input: input, emit: emit)
         }
 
         let spaces = self.spaces
@@ -3008,7 +3022,9 @@ public final class AppState: ObservableObject {
         let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
                                                    onOutput: { [weak self] out in
                                                        // Phase L1 / backlog 3.4: terminal output → Notify bus.
-                                                       self?.notifyBus.publish(topic: "port:\(panel.id)", kind: PortEventKind.terminalOutput.wire, payload: out)
+                                                       self?.notifyBus.publish(topic: PortNotify.topic(forPortKey: panel.id),
+                                                                               kind: PortEventKind.terminalOutput.wire,
+                                                                               payload: .string(out))
                                                    },
                                                    drainPending: drainPending,
                                                    onSessionStarted: onSessionStarted, onSessionEnded: onSessionEnded)

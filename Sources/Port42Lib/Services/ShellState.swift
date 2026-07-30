@@ -430,13 +430,13 @@ public final class ShellState: ObservableObject {
     public func syncDriverSubscriptions() {
         let live = Set(contextItems.compactMap { $0.panel?.udid })
         for id in live where driverSubs[id] == nil {
-            let topic = "port:\(id)"
+            let topic = PortNotify.topic(forPortKey: id)
             driverSubs[id] = appState.notifyBus.subscribe(topic: topic) { [weak self] envelope in
                 self?.applyDriverEnvelope(envelope, port: id)
             }
         }
         for (id, sub) in driverSubs where !live.contains(id) {
-            appState.notifyBus.unsubscribe(id: sub, topic: "port:\(id)")
+            appState.notifyBus.unsubscribe(id: sub, topic: PortNotify.topic(forPortKey: id))
             driverSubs[id] = nil
             portDrivers[id] = nil
         }
@@ -588,7 +588,7 @@ public final class ShellState: ObservableObject {
         let next = presentationSnapshot()
         for delta in Self.presentationDeltas(prev: lastPresentation, next: next) {
             appState.portWindows.panels.first(where: { $0.id == delta.id })?
-                .bridge.pushEvent(.presentation, data: delta.presentation.jsonObject)
+                .bridge.pushEvent(.presentation, data: delta.presentation.bridgeValue)
         }
         lastPresentation = next
     }

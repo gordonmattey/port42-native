@@ -39,6 +39,11 @@ type Envelope struct {
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	Timestamp  int64           `json:"timestamp,omitempty"`
 	Error      string          `json:"error,omitempty"`
+	// Code is the machine-readable form of Error, from the SAME list the app publishes
+	// (`BridgeErrorCode`). See errorcodes.go: these are the gateway's own failures, which used to be
+	// bare English a caller could not branch on. A remote caller meets these before it meets
+	// anything the app says.
+	Code string `json:"code,omitempty"`
 	Token      string          `json:"token,omitempty"`
 
 	// RPC fields (exposing Port42 API to external CLIs and OpenClaw)
@@ -66,6 +71,15 @@ type Envelope struct {
 	// re-stamp one on every envelope; carrying a credential instead means there is nothing to forge
 	// and nothing to remember to overwrite. The app derives the principal from what it verified itself.
 	Credential string `json:"credential,omitempty"`
+
+	// Streamable says the CALLER can receive mid-call `stream` frames, because there is a live peer
+	// to route them back to. Set by `routeCall` on the WS door and never on `/call`: HTTP is
+	// request/response, so a subscription there could only ever hang until the timeout, which is
+	// exactly what it used to do.
+	//
+	// The app reads this to REFUSE a subscription it could not deliver, rather than accepting one it
+	// will silently drop. A door that cannot stream should say so, not go quiet.
+	Streamable bool `json:"streamable,omitempty"`
 }
 
 // Peer represents a connected client.
@@ -406,6 +420,8 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 			g.routeCall(ctx, peer, env)
 		case "response":
 			g.routeResponse(ctx, peer, env)
+		case "stream":
+			g.routeStream(ctx, peer, env)
 		case "typing":
 			g.broadcastTyping(ctx, peer, env)
 		case "create_token":
@@ -415,7 +431,8 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		case "ack":
 			// Client acknowledges receipt
 		default:
-			peer.Send(ctx, Envelope{Type: "error", Error: "unknown type: " + env.Type})
+			peer.Send(ctx, Envelope{Type: "error", Error: "unknown type: " + env.Type,
+				Code: CodeUnknownMethod})
 		}
 	}
 }
@@ -865,7 +882,7 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		Args   json.RawMessage `json:"args"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Method == "" {
-		http.Error(w, `{"error":"missing method"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"missing method","code":"`+CodeMissingArg+`"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -875,7 +892,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	if hostID == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "no host available — is Port42 running?"})
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "no host available — is Port42 running?", "code": CodeNoHost})
 		return
 	}
 
@@ -910,12 +928,21 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 		args = json.RawMessage(`{}`)
 	}
 
-	// `local-http` is the SHARED, unauthenticated principal every local process collapses into —
-	// which is why a permission card is anonymous and why a grant given to one tool is inherited by
-	// every other. It is still sent, because nothing enforces yet and removing it now would strand
-	// every caller (5b deletes it, once every first-party caller carries a credential).
+	// `local-http` IS DEAD AS AN IDENTITY (5b) and survives here as a ROUTING ADDRESS ONLY.
 	//
-	// `sender_id` ADDRESSES and never authorizes. Response routing keys on CallID, not SenderID.
+	// It used to be the shared, unauthenticated principal every local process collapsed into, which
+	// is why a permission card was anonymous and why a grant given to one tool was inherited by every
+	// other. **The app now refuses a call that carries no credential**, and a caller's identity comes
+	// from that credential in exactly one place (`AppState.resolveGatewayCaller`). Nothing anywhere
+	// authorizes on `sender_id`.
+	//
+	// So this constant is inert, and it is kept rather than removed because `sender_id` is a required
+	// envelope field with a real job on this door: it labels the HTTP caller for routing. Response
+	// routing keys on CallID, not SenderID.
+	//
+	// **If you are here adding a peer at slice-02's wire half: do not thread a peer identity through
+	// this field.** An identity is formed from a credential by the app, and adding a second place it
+	// can be formed is the exact defect 5a and 5b closed.
 	const localPrincipalID = "local-http"
 
 	// The credential rides `Authorization: Bearer`, because the WebSocket API cannot set request
@@ -937,7 +964,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	if err := hostPeer.Send(ctx, call); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to reach host"})
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to reach host", "code": CodeTransportFailed})
 		return
 	}
 
@@ -961,7 +989,8 @@ func (g *Gateway) HandleHTTPCall(w http.ResponseWriter, r *http.Request) {
 	case <-time.After(30 * time.Second):
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusGatewayTimeout)
-		json.NewEncoder(w).Encode(map[string]string{"error": "timeout waiting for host response"})
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "timeout waiting for host response", "code": CodeTimedOut})
 	case <-ctx.Done():
 		// Client disconnected
 	}
@@ -976,7 +1005,7 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 		hostID = g.globalHostID
 		g.mu.RUnlock()
 		if hostID == "" {
-			sender.Send(ctx, Envelope{Type: "error", Error: "no host available", CallID: env.CallID})
+			sender.Send(ctx, Envelope{Type: "error", Error: "no host available", Code: CodeNoHost, CallID: env.CallID})
 			return
 		}
 	} else {
@@ -985,7 +1014,7 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 		hostID, hasHost = g.hosts[env.ChannelID]
 		g.mu.RUnlock()
 		if !hasHost {
-			sender.Send(ctx, Envelope{Type: "error", Error: "no host available in channel", CallID: env.CallID})
+			sender.Send(ctx, Envelope{Type: "error", Error: "no host available in channel", Code: CodeNoHost, CallID: env.CallID})
 			return
 		}
 	}
@@ -995,15 +1024,50 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 	g.mu.RUnlock()
 
 	if !online {
-		sender.Send(ctx, Envelope{Type: "error", Error: "host is offline", CallID: env.CallID})
+		sender.Send(ctx, Envelope{Type: "error", Error: "host is offline", Code: CodeHostOffline, CallID: env.CallID})
 		return
 	}
 
-	// Forward the call to the host, ensuring SenderID is set so host knows where to reply
+	// Forward the call to the host, ensuring SenderID is set so host knows where to reply.
+	//
+	// A WS caller is a live peer, so mid-call `stream` frames have somewhere to go. That is the whole
+	// difference from the HTTP door, and it is set HERE rather than trusted from the caller: a client
+	// cannot ask to be streamable on a transport that cannot carry it.
 	env.SenderID = sender.ID
+	env.Streamable = true
 	if err := hostPeer.Send(ctx, env); err != nil {
 		log.Printf("[gateway] failed to send call to host %s: %v", hostID, err)
-		sender.Send(ctx, Envelope{Type: "error", Error: "failed to reach host", CallID: env.CallID})
+		sender.Send(ctx, Envelope{Type: "error", Error: "failed to reach host", Code: CodeTransportFailed, CallID: env.CallID})
+	}
+}
+
+// routeStream forwards ONE event of an in-flight streaming call back to its caller.
+//
+// It is a `response` that does not end the call. The difference matters and is the whole reason this
+// exists: before it, `RemoteToolExecutor` served every streaming method with a yield closure that
+// THREW EACH EVENT AWAY, and the gateway had no frame that could have carried one anyway. So a
+// caller subscribing to a port received nothing, forever, on either door.
+//
+// Deliberately NOT consulted against `httpCallbacks`: an HTTP call is request/response and must be
+// completed by exactly one `response`. A stream frame that resolved that callback would truncate the
+// call at its first event. HTTP callers are refused a subscription up front instead (see Streamable).
+func (g *Gateway) routeStream(ctx context.Context, sender *Peer, env Envelope) {
+	if env.TargetID == "" {
+		log.Printf("[gateway] stream from %s missing target_id", sender.ID)
+		return
+	}
+
+	g.mu.RLock()
+	targetPeer, online := g.peers[env.TargetID]
+	g.mu.RUnlock()
+
+	// A subscriber that went away is not an error: the call is torn down by the disconnect, and the
+	// producer stops when its task is cancelled. Dropping quietly is correct.
+	if !online {
+		return
+	}
+	if err := targetPeer.Send(ctx, env); err != nil {
+		log.Printf("[gateway] failed to stream to %s: %v", env.TargetID, err)
 	}
 }
 

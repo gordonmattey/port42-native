@@ -215,3 +215,58 @@ struct BridgeErrorCodeTests {
         #expect(PortActivity.tokenRequiredCode == BridgeErrorCode.tokenRequired.wire)
     }
 }
+
+// MARK: - The gateway's codes are the APP's codes
+//
+// Part 0's ERRORS row: typed codes, app AND gateway. The app side has been typed since 2026-07-28;
+// the gateway's own failures stayed bare English ("no host available", "host is offline") until
+// 2026-07-30. They matter more than their count suggests, because a REMOTE caller meets them before
+// it meets anything the app produces, so an untyped edge sat in front of a typed surface.
+//
+// The risk in typing them is drift: two languages, two lists, and nothing stopping Go from spelling
+// a code Swift has never heard of. So Swift owns the list and this gate scans the Go.
+@Suite("Error codes — gateway parity")
+struct GatewayErrorCodeParityTests {
+
+    /// Every `CodeX = "..."` constant in the gateway must be a case in `BridgeErrorCode`.
+    @Test("the gateway cannot spell a code the app does not declare")
+    func gatewayCodesAllExistInTheEnum() throws {
+        let goSource = try String(contentsOf: gatewayErrorCodesFile(), encoding: .utf8)
+        let declared = Set(BridgeErrorCode.allCases.map(\.wire))
+
+        var found: [String] = []
+        for line in goSource.split(separator: "\n") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard t.hasPrefix("Code"), let eq = t.firstIndex(of: "=") else { continue }
+            let rhs = t[t.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            guard rhs.hasPrefix("\""), rhs.hasSuffix("\"") else { continue }
+            found.append(String(rhs.dropFirst().dropLast()))
+        }
+
+        #expect(!found.isEmpty, "the scan found no code constants — has errorcodes.go moved?")
+        let unknown = found.filter { !declared.contains($0) }
+        #expect(unknown.isEmpty, """
+            the gateway declares codes the app has never heard of: \(unknown.joined(separator: ", "))
+            Add them to BridgeErrorCode, which is the one list the published docs render from.
+            """)
+    }
+
+    /// The transport codes exist, are grouped under one repair, and each says what to do.
+    @Test("a transport failure tells the caller nothing was executed, so retrying is safe")
+    func transportCodesAreActionable() {
+        for code in [BridgeErrorCode.noHost, .hostOffline, .transportFailed] {
+            #expect(code.repair == .theGateway)
+            #expect(!code.guidance.isEmpty, "\(code.wire) needs guidance: the name alone is not a repair")
+        }
+        // The group note is what makes these safe to retry, and it is the useful part.
+        #expect(BridgeErrorCode.Repair.theGateway.groupNote.contains("nothing was executed"))
+        // NOT retryable-with-current: that is CAS, and these never reached a port at all.
+        #expect(!BridgeErrorCode.noHost.isRetryableWithCurrentState)
+    }
+
+    func gatewayErrorCodesFile() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("gateway/errorcodes.go")
+    }
+}

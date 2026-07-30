@@ -49,18 +49,21 @@ public func buildBridgeStreamRegistry(_ appState: AppState) -> BridgeStreamRegis
         permission: nil,
         paramNames: ["id"],
         toolExposed: false,
-        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload } as the port emits them (e.g. terminal.output). The stream stays open until cancelled.",
+        description: "Subscribe to a port's live event stream. Yields Notify events { topic, kind, payload, token } as the port emits them (e.g. terminal.output). `token` is the port's state token AT THAT MOMENT, so you can write next without re-reading the port first. OVER THE GATEWAY THIS IS WEBSOCKET-ONLY: connect to /ws and send it as a `call` envelope, and events arrive as `stream` frames on the same call_id. On HTTP /call it is refused with `unsupported`, because the stream never ends and a request/response call could only hang. The stream stays open until cancelled.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port to observe (id / udid / title)."] as [String: Any]
             ] as [String: Any],
             "required": ["id"]
-        ]
+        ],
+        // Runs until cancelled. On a request/response door that is a hang, so the caller is refused
+        // there with a message naming the door that works.
+        endless: true
     ) { _, args, yield in
         let id = try args.requireString("id")
         let ref = appState.resolvePortRef(id)
-        let topic = "port:\(ref?.key ?? id)"
+        let topic = PortNotify.topic(forPortKey: ref?.key ?? id)
         let subId = appState.notifyBus.subscribe(topic: topic, deliver: yield)
         defer { appState.notifyBus.unsubscribe(id: subId, topic: topic) }
         // Hold the stream open until the caller cancels — the run executes on a tracked Task that is
@@ -250,7 +253,9 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
         // Phase L1: republish the delivered input on the port's Notify topic (a cheap no-op when nobody
         // subscribes), so an observer can watch what a port is being driven with.
-        appState.notifyBus.publish(topic: "port:\(ref.key ?? id)", kind: PortEventKind.push.wire, payload: data)
+        appState.notifyBus.publish(topic: PortNotify.topic(forPortKey: ref.key ?? id),
+                                   kind: PortEventKind.push.wire,
+                                   payload: BridgeValue.fromJSONObject(data))
         switch ref.kind {
         case .terminal:
             guard let tid = ref.id, let controller = appState.terminalControllers[tid] else {
@@ -302,8 +307,11 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         // this is a prefix and not a list of reserved words: a blocklist would rot the moment a system
         // kind was added.
         let kind = PortEventKind.fromPort(try args.requireString("kind"))
-        let payload = args.any("payload") ?? NSNull()
-        appState.notifyBus.publish(topic: "port:\(ref.key ?? key)", kind: kind, payload: payload)
+        // A port's payload arrives as untyped JSON off the JS bridge, so this is the one place a
+        // BridgeValue is PARSED rather than built. Everything downstream is typed from here on.
+        let payload = BridgeValue.fromJSONObject(args.any("payload") ?? NSNull())
+        appState.notifyBus.publish(topic: PortNotify.topic(forPortKey: ref.key ?? key),
+                                   kind: kind, payload: payload)
         return .object(["ok": .bool(true)])
     }
 

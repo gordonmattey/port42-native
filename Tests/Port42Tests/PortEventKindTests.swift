@@ -99,9 +99,30 @@ struct PortEventKindTests {
                 if !name.isEmpty { used.insert(String(name)) }
             }
         }
+        // The non-case members are DERIVED from the type's own source, not listed here.
+        //
+        // They used to be a hand-written array, and it rotted the first time the enum grew a member
+        // (`publish` and `docsMarker`, added when the event kinds started rendering into the docs):
+        // a gate that fails because the TYPE gained legitimate API is a gate people learn to edit
+        // rather than read. Same rule as everywhere else in this suite — a hand-maintained list of
+        // exceptions is a to-do list.
+        let enumSource = try String(
+            contentsOf: root.appendingPathComponent("Port42Lib/Services/PortEventKind.swift"),
+            encoding: .utf8)
+        var members = Set(["self", "RawValue", "rawValue", "allCases", "init"])
+        for decl in ["static let ", "static var ", "static func ", "var ", "func "] {
+            for m in enumSource.ranges(of: decl) {
+                let name = enumSource[m.upperBound...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+                if !name.isEmpty { members.insert(String(name)) }
+            }
+        }
+
         let cases = Set(PortEventKind.allCases.map { "\($0)" })
-        let unknown = used.subtracting(cases).subtracting(["allCases", "fromPort", "isSystem",
-                                                           "portPrefix", "wire", "self", "RawValue"])
-        #expect(unknown.isEmpty, "referenced but not a case: \(unknown)")
+        let unknown = used.subtracting(cases).subtracting(members)
+        #expect(unknown.isEmpty, """
+            referenced but not a case: \(unknown)
+            Either it is an event kind and belongs in the enum, or it is API and belongs in \
+            PortEventKind.swift where this gate derives its member list from.
+            """)
     }
 }

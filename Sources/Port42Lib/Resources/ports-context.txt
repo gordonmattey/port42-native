@@ -492,7 +492,8 @@ BRIDGE API REFERENCE:
     Subscribe to another port's live event stream. This is how you READ a port as it changes —
     use this, not port.exec, to observe another port's state.
     id: port UDID (from ports.list), or its title/address
-    onEvent: called with each parsed envelope { topic, kind, payload }
+    onEvent: called with each parsed envelope. Its fields:
+{{NOTIFY_ENVELOPE}}
     Returns: a promise carrying a .cancel() that unsubscribes. Keep it in a variable. Do NOT
     `return` it from a port.exec body — it never resolves and would hang the exec.
     You automatically receive: 'push' (whenever anyone port.push-es the target), the target's
@@ -507,9 +508,11 @@ BRIDGE API REFERENCE:
     Returns: {ok: true}
 
     YOUR KIND IS NAMESPACED UNDER `port.` — you publish 'state', subscribers see 'port.state'.
-    Not decoration: Port42's own events share this topic ('driver', 'browser.load',
-    'terminal.output', 'console'), and without the prefix a port could emit an envelope
-    indistinguishable from one the system sent. Match on the prefixed name.
+    Not decoration: Port42's own events share this topic, and without the prefix a port could
+    emit an envelope indistinguishable from one the system sent. Match on the prefixed name.
+
+    The system kinds you may also receive on a port's topic:
+{{EVENT_KINDS}}
 
   CONSUMER MODEL — how ports read each other (read this before reaching into a port with exec):
     A port is an actor: input goes IN via port.push, state comes OUT via port.publish, and
