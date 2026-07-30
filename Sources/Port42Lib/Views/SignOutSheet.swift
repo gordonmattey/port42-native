@@ -50,6 +50,9 @@ public struct SignOutSheet: View {
     /// Bumped on revoke. The grant store is not `@Published` (it is read on every gated dispatch and
     /// publishing it would redraw the world per permission check), so the manager re-reads on demand.
     @State private var grantsRefresh: UInt = 0
+    @State private var newClientName = ""
+    /// Where the last hand-made client's token landed. The PATH, never the token itself (NFR2).
+    @State private var lastMintedTokenPath: String?
     @State private var providerSel = "Anthropic"     // AI tab provider picker (was a radio-accordion)
 
     /// Space accent — keys the whole panel like the companion cards. Defaults to the theme accent for
@@ -1045,6 +1048,63 @@ public struct SignOutSheet: View {
         return "used \(days) days ago"
     }
 
+    /// **ADD A CLIENT BY HAND** — the enrolment route for a caller nobody installs (CR4).
+    ///
+    /// Children enrol at spawn and the CLI enrols at install, so what is left needing a human is a
+    /// script, a cron job, a curl at a terminal: things with no installer to hang a named act on, and
+    /// no human present at CALL time to answer a prompt. Pairing was dropped, so this is the only
+    /// route they have — which is why it blocks enforcement rather than being a convenience.
+    ///
+    /// It shows the PATH rather than the token. The token is the thing to keep out of scrollback and
+    /// out of a screenshot; the path is what the caller actually needs, since the documented client
+    /// flow is "read a known file".
+    @ViewBuilder
+    private var addByHandRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                TextField("name a script or tool", text: $newClientName)
+                    .font(Port42Theme.mono(11))
+                    .textFieldStyle(.plain)
+                    .padding(4)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
+                    .onSubmit { addClientByHand() }
+
+                Button(action: addClientByHand) {
+                    Text("add")
+                        .font(Port42Theme.mono(11))
+                        .foregroundStyle(newClientName.trimmingCharacters(in: .whitespaces).isEmpty
+                                         ? Port42Theme.textSecondary : accent)
+                        .padding(.horizontal, 11).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(newClientName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            if let path = lastMintedTokenPath {
+                // The credential itself is never shown (NFR2) — only where it landed.
+                Text("Token written to \(path)\nSend it as: Authorization: Bearer <contents>")
+                    .font(Port42Theme.mono(9))
+                    .foregroundStyle(accent.opacity(0.85))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func addClientByHand() {
+        let raw = newClientName.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty else { return }
+        let id = ClientRegistry.slug(raw)
+        guard appState.clientRegistry.register(id: id, name: raw, kind: .manual) != nil else { return }
+        lastMintedTokenPath = appState.clientRegistry.tokenPath(id: id).path
+        newClientName = ""
+        grantsRefresh &+= 1
+    }
+
     @ViewBuilder
     private var grantsSection: some View {
         if tab == .grants {
@@ -1052,6 +1112,8 @@ public struct SignOutSheet: View {
                 Text("Everything you have allowed, and who holds it. Revoking takes effect on the next call.")
                     .font(Port42Theme.mono(10))
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.7))
+
+                addByHandRow
 
                 // Enrolled clients (slice-02 half two, step 4). A client is a GRANTEE KIND beside
                 // companion, port and peer, which is why "who is connected" and "what did I grant"

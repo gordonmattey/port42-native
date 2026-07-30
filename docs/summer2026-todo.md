@@ -245,6 +245,161 @@ item exists to stop making.
 
 ---
 
+## FIELD REPORT (2026-07-29, GM): OPEN SYNTH shared canvas — 10 findings, 3 of them ours to fix now
+
+Source: `~/Dropbox/Working Files/testfolder/port42-feedback.md`, with instruments beside it
+(`beacon-lab.html`, `bus-inspector.html`, `port-dev-console.html`, `beat.sh`). **Everything below was
+MEASURED while building a real thing**, which is why it outranks anything on this list that was
+reasoned about. The headline is positive and worth keeping in view: **a companion can already push
+into a shared port on its own initiative, with `port_push` as a native tool** — distributed
+participation needs no orchestrator, and the external driver they built was scaffolding for fictional
+personas, not a platform limit.
+
+### Three that are defects in what we just shipped, not feature requests
+
+**1. R5 HAS A SURFACE CARVE-OUT AFTER ALL — in-port writes are exempt.** `port42.port.push(id, data)`
+with the token argument OMITTED **succeeds** from inside a port, while a stale token fails. R5's whole
+claim was "no surface carve-out, no exemption for humans", and the safest in-port strategy is
+currently to not pass the thing the contract says is required. Either port JS is deliberately exempt
+(defensible — the bridge knows its caller's identity by construction) and the docs must say so, or
+this is a hole. **Decide and write it down**; right now the rule and the behavior disagree, which is
+register §5's own definition of a defect.
+
+**2. THE ERROR TAXONOMY STILL DOES NOT REACH PORT JS.** The bridge flattens every host error to a
+bare `Error` with only `message`/`line`/`column`/`sourceURL`/`stack`. `e.code` and `e.current` are
+`undefined` and `JSON.stringify(e)` is `{}`. So the documented single-retry recovery is **impossible
+from a port** — `current` is the only way to learn the token you should have used, and the workaround
+is the full `ports.list` round trip the token design existed to remove. `js_syntax` and its `ran`
+payload never arrive either, so the commonest `port.exec` footgun gives no diagnosis. Fix: preserve
+`code`, `current` and `ran` on the bridge's rejection object. **This is the third caller path again**
+— the same shape as the R7-era finding that the manual's own retry loop had never been runnable from
+inside a port.
+
+**3. REST PERMISSION IS NOT CONTAINED BY THE BRIDGE'S NAMESPACE.** A port with `rest` can call
+`http://127.0.0.1:<port>/call` and reach **the entire gateway method registry**, including every
+method the bridge deliberately does not expose, with whatever permissions the answering instance
+holds. So the namespace boundary is a convenience, not a containment boundary. Directly relevant to
+half two: naming callers does nothing here, because the port is calling as the GATEWAY, not as itself.
+Options: scope `rest` away from loopback gateways, or state the equivalence plainly.
+
+### The primitive that is actually missing: delivery to a SLEEPING subscriber
+
+**One identifier, `port:{id}`, addresses two disjoint stores** — verified from both sides.
+`bus.publish` is durable, sender-attributed and readable via `bus.read`, and is **never** delivered to
+`port.subscribe`. `port.push` is delivered live and leaves **nothing** on the bus topic. The envelope
+even carries `topic: "port:{id}"`, which reads as though they are one channel.
+
+That collision is the mechanism behind the gap: **the channel a companion can write cheaply and
+durably is the one the port cannot hear, and the channel the port hears cannot be written without an
+active caller.** Cheapest fix, and they name it: let `port.subscribe` also deliver its own `port:{id}`
+bus topic — one line of routing, and it makes the shared name honest. Otherwise rename one.
+
+Second half of the same gap: **a port cannot emit at all** (no `bus` namespace on `window.port42`), so
+a beat cannot originate where it belongs. Suggested `port42.bus.publish` scoped to the port's own
+topic.
+
+**Scheduling is NOT the gap, and they proved it rather than assuming.** An external scheduler woke a
+sleeping companion 6/6 times and it emitted every cycle — so "no durable home for the emitter" is
+already solved by an OS scheduler with no platform change. But waking the emitter does nothing for the
+recipients: a durable beat reaches a participant only if that participant polls, so every participant
+needs its own driver — the driver they were trying to retire, now one per player. Also measured:
+cadence was 63.4s mean against a 60s target with ~10s jitter, and **each beat costs a full model
+inference**, so a companion wake is the wrong shape for a beat regardless of the routing fix.
+
+### Smaller, all with a named fix
+
+- **A port number is not an identity.** Two instances (4243, 4245) report different current spaces and
+  do not share a bus, even when `space_id` names the other's space. Any doc that hardcodes a gateway
+  port must say what to do when the answer comes from a different instance. Their inspector now probes
+  candidates and accepts only the gateway whose `space.current` matches.
+- **Coercing a bridge namespace fires phantom RPCs.** `String(port42.port)` — or any accidental
+  template-literal or log — dispatches `port.toString`/`valueOf` as host methods and rejects with
+  `unknown method`, as untraceable unhandled rejections. Fix: `Symbol.toPrimitive`/`toString`/`valueOf`
+  on the bridge proxies.
+- **`port.subscribe` exists in the bridge but not in the public registry.** Either publish it or
+  explain the omission.
+- **AI return shapes.** `ai.complete` and `companions.invoke` both return `{text}`, and invoke
+  frequently wraps JSON in ```json fences, forcing client-side regex. A structured-output option or
+  consistent unwrapping would remove it.
+
+### What worked, recorded because it is evidence about the design
+
+`port.push` → `port42:data` CustomEvent is clean and needs no port-side support; one shared local
+surface means human viewers converge for free; `port.update`/`patch`/`exec` made live iteration fast.
+
+---
+
+## ROADMAP (2026-07-29, GM): authenticate the PROGRAM, not a bearer token — code signature over a unix socket
+
+**The trust boundary is between Port42 and a calling program**, not between users. GM's correction, and
+it is the load-bearing one: "same user, same machine, so no real boundary" is the reasoning that would
+justify doing nothing, and half two exists precisely because that reasoning is wrong. Anything running
+as the user can reach the gateway, so what Port42 must distinguish is WHICH BINARY is calling.
+
+**A bearer token names a caller but cannot authenticate a program.** Half two's HMAC token is a real
+improvement — every caller is named, enrolled by a deliberate act, and individually revocable — but the
+credential is a file readable by anything with the user's uid. Steal the file, become the client. §9's
+stated limit is honest about it: no local design defeats a process running as the user.
+
+**What actually authenticates a program:** on a unix socket, read the peer's audit token and verify its
+CODE SIGNATURE (`SecCodeCopyGuestWithAttributes` with `kSecGuestAttributeAudit`). Then there is no
+secret at all — nothing to mint, nothing to store, nothing to steal — and a copied or patched binary
+fails because it is not signed by the same identity. Strictly stronger than any token for first-party
+tools, and it needs no enrolment step for them.
+
+**Why not OAuth**, since it comes up: OAuth authenticates a USER'S DELEGATION to a client. It does not
+authenticate which binary is calling, and its client credentials on a local machine are readable by
+anything with the uid — so against this boundary it buys nothing a token file does not, while adding an
+authorization server, a browser round trip and refresh. It also adds expiry, which GM has decided
+against for grants. For the WIRE half the equivalent question is answered better by libp2p, where a
+PeerID is cryptographically authenticated with no authorization server.
+
+**Cost, and why it is deferrable:** `/call` is TCP on `127.0.0.1` today, so this needs a unix socket
+transport plus every client moved onto it. The hooks shim already uses a unix socket, so the precedent
+is in-repo. **It is a TRANSPORT change, not an authorization change** — the principal, the grants, the
+manager and the object slot all stay exactly as built, and the verifier is simply asked a better
+question. That is why finishing half two with tokens costs nothing here.
+
+**Shape when it lands:** a third verifier beside the token verifier and (at slice-02) the PeerID
+verifier. Part 0's ACTOR row already says the seam takes "a verifier"; this is another one.
+
+### How this composes with enrolment, and what it does NOT replace (GM, 2026-07-30)
+
+**Identity and consent are different questions, and signatures only answer the first.** A signature
+says WHO IS THIS, REALLY — unforgeable, no secret, no enrolment. It does not say whether that identity
+should be allowed. That is a decision a human makes once, and something has to carry it.
+
+So a signature does not retire the consent step; **it makes the consent step better.** The plan's own
+stated weakness in pairing is that the prompt shows a name the CALLER chose — "a claim under review",
+and anything can claim to be `Claude Code`. With a verified signature the prompt names the actual
+program instead of a self-chosen string, which is the difference between reviewing a claim and reading
+a fact. Pairing, if it ever comes back, is more defensible after this lands, not redundant.
+
+**What signatures WOULD retire, and it is most of half two's machinery — but only for first-party
+tools.** The `port42` CLI is signed by us, so Port42 could recognise it by signature and skip minting
+it a token, writing its token file, and maintaining the port-to-instance map that exists only so the
+CLI can find the right credential. Same for anything else we ship and sign.
+
+**What they CANNOT do, and this is the load-bearing limit:** a script has no code identity worth
+checking. A bash or python job is signed by nothing — the interpreter is signed by Apple, and every
+script on the machine shares that identity, so a signature check cannot tell one from another. **Token
+files therefore stay necessary for exactly the CR4 case add-by-hand exists for**, whatever else
+changes. Anyone reading this later and hoping signatures delete the credential store should stop
+here: they delete it for signed binaries and for nothing else.
+
+**So the end state is two lanes, not a replacement:**
+
+| caller | identity | consent |
+|---|---|---|
+| a binary we sign (the CLI, the shim) | code signature, nothing stored | implicit — we shipped it |
+| a third-party signed binary | code signature | once, naming the verified program |
+| a script, cron, curl | a token file (unchanged) | add by hand, once |
+
+The middle row is the one that is genuinely better than anything available today, and the bottom row
+is why the work in slice-02 half two is not throwaway.
+
+---
+
 ## TODO (2026-07-28, GM): TRUST ON THE READ PATH — a reader is neither authenticated nor scoped
 
 R7 closed input: a port cannot forge the human, because the listener and its handler live in a world
@@ -1186,14 +1341,44 @@ So the three-way parity story becomes claude / codex / antigravity, and all thre
 Claude-Code-shaped hooks. The "wrapper or PTY watcher per CLI" premise this item was written on is
 wrong for every one of them.
 
-**Not investigated, because it is not installed here:** the hook config file's location and
-whether it can be injected per session (the question that took a HOME-redirect answer for gemini),
-its resume/session-id story, and its auth model. Install it first, then re-run the same three
-questions this spike answered for gemini and codex.
+**MEASURED 2026-07-29 once GM installed it. The binary is `agy`** (`~/.local/bin/agy`; the
+installer only adds `~/.local/bin` to PATH, which is why nothing named `antigravity` exists).
 
-**GM has no paid Gemini API key or Vertex access**, so gemini parity is currently UNTESTABLE here.
-Park it rather than build blind. Antigravity is the better target for that slot if it authenticates
-without a paid tier.
+| question | answer |
+|---|---|
+| hooks | ✅ `Stop`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`. Config in `hooks.json` / `settings.json` under `~/.gemini/antigravity-cli/` |
+| resume | ✅ `--continue` / `-c`, `--conversation <ID>`, plus `--project` |
+| auth | ✅ free Google OAuth, no paid tier — works in GM's real home |
+| **per-session injection** | ❌ **the blocker** |
+
+**Why injection fails, and it is not the hooks.** There is no config-dir env override (no
+`AGY_HOME`; the `GEMINI_DIR`-style names in the binary are internal constants). A redirected `HOME`
+IS honoured for config — it creates `<home>/.gemini/antigravity-cli/` — but it **loses auth**, and
+symlinking the whole real `~/.gemini` in does not rescue it. Credentials are in the macOS Keychain
+(entry `antigravity`) and something about the redirect invalidates the lookup.
+
+**So antigravity has no route that leaves the user's config untouched**, which is the property
+codex gets from `CODEX_HOME` and gemini gets from `HOME`. The only remaining route is writing the
+Port42 hook into the user's real `antigravity-cli/settings.json` — the project-file mutation
+antipattern already rejected for CLAUDE.md.
+
+**The reframe worth keeping:** a ONE-TIME, opted-into install of a hook into the user's real agy
+config is legitimate — that is exactly what the config-packs item is. **So antigravity is a
+config-pack target, not a per-session companion target.** Different mechanism, different item.
+
+**Also worth noting for onboarding:** agy's OAuth requires pasting a code back into the terminal,
+unlike claude and codex where following the link is enough. A first-run login inside a Port42
+terminal port would need the human to paste into that port. Workable, worse.
+
+**PARKED 2026-07-29: gemini AND antigravity.** Gemini is untestable here without a paid key;
+antigravity cannot be injected per session. Codex remains the only CLI where full parity is
+reachable on the existing pattern.
+
+**Acted on the same day:** `CLIPreset.gemini` and gemini's `isHooksCapable` match were both
+REMOVED. Offering gemini was the defect — a preset with no turn detection behind it and, after
+Google's withdrawal, no way to authenticate either. `isHooksCapable` additionally declared gemini
+terminals hooks-capable while nothing emitted events. A test now pins claude as the only preset, so
+the next CLI cannot be added as a button without the loop behind it.
 
 **Unrun proof** (blocked from this session, one command): confirm codex's notify actually fires
 and see its payload —

@@ -42,6 +42,15 @@ public struct Port42Client: Equatable, Identifiable {
         /// Added by hand in Settings, for the user's own scripts and for any caller with no human
         /// present (cron, a background job) — which cannot pair. Stated regression, CR4.
         case manual
+        /// A first-party tool Port42 INSTALLS, enrolled at install time (GM, 2026-07-29).
+        ///
+        /// Installing is itself a named act with the user present, which is the same argument that
+        /// lets a spawned child enrol with no prompt — so the `port42` CLI needs no Settings button
+        /// and no pairing verb. It also sidesteps D14's objection to minting inside
+        /// `InstructionService`: the install is the right event, and is not the documentation writer.
+        ///
+        /// Distinct from `manual` because the user did not name this one; Port42 knows what it is.
+        case installed
     }
 
     public var isActive: Bool { revokedAt == nil }

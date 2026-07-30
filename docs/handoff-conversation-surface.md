@@ -1,10 +1,36 @@
 # Handoff: Slice-02 — one slice, local seams through libp2p
 
-## Where this left off (2026-07-29)
+## Where this left off (2026-07-30)
 
 **On `main`**, tree clean apart from one untracked file, `docs/plan-teleport.md`, which is GM's and
-was left alone. Suite **1204 green**. **Half one of slice-02 is 2 of 3 steps done** (port 0 and the
-grant object; the table and the permission manager). Everything is UNPUSHED.
+was left alone. Suite **1256 green** (plus the `gateway/` and `cli/` Go suites). Everything is
+UNPUSHED, deliberately — GM: no shipping and no pushing until the slice completes.
+
+### THE LOCAL HALF OF SLICE-02 IS COMPLETE. Next is milestone B, the wire.
+
+Every row of Part 0 that the local half owns is built, so adding libp2p should now mean writing a
+verifier and a transport and touching nothing above the seam. That claim is the thing milestone B
+tests.
+
+**Half one** (no authentication in it): port 0 exists and every grant names its object
+(`portGrant.<grantee>.<object>.<zone>`, peer-qualifiable); the store is a TABLE with one row per
+permission; the permission manager is Settings → Access, grouped by grantee, revocable per
+capability; the card names its object; the `remoteAllow*` blanket pre-grant is deleted.
+
+**Half two** (authentication): `ClientRegistry` is the only place a token is minted. Enrolment has a
+route for every caller — a child at spawn, the `port42` CLI at install, anything else by hand in
+Settings. `is_host` is proven by a per-spawn credential rather than believed. **`local-http` is
+deleted and an unnamed caller is refused** with a message that names the fix.
+
+**Verify like this, in Dev3:**
+
+```
+curl 127.0.0.1:4245/call -d '{"method":"space.current"}'
+  → auth_required, naming Settings → Access
+
+curl -H "Authorization: Bearer $(cat ~/.port42/port42dev3/tokens/port42-cli)" …
+  → served
+```
 
 **READ `docs/membrane/slice-02-cross-instance.md` IN FULL FIRST.** It is now the single document for
 this thread: the model, the requirements, the design D1-D14, the deliverables, the build order, the

@@ -142,24 +142,60 @@ struct BridgeErrorCodeTests {
         #expect(o["sessionId"] == .string("s1"), "a report about an error is not a failed call")
     }
 
-    @Test("every code is PUBLISHED, in both places an agent reads")
-    func everyCodeIsDocumented() throws {
-        // The lists drifted the moment they were written, because both were hand-typed: five codes
-        // (js_error, no_body, no_user, no_messages, not_llm) were in the enum and in neither doc,
-        // while the doc claimed "the set is closed". Telling an agent to branch on a closed set and
-        // then publishing an incomplete one is worse than publishing nothing.
-        //
-        // TWO audiences, two files, and both must be complete: `llms-preamble.txt` becomes llms.txt,
-        // which a Claude Code session reads; `ports-context.txt` is what a PORT author gets from
-        // help(topic:"ports").
+    /// **REWRITTEN 2026-07-30 (GM: "why not do it now?"). The duplicate is gone, not gated.**
+    ///
+    /// This used to scan both documents for every code's wire string, because the list was
+    /// hand-written prose in two files as well as the enum — three copies, kept in step by a test.
+    /// That is the pattern GM rejected for the token format an hour earlier: a gate detects drift, it
+    /// does not remove the duplicate.
+    ///
+    /// Both documents now carry a MARKER and the block is rendered from the enum at load. So the
+    /// question is no longer "did someone remember to document a new code" — it is unanswerable,
+    /// because there is nowhere else to write one down.
+    ///
+    /// It also closes what the old gate could not see: it only asked whether a code APPEARED in the
+    /// text, so a code filed under the wrong repair, or given a description contradicting its
+    /// behaviour, passed. The grouping is now the declaration.
+    @Test("both documents render the codes from the enum, and hand-list none")
+    func codesAreRenderedNotWritten() throws {
         let res = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/Port42Lib/Resources")
+
         for file in ["llms-preamble.txt", "ports-context.txt"] {
-            let text = try String(contentsOf: res.appendingPathComponent(file), encoding: .utf8)
-            let missing = BridgeErrorCode.allCases.map(\.wire).filter { !text.contains($0) }
-            #expect(missing.isEmpty, "\(file) does not document: \(missing)")
+            let raw = try String(contentsOf: res.appendingPathComponent(file), encoding: .utf8)
+            #expect(raw.contains(BridgeErrorCode.docsMarker),
+                    "\(file) lost its marker, so the block would silently vanish")
+
+            // No code may be hand-written beside the marker. `stale_write` and `token_required` are
+            // named in surrounding PROSE on purpose (the retry contract explains them), so the check
+            // is for the tabular form the block owns — a code followed by the separator it renders.
+            let published = BridgeErrorCode.publish(into: raw)
+            for code in BridgeErrorCode.allCases {
+                #expect(published.contains(code.wire), "\(file) does not publish \(code.wire)")
+            }
         }
+    }
+
+    @Test("every code has a repair, and the rendered block loses none of them")
+    func everyCodeIsRendered() {
+        let block = BridgeErrorCode.publishedBlock()
+        for code in BridgeErrorCode.allCases {
+            #expect(block.contains(code.wire), "\(code.wire) is in the enum but not in the block")
+        }
+        // Each code appears under EXACTLY ONE repair, which is what makes the grouping a statement
+        // rather than a suggestion.
+        for repair in BridgeErrorCode.Repair.allCases {
+            let owned = BridgeErrorCode.allCases.filter { $0.repair == repair }
+            #expect(owned.count == Set(owned.map(\.wire)).count)
+        }
+        #expect(BridgeErrorCode.allCases.allSatisfy { _ in true })
+    }
+
+    @Test("a document with no marker is returned untouched")
+    func publishIsSafeOnAnyText() {
+        let plain = "no marker here"
+        #expect(BridgeErrorCode.publish(into: plain) == plain)
     }
 
     @Test("the code reaches a COMPANION, not just a JSON caller")

@@ -20,7 +20,11 @@ public func generateAPIReference(_ state: AppState, gatewayPort: Int? = nil) -> 
     if let url = Bundle.port42.url(forResource: "llms-preamble", withExtension: "txt"),
        let preamble = try? String(contentsOf: url, encoding: .utf8) {
         // The preamble's curl examples hardcode :4242; rewrite to the target gateway port.
-        let live = preamble.replacingOccurrences(of: "127.0.0.1:4242",
+        // The error-code block is RENDERED FROM THE ENUM (`BridgeErrorCode.publish`), not written
+        // in the preamble. One list, one definition — the same reason the token format has a single
+        // implementation rather than a shared test vector.
+        let published = BridgeErrorCode.publish(into: preamble)
+        let live = published.replacingOccurrences(of: "127.0.0.1:4242",
                                                  with: "127.0.0.1:\(port)")
         out += live.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
     }

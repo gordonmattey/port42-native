@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Combine
+import GhosttyKit
 
 // MARK: - Terminal working directory
 
@@ -701,7 +702,9 @@ public final class AppState: ObservableObject {
     static let portsContext: String = {
         if let url = Bundle.port42.url(forResource: "ports-context", withExtension: "txt"),
            let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text
+            // The error-code block is RENDERED FROM THE ENUM, not written here. One list, one
+            // definition; a code cannot be published under the wrong repair or omitted at all.
+            return BridgeErrorCode.publish(into: text, indent: "      ")
         }
         return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
     }()
@@ -1178,6 +1181,49 @@ public final class AppState: ObservableObject {
         clientRegistry.clients().filter(\.isActive)
     }
 
+    /// **Who a gateway caller is: the credential decides, not `sender_id`.**
+    ///
+    /// Returns the enrolled client when a credential verifies AND that client still exists and is not
+    /// revoked — which is the split D6 describes across two components. The gateway proves a token was
+    /// minted here; the APP decides whether that client still exists. That is what makes revocation
+    /// instant with no gateway restart and no client table on the transport (FR4, NFR5).
+    ///
+    /// Falls back to the caller-supplied `senderId` while nothing is enforced. That fallback is the
+    /// whole of what 5b deletes.
+    func resolveGatewayCaller(credential: String?, senderId: String) throws -> (id: String, name: String) {
+        guard let credential, !credential.isEmpty else {
+            throw BridgeError(
+                code: .authRequired,
+                message: "This call carries no credential, so Port42 does not know who is asking. "
+                       + "Add a client in Port42 Settings → Access, then send its token as "
+                       + "`Authorization: Bearer <token>`.")
+        }
+        guard let clientId = ClientRegistry.verify(token: credential,
+                                                   secret: clientRegistry.rootSecret()) else {
+            // Includes a token minted by a DIFFERENT instance, which is not an error the caller can
+            // see from the outside — so the message says so rather than leaving them re-sending a
+            // credential that is perfectly valid somewhere else.
+            throw BridgeError(
+                code: .authRequired,
+                message: "This credential does not verify. It may belong to a different Port42 "
+                       + "instance — each one mints its own. Add a client in Settings → Access "
+                       + "on THIS instance and use that token.")
+        }
+        guard let client = clientRegistry.client(id: clientId) else {
+            throw BridgeError(
+                code: .authRevoked,
+                message: "Client '\(clientId)' no longer exists. Add it again in Settings → Access.")
+        }
+        guard client.isActive else {
+            throw BridgeError(
+                code: .authRevoked,
+                message: "Client '\(client.name)' was revoked. Add it again in Settings → Access "
+                       + "if you want it back.")
+        }
+        try? db.touchClient(id: clientId)
+        return (clientId, client.name)
+    }
+
     /// Revoke a client: marks the row and deletes its token file. Its GRANTS are separate and are
     /// revoked separately — a client that pairs again keeps what it was given, which is deliberate
     /// (D1: re-issuing onto the same row is what stops a deleted token file costing the user their
@@ -1372,7 +1418,7 @@ public final class AppState: ObservableObject {
             // ~/.local/bin, which a test run must never touch.
             if !AppState.isTestProcess {
                 InstructionService.shared.refreshInstalled()
-                CLIInstallService.shared.install()
+                CLIInstallService.shared.install(registry: self.clientRegistry)
             }
 
             // Migrate old auth format
@@ -1443,10 +1489,35 @@ public final class AppState: ObservableObject {
         sync.onPresenceChanged = { [weak self] spaceId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(spaceId: spaceId, senderId: senderId, senderName: senderName, status: status)
         }
-        sync.onCallReceived = { [weak self] senderId, callId, method, input in
+        sync.onCallReceived = { [weak self] senderId, callId, method, input, credential in
             guard let self = self else { return ["error": "app state deallocated"] }
-            let executor = self.remoteExecutors[senderId] ?? RemoteToolExecutor(appState: self, senderId: senderId, senderName: Principal.gatewayDisplayName(for: senderId))
-            self.remoteExecutors[senderId] = executor
+
+            // WHO IS CALLING — from the CREDENTIAL, never from `sender_id` (slice-02 half two, 5a).
+            //
+            // `sender_id` addresses; it has never authorized anything and a caller picks it freely,
+            // which is how `"Claude Code"`, `"Gemini CLI"` and `claude1`…`claude101` came to hold
+            // standing grants in production. A verified credential names a client Port42 actually
+            // enrolled, and the grant lands on THAT rather than on the shared `local-http` bucket
+            // every local process collapses into.
+            //
+            // **AN UNNAMED CALLER IS NOW REFUSED** (5b). Every route to a credential exists: a child
+            // enrols at spawn, the CLI at install, anything else by hand in Settings. Ports and the
+            // hooks shim never come through this door at all.
+            //
+            // The refusal carries the fix (FR10), because a session already running holds the old
+            // instruction block in its context and will never re-read it — so the error has to be
+            // the thing that teaches, not the docs.
+            let identity: (id: String, name: String)
+            do {
+                identity = try self.resolveGatewayCaller(credential: credential, senderId: senderId)
+            } catch let e as BridgeError {
+                return e.toJSONObject()
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+            let executor = self.remoteExecutors[identity.id]
+                ?? RemoteToolExecutor(appState: self, senderId: identity.id, senderName: identity.name)
+            self.remoteExecutors[identity.id] = executor
             return await executor.execute(method: method, input: input)
         }
 
@@ -2849,6 +2920,14 @@ public final class AppState: ObservableObject {
             config: config, env: controller.env,
             onTee: { controller.receiveTee($0) },
             onInject: { controller.bindSurface($0) })
+        // Ask ghostty, not an event, whether the shell is still running. A push to a terminal whose
+        // shell had exited used to answer `{"ok": true}` with the keystrokes discarded, because a
+        // bound surface was treated as a live one. `.sessionEnded` cannot answer this — it fires when
+        // the CLI exits while the shell happily keeps taking input.
+        controller.bindAliveProbe { [weak view = built.view] in
+            guard let s = view?.surface else { return false }
+            return !ghostty_surface_process_exited(s)
+        }
         // Native input records presence (L2.d.2): a keystroke here never reaches the bridge, so
         // without this the chrome cannot see the human driving a terminal.
         let udid = panel.udid

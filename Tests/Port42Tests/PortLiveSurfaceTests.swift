@@ -21,6 +21,11 @@ import Foundation
 @Suite("A write needs a live surface")
 struct PortLiveSurfaceTests {
 
+    static let config = TerminalPortConfig(
+        command: "/bin/zsh", args: [], startupCommand: "bash", cwd: "/tmp",
+        spaceId: "space-1", spaceName: "Demo", companionName: "t1", createdBy: "u1",
+        companionPrompt: "")
+
     /// The declaration is the contract, so it is asserted on the registry rather than on a comment.
     @MainActor
     func registry() throws -> [String: BridgeMethod] {
@@ -143,6 +148,47 @@ struct PortLiveSurfaceTests {
         let note = "the token advanced for writes that never landed — a later CAS write would be "
             + "told it raced a mutation that never happened"
         #expect(appState.portInput.token(for: udid) == before, "\(note)")
+    }
+
+    // MARK: - The reported case: a BOUND surface whose shell has exited
+    //
+    // Checking `.unknown` alone did not reach this, and it is the one GM measured. Three states hid
+    // behind one symptom: no controller (`.unknown`), a controller with an unbound surface (the body
+    // threw but the token had already moved), and a bound surface whose shell had EXITED — where
+    // `sendRaw` returned true unconditionally and the call answered `{"ok": true}`.
+
+    @Test("a controller with no surface bound cannot be delivered to")
+    @MainActor
+    func unboundSurfaceIsNotDeliverable() {
+        let controller = GhosttyTerminalController(
+            panelId: "p1", config: Self.config, post: { _ in })
+        #expect(controller.canDeliver == false, "nothing is bound, so nothing can be delivered")
+    }
+
+    @Test("a bound surface whose SHELL HAS EXITED cannot be delivered to")
+    @MainActor
+    func deadShellIsNotDeliverable() async {
+        let controller = GhosttyTerminalController(
+            panelId: "p1", config: Self.config, post: { _ in })
+        controller.bindSurface { _, done in done() }
+        #expect(controller.canDeliver == true, "a bound surface with no probe stays deliverable")
+
+        // Now the shell exits. This is the state that answered {"ok": true} and dropped the write.
+        controller.bindAliveProbe { false }
+        #expect(controller.canDeliver == false)
+        #expect(await controller.sendRaw("touch /tmp/p42-alive\n") == false,
+                "sendRaw claimed success writing into a dead shell")
+    }
+
+    @Test("a live shell IS deliverable, so the fix does not refuse working terminals")
+    @MainActor
+    func liveShellStillWorks() async {
+        let controller = GhosttyTerminalController(
+            panelId: "p1", config: Self.config, post: { _ in })
+        controller.bindSurface { _, done in done() }
+        controller.bindAliveProbe { true }
+        #expect(controller.canDeliver == true)
+        #expect(await controller.sendRaw("ls\n") == true)
     }
 
     @Test("a verb that does NOT need a live surface still writes to a DB-only port")

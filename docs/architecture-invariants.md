@@ -178,6 +178,34 @@ capability is granted by the user, a path is picked with a file picker. Two repa
 agent asks of a failure, so nobody has to keep their own list of which codes self-correct. Pinned to
 exactly `stale_write` + `token_required`.
 
+**FOURTH INSTANCE OF THE LIE, AND THE FIRST ONE FIXED STRUCTURALLY (2026-07-29).** GM pushed four
+commands to a terminal whose shell had exited. Each returned `{"ok": true}` and advanced the activity
+token (`:0 → :1 → :3 → :5 → :8`); nothing ran. Cost an hour, twice, and led to the wrong conclusion
+that pushes were unsupported.
+
+The three earlier instances were each fixed one verb at a time — `port.rename` on a missing port
+("target absent"), `port.push` with missing data ("argument wrong"), and this one, "target present,
+argument fine, **backing process dead**", which neither reached. Fixing a fourth verb would have
+invited a fifth, so the check moved to the **write seam** (`applyWriteSideEffects`), declared per verb
+as `needsLiveSurface` beside `writesTarget`, and answered by one per-kind predicate (`canDeliver`).
+
+**Three states hid behind the one symptom**, and only the first is what "no live surface" sounds like:
+no controller at all (`.unknown`); a controller whose surface is unbound, where the body threw
+`no_surface` but the token had ALREADY been bumped; and a bound surface whose shell had exited, where
+`sendRaw` returned `true` unconditionally. `ghostty_surface_process_exited` answers the last;
+`sessionEnded` deliberately does NOT, because it fires when the CLI exits while the shell keeps
+accepting input.
+
+**Why it belongs in this register rather than in a bug list.** It broke the TOKEN, not just a return
+value. §"the token" says a token claims *has this port changed since I looked* — and that claim is
+false for any mutation that does not count. Here a mutation COUNTED THAT NEVER HAPPENED, which is the
+same invariant violated from the other side. Locally it costs a wasted retry; across the wire at
+slice-02 it makes CAS lie undetectably, and CAS is what that slice's acceptance rests on. Hence the
+rule the fix encodes: **refuse before the bump, never after.**
+
+Not a blanket refusal: `restore`, `rename`, `update` and `patch` act on the STORED port and are
+documented to work on a DB-only one, so requiring liveness for every write would have broken restore.
+
 **The ~90 hand-built `["error": …]` dictionaries are CLOSED (2026-07-28), at the boundary rather
 than at the sites.** Across Screen, Camera, Audio, Browser, Automation, Notification, Clipboard and
 ScreenRecorder, a failure was built as a dictionary and returned through

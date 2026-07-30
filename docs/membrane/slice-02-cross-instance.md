@@ -141,8 +141,8 @@ gateway, by either door.
 | FR2 | A principal is acquired only by presenting a credential minted by THIS instance |
 | FR3 | Every credential names exactly one client, and every client carries a human-legible label fixed at mint time |
 | FR4 | A client is revocable individually, effective on its next call, with no gateway restart |
-| FR5 | A caller with no credential can do exactly one thing: request pairing |
-| FR6 | A pairing request is approved or denied by the user, who is shown the requested name |
+| FR5 | ~~A caller with no credential can do exactly one thing: request pairing.~~ **VOID 2026-07-30** — pairing was dropped as the only genuinely new machinery. A caller with no credential can do NOTHING; it is enrolled by a named act instead (spawn, install, or by hand). This is stronger, not weaker: there is no unauthenticated verb at all |
+| FR6 | ~~A pairing request is approved or denied by the user, who is shown the requested name.~~ **VOID 2026-07-30** with FR5. Consent moved to the enrolling ACT, and the name is no longer a caller's claim under review — the user types it, or Port42 already knows it |
 | FR7 | Children the app spawns are registered with no prompt, and keep a stable identity across respawns |
 | FR8 | Permission grants key on the client, so one caller's grant is never inherited by another |
 | FR9 | ✅ **2026-07-29** for grants (Settings → Access, per capability and per grantee). Clients themselves arrive with half two |
@@ -158,7 +158,7 @@ gateway, by either door.
 | BR1 | Channel and message traffic is unaffected by authentication. Sharing does not regress |
 | BR2 | A gateway with no secret serves channel routing only, and refuses `call` and `is_host` |
 | BR3 | The app is host only of a gateway it spawned itself |
-| BR4 | At most one pairing request is pending at a time, and a pending request expires |
+| BR4 | ~~At most one pairing request is pending at a time, and a pending request expires.~~ **VOID 2026-07-30** — no request exists to be pending. The state machine, its TTL and its one-at-a-time rule all went with pairing |
 | BR5 | Revoking a client removes its token file |
 | BR6 | Rotating the root secret invalidates every client at once, and is the only thing that does |
 
@@ -178,7 +178,7 @@ gateway, by either door.
 |---|---|
 | CR1 | Ports calling `window.port42` are unaffected. They reach the bridge in-process and never traverse the gateway |
 | CR2 | Remote peers and the ngrok tunnel are unaffected |
-| CR3 | On upgrade, no client exists, so every gateway caller is refused until it pairs. This is a deliberate break, and FR10 is what makes it survivable |
+| CR3 | **REWRITTEN 2026-07-30**, because it promised a verb that was deleted. On upgrade no client exists, but MOST CALLERS ENROL THEMSELVES: a child at spawn, the CLI at install, while ports and the hooks shim never traverse this door at all. What is left is the caller nobody installs — a script, cron, a curl — which is added by hand in Settings. FR10 is what makes the refusal survivable |
 | CR4 | A caller with no human present (cron, a background script) cannot pair, and needs a token made by hand in Settings. Stated regression |
 | CR5 | ~~The existing `portPerms.*` grants migrate without widening.~~ **SUPERSEDED 2026-07-29 (GM): nothing migrates.** The objectless store is REAPED and every grant is asked for again. Only 9 of its 144 keys could ever have fired, so a faithful migration would have preserved nothing. The replacement requirement: no grant survives the reap, and no caller inherits one |
 
@@ -333,7 +333,7 @@ clients
 
 `id` is a slug rather than a UUID because it is also the token file's name, and the documented client
 flow is "read a known path, pair only if it is missing". A UUID would make the path unknowable before
-the first pairing, which is the inconsistency that has to be avoided.
+the first enrolment, which is the inconsistency that has to be avoided.
 
 **The grant key gains its missing object. DONE 2026-07-29** (§10a). Was
 `portPerms.<grantee>.<spaceId ?? "global">`; now `portGrant.<grantee>.<object>.<zone>`, naming
@@ -342,7 +342,7 @@ translated (CR5, superseded). `grants(grantee:on:zone:)` / `saveGrants(…)` are
 pair, so the permission manager (D13) and this share a store.
 
 **A child's id is derived, not random**, so a companion terminal keeps its grants across respawns:
-`child-<companionId>-<spaceId>`, slugged. Re-pairing an existing slug re-issues onto the same row,
+`child-<companionId>-<spaceId>`, slugged. Re-registering an existing slug re-issues onto the same row,
 so a user who deletes a token file gets a new credential and keeps their grants.
 
 **The host is not a row.** It is ephemeral and holds no grants, so it never enters this table.
@@ -401,8 +401,11 @@ It is **stripped and re-stamped on every inbound envelope in the gateway's read 
 dispatch**. Unconditional overwrite is the mechanism, not a check, so a caller-supplied value cannot
 survive by any path. `sender_id` is untouched and keeps its routing meaning.
 
-Two new envelope types carry pairing between the gateway and the app: `pair_request` (gateway to
-host) and `pair_result` (host to gateway).
+~~Two new envelope types carry pairing between the gateway and the app.~~ **DROPPED with pairing.**
+The envelope gained `credential` instead — a client's token, carried OPAQUELY, because the app both
+mints and verifies it. Note what is deliberately absent: no inbound `principal_id`. This section
+originally planned to strip and re-stamp one on every envelope; carrying a credential means there is
+nothing to forge and nothing to remember to overwrite.
 
 **D5. Enrollment: a token is minted by a named act, never picked up**
 
@@ -419,7 +422,17 @@ Every token is minted by `ClientRegistry` at a moment that already carries conse
    prompt, because the user spawning them is the consent and the app is both parties.
 3. **By hand**, in Settings, for the user's own scripts and for any caller with no human present.
 
-The pairing protocol:
+**THE PAIRING PROTOCOL BELOW WAS DESIGNED AND THEN DROPPED** (GM), and is kept only as the record of
+what was considered. It is not built and nothing calls it. What replaced it: enrolment by a named act
+— a child at spawn, the CLI at install, anything else by hand in Settings → Access.
+
+Why it went, beyond "one less thing": it required an UNAUTHENTICATED verb, the one door that must stay
+open for anything to get in, plus a pending-request state machine, a TTL, and a one-at-a-time rule. It
+also let any local process raise a dialog at any moment showing a name IT chose — the doc's own words,
+"a claim under review". Enrolment by a named act has no network surface, and the name is either typed
+by the user or already known to Port42, so there is no claim to review.
+
+The dropped design:
 
 ```
 POST /pair            {"name": "Claude Code"}
@@ -485,13 +498,27 @@ there is no path where an old host credential outlives the app that minted it.
 | gateway launched by hand, or a remote `gatewayURL` | no secrets, so it serves channel routing only and refuses `call` and `is_host` (BR2). The app cannot be its host (BR3) |
 | gateway restarts mid-pair | the pending request is lost, the client polls and sees `expired`, and retries |
 | app restarts mid-pair | same |
-| user deletes a token file | that client can no longer authenticate and pairs again. The row survives, so re-pairing the same slug re-issues onto it and the grants are kept |
+| user deletes a token file | that client can no longer authenticate and is enrolled again — automatically for a child or the CLI, by hand otherwise. The row survives, so re-issuing the same slug lands on it and the grants are kept |
 
 **D9. What happens to an existing install on upgrade**
 
-On first launch after the upgrade the root secret is minted and the client table is empty, so every
-gateway caller is refused until it pairs. That is the deliberate break in CR3, and FR10 is what makes
-it survivable rather than a wall.
+On first launch after the upgrade the root secret is minted and the client table is empty. **CR3 used
+to say every gateway caller is then refused until it PAIRS — and pairing was dropped, so that sentence
+promised a verb nobody could call.** Worse, it made the break sound total when it is not.
+
+What actually happens, measured against what now exists:
+
+| caller | on upgrade |
+|---|---|
+| a companion terminal | enrols itself at spawn. Nothing to do |
+| the `port42` CLI | enrols itself at install, which the app performs at every boot. Nothing to do |
+| a port's `window.port42` | unaffected — in-process, never traverses the gateway (CR1) |
+| the hooks shim | unaffected — it uses its own unix socket, not `/call` |
+| a script, cron, a bare `curl` | **refused until added by hand** in Settings → Access |
+
+So the deliberate break is real but narrow: it lands on callers nobody installs, which is exactly the
+set that has no named act to hang enrolment on. That is CR4's stated regression, and add-by-hand is
+its answer. FR10 is what makes the refusal survivable rather than a wall.
 
 `InstructionService.refreshInstalled()` already rewrites the instruction block at every boot, so a
 new Claude Code, Gemini or Codex session reads the new flow. **A session already running holds the

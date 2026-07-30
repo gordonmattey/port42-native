@@ -12,26 +12,31 @@ struct BridgePrincipalTests {
 
     // MARK: - display / id split
 
-    @Test("local gateway caller has the stable local-http id")
-    func localGatewayID() {
-        #expect(Principal.localGatewayID == "local-http")
-    }
-
-    @Test("gatewayDisplayName: local-http reads friendly, a peer shows its id, label is not the key")
-    func gatewayDisplayName() {
-        #expect(Principal.gatewayDisplayName(for: "local-http") == "Local (gateway)")
-        #expect(Principal.gatewayDisplayName(for: "peer-abc") == "peer-abc")
-        // the friendly label must differ from the id it stands for — display is never the permission key
-        #expect(Principal.gatewayDisplayName(for: "local-http") != Principal.localGatewayID)
+    /// **`local-http` AND `gatewayDisplayName` ARE DELETED** (slice-02 half two, 5b), and the two
+    /// tests that lived here went with them rather than being adapted — they asserted the shared
+    /// principal exists and that a label can be guessed from an id, and both statements are now false.
+    ///
+    /// What replaced them: a gateway caller arrives with a verified credential naming an enrolled
+    /// client, or it is refused. Its display name is fixed at MINT TIME and read from its client row,
+    /// so nothing guesses a label. The behaviour is covered by `ClientRegistryTests`.
+    ///
+    /// The property those tests were really protecting — **display is never the permission key** —
+    /// survives and is asserted below on a named client instead of on a pooled one.
+    @Test("no shared identity exists any more")
+    func noSharedIdentityRemains() {
+        // I1.3 skipped rung 1 for a shared creator. There is nothing left to skip, and this says so
+        // in the one place that decides it rather than leaving the answer implicit.
+        #expect(Principal.isSharedIdentity("local-http") == false)
+        #expect(Principal.isSharedIdentity("anything-at-all") == false)
     }
 
     @Test("a peer principal coalesces and persists on its id, label rides only as displayName")
     func peerPrincipalKeysOnId() {
-        let p = Principal.peer(id: Principal.localGatewayID, displayName: "Local (gateway)")
+        let p = Principal.peer(id: "port42-cli", displayName: "port42 CLI")
         // Since the collapse the Principal goes straight to the coordinator: `id` is both the
         // coalescing key and the grant persistence key; the label is display only.
-        #expect(p.id == "local-http")
-        #expect(p.displayName == "Local (gateway)")
+        #expect(p.id == "port42-cli")
+        #expect(p.displayName == "port42 CLI")
         #expect(p.id != p.displayName)
     }
 
@@ -233,34 +238,47 @@ struct BridgePrincipalTests {
 
     // MARK: - I1.3 · a shared creator is not an author (GM decision 2026-07-27: un-pool)
 
-    @Test("two gateway-created ports cannot see each other's grants")
+    /// **THESE TWO INVERTED AT 5b, and the inversion is the point rather than a regression.**
+    ///
+    /// I1.3 made a gateway-created port authorize as ITSELF, because its `createdBy` was
+    /// `local-http` — not an author but every local process, so all such ports in a space pooled into
+    /// one bucket and Dev3 accumulated an `automation` grant nobody had knowingly given.
+    ///
+    /// With `local-http` deleted, a gateway caller IS an author: an enrolled client with a name fixed
+    /// at mint time. So rung 1 applies again and a port acts as its creator — which is P-260 as
+    /// designed, one grant bucket per author per space. The old assertions said the opposite because
+    /// the creator used to be nobody.
+    ///
+    /// **The behaviour change to be honest about:** two ports created by the SAME client now share
+    /// that client's grants. That is intended, and it is materially different from the old pooling,
+    /// where the bucket was shared by every unrelated process on the machine.
+    @Test("ports created by the same NAMED client share that client's bucket (P-260)")
     @MainActor
-    func gatewayCreatedPortsDoNotPool() throws {
+    func portsPoolUnderTheirNamedCreator() throws {
         let w = try makeParityWorld()
-        // What `port.create` writes when the caller is the gateway: createdBy is the SHARED
-        // local-http id, because every local process reaching the gateway is one principal.
         let a = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-a",
-                           createdBy: Principal.localGatewayID, title: "A")
+                           createdBy: "port42-cli", title: "A")
         let b = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-b",
-                           createdBy: Principal.localGatewayID, title: "B")
+                           createdBy: "port42-cli", title: "B")
 
-        // THE GATE. Before I1.3 both were "local-http" in space-1, so one grant covered both.
-        #expect(a.portPrincipal.id != b.portPrincipal.id)
-        #expect(a.portPrincipal.id == "port-a")
-        #expect(b.portPrincipal.id == "port-b")
-        #expect(a.portPrincipal.id != Principal.localGatewayID)
+        #expect(a.portPrincipal.id == "port42-cli")
+        #expect(b.portPrincipal.id == "port42-cli", "one author, one bucket — P-260")
+        // And a DIFFERENT client is still a different bucket, which is the property that matters.
+        let c = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-c",
+                           createdBy: "scripts", title: "C")
+        #expect(c.portPrincipal.id != a.portPrincipal.id)
     }
 
-    @Test("a gateway-created port's permission card names the PORT, not the gateway")
+    @Test("a client-created port's card names the CLIENT, which is now a name worth showing")
     @MainActor
-    func gatewayCreatedPortCardNamesItself() throws {
+    func clientCreatedPortCardNamesItsAuthor() throws {
         let w = try makeParityWorld()
         let p = PortBridge(appState: w.state, spaceId: "space-1", messageId: "port-a",
-                           createdBy: Principal.localGatewayID, title: "weather").portPrincipal
-        // Naming the creator here would ask the human to grant to "Local (gateway)" while the grant
-        // lands on one port. The card and the grant must describe the same thing.
-        #expect(p.displayName == "weather")
-        #expect(!p.displayName.contains(Principal.localGatewayID))
+                           createdBy: "port42-cli", title: "weather").portPrincipal
+        // The old rule existed because naming the creator meant showing "Local (gateway)" — a label
+        // for "anything on this machine", which is not informed consent. A named client is the
+        // opposite: the card and the grant now describe the same, real thing.
+        #expect(p.displayName == "port42-cli")
     }
 
     @Test("P-260 survives: a real author is still inherited, only a SHARED id is skipped")
@@ -278,7 +296,8 @@ struct BridgePrincipalTests {
                                 createdBy: "peer-7f3a", title: "t")
         #expect(byPeer.portPrincipal.id == "peer-7f3a")
 
-        #expect(Principal.isSharedIdentity(Principal.localGatewayID))
+        // `local-http` was the one shared id and it is deleted (5b), so NOTHING is shared now.
+        #expect(!Principal.isSharedIdentity("local-http"))
         #expect(!Principal.isSharedIdentity("echo"))
         #expect(!Principal.isSharedIdentity("peer-7f3a"))
     }

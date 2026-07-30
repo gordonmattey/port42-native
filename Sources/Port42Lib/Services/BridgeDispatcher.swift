@@ -83,6 +83,36 @@ extension AppState {
         return true
     }
 
+    /// **Can a write actually be delivered to this port?** One predicate, per surface kind.
+    ///
+    /// GM's measurement had THREE distinct states behind one symptom, and only the first was covered
+    /// by checking `.unknown` alone:
+    ///
+    /// 1. no controller at all — the DB row outlived the process ⇒ `.unknown`
+    /// 2. a controller whose surface is unbound — the body threw `no_surface`, but the token had
+    ///    already been bumped, so a refused write still corrupted CAS
+    /// 3. a bound surface whose SHELL HAS EXITED — `sendRaw` returned `true` unconditionally, so the
+    ///    call answered `{"ok": true}` and the keystrokes vanished. This was the reported bug.
+    ///
+    /// Asked HERE rather than only in the body, because here is before the token moves. A refused
+    /// write that still advances the counter makes a later CAS write believe it raced a real
+    /// mutation — the register's own words: a token claims *has this port changed since I looked*,
+    /// and that claim is false for any mutation that does not count.
+    func canDeliver(to ref: PortRef) -> Bool {
+        switch ref.kind {
+        case .unknown:
+            return false
+        case .terminal:
+            guard let tid = ref.id, let controller = terminalControllers[tid] else { return false }
+            return controller.canDeliver
+        case .web, .browser:
+            // A web port's delivery target is its webview; an inline port keys on messageId.
+            // Same lookup `port.push`'s own body uses, so the seam and the body agree.
+            let id = ref.id ?? ref.messageId ?? ""
+            return portWindows.webViews[id] != nil || findInlineBridge(by: id)?.webView != nil
+        }
+    }
+
     /// A WRITE'S SIDE EFFECTS, for BOTH dispatchers (I2 · C5).
     ///
     /// Extracted so the one-shot and streaming paths cannot diverge. Before C5 the streaming
@@ -116,7 +146,7 @@ extension AppState {
             // not move the counter, so a later CAS write is not told it raced a mutation that never
             // happened. A token that advances for a dropped write makes CAS lie — locally, and
             // undetectably across the wire at slice-02.
-            if needsLiveSurface, ref.kind == .unknown {
+            if needsLiveSurface, !canDeliver(to: ref) {
                 throw BridgeError(
                     code: .noSurface,
                     message: "port '\(raw)' has no live surface — it is known but nothing is running "

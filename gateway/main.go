@@ -80,8 +80,25 @@ func main() {
 	// no cleanup on either side — the FD close is the kernel's job. Gated so a manually-run
 	// gateway (no pipe) is unaffected.
 	if *watchParent {
+		// THE CREDENTIAL COMES FIRST, THEN THE DEATH-WATCH, DOWN THE SAME PIPE.
+		//
+		// Gated on -watch-parent because that flag is what distinguishes an app-spawned gateway from
+		// one launched by hand: a hand-launched relay has an interactive stdin, and a blocking read
+		// there would hang it. Such a relay gets no credential and so serves channel routing only —
+		// it cannot check a host claim, and must not pretend it can.
+		//
+		// `io.Copy` MUST resume from the reader `ReadHostCredential` returns, not from os.Stdin:
+		// anything the buffer already pulled in past the first line would be silently discarded.
+		// Spike C's one carried detail, and the reason that reader is returned at all.
 		go func() {
-			io.Copy(io.Discard, os.Stdin)
+			cred, rest := ReadHostCredential(os.Stdin)
+			gw.SetHostCredential(cred)
+			if cred.Configured() {
+				log.Println("[gateway] host credential received") // never the value (NFR2)
+			} else {
+				log.Println("[gateway] no host credential — channel routing only")
+			}
+			io.Copy(io.Discard, rest)
 			log.Println("[gateway] parent pipe closed (EOF) — shutting down")
 			done <- syscall.SIGTERM
 		}()

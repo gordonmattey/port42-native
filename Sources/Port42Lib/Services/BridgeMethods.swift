@@ -751,8 +751,14 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
         }
         let audio = (opts["audio"] as? String) ?? "none"
         if audio == "mic" || audio == "both" {
-            let ok = await appState.permissions.request(.microphone, from: p)
-            if !ok { throw BridgeError.permissionDenied("microphone") }
+            // `ensurePermission`, not `permissions.request` — the same defect `port.create`'s gate was
+            // written to avoid. `request` PROMPTS; only the dispatcher's gate ever remembered the
+            // answer, so this asked for the microphone on EVERY mic recording and the grant never
+            // persisted. This was the precedent that made the flaw visible, and it was left live when
+            // the create gate was fixed; now both go through the one implementation.
+            guard await appState.ensurePermission(.microphone, for: p) else {
+                throw BridgeError.permissionDenied(PortPermission.microphone.rawValue)
+            }
         }
         let dir = recordingsDir(spaceId: p.spaceId)
         var outputURL: URL? = nil

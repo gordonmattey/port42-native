@@ -36,6 +36,24 @@ struct ClientRegistryTests {
         #expect(ClientRegistry.verify(token: t, secret: secret) == "claude-code")
     }
 
+    /// **THIS IS THE ONLY IMPLEMENTATION OF THE TOKEN FORMAT** (GM, 2026-07-29).
+    ///
+    /// It briefly had a twin in `gateway/credentials.go`, pinned to it by a shared test vector. GM's
+    /// call was that a gate is not a fix: two implementations of one format can still drift, and the
+    /// failure mode is the worst available — every token silently rejected while both sides stay
+    /// individually correct and individually green. So the duplicate was deleted, not guarded. The
+    /// gateway forwards a credential as an opaque string; the app mints AND verifies.
+    ///
+    /// The vector is kept because it pins the format against an INDEPENDENT computation (HMAC-SHA256
+    /// over the id, base64url, unpadded) rather than against this code's opinion of itself — so it
+    /// still catches an accidental change here, which is now the only place one could happen.
+    /// `TestNoTokenFormatLivesInTheGateway` is what keeps the twin from returning.
+    @Test("the token format is stable against an independently computed vector")
+    func tokenFormatIsStable() {
+        #expect(ClientRegistry.mac(id: "claude-code", secret: secret)
+                    == "5U2Q9QduHVJNxsiJy6go6uItuDpLFuVdtf8pD4zRFHA")
+    }
+
     @Test("a token minted by ANOTHER instance's secret does not verify")
     func instanceSeparation() {
         // NFR4: instances are separated by their SECRETS, not by a path check. Prod, Dev and Dev3
@@ -201,6 +219,222 @@ struct ClientRegistryTests {
         let a = ClientRegistry.randomSecret(), b = ClientRegistry.randomSecret()
         #expect(a != b)
         #expect(Data(base64Encoded: a)?.count == 32)
+    }
+
+    // MARK: - Who is calling (5a) — the CREDENTIAL decides, not sender_id
+
+    @Test("a verified credential names the enrolled client, not the caller's chosen sender_id")
+    @MainActor
+    func credentialWinsOverSenderId() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let reg = appState.clientRegistry
+        let token = try #require(reg.register(id: "claude-code", name: "Claude Code", kind: .manual))
+
+        // The caller also claims to be someone else entirely — exactly how `"Claude Code"`,
+        // `"Gemini CLI"` and claude1…claude101 came to hold standing grants in production.
+        let who = try appState.resolveGatewayCaller(credential: token, senderId: "i-am-whoever-i-say")
+        #expect(who.id == "claude-code", "sender_id must not be able to name a caller")
+        #expect(who.name == "Claude Code", "the name is fixed at mint time, not asserted per call")
+    }
+
+    /// **THE FLIP (5b).** An unnamed caller used to get the pooled `local-http` principal. It is now
+    /// refused, and every refusal names where to fix it (FR10) — because a session already running
+    /// holds the old instruction block in its context and will never re-read it, so the error is the
+    /// only thing that can teach.
+    @Test("a call with NO credential is refused, and the refusal says where to fix it")
+    @MainActor
+    func unnamedCallerIsRefused() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        do {
+            _ = try appState.resolveGatewayCaller(credential: nil, senderId: "local-http")
+            Issue.record("an unnamed caller was accepted")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.authRequired.rawValue)
+            #expect(e.message.contains("Settings → Access"), "the refusal must carry the fix (FR10)")
+        }
+    }
+
+    @Test("a credential from ANOTHER instance is refused, and says so")
+    @MainActor
+    func foreignInstanceCredentialIsRefused() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        // Instances are separated by their secrets (NFR4), so this verifies perfectly somewhere else.
+        // That is invisible from the caller's side, which is why the message names the cause.
+        let foreign = ClientRegistry.token(id: "port42-cli", secret: "another-instances-secret")
+        do {
+            _ = try appState.resolveGatewayCaller(credential: foreign, senderId: "x")
+            Issue.record("a foreign instance's credential was accepted")
+        } catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.authRequired.rawValue)
+            #expect(e.message.lowercased().contains("different port42"))
+        }
+    }
+
+    @Test("a REVOKED client is refused with auth_revoked, not auth_required")
+    @MainActor
+    func revokedClientIsRefusedDistinctly() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let token = try #require(appState.clientRegistry.register(
+            id: "old-tool", name: "Old Tool", kind: .manual))
+        appState.revokeClient(id: "old-tool")
+        do {
+            _ = try appState.resolveGatewayCaller(credential: token, senderId: "x")
+            Issue.record("a revoked client was accepted")
+        } catch let e as BridgeError {
+            // Kept apart from auth_required on purpose: the credential is REAL, so re-sending it will
+            // never help. Same rule that keeps no_surface apart from not_found — the repair differs.
+            #expect(e.code == BridgeErrorCode.authRevoked.rawValue)
+            #expect(e.message.contains("Old Tool"), "name the client, since the user chose that name")
+        }
+    }
+
+    @Test("revocation is the APP's decision, not the credential's — D6's split")
+    @MainActor
+    func revocationIsCheckedAgainstTheRow() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let reg = appState.clientRegistry
+        let token = try #require(reg.register(id: "old-tool", name: "Old Tool", kind: .manual))
+        #expect(try appState.resolveGatewayCaller(credential: token, senderId: "x").id == "old-tool")
+
+        appState.revokeClient(id: "old-tool")
+
+        // THE POINT: the token still verifies CRYPTOGRAPHICALLY. Revocation works because the app
+        // checks the row, not because the credential became invalid — which is exactly why it takes
+        // effect on the next call with no gateway restart and no client table on the transport.
+        #expect(ClientRegistry.verify(token: token, secret: reg.rootSecret()) == "old-tool")
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: token, senderId: "x")
+        }
+    }
+
+    @Test("a forged credential does not name anybody")
+    @MainActor
+    func forgedCredentialIsIgnored() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        appState.clientRegistry.register(id: "claude-code", name: "Claude Code", kind: .manual)
+        // Right shape, wrong MAC. Refused, and `senderId` gets no say — that string is caller-chosen
+        // and was never an identity.
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: "p42_claude-code_deadbeef", senderId: "x")
+        }
+    }
+
+    @Test("a credential for a client that was never enrolled names nobody")
+    @MainActor
+    func unknownClientIsIgnored() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        // Correctly signed by this instance's secret, but no row exists — a token file left behind
+        // after the row was deleted, for instance.
+        let orphan = ClientRegistry.token(id: "ghost", secret: appState.clientRegistry.rootSecret())
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: orphan, senderId: "x")
+        }
+    }
+
+    // MARK: - Add by hand (CR4) — the route for a caller nobody installs
+
+    @Test("a hand-added client is enrolled, named as typed, and its token is readable at the path")
+    @MainActor
+    func addByHandEnrols() throws {
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        // What Settings does: slug the typed name for the id, keep the typed name for the card.
+        let typed = "My Backup Script"
+        let id = ClientRegistry.slug(typed)
+        let token = try #require(reg.register(id: id, name: typed, kind: .manual))
+
+        let client = try #require(reg.client(id: "my-backup-script"))
+        #expect(client.name == typed, "the card must show what the user typed, not the slug")
+        #expect(client.kind == .manual)
+
+        // The user is shown a PATH, so the file has to actually be there with the token in it.
+        let path = reg.tokenPath(id: id)
+        #expect(try String(contentsOf: path, encoding: .utf8) == token)
+    }
+
+    @Test("a hand-added client can then name a call")
+    @MainActor
+    func handAddedClientIsNamedOnCalls() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let token = try #require(appState.clientRegistry.register(
+            id: ClientRegistry.slug("scripts"), name: "scripts", kind: .manual))
+        // The whole point: a script with no installer and no human at call time can still be named.
+        let who = try appState.resolveGatewayCaller(credential: token, senderId: "local-http")
+        #expect(who.id == "scripts")
+        #expect(who.name == "scripts")
+    }
+
+    @Test("two names that slug the same way are ONE client, not two")
+    @MainActor
+    func slugCollisionsReuseTheRow() throws {
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        // "My Script" and "my-script" are the same id. Re-adding re-issues onto the same row rather
+        // than silently creating a second client the user cannot tell apart in the list.
+        reg.register(id: ClientRegistry.slug("My Script"), name: "My Script", kind: .manual)
+        reg.register(id: ClientRegistry.slug("my-script"), name: "my-script", kind: .manual)
+        #expect(reg.clients().filter { $0.id == "my-script" }.count == 1)
+        #expect(reg.client(id: "my-script")?.name == "my-script", "the later name wins")
+    }
+
+    // MARK: - Install-time enrolment (GM, 2026-07-29)
+    //
+    // The CLI is not a child, so step 6's spawn-time enrolment never reaches it, and CR3's stated
+    // remedy — pairing — was dropped. Installing is the named act instead: the user is present and is
+    // deliberately putting the tool on their machine, the same consent that lets a child enrol
+    // silently. Without this there is no way for the CLI to hold a token, and 5b would lock the door
+    // with nobody able to knock.
+
+    @Test("installing the CLI enrols it, and re-installing keeps the same row and token")
+    @MainActor
+    func installEnrolsTheCLI() throws {
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        let first = reg.register(id: CLIInstallService.clientID,
+                                 name: CLIInstallService.clientName, kind: .installed)
+        let client = try #require(reg.client(id: "port42-cli"))
+        #expect(client.kind == .installed, "the user did not name this one; Port42 knows what it is")
+        #expect(client.name == "port42 CLI")
+
+        // Install runs on EVERY boot and re-points after the app moves, so enrolment must be
+        // idempotent — a new token each time would invalidate the CLI's stored file on every launch.
+        let second = reg.register(id: CLIInstallService.clientID,
+                                  name: CLIInstallService.clientName, kind: .installed)
+        #expect(first == second)
+        #expect(reg.clients().filter { $0.id == "port42-cli" }.count == 1)
+    }
+
+    @Test("the CLI's id is FIXED, because the CLI must compute its own token path")
+    func cliIdIsFixed() {
+        // The CLI reads a known path with no way to ask what its id is — the same reason a client id
+        // is a slug rather than a UUID. A derived or random id here would be unreadable to it.
+        #expect(CLIInstallService.clientID == "port42-cli")
+        #expect(ClientRegistry.isValidSlug(CLIInstallService.clientID))
+        #expect(ClientRegistry.slug(CLIInstallService.clientID) == CLIInstallService.clientID,
+                "the id must survive slugging unchanged, or the row and the file would disagree")
+    }
+
+    @Test("an enrolled CLI is named on a call; an unenrolled one is refused")
+    @MainActor
+    func cliCallIsNamed() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        let token = try #require(appState.clientRegistry.register(
+            id: CLIInstallService.clientID, name: CLIInstallService.clientName, kind: .installed))
+
+        #expect(try appState.resolveGatewayCaller(credential: token, senderId: "local-http").id == "port42-cli")
+        // And an UNENROLLED one is refused (5b). There is no anonymous lane left.
+        #expect(throws: BridgeError.self) {
+            _ = try appState.resolveGatewayCaller(credential: nil, senderId: "local-http")
+        }
     }
 
     // MARK: - Children (step 6) — where the pooled bucket actually dies

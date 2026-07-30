@@ -101,14 +101,18 @@ public struct Principal: Equatable {
 
     /// Is this id SHARED by callers who are not the same actor?
     ///
-    /// `local-http` is the only one, and it is shared on purpose: a local process reaching the
-    /// gateway does not authenticate, so every one of them is the same principal and grants persist
-    /// against it rather than re-prompting per call. That reasoning is sound FOR THE GATEWAY and was
-    /// never a decision about ports, which is how it leaked into `port.create` (I1.3).
+    /// **There are none left** (slice-02 half two, 5b). `local-http` was the only one: every local
+    /// process reaching the gateway was the same principal, because none of them authenticated. That
+    /// was sound FOR THE GATEWAY and was never a decision about ports, which is how it leaked into
+    /// `port.create` (I1.3) — and it is how `"Claude Code"`, `"Gemini CLI"` and `claude1`…`claude101`
+    /// came to hold standing grants in production, each naming itself whatever it liked.
     ///
-    /// It stops being shared when `plan-gateway-auth-tls.md` P1 authenticates callers.
+    /// A gateway caller is now enrolled and named, so it is an author like any other. The function
+    /// stays because rung 1 of `forPortBridge` asks a real question — "is this creator an actual
+    /// author" — and a future shared id would have to answer it here, in one place, rather than being
+    /// discovered at a call site.
     public static func isSharedIdentity(_ id: String) -> Bool {
-        id == localGatewayID
+        false
     }
 
     /// The identity a port's bridge authorizes as. Three rungs, in order.
@@ -171,17 +175,16 @@ public struct Principal: Equatable {
             && lhs.spaceId == rhs.spaceId && lhs.kind == rhs.kind
     }
 
-    /// The stable id a local (unauthenticated) gateway caller is given. A local `curl` has no client
-    /// identity, so every local process shares this one principal — grants persist against it instead
-    /// of re-prompting per call. Set by the gateway (`HandleHTTPCall`); mirrored here so the host and
-    /// display code agree on the string. A remote WS peer keeps its authenticated `senderId` instead.
-    public static let localGatewayID = "local-http"
-
-    /// Human label for a gateway caller's stable id, for permission cards and attribution rows. The id
-    /// is the permission key; this is display only. A peer with no friendlier name shows its id.
-    public static func gatewayDisplayName(for senderId: String) -> String {
-        senderId == localGatewayID ? "Local (gateway)" : senderId
-    }
+    /// `localGatewayID` ("local-http") IS DELETED (slice-02 half two, 5b).
+    ///
+    /// It was the pooled identity every local process collapsed into, and deleting it rather than
+    /// gating it is deliberate: keeping the constant through a transition would seed the new field
+    /// with exactly the kind of value it exists to eliminate. A gateway caller now arrives with a
+    /// verified client id or does not arrive at all.
+    ///
+    /// `gatewayDisplayName` went with it. A caller's display name is now fixed at MINT TIME and read
+    /// from its client row, so nothing has to guess a label from an id — which is what that function
+    /// existed to do, and why an anonymous card said "Local (gateway)".
 
     /// What "Allow" will actually do, in the human's words, on the permission card.
     ///

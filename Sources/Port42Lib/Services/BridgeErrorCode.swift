@@ -54,6 +54,16 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
 
     // MARK: Refused on purpose
     case permissionDenied = "permission_denied"
+    /// The caller presented no credential, or one that does not verify (slice-02 half two, 5b).
+    ///
+    /// Distinct from `permission_denied`, because the caller's repair is different in kind: a denied
+    /// permission means "you are known and the user said no", and asking again may work. This means
+    /// "I do not know who you are", and no amount of retrying changes that — the fix is to enrol.
+    /// FR10 is why the message names where to do it.
+    case authRequired = "auth_required"
+    /// Verified, but the client has been revoked. Kept apart from `auth_required` for the same
+    /// reason: the credential is real and re-sending it will never help.
+    case authRevoked = "auth_revoked"
     /// A path the user never picked. Distinct from `permissionDenied`: the fix is a file picker, not
     /// a capability grant.
     case accessDenied = "access_denied"
@@ -104,6 +114,121 @@ public enum BridgeErrorCode: String, CaseIterable, Equatable {
     case methodFailed = "method_failed"
 
     public var wire: String { rawValue }
+
+    // MARK: - What the caller should DO about it
+    //
+    // **THE DOCS ARE GENERATED FROM HERE** (GM, 2026-07-30: "why not do it now?").
+    //
+    // The two files an agent reads used to carry this grouping as hand-written prose, so one list
+    // lived in three places and a test checked they agreed. A gate detects drift; it does not remove
+    // the duplicate — the same argument that deleted the second token implementation rather than
+    // pinning it. Now the enum is the only list, both documents render from it, and drift is not
+    // expressible.
+    //
+    // It also closes a hole the old gate could not see. That test only asked whether a code APPEARS
+    // somewhere in the text, so a code filed under the wrong repair, or described in a way that
+    // contradicted its behaviour, passed. Here the grouping IS the declaration.
+
+    /// What the caller does next. This is the only reason two codes are kept apart — the register's
+    /// own rule, and why `access_denied` was un-merged from `permission_denied` and `no_surface`
+    /// stayed apart from `not_found`.
+    public enum Repair: String, CaseIterable {
+        case retryWithCurrent   = "RETRY WITH e.current"
+        case fixYourCall        = "FIX YOUR CALL"
+        case theTarget          = "THE TARGET"
+        case changeStateRetry   = "CHANGE STATE, RETRY"
+        case askTheUser         = "ASK THE USER"
+        case enrolFirst         = "ENROL FIRST"
+        case waitOrAllowLonger  = "WAIT OR ALLOW LONGER"
+        case doNotRetry         = "DO NOT RETRY"
+        case somethingFailed    = "SOMETHING FAILED"
+        case rarelySeen         = "RARELY SEEN"
+
+    /// A note for the WHOLE repair group, where one sentence covers every code in it.
+    ///
+    /// Added because rendering exposed a flaw the hand-written block did not have: four codes shared
+    /// one explanation, and per-code guidance repeated it four times — output strictly worse than what
+    /// it replaced. Generating from a model shows you where the model is wrong, which is the point.
+    var groupNote: String {
+        switch self {
+        case .rarelySeen:
+            return "each names a specific absence: no in-process implementation, no signed-in user, "
+                 + "no conversation, or no LLM companion"
+        default: return ""
+        }
+    }
+    }
+
+    public var repair: Repair {
+        switch self {
+        case .tokenRequired, .staleWrite:                   return .retryWithCurrent
+        case .missingArg, .badArg, .unknownMethod, .jsSyntax: return .fixYourCall
+        case .notFound, .noSurface, .portPaused:            return .theTarget
+        case .wrongState:                                   return .changeStateRetry
+        case .permissionDenied, .accessDenied:              return .askTheUser
+        case .authRequired, .authRevoked:                   return .enrolFirst
+        case .timedOut, .aiTimeout, .jsTimeout:             return .waitOrAllowLonger
+        case .unsupported:                                  return .doNotRetry
+        case .io, .deviceError, .browserError, .aiError,
+             .scriptError, .jsError, .methodFailed, .pathEscape: return .somethingFailed
+        case .noBody, .noUser, .noMessages, .notLLM:        return .rarelySeen
+        }
+    }
+
+    /// A parenthetical shown beside the code, when the code alone is not enough to act on. Empty
+    /// when the name says it.
+    public var guidance: String {
+        switch self {
+        case .notFound:        return "no such port/session/window"
+        case .noSurface:       return "it exists but has nothing live to write to yet — wait or respawn"
+        case .wrongState:      return "already streaming, not streaming, no active capture, session limit reached — stop or close one, then call again"
+        case .permissionDenied: return "a capability: they grant it"
+        case .accessDenied:    return "a path they never picked: they pick a file"
+        case .authRequired:    return "Port42 does not know who you are — the user adds a client in Settings -> Access and you send it as `Authorization: Bearer <token>`"
+        case .authRevoked:     return "it knew you and the user withdrew it; ask them, do not retry — the credential is real, so re-sending it will never help"
+        case .jsTimeout:       return "usually means you returned a long-lived promise from port_exec — return a plain value instead"
+        case .unsupported:     return "this macOS cannot do it; no user action fixes it"
+        case .scriptError:     return "your AppleScript/JXA"
+        case .pathEscape:      return "path left the data directory"
+        default:               return ""
+        }
+    }
+
+    /// The marker both documents carry where this block goes. Substituted at LOAD, so there is no
+    /// regeneration step to forget and no committed copy to go stale.
+    public static let docsMarker = "{{ERROR_CODES}}"
+
+    /// Render the published block, wrapped to fit and indented to sit in either document.
+    public static func publishedBlock(indent: String = "  ", width: Int = 96) -> String {
+        var lines: [String] = []
+        for repair in Repair.allCases {
+            let codes = allCases.filter { $0.repair == repair }
+            guard !codes.isEmpty else { continue }
+            var body = codes.map { c in
+                c.guidance.isEmpty ? c.wire : "\(c.wire) (\(c.guidance))"
+            }.joined(separator: " · ")
+            if !repair.groupNote.isEmpty { body += " — \(repair.groupNote)" }
+
+            let label = repair.rawValue.padding(toLength: 22, withPad: " ", startingAt: 0)
+            let lead = indent + label + " "
+            let hang = indent + String(repeating: " ", count: 23)
+            var current = lead
+            for word in body.split(separator: " ").map(String.init) {
+                if current.count + word.count + 1 > width, current != lead, current != hang {
+                    lines.append(current); current = hang
+                }
+                current += (current == lead || current == hang) ? word : " " + word
+            }
+            lines.append(current)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Substitute the block into a document that carries the marker. A document without one is
+    /// returned unchanged, so this is safe to apply to any resource.
+    public static func publish(into text: String, indent: String = "  ") -> String {
+        text.replacingOccurrences(of: docsMarker, with: publishedBlock(indent: indent))
+    }
 
     /// The code for a failure reported by a method that did not name one, derived from the method's
     /// FAMILY rather than its individual message.

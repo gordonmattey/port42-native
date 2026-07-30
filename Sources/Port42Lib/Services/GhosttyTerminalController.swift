@@ -276,13 +276,41 @@ final class GhosttyTerminalController {
     /// you."* It WAS added for you: every push submitted, so `port.push` with a partial line ran it.
     /// Measured: pushing `touch <file>` with no newline created the file.
     func sendRaw(_ data: String) async -> Bool {
-        guard let write = injectToSurface else { return false }
+        // **THE SHELL BEHIND THE SURFACE HAS TO BE ALIVE**, and this used to be unchecked: a bound
+        // surface returned `true` unconditionally, so a push to a terminal whose shell had exited
+        // answered `{"ok": true}` and the keystrokes went nowhere. GM measured it — four pushes, four
+        // successes, no `/tmp/p42-alive`. `sessionEnded` is the wrong signal for this (it fires when
+        // the CLI exits, while the shell keeps accepting input); `ghostty_surface_process_exited` is
+        // the real one, and `canDeliver` is where it is asked.
+        guard canDeliver, let write = injectToSurface else { return false }
         let (body, submit) = TerminalWrite.trimming(data)
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             write(TerminalWrite(text: body, submit: submit)) { cont.resume() }
         }
         return true
     }
+
+    /// **Can a programmatic write actually reach this terminal?**
+    ///
+    /// Two conditions, and both were missing from the write path. A surface must be bound, and the
+    /// shell process behind it must not have exited. Consulted by `sendRaw` AND by the dispatcher's
+    /// write seam — the seam matters more, because that is what runs before the activity token moves.
+    /// Refusing only inside the body left the token already bumped for a write that never landed,
+    /// which makes CAS claim a mutation happened when none did.
+    ///
+    /// Defaults to true when no probe is bound, so a controller built by a path that never wires one
+    /// (tests, the debug harness) behaves as before rather than becoming silently undeliverable.
+    var canDeliver: Bool {
+        guard injectToSurface != nil else { return false }
+        return aliveProbe?() ?? true
+    }
+
+    /// Answers "is the shell process still running", from the view that owns the ghostty surface.
+    /// A closure rather than a stored flag because the truth lives in ghostty and can change without
+    /// any event this controller sees.
+    private var aliveProbe: (() -> Bool)?
+
+    func bindAliveProbe(_ probe: (() -> Bool)?) { aliveProbe = probe }
 
     /// Bind (or clear) the surface writer. Called by the view when the surface is created/freed.
     func bindSurface(_ inject: TerminalSurfaceWriter?) {
