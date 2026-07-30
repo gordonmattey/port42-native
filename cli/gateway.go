@@ -30,32 +30,53 @@ type callResponse struct {
 // A token lives under an INSTANCE directory (`~/.port42/<instance>/tokens/port42-cli`) while the CLI
 // targets a PORT, and a dev machine runs several instances at once — prod on 4242, dev builds on
 // 4243/4245 — whose tokens deliberately do not interoperate (they are separated by their secrets, not
-// by a path check). So the app writes the mapping down at install time and this reads it back.
-// Guessing here would mean presenting one instance's credential to another.
+// by a path check). So the app writes the mapping down at enrolment and this reads it back. Guessing
+// would mean presenting one instance's credential to another.
 //
-// Returns "" for every failure, and that is deliberate: an unenrolled CLI must keep working exactly
-// as it does today. Nothing refuses an unnamed caller yet.
-func tokenForPort(port int) string {
+// **THERE IS NO SILENT ANONYMOUS FALLBACK** (GM, 2026-07-30). An earlier version returned "" on every
+// failure so an unenrolled CLI would "keep working exactly as it does today" — reasoning inherited
+// from a backward-compatibility concern that does not exist, because this CLI has never shipped. It
+// was protecting nobody, and it degraded quietly to an anonymous caller, which is the exact class of
+// bug this whole thread has been removing: a thing that reports success while doing something else.
+//
+// The app is what installs this CLI. So a gateway listening with no token for it is not a
+// compatibility case, it is a broken enrolment — and it should be said out loud, now, rather than
+// surface later as an unexplained 401 on a CLI you believed was enrolled.
+//
+// "Port42 is not running" is unaffected and stays a separate, friendlier error: with no gateway there
+// is nothing to dial and `ErrNotRunning` already covers it.
+func tokenForPort(port int) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("cannot locate your home directory, so I cannot find this CLI's credential: %w", err)
 	}
-	dirs, err := filepath.Glob(filepath.Join(home, ".port42", "*"))
+	root := filepath.Join(home, ".port42")
+	dirs, err := filepath.Glob(filepath.Join(root, "*"))
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("cannot read %s: %w", root, err)
 	}
+
 	for _, dir := range dirs {
-		p, err := os.ReadFile(filepath.Join(dir, "gateway-port"))
-		if err != nil || strings.TrimSpace(string(p)) != fmt.Sprint(port) {
+		mapped, err := os.ReadFile(filepath.Join(dir, "gateway-port"))
+		if err != nil || strings.TrimSpace(string(mapped)) != fmt.Sprint(port) {
 			continue
 		}
-		tok, err := os.ReadFile(filepath.Join(dir, "tokens", "port42-cli"))
+		tokenPath := filepath.Join(dir, "tokens", "port42-cli")
+		tok, err := os.ReadFile(tokenPath)
 		if err != nil {
-			return ""
+			return "", fmt.Errorf("Port42 is on port %d but this CLI has no credential there.\n"+
+				"Expected it at %s.\nIt is written when Port42 installs the CLI, so relaunching "+
+				"Port42 should restore it.", port, tokenPath)
 		}
-		return strings.TrimSpace(string(tok))
+		if t := strings.TrimSpace(string(tok)); t != "" {
+			return t, nil
+		}
+		return "", fmt.Errorf("this CLI's credential at %s is empty. Relaunch Port42 to rewrite it.", tokenPath)
 	}
-	return ""
+
+	return "", fmt.Errorf("no Port42 instance claims port %d.\n"+
+		"Each instance records its port in ~/.port42/<instance>/gateway-port when it installs the "+
+		"CLI; none of them names %d. Relaunch the Port42 you are trying to reach.", port, port)
 }
 
 // Call invokes one bridge method over the gateway's local HTTP surface.
@@ -77,9 +98,14 @@ func Call(port int, method string, args any) (json.RawMessage, error) {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if tok := tokenForPort(port); tok != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+tok)
+
+	// No credential, no call. The CLI has no anonymous mode: it is installed by Port42 and enrolled
+	// by that same act, so being unable to name itself means something is wrong and worth saying.
+	tok, err := tokenForPort(port)
+	if err != nil {
+		return nil, err
 	}
+	httpReq.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		// Connection refused is the ordinary "app is not running" case, not a fault worth
