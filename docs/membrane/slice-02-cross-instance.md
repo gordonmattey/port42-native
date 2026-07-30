@@ -721,7 +721,17 @@ nothing here can strand a caller.
    call without one is refused. `local-http` is deleted rather than preserved: carrying a transport
    label through a transition step would seed the new field with exactly the kind of value it
    exists to eliminate.
-6. **Children.** Per-child registration at spawn, which is where the pooled bucket actually dies.
+6. **Children. BUILT 2026-07-29** (taken BEFORE step 5, see below). Per-child registration at
+   spawn, which is where the pooled bucket actually dies. A companion terminal is enrolled as a
+   `child` client with a DERIVED id, and its process is handed `PORT42_CLIENT_ID` and
+   `PORT42_TOKEN_FILE` — **the id and the path, never the token**, because `ps -E` publishes a
+   subprocess environment to every process running as the user. Ad-hoc terminals (no companion) get
+   no identity rather than sharing one. Unit-tested; the live spawn path is not yet verified.
+
+**5 AND 6 ARE SWAPPED (2026-07-29).** The doc ordered them 5 then 6, justifying step 5 as safe
+"because by then every caller has a token" — which is only true once 6 has run. Doing 5 first would
+strand every running companion in the gap between enforcement and enrolment. Same end state, no
+window where the user's own companions are locked out.
 
 Step 5 is the only one with a blast radius, and by then every caller has a token, the refusal teaches
 the fix, and the manager shows what happened.

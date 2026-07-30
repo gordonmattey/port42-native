@@ -2870,6 +2870,24 @@ public final class AppState: ObservableObject {
     func makeTerminalController(for panel: PortPanel) -> GhosttyTerminalController? {
         guard let config = panel.terminalConfig else { return nil }
         teardownTerminalController(panelId: panel.id)
+
+        // ENROL THE CHILD (slice-02 half two, step 6). This is where the pooled `local-http` bucket
+        // actually dies: a companion terminal stops being "any local process" and becomes a named
+        // client with its own grants.
+        //
+        // No prompt, deliberately (D5): the user spawning this IS the consent, and the app is both
+        // parties. Re-registering re-issues onto the SAME row because the id is derived, so a
+        // respawn keeps its grants and a deleted token file costs a credential rather than history.
+        //
+        // Registered BEFORE the controller is built, so the token file exists by the time the child
+        // process starts and looks for it. `TerminalSessionBootstrap.make` puts the id and the path
+        // in its environment — never the token, since `ps -E` publishes that to every process
+        // running as the user.
+        if let companionId = config.companionId {
+            clientRegistry.register(
+                id: ClientRegistry.childId(companionId: companionId, spaceId: config.spaceId),
+                name: config.companionName, kind: .child)
+        }
         // Inject the space-posting behaviour so the controller's gate/dedup logic stays
         // decoupled from AppState (and unit-testable).
         let post: (String) -> Void = { [weak self] content in

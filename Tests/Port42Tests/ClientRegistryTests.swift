@@ -202,4 +202,64 @@ struct ClientRegistryTests {
         #expect(a != b)
         #expect(Data(base64Encoded: a)?.count == 32)
     }
+
+    // MARK: - Children (step 6) — where the pooled bucket actually dies
+
+    @Test("a spawned child is told its ID and its token PATH, never its token")
+    func childEnvCarriesNoSecret() throws {
+        // `ps -E` publishes a subprocess environment to every process running as the user — the same
+        // measurement that moved the gateway's own secrets to stdin. A token in the environment would
+        // be readable machine-wide, so the child gets an id (not a secret) plus a path to a 0600 file.
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "panel-1", spaceId: "SPACE-1", spaceName: "port42-app",
+            companionId: "echo", claudePath: "/bin/echo", oauthToken: "")
+
+        let clientId = try #require(session.env["PORT42_CLIENT_ID"])
+        #expect(clientId == ClientRegistry.childId(companionId: "echo", spaceId: "SPACE-1"),
+                "the env and the registry must agree on who this child is")
+        #expect(session.env["PORT42_TOKEN_FILE"]?.hasSuffix(clientId) == true)
+
+        // Nothing in the environment may look like a credential.
+        for (k, v) in session.env {
+            #expect(!v.hasPrefix("p42_"), "\(k) carries a token into the process table")
+        }
+    }
+
+    @Test("an ad-hoc terminal with no companion gets NO client identity")
+    func adHocTerminalIsNotAChild() {
+        // Nothing to derive an id from, and it must not silently share another child's — that
+        // sharing is the pooling this step exists to end.
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "panel-2", spaceId: "SPACE-1", spaceName: "port42-app",
+            companionId: nil, claudePath: "/bin/echo", oauthToken: "")
+        #expect(session.env["PORT42_CLIENT_ID"] == nil)
+    }
+
+    @Test("children do not pool: per companion AND per space")
+    func childrenDoNotPool() {
+        let a = ClientRegistry.childId(companionId: "echo", spaceId: "SPACE-1")
+        let b = ClientRegistry.childId(companionId: "forge", spaceId: "SPACE-1")
+        let c = ClientRegistry.childId(companionId: "echo", spaceId: "SPACE-2")
+        #expect(Set([a, b, c]).count == 3,
+                "children sharing an id would inherit each other's grants, which is today's defect")
+    }
+
+    @Test("the path the child is handed is the path the registry writes")
+    @MainActor
+    func envPathMatchesWhereTheTokenLands() throws {
+        // Two definitions of this path would mean the child looks where nothing was written — a
+        // failure that only shows up once enforcement lands in step 5.
+        let db = try DatabaseService(inMemory: true)
+        let instance = "Port42Test-\(UUID().uuidString)"
+        let reg = ClientRegistry(db: db, instance: instance)
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        let id = ClientRegistry.childId(companionId: "echo", spaceId: "SPACE-1")
+        reg.register(id: id, name: "Echo", kind: .child)
+
+        let advertised = ClientRegistry.tokenPath(id: id, instance: instance)
+        #expect(advertised == reg.tokenPath(id: id))
+        #expect(FileManager.default.fileExists(atPath: advertised.path),
+                "the child was told a path the registry never wrote to")
+    }
 }

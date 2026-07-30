@@ -202,16 +202,23 @@ public final class ClientRegistry {
 
     /// `~/.port42/<instance>/tokens/<id>`, 0600 inside a 0700 directory. The app owns the file, so
     /// revoking removes it.
-    public func tokenDirectory() -> URL {
+    /// STATIC, and nonisolated, because a spawning child needs to be told where its token lives from
+    /// a non-`@MainActor` context (`TerminalSessionBootstrap.make`). One definition, so the path the
+    /// child is handed and the path the registry writes cannot drift.
+    public nonisolated static func tokenDirectory(instance: String) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".port42", isDirectory: true)
             .appendingPathComponent(instance.lowercased(), isDirectory: true)
             .appendingPathComponent("tokens", isDirectory: true)
     }
 
-    public func tokenPath(id: String) -> URL {
-        tokenDirectory().appendingPathComponent(id, isDirectory: false)
+    public nonisolated static func tokenPath(id: String, instance: String) -> URL {
+        tokenDirectory(instance: instance).appendingPathComponent(id, isDirectory: false)
     }
+
+    public func tokenDirectory() -> URL { Self.tokenDirectory(instance: instance) }
+
+    public func tokenPath(id: String) -> URL { Self.tokenPath(id: id, instance: instance) }
 
     func writeTokenFile(id: String, token: String) throws {
         let dir = tokenDirectory()

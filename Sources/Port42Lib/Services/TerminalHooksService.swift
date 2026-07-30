@@ -219,6 +219,28 @@ public enum TerminalSessionBootstrap {
         env["PORT42_SPACE_ID"] = spaceId
         env["PORT42_SPACE_NAME"] = spaceName
 
+        // WHO THIS CHILD IS, as a named client (slice-02 half two, step 6).
+        //
+        // The pooled `local-http` principal dies here: every local process reaching the gateway is
+        // currently the SAME grantee, so a grant given to one is inherited by all. A child the app
+        // spawned gets its own identity instead, derived rather than random so it survives a respawn
+        // with its grants intact (`ClientRegistry.childId`).
+        //
+        // **The id, never the token.** `ps -E` publishes a subprocess environment to any process
+        // running as the user — the measurement that moved the gateway's own secrets to stdin — so a
+        // token here would be readable by everything on the machine. The id is not a secret; the
+        // token sits in a 0600 file the child reads at a path it can compute from this.
+        //
+        // Derived here rather than passed in because `childId` is one definition shared with the
+        // registration in `AppState.makeTerminalController`: the env and the row cannot disagree
+        // about who this child is.
+        if let companionId {
+            let clientId = ClientRegistry.childId(companionId: companionId, spaceId: spaceId)
+            env["PORT42_CLIENT_ID"] = clientId
+            env["PORT42_TOKEN_FILE"] = ClientRegistry.tokenPath(
+                id: clientId, instance: ClientRegistry.currentInstance).path
+        }
+
         // Companion identity injected into the CLI via the shim's --append-system-prompt.
         // Replaces the old CLAUDE.md mutation (which clobbered project files / polluted home).
         if let companionPrompt, !companionPrompt.isEmpty {
