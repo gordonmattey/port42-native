@@ -6,8 +6,11 @@ port42-gateway
 Port42.app/
 gateway/gateway
 
-# GhosttyKit xcframework (downloaded at build time, ~130MB)
-GhosttyKit.xcframework/
+# GhosttyKit xcframework (extracted from vendor/ at build time, ~130MB)
+# NO trailing slash. With one, this matches a DIRECTORY only — so a SYMLINK at the same path went
+# unignored, `git add -A` in a worktree committed it, and the merge replaced the real folder in the
+# main checkout with a link pointing at itself. build.sh regenerates the folder either way.
+GhosttyKit.xcframework
 
 # Xcode / SwiftPM
 .swiftpm/
