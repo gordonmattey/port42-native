@@ -243,12 +243,18 @@ public enum TerminalSessionBootstrap {
         // Derived here rather than passed in because `childId` is one definition shared with the
         // registration in `AppState.makeTerminalController`: the env and the row cannot disagree
         // about who this child is.
-        if let companionId {
-            let clientId = ClientRegistry.childId(companionId: companionId, spaceId: spaceId)
-            env["PORT42_CLIENT_ID"] = clientId
-            env["PORT42_TOKEN_FILE"] = ClientRegistry.tokenPath(
-                id: clientId, instance: ClientRegistry.currentInstance).path
-        }
+        // **EVERY terminal Port42 spawns gets one, not only a companion** (B, GM 2026-07-31). The
+        // credential used to be gated on `companionId` while everything else that makes a session a
+        // companion arrived via `companionPrompt`, so a spawn could set the second and omit the
+        // first: a session that was a companion in every visible respect and had no identity at all.
+        // Measured on 2026-07-31, prod and Dev4 held no child token between them while both ran
+        // companion sessions, and one of those sessions went looking for the CLI's token because it
+        // had nothing of its own.
+        let clientId = ClientRegistry.spawnedTerminalId(companionId: companionId,
+                                                        sessionId: sessionId, spaceId: spaceId)
+        env["PORT42_CLIENT_ID"] = clientId
+        env["PORT42_TOKEN_FILE"] = ClientRegistry.tokenPath(
+            id: clientId, instance: ClientRegistry.currentInstance).path
 
         // Companion identity injected into the CLI via the shim's --append-system-prompt.
         // Replaces the old CLAUDE.md mutation (which clobbered project files / polluted home).

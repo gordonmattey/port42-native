@@ -459,14 +459,56 @@ struct ClientRegistryTests {
         }
     }
 
-    @Test("an ad-hoc terminal with no companion gets NO client identity")
-    func adHocTerminalIsNotAChild() {
-        // Nothing to derive an id from, and it must not silently share another child's — that
-        // sharing is the pooling this step exists to end.
+    @Test("B2 · a terminal with no companion is STILL enrolled, under its own id")
+    func adHocTerminalIsStillEnrolled() throws {
+        // **THIS TEST USED TO ASSERT THE OPPOSITE**, that an ad-hoc terminal gets no identity
+        // (§10a5). That rule was right about SHARING and wrong about nothing: being spawned by
+        // Port42 is the named act, and leaving the terminal anonymous is what sent a session
+        // looking for the CLI's token on 2026-07-31. Reversed deliberately (GM), not relaxed —
+        // the anti-pooling property below is what the old rule was actually protecting.
         let session = TerminalSessionBootstrap.make(
             sessionId: "panel-2", spaceId: "SPACE-1", spaceName: "port42-app",
             companionId: nil, claudePath: "/bin/echo", oauthToken: "")
-        #expect(session.env["PORT42_CLIENT_ID"] == nil)
+        let id = try #require(session.env["PORT42_CLIENT_ID"])
+        #expect(session.env["PORT42_TOKEN_FILE"]?.hasSuffix(id) == true)
+
+        // And it pools with nobody: not with a companion, not with another terminal.
+        let companion = ClientRegistry.spawnedTerminalId(companionId: "echo", sessionId: "panel-2",
+                                                         spaceId: "SPACE-1")
+        let otherTerminal = ClientRegistry.spawnedTerminalId(companionId: nil, sessionId: "panel-3",
+                                                             spaceId: "SPACE-1")
+        let otherSpace = ClientRegistry.spawnedTerminalId(companionId: nil, sessionId: "panel-2",
+                                                          spaceId: "SPACE-2")
+        #expect(id != companion)
+        #expect(id != otherTerminal)
+        #expect(id != otherSpace)
+    }
+
+    @Test("B4 · a companion PROMPT without an id still gets an identity — the exact defect")
+    func companionPromptWithoutIdIsStillEnrolled() throws {
+        // The shape that broke: identity was gated on `companionId` while companion-ness arrived
+        // via `companionPrompt`, so a spawn could set the second and omit the first. Measured on
+        // 2026-07-31 in a live session: PORT42_COMPANION_PROMPT set, PORT42_CLIENT_ID absent.
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "panel-9", spaceId: "SPACE-1", spaceName: "port42-app",
+            companionId: nil, companionPrompt: "You are Maker, a space companion in Port42",
+            claudePath: "/bin/echo", oauthToken: "")
+        #expect(session.env["PORT42_COMPANION_PROMPT"] != nil)
+        #expect(session.env["PORT42_CLIENT_ID"] != nil,
+                "a session with a companion prompt and no identity is the defect this fixes")
+        #expect(session.env["PORT42_TOKEN_FILE"] != nil)
+    }
+
+    @Test("B5 · a respawn lands on the same id, so grants survive it")
+    func respawnKeepsTheSameIdentity() throws {
+        func idFor(_ companion: String?) throws -> String {
+            let s = TerminalSessionBootstrap.make(
+                sessionId: "panel-7", spaceId: "SPACE-1", spaceName: "port42-app",
+                companionId: companion, claudePath: "/bin/echo", oauthToken: "")
+            return try #require(s.env["PORT42_CLIENT_ID"])
+        }
+        #expect(try idFor("echo") == idFor("echo"))
+        #expect(try idFor(nil) == idFor(nil))   // ad-hoc keys on the port id, also stable
     }
 
     @Test("children do not pool: per companion AND per space")
@@ -530,5 +572,76 @@ struct ClientRegistryTests {
         #expect(advertised == reg.tokenPath(id: id))
         #expect(FileManager.default.fileExists(atPath: advertised.path),
                 "the child was told a path the registry never wrote to")
+    }
+
+    // MARK: - Test isolation (A)
+    //
+    // The suite used to write into the DAILY DRIVER's credential store. `AppState.clientRegistry`
+    // is built with no explicit instance, so it resolved to `"Port42"`, which lowercases to
+    // `port42`, which is prod. A test that built an `AppState` and registered anything minted with
+    // prod's real Keychain root secret and left a real token file in a real user's home. Measured
+    // 2026-07-31: `claude-code` and `scripts` appeared in `~/.port42/port42/tokens/` at 07:30:31,
+    // the second a full suite run happened, with no matching rows in prod's database.
+    //
+    // A throwaway instance NAME is not the guard, because the defect came from a caller that passed
+    // no name at all. The whole path is rooted elsewhere instead.
+
+    @Test("A1 · no test can write into a real ~/.port42 directory, whatever instance it names")
+    func testsNeverTouchTheRealTokenStore() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".port42").standardizedFileURL.path
+
+        // The dangerous one FIRST: the instance a registry gets when nobody passes one, which is
+        // exactly what `AppState` does.
+        for instance in [ClientRegistry.currentInstance, "Port42", "port42", "Port42Dev3"] {
+            let dir = ClientRegistry.tokenDirectory(instance: instance).standardizedFileURL.path
+            #expect(!dir.hasPrefix(home),
+                    "instance '\(instance)' resolves into the user's real credential store: \(dir)")
+        }
+    }
+
+    @Test("A1b · the DEFECT ITSELF: a registry built with no instance, registering, writes nowhere real")
+    @MainActor
+    func defaultRegistryDoesNotWriteIntoTheUsersHome() throws {
+        // A1 and A2 pin path RESOLUTION, which is not what broke. What broke was this exact
+        // sequence, and it is what `AppState.clientRegistry` does: construct with no instance, then
+        // register. Reproduced rather than approximated, so a second way to write a token file
+        // would still be caught here.
+        let reg = ClientRegistry(db: try DatabaseService(inMemory: true))   // no instance, as AppState
+        let token = reg.register(id: "claude-code", name: "Claude Code", kind: .installed)
+        #expect(token != nil)
+
+        let written = reg.tokenPath(id: "claude-code").standardizedFileURL.path
+        let home = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".port42").standardizedFileURL.path
+        #expect(!written.hasPrefix(home), "a test just wrote a credential into the user's home: \(written)")
+        #expect(FileManager.default.fileExists(atPath: written), "it must still write SOMEWHERE, or this proves nothing")
+    }
+
+    @Test("A2 · a test process mints from memory, never from the Keychain")
+    @MainActor
+    func testsNeverMintWithTheRealRootSecret() throws {
+        #expect(ClientRegistry.isTestProcess,
+                "the isolation guard is not active, so every other assertion here is vacuous")
+
+        // Two registries on the same instance share a secret, so a token still round-trips within a
+        // run; a different instance gets a different one, so NFR4's separation is still exercised.
+        let a = ClientRegistry(db: try DatabaseService(inMemory: true), instance: "Port42")
+        let b = ClientRegistry(db: try DatabaseService(inMemory: true), instance: "Port42")
+        let c = ClientRegistry(db: try DatabaseService(inMemory: true), instance: "Port42Other")
+        #expect(a.rootSecret() == b.rootSecret())
+        #expect(a.rootSecret() != c.rootSecret())
+
+        // And it is not the daily driver's. A token minted here must not verify against whatever
+        // prod holds, which is the property the orphan files violated.
+        if let real = Port42AuthStore.shared.gatewayRootSecret(instance: "Port42") {
+            // Compared into a Bool FIRST, because `#expect` prints both operands on failure and
+            // this one would print the user's root secret into the test log. NFR2 is "never
+            // logged, never in an error body", and a failing assertion is both. Found by
+            // calibrating this gate, which is the only run where the message is ever produced.
+            let mintsWithTheRealSecret = (a.rootSecret() == real)
+            #expect(mintsWithTheRealSecret == false,
+                    "a test is minting with the daily driver's root secret")
+        }
     }
 }
