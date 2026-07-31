@@ -1571,7 +1571,7 @@ Both are gates on the design, in the discipline of §12: measure first, calibrat
 
 **Spike E · the peer principal seam.** Two gateways on one machine, a stub stream standing in for
 libp2p. Prove a call arriving from an authenticated peer produces a `Principal` in the app WITHOUT the
-app trusting an unverified gateway-supplied field, and that its grants key on `<peerID>/0`. Calibrate
+app trusting an unverified gateway-supplied field, and that its grants key correctly. Calibrate
 by forging the peer field from a hand-launched gateway holding no host credential and watching it be
 refused. **Falsifier:** if the only available path is "believe the field", D0's last invariant breaks
 and the seam is redesigned before libp2p is in the build rather than after.
@@ -1673,19 +1673,132 @@ names as the root cause.
 
 **Consequence for the build order:** step 3 gains the attestation, and no step gains a new secret.
 
-### Build order, each step shippable, each step naming its own live check
+### The integration review (2026-07-30), and it corrects the spike
 
-| # | step | live check that closes it |
+*Run against the merged tree at `5730085`. Suite **1286 green** in 150 suites, up from 1267; the
+merge's per-CLI producer seam took 72 lines out of `TerminalHooksService.swift`, which is where a
+child enrols, and the enrolment survived intact (`ClientRegistry.childId` and both env vars,
+`:247-250`).*
+
+**THE SPIKE PUT THE PEER ON THE WRONG SIDE OF THE KEY, and the code says so.** Spike E rendered an
+inbound peer's grant object as `<peerID>/0`. `PortObject.peerID` is documented as "the peer that OWNS
+this object; nil = this instance" (`PortObject.swift:41`). So for the direction milestone B builds,
+peer B driving A's port, **the object is A's own port 0**, which is `.machine`, and the peer
+qualification belongs on the ACTOR, which is what `ActorRef` (`<peerID>/<principal>`,
+`PortPresence.swift:37`) has been since day one. Part 0's OBJECT row had it right all along: *"peer B
+may act on MY port 0's clipboard"*. Built as the spike wrote it, an inbound peer's grant on A would
+have named B's machine as the thing being acted on, which is the object slot holding something that
+is not the object. **That is the exact disease §4 diagnosed when the space slid into that slot**, and
+it would have arrived one release after the cure.
+
+**The correction makes steps 3 and 4 SMALLER, not bigger.** `BridgeDispatcher` hardcodes
+`on: .machine` at three sites (`:40`, `:77`, `:486`) and `PortBridge` at one (`:71`), and for inbound
+calls every one of them is already correct. A peer is a grantee like any other client, so the object
+path needs no widening at all.
+
+**What that leaves explicitly deferred rather than silently absent.** `PortObject.remoteMachine` and
+`remotePort` exist for the OUTBOUND direction, A's own caller acting on B's port, and have no
+production caller. Milestone B's acceptance rows are all inbound, so outbound grants are not in B.
+Naming it here so the empty slot reads as a decision.
+
+**Three findings on the seams themselves, none blocking.**
+
+| finding | where | why it matters for B |
 |---|---|---|
-| 1 | **The address gains its instance segment.** `PortAddress` parses and renders `port42://<peerID>/space/<id>/<portId>`; the local two-segment form is unchanged and still round-trips; an address carrying THIS instance's own peerID resolves locally. A tree-wide gate: no site builds a port address by hand, the same rule `PortNotify.topic` already carries | ⌘K, `port.subscribe` and the resolver behave identically on Dev3 with a peer-qualified self-address |
-| 2 | **The peer identity is DERIVED, and a peer is a grantee kind.** The libp2p key is an Ed25519 seed from a domain-separated HKDF over the existing `AppUser` P-256 key (`info = "port42-libp2p-identity-v1"`), and only the DERIVED key reaches the gateway. `clients.kind` gains `peer`. Enrolment by the act decided below. Nothing connects yet | two instances hold each other's peer rows; the PeerID is unchanged across an app restart on both machines, and BOTH sides keep their grants |
-| 3 | **The transport.** go-libp2p host in the gateway, mDNS discovery, a `/port42/uerp/1.0.0` stream. A remote call arrives as a `call` envelope carrying an ATTESTED peer identity in the shape spike E validated, and is refused if that peer is not enrolled | B's `space.current` against A is refused as unenrolled, then served after enrolment; a forged peer identity is refused; a revoked peer is refused on its next call with no restart |
-| 4 | **Query in.** B addresses A's port and executes `getHtml` / `patch` / `push` through A's existing local bridge. The permission-at-a-distance behavior is decided and built here (see the assumption below) | per direction and per caller: the matrix under "Verification" |
-| 5 | **Stream out over the wire.** A gossipsub topic per port, publishing the `PortNotify` that already exists. Gap detection off the monotonic token, resync via `getHtml` | B renders A's port live; B's subscriber is killed and restarted and resyncs with no manual step; a dropped delta is detected rather than silently missed |
-| 6 | **Right-of-way over the wire.** Nothing new to build if the token holds. A stale write refused with `current`, one retry lands, the driver chip names the far end on both machines | the slice-level acceptance run, minus traversal, on the LAN |
+| the header comment describes the OPPOSITE of what is built: the gateway authenticating a `peer.ID`, `onCallReceived` flattening it to `remote-<prefix>`, and a todo. `case peer`'s own doc still says "today the label still flows in until that lands" | `Principal.swift:4-8`, `:22-24` | it is false since 5a/5b, and it sits on **the one enum case milestone B extends**, so it is the first thing the next person reads as the contract. Same class as the false gateway comment §10a5 recorded |
+| `senderId` is a parameter of `resolveGatewayCaller` and the body never reads it | `AppState.swift:1209` | an unused parameter named after the value that must never authorize, on the single function that forms a caller identity. Delete it or say why it is there |
+| `remoteExecutors` is written and never cleared, not on revoke, not anywhere | `AppState.swift:1036`, `:1532-1534` | inert today because the refusal happens before the executor is reached. Under B it becomes one entry per peer for the life of the process |
 
-**If you want to ship less:** steps 1 and 2 are coherent alone and add no network surface. They are the
-two rows Part 0 got wrong, fixed, with nothing connected.
+**The attach points themselves are clean and need no preparation.** The envelope already carries
+`Credential` opaquely with the invariant written beside it (`gateway.go:67-73`) and `HostCredential`
+next to it (`:64-66`), so the attestation lands in an established pattern rather than opening one.
+`NotifyBus.subscribe(topic:deliver:)` (`:146`) and `publish` (`:169`) are the gossipsub attach points,
+and `tokenForTopic` already injects the token, so a gossipsub publisher inherits it by construction.
+
+### Build order · TESTS FIRST (GM, 2026-07-30), and what that can and cannot mean here
+
+**Every step below leads with what is written before the code.** For most of B that is a unit test.
+For the transport it deliberately is not, and pretending otherwise would buy false comfort.
+
+**What tests-first genuinely covers.** The address grammar, the identity derivation, the attestation
+verifier, the CAS refusal. All pure, all deterministic, all assertable before a line of
+implementation. Spike E is already the attestation test: it lands as a test file rather than being
+rewritten as one.
+
+**What it cannot cover, on this thread's own evidence.** The three worst defects of the local half
+were an OPTIONAL interpolated into a topic, a gateway discarding every streamed event with
+`yield: { _ in }`, and a field left out of an explicit `CodingKeys` so it never decoded. **Not one
+would have been caught by a test written first**, because each end was internally consistent and a
+test of either end alone passed. What caught them was a STRUCTURAL gate (a rule about the string
+itself) and live verification. So for the transport steps the thing written first is **the gate and
+the live check**, stated exactly, and the unit tests come with the code.
+
+**And the discipline that outranks both, because it has now paid three times** (§10a2, §10a4, §10d):
+**a gate that has never been broken is not known to be a gate.** Writing tests first raises the
+count, not the strength. Every gate below is calibrated by breaking it.
+
+**One trap specific to step 1**, from §10b: a slot with one possible value is indistinguishable from
+a rename. Tests written first for the peer segment pass against a pure rename unless they use a
+FOREIGN peer id deliberately, exactly as `PortObjectGrantTests` had to.
+
+---
+
+**Step 1 · the address gains its instance segment.**
+*Written first:* round-trip properties for the three-segment form; the local two-segment form
+unchanged; a bare-id alias still not an address; a FOREIGN peer id kept distinct from our own in both
+directions; an address carrying this instance's own peer id resolving locally.
+*Then:* `PortAddress` parses and renders `port42://<peerID>/space/<id>/<portId>`.
+*Gate:* no site builds a port address by hand, the rule `PortNotify.topic` already carries. Calibrate
+by hand-building one and watching it fail by file and line.
+*Live:* ⌘K, `port.subscribe` and the resolver behave identically on Dev3 against a peer-qualified
+self-address.
+
+**Step 2 · the peer identity is DERIVED, and a peer is a grantee kind.**
+*Written first:* a known identity key derives a known PeerID; the derivation is stable across calls;
+two instances derive different PeerIDs; the domain separation string is load-bearing (changing it
+changes the PeerID); a `peer` client round-trips through the table with its peer id.
+*Then:* an Ed25519 seed from a domain-separated HKDF over the existing `AppUser` P-256 key
+(`info = "port42-libp2p-identity-v1"`), and only the DERIVED key reaches the gateway. `clients.kind`
+gains `peer`. Enrolment by the act decided above. Nothing connects.
+*Gate:* the signing key never crosses to the gateway. A tree scan, calibrated by writing it to stdin
+and watching the gate fail.
+*Live:* two instances hold each other's peer rows; the PeerID is unchanged across an app restart on
+both machines, and both sides keep their grants.
+
+**Step 3 · the transport.**
+*Written first:* **the gate and the live check, not a unit test.** The gate: the gateway never forms
+a caller identity, and the app never accepts a peer id without an attestation. The live check as an
+exact command pair, per direction.
+*Then:* a go-libp2p host, mDNS, a `/port42/uerp/1.0.0` stream, an attested peer identity on the
+envelope beside `Credential`, refused if the peer is not enrolled.
+*With the code:* spike E's nine cases as a test file, plus its two calibrations.
+*Live:* B's `space.current` against A refused as unenrolled, then served after enrolment; a forged
+peer identity refused; a revoked peer refused on its next call with no restart; and **the macOS local
+network prompt observed, named, and its Info.plist keys confirmed** (spike F's one open item).
+
+**Step 4 · query in.**
+*Written first:* the permission-at-a-distance decision as a test, since it is a decision and not a
+discovery. A remote caller meeting an ungranted capability is refused with a code that names the
+human at the other end, rather than blocking on a prompt it cannot see.
+*Then:* B addresses A's port and executes `getHtml` / `patch` / `push` through A's existing bridge.
+*Live:* the matrix under "Verification", per direction and per caller.
+
+**Step 5 · stream out over the wire.**
+*Written first:* gap detection is pure and goes first — a monotonic token sequence with a hole in it
+is detected, and a resync is requested. Delivery itself is not unit-testable.
+*Then:* a gossipsub topic per port, publishing the `PortNotify` that already exists.
+*Live:* B renders A's port live; B's subscriber is killed and restarted and resyncs with no manual
+step; a dropped delta is detected rather than silently missed.
+
+**Step 6 · right-of-way over the wire.**
+*Written first:* the CAS refusal, which is pure: a write carrying a stale token is refused with
+`current`, and one retry lands. This is the whole step if the token holds.
+*Then:* the driver chip names the far end on both machines.
+*Live:* the slice-level acceptance run, minus traversal, on the LAN.
+
+**If you want to ship less:** steps 1 and 2 are coherent alone and add no network surface. They are
+the two rows Part 0 got wrong, fixed, with nothing connected. They are also the two most completely
+test-first, so the tests-first change costs nothing there and buys the most.
 
 ### Verification · the §11 equivalent for the wire
 
