@@ -38,6 +38,33 @@ debugged once. Milestone B inherits a working pipe and a typed transport edge in
 both. Detail at the top of `docs/membrane/slice-02-cross-instance.md`, "Part 0's state, stated
 exactly".
 
+**STEP 0 IS RUN. BOTH SPIKES GREEN** (2026-07-30, slice doc "Step 0 as run"), neither falsifier
+triggered. Spike F: go-libp2p costs **+22.2 MB** on the gateway binary (14.8 to 37.0 MB) and nothing
+measurable in launch time (4 ms) or idle CPU (0.2%); mDNS discovery, a `/port42/uerp/1.0.0` stream
+(round trip 291 to 466 µs) and gossipsub all work, including from inside a Developer ID signed,
+hardened-runtime bundle. **The PeerID is derived from the P-256 key Port42 already holds**, so the
+keypair count stays at three. **Derived by HKDF, not handed over** (GM, 2026-07-30): the gateway gets
+an Ed25519 key derived with `info = "port42-libp2p-identity-v1"`, never the user's signing key, on
+D2's own argument. Two things that become requirements at step 2: the derivation stays per-INSTANCE
+even where the person is not (converging one person's key across two Macs gives both the same PeerID
+and breaks addressing), and a rotation orphans every peer grant since the grant key carries
+`<peerID>` and grants are permanent. Still open in F, and narrow: macOS 15 local network privacy, since
+`Info.plist` has no `NSLocalNetworkUsageDescription` and the probe ran from Terminal, which
+attributes the permission to Terminal rather than to a Port42 bundle. Spike E: a peer principal is
+formed from a credential the app verifies plus an attestation its own gateway makes with the
+per-spawn host secret, so **D0's invariant survives with no new mechanism and no new secret**. Nine
+cases, calibrated by breaking each gate on both sides.
+
+**MILESTONE B NOW HAS A SCOPE AND A BUILD ORDER** (slice doc, "Milestone B · implementation scope",
+2026-07-30), derived from the four acceptance rows tagged `(B)`. It carries the same three things the
+local half had and the wire half did not: a build order where each step is shippable, a live matrix
+per direction and per instance, and gates calibrated by breaking. Step 0 is two spikes, E (the peer
+principal seam, which can change the design) and F (go-libp2p in a notarized bundle, which can change
+the milestone). Three decisions are open for GM there: peer enrolment, the second machine, and
+permission at a distance. **Two Part 0 rows were ticked on the wrong evidence:** ADDRESS is ticked on
+`PortObject`, which is the grant object, while `PortAddress` still has no instance segment; and the
+libp2p identity key must be persisted or peer grants orphan on every launch.
+
 **A process note worth keeping:** the local half was declared complete twice on the strength of a
 fully ticked build order. Both times the build order was right and incomplete, because it could only
 report on its own rows. Part 0 is the list that matters, and it is not the list §10 walks.
