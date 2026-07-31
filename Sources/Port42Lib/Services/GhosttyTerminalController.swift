@@ -165,7 +165,15 @@ final class GhosttyTerminalController {
             spaceName: config.spaceName,
             companionId: config.companionId,
             companionPrompt: config.companionPrompt.isEmpty ? nil : config.companionPrompt,
-            customEnv: config.env
+            customEnv: config.env,
+            cwd: config.cwd,
+            // Which CLI this terminal STARTS decides how its hooks get wired.
+            //
+            // No match falls back to claude inside `make`, and that is deliberate rather than a
+            // default-by-accident: a plain `zsh` terminal still gets the claude interceptor in
+            // place, so that a user who types `claude` into it LATER is still wired up. That is
+            // what makes ad-hoc terminals auto-register as companions at all.
+            producer: CLIHookProducer.forCommand(config.startupCommand)
         )
         self.hooks = TerminalHooksService(socketPath: session.socketPath)
         NSLog("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",
@@ -203,16 +211,12 @@ final class GhosttyTerminalController {
         }
     }
 
-    /// Only `claude`. `gemini` was matched here too and that was a claim nothing backed: its turn
-    /// detection was never wired, so a gemini terminal was declared hooks-capable and then emitted
-    /// no events. Same defect as the gemini CLIPreset, removed with it (2026-07-29).
-    ///
-    /// Codex is deliberately absent despite HAVING working hooks, because this flag is not what
-    /// provisions them — a spike confirmed the hooks socket is created and delivered to with
-    /// `hooksCapable=N`. Adding a name here without a loop behind it is how the last wrong claim
-    /// got in.
+    /// DERIVED from the producer table, not a string match. A CLI is hooks-capable exactly when
+    /// something knows how to make it emit hooks — so the claim cannot drift from the capability
+    /// again. `gemini` used to be matched here with no producer behind it: declared capable,
+    /// emitted nothing.
     nonisolated static func isHooksCapable(_ startupCommand: String) -> Bool {
-        startupCommand.lowercased().contains("claude")
+        CLIHookProducer.forCommand(startupCommand) != nil
     }
 
     /// Handle one normalized hook event. Logs EVERY event for introspection.
