@@ -18,6 +18,32 @@ in its own section below or in the plan it names.*
 | | **The output seam** — ten publish sites, two taking a caller-supplied kind. On the path: it is gossipsub's payload | `architecture-invariants.md` §4 |
 | | **Trust on the read path** — a reader is neither authenticated nor scoped | below (needs milestone A first) |
 
+### Added 2026-07-31, from the 0.5.52 soak
+
+Both came out of `plan-caller-identity-fixes.md`, which covers the identity defects that soak found
+(A–E and H are done there). These two are not caller-identity work and live here instead.
+
+**1. An unknown argument is accepted in silence.** `terminal.exec` takes `command`, `cwd`, `timeout`
+and no `id`. Passing it an `id` is ignored without a word, so a caller who believes they addressed a
+port gets a real result from somewhere else. That is what produced two confident wrong answers on
+2026-07-31 and sent a session hunting a defect that did not exist. The command behaved exactly as
+documented; the silence is what made the mistake unreadable. Possibly already covered by the
+required-args work on `worktree-required-args`.
+
+**2. `terminal.exec` should run in a HEADLESS TERMINAL PORT, not a raw shell** (GM, 2026-07-31).
+Today it spawns `/bin/zsh` as a child of the app, so it inherits the app's environment, which is
+whatever launched the app. Consequences: the command has **no Port42 identity** — no
+`PORT42_CLIENT_ID`, no token file, no hooks socket, and a PATH that may lack `~/.port42/commands` —
+so a command that calls back through the gateway is precisely the unnamed caller slice-02's half two
+exists to eliminate. Running it through the terminal bootstrap instead would make it enrolled,
+attributable and revocable like every other spawned terminal, and would make `terminal.exec` and a
+typed command behave the same way.
+
+**What is missing before that can be built:** a terminal port's shell only spawns when its tile is
+rendered. Measured on 2026-07-31 — a terminal port created over the API had a client row and a token
+file but no shell at all, and `ps -E` found nothing to inspect. "Headless" therefore means a real
+shell with no tile, which does not exist yet.
+
 **RESCOPED 2026-07-28 (GM): gateway auth P1 is not a phase before slice-02, it is slice-02's local
 half**, and the permission manager rides with it. One slice, one document. Part 0 of that document is
 the seam list that says, per noun, what the local half must build so libp2p is an addition rather than

@@ -238,6 +238,63 @@ and the next `mkdir`/`cp` fails inside it.
 - ☑ **H-live** A Dev3 build against a RUNNING Dev3, which is the exact condition that failed three
   times today, succeeded first time with no retry
 
+### F · A dev instance inherits the launching terminal's environment — NOT A DEFECT
+
+Launching an instance from inside a Port42 terminal gives it that terminal's `PORT42_*` variables.
+Measured: Dev3's own process carried this session's `PORT42_SPACE_ID`, `PORT42_HOOKS_SOCKET` and
+`ZDOTDIR`.
+
+**Downgraded to a testing note after checking the one thing that would make it serious.**
+`PORT42_DATA_DIR` picks the database, the token directory and the instance identity — and it is NOT
+inherited: `build.sh` sets it explicitly at launch, and a Port42 terminal does not carry one at all,
+so there is nothing to pass down. What is inherited is the harmless set, and any terminal the new
+instance spawns gets its own values written explicitly by the bootstrap, overwriting them.
+
+Its one real cost was making G's wrong answer look plausible: when Dev3 answered with this session's
+space id, that was inherited context, which is exactly why a bogus result read as believable.
+
+### G · WITHDRAWN — the defect did not exist
+
+Recorded here because it was on this list twice and acted on, and striking it silently would leave
+the wrong lesson.
+
+**The claim:** `terminal.exec` aimed at a port with no live shell runs somewhere else and reports
+success. **The code:** `terminal.exec` takes `command`, `cwd` and `timeout`, has no port id, and
+documents itself as "Execute a shell command and return the output. Runs in /bin/zsh." It is a
+headless shell runner and never claimed otherwise. Passing it an `id` did nothing; it ran a real
+shell and returned a real result. `port.push` is what drives a terminal port, which GM said at the
+time.
+
+**What actually survives**, moved to `summer2026-todo.md`: an unknown argument is accepted in
+silence, which is what let the misuse look like success; and GM's idea that `terminal.exec` should
+run in a headless terminal PORT so the command carries a Port42 identity instead of inheriting the
+app's environment.
+
+**The lesson is about the probe, not the product.** Three probes in one day returned confident wrong
+answers: a `terminal.exec` call that was never addressing a port, a `ps -E` sweep that found nothing
+because no shell existed, and a census whose zsh word-splitting made every list match. Each looked
+like evidence. The one that settled it was GM typing `echo $PORT42_CLIENT_ID` into a real terminal.
+
+### H · `build.sh` continues after a half-failed teardown
+
+Three failures on 2026-07-31, twice on Dev3 and once on Dev2, always right after the kill:
+`Operation not permitted` on a copy, and once `internal error in Code Signing subsystem` naming the
+still-running binary. The wait loop runs BEFORE `kill -9`, and after it there is only a flat
+`sleep 0.3`. Then `rm -rf "$APP"` runs unchecked, so a partial removal leaves a half-deleted bundle
+and the next `mkdir`/`cp` fails inside it.
+
+- ☑ **H1** DONE. The wait now runs after `kill -9`, polling until the process is really gone, and
+  gives up loudly after 10s rather than proceeding. It was a guess (`sleep 0.3`) in the one place
+  where the answer is knowable
+- ☑ **H2** DONE. `rm -rf "$APP"` is checked, and a bundle that would not go aborts the build naming
+  the cause. **This is the one that matters**: the project's own rule is that a build reporting a
+  copy or signing failure produces a bundle that runs and lies, and every symptom used to appear one
+  step later, inside a bundle half old and half new
+- ☑ **H-calibration** A bundle made un-removable (`chflags uchg`) produces the FATAL message and
+  exit 1; a normal one passes through
+- ☑ **H-live** A Dev3 build against a RUNNING Dev3, which is the exact condition that failed three
+  times today, succeeded first time with no retry
+
 ### F · A dev instance inherits the launching terminal's identity
 
 Launching Dev3 from inside a Port42 terminal gives it that terminal's `PORT42_*` variables, and
