@@ -108,7 +108,7 @@ Status: ☐ open · ☑ done. Every gate calibrated by breaking it, per the thre
 *Proof it holds: after a full suite run, the mtimes in `~/.port42/port42/tokens/` were unchanged, and
 the writes landed in `/var/folders/…/T/port42-tests-<pid>/`.*
 
-### B · Enrolment (RC2) — ☑ code and tests DONE, ☐ live check owed
+### B · Enrolment (RC2) — ☑ DONE 2026-07-31, live-verified in Dev3 and again on Dev2's first boot
 
 - ☑ **B1** A companion spawn produces `PORT42_CLIENT_ID` + `PORT42_TOKEN_FILE` and a row, registered
   before the controller is built so the file exists when the child looks
@@ -125,8 +125,16 @@ the writes landed in `/var/folders/…/T/port42-tests-<pid>/`.*
 - ☑ **B5** Respawn lands on the same id, for a companion and for an ad-hoc terminal
 - ☑ **B-calibration** Gate restored to `if let companionId` and all three tests fail, B4 on exactly
   the live symptom: prompt present, `PORT42_CLIENT_ID` nil
-- ☐ **B6** Live in Dev3: spawn a companion, `env | grep PORT42_CLIENT_ID` non-empty, a gateway call
-  served on its own token, and the permission card naming it rather than the CLI
+- ☑ **B6** Live. In Dev3 a created terminal got a row, a 0600 token file, and its own token
+  authenticated against the gateway and was served. GM then ran `echo $PORT42_CLIENT_ID` in a real
+  terminal and it printed `terminal-ecef7daa-…-4b60409c-…`, which is the variable reaching the shell
+  where an agent can actually read it. Confirmed again on Dev2's clean first boot, where a restored
+  companion terminal enrolled as `terminal-40999e56-…` named "claude code".
+
+  **Two of my probes returned confident wrong answers before that one line settled it.**
+  `terminal.exec` against a port with no live shell ran as a subprocess of the app and reported
+  success with output from the wrong environment (now G), and a `ps -E` sweep found nothing because
+  no shell had spawned for an API-created tile. A probe that cannot fail loudly is not a measurement.
 
 ### C · Instructions (RC3) — ☑ DONE 2026-07-31, live-verified on Dev2
 
