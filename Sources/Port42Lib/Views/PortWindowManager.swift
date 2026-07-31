@@ -965,12 +965,18 @@ public final class PortWindowManager: ObservableObject {
         // struct, and a PortPanel holds its PortBridge — so this closure transitively pinned the
         // bridge for as long as the handler lived (half of the teardown leak below).
         let portId = panel.id
+        // The console is filed under the key a READER resolves to, which is not the panel id.
+        let consoleKey = PortConsole.key(udid: panel.udid, id: panel.id, messageId: panel.messageId)
         handler.onConsole = { [weak appState] level, msg in
             // Phase L1: a web port's console output → Notify bus (a third producer, after push + terminal).
             appState?.notifyBus.publish(topic: PortNotify.topic(forPortKey: portId),
                                         kind: PortEventKind.console.wire,
                                         payload: .object(["level": .string(level),
                                                           "message": .string(msg)]))
+            // RETAIN it too. Publishing reaches whoever was already subscribed; the buffer answers
+            // the far more common case, which is someone asking AFTER the thing went wrong. An agent
+            // that generated a port does not know to subscribe before the port throws.
+            PortConsole.shared.append(portId: consoleKey, level: level, text: msg)
         }
         // Same reasoning as the bridge: on a foreign site this handler is reachable by the site's
         // scripts and already refuses everything via the origin pin. Not attaching it is the same

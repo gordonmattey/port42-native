@@ -1641,6 +1641,42 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(info)
     }
 
+    // WHAT A PORT SAID. A read, so it takes no token and moves nothing.
+    //
+    // Until now a port's output was write-only: a web port's console.log went to NSLog, a terminal's
+    // output was published to whoever had already subscribed and then dropped. Neither reaches the
+    // caller who most needs it — an agent that GENERATED a port and wants to know why it is throwing,
+    // or anyone asking why a terminal looks empty. Subscribing does not help, because nobody
+    // subscribes before the thing they did not expect.
+    r["port.console"] = BridgeMethod(permission: nil, paramNames: ["id", "tail"],
+        description: "Read what a port has printed — a web port's console.log/warn/error, or a terminal's output. Returns the most recent lines, oldest first, each with a level and a timestamp. Use it to debug a port you built: a generative port that throws at runtime says so here, and a terminal whose command died says nothing else at all. Pass the id from ports_list; tail defaults to 100.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "id": ["type": "string", "description": "The port's UDID (from ports_list), or a terminal's name."],
+                "tail": ["type": "integer", "description": "How many recent lines to return (default 100)."]
+            ],
+            "required": ["id"]
+        ]) { _, args in
+        let id = try args.requireString("id")
+        let tail = args.int("tail") ?? 100
+        // Resolve through the same seam every other port verb uses, so a name, a panel id and a udid
+        // all work here exactly as they do for port.push.
+        guard let key = appState.resolvePortRef(id)?.key else {
+            throw BridgeError(code: .notFound, message: "no port \(id)")
+        }
+        let lines = PortConsole.shared.recent(portId: key, tail: tail)
+        let iso = ISO8601DateFormatter()
+        return .object([
+            "id": .string(key),
+            "lines": .array(lines.map { line in
+                .object(["level": .string(line.level),
+                         "message": .string(line.text),
+                         "at": .string(iso.string(from: line.at))])
+            })
+        ])
+    }
+
     r["port.setTitle"] = BridgeMethod(permission: nil, paramNames: ["title"], toolExposed: false,
         description: "Set the calling port's own title.") { p, args in
         let title = try args.requireString("title")

@@ -290,6 +290,15 @@ public struct PortView: NSViewRepresentable {
                       let level = body["level"] as? String,
                       let msg = body["message"] as? String {
                 NSLog("[Port42:port:%@] %@", level, msg)
+                // Also RETAIN it. NSLog alone means a port's own runtime errors are visible to a
+                // human reading the app's log file and to nobody else — least of all the agent that
+                // generated the port and could fix it. An inline port is keyed by its bridge's
+                // stable identity, the same id `port.console` is asked about.
+                if let id = parent.bridge?.stableIdentity {
+                    Task { @MainActor in
+                        PortConsole.shared.append(portId: id, level: level, text: msg)
+                    }
+                }
             }
         }
     }

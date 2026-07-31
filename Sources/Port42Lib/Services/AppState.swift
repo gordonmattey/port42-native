@@ -3021,6 +3021,17 @@ public final class AppState: ObservableObject {
         }
         let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
                                                    onOutput: { [weak self] out in
+                                                       // A TERMINAL's output, retained. This is the
+                                                       // half that had no answer at all: diagnosing a
+                                                       // CLI companion meant reading the app's log
+                                                       // file, and twice this session the answer was
+                                                       // "the CLI exited immediately" — which the
+                                                       // port itself could not say.
+                                                       PortConsole.shared.append(
+                                                           portId: PortConsole.key(udid: panel.udid,
+                                                                                   id: panel.id,
+                                                                                   messageId: panel.messageId),
+                                                           level: "out", text: out)
                                                        // Phase L1 / backlog 3.4: terminal output → Notify bus.
                                                        self?.notifyBus.publish(topic: PortNotify.topic(forPortKey: panel.id),
                                                                                kind: PortEventKind.terminalOutput.wire,
