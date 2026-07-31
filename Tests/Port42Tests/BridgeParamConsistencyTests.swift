@@ -188,7 +188,11 @@ struct BridgeParamConsistencyTests {
         // + port.getDom (R3): a READ of the live DOM. `port.exec` is correctly a write, so
         //   inspecting a port through it bumped the activity token and a caller invalidated its own
         //   read — "look, then write against what you saw" was not expressible. = 74.
-        #expect(methods.count == 74, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // + port.console: a port's output was WRITE-ONLY — a web port's console.log went to NSLog, a
+        //   terminal's output was published to whoever had already subscribed and then dropped. An
+        //   agent that generated a port could not see it throw, and a terminal whose command died
+        //   said nothing at all. = 75.
+        #expect(methods.count == 75, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

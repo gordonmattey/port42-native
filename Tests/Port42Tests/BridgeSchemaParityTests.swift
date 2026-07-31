@@ -124,7 +124,8 @@ struct BridgeSchemaParityTests {
         // + port_get_dom (R3, 2026-07-26): a read-only live-DOM read, so a caller can look at a port
         // without `port.exec` bumping its activity token and invalidating the caller's own read.
         // The hybrid list is empty; every golden schema is parity-checked against the generator.
-        #expect(checked == 64, "expected 64 parity-set methods, checked \(checked)")
+        // + port.console (a READ of what a port printed; a port's output was write-only before it) = 65.
+        #expect(checked == 65, "expected 65 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")
