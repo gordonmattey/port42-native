@@ -128,11 +128,33 @@ the writes landed in `/var/folders/…/T/port42-tests-<pid>/`.*
 - ☐ **B6** Live in Dev3: spawn a companion, `env | grep PORT42_CLIENT_ID` non-empty, a gateway call
   served on its own token, and the permission card naming it rather than the CLI
 
-### C · Instructions (RC3)
+### C · Instructions (RC3) — ☑ DONE 2026-07-31, live-verified on Dev2
 
-- ☐ **C1** The baked companion prompt carries the header and `$PORT42_TOKEN_FILE`
-- ☐ **C2** `InstructionService.buildMarkdown` and `llms.txt` agree, regenerated with the diff read
-- ☐ **C3** Gate: no generated curl example appears without the header
+- ☑ **C1** The companion prompt carries the header, names `$PORT42_TOKEN_FILE` and
+  `$PORT42_CLIENT_ID`, and says not to read another tool's token file. Its text was extracted to a
+  pure `AppState.companionPromptText` so the gate can scan it without an app, the same shape as
+  `PortGrantDisplay.zoneLabel`
+- ☑ **C2** `InstructionService.buildMarkdown` gained a "Who you are when you call" section and the
+  header on every example; `llms-preamble.txt` the same; `llms.txt` regenerated through
+  `PORT42_REGEN_DOCS=1` and the diff read, 18 insertions and 8 deletions, all of them the header and
+  the new paragraphs
+- ☑ **C3** Gate scans every generated surface for a `curl` at `/call` without an `Authorization`
+  header, judging continuation lines as one command so a header on the next line still counts. It
+  also asserts the scan found some curls at all, so it cannot pass vacuously
+- ☑ **C-calibration** Stripped the header from one preamble example; the gate failed naming the file
+  and the exact line
+- ☑ **C4** Live on Dev2 (4244), chosen because its database predated the `clients` table, so this
+  was a clean first boot rather than an upgrade. The block written at boot carries the header and
+  the new section, where it had ZERO `Authorization` lines before. First boot created the table,
+  enrolled `port42-cli`, and enrolled a restored companion terminal as `terminal-40999e56-…` named
+  "claude code" — the population that had nothing this morning. Then, seconds apart on the same
+  instance: the documented call using that terminal's OWN token was SERVED, and the call the old
+  docs taught, with no credential, was REFUSED with `auth_required`
+
+**What C does NOT do, deliberately.** It cannot stop a caller reading another tool's token file,
+because §9 concedes that any process running as the user can. It removes the REASON to: the honest
+path is now the documented one, and the borrow is named as a wrong answer rather than left as the
+only working example.
 
 ### D · Refusal (RC4)
 
@@ -148,6 +170,28 @@ the writes landed in `/var/folders/…/T/port42-tests-<pid>/`.*
 - ☐ **E3** A grant whose grantee can never exist again, like `local-http`, is reaped
 - ☐ **E4** Delete the two orphan files in prod (`claude-code`, `scripts`) once E1 exists to prevent
   a recurrence
+
+### F · A dev instance inherits the launching terminal's identity
+
+Launching Dev3 from inside a Port42 terminal gives it that terminal's `PORT42_*` variables, and
+since B those include a `PORT42_CLIENT_ID` belonging to another instance's client. Measured
+2026-07-31: Dev3's own process carried this session's `PORT42_SPACE_ID`, `PORT42_HOOKS_SOCKET` and
+`ZDOTDIR`.
+
+- ☐ **F1** A spawned instance does not inherit `PORT42_*` from whatever launched it
+- ☐ **F2** Anything it spawns gets its own values, never the launcher's
+
+### G · `terminal.exec` runs somewhere else and reports success
+
+Addressed at a port with no live shell, it executed as a subprocess of the app and returned output
+from the app's environment, with `ok`. Two probes on 2026-07-31 returned confident wrong answers
+before GM checked by hand in one line.
+
+- ☐ **G1** `terminal.exec` against a port with no live shell REFUSES, naming the reason
+- ☐ **G2** It never runs anywhere but the addressed port
+
+**F and G compound:** F puts a foreign identity into the app's environment, and G is what hands that
+environment to a command someone believed was running somewhere else.
 
 ---
 

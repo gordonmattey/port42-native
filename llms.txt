@@ -41,10 +41,20 @@ Use `curl` to call any API. Port42 must be running.
 
 ```bash
 curl -s http://127.0.0.1:4242/call \
+  -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" \
   -d '{"method":"<method>","args":{...}}'
 ```
 
 Response: `{"content": "..."}` — the result as a string or JSON.
+
+**Every call must name a caller.** If Port42 started this session, `$PORT42_TOKEN_FILE` is the path
+to your own token and `$PORT42_CLIENT_ID` is the name Port42 knows you by; read the file at call
+time rather than caching it. If that variable is not set, ask the user to add a client in Port42
+Settings → Access. Each instance mints its own tokens, so one instance's is refused by another.
+
+**Do not read another tool's token file.** It will work, and that is the problem: the permission
+prompt then names that tool instead of you, the grant lands on it, and revoking your access breaks
+whatever it belonged to.
 
 Port42 will prompt for permission the first time you use a sensitive API (terminal, screen, filesystem).
 A grant is per caller and per capability; the user can see and revoke it in Port42 Settings → Access.
@@ -53,28 +63,28 @@ A grant is per caller and per capability; the user can see and revoke it in Port
 
 ```bash
 # Read clipboard
-curl -s http://127.0.0.1:4242/call -d '{"method":"clipboard.read"}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"clipboard.read"}'
 
 # Run a shell command
-curl -s http://127.0.0.1:4242/call -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
 
 # Take a screenshot
-curl -s http://127.0.0.1:4242/call -d '{"method":"screen_capture","args":{"scale":0.5}}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"screen_capture","args":{"scale":0.5}}'
 
 # Send a message (triggers companions; add "space_id" to target a specific space)
-curl -s http://127.0.0.1:4242/call -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
 
 # Read recent space messages
-curl -s http://127.0.0.1:4242/call -d '{"method":"messages.recent","args":{"count":10}}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"messages.recent","args":{"count":10}}'
 
 # List all spaces
-curl -s http://127.0.0.1:4242/call -d '{"method":"space.list"}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"space.list"}'
 
 # List companions
-curl -s http://127.0.0.1:4242/call -d '{"method":"companions.list"}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"companions.list"}'
 
 # Get current user
-curl -s http://127.0.0.1:4242/call -d '{"method":"user.get"}'
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"user.get"}'
 ```
 
 ERRORS CARRY A CODE YOU CAN BRANCH ON, and a message written for a human. Branch on the code,

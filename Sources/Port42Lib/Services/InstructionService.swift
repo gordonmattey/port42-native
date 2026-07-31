@@ -95,7 +95,9 @@ public final class InstructionService: ObservableObject {
 
     /// The slim pointer block. API facts live behind `help` / llms.txt (generated, cannot drift);
     /// port craft lives behind `help(topic:"ports")`. Nothing here enumerates methods.
-    private func buildMarkdown(toolName: String) -> String {
+    /// Internal rather than private so the C3 gate can scan it: every generated example that calls
+    /// the gateway must carry a credential, and a hand-checked list of documents would rot.
+    func buildMarkdown(toolName: String) -> String {
         """
 # Port42 Instructions
 
@@ -105,11 +107,28 @@ Port42 exposes its device and space APIs to you via a local HTTP gateway.
 ## Calling Port42 APIs
 
 ```bash
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"<method>","args":{...}}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" \\
+  -d '{"method":"<method>","args":{...}}'
 ```
 
 Response: `{"content": "..."}` — the result as a string or JSON. A port is a live interactive \
 surface in the user's chat (web HTML/CSS/JS, or a native terminal), created with `port.create`.
+
+## Who you are when you call
+
+**Every call must name a caller, and you have your own.** If Port42 started this session, \
+`$PORT42_TOKEN_FILE` holds the path to your token and `$PORT42_CLIENT_ID` is the name Port42 knows \
+you by. Read the file at call time rather than caching it: it is re-issued when the app restarts.
+
+If `$PORT42_TOKEN_FILE` is not set, Port42 did not start this session and you have no credential \
+here. Ask the user to add a client in **Port42 Settings → Access** and to give you its token. Note \
+that each Port42 instance mints its own, so a token from one instance is refused by another.
+
+**Do not read another tool's token file.** They sit at predictable paths and they will work, and \
+that is exactly the problem: the permission prompt then names that tool instead of you, the grant \
+lands on it, and revoking your access breaks whatever it belonged to. A borrowed credential is not \
+a shortcut, it is a wrong answer that looks right.
 
 **Every write to a port must carry that port's `token`**, and every write, `ports.list` and \
 `port.create` return one — so you thread it and never re-read a port just to write to it again. \
@@ -121,10 +140,12 @@ callers silently overwriting each other.
 
 ```bash
 # The full API reference — every method, params, permissions (generated from the live registry)
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"help"}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help"}'
 
 # The port-authoring manual — REQUIRED READING before building or updating any port
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"help","args":{"topic":"ports"}}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help","args":{"topic":"ports"}}'
 ```
 
 If Port42 is not running, the same reference is published at:
