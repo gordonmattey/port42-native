@@ -121,6 +121,9 @@ final class GhosttyTerminalController {
     /// auto-registered CLI companion (it leaves the space when claude exits, even if the terminal
     /// shell stays open). No-op by default.
     private let onSessionEnded: () -> Void
+    /// Fired when the CLI says it is waiting on the human (permission, or idle at the prompt).
+    /// AppState raises a peek from it. Carries the CLI's own reason so the peek can name it.
+    private let onNeedsAttention: (String) -> Void
     private var didNotifySessionStart = false
     /// How text reaches the pty: the body, whether to submit it, and a completion fired once the
     /// WHOLE write has landed (see `TerminalSurfaceWriter`). The completion exists because
@@ -143,7 +146,8 @@ final class GhosttyTerminalController {
          onOutput: @escaping @MainActor (String) -> Void = { _ in },
          drainPending: @escaping () -> [String] = { [] },
          onSessionStarted: @escaping () -> Void = {},
-         onSessionEnded: @escaping () -> Void = {}) {
+         onSessionEnded: @escaping () -> Void = {},
+         onNeedsAttention: @escaping (String) -> Void = { _ in }) {
         self.panelId = panelId
         self.config = config
         self.post = post
@@ -151,6 +155,7 @@ final class GhosttyTerminalController {
         self.drainPending = drainPending
         self.onSessionStarted = onSessionStarted
         self.onSessionEnded = onSessionEnded
+        self.onNeedsAttention = onNeedsAttention
         self.hooksCapable = Self.isHooksCapable(config.startupCommand)
         self.gate = CompanionPostGate(hooksCapable: hooksCapable)
 
@@ -160,7 +165,15 @@ final class GhosttyTerminalController {
             spaceName: config.spaceName,
             companionId: config.companionId,
             companionPrompt: config.companionPrompt.isEmpty ? nil : config.companionPrompt,
-            customEnv: config.env
+            customEnv: config.env,
+            cwd: config.cwd,
+            // Which CLI this terminal STARTS decides how its hooks get wired.
+            //
+            // No match falls back to claude inside `make`, and that is deliberate rather than a
+            // default-by-accident: a plain `zsh` terminal still gets the claude interceptor in
+            // place, so that a user who types `claude` into it LATER is still wired up. That is
+            // what makes ad-hoc terminals auto-register as companions at all.
+            producer: CLIHookProducer.forCommand(config.startupCommand)
         )
         self.hooks = TerminalHooksService(socketPath: session.socketPath)
         NSLog("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",
@@ -198,16 +211,12 @@ final class GhosttyTerminalController {
         }
     }
 
-    /// Only `claude`. `gemini` was matched here too and that was a claim nothing backed: its turn
-    /// detection was never wired, so a gemini terminal was declared hooks-capable and then emitted
-    /// no events. Same defect as the gemini CLIPreset, removed with it (2026-07-29).
-    ///
-    /// Codex is deliberately absent despite HAVING working hooks, because this flag is not what
-    /// provisions them — a spike confirmed the hooks socket is created and delivered to with
-    /// `hooksCapable=N`. Adding a name here without a loop behind it is how the last wrong claim
-    /// got in.
+    /// DERIVED from the producer table, not a string match. A CLI is hooks-capable exactly when
+    /// something knows how to make it emit hooks — so the claim cannot drift from the capability
+    /// again. `gemini` used to be matched here with no producer behind it: declared capable,
+    /// emitted nothing.
     nonisolated static func isHooksCapable(_ startupCommand: String) -> Bool {
-        startupCommand.lowercased().contains("claude")
+        CLIHookProducer.forCommand(startupCommand) != nil
     }
 
     /// Handle one normalized hook event. Logs EVERY event for introspection.
@@ -220,6 +229,15 @@ final class GhosttyTerminalController {
                 log("  turnComplete NOT posted (skip=\(gate.lastSkipReason.isEmpty ? "not-armed" : gate.lastSkipReason))")
             }
             for c in out { deliver(c, via: "turnComplete") }
+            // END OF TURN IS THE SIGNAL. A session in another space finished doing something and
+            // stopped — that is the thing worth glancing at, and it needs no reading of the turn's
+            // content to decide. The peek itself is already gated to other spaces and deduped, so
+            // the "peeking every turn is noise" worry is handled by WHERE it peeks, not by
+            // interpreting WHAT was said.
+            onNeedsAttention(text)
+        case .needsAttention(let message):
+            log("event=needsAttention message=\(message.prefix(80).debugDescription)")
+            onNeedsAttention(message)
         case .toolStarting(let tool, let input):
             log("event=toolStarting tool=\(tool) input=\(input.prefix(40).debugDescription)")
         case .toolFinished(let tool, let output):

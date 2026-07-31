@@ -167,6 +167,16 @@ func buildSettings(selfPath string) string {
 				Matcher: "",
 				Hooks:   []hookCmd{{Type: "command", Command: notify("sessionEnded")}},
 			}},
+			// Notification is the WAITING-FOR-YOU signal: claude raises it when it needs permission
+			// for a tool, or when it has sat idle at the prompt. That is the one thing the peek
+			// feature needs and the one thing `Stop` cannot tell you — Stop fires on EVERY turn,
+			// so peeking on it would peek constantly, and separating "done" from "needs you" is
+			// the classifier the backlog called the hard part. This signal is already the
+			// distinction, so no classifier is required.
+			"Notification": []matcherBlock{{
+				Matcher: "",
+				Hooks:   []hookCmd{{Type: "command", Command: notify("needsAttention")}},
+			}},
 		},
 	}
 	b, err := json.Marshal(settings)
@@ -238,6 +248,13 @@ func runNotify(event string) {
 		out.Transcript = tp
 		if fi, statErr := os.Stat(tp); statErr == nil {
 			out.TranscriptBytes = fi.Size()
+		}
+	case "needsAttention":
+		// Claude's Notification payload carries the human-readable reason ("Claude needs your
+		// permission to use Bash", "Claude is waiting for your input"). Carry it as the text, so
+		// the peek can SAY what it wants rather than just that something wants something.
+		if msg, ok := payload["message"].(string); ok {
+			out.Text = msg
 		}
 	case "toolStarting", "toolFinished":
 		if tn, ok := payload["tool_name"].(string); ok {

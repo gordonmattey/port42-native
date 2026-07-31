@@ -17,6 +17,10 @@ import Darwin
 /// Port42's CLI-agnostic hook events. A notifier translates each CLI's raw events into these.
 public enum TerminalHookEvent: Sendable, Equatable {
     case turnComplete(text: String, exitCode: Int)
+    /// The CLI is WAITING ON THE HUMAN — a tool needs permission, or it has gone idle at the
+    /// prompt. Distinct from `turnComplete`, which fires on every turn whether or not anything is
+    /// wanted. `message` is the CLI's own reason, so a peek can say what it is waiting for.
+    case needsAttention(message: String)
     case toolStarting(tool: String, input: String)
     case toolFinished(tool: String, output: String)
     case approvalRequired(tool: String, input: String, sessionId: String)
@@ -157,6 +161,9 @@ public actor TerminalHooksService {
                   w.transcript ?? "nil", w.transcriptBytes ?? -1, (w.text ?? "").count,
                   w.sessionId ?? "nil")
             return .turnComplete(text: w.text ?? "", exitCode: w.exitCode ?? 0)
+        case "needsAttention":
+            NSLog("[hooks] needsAttention: %@", w.text ?? "")
+            return .needsAttention(message: w.text ?? "")
         case "toolStarting":   return .toolStarting(tool: w.tool ?? "", input: w.input ?? "")
         case "toolFinished":   return .toolFinished(tool: w.tool ?? "", output: w.output ?? "")
         case "approvalRequired": return .approvalRequired(tool: w.tool ?? "", input: w.input ?? "", sessionId: w.sessionId ?? "")
@@ -204,7 +211,9 @@ public enum TerminalSessionBootstrap {
                             customEnv: [String: String] = [:],
                             shimPath: String? = bundledShimPath(),
                             claudePath: String? = nil,
-                            oauthToken: String? = nil) -> TerminalHookSession {
+                            oauthToken: String? = nil,
+                            cwd: String = "",
+                            producer: CLIHookProducer? = nil) -> TerminalHookSession {
         let shortId = String(sessionId.replacingOccurrences(of: "-", with: "").prefix(8))
         let tempDir = "/tmp/port42-shim-\(shortId)"
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
@@ -247,18 +256,6 @@ public enum TerminalSessionBootstrap {
             env["PORT42_COMPANION_PROMPT"] = companionPrompt
         }
 
-        // Per-port claude session id (docs/plan-companion-cwd.md): a deterministic UUIDv5 of
-        // space:companion (ad-hoc terminals key on the panel id, which is `sessionId` here). The
-        // shim reads this and pins --session-id / --resume, so command companions sharing one space
-        // working dir land on DISTINCT transcripts instead of colliding on the shared cwd's.
-        env["PORT42_CLAUDE_SESSION_ID"] = ClaudeSessionId.derive(
-            spaceId: spaceId, companionId: companionId, panelId: sessionId)
-
-        // Real claude path so the shim execs it directly and can never find itself.
-        if let real = claudePath ?? ClaudeCodeSetup.findBinary("claude") {
-            env["PORT42_CLAUDE_PATH"] = real
-        }
-
         // Live-cwd tracking: the injected zshrc writes $PWD here on every cd (chpwd hook),
         // so a rebuilt terminal (app restart) reopens in the directory the user was actually
         // in — not the spawn cwd. Keyed by port id (sessionId == panelId), survives restarts.
@@ -266,44 +263,19 @@ public enum TerminalSessionBootstrap {
             env["PORT42_CWD_FILE"] = cwdFile
         }
 
-        // Intercept `claude` so it routes through the shim. Two mechanisms, because a PATH
-        // entry alone LOSES to the user's interactive shell startup re-prepending its own
-        // dirs (e.g. `.zshrc` doing `export PATH="$HOME/.local/bin:$PATH"`):
-        //   1. PRIMARY (zsh): a `claude` shell FUNCTION defined via ZDOTDIR. A shell
-        //      function always wins over PATH lookup, so it survives any PATH reordering.
-        //   2. FALLBACK (non-zsh): a `claude` symlink in a PATH-prepended dir.
-        // Both call the same shim, which injects --settings and execs the real claude.
-        var pathPrefix = ""
-        if let shimPath {
-            env["PORT42_CLAUDE_SHIM"] = shimPath
+        // EVERYTHING CLI-SPECIFIC LIVES IN THE PRODUCER. What is left above and below this call is
+        // true of any CLI: the socket, the space identity, the child's client id, the companion
+        // prompt, the cwd file, PATH. `producer` defaults to claude so existing callers are
+        // unchanged; a terminal running something with no producer simply gets no hooks, which is
+        // the right answer for `htop`.
+        let out = (producer ?? .claude).prepare(.init(
+            tempDir: tempDir, socketPath: socketPath, sessionId: sessionId, spaceId: spaceId,
+            companionId: companionId, cwd: cwd, shimPath: shimPath,
+            binaryPathOverride: claudePath, tokenOverride: oauthToken))
+        env.merge(out.env) { _, new in new }
 
-            // (2) symlink fallback
-            let link = "\(tempDir)/claude"
-            try? FileManager.default.removeItem(atPath: link)
-            do {
-                try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: shimPath)
-                pathPrefix = tempDir
-            } catch {
-                NSLog("[hooks] failed to symlink claude shim: \(error)")
-            }
-
-            // (1) zsh function via ZDOTDIR
-            if writeZshIntegration(tempDir: tempDir) {
-                env["ZDOTDIR"] = tempDir
-                env["PORT42_REAL_ZDOTDIR"] = realZdotdir(
-                    inherited: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
-            }
-        }
         let existing = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        env["PATH"] = [pathPrefix, existing, "/opt/homebrew/bin"].filter { !$0.isEmpty }.joined(separator: ":")
-
-        // CLI auth: an OAuth token from the SECRETS STORE (NOT the in-app LLM resolver, which
-        // holds an API key for a different connection). The store secret is named
-        // `claude-oauth`; its value is injected as CLAUDE_CODE_OAUTH_TOKEN (what the claude
-        // CLI reads). Absent → CLI falls back to its own login.
-        if let token = oauthToken ?? Port42AuthStore.shared.loadSecretValue(name: claudeOAuthSecretName), !token.isEmpty {
-            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-        }
+        env["PATH"] = [out.pathPrefix, existing, "/opt/homebrew/bin"].filter { !$0.isEmpty }.joined(separator: ":")
 
         return TerminalHookSession(socketPath: socketPath, tempDir: tempDir, env: env)
     }
@@ -328,7 +300,7 @@ public enum TerminalSessionBootstrap {
     /// real equivalent (from `$PORT42_REAL_ZDOTDIR`, default `$HOME`); `.zshrc` additionally
     /// defines the `claude()` interceptor. Returns false if any write fails (caller then
     /// relies on the PATH-symlink fallback). zsh-only: bash/fish ignore ZDOTDIR.
-    private static func writeZshIntegration(tempDir dir: String) -> Bool {
+    static func writeZshIntegration(tempDir dir: String) -> Bool {
         let real = "${PORT42_REAL_ZDOTDIR:-$HOME}"
         func sourceLine(_ f: String) -> String { "[ -f \"\(real)/\(f)\" ] && source \"\(real)/\(f)\"\n" }
         let zshrc =

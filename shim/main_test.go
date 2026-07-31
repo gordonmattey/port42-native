@@ -208,6 +208,85 @@ func TestBuildSettingsSessionEnd(t *testing.T) {
 	}
 }
 
+// Notification is the WAITING-FOR-YOU signal the peek feature runs on: claude raises it when a
+// tool needs permission or the prompt has gone idle. Stop cannot substitute — it fires on every
+// turn, so peeking on it would peek constantly.
+func TestBuildSettingsNotification(t *testing.T) {
+	s := buildSettings("/x/port42-claude-shim")
+	var parsed struct {
+		Hooks struct {
+			Notification []struct {
+				Hooks []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"Notification"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		t.Fatalf("settings not valid JSON: %v\n%s", err, s)
+	}
+	if len(parsed.Hooks.Notification) != 1 || len(parsed.Hooks.Notification[0].Hooks) != 1 {
+		t.Fatalf("Notification not wired: %s", s)
+	}
+	if got := parsed.Hooks.Notification[0].Hooks[0].Command; got != `'/x/port42-claude-shim' notify needsAttention` {
+		t.Fatalf("Notification command = %q", got)
+	}
+}
+
+// The reason travels with the event, so a peek can say WHAT is wanted rather than only that
+// something is.
+func TestNotifyCarriesTheAttentionReason(t *testing.T) {
+	sock := fmt.Sprintf("/tmp/p42n%d.sock", time.Now().UnixNano()%1_000_000)
+	defer os.Remove(sock)
+
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 4096)
+		n, _ := c.Read(buf)
+		got <- string(buf[:n])
+	}()
+
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+	go func() {
+		w.Write([]byte(`{"session_id":"s9","hook_event_name":"Notification",` +
+			`"message":"Claude needs your permission to use Bash"}`))
+		w.Close()
+	}()
+
+	t.Setenv("PORT42_HOOKS_SOCKET", sock)
+	runNotify("needsAttention")
+
+	select {
+	case msg := <-got:
+		var ev normalizedEvent
+		if err := json.Unmarshal([]byte(msg), &ev); err != nil {
+			t.Fatalf("bad normalized JSON: %v (%s)", err, msg)
+		}
+		if ev.Event != "needsAttention" {
+			t.Errorf("Event = %q", ev.Event)
+		}
+		if ev.Text != "Claude needs your permission to use Bash" {
+			t.Errorf("Text = %q, want the notification message", ev.Text)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no event received")
+	}
+}
+
 // notifyRoundTrip runs `runNotify` against a throwaway socket with `payload` on stdin and
 // returns the normalized event the receiver got.
 func notifyRoundTrip(t *testing.T, payload string) normalizedEvent {

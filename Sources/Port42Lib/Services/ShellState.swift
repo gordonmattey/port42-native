@@ -264,6 +264,51 @@ public final class ShellState: ObservableObject {
         peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false, title: title))
     }
 
+    /// A companion is WAITING ON YOU — it asked for a tool permission, or went idle at its prompt.
+    /// This is backlog 1.4, the waiting-for-input signal: with several sessions running you cannot
+    /// watch them all, so the one that needs you comes to you.
+    ///
+    /// **No classifier, deliberately.** The backlog sized this on separating "needs attention" from
+    /// "done, nothing wanted" by inspecting turn output. That work is unnecessary: the CLI already
+    /// draws the distinction itself and only raises this when it is blocked. `turnComplete` fires on
+    /// EVERY turn and would peek constantly.
+    ///
+    /// Same rules as `handlePortCreated`, and for the same reasons: a rested space stays silent, a
+    /// port in the space you are already looking at is visible without a peek, and one already
+    /// peeking or adopted here is not raised twice. Repeats are the norm here rather than the
+    /// exception — an unanswered permission prompt re-notifies — so the dedup is load-bearing.
+    func handleNeedsAttention(id: String, spaceId: String?, title: String, reason: String = "") {
+        guard let sid = spaceId, !isRested(sid) else { return }
+        guard sid != appState.currentSpace?.id else { return }
+        guard !peekingPorts.contains(where: { $0.id == id }), !isAdoptedHere(id) else { return }
+        peekingPorts.append(PeekPort(id: id, spaceId: sid, spaceName: spaceLabel(sid), isChat: false,
+                                     title: Self.attentionTitle(companion: title, reason: reason)))
+    }
+
+    /// What the peek SAYS. The CLI's own message is the useful half — "needs your permission to use
+    /// Bash" tells you whether to get up; the companion's name alone only tells you someone did.
+    ///
+    /// The name still leads, because with several sessions waiting the first question is WHICH one.
+    /// Claude's messages are already prefixed with "Claude " ("Claude needs your permission…"), which
+    /// reads wrong under a companion's own name, so that prefix is dropped.
+    static func attentionTitle(companion: String, reason: String) -> String {
+        // A turn's reply is the usual reason and can be paragraphs, so take the FIRST LINE and cap
+        // it. A peek is a glance, not a transcript — the port is one click away for the rest.
+        let firstLine = reason.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? ""
+        var body = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return companion }
+        // Notification messages are phrased "Claude is waiting…", which reads as the wrong agent
+        // under a companion's own name.
+        for prefix in ["Claude Code ", "Claude "] where body.hasPrefix(prefix) {
+            body = String(body.dropFirst(prefix.count))
+            break
+        }
+        if body.count > 60 {
+            body = body.prefix(60).trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return "\(companion) — \(body)"
+    }
+
     /// Rest a space (the settings card's action): delegates the state change to `AppState` and
     /// silences it IMMEDIATELY — any peek already raised from that space (chat or port) clears
     /// here, since peeks are shell state that a counts tick wouldn't re-evaluate on its own.

@@ -57,6 +57,7 @@ RUN=false
 NO_DMG=false
 DEV2=false
 DEV3=false
+DEV4=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -65,6 +66,7 @@ for arg in "$@"; do
         --no-dmg)  NO_DMG=true ;;
         --dev2)    DEV2=true ;;
         --dev3)    DEV3=true ;;
+        --dev4)    DEV4=true ;;
     esac
 done
 
@@ -80,6 +82,12 @@ elif $DEV2; then
     # Second isolated dev instance, alongside Port42Dev — for fresh-boot / onboarding tests.
     APP_DIR_NAME="Port42Dev2"; EXEC="Port42Dev2"; BUNDLE_ID="com.port42.dev2"
     DISPLAY_NAME="Port42 Dev2"; GW_PORT="4244"; DATA_DIR="Port42Dev2"; INVITE_NAME="com.port42.dev2.invite"; DEV_ISO=true
+elif $DEV4; then
+    # Fourth isolated dev instance. Added 2026-07-30 as the standing test target, so Dev/Dev2/Dev3
+    # can keep running whatever they are running (companion loops, long sessions) while changes are
+    # exercised here. Own bundle id, data dir and gateway port, like the others.
+    APP_DIR_NAME="Port42Dev4"; EXEC="Port42Dev4"; BUNDLE_ID="com.port42.dev4"
+    DISPLAY_NAME="Port42 Dev4"; GW_PORT="4246"; DATA_DIR="Port42Dev4"; INVITE_NAME="com.port42.dev4.invite"; DEV_ISO=true
 elif $DEV3; then
     # Third isolated dev instance, alongside Port42Dev/Dev2 — a free surface to test changes while
     # Dev keeps running whatever it's running (e.g. the companion loop). Own id, data dir, gateway.
