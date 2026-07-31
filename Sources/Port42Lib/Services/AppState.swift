@@ -1207,37 +1207,62 @@ public final class AppState: ObservableObject {
     /// identity does not move (`ClientRegistryTests`). A seam with one possible value is
     /// indistinguishable from a rename, so the second value has to be passed on purpose.
     func resolveGatewayCaller(credential: String?, senderId: String) throws -> (id: String, name: String) {
+        let here = Self.refusingInstanceLabel()
         guard let credential, !credential.isEmpty else {
             throw BridgeError(
                 code: .authRequired,
-                message: "This call carries no credential, so Port42 does not know who is asking. "
-                       + "Add a client in Port42 Settings → Access, then send its token as "
-                       + "`Authorization: Bearer <token>`.")
+                message: "\(here) does not know who is asking: this call carries no credential. "
+                       + "If Port42 started your session, your own token path is in "
+                       + "$PORT42_TOKEN_FILE — send `Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")`. "
+                       + "If it did not, ask the person at this machine to add a client in "
+                       + "Port42 Settings → Access. Do not use another tool's token file: the grant "
+                       + "would land on that tool, not on you.")
         }
         guard let clientId = ClientRegistry.verify(token: credential,
                                                    secret: clientRegistry.rootSecret()) else {
-            // Includes a token minted by a DIFFERENT instance, which is not an error the caller can
-            // see from the outside — so the message says so rather than leaving them re-sending a
-            // credential that is perfectly valid somewhere else.
+            // The one failure a caller CANNOT diagnose from outside: the token is real, and belongs
+            // to a different instance. Naming which instance refused is what makes it diagnosable —
+            // measured 2026-07-31 on a machine running four at once, where a session reached for
+            // prod's token file while calling Dev4 and had no way to see why it failed.
             throw BridgeError(
                 code: .authRequired,
-                message: "This credential does not verify. It may belong to a different Port42 "
-                       + "instance — each one mints its own. Add a client in Settings → Access "
-                       + "on THIS instance and use that token.")
+                message: "\(here) cannot verify this credential. Each Port42 instance mints its "
+                       + "own, so a token from another one is refused here even though it is "
+                       + "perfectly valid there. Use the token this instance issued: if Port42 "
+                       + "started your session it is at $PORT42_TOKEN_FILE, otherwise add a client "
+                       + "in Settings → Access on THIS instance.")
         }
         guard let client = clientRegistry.client(id: clientId) else {
+            // Distinct from a revoked client (below), because the repair differs: this token is
+            // almost always a LEFTOVER FILE whose row never existed or is long gone, so the fix is
+            // to stop using that file rather than to ask for it back.
             throw BridgeError(
                 code: .authRevoked,
-                message: "Client '\(clientId)' no longer exists. Add it again in Settings → Access.")
+                message: "This token verifies against \(here) but names '\(clientId)', which does "
+                       + "not exist here. It is most likely a leftover token file. Stop using it; "
+                       + "if Port42 started your session use $PORT42_TOKEN_FILE, otherwise ask for "
+                       + "a client in Settings → Access.")
         }
         guard client.isActive else {
             throw BridgeError(
                 code: .authRevoked,
-                message: "Client '\(client.name)' was revoked. Add it again in Settings → Access "
-                       + "if you want it back.")
+                message: "'\(client.name)' was revoked on \(here), so this token no longer works. "
+                       + "That was a deliberate act by the person at this machine — ask them before "
+                       + "retrying. They can restore it in Settings → Access.")
         }
         try? db.touchClient(id: clientId)
         return (clientId, client.name)
+    }
+
+    /// Which instance refused, and on which port (D1).
+    ///
+    /// **A refusal that does not say who refused is undiagnosable on this machine**, which routinely
+    /// runs prod, Dev, Dev2, Dev3 and Dev4 at once. Instances are separated by their secrets (NFR4),
+    /// so a token that is valid three ports away fails here with nothing to distinguish it from a
+    /// broken one. The caller is told the instance and the port it actually reached.
+    @MainActor
+    static func refusingInstanceLabel() -> String {
+        "Port42 instance '\(ClientRegistry.currentInstance)' (port \(GatewayProcess.shared.port))"
     }
 
     /// Revoke a client: marks the row and deletes its token file. Its GRANTS are separate and are

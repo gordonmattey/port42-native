@@ -266,8 +266,96 @@ struct ClientRegistryTests {
             Issue.record("a foreign instance's credential was accepted")
         } catch let e as BridgeError {
             #expect(e.code == BridgeErrorCode.authRequired.rawValue)
-            #expect(e.message.lowercased().contains("different port42"))
+            // Was `contains("different port42")`, pinned to a phrasing rather than to the fact. The
+            // message now names WHICH instance refused (D1), which is the part that makes this
+            // diagnosable, so the assertion moved to that.
+            #expect(e.message.contains("Port42 instance"))
+            #expect(e.message.lowercased().contains("mints its own"))
         }
+    }
+
+    // MARK: - The refusal (D)
+    //
+    // Measured 2026-07-31 on a machine running five instances at once: a session reached for prod's
+    // token file while calling Dev4, and the refusal it got could not tell it so. "Add a client in
+    // Settings → Access" is correct for a human and unusable by a process, and it never said which
+    // Settings, on which instance.
+
+    @Test("D1 · every refusal names the instance and port that refused")
+    @MainActor
+    func everyRefusalNamesWhoRefused() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        // **NOT compared against `refusingInstanceLabel()`.** The first version of this test did
+        // exactly that, and when the label was replaced with the bare word "Port42" the test still
+        // passed — both sides moved together, so it could never fail. It asserts the FACTS a caller
+        // needs instead: which instance, and which port. Fifth time in this thread that calibration
+        // caught the test rather than the code.
+        let instance = ClientRegistry.currentInstance
+        let port = String(GatewayProcess.shared.port)
+
+        var messages: [String] = []
+        func capture(_ credential: String?) {
+            do { _ = try appState.resolveGatewayCaller(credential: credential, senderId: "x") }
+            catch let e as BridgeError { messages.append(e.message) }
+            catch { Issue.record("unexpected error type") }
+        }
+        capture(nil)                                                          // no credential
+        capture(ClientRegistry.token(id: "x", secret: "another-instance"))    // foreign instance
+        capture(ClientRegistry.token(id: "ghost",                             // verifies, no row
+                                     secret: appState.clientRegistry.rootSecret()))
+
+        #expect(messages.count == 3, "all three refusal paths must produce a message")
+        for m in messages {
+            #expect(m.contains(instance), "refusal does not name the instance: \(m)")
+            #expect(m.contains(port), "refusal does not name the port it reached: \(m)")
+        }
+        // And no message may ever echo the credential itself (NFR2).
+        for m in messages { #expect(!m.contains("p42_")) }
+    }
+
+    @Test("D3 · a caller Port42 started is told how to fix it WITHOUT a human")
+    @MainActor
+    func refusalIsExecutableByAProcess() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+        do {
+            _ = try appState.resolveGatewayCaller(credential: nil, senderId: "x")
+            Issue.record("accepted")
+        } catch let e as BridgeError {
+            // The remedy a process can actually execute, rather than only the one needing a GUI.
+            #expect(e.message.contains("PORT42_TOKEN_FILE"))
+            #expect(e.message.contains("Settings → Access"), "the human route must survive too")
+            #expect(e.message.lowercased().contains("another tool's token"),
+                    "the borrow is what actually happened, so the refusal names it")
+        }
+    }
+
+    @Test("D4 · an ORPHAN token reads differently from a revoked client")
+    @MainActor
+    func orphanAndRevokedAreDistinguishable() throws {
+        let appState = AppState(db: try DatabaseService(inMemory: true))
+
+        // Orphan: verifies against this instance, names a client that has no row. Exactly the state
+        // ~/.port42/port42/tokens/claude-code was in when a session found it.
+        let orphan = ClientRegistry.token(id: "claude-code", secret: appState.clientRegistry.rootSecret())
+        var orphanMessage = ""
+        do { _ = try appState.resolveGatewayCaller(credential: orphan, senderId: "x") }
+        catch let e as BridgeError {
+            #expect(e.code == BridgeErrorCode.authRevoked.rawValue)
+            orphanMessage = e.message
+        }
+
+        // Revoked: a real client the user withdrew.
+        let token = try #require(appState.clientRegistry.register(
+            id: "old-tool", name: "Old Tool", kind: .manual))
+        appState.revokeClient(id: "old-tool")
+        var revokedMessage = ""
+        do { _ = try appState.resolveGatewayCaller(credential: token, senderId: "x") }
+        catch let e as BridgeError { revokedMessage = e.message }
+
+        // Same code, different repair: stop using a stale file, versus ask the human who withdrew it.
+        #expect(orphanMessage != revokedMessage)
+        #expect(orphanMessage.lowercased().contains("leftover"))
+        #expect(revokedMessage.lowercased().contains("ask them"))
     }
 
     @Test("a REVOKED client is refused with auth_revoked, not auth_required")

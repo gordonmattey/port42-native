@@ -164,12 +164,28 @@ because §9 concedes that any process running as the user can. It removes the RE
 path is now the documented one, and the borrow is named as a wrong answer rather than left as the
 only working example.
 
-### D · Refusal (RC4)
+### D · Refusal (RC4) — ☑ DONE 2026-07-31, all four verified live on Dev2
 
-- ☐ **D1** No credential: the message names the instance and port that refused
-- ☐ **D2** A token minted by another instance says so explicitly
-- ☐ **D3** A child caller is told to read its own token file, which it can execute
-- ☐ **D4** Orphan, revoked and unknown are distinguishable by the caller
+- ☑ **D1** Every refusal names the instance and the port that refused. **Worth its weight only on a
+  machine like this one** (GM, 2026-07-31): five instances run here, and a token valid three ports
+  away fails with nothing to distinguish it from a broken one. A user with ONE Port42 gets little
+  from this line, and the claim should not be oversold
+- ☑ **D2** A token from another instance says so, rather than reading as a broken credential
+- ☑ **D3** The remedy a PROCESS can execute comes first: read `$PORT42_TOKEN_FILE`. Settings →
+  Access survives for a caller Port42 did not start. This is the part that carries for a single
+  install, together with D4
+- ☑ **D4** Orphan and revoked used to read the same and now differ, because the repair differs:
+  "this is a leftover file, stop using it" versus "a person withdrew this, ask them"
+- ☑ **D-calibration, and it caught the TEST for the fifth time in this thread.** The first D1 gate
+  compared each message against `refusingInstanceLabel()`, the very function under test, so
+  replacing the label with the bare word "Port42" left it passing: both sides moved together. It now
+  asserts the facts a caller needs, the instance name and the port number, derived independently.
+  Broken again, it fails naming both messages and the missing port
+- ☑ **D-live** All four on Dev2 (4244). The orphan was reproduced faithfully: a token that served a
+  request seconds earlier, then refused after deleting only its row, leaving the file — the exact
+  state `~/.port42/port42/tokens/claude-code` was in. Dev2 was restored afterwards. Prod, which
+  predates this, still answers the same orphan with "Client 'claude-code' no longer exists", which
+  is what the session actually hit and reads like the user revoked something
 
 ### E · Hygiene (RC5)
 
