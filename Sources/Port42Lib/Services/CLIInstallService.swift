@@ -20,7 +20,23 @@ public final class CLIInstallService: ObservableObject {
     public static let installDirRelativeToHome = ".local/bin"
 
     /// Name of the CLI binary inside `Contents/MacOS/`.
-    public static let bundledExecutableName = "port42"
+    ///
+    /// **It is NOT `port42`, and the reason is load-bearing.** A release bundle's own executable is
+    /// `Contents/MacOS/Port42`, and macOS ships a case-INSENSITIVE filesystem, so a helper named
+    /// `port42` is the same path as the app binary and overwrites it. The bundle then carries a
+    /// valid Developer ID signature over an app whose main executable is the command line, and the
+    /// only symptom is that launching prints CLI usage. No dev instance can reproduce it, because
+    /// their executables are `Port42Dev3` and friends, which do not collide.
+    ///
+    /// So this follows the convention the other two bundled helpers already use
+    /// (`port42-gateway`, `port42-claude-shim`). The name the USER types is separate; see
+    /// `commandBaseName`.
+    public static let bundledExecutableName = "port42-cli"
+
+    /// The base of the command name installed on PATH. Deliberately distinct from
+    /// `bundledExecutableName`: what the user types is `port42`, and what sits in the bundle cannot
+    /// be, for the reason above.
+    public static let commandBaseName = "port42"
 
     @Published public var installedPath: String?
     /// True when the link is in place but `~/.local/bin` is not on PATH, so the user has a
@@ -38,12 +54,12 @@ public final class CLIInstallService: ObservableObject {
     /// The command name this instance installs. Prod is `port42`; every dev bundle gets a
     /// suffixed name so several installed instances coexist.
     public static func commandName(bundleID: String?) -> String {
-        guard let bundleID, bundleID != "com.port42.app" else { return bundledExecutableName }
+        guard let bundleID, bundleID != "com.port42.app" else { return commandBaseName }
         // com.port42.dev3 -> port42-dev3
         if let suffix = bundleID.split(separator: ".").last, suffix != "app", suffix != "port42" {
-            return "\(bundledExecutableName)-\(suffix)"
+            return "\(commandBaseName)-\(suffix)"
         }
-        return bundledExecutableName
+        return commandBaseName
     }
 
     // MARK: - Paths

@@ -24,6 +24,21 @@ struct CLIInstallServiceTests {
         #expect(CLIInstallService.commandName(bundleID: "com.port42.dev4") == "port42-dev4")
     }
 
+    @Test("The BUNDLED name never collides with an app executable, case-insensitively")
+    func bundledNameCannotOverwriteTheApp() {
+        // A release bundle's executable is `Contents/MacOS/Port42`, and macOS's filesystem is
+        // case-INSENSITIVE, so a helper named `port42` IS that path and replaces the app binary.
+        // It shipped: a validly signed bundle whose main executable printed CLI usage. Dev builds
+        // could not reproduce it, because `Port42Dev3` and friends do not collide — which is why
+        // this is pinned here rather than left to the release path to discover again.
+        let executableNames = ["Port42", "Port42Dev", "Port42Dev2", "Port42Dev3", "Port42Dev4"]
+        for exec in executableNames {
+            #expect(CLIInstallService.bundledExecutableName.lowercased() != exec.lowercased())
+        }
+        // And the name the user types is unaffected by that constraint.
+        #expect(CLIInstallService.commandName(bundleID: "com.port42.app") == "port42")
+    }
+
     // MARK: - Install planning
 
     @Test("Nothing at the path means create it")

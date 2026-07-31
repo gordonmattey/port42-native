@@ -283,9 +283,25 @@ rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/$EXEC"
-cp "$GATEWAY_BIN" "$MACOS/port42-gateway"
-cp "$SHIM_BIN" "$MACOS/port42-claude-shim"
-cp "$CLI_BIN" "$MACOS/port42"
+
+# Every bundled helper goes through this, because a helper whose name differs from the app's
+# executable ONLY BY CASE is the same file on macOS's case-insensitive filesystem, and copying it
+# silently replaces the app binary. That shipped: the CLI was bundled as `port42`, a release app is
+# `Port42`, and the result was a validly signed bundle whose main executable printed CLI usage. No
+# dev build could reproduce it ($EXEC is Port42Dev3 and friends), so only a release soak found it.
+bundle_helper() {
+    local src="$1" name="$2"
+    if [ "$(echo "$name" | tr 'A-Z' 'a-z')" = "$(echo "$EXEC" | tr 'A-Z' 'a-z')" ]; then
+        echo "[build] FATAL: helper '$name' collides with the app executable '$EXEC' on a"
+        echo "[build] case-insensitive filesystem, and would overwrite it. Rename the helper."
+        exit 1
+    fi
+    cp "$src" "$MACOS/$name"
+}
+
+bundle_helper "$GATEWAY_BIN" "port42-gateway"
+bundle_helper "$SHIM_BIN" "port42-claude-shim"
+bundle_helper "$CLI_BIN" "port42-cli"
 
 # Add rpath so the binary can find frameworks in Contents/Frameworks/
 install_name_tool -add_rpath "@loader_path/../Frameworks" "$MACOS/$EXEC" 2>/dev/null || true
