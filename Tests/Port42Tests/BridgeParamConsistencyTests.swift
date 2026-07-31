@@ -34,8 +34,17 @@ struct BridgeParamConsistencyTests {
         let paramNames: [String]
         let required: [String]
         let reads: Set<String>   // direct body reads + this function's shared-helper reads + bag subscripts
+        let refuses: Set<String> // keys read by an accessor or guard that can REFUSE (B4)
         let bag: Bool            // the body or its function's helpers consume an options bag
     }
+
+    /// B4 exemptions: a required prop validated somewhere the source scan cannot see. One entry, one
+    /// reason, and the reason has to name the thing that does the refusing.
+    static let b4Exempt: [String: Set<String>] = [
+        // `type` is pulled from the options bag and validated by PortCreateValidation.validate,
+        // which returns .error for a nil or unknown type; the body throws bad_arg on that.
+        "port.create": ["type"]
+    ]
 
     // MARK: source-scan helpers
 
@@ -58,6 +67,32 @@ struct BridgeParamConsistencyTests {
 
     static func hasBag(_ s: String) -> Bool {
         s.contains("args.object(") || s.contains("args.dictionary")
+    }
+
+    /// B4 — the keys this source REFUSES on, by either of the two shapes that can fail a call:
+    ///
+    ///   1. a requiring accessor: `args.requireString("k")`, `requireInt`, `requirePresent`
+    ///   2. a guard that reads the key and throws: `guard let x = args.double("x") … else { throw … }`
+    ///
+    /// Both are legitimate. What is not legitimate is a defaulting read (`args.any("k") ?? …`,
+    /// `args.string("k") ?? ""`) of something the method's own schema calls required, which is
+    /// precisely the shape that typed `null` into GM's shell.
+    static func refusedKeys(_ s: String) -> Set<String> {
+        var out = Set(matches(#"args\.require\w+\(\s*"([^"]+)""#, in: s))
+
+        // Guard-and-throw. Scan each `guard` to its `else`, then look just past the `else` for a
+        // throw. A guard whose else does something other than throw (a return, a fallback) is NOT a
+        // refusal and is deliberately not counted.
+        let ns = s as NSString
+        for piece in s.components(separatedBy: "guard ").dropFirst() {
+            guard let elseRange = piece.range(of: "else") else { continue }
+            let condition = String(piece[piece.startIndex..<elseRange.lowerBound])
+            let after = String(piece[elseRange.upperBound...].prefix(200))
+            guard after.contains("throw") else { continue }
+            out.formUnion(matches(#"args\.\w+\(\s*"([^"]+)""#, in: condition))
+        }
+        _ = ns
+        return out
     }
 
     /// paramNames array from a `BridgeMethod(...)` / `BridgeStreamMethod(...)` declaration.
@@ -127,6 +162,7 @@ struct BridgeParamConsistencyTests {
                     paramNames: paramNames(chunk),
                     required: required(chunk),
                     reads: reads,
+                    refuses: refusedKeys(chunk).union(refusedKeys(preamble)),
                     bag: hasBag(chunk) || helperBag
                 ))
             }
@@ -179,6 +215,48 @@ struct BridgeParamConsistencyTests {
             Issue.record("\(exempt)")
         }
         let report: String = "parameter consistency violations:\n  " + violations.sorted().joined(separator: "\n  ")
+        #expect(violations.isEmpty, "\(report)")
+    }
+
+    /// **B4 — a required property must be read by something that can REFUSE** (2026-07-31).
+    ///
+    /// B1 asks whether a required prop is READ. `args.any("data")` is a read, so `port.push` passed
+    /// B1 for months while defaulting `data` to `NSNull()`, serializing it to the string "null" and
+    /// typing it at a live shell prompt, sixty times, each answering `ok:true`. Reading a required
+    /// argument is not the same as requiring it, and B1 could not tell the difference.
+    ///
+    /// The sweep that found this turned up six candidates and three real defects: `port.push`/`data`,
+    /// `space.setWorkingDirectory`/`path` (an omitted key CLEARED the directory and reported success)
+    /// and `notify.send`/`body`. The other three (`clipboard.write`, `port.move`, `port.create`) were
+    /// already guarding correctly, which is why this counts guard-and-throw as a refusal rather than
+    /// demanding one accessor spelling.
+    ///
+    /// **Why this gate rather than three fixes.** R5 makes a CAS token mandatory on every write. A
+    /// body that cannot fail on a missing required argument would not fail on a missing `expect`
+    /// token either, so this is the shape that has to be structurally impossible before the wire half
+    /// depends on it.
+    ///
+    /// CALIBRATED, per the build order's rule that a gate never broken is not known to be a gate:
+    /// reverting `port.push` to `let data = args.any("data") ?? NSNull()` fails this test by name.
+    @Test("B4: every required schema prop is read by an accessor or guard that can refuse")
+    func requiredPropsAreRefusable() throws {
+        let methods = try Self.parseMethods()
+        var violations: [String] = []
+
+        for m in methods {
+            let exempt = Self.b4Exempt[m.canonical] ?? []
+            for prop in m.required
+            where !m.refuses.contains(prop) && !exempt.contains(prop) {
+                // A prop the body never reads at all is B1's finding, not this one. B4 is about the
+                // props that ARE read, softly.
+                guard m.reads.contains(prop) else { continue }
+                violations.append("B4 \(m.canonical): required schema prop '\(prop)' is read but never "
+                                + "required — use args.require*(\"\(prop)\") or guard-and-throw "
+                                + "(refuses: \(m.refuses.sorted()))")
+            }
+        }
+
+        let report: String = "required-but-defaulted arguments:\n  " + violations.sorted().joined(separator: "\n  ")
         #expect(violations.isEmpty, "\(report)")
     }
 

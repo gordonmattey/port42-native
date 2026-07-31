@@ -69,6 +69,27 @@ public struct BridgeArgs {
         return v
     }
 
+    /// **PRESENCE, not type or emptiness** — the reader for a required argument whose value may
+    /// legitimately be anything, including an explicit JSON null.
+    ///
+    /// `port.push` declared `data` required and then wrote `args.any("data") ?? NSNull()`, so a push
+    /// naming the wrong param typed the string `null` into a live shell and answered `ok:true`
+    /// (2026-07-26). The typed readers could not express what that body needed: `requireString`
+    /// refuses a web port's perfectly good object payload, and `any` refuses nothing at all.
+    ///
+    /// The distinction this rests on is real on both surfaces. `init(positional:names:)` only assigns
+    /// keys for indices the caller supplied, so an omitted argument leaves NO key, while a JS or JSON
+    /// `null` arrives as `NSNull` under a key that IS present. Absent and null are different acts and
+    /// the caller meant different things by them.
+    public func requirePresent(_ key: String) throws -> Any {
+        guard let v = raw[key] else { throw BridgeError.missingArg(key) }
+        return v
+    }
+
+    /// Is the key present at all, whatever it holds. Companion to `requirePresent` for the bodies
+    /// that branch rather than throw.
+    public func has(_ key: String) -> Bool { raw[key] != nil }
+
     public func requireInt(_ key: String) throws -> Int {
         guard let v = int(key) else { throw BridgeError.missingArg(key) }
         return v

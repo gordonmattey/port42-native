@@ -367,7 +367,7 @@ Generated from the live method registry: every entry below is served exactly as 
         payload: Any JSON value (object/array/string/number) delivered as the Notify envelope's payload.
   port.push(id, data, token)
       Send input to a port — one verb, dispatched by the port's type. A WEB port receives the data as a 'port42:data' CustomEvent with the payload in event.detail. A TERMINAL port receives the data as raw keystrokes typed into the shell: end with a newline (e.g. "ls\n") to run the command, or omit it to leave the line waiting unsubmitted. Use the id from ports_list. Prefer this over port_exec for data transfer.
-        data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute).
+        data (required): For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \n to execute). Required — omitting it is refused with missing_arg rather than sent as nothing, and a terminal refuses an explicit null because there is no keystroke for null.
         id (string, required): The port's UDID (from ports_list), or a terminal's name.
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
   port.rename(id, title, token)
@@ -455,8 +455,8 @@ Generated from the live method registry: every entry below is served exactly as 
   space.list()
       List all spaces the user belongs to
   space.setWorkingDirectory(space_id, path)
-      Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Empty path clears it (falls back to home). Defaults to the current space.
-        path (string, required): Absolute directory path. Empty clears the setting.
+      Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Clearing falls back to home, and is a deliberate act: send path as null (or an empty string). OMITTING path is an error, not a clear. Defaults to the current space.
+        path (required): Absolute directory path. Send null or "" to clear it and fall back to home. Required: omitting it is refused with missing_arg, so a malformed call cannot silently clear the setting.
         space_id (string): Space id (default: current space).
   space.switchTo(space_id)
       Switch the app's current space by id.

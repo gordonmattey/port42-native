@@ -237,12 +237,20 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID (from ports_list), or a terminal's name."],
-                "data": ["description": "For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."]
+                "data": ["description": "For web ports: any JSON value (object/array/string/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute). Required — omitting it is refused with missing_arg rather than sent as nothing, and a terminal refuses an explicit null because there is no keystroke for null."]
             ],
             "required": ["id", "data"]
         ]) { _, args in
         let id = try args.requireString("id")
-        let data = args.any("data") ?? NSNull()
+        // REQUIRED MEANS REFUSED (2026-07-31). This was `args.any("data") ?? NSNull()` while the
+        // schema above declared `data` required, so a push naming the wrong param (`text`) serialized
+        // NSNull to the string "null" at :264 and TYPED IT AT A LIVE PROMPT, sixty times, each
+        // answering ok:true. A terminal is a shell; a malformed call became text.
+        //
+        // Presence, not type: a web port's payload is legitimately any JSON value, and "" is a real
+        // thing to send. Checked BEFORE the target is resolved, so a caller who got the argument
+        // wrong is told THAT, rather than being sent to look for a port that was never the problem.
+        let data = try args.requirePresent("data")
         // Phase L0: one resolver for the target (docs/plan-port42-protocol-local-bus.md). The PortRef
         // carries the full identity, so each branch uses the key its accessor keys on (terminal id /
         // webViews-key / inline messageId). Terminal-wins precedence lives in PortResolution now, not here.
@@ -251,6 +259,18 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             throw BridgeError.notFound("port '\(id)'")
         }
         NSLog("[Port42][portdrive] push id=%@ → %@ space=%@", id, ref.kind.rawValue, appState.currentSpace?.name ?? "?")
+        // A TERMINAL TAKES KEYSTROKES, and there is no keystroke for null. Presence alone closes the
+        // reported bug (an omitted `data` can no longer reach the prompt), but `{"data": null}` would
+        // still serialize to the string "null" at the branch below and type it. Refused here rather
+        // than in the branch so a rejected push publishes NOTHING: the republish below is what an
+        // observer watches to see how a port is being driven, and an event for input that never
+        // landed is the same lie in a quieter place. A web port is untouched — `event.detail = null`
+        // is legitimate JSON, and only the shell has a prompt to corrupt.
+        if ref.kind == .terminal, data is NSNull {
+            throw BridgeError(code: .badArg,
+                              message: "port.push to a terminal needs keystrokes, and `data` was null. "
+                                     + "Send a string (end it with \\n to run it).")
+        }
         // Phase L1: republish the delivered input on the port's Notify topic (a cheap no-op when nobody
         // subscribes), so an observer can watch what a port is being driven with.
         appState.notifyBus.publish(topic: PortNotify.topic(forPortKey: ref.key ?? id),
@@ -528,7 +548,10 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             "required": ["title", "body"]
         ]) { _, args in
         let title = try args.requireString("title")
-        let body = args.string("body") ?? ""
+        // Was `?? ""` while the schema declared it required, so a caller who misnamed the key got a
+        // titled notification with nothing in it and no way to tell. Same class as port.push, lower
+        // stakes, and it also reached UNUserNotificationCenter before anything could refuse it.
+        let body = try args.requireString("body")
         return .fromJSONObject(await notifications.send(title: title, body: body, opts: args.object("options")))
     }
 
@@ -1215,17 +1238,33 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
     }
 
     r["space.setWorkingDirectory"] = BridgeMethod(permission: nil, paramNames: ["space_id", "path"], toolExposed: false,
-        description: "Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Empty path clears it (falls back to home). Defaults to the current space.",
+        description: "Set (or clear) a space's working directory. Command companions spawned in the space default their cwd here so they share one workspace; each still gets its own claude session. Clearing falls back to home, and is a deliberate act: send path as null (or an empty string). OMITTING path is an error, not a clear. Defaults to the current space.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "space_id": ["type": "string", "description": "Space id (default: current space)."],
-                "path": ["type": "string", "description": "Absolute directory path. Empty clears the setting."]
+                "path": ["description": "Absolute directory path. Send null or \"\" to clear it and fall back to home. Required: omitting it is refused with missing_arg, so a malformed call cannot silently clear the setting."]
             ],
             "required": ["path"]
         ]) { p, args in
         let id = args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
-        let path = args.string("path")
+        // PRESENCE DECIDES (GM option B, 2026-07-31). This was `args.string("path")`, which yields nil
+        // for an omitted key exactly as it does for an explicit null — so a call that simply forgot
+        // the argument CLEARED the space's working directory and answered `{"ok": true}`, and every
+        // terminal created there afterwards silently fell back to home.
+        //
+        // Clearing stays reachable, because the UI has always had two acts ("Choose…" and "Clear (use
+        // home)") and the API must be able to express both. It now costs a deliberate null instead of
+        // an omission. Anything else present but not a string is a caller error, not a clear.
+        let rawPath = try args.requirePresent("path")
+        let path: String?
+        if rawPath is NSNull {
+            path = nil
+        } else if let s = rawPath as? String {
+            path = s          // "" still folds to nil via Space.normalizeWorkingDirectory, as before
+        } else {
+            throw BridgeError.badArg("path must be a string, or null to clear the working directory")
+        }
         guard appState.setSpaceWorkingDirectory(path, spaceId: id) else {
             throw BridgeError.notFound("space '\(id)'")
         }

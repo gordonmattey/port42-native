@@ -791,7 +791,7 @@
     "input_schema" : {
       "properties" : {
         "data" : {
-          "description" : "For web ports: any JSON value (object\/array\/string\/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."
+          "description" : "For web ports: any JSON value (object\/array\/string\/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute). Required — omitting it is refused with missing_arg rather than sent as nothing, and a terminal refuses an explicit null because there is no keystroke for null."
         },
         "id" : {
           "description" : "The port's UDID (from ports_list), or a terminal's name.",

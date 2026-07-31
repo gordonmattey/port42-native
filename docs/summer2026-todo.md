@@ -848,7 +848,44 @@ terminal port. Same delivery route, so expected, but not measured.
 
 ---
 
-## TODO (2026-07-26): `port.push` with a missing `data` types the string `null` into a live shell
+## ~~TODO (2026-07-26): `port.push` with a missing `data` types the string `null` into a live shell~~ — FIXED 2026-07-31, with the class and a gate
+
+**FIXED (2026-07-31).** `args.requirePresent("data")`, checked BEFORE the target is resolved, so a
+caller who got the argument wrong is told that rather than sent to look for a port that was never the
+problem. Presence, not type or emptiness: `""` is a legitimate payload and a web port's payload is
+legitimately any JSON value. A terminal additionally refuses an explicit `null`, because there is no
+keystroke for null, and it refuses it before the Notify republish so a rejected push publishes nothing.
+
+**The sweep the fix asked for was run, and found two more.** Six methods declared a property required
+and read it with an accessor that could not refuse. Three were real:
+
+| method | prop | what a malformed call did |
+|---|---|---|
+| `port.push` | `data` | typed the string `null` at a live prompt, `ok:true` |
+| `space.setWorkingDirectory` | `path` | **CLEARED the space's working directory**, `ok:true`, and every terminal created there afterwards fell back to home |
+| `notify.send` | `body` | sent a titled notification with nothing in it |
+
+Three were false positives, already guarding correctly: `clipboard.write`, `port.move`, and
+`port.create` (validated by `PortCreateValidation`).
+
+**`setWorkingDirectory` took GM option B (2026-07-31): one verb, and presence decides.** Clearing
+stays reachable over the API, because the UI has always had two acts ("Choose…" and "Clear (use
+home)"), but it now costs a deliberate `null` instead of an omission. Anything present that is not a
+string is `bad_arg`, not a clear.
+
+**The gate is B4 in `BridgeParamConsistencyTests`.** B1 asked whether a required prop is READ, and
+`args.any("data")` is a read, which is exactly why this survived months of a green suite. B4 asks
+whether it is read by something that can REFUSE (a `require*` accessor, or a guard that throws), with
+one documented exemption for `port.create`. CALIBRATED: reverting push to `args.any("data") ?? NSNull()`
+fails it by method and property name.
+
+Tests: `BridgeRequiredArgTests` (9), which invoke `method.run` directly, because the dispatcher checks
+liveness before the body and a headless push would otherwise be refused with `no_surface` before
+argument validation was ever reached, passing against a body that still defaulted.
+
+---
+
+## TODO (historical, 2026-07-26): `port.push` with a missing `data` types the string `null` into a live shell
 
 **Found by accident** while testing R1: a push sent with the wrong param name (`text`, not `data`)
 returned `{"ok":true}` sixty times and typed `null` into GM's terminal each time. GM saw
@@ -1248,7 +1285,17 @@ one headlessly for a background task, which the `companions.invoke` thread would
 
 ---
 
-## BUG (2026-07-29): `port.push` returns `ok:true` to a port whose PTY is dead
+## ~~BUG (2026-07-29): `port.push` returns `ok:true` to a port whose PTY is dead~~ — FIXED (doc was stale, confirmed 2026-07-31)
+
+**Already fixed when re-read on 2026-07-31.** `needsLiveSurface: true` is declared on `port.push`,
+`port.exec` and `port.move`, and `BridgeDispatcher.applyWriteSideEffects` checks liveness FIRST, before
+CAS and before the token bump, exactly as the fix below prescribed. `canDeliver` covers terminal, web
+and browser. `PortLiveSurfaceTests` pins both the declarations and the ordering. The section below is
+kept for the reasoning, not as open work.
+
+---
+
+## BUG (historical, 2026-07-29): `port.push` returns `ok:true` to a port whose PTY is dead
 
 **Symptom.** Four pushes to terminal port `97279FD8` on Dev3 each returned `{"ok":true}` and
 advanced the activity token (`:0` → `:1` → `:3` → `:5` → `:8`). Nothing executed;
