@@ -116,8 +116,19 @@ public enum PortResolution {
                                terminals: [(id: String, name: String)],
                                panels: [PortCandidate],
                                inlineMessageIds: Set<String>,
-                               dbHas: (String) -> Bool) -> PortRef? {
+                               dbHas: (String) -> Bool,
+                               localPeerID: String? = nil) -> PortRef? {
         let addr = PortAddress.parse(idOrAddress) ?? PortAddress(spaceId: nil, portId: idOrAddress)
+
+        // AN ADDRESS NAMING ANOTHER INSTANCE IS NOT A PORT HERE (step 1). This resolver's whole job
+        // is to find a port on THIS machine, and a remote port is not on it. Without this,
+        // `port42://<someone-else>/space/S/<udid>` would fall through to the local tables and match
+        // OUR port of the same id, so a caller would silently drive the wrong machine.
+        //
+        // `localPeerID` is nil until step 2 derives one, which makes every peer-qualified address
+        // unresolvable today. That is the honest answer: the wire arrives at step 3.
+        if let peer = addr.peerID, peer != localPeerID { return nil }
+
         let needle = addr.portId
         let space = addr.spaceId
 
