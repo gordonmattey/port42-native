@@ -226,10 +226,17 @@ still-running binary. The wait loop runs BEFORE `kill -9`, and after it there is
 `sleep 0.3`. Then `rm -rf "$APP"` runs unchecked, so a partial removal leaves a half-deleted bundle
 and the next `mkdir`/`cp` fails inside it.
 
-- ☐ **H1** Wait until the process is really gone, after the SIGKILL, rather than sleeping a guess
-- ☐ **H2** Verify `rm -rf "$APP"` emptied the path and abort loudly if not. **This is the one that
-  matters**: the project's own rule is that a build reporting a copy or signing failure produces a
-  bundle that runs and lies, which is what cost real time in the dreamscape hunt (§10b)
+- ☑ **H1** DONE. The wait now runs after `kill -9`, polling until the process is really gone, and
+  gives up loudly after 10s rather than proceeding. It was a guess (`sleep 0.3`) in the one place
+  where the answer is knowable
+- ☑ **H2** DONE. `rm -rf "$APP"` is checked, and a bundle that would not go aborts the build naming
+  the cause. **This is the one that matters**: the project's own rule is that a build reporting a
+  copy or signing failure produces a bundle that runs and lies, and every symptom used to appear one
+  step later, inside a bundle half old and half new
+- ☑ **H-calibration** A bundle made un-removable (`chflags uchg`) produces the FATAL message and
+  exit 1; a normal one passes through
+- ☑ **H-live** A Dev3 build against a RUNNING Dev3, which is the exact condition that failed three
+  times today, succeeded first time with no retry
 
 ### F · A dev instance inherits the launching terminal's identity
 
