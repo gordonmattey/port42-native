@@ -1505,11 +1505,15 @@ here the substrate is the existing bridge + libp2p.)
 | **Actor (A)** | ✅ **2026-07-30 (code; live matrix owed).** a call with no verified credential is refused on BOTH doors, and there is only one function that can form a caller identity; a caller cannot name itself; `local-http` is gone as an identity, surviving only as a routing address | a caller still picks its own identity on either door |
 | **Object (A)** | ✅ **2026-07-29.** every grant names the port it is about; port 0 exists; the 144 objectless grants were reaped, so none survives to be inherited | a grant still names a grantee and a space and no object |
 | **Legibility (A)** | ✅ **2026-07-29.** every grant is visible and revocable in one screen, grouped by grantee, per capability; a zone whose space is gone says so | a grant is still invisible after the moment it is given |
-| **Address** | `port42://<peerID>/…` reaches the remote port; the same verb path works local and remote | remote needs a different API than local |
-| **Query in** | B's `patch`/`getHtml` executes on A's port via A's existing bridge | remote writes bypass A's local bridge/authority |
-| **Stream out** | ✅ **locally, 2026-07-30.** a subscriber outside the app receives every event as a `stream` frame carrying the port's token, so it can write next with no extra read. Live-verified over the WS door. The wire half adds a transport, not a mechanism | B must poll; or fan-out needs bespoke per-subscriber code |
-| **Right-of-way** | a write composed against stale state is REFUSED with `current`, and one retry lands; presence names whoever wrote last, on both ends; no double-apply under contention | a stale write is applied and A's state diverges from B's view; or a caller is blocked outright, which is the lease failure again |
-| **Traversal (B)** | direct connection via DCUtR where NAT allows, clean relay fallback otherwise; success rate recorded | connection only works same-LAN; or fails silently behind NAT |
+| **Address (B)** | `port42://<peerID>/…` reaches the remote port; the same verb path works local and remote | remote needs a different API than local |
+| **Query in (B)** | B's `patch`/`getHtml` executes on A's port via A's existing bridge | remote writes bypass A's local bridge/authority |
+| **Stream out (A local, B wire)** | ✅ **locally, 2026-07-30.** a subscriber outside the app receives every event as a `stream` frame carrying the port's token, so it can write next with no extra read. Live-verified over the WS door. The wire half adds a transport, not a mechanism | B must poll; or fan-out needs bespoke per-subscriber code |
+| **Right-of-way (B)** | a write composed against stale state is REFUSED with `current`, and one retry lands; presence names whoever wrote last, on both ends; no double-apply under contention | a stale write is applied and A's state diverges from B's view; or a caller is blocked outright, which is the lease failure again |
+| **Traversal (C)** | direct connection via DCUtR where NAT allows, clean relay fallback otherwise; success rate recorded | connection only works same-LAN; or fails silently behind NAT |
+
+**The milestone tag was wrong on one row and is corrected here (2026-07-30).** Traversal read `(B)`
+while the milestone list gives B the contract and C the traversal, and the slice-level acceptance
+below is a C run. B's exit criteria are the four rows tagged `(B)`, on one LAN.
 
 **Slice-level acceptance:** on two instances across two networks — B addresses A's port, reads its
 state and token, patches it carrying that token, both UIs converge on the new state and show B as the
@@ -1520,6 +1524,235 @@ local.
 **The measured number (the falsifier):** hole-punch **direct-connection success rate** across ≥4 real
 network settings (home, café, corporate, tethered mobile). ≥~80% direct + clean relay fallback →
 p2p-as-sovereignty is viable. Mostly-relayed → the moat thins; know it now, not later.
+
+---
+
+## Milestone B · implementation scope, derived from the acceptance rows (2026-07-30)
+
+*Written after the milestone A audit. The local half had three things this half did not: a build
+order where every step leaves the app shippable (§10), a live matrix per door and per caller (§11),
+and a gate calibrated by breaking it. Milestone A's quality came from those rather than from the
+design, so B gets the same three before it gets code.*
+
+### What B must deliver, and nothing more
+
+Four acceptance rows: **Address**, **Query in**, **Stream out over the wire**, **Right-of-way**. On
+one LAN, two machines, mDNS. Traversal, the hole-punch rate and the cross-network run are milestone C
+and are not evidence for B.
+
+### What B inherits, so it is not rebuilt
+
+| inherited | from | what it means for B |
+|---|---|---|
+| the TOKEN, `<epoch>:<seq>`, CAS, peer- and epoch-qualified | A | right-of-way is plumbing, not design. No new mechanism |
+| a stream that leaves the process, carrying the port's token | §10d | gossipsub subscribes to an exit that exists |
+| `BridgeStreamMethod.endless` | §10d | a subscription and a completion are already distinguishable, which a one-shot remote door needs |
+| typed error codes on both sides of the transport | §10e | a remote caller meets a code it can branch on, at the layer it meets first |
+| the object slot, peer-qualifiable (`PortObject.remotePort`) | §10a | "peer B may act on my port 0" is expressible with no new concept |
+| one function that forms a caller identity (`resolveGatewayCaller`) | §10a5 | there is exactly one place the second verifier can land |
+
+### The three things that are NOT inherited, and they set the step order
+
+1. **`PortAddress` has no instance segment.** Part 0 ticks ADDRESS on the strength of `PortObject`,
+   which is peer-qualified, and `PortObject` is the GRANT object. The resolver's grammar is a
+   different type: `PortAddress.parse` requires exactly two path segments and returns nil for a
+   third, and `canonical` renders the local form only. Small delta, wrongly ticked.
+2. **A peer has no enrolment act.** FR5 killed pairing, and a remote peer is precisely the caller
+   nobody installs, so CR3's fallback is add-by-hand, which is a poor first run for the thing the
+   slice exists to show. See the decision below.
+3. **A peer identity is authenticated in the GATEWAY.** libp2p proves the peer cryptographically, and
+   the app is the only verifier. If the PeerID reaches the app as a plain envelope field, the
+   transport is deciding identity again, which is the exact conflation §2 records as the root cause.
+   Spike E is the test of it.
+
+### Step 0 · two spikes, before any code
+
+Both are gates on the design, in the discipline of §12: measure first, calibrate by breaking.
+
+**Spike E · the peer principal seam.** Two gateways on one machine, a stub stream standing in for
+libp2p. Prove a call arriving from an authenticated peer produces a `Principal` in the app WITHOUT the
+app trusting an unverified gateway-supplied field, and that its grants key on `<peerID>/0`. Calibrate
+by forging the peer field from a hand-launched gateway holding no host credential and watching it be
+refused. **Falsifier:** if the only available path is "believe the field", D0's last invariant breaks
+and the seam is redesigned before libp2p is in the build rather than after.
+
+**Spike F · go-libp2p inside the shipped bundle.** Not whether go-libp2p works. What it costs in a
+signed, hardened-runtime, notarized `port42-gateway`: binary size delta, launch time, idle CPU, and
+whether the macOS local network privacy prompt fires for mDNS, what it names, and whether it survives
+notarization. **Falsifier:** the local-network prompt blocks or confuses discovery in a release build,
+or idle cost regresses, either of which changes B's shape before a line of contract code.
+
+Spike E can change the design. Spike F can change the milestone.
+
+### Step 0 as run (2026-07-30). BOTH SPIKES GREEN, neither falsifier triggered
+
+**Spike F · go-libp2p in the gateway.** `go-libp2p v0.49.0` and `go-libp2p-pubsub v0.17.0`, linked
+into a copy of the REAL gateway sources and reachable from `main` so the linker cannot drop them.
+
+| measured | baseline | with libp2p |
+|---|---|---|
+| gateway binary | 14,779,986 bytes | 36,950,610 bytes (**+22.2 MB, 2.5x**) |
+| host start | n/a | 4 to 5 ms |
+| idle CPU, no peers | n/a | 0.06 s CPU over 30 s wall, about 0.2% |
+| mDNS discovery | n/a | 4.0 s with both hosts starting together; 2 ms to 668 ms when one was already advertising |
+| connect | n/a | 34 to 39 ms |
+| `/port42/uerp/1.0.0` round trip | n/a | 291 to 466 µs |
+| gossipsub | n/a | every message delivered, both directions, at a 2 s cadence |
+
+**The size is the only real cost, and it is a decision rather than a blocker.** It lands in the app
+bundle and in the LFS-tracked DMG. Launch time and idle CPU are noise, which matters given the
+dreamscape idle-burn history.
+
+**The identity question is answered, and it settles the keypair count.**
+`crypto.ECDSAKeyPairFromKey` accepts a P-256 key, which is the curve `AppUser` already uses for the
+signing key. The PeerID derived from a stored key file was byte-identical across separate launches,
+and a second key file produced a different one. **So the PeerID rides the identity Port42 already
+holds. It is not a fourth keypair**, and `summer2026-todo.md:1024`'s "three keypairs for one job"
+does not become four.
+
+**DERIVED, not handed over** (GM, 2026-07-30). The spike proved the raw P-256 key works, and using it
+directly would mean handing the user's long-lived SIGNING identity to the gateway process. D2's
+argument for keeping the root secret in the app applies with more force here: the host secret is safe
+to hand over because it is per-spawn and worthless afterwards, and an identity key is neither. So the
+libp2p key is an Ed25519 seed from a domain-separated HKDF over the identity key
+(`info = "port42-libp2p-identity-v1"`), and only that derived key crosses to the gateway. The PeerID
+is still your identity, stable and reproducible; the signing key stays in one process; and the
+libp2p key can be rotated on its own. Ed25519 rather than P-256 because libp2p handles it natively
+and the PeerIDs are compact.
+
+**Two properties this makes into requirements rather than luck.** `AppUser.id` is a fresh UUID per
+install (`AppUser.swift:50`), so the key is per-INSTALL, which is what a PeerID needs. It is named
+and described as the USER identity, the person. **If remote identity ever converges one person across
+two Macs onto one key, both machines derive the same PeerID and addressing breaks outright**, so the
+derivation must stay per-instance even where the person is not. Second, the grant key carries
+`<peerID>` and grants are permanent, so **a rotation orphans every peer grant**, which is the 135
+dead grants with a new cause. Neither bites today: there is one creation site (`SetupView.swift:939`)
+and nothing deletes the key.
+
+**The hardened runtime does not block any of it.** The harness was wrapped in a minimal app bundle
+(`com.port42.spike`), signed with the Developer ID certificate and `--options runtime`, and
+discovery, the UERP stream and gossipsub all worked from inside it.
+
+**One part of F is NOT closed, and it is narrow.** This machine is macOS 15.6.1, where local network
+privacy is live, and `Info.plist` carries neither `NSLocalNetworkUsageDescription` nor
+`NSBonjourServices`. The probe was launched from Terminal, so responsibility attributes to Terminal
+rather than to a Port42 bundle, which means the case that matters (Port42.app spawns a gateway that
+sends multicast) is still unmeasured. Two consequences: the Info.plist keys are a required addition,
+and the prompt is a live check at step 3, on the machine pair, not before.
+
+**Spike E · the peer principal seam. D0's invariant survives, using only mechanisms that exist at
+HEAD.** Two factors, both verified by the APP:
+
+1. **The credential**, verified against the ROOT secret. This is `ClientRegistry.verify` unchanged,
+   and it is what makes a peer a client like any other (kind `peer`).
+2. **An attestation of the libp2p peer identity**, produced by A's own gateway with the HOST secret
+   the app minted for that spawn and handed over on stdin, and verified by the app with the same
+   secret. It MACs `<peerID>|<clientID>`, so it binds the peer to the client rather than naming a
+   caller on its own. A hand-launched relay holds no host secret and cannot produce one at all.
+
+Nine cases pass, and the ones that matter are the refusals: a peer id asserted with no attestation,
+an attestation minted with a secret this app never issued, a valid attestation replayed onto a
+different claimed peer, peer B's credential presented over peer C's connection, and a revoked peer
+that attests correctly. Local clients are untouched and cannot acquire a peer object by claiming one.
+
+**Calibrated by breaking each gate on both sides, which is what shows they do different jobs.**
+Removing the attestation check lets the "believe the field" case through, so that gate is what
+catches a gateway naming a peer it never authenticated. Removing the client row's peer comparison
+lets a stolen peer token replayed from another peer through, so that gate is what catches theft.
+Two gates, two failures, neither redundant.
+
+**The first calibration attempt was wrong, and it is the same lesson as §10a2 and §10a4.** It broke
+the attestation PRODUCER and left the verifier intact, so all it proved was that two constructions
+disagreed. **A gate broken on one side only is not calibrated.**
+
+**The residual, stated rather than buried:** the app trusts its own gateway's word about which peer
+the libp2p handshake authenticated. That exact trust already exists for `is_host`, it is bounded by a
+secret that is per-spawn and written nowhere, and removing it would mean moving the transport into
+the app. What the spike rules out is the app trusting an UNVERIFIED field, which is the thing §2
+names as the root cause.
+
+**Consequence for the build order:** step 3 gains the attestation, and no step gains a new secret.
+
+### Build order, each step shippable, each step naming its own live check
+
+| # | step | live check that closes it |
+|---|---|---|
+| 1 | **The address gains its instance segment.** `PortAddress` parses and renders `port42://<peerID>/space/<id>/<portId>`; the local two-segment form is unchanged and still round-trips; an address carrying THIS instance's own peerID resolves locally. A tree-wide gate: no site builds a port address by hand, the same rule `PortNotify.topic` already carries | ⌘K, `port.subscribe` and the resolver behave identically on Dev3 with a peer-qualified self-address |
+| 2 | **The peer identity is DERIVED, and a peer is a grantee kind.** The libp2p key is an Ed25519 seed from a domain-separated HKDF over the existing `AppUser` P-256 key (`info = "port42-libp2p-identity-v1"`), and only the DERIVED key reaches the gateway. `clients.kind` gains `peer`. Enrolment by the act decided below. Nothing connects yet | two instances hold each other's peer rows; the PeerID is unchanged across an app restart on both machines, and BOTH sides keep their grants |
+| 3 | **The transport.** go-libp2p host in the gateway, mDNS discovery, a `/port42/uerp/1.0.0` stream. A remote call arrives as a `call` envelope carrying an ATTESTED peer identity in the shape spike E validated, and is refused if that peer is not enrolled | B's `space.current` against A is refused as unenrolled, then served after enrolment; a forged peer identity is refused; a revoked peer is refused on its next call with no restart |
+| 4 | **Query in.** B addresses A's port and executes `getHtml` / `patch` / `push` through A's existing local bridge. The permission-at-a-distance behavior is decided and built here (see the assumption below) | per direction and per caller: the matrix under "Verification" |
+| 5 | **Stream out over the wire.** A gossipsub topic per port, publishing the `PortNotify` that already exists. Gap detection off the monotonic token, resync via `getHtml` | B renders A's port live; B's subscriber is killed and restarted and resyncs with no manual step; a dropped delta is detected rather than silently missed |
+| 6 | **Right-of-way over the wire.** Nothing new to build if the token holds. A stale write refused with `current`, one retry lands, the driver chip names the far end on both machines | the slice-level acceptance run, minus traversal, on the LAN |
+
+**If you want to ship less:** steps 1 and 2 are coherent alone and add no network surface. They are the
+two rows Part 0 got wrong, fixed, with nothing connected.
+
+### Verification · the §11 equivalent for the wire
+
+Live, per direction and per instance, rather than once. Same reason as §11: the failure mode this
+scope is built on is a fix verified on one path and assumed to hold on the others.
+
+| | A → B | B → A |
+|---|---|---|
+| an enrolled peer | query, patch, subscribe | query, patch, subscribe |
+| a peer that was never enrolled | refused, naming the fix | refused, naming the fix |
+| a peer revoked mid-session | refused on the next call, no restart either side | same |
+| a forged peer identity | refused | refused |
+| a local caller, unchanged | `window.port42`, the CLI and a companion terminal all behave as before | same |
+
+Plus, per lifecycle: the far app restarts, the far gateway restarts, the peer vanishes mid-stream, and
+both machines sleep and wake. Each of these either resyncs or refuses with a code, and never hangs.
+
+### Decided
+
+**The transport is libp2p** (GM, 2026-07-30). Nostr was weighed and set aside for this slice: it is
+client-to-relay over WebSocket with no direct peer connection, so it concedes the thing milestone C
+exists to measure. Its relay-based group model (NIP-29) is a real answer for TEAMS, which this slice
+does not touch, and it stays on the table for that. **The key approach is settled by spike F**: the
+libp2p PeerID is derived from the P-256 identity Port42 already holds, so the count stays at three
+keypairs rather than four, and it is DERIVED from that identity by HKDF rather than handed to the
+gateway, so the signing key never leaves the app.
+
+### Decisions needed from GM
+
+1. **Peer enrolment.** Recommended: a peer invite reusing `ChannelInvite.swift`, which is already a
+   named act with consent at both ends and a token that crosses machines. It keeps FR5 intact (no
+   unauthenticated verb, no pairing state machine) and gives the demo a first run better than
+   add-by-hand in Settings. The alternative is add-by-hand, which is CR3's existing fallback and
+   costs nothing to build.
+2. **The second machine.** "Done" in this thread means live-verified, and mDNS between two instances
+   on one Mac does not test milestone B. Which second Mac, and does it run a Dev3-flavored build.
+3. **Permission at a distance** (assumption 2 below), if the recommendation there is not taken.
+
+### Assumptions to validate, ranked by what they cost if wrong
+
+1. ~~**The PeerID is stable across launches.**~~ **ANSWERED by spike F, and it is now a requirement
+   rather than an assumption.** The PeerID is deterministic from the key, so stability is entirely a
+   question of persisting one. The grant key will carry `<peerID>` and grants are permanent (open
+   question 3, closed 2026-07-29), so an identity regenerated per launch silently orphans every peer
+   grant, which is the 135-dead-space-grants failure with a new cause. Nothing in the tree persists a
+   libp2p identity today. Step 2 builds it, DERIVED from the identity key that already exists rather
+   than stored as a new one, so there is nothing extra to persist and nothing extra to lose.
+2. **"A remote caller is just another origin."** A's bridge prompts a HUMAN. §10a3 measured a gateway
+   `fs.read` blocking on a prompt for 12 seconds. So B's first patch against an ungranted capability
+   blocks B until someone at A clicks, and then meets `timed_out`. Recommended: refuse fast with a
+   code that says a human at the other end must grant it, rather than block. Decided here, not
+   discovered at step 4.
+3. **"The wire half adds a transport, not a mechanism"** for Stream out. The local exit is ordered and
+   reliable; gossipsub is neither. O-4 is answered for CORRECTNESS by CAS, but delivery gaps are a new
+   question that loopback could not raise. The monotonic token gives gap detection for free and
+   `getHtml` is the resync, so the answer is probably cheap. It is still a mechanism.
+4. **"One retry lands."** True by construction against a single competing writer. Under two live
+   drivers with real LAN latency it is a claim about contention rate. Measure it at step 6, where
+   measuring is cheap, rather than assume it into milestone C.
+5. **Part 0's thesis**, that libp2p means writing a verifier and a transport and touching nothing
+   above the seam. Spike E tests it, and assumption 1 plus the address gap already show two things
+   above the seam that move.
+
+### Not in milestone B
+
+Traversal, relay, DCUtR and the hole-punch rate (C). Per-element right-of-way, agents as remote
+drivers, N>2 peers, mobile, host-offline persistence and TLS, all already out for the slice.
 
 ## What a green slice means — and doesn't
 
