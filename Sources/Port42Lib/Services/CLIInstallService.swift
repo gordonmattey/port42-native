@@ -40,8 +40,22 @@ public final class CLIInstallService: ObservableObject {
 
     @Published public var installedPath: String?
     /// True when the link is in place but `~/.local/bin` is not on PATH, so the user has a
-    /// working install they cannot invoke. Surfaced in Settings rather than failed silently.
+    /// working install they cannot invoke.
+    ///
+    /// **This used to say "surfaced in Settings rather than failed silently", and NOTHING READS
+    /// IT.** No view in the tree touches this service; its only caller is `AppState`. The property
+    /// is the data a surface would need, and the surface was never built, so the sentence described
+    /// an intention as though it were a fact.
     @Published public var notOnPath = false
+    /// Set when something the user put there already occupies the command name, so we declined to
+    /// replace it. Carries the path, because the fix is theirs to make and they need to know what is
+    /// in the way.
+    ///
+    /// **The WORSE of the two states, and the one with no surface either.** `notOnPath` means an
+    /// install you cannot invoke; this means no install at all, and since 5b it used to mean no
+    /// credential either. Today both reach the user as a line in the system log. Published so a
+    /// Settings row has something to read when one is built.
+    @Published public var blockedBy: String?
 
     private let home: String
 
@@ -126,6 +140,19 @@ public final class CLIInstallService: ObservableObject {
             return false
         }
 
+        // ENROLMENT COMES FIRST, AND IS NOT CONDITIONAL ON THE LINK.
+        //
+        // These are two jobs and they used to share one early return: a user who had their own
+        // `port42` on PATH got `.leaveForeignAlone`, which returned before ever reaching the
+        // registry, so they had no client row and therefore no token. Since 5b that is not a
+        // cosmetic loss, it is a CLI that cannot call at all.
+        //
+        // Nothing in the consent argument depends on a symlink. **Installing the app is the named
+        // act** (the block below), and that is equally true whether or not we could put a link on
+        // PATH. A user who invokes the binary by its full path, or links it themselves, is as
+        // entitled to a credential as one who let us do it.
+        enrol(registry: registry)
+
         let fm = FileManager.default
         let link = linkPath(bundleID: bundleID)
 
@@ -149,6 +176,9 @@ public final class CLIInstallService: ObservableObject {
         case .leaveForeignAlone(let what):
             NSLog("[cli-install] \(link) is not ours (\(what)); leaving it alone")
             installedPath = nil
+            // Published, so Settings can say WHAT is in the way and let the user decide. The
+            // refusal is deliberate; leaving them to find it in the system log was not.
+            blockedBy = what
             return false
         case .create:
             guard createLink(at: link, to: bundled) else { return false }
@@ -159,23 +189,35 @@ public final class CLIInstallService: ObservableObject {
         }
 
         installedPath = link
+        blockedBy = nil
 
-        // ENROL THE CLI AT INSTALL TIME (GM, 2026-07-29).
-        //
-        // The CLI posts to `/call` and, until now, carried the comment "No credential is involved:
-        // /call is loopback-only and authenticates nobody". It is not a child, so step 6's spawn-time
-        // enrolment does not reach it, and CR3's stated remedy — pairing — was dropped. Without this
-        // there is no way for it to ever hold a token, and enforcement (5b) would lock the door with
-        // nobody able to knock.
-        //
-        // **Installing is the named act.** The user is present and is deliberately putting this tool
-        // on their machine, which is the same consent argument that lets a spawned child enrol with no
-        // prompt. That also answers D14's objection to minting inside `InstructionService`: this fires
-        // on the install, not on a documentation refresh, and the doc writer keeps one job.
-        //
-        // Runs on EVERY install, including a re-point after the app moves, because minting is
-        // idempotent: the id is fixed, so it re-issues onto the same row and the same token file, and
-        // a CLI that lost its file gets it back.
+        notOnPath = !Self.pathContains(installDir, path: ProcessInfo.processInfo.environment["PATH"])
+        if notOnPath {
+            NSLog("[cli-install] installed at \(link) but \(installDir) is not on PATH")
+        }
+        return true
+    }
+
+    /// ENROL THE CLI AT INSTALL TIME (GM, 2026-07-29).
+    ///
+    /// The CLI posts to `/call` and, until now, carried the comment "No credential is involved:
+    /// /call is loopback-only and authenticates nobody". It is not a child, so step 6's spawn-time
+    /// enrolment does not reach it, and CR3's stated remedy, pairing, was dropped. Without this
+    /// there is no way for it to ever hold a token, and enforcement (5b) would lock the door with
+    /// nobody able to knock.
+    ///
+    /// **Installing is the named act.** The user is present and is deliberately putting this tool
+    /// on their machine, which is the same consent argument that lets a spawned child enrol with no
+    /// prompt. That also answers D14's objection to minting inside `InstructionService`: this fires
+    /// on the install, not on a documentation refresh, and the doc writer keeps one job.
+    ///
+    /// Runs on EVERY install, including a re-point after the app moves, because minting is
+    /// idempotent: the id is fixed, so it re-issues onto the same row and the same token file, and
+    /// a CLI that lost its file gets it back.
+    ///
+    /// Separate from the linking, and called before it, because the act that carries consent is
+    /// installing the app rather than winning a race for a name on PATH.
+    private func enrol(registry: ClientRegistry?) {
         if let registry {
             if registry.register(id: Self.clientID, name: Self.clientName, kind: .installed) != nil {
                 NSLog("[cli-install] enrolled as '\(Self.clientID)'")   // never the token (NFR2)
@@ -189,16 +231,16 @@ public final class CLIInstallService: ObservableObject {
                     .appendingPathComponent("gateway-port")
                 try? Data("\(GatewayProcess.shared.port)".utf8).write(to: portFile, options: .atomic)
             } else {
-                // Not fatal: the CLI still works, it is simply unnamed, exactly as it is today.
-                NSLog("[cli-install] WARNING: could not enrol \(Self.clientID); it will call unnamed")
+                // **THIS COMMENT USED TO SAY "not fatal: the CLI still works, it is simply unnamed,
+                // exactly as it is today", AND IT WAS TRUE WHEN WRITTEN.** Step 5b then made an
+                // unnamed caller REFUSED (`auth_required`), so a failed enrolment no longer costs
+                // the CLI its name, it costs it every call. Nothing here changed; the thing the
+                // sentence depended on did, one commit later, which is why a comment asserting
+                // another component's behavior has to be re-read whenever that component moves.
+                NSLog("[cli-install] WARNING: could not enrol \(Self.clientID); every call it makes "
+                      + "will be refused with auth_required until it is enrolled")
             }
         }
-
-        notOnPath = !Self.pathContains(installDir, path: ProcessInfo.processInfo.environment["PATH"])
-        if notOnPath {
-            NSLog("[cli-install] installed at \(link) but \(installDir) is not on PATH")
-        }
-        return true
     }
 
     private func createLink(at link: String, to destination: String) -> Bool {

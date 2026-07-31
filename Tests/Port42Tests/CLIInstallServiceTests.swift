@@ -39,6 +39,32 @@ struct CLIInstallServiceTests {
         #expect(CLIInstallService.commandName(bundleID: "com.port42.app") == "port42")
     }
 
+    @Test("enrolment is not conditional on winning the name on PATH")
+    func enrolmentIsNotCoupledToLinking() throws {
+        // Structural, because it cannot be reached behaviorally: `install()` returns at its first
+        // guard in a test process (no CLI is bundled), so no test can observe the branch. What is
+        // being pinned is an ORDER, and the regression is someone moving the enrolment back inside
+        // the switch, where it lived until it was found.
+        //
+        // The defect it guards: `.leaveForeignAlone` returned before the registry was ever
+        // consulted, so a user with their own `port42` on PATH got no client row, no token, and
+        // since 5b no ability to call at all. Two jobs sharing one early return.
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Sources/Port42Lib/Services/CLIInstallService.swift"),
+            encoding: .utf8)
+
+        let enrolCall = source.range(of: "enrol(registry: registry)")
+        let foreignBranch = source.range(of: "case .leaveForeignAlone")
+        #expect(enrolCall != nil, "install() must call enrol(registry:)")
+        #expect(foreignBranch != nil, "the foreign-link branch must still exist")
+        if let enrolCall, let foreignBranch {
+            #expect(enrolCall.lowerBound < foreignBranch.lowerBound,
+                    "enrolment must happen before the branch that can decline to link")
+        }
+    }
+
     // MARK: - Install planning
 
     @Test("Nothing at the path means create it")
