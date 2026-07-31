@@ -274,6 +274,64 @@ struct ClientRegistryTests {
         }
     }
 
+    // MARK: - Hygiene (E)
+
+    @Test("E1 · a token file naming no client is reaped; a live client's is not")
+    @MainActor
+    func orphanTokenFilesAreReaped() throws {
+        let db = try DatabaseService(inMemory: true)
+        let reg = ClientRegistry(db: db, instance: "Port42Test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        _ = reg.register(id: "live-tool", name: "Live", kind: .manual)
+        // An orphan, made the way the real ones were: a file whose row does not exist.
+        let orphan = reg.tokenDirectory().appendingPathComponent("claude-code")
+        try "p42_claude-code_whatever".write(to: orphan, atomically: true, encoding: .utf8)
+
+        let removed = reg.reapOrphanTokenFiles()
+
+        #expect(removed == ["claude-code"])
+        #expect(!FileManager.default.fileExists(atPath: orphan.path))
+        #expect(FileManager.default.fileExists(atPath: reg.tokenPath(id: "live-tool").path),
+                "a live client's credential was destroyed")
+    }
+
+    @Test("E1 · a REVOKED client's row is respected, and a row with no file is left alone")
+    @MainActor
+    func reapDoesNotTouchRowsWithoutFiles() throws {
+        let db = try DatabaseService(inMemory: true)
+        let reg = ClientRegistry(db: db, instance: "Port42Test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: reg.tokenDirectory().deletingLastPathComponent()) }
+
+        // D9: a user deleting their token file is a SUPPORTED act. The row survives so re-enrolling
+        // lands on it and keeps its grants. Dev3 holds exactly this case (`test`), and treating it
+        // as garbage would discard consent the user gave.
+        _ = reg.register(id: "hand-made", name: "Hand Made", kind: .manual)
+        try FileManager.default.removeItem(at: reg.tokenPath(id: "hand-made"))
+
+        #expect(reg.reapOrphanTokenFiles().isEmpty, "the reap must never act on a missing FILE")
+        #expect(try db.allClients().contains { $0.id == "hand-made" },
+                "the row must survive, or re-enrolling would lose its grants")
+    }
+
+    @Test("E3 · grants held by an identity that cannot exist again are gone")
+    @MainActor
+    func unreachableGrantsAreReaped() throws {
+        // `local-http` was deleted as an identity in 5b, so these can never fire. Measured on
+        // 2026-07-31: three in production, two in Dev3. The migration runs on open, so a fresh
+        // database can only demonstrate that a WRITE of one does not survive a reopen — what is
+        // asserted here is that the delete is scoped, and a live grantee's grant is untouched.
+        let db = try DatabaseService(inMemory: true)
+        try db.saveGrants([.terminal], grantee: "local-http", object: "0", zone: "")
+        try db.saveGrants([.terminal], grantee: "port42-cli", object: "0", zone: "")
+
+        try db.reapUnreachableGrants()
+
+        #expect(try db.grants(grantee: "local-http", object: "0", zone: "").isEmpty)
+        #expect(try db.grants(grantee: "port42-cli", object: "0", zone: "") == [.terminal],
+                "a live grantee's consent was destroyed")
+    }
+
     // MARK: - The refusal (D)
     //
     // Measured 2026-07-31 on a machine running five instances at once: a session reached for prod's

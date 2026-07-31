@@ -187,13 +187,49 @@ only working example.
   predates this, still answers the same orphan with "Client 'claude-code' no longer exists", which
   is what the session actually hit and reads like the user revoked something
 
-### E · Hygiene (RC5)
+### E · Hygiene (RC5) — ☑ DONE 2026-07-31, live-verified on Dev3
 
-- ☐ **E1** A token file with no client row is removed at boot
-- ☐ **E2** Revoke removes the token file, verifying BR5 actually holds rather than assuming it
-- ☐ **E3** A grant whose grantee can never exist again, like `local-http`, is reaped
-- ☐ **E4** Delete the two orphan files in prod (`claude-code`, `scripts`) once E1 exists to prevent
-  a recurrence
+**The census that shaped it** (2026-07-31, every instance). Orphan files exist only in prod:
+`claude-code` and `scripts`, the test residue. Dead grants total five, all `local-http`: three in
+prod, two in Dev3. Dev2 clean, Dev4 one live grant. **And the reverse case exists:** Dev3 has a row
+with NO file, a manual client named `test`.
+
+*The census itself was wrong on its first run and said prod had no orphans.* zsh does not word-split
+unquoted variables, so each list collapsed into one multi-line grep pattern that always matched. A
+probe that returns a reassuring answer is the dangerous kind.
+
+- ☑ **E1** Token files naming no client are reaped at boot, **after** the boot enrolments, because
+  the CLI enrols there and reaping first would delete a file about to be rewritten
+- ☑ **E1b** Only ever FILES with no row, **never rows with no file**. D9 makes deleting a token file
+  a supported act: the row survives on purpose so re-enrolling lands on it and keeps its grants.
+  Deleting the row would discard consent; re-minting the file would resurrect a credential the user
+  may have removed deliberately. Dev3's `test` is that case, working as designed
+- ☑ **E2** BR5 holds and was read rather than assumed: `revoke()` calls `db.revokeClient` then
+  `removeTokenFile`. The guess that revocation leaves files behind was wrong; those files were tests
+- ☑ **E3** `local-http` grants reaped in migration `v45`, approved by GM. **This does not reopen
+  "grants are permanent"** (open question 3): that decision is about consent and expiry, this is
+  garbage collection of a row nothing can match. Scoped to ONE grantee that provably cannot return,
+  and deliberately NOT generalized to "no client row" — a grantee may be a companion, a PORT or the
+  human, none of which are rows in `clients`, so a general sweep would delete live consent
+- ☑ **E-calibration** The reap inverted: it destroys the live client's credential and keeps the
+  orphan, and the test says exactly that
+- ☑ **E-live** Dev3, with a planted orphan: the orphan file deleted, both `local-http` grants gone,
+  `port42-cli`'s grant intact, and the `test` row untouched
+- ☐ **E4** Prod's two orphans. 0.5.52 predates E1, so they stay until prod is rebuilt or they are
+  removed by hand. GM's call, mid-soak
+
+### H · `build.sh` continues after a half-failed teardown
+
+Three failures on 2026-07-31, twice on Dev3 and once on Dev2, always right after the kill:
+`Operation not permitted` on a copy, and once `internal error in Code Signing subsystem` naming the
+still-running binary. The wait loop runs BEFORE `kill -9`, and after it there is only a flat
+`sleep 0.3`. Then `rm -rf "$APP"` runs unchecked, so a partial removal leaves a half-deleted bundle
+and the next `mkdir`/`cp` fails inside it.
+
+- ☐ **H1** Wait until the process is really gone, after the SIGKILL, rather than sleeping a guess
+- ☐ **H2** Verify `rm -rf "$APP"` emptied the path and abort loudly if not. **This is the one that
+  matters**: the project's own rule is that a build reporting a copy or signing failure produces a
+  bundle that runs and lies, which is what cost real time in the dreamscape hunt (§10b)
 
 ### F · A dev instance inherits the launching terminal's identity
 

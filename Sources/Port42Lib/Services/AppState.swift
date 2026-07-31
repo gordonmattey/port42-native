@@ -1458,6 +1458,15 @@ public final class AppState: ObservableObject {
             if !AppState.isTestProcess {
                 InstructionService.shared.refreshInstalled()
                 CLIInstallService.shared.install(registry: self.clientRegistry)
+
+                // AFTER the boot enrolments, never before (E1): the CLI enrols here, and reaping
+                // first would delete a file that is about to be rewritten. Ordering is the whole
+                // risk in this operation, so it is stated rather than implied.
+                let reaped = self.clientRegistry.reapOrphanTokenFiles()
+                if !reaped.isEmpty {
+                    NSLog("[Port42] reaped %d orphan token file(s): %@",
+                          reaped.count, reaped.joined(separator: ", "))   // names, never contents
+                }
             }
 
             // Migrate old auth format
