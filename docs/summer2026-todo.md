@@ -44,6 +44,24 @@ rendered. Measured on 2026-07-31 — a terminal port created over the API had a 
 file but no shell at all, and `ps -E` found nothing to inspect. "Headless" therefore means a real
 shell with no tile, which does not exist yet.
 
+**3. And the fuller version (GM, 2026-07-31): terminal work reaches you ONLY through the port
+interface.** A terminal is a type of port, so a terminal action should be addressed to one. That is
+the model §4 already set — one primitive, a port, and `caller → port → action → permission` with no
+exceptions — and `terminal.exec` is the exception: a shell action with no port at all.
+
+It blurs two different things, and the blur is what cost time on 2026-07-31:
+
+| | today |
+|---|---|
+| run a command on this MACHINE | `terminal.exec`, a port 0 capability. What it actually is |
+| run a command in THIS TERMINAL | what its name makes every caller assume. Does not exist |
+
+Fold them into the port interface and only the second exists, so every shell command has a port, an
+identity, a grant that names it and a revoke that bites — the same argument that made port 0 exist.
+
+**Cost, stated:** every current `terminal.exec` caller needs a port to address, and headless ports
+(item 2) have to land first.
+
 **RESCOPED 2026-07-28 (GM): gateway auth P1 is not a phase before slice-02, it is slice-02's local
 half**, and the permission manager rides with it. One slice, one document. Part 0 of that document is
 the seam list that says, per noun, what the local half must build so libp2p is an addition rather than
