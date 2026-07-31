@@ -80,12 +80,39 @@ public final class ClientRegistry {
     /// Generated lazily rather than at launch so a build that never mints one never writes to the
     /// Keychain at all.
     func rootSecret() -> String {
+        // A TEST NEVER MINTS WITH THE DAILY DRIVER'S SECRET (A2). Under a test runner the secret is
+        // per-process and in memory, so a suite run neither reads nor writes the Keychain. Before
+        // this, `AppState`'s registry resolved to the real instance and minted with prod's real root
+        // secret, which is what made the orphan token files this plan opened on.
+        if Self.isTestProcess {
+            if let cached = Self.testSecrets[instance] { return cached }
+            let fresh = Self.randomSecret()
+            Self.testSecrets[instance] = fresh
+            return fresh
+        }
         if let existing = Port42AuthStore.shared.gatewayRootSecret(instance: instance) {
             return existing
         }
         let fresh = Self.randomSecret()
         Port42AuthStore.shared.saveGatewayRootSecret(fresh, instance: instance)
         return fresh
+    }
+
+    /// Per-instance secrets for a test process. Never touched in a real build.
+    nonisolated(unsafe) private static var testSecrets: [String: String] = [:]
+
+    /// True only under a test runner, established from the runner's own signals rather than from a
+    /// build flag, because the defect this guards against reached a RELEASE user's home directory
+    /// from a debug test run. Deliberately conservative: it must never be true in a shipped app.
+    nonisolated static var isTestProcess: Bool {
+        let env = ProcessInfo.processInfo.environment
+        // Calibration only, and safe by construction: it can only turn the guard OFF, which is
+        // already a shipped app's normal state, so setting it in production changes nothing.
+        if env["PORT42_FORCE_REAL_INSTANCE_IN_TESTS"] != nil { return false }
+        if env["XCTestConfigurationFilePath"] != nil { return true }
+        let name = ProcessInfo.processInfo.processName
+        return name == "swiftpm-testing-helper" || name.hasSuffix("xctest")
+            || name.hasSuffix("PackageTests")
     }
 
     nonisolated static func randomSecret() -> String {
@@ -192,6 +219,27 @@ public final class ClientRegistry {
         slug("child-\(companionId)-\(spaceId ?? "global")")
     }
 
+    /// The id for ANY terminal Port42 spawned, companion or not (B).
+    ///
+    /// **The spawn is the named act, so being spawned is what earns an identity** — not being a
+    /// companion. §10a5 said an ad-hoc terminal gets no identity rather than sharing one, and that
+    /// is right about SHARING and wrong about nothing: a terminal Port42 opened is not a stranger,
+    /// and leaving it anonymous is what sent one looking for somebody else's token (GM, 2026-07-31).
+    /// Only a terminal outside Port42 is a stranger.
+    ///
+    /// ONE definition, called by both the registration and the environment handed to the child,
+    /// because two would mean the child looks for a token nobody wrote. A companion keeps its
+    /// derived `child-` id so a respawn keeps its grants; an ad-hoc terminal keys on the port id,
+    /// which is stable across restarts for the same reason.
+    public nonisolated static func spawnedTerminalId(companionId: String?,
+                                                     sessionId: String,
+                                                     spaceId: String?) -> String {
+        if let companionId, !companionId.isEmpty {
+            return childId(companionId: companionId, spaceId: spaceId)
+        }
+        return slug("terminal-\(sessionId)-\(spaceId ?? "global")")
+    }
+
     // MARK: - Minting
 
     /// Register a client and return its token. Re-registering an existing slug RE-ISSUES onto the
@@ -236,10 +284,25 @@ public final class ClientRegistry {
     /// a non-`@MainActor` context (`TerminalSessionBootstrap.make`). One definition, so the path the
     /// child is handed and the path the registry writes cannot drift.
     public nonisolated static func tokenDirectory(instance: String) -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        tokenRoot()
             .appendingPathComponent(".port42", isDirectory: true)
             .appendingPathComponent(instance.lowercased(), isDirectory: true)
             .appendingPathComponent("tokens", isDirectory: true)
+    }
+
+    /// Home, except under a test runner, where it is a per-process temp directory (A1).
+    ///
+    /// **The instance name is not what protects the user's directory, and assuming it was is how
+    /// this broke.** `AppState.clientRegistry` is built without an explicit instance, so it resolved
+    /// to `currentInstance`, which is `"Port42"`, which this function lowercases to `port42`, which
+    /// is the daily driver. A test that built an `AppState` then wrote real token files into a real
+    /// user's credential store. Rooting the whole path elsewhere covers every caller, including the
+    /// ones that pass no instance at all and the ones nobody has written yet.
+    nonisolated static func tokenRoot() -> URL {
+        guard isTestProcess else { return FileManager.default.homeDirectoryForCurrentUser }
+        return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("port42-tests-\(ProcessInfo.processInfo.processIdentifier)",
+                                    isDirectory: true)
     }
 
     public nonisolated static func tokenPath(id: String, instance: String) -> URL {

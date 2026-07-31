@@ -2976,11 +2976,15 @@ public final class AppState: ObservableObject {
         // process starts and looks for it. `TerminalSessionBootstrap.make` puts the id and the path
         // in its environment — never the token, since `ps -E` publishes that to every process
         // running as the user.
-        if let companionId = config.companionId {
-            clientRegistry.register(
-                id: ClientRegistry.childId(companionId: companionId, spaceId: config.spaceId),
-                name: config.companionName, kind: .child)
-        }
+        // Unconditional (B, GM 2026-07-31): being SPAWNED is what earns an identity, not being a
+        // companion. The old `if let companionId` left a whole class of terminals anonymous, and an
+        // anonymous caller that needs to call borrows a credential from whoever has one.
+        let terminalClientId = ClientRegistry.spawnedTerminalId(
+            companionId: config.companionId, sessionId: panel.id, spaceId: config.spaceId)
+        clientRegistry.register(
+            id: terminalClientId,
+            name: config.companionName.isEmpty ? "Terminal in \(config.spaceName)" : config.companionName,
+            kind: .child)
         // Inject the space-posting behaviour so the controller's gate/dedup logic stays
         // decoupled from AppState (and unit-testable).
         let post: (String) -> Void = { [weak self] content in
