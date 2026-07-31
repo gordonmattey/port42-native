@@ -77,6 +77,10 @@ struct SyncEnvelope: Codable {
     /// thing that mints one), so the format has a single implementation and cannot drift.
     var credential: String?
 
+    /// Set by the GATEWAY on the WS door only: this caller is a live peer, so mid-call `stream`
+    /// frames can reach it. Absent on `/call`, which is request/response.
+    var streamable: Bool?
+
     // RPC fields
     var method: String?
     var args: [String: JSONValue]?   // JSON object — maps directly to ToolExecutor input
@@ -110,6 +114,11 @@ struct SyncEnvelope: Codable {
         case args
         case callId = "call_id"
         case targetId = "target_id"
+        // MUST be listed. `CodingKeys` here is explicit, so a property left out of it is silently
+        // never decoded — it compiles, it runs, and the value is always nil. That is how the first
+        // build of this flag turned a WS caller into an HTTP one and refused a subscription on the
+        // door that supports it.
+        case streamable
     }
 }
 
@@ -177,7 +186,11 @@ public final class SyncService: NSObject, ObservableObject {
     /// and must never authorize, so the thing that decides WHO a caller is has to travel separately
     /// from the thing that says where to send the reply. The app verifies it — it is also the only
     /// thing that mints one — so the token format has a single implementation.
-    public var onCallReceived: (@MainActor (String, String, String, [String: Any], String?) async -> Any)?
+    /// The gateway handed us a call. The last parameter is how a STREAMING method emits before it
+    /// finishes: nil when the caller's door cannot carry mid-call frames, so the method can refuse
+    /// rather than emit into nothing.
+    public var onCallReceived: (@MainActor (String, String, String, [String: Any], String?,
+                                            (@MainActor (Any) -> Void)?) async -> Any)?
     /// Called when a response to our own call arrives
     public var onResponseReceived: ((String, Any) -> Void)?
 
@@ -730,8 +743,27 @@ public final class SyncService: NSObject, ObservableObject {
         Task { @MainActor in
             let input = envelope.argsAsAny
             let result: Any
+
+            // A streaming method emits through here, as `stream` frames carrying the same call_id.
+            // Only when the gateway said this door can carry them: on `/call` the value is nil and
+            // the method is refused up front, which is better than the old behavior of accepting a
+            // subscription and dropping every event of it.
+            var emit: (@MainActor (Any) -> Void)?
+            if envelope.streamable == true {
+                emit = { [weak self] event in
+                    guard let self else { return }
+                    var frame = SyncEnvelope(type: "stream")
+                    frame.callId = callId
+                    frame.targetId = senderId
+                    frame.payload = SyncPayload(senderName: "host", senderType: "host",
+                                                content: SyncService.jsonContent(from: event),
+                                                replyToId: nil)
+                    self.send(frame)
+                }
+            }
+
             if let handler = onCallReceived {
-                result = await handler(senderId, callId, method, input, envelope.credential)
+                result = await handler(senderId, callId, method, input, envelope.credential, emit)
             } else {
                 result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire] as [String: String]
             }
@@ -744,19 +776,24 @@ public final class SyncService: NSObject, ObservableObject {
             // Wrap result as JSON. .fragmentsAllowed: a registry method can return a bare
             // number/bool; without it JSONSerialization raises an ObjC NSException that `try?`
             // cannot catch, which wedges the main queue permanently (see PortBridge resolve).
-            let jsonContent: String
-            if let str = result as? String {
-                jsonContent = str
-            } else if let data = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]),
-                      let json = String(data: data, encoding: .utf8) {
-                jsonContent = json
-            } else {
-                jsonContent = "{\"error\":\"unserializable result\"}"
-            }
-            resp.payload = SyncPayload(senderName: "host", senderType: "host", content: jsonContent, replyToId: nil)
+            resp.payload = SyncPayload(senderName: "host", senderType: "host",
+                                       content: Self.jsonContent(from: result), replyToId: nil)
 
             send(resp)
         }
+    }
+
+    /// One encoder for a call's RESULT and for each of its stream FRAMES, so a subscriber parses
+    /// both the same way.
+    ///
+    /// `.fragmentsAllowed`: a registry method can return a bare number or bool, and without it
+    /// JSONSerialization raises an ObjC NSException that `try?` cannot catch, which wedges the main
+    /// queue permanently (see PortBridge resolve).
+    static func jsonContent(from value: Any) -> String {
+        if let str = value as? String { return str }
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+           let json = String(data: data, encoding: .utf8) { return json }
+        return "{\"error\":\"unserializable result\"}"
     }
 
     private func handleResponse(_ envelope: SyncEnvelope) {

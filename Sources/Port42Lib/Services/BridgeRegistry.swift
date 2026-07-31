@@ -184,6 +184,14 @@ public struct BridgeStreamMethod {
     /// `writesTarget` is: the two registries must not be able to disagree about what a write is.
     /// C5's lesson was that a field existing on only one of them is a divergence waiting to happen.
     public let needsLiveSurface: Bool
+    /// This method NEVER RETURNS ON ITS OWN: it runs until its task is cancelled. A subscription is
+    /// endless; a completion is not.
+    ///
+    /// The distinction is load-bearing on a one-shot transport. `ai.complete` finishes, so
+    /// collect-into-final gives an HTTP caller the whole answer. `port.subscribe` does not, so the
+    /// same treatment gave them a hang and then a timeout. Declared here rather than inferred from
+    /// the method name, so a caller-facing refusal cannot drift from what the method actually does.
+    public let endless: Bool
     /// Streams tokens via `yield`, returns the final `BridgeValue`. Throws `BridgeError`.
     public let run: @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue
 
@@ -194,6 +202,7 @@ public struct BridgeStreamMethod {
                 needsLiveSurface: Bool = false,
                 description: String = "",
                 inputSchema: [String: Any] = [:],
+                endless: Bool = false,
                 run: @escaping @MainActor (Principal, BridgeArgs, _ yield: @escaping @MainActor (String) -> Void) async throws -> BridgeValue) {
         self.permission = permission
         self.paramNames = paramNames
@@ -202,6 +211,7 @@ public struct BridgeStreamMethod {
         self.needsLiveSurface = needsLiveSurface
         self.description = description
         self.inputSchema = inputSchema
+        self.endless = endless
         self.run = run
     }
 
@@ -237,7 +247,11 @@ public struct BridgeStreamMethod {
                                   // fixed at the same time rather than waiting for the streaming
                                   // path to grow its first write verb and inherit the bug.
                                   needsLiveSurface: needsLiveSurface,
-                                  description: description, inputSchema: schema, run: run)
+                                  // Carried for the third time for the third reason: a rebuild that
+                                  // drops a declared property turns it off silently, and this struct
+                                  // has now lost two fields that way.
+                                  description: description, inputSchema: schema,
+                                  endless: endless, run: run)
     }
 }
 

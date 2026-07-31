@@ -61,6 +61,34 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     /// The name on the wire.
     public var wire: String { rawValue }
 
+    // MARK: - Published from the enum, never restated in prose
+    //
+    // `ports-context.txt` listed the system kinds by hand ("'driver', 'browser.load',
+    // 'terminal.output', 'console'"), which was already incomplete and would go further out of date
+    // with every case added here. Rendered, a new case reaches both documents by existing.
+
+    public static let docsMarker = "{{EVENT_KINDS}}"
+
+    /// Every system kind, wrapped to a readable width. The port prefix is stated once at the end,
+    /// because it is the rule that makes the list closed rather than another entry in it.
+    public static func publishedKinds(indent: String = "  ", width: Int = 92) -> String {
+        var lines: [String] = []
+        var line = indent
+        for wire in allCases.map(\.wire).sorted() {
+            let piece = line == indent ? wire : " · \(wire)"
+            if line.count + piece.count > width { lines.append(line); line = indent + wire }
+            else { line += piece }
+        }
+        if line != indent { lines.append(line) }
+        lines.append("\(indent)a PORT's own kind is namespaced `\(portPrefix)<yours>`, so it can never "
+                   + "collide with the above")
+        return lines.joined(separator: "\n")
+    }
+
+    public static func publish(into text: String, indent: String = "  ") -> String {
+        text.replacingOccurrences(of: docsMarker, with: publishedKinds(indent: indent))
+    }
+
     /// The prefix every port-authored kind carries.
     ///
     /// A dot, not a colon or a slash, because the existing system names already read as dotted paths

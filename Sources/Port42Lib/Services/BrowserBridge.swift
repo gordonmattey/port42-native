@@ -331,11 +331,11 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
             let url = webView.url?.absoluteString ?? ""
 
             // Emit load event
-            bridge?.pushEvent(.browserLoad, data: [
-                "sessionId": id,
-                "url": url,
-                "title": title
-            ])
+            bridge?.pushEvent(.browserLoad, data: .object([
+                "sessionId": .string(id),
+                "url": .string(url),
+                "title": .string(title)
+            ]))
 
             // Resolve navigation promise
             navigationContinuation?.resume(returning: ["url": url, "title": title])
@@ -370,10 +370,10 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
         Task { @MainActor in
             let url = webView.url?.absoluteString ?? ""
-            bridge?.pushEvent(.browserRedirect, data: [
-                "sessionId": id,
-                "url": url
-            ])
+            bridge?.pushEvent(.browserRedirect, data: .object([
+                "sessionId": .string(id),
+                "url": .string(url)
+            ]))
         }
     }
 
@@ -388,11 +388,11 @@ final class BrowserSession: NSObject, WKNavigationDelegate {
         let url = webView.url?.absoluteString ?? ""
         NSLog("[Port42] browser: session %@ navigation error: %@", id, error.localizedDescription)
 
-        bridge?.pushEvent(.browserError, data: [
-            "sessionId": id,
-            "url": url,
-            "error": error.localizedDescription
-        ])
+        bridge?.pushEvent(.browserError, data: .object([
+            "sessionId": .string(id),
+            "url": .string(url),
+            "error": .string(error.localizedDescription)
+        ]))
 
         navigationContinuation?.resume(returning: ["error": "navigation failed: \(error.localizedDescription)"])
         navigationContinuation = nil

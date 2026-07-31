@@ -1119,8 +1119,10 @@ public struct SignOutSheet: View {
                 // companion, port and peer, which is why "who is connected" and "what did I grant"
                 // are one screen rather than two answering the same question (D13).
                 //
-                // Nothing enforces a token yet, so a client listed here is enrolled and named but
-                // not yet required to authenticate. That lands with the verifier in step 5.
+                // A token IS enforced (step 5): a client listed here is the complete set of callers
+                // that can reach the bridge through the gateway, and revoking one refuses it on its
+                // next call with no gateway restart. So this list is not informational — it is the
+                // door, and an empty list means nothing outside the app can call in.
                 let clients = appState.enrolledClients()
                 if !clients.isEmpty {
                     Text("CONNECTED")

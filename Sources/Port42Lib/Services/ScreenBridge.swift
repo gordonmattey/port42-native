@@ -360,12 +360,15 @@ final class ScreenStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable 
         // Use JPEG for streaming (much smaller than PNG, faster encode)
         guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) else { return }
 
-        let frameData: [String: Any] = [
-            "image": jpegData.base64EncodedString(),
-            "width": width,
-            "height": height,
-            "format": "jpeg"
-        ]
+        // `.data` carries the frame as base64 WITH its mime, which is the case a hand-rolled
+        // Notify payload type would have had to invent: a frame is the one payload that is not
+        // JSON-shaped, and BridgeValue already crosses the gateway carrying it.
+        let frameData: BridgeValue = .object([
+            "image": .data(base64: jpegData.base64EncodedString(), mime: "image/jpeg"),
+            "width": .int(width),
+            "height": .int(height),
+            "format": .string("jpeg")
+        ])
 
         let bridgeRef = bridge
         Task { @MainActor in

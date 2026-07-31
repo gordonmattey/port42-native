@@ -452,15 +452,21 @@ extension AppState {
     func broadcastDriverChange(_ driver: Driver?, port key: String) {
         guard let d = driver else { return }
         NSLog("[Port42:presence] DRIVING %@ → %@ (%@)", key, d.name, d.ref.description)
-        notifyBus.publish(topic: "port:\(key)", kind: PortEventKind.driver.wire,
-                          payload: ["driver": d.ref.description,
-                                    "driverName": d.name,
-                                    "until": d.expires.timeIntervalSince1970])
+        notifyBus.publish(topic: PortNotify.topic(forPortKey: key), kind: PortEventKind.driver.wire,
+                          payload: .object(["driver": .string(d.ref.description),
+                                            "driverName": .string(d.name),
+                                            "until": .double(d.expires.timeIntervalSince1970)]))
     }
 
     /// True when the streaming registry can handle this name (item 8).
     public func bridgeStreamHandles(_ canonicalOrAlias: String) -> Bool {
         bridgeStreamRegistry[resolveBridgeAlias(canonicalOrAlias)] != nil
+    }
+
+    /// True when this streaming method never returns on its own (a subscription, not a completion).
+    /// A one-shot transport must refuse it up front rather than hang until a timeout.
+    public func bridgeStreamIsEndless(_ canonicalOrAlias: String) -> Bool {
+        bridgeStreamRegistry[resolveBridgeAlias(canonicalOrAlias)]?.endless ?? false
     }
 
     /// Run a streaming bridge method: same permission-gating as `runBridgeMethod`, but the body yields

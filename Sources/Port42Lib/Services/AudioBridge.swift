@@ -110,10 +110,10 @@ public final class AudioBridge: PortOwnedResource {
                     let text = result.bestTranscription.formattedString
                     let isFinal = result.isFinal
                     Task { @MainActor in
-                        bridgeRef?.pushEvent(.audioTranscription, data: [
-                            "text": text,
-                            "isFinal": isFinal
-                        ])
+                        bridgeRef?.pushEvent(.audioTranscription, data: .object([
+                            "text": .string(text),
+                            "isFinal": .bool(isFinal)
+                        ]))
                     }
                 }
                 if let error {
@@ -122,11 +122,11 @@ public final class AudioBridge: PortOwnedResource {
                     if nsError.code != 216 && nsError.code != 1110 {
                         NSLog("[Port42] speech recognition error: %@", error.localizedDescription)
                         Task { @MainActor in
-                            bridgeRef?.pushEvent(.audioTranscription, data: [
-                                "text": "",
-                                "isFinal": true,
-                                "error": error.localizedDescription
-                            ])
+                            bridgeRef?.pushEvent(.audioTranscription, data: .object([
+                                "text": .string(""),
+                                "isFinal": .bool(true),
+                                "error": .string(error.localizedDescription)
+                            ]))
                         }
                     }
                 }
@@ -147,12 +147,12 @@ public final class AudioBridge: PortOwnedResource {
                 let base64 = data.base64EncodedString()
 
                 Task { @MainActor in
-                    bridgeRef?.pushEvent(.audioData, data: [
-                        "samples": base64,
-                        "sampleRate": sampleRate,
-                        "frameCount": frameCount,
-                        "format": "float32"
-                    ])
+                    bridgeRef?.pushEvent(.audioData, data: .object([
+                        "samples": .string(base64),
+                        "sampleRate": .double(sampleRate),
+                        "frameCount": .int(frameCount),
+                        "format": .string("float32")
+                    ]))
                 }
             }
         }

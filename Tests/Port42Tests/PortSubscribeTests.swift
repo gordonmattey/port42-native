@@ -32,7 +32,7 @@ struct PortSubscribeTests {
         #expect(w.state.notifyBus.hasSubscribers("port:PSUB"))
 
         // A publish on the port's topic reaches the subscriber as a { topic, kind, payload } envelope.
-        w.state.notifyBus.publish(topic: "port:PSUB", kind: "terminal.output", payload: "line one")
+        w.state.notifyBus.publish(topic: "port:PSUB", kind: "terminal.output", payload: .string("line one"))
         try await Task.sleep(nanoseconds: 150_000_000)
         #expect(collected.items.contains(where: { $0.contains("terminal.output") && $0.contains("line one") }))
 
