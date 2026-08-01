@@ -142,6 +142,24 @@ a restart.
 
 ---
 
+## The boundary (GM, 2026-08-01): "the goal is to access a port, that's it"
+
+**The browser page shows ONE shared port and nothing else.** No space, no chat, no second port, no
+navigation, no persistence. Written down because it is currently true by accident — phase 0 built
+only what phase 0 needed — and phase 2 is where it stops being accidental.
+
+**Phase 2 is exactly where the pressure arrives.** A landing page is a place someone arrives, and
+"while they are here, show them the space too" is a reasonable-sounding next step. A space is a chat
+port, so that step is the doorway to a second client, and a second client doubles the product.
+
+**What keeps it cheap is the shim, not restraint.** The page knows nothing about port types, port
+internals, or the bridge's method list; it forwards whatever the port's own JS calls. A terminal, a
+browser tile and a chart all work unmodified. That property holds exactly as long as the page's job
+stays "show me the one thing I was sent".
+
+**And the two-mode link is what makes the limit affordable:** if Port42 is installed the link opens
+the real app, so the browser only ever has to serve the person who has nothing.
+
 ## Open decisions
 
 1. ~~G1: `state` event kind now, or token-driven re-fetch first?~~ **CLOSED 2026-08-01: the event
