@@ -24,29 +24,33 @@ drives it, and both of us see the same thing. No install on the guest side.
 
 ## Three gaps found while planning, before writing code
 
-### G1 · A subscriber is never told the HTML changed
+### G1 · A subscriber is never told the state changed — and this is a LIVE gap, not a sharing one
 
 `PortEventKind` has sixteen cases — `console`, `push`, `presentation`, `driver`, `filedrop`,
 `terminal.output`, `browser.*`, `screen.frame`, `camera.frame`, `audio.*`, `message`,
-`companion.activity` — and **not one of them means "this port's HTML was replaced"**.
+`companion.activity` — and **not one means "this port's state was replaced"**.
 
-So a guest that renders `getHtml` once and then subscribes will silently go stale the moment the host
-(or a companion) calls `port.patch` or `port.update`. The guest sees pushes, and misses the thing
-that changed the whole surface.
+**Worse, checked in the dispatcher (2026-08-01): a state write publishes NOTHING unless the driver
+changed.** The only publish on that path is `broadcastDriverChange`, and it returns early for a
+refresh, deliberately: *"publishing per keystroke would drown the topic in non-news"*
+(`BridgeDispatcher.swift:446`). So a host patching their own port twice in a row emits one driver
+event at most, and possibly none.
 
-**This is the single most important finding in the plan**, because it decides what "converge" means.
-Three ways out:
+**That kills the cheap workaround.** An earlier draft of this plan proposed "re-fetch when an event's
+token runs ahead of the one you hold". There is no event to carry the advanced token. A subscriber
+cannot detect a state change by any means available today.
 
-1. **add a `state` event kind**, carrying the new token and optionally the new HTML. Small, and it
-   makes the port's state as observable as its pushes. Preferred
-2. the guest re-fetches `getHtml` whenever the token in any event advances beyond what it holds.
-   Cheap, no protocol change, one extra round trip per change
-3. only support ports that change through `push`. Rejected: companions patch ports, so this would
-   diverge in normal use
+**And it is not a sharing gap.** `port.subscribe` exists so that something can WATCH a port. Today a
+watcher — an agent, the CLI, another instance — sees console output, pushes, driver changes and
+device frames, and cannot see the port's content change. That undercuts the reason OUTPUT was built,
+which §10c records as *"an agent cannot watch a port was a hole in the product regardless of
+libp2p"*. **So fix it generally, in `NotifyBus` and `PortEventKind`, and sharing inherits it.**
 
-**Option 2 is the honest phase-0 move** because it needs nothing new, and option 1 is the right end
-state. The token already advances on every write, so the guest can detect staleness without a new
-kind — it just cannot detect it without an event arriving at all, which is why 1 wins eventually.
+**Shape:** a `state` kind published on every state write, carrying the port's new token. Whether it
+carries the new HTML, a patch, or only the token is the open question — the token alone is enough for
+a subscriber to know it must re-read, and is the smallest honest version. Suppression must NOT be
+inherited from the driver rule: a refresh is non-news for a driver chip and is exactly the news for a
+subscriber.
 
 ### G2 · The guest's `window.port42` has to go somewhere
 
@@ -84,8 +88,8 @@ Dev3, note its id.
 3. inject the `window.port42` shim into the iframe, forwarding to `/call` with the same token
 4. open `/ws`, send `identify` carrying `credential`, then a `call` envelope for
    `port.subscribe { id }`
-5. on each `stream` frame: apply `push` events to the iframe, and if the frame's `token` is ahead of
-   the one held, re-fetch `getHtml` (G1, option 2)
+5. on each `stream` frame: apply `push` events to the iframe, and on a `state` event re-read
+   `getHtml`. **G1 has to be built first** — there is no event today that says the state moved
 6. a button that calls `port.push` back to the host
 
 **Done when:** the browser shows the live port, a change made on the host appears in the browser, and
@@ -140,8 +144,11 @@ a restart.
 
 ## Open decisions
 
-1. **G1: `state` event kind now, or token-driven re-fetch first?** Re-fetch is free and proves the
-   loop; the event kind is the right end state and is small.
+1. ~~G1: `state` event kind now, or token-driven re-fetch first?~~ **CLOSED 2026-08-01: the event
+   kind is required.** A state write publishes nothing today, so there is no event to carry an
+   advanced token and nothing to re-fetch against. It is also a live product gap rather than a
+   sharing prerequisite, so it lands in `NotifyBus` first and sharing inherits it. Open within it:
+   does the event carry the new HTML, a patch, or only the token?
 2. **What does a guest persist?** Nothing, per the ephemeral rule. Then a refresh is a new guest, and
    any grant is asked again. Acceptable for a demo, possibly annoying in use.
 3. **Does the shim expose every bridge method, or a subset?** Everything a port can call locally is a
