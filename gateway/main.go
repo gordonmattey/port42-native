@@ -52,6 +52,14 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/invite", handleInvite)
+	// The browser guest (spike, docs/plan-web-port-sharing.md). Served from the gateway so it is
+	// SAME-ORIGIN: `/call` has no CORS headers, and adding them would let any site you visit attempt
+	// calls against your local gateway. This needs none.
+	mux.HandleFunc("/port", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("ngrok-skip-browser-warning", "true")
+		fmt.Fprint(w, guestPage)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
