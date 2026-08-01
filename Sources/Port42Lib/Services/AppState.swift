@@ -1435,6 +1435,19 @@ public final class AppState: ObservableObject {
                 CLIInstallService.shared.install(registry: self.clientRegistry)
             }
 
+            // Companion handles are folded at boot, and duplicates are REAPED (2026-08-01).
+            //
+            // Names used to be the port's TITLE verbatim, so rows like `codex 146` and
+            // `teleport: main` exist in every database that predates the fold. They were never
+            // addressable — `@codex 146` parses as `@codex` — so they are not state anyone can use,
+            // and once the spawn folds names a stale row also stops matching its own companion,
+            // which would register a second row beside it. Both were observed live on Dev2.
+            //
+            // GM: no backward compatibility wanted here. So: fold, and where folding collides with a
+            // row that already carries the folded name, delete the unaddressable one rather than
+            // keep two.
+            self.reconcileCompanionHandles()
+
             // Migrate old auth format
             Port42AuthStore.shared.migrateIfNeeded()
 
@@ -3195,6 +3208,52 @@ public final class AppState: ObservableObject {
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
         return userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
+    }
+
+    /// Fold every companion handle, and reap the rows that folding makes redundant.
+    ///
+    /// Pure over the DB and safe to run on every boot: a database whose handles are already folded
+    /// changes nothing, because folding a folded name is a no-op.
+    ///
+    /// The reap is deliberately narrow. A row is deleted ONLY when its own name is unaddressable AND
+    /// a row already exists under the folded name — i.e. it is a duplicate of something reachable.
+    /// A named companion the user created with a space in it is RENAMED, not deleted: it becomes
+    /// addressable for the first time, which is the fix, and losing it would be data loss for a
+    /// cosmetic problem.
+    @discardableResult
+    func reconcileCompanionHandles() -> (folded: Int, reaped: Int) {
+        guard let all = try? db.getAllAgents() else { return (0, 0) }
+        var live = Set(all.map(\.displayName))
+        var folded = 0, reaped = 0
+
+        for agent in all {
+            guard let handle = CompanionName.mentionable(agent.displayName),
+                  handle != agent.displayName else { continue }   // already addressable
+
+            if live.contains(handle) {
+                // Something reachable already answers to this handle. The unaddressable row is a
+                // duplicate of it, not a distinct companion.
+                try? db.deleteAgent(id: agent.id)
+                live.remove(agent.displayName)
+                reaped += 1
+                NSLog("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
+                      agent.displayName, handle)
+            } else {
+                var renamed = agent
+                renamed.displayName = handle
+                try? db.saveAgent(renamed)
+                live.remove(agent.displayName)
+                live.insert(handle)
+                folded += 1
+                NSLog("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
+            }
+        }
+
+        if folded + reaped > 0 {
+            companions = (try? db.getAllAgents()) ?? companions
+            refreshSpaceCompanions()
+        }
+        return (folded, reaped)
     }
 
     @discardableResult
