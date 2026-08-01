@@ -83,6 +83,16 @@ struct PortLeaseGateTests {
         #expect(state.portInput.driver(of: "no-such-port", now: Date()) == nil)
     }
 
+
+    /// DRIVER envelopes only. These tests are about the driver rule, and the topic used to carry
+    /// nothing else. Since 2026-08-01 it also carries `state` (G1), so counting every envelope would
+    /// silently turn "how often does the driver announcement fire" into "how much traffic is on the
+    /// topic". Filtering keeps each assertion measuring what it was written to measure; the numbers
+    /// below are unchanged.
+    func driverOnly(_ envelopes: [String]) -> [String] {
+        envelopes.filter { $0.contains("\"kind\":\"driver\"") }
+    }
+
     // MARK: - L2.c: the holder is broadcast on the port's own topic
 
     @Test("a driver CHANGE publishes once; the driver's own repeat writes publish nothing")
@@ -96,22 +106,22 @@ struct PortLeaseGateTests {
 
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
                                             args: BridgeArgs(["id": id, "title": "a", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
-        let afterFirst = envelopes.count
+        let afterFirst = driverOnly(envelopes).count
         #expect(afterFirst == 1, "the first writer on a port nobody was driving is a change")
-        #expect(envelopes[0].contains("\"kind\":\"driver\"") || envelopes[0].contains("holder"))
-        #expect(envelopes[0].contains("alice"))
+        #expect(driverOnly(envelopes)[0].contains("\"kind\":\"driver\"") || envelopes[0].contains("holder"))
+        #expect(driverOnly(envelopes)[0].contains("alice"))
 
         // Same driver writing again is NOT news.
         _ = try await state.runBridgeMethod("port.rename", principal: alice,
                                             args: BridgeArgs(["id": id, "title": "b", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
-        #expect(envelopes.count == afterFirst, "a refresh must not publish")
+        #expect(driverOnly(envelopes).count == afterFirst, "a refresh must not publish")
 
         // A DIFFERENT driver is news immediately — no waiting for the record to go stale, which is
         // what the old gate forced (the take-over could not happen until the TTL lapsed).
         _ = try await state.runBridgeMethod("port.rename", principal: bob,
                                             args: BridgeArgs(["id": id, "title": "c", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
-        #expect(envelopes.count == afterFirst + 1, "a new driver is a change")
-        #expect(envelopes.last?.contains("bob") == true)
+        #expect(driverOnly(envelopes).count == afterFirst + 1, "a new driver is a change")
+        #expect(driverOnly(envelopes).last?.contains("bob") == true)
     }
 
     @Test("closing a port drops its presence — a reopened id inherits no driver")
@@ -243,14 +253,14 @@ struct PortLeaseGateTests {
         // that used to produce this by suppression; the count is unchanged because the reason was
         // always "there is nothing new to say", not "slow down".
         for _ in 1...10 { state.humanInteracted(with: udid) }
-        #expect(envelopes.count == 1, "a burst of keystrokes must publish once, not ten times")
+        #expect(driverOnly(envelopes).count == 1, "a burst of keystrokes must publish once, not ten times")
 
         // A companion takes it, then you take it straight back: two more CHANGES, neither throttled.
         _ = try await state.runBridgeMethod("port.rename", principal: principal("echo", "echo"),
                                             args: BridgeArgs(["id": id, "title": "echo's", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         state.humanInteracted(with: udid)
-        #expect(envelopes.count == 3)
-        #expect(envelopes.last?.contains("gordon") == true)
+        #expect(driverOnly(envelopes).count == 3)
+        #expect(driverOnly(envelopes).last?.contains("gordon") == true)
     }
 
     @Test("interaction before setup is a no-op — no user, no claim")

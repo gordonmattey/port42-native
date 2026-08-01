@@ -39,6 +39,23 @@ public enum PortEventKind: String, CaseIterable, Equatable {
     case presentation
     case driver
     case filedrop
+    /// **The port's STATE moved** — a write landed and what the port shows is now different.
+    ///
+    /// Added 2026-08-01 for a gap that was live rather than theoretical. `port.subscribe` exists so
+    /// something can WATCH a port, and until this existed a watcher saw console output, pushes,
+    /// device frames and driver changes, and could not see the port's own content change. The only
+    /// publish on the write path was `broadcastDriverChange`, which stays silent on a refresh **on
+    /// purpose** ("publishing per keystroke would drown the topic in non-news"), so a host patching
+    /// their own port twice announced nothing at all the second time.
+    ///
+    /// **The event carries the token and not the content.** A subscriber learns that it must
+    /// re-read and what to re-read against; it does not learn the new HTML. That keeps one event
+    /// shape for a two-line patch and a whole-document replacement, and keeps a port's content off
+    /// a topic that device frames also ride.
+    ///
+    /// Safe as a system name because a PORT's own `state` is namespaced to `port.state` (see
+    /// `fromPort` and the note above), so the two can never collide.
+    case state
 
     // Terminal
     case terminalOutput = "terminal.output"

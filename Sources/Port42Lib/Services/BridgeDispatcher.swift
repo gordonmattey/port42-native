@@ -57,7 +57,37 @@ extension AppState {
         // The token is read AFTER the body, never before. See `tokenAfter(_:)`.
         let value = try await method.run(principal, args)
         try failIfErrorResult(value, method: canonical)
+        if method.replacesState { announceStateChange(port: key, method: canonical) }
         return withToken(tokenAfter(key), value)
+    }
+
+    /// Tell every subscriber that this port's STATE moved (G1).
+    ///
+    /// **Placed after the body, and after `failIfErrorResult`, deliberately.** A write refused by
+    /// CAS throws before the body; a body that fails throws here. Neither landed, so neither
+    /// announces — otherwise a subscriber re-reads for a change that never happened, and the token
+    /// it was handed disagrees with the port.
+    ///
+    /// **It does NOT inherit `broadcastDriverChange`'s suppression, and that is the whole point.**
+    /// That method stays silent when the driver has not changed, on purpose, because a driver chip
+    /// does not want per-keystroke news. A subscriber wants exactly that news: the second write by
+    /// the same actor is the change it is watching for. The two rules live one line apart, which is
+    /// what makes copying the wrong one easy.
+    ///
+    /// **Only for writes that REPLACE state**, declared per verb (`replacesState`). The first
+    /// version announced on every write and drowned the topic — a terminal keystroke is a write, and
+    /// `PortPresenceGateTests` caught it as "a burst of typing publishes ONCE". A watcher converges
+    /// on a push by receiving the push, exactly as the port's own JS does; it needs telling only
+    /// when the surface was replaced under it.
+    ///
+    /// The BUS stamps the token (`tokenForTopic`), so this carries the state after the write without
+    /// any publish site having to thread it — the same construction §10c chose so a site added later
+    /// cannot forget.
+    func announceStateChange(port key: String?, method: String) {
+        guard let key else { return }   // nil = a read; nothing moved
+        notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
+                          kind: PortEventKind.state.wire,
+                          payload: .object(["method": .string(method)]))
     }
 
     /// **Does this principal hold this permission — asking, and remembering the answer.**
@@ -502,6 +532,7 @@ extension AppState {
 
         let value = try await method.run(principal, args, yield)
         try failIfErrorResult(value, method: canonical)
+        if method.replacesState { announceStateChange(port: key, method: canonical) }
         return withToken(tokenAfter(key), value)
     }
 }

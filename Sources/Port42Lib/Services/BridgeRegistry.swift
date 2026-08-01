@@ -43,6 +43,18 @@ public struct BridgeMethod {
     /// `BridgeParamConsistencyTests` rather than silently escaping the lease.
     /// Reading is not driving: `getHtml`/`history`/`info`/`position`/`subscribe` stay nil.
     public let writesTarget: String?
+    /// **Does this write REPLACE the port's state, rather than append to it?** (2026-08-01, G1.)
+    ///
+    /// Decides whether a write announces `state` to subscribers. The distinction is the one
+    /// `design-append-writes.md` names: `update`/`patch`/`rename`/`restore` replace what the port
+    /// shows, so a watcher must re-read; `push`/`exec` deliver input, and a watcher converges by
+    /// receiving that same input, exactly as the port's own JS does.
+    ///
+    /// **Declared rather than inferred**, and NOT defaulted to true for every write, because the
+    /// first version of G1 announced on every write and drowned the topic: a terminal keystroke is a
+    /// write, and `PortPresenceGateTests` caught it as "a burst of typing publishes ONCE". That test
+    /// was right, and it was written about the driver rule for the same reason.
+    public let replacesState: Bool
     /// **Does this write need the target's surface to be ALIVE?** (2026-07-29.)
     ///
     /// GM measured the fourth instance of register §5's class: four `port.push` calls to a terminal
@@ -71,6 +83,7 @@ public struct BridgeMethod {
     public init(permission: PortPermission?,
                 paramNames: [String] = [],
                 writesTarget: String? = nil,
+                replacesState: Bool = false,
                 needsLiveSurface: Bool = false,
                 wired: Bool = true,
                 toolExposed: Bool = true,
@@ -84,6 +97,7 @@ public struct BridgeMethod {
         self.description = description
         self.inputSchema = inputSchema
         self.writesTarget = writesTarget
+        self.replacesState = replacesState
         self.needsLiveSurface = needsLiveSurface
         self.run = run
     }
@@ -133,6 +147,9 @@ public extension BridgeMethod {
         return BridgeMethod(permission: permission,
                             paramNames: paramNames + [PortActivity.expectParam],
                             writesTarget: writesTarget,
+                            // Third field to ride this copy; see the note below. Dropping it here
+                            // would silently switch every state announcement off.
+                            replacesState: replacesState,
                             // MUST be carried, and a test caught it being dropped. This copy runs on
                             // EVERY write verb (`mapValues { $0.acceptingExpect() }`), so a field
                             // missing here is silently erased from the whole registry: `port.push`
@@ -180,6 +197,11 @@ public struct BridgeStreamMethod {
     /// input seam exists to replace with a structural one. Same meaning as `BridgeMethod.writesTarget`
     /// and dispatched through the same `applyWriteSideEffects`.
     public let writesTarget: String?
+    /// Same meaning as `BridgeMethod.replacesState`, and present for the same reason `writesTarget`
+    /// is: the two registries must not be able to disagree about what a write is. Every streaming
+    /// method is a read today, so nothing sets it — which is exactly the "happens to be" this seam
+    /// exists to replace with something declared.
+    public let replacesState: Bool
     /// Same meaning as `BridgeMethod.needsLiveSurface`, and present here for the same reason
     /// `writesTarget` is: the two registries must not be able to disagree about what a write is.
     /// C5's lesson was that a field existing on only one of them is a divergence waiting to happen.
@@ -199,6 +221,7 @@ public struct BridgeStreamMethod {
                 paramNames: [String] = [],
                 toolExposed: Bool = true,
                 writesTarget: String? = nil,
+                replacesState: Bool = false,
                 needsLiveSurface: Bool = false,
                 description: String = "",
                 inputSchema: [String: Any] = [:],
@@ -208,6 +231,7 @@ public struct BridgeStreamMethod {
         self.paramNames = paramNames
         self.toolExposed = toolExposed
         self.writesTarget = writesTarget
+        self.replacesState = replacesState
         self.needsLiveSurface = needsLiveSurface
         self.description = description
         self.inputSchema = inputSchema
@@ -243,6 +267,10 @@ public struct BridgeStreamMethod {
         return BridgeStreamMethod(permission: permission,
                                   paramNames: paramNames + [PortActivity.expectParam],
                                   toolExposed: toolExposed, writesTarget: writesTarget,
+                                  // FOURTH field to ride this copy. The comment below says a rebuild
+                                  // that drops a declared property turns it off silently; this is the
+                                  // one that would turn every state announcement off on this path.
+                                  replacesState: replacesState,
                                   // Carried for the same reason as the one-shot copy above, and
                                   // fixed at the same time rather than waiting for the streaming
                                   // path to grow its first write verb and inherit the bug.

@@ -1496,7 +1496,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         })
     }
 
-    r["port.update"] = BridgeMethod(permission: nil, paramNames: ["id", "html"], writesTarget: "id",
+    r["port.update"] = BridgeMethod(permission: nil, paramNames: ["id", "html"], writesTarget: "id", replacesState: true,
         description: "Update an existing port's HTML content. The port can be identified by its UDID or title. Works whether the port is windowed or minimized.",
         inputSchema: [
             "type": "object",
@@ -1515,7 +1515,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.patch"] = BridgeMethod(permission: nil, paramNames: ["id", "search", "replace"], writesTarget: "id",
+    r["port.patch"] = BridgeMethod(permission: nil, paramNames: ["id", "search", "replace"], writesTarget: "id", replacesState: true,
         description: "Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.",
         inputSchema: [
             "type": "object",
@@ -1543,7 +1543,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.restore"] = BridgeMethod(permission: nil, paramNames: ["id", "version"], writesTarget: "id",
+    r["port.restore"] = BridgeMethod(permission: nil, paramNames: ["id", "version"], writesTarget: "id", replacesState: true,
         description: "Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.",
         inputSchema: [
             "type": "object",
@@ -1565,7 +1565,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.rename"] = BridgeMethod(permission: nil, paramNames: ["id", "title"], writesTarget: "id",
+    r["port.rename"] = BridgeMethod(permission: nil, paramNames: ["id", "title"], writesTarget: "id", replacesState: true,
         description: "Rename a port. Sets the port's display title (shown in the title bar). Works for tiled, parked, docked, and inline ports. Use the port's id from ports_list.",
         inputSchema: [
             "type": "object",
