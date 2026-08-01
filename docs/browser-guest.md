@@ -64,6 +64,53 @@ multiaddr. On a LAN with a self-signed certificate that is manageable, because t
 travels in the invite rather than needing a CA. Over the internet it is the same story. This is worth
 a spike before it is assumed.
 
+## The link has two modes (GM, 2026-07-31)
+
+One link, two behaviours, which is how every good invite link works and which settles the identity
+question above:
+
+| | opens | identity |
+|---|---|---|
+| **Port42 installed** | in the app | **you**, as your account. Your existing peer, your Keychain identity |
+| **not installed** | in the browser | a **guest**: ephemeral, alive for the tab |
+
+**And the consequence that bites the store: an ephemeral guest must get ephemeral grants.** A guest
+gets a fresh identity every time they open the link, so persisting their grants leaves a client row
+and a permission set for an identity that can never return. That is the 135-dead-grants disease with
+a generator attached — a demo shown twenty times leaves twenty dead grantees in the manager.
+
+So a guest's grants are session-scoped. That is a different rule from "grants are permanent"
+(open question 3, closed 2026-07-29), and it is defensible precisely because the GRANTEE is not
+permanent either. A named peer you invited persists; a guest who opened a link does not.
+
+## Sequencing: the demo does not need libp2p
+
+Working through what the browser demo actually requires, **every piece already exists**:
+
+| the guest needs to… | today |
+|---|---|
+| reach the host | the gateway, public via ngrok, or a LAN address |
+| authenticate | a token carried in the invite, verified by `resolveGatewayCaller` |
+| fetch the port's HTML | `port.getHtml` over `/call` |
+| receive live deltas | `port.subscribe` over `/ws`, the `stream` frames step 5 built and live-verified 2026-07-30 |
+| drive the port | `/call`, with the compound actor the spike proved |
+
+**So the order that learns fastest is: prove the SHARING MODEL over the transport we already have,
+then swap the transport.** That is the same discipline milestone B already uses — prove the contract
+with traversal taken out — applied one level up.
+
+What that sequence de-risks first is everything genuinely unknown about sharing: identity for a
+guest, grants that do not pool, permission at a distance, rendering someone else's port, right-of-way
+with two drivers, and whether the demo is actually good. None of those depend on how the bytes move.
+
+What it defers is the sovereignty story, which is what libp2p is for. ngrok in the middle is exactly
+what peer-to-peer removes, so the transport swap remains the point of the slice — it just stops being
+the thing blocking a demo.
+
+**The risk of this order** is building against the gateway API and redoing it for libp2p. That is
+what decision D-a exists for: keep the transport behind a narrow seam (dial a peer, open a stream,
+publish and subscribe to a topic) so the second implementation is a swap rather than a rewrite.
+
 ## Open
 
 1. Which transport do we target first? WebRTC, if iPhone matters, and iPhone is exactly the case GM
