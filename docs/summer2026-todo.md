@@ -18,6 +18,12 @@ in its own section below or in the plan it names.*
 | | **The output seam** — ten publish sites, two taking a caller-supplied kind. On the path: it is gossipsub's payload | `architecture-invariants.md` §4 |
 | | **Trust on the read path** — a reader is neither authenticated nor scoped | below (needs milestone A first) |
 
+### Added 2026-08-01
+
+**Turning ngrok OFF does not persist.** GM: switch the tunnel off, restart the app, and it comes back
+on. The setting is not durable, so the only way to stay off is to keep turning it off. A tunnel that
+re-opens itself after the user closed it is a privacy decision being reversed by a default.
+
 ### Added 2026-07-31, from the 0.5.52 soak
 
 Both came out of `plan-caller-identity-fixes.md`, which covers the identity defects that soak found
