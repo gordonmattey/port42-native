@@ -3213,7 +3213,7 @@ public final class AppState: ObservableObject {
         let launchCmd = GhosttyTerminalController.isHooksCapable(cmdName) ? cmdName : command
         // A plain terminal (dock button) passes "" so it just drops into the interactive shell with
         // nothing typed; companions pass nil and get their command auto-typed.
-        let startupCommand = startupCommandOverride ?? (quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)")
+        let baseStartupCommand = startupCommandOverride ?? (quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)")
 
         let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
         // Bake the Port42 framing around the RAW systemPrompt here (centralized in
@@ -3221,6 +3221,12 @@ public final class AppState: ObservableObject {
         // produce an identical companion prompt. The spawn record stores the raw systemPrompt,
         // not this baked result, so a respawn re-bakes once rather than double-wrapping.
         let companionPrompt = bakeCompanionPrompt(name: companionName, spaceId: spaceId, systemPrompt: systemPrompt)
+        // Codex takes its briefing as the STARTING PROMPT, because it has no --append-system-prompt
+        // and because that first turn is what runs its pending SessionStart hook. Claude is
+        // untouched: its prompt already travels invisibly via the shim. See
+        // `CLIHookProducer.startupCommand`.
+        let startupCommand = CLIHookProducer.startupCommand(base: baseStartupCommand,
+                                                            companionPrompt: companionPrompt)
         let config = TerminalPortConfig(
             command: "/bin/zsh",
             args: [],

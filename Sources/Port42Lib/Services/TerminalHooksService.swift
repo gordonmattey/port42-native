@@ -213,7 +213,9 @@ public enum TerminalSessionBootstrap {
                             claudePath: String? = nil,
                             oauthToken: String? = nil,
                             cwd: String = "",
-                            producer: CLIHookProducer? = nil) -> TerminalHookSession {
+                            producer: CLIHookProducer? = nil,
+                            home: String? = nil,
+                            stableDir: String? = nil) -> TerminalHookSession {
         let shortId = String(sessionId.replacingOccurrences(of: "-", with: "").prefix(8))
         let tempDir = "/tmp/port42-shim-\(shortId)"
         try? FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
@@ -271,14 +273,32 @@ public enum TerminalSessionBootstrap {
 
         // EVERYTHING CLI-SPECIFIC LIVES IN THE PRODUCER. What is left above and below this call is
         // true of any CLI: the socket, the space identity, the child's client id, the companion
-        // prompt, the cwd file, PATH. `producer` defaults to claude so existing callers are
-        // unchanged; a terminal running something with no producer simply gets no hooks, which is
-        // the right answer for `htop`.
-        let out = (producer ?? .claude).prepare(.init(
+        // prompt, the cwd file, PATH.
+        //
+        // ALL PRODUCERS, ALWAYS (2026-07-31). This used to be "the matching producer, else claude",
+        // and the else-claude was what made a typed `claude` work in a plain terminal while a typed
+        // `codex` silently did not: codex's wiring is an env var its producer never got to set.
+        // `producer:` is now an override for a caller that means ONE cli (and for tests); the
+        // default prepares them all. See `CLIHookProducer.prepareAll`.
+        let ctx = CLIHookProducer.Context(
             tempDir: tempDir, socketPath: socketPath, sessionId: sessionId, spaceId: spaceId,
             companionId: companionId, cwd: cwd, shimPath: shimPath,
-            binaryPathOverride: claudePath, tokenOverride: oauthToken))
+            binaryPathOverride: claudePath, tokenOverride: oauthToken, homeOverride: home,
+            // Test seam, and not a cosmetic one: without it a test reaches the REAL Application
+            // Support directory and writes into the daily driver's state. Same lesson as the
+            // credential-store fix — a test that touches a live instance is a bug in the test.
+            stableDir: stableDir ?? stableSupportDir())
+        let out = producer.map { CLIHookProducer.merge([($0.name, $0.prepare(ctx))]) }
+            ?? CLIHookProducer.prepareAll(ctx)
         env.merge(out.env) { _, new in new }
+
+        // The injected zshrc, assembled from whatever the producers contributed. Written here
+        // rather than inside a producer, so ZDOTDIR has exactly one owner.
+        if writeZshIntegration(tempDir: tempDir, producerLines: out.shellLines) {
+            env["ZDOTDIR"] = tempDir
+            env["PORT42_REAL_ZDOTDIR"] = realZdotdir(
+                inherited: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
+        }
 
         let existing = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = [out.pathPrefix, existing, "/opt/homebrew/bin"].filter { !$0.isEmpty }.joined(separator: ":")
@@ -304,17 +324,19 @@ public enum TerminalSessionBootstrap {
 
     /// Write the zsh startup files into `dir` (used as ZDOTDIR). Each sources the user's
     /// real equivalent (from `$PORT42_REAL_ZDOTDIR`, default `$HOME`); `.zshrc` additionally
-    /// defines the `claude()` interceptor. Returns false if any write fails (caller then
-    /// relies on the PATH-symlink fallback). zsh-only: bash/fish ignore ZDOTDIR.
-    static func writeZshIntegration(tempDir dir: String) -> Bool {
+    /// carries whatever the PRODUCERS contributed, plus the cwd tracking that is true of any
+    /// terminal. Returns false if any write fails (caller then relies on the PATH-symlink
+    /// fallback). zsh-only: bash/fish ignore ZDOTDIR.
+    ///
+    /// `producerLines` used to be a hard-coded `claude()` function in this file, which made a
+    /// per-CLI mechanism the property of a shared helper. Producers now own their own lines and
+    /// this owns the file (2026-07-31).
+    static func writeZshIntegration(tempDir dir: String, producerLines: [String] = []) -> Bool {
         let real = "${PORT42_REAL_ZDOTDIR:-$HOME}"
         func sourceLine(_ f: String) -> String { "[ -f \"\(real)/\(f)\" ] && source \"\(real)/\(f)\"\n" }
         let zshrc =
             sourceLine(".zshrc")
-            + "# Port42: intercept `claude` with a function — wins over any PATH entry.\n"
-            + "if [ -n \"$PORT42_CLAUDE_SHIM\" ]; then\n"
-            + "  claude() { \"$PORT42_CLAUDE_SHIM\" \"$@\"; }\n"
-            + "fi\n"
+            + (producerLines.isEmpty ? "" : producerLines.joined(separator: "\n") + "\n")
             + "# Port42: report the live cwd so a rebuilt terminal reopens where you were.\n"
             + "if [ -n \"$PORT42_CWD_FILE\" ]; then\n"
             + "  __port42_track_cwd() { print -r -- \"$PWD\" >| \"$PORT42_CWD_FILE\" 2>/dev/null }\n"
@@ -333,6 +355,25 @@ public enum TerminalSessionBootstrap {
             catch { NSLog("[hooks] failed to write \(name): \(error)"); return false }
         }
         return true
+    }
+
+    /// A per-INSTANCE directory that outlives any one terminal, beside the database.
+    ///
+    /// `tempDir` is per-port and is deleted with it, which is correct for a socket and a shim
+    /// symlink and wrong for anything a CLI is expected to remember. Codex keys hook trust by the
+    /// path of the config that defined the hook, so a per-port config meant a hook codex had never
+    /// seen on every single spawn — reviewed, then skipped, and no companion ever registered.
+    ///
+    /// Same data-dir resolution as `liveCwdFile` and the DB (`PORT42_DATA_DIR` baked by the dev
+    /// launcher, "Port42" for the installed app), so dev instances stay isolated from each other and
+    /// from the daily driver.
+    static func stableSupportDir() -> String? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask).first else { return nil }
+        let dataDir = ProcessInfo.processInfo.environment["PORT42_DATA_DIR"] ?? "Port42"
+        let dir = base.appendingPathComponent(dataDir).appendingPathComponent("cli-state")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.path
     }
 
     public static func cleanup(tempDir: String) {

@@ -167,13 +167,19 @@ final class GhosttyTerminalController {
             companionPrompt: config.companionPrompt.isEmpty ? nil : config.companionPrompt,
             customEnv: config.env,
             cwd: config.cwd,
-            // Which CLI this terminal STARTS decides how its hooks get wired.
+            // EVERY CLI gets wired, whatever this terminal starts (2026-07-31).
             //
-            // No match falls back to claude inside `make`, and that is deliberate rather than a
-            // default-by-accident: a plain `zsh` terminal still gets the claude interceptor in
-            // place, so that a user who types `claude` into it LATER is still wired up. That is
-            // what makes ad-hoc terminals auto-register as companions at all.
-            producer: CLIHookProducer.forCommand(config.startupCommand)
+            // This used to pass the producer matching the startup command, with `make` falling back
+            // to claude on no match. The fallback's REASON was right — a plain `zsh` terminal must
+            // still be wired so a CLI typed into it LATER registers as a companion, which is what
+            // makes ad-hoc terminals work at all — but it named one CLI, and only claude's
+            // mechanism (a shell function) survives being typed later. Codex's is an env var, so
+            // under the fallback it was never set for a plain shell and a typed `codex` ran with
+            // the user's own config, emitted no SessionStart and never became a companion.
+            //
+            // Passing nil means "prepare them all", so the guarantee is per-CLI rather than
+            // per-claude. A producer that cannot prepare this machine contributes nothing.
+            producer: nil
         )
         self.hooks = TerminalHooksService(socketPath: session.socketPath)
         NSLog("[ctl:%@] init panel=%@ hooksCapable=%@ socket=%@ space=%@ cwd=%@ startup=%@",

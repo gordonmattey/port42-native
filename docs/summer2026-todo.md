@@ -422,156 +422,21 @@ one identity. See `architecture-invariants.md` §3.
 
 ---
 
-## BUG (2026-07-28, measured live): clicking the chat input beachballs a conversation with inline ports
+## ~~BUG (2026-07-28, measured live): clicking the chat input beachballs a conversation with inline ports~~ — RESOLVED, closed 2026-07-31 (GM)
 
-**Two incidents, same trigger, caught live on Dev with `sample` while it was still hung.** GM was
-in the chat box both times. It does not recover: re-sampled 30 seconds later, identical state.
+**Closed by the shell-background fps cap, not by the layout fixes this section proposed.** GM: it has
+not recurred, and the fps cap is what fixed it. That is consistent with the A/B below, which measured
+main-thread runloop activities per 250ms dropping from 200-360 to 1-11 once Layer 0 stopped redrawing
+at display rate: the re-dirty pressure the beachball needed was the background, not the conversation.
 
-**The main thread, 2543 of 2543 samples:**
-
-```
-NSTextField mouseDown:
-  SelectionTextField.Cell._selectOrEdit            ← the click on the chat input
-    NSTextView mouseDown:
-      _bellerophonTrackMouseWithMouseDownEvent:    ← AppKit NESTED modal tracking loop
-        _nextEventMatchingEventMask:...            ← pumps the runloop from inside the click
-          __CFRunLoopDoObservers
-            GraphDelegate.beginTransaction         ← SwiftUI transaction on a runloop observer
-              GraphHost.runTransaction
-                AG::Subgraph::update
-                  GeometryReaderLayout.placeSubviews
-                    _ZStackLayout.sizeThatFits
-                      ViewDimensions.subscript.getter
-                        explicitAlignment → childPlacement → _FrameLayout.placement
-                          LayoutProxy.dimensions(in:) → sizeThatFits → StackLayout…
-```
-
-**Why the click is what kills it.** The layout cost exists all the time; normally it is spread
-across frames. AppKit's text-field mouse-down enters a nested event-tracking loop and SwiftUI's
-layout transaction runs INSIDE it, so the pass cannot be deferred and the click never returns.
-
-**Inline ports are in both.** Confirmed from the databases rather than assumed:
-
-| instance | space | messages | with inline ports |
-|---|---|---|---|
-| Dev | `crm` | 53 | 7 |
-| prod | `port42-app` | 81 | 4 (at positions 4, 70, 74, 76) |
-
-Position 4 is from 2026-07-09, far back in the scrollback, and still costs. An
-`NSViewRepresentable` being sized appears inside the hung layout pass, which is what an inline
-port is.
-
-**The list is already a `LazyVStack`** (`ConversationContent.swift:306`), so laziness is not the
-gap. It sits under `.defaultScrollAnchor(.bottom)` and feeds a `GeometryReader` preference for
-scroll offset (`:337`), both of which force total content height. Once realized, a port keeps
-participating in every pass regardless of how far up it is.
-
-**This file already knows the class.** Eight lines below that GeometryReader: *"RCA 2.3: commit only
-once the offset has stopped moving for ~120ms… without this, one animated port pins the main thread
-at 100% CPU."* That debounce stops the state-commit storm and does nothing about the cost of the
-layout pass itself, which is what blocks here.
-
-**INVESTIGATED 2026-07-28. Two things asserted earlier are WRONG.**
-
-- **The inline ports cost ZERO main-thread samples.** No WebKit and no Ghostty symbol appears
-  anywhere in the hang. The `NSViewRepresentable` seen being sized is SwiftUI's own `SelectionOverlay`
-  for the text field, not a port. **Ports are the MULTIPLIER, not the worker**: they make rows tall,
-  variably sized, un-cacheable and never evicted.
-- **`.defaultScrollAnchor(.bottom)` does not appear in the sample at all.** It was a guess and it is
-  not supported.
-
-**The dominant cost is ALIGNMENT FAN-OUT.** `explicitAlignment` on a `_FrameLayout` / `StackLayout` /
-`_ZStackLayout` is not answered from the size cache: it calls `childPlacement` →
-`LayoutProxy.dimensions(in:)` → **a full `sizeThatFits` re-descent of the subtree**. Five
-alignment-bearing containers sit on one path, so cost multiplies rather than adds. Thirteen nested
-layout containers run between the desktop `GeometryReader` (`ShellDesktop.swift:195`) and the
-`LazyVStack` (`ConversationContent.swift:306`).
-
-Inclusive share of the 2543 main-thread samples:
-
-```
-explicitAlignment (all sites)   25%      GeometryReader              17%
-_ZStackLayout                   19%      PlatformViewChild.update    13%
-LazyLayoutViewCache             19%      ForEachList.applyNodes      11%
-StackLayout prioritize           7%      AG::propagate_dirty          7%
-ScrollViewLayoutComputer         7%      LazyStack.measureEstimates   6%
-WKWebView / PortWebView / Ghostty          0%
-```
-
-**Three app-side alignment sites**, each forcing a full row re-descent: `ShellDesktop.swift:201`
-(ZStack over every desktop tile, so sizing the desktop fully sizes the chat);
-`ConversationContent.swift:306` + `:835` (a `LazyVStack(alignment: .leading)` AND a redundant per-row
-`.frame(maxWidth: .infinity, alignment: .leading)`, two resolutions per row); and `:962` (a third,
-inside the most expensive rows).
-
-**`MessageRow` declares `Equatable` and the optimization is INERT.** The conformance and `==` are at
-`:817` / `:824` with the comment "Equatable for diff-only re-render", but the call site at `:310`
-never applies `.equatable()`. A View's `Equatable` is only honored through `EquatableView`, so every
-row re-evaluates.
-
-**The parent `VStack` at `:302` forces two full conversation measurements per pass.**
-`StackLayout.prioritize` → `insertionSort(by:)` → `lengthThatFits` asks the ScrollView for min and
-max with INDEFINITE proposals, and it can only answer by measuring all content. That is why
-`ScrollViewLayoutComputer` and `LazyStack.measureEstimates` run at all during a text-field click.
-
-**Things write to the graph WHILE the pass runs**, which is why it is permanent rather than merely
-slow. `LazyLayoutViewCache.updateItemPhases()` → `AG::Graph::value_set` → `propagate_dirty` (175
-samples). `-[NSTextField updateCell:]` → `PlatformViewHost._layoutMetricsInvalidatedForHostedView()`
-→ `enqueueLayoutInvalidation()`, from inside SwiftUI's own update of that field. And in app code, the
-per-row `.onAppear` at `:312-324` mutates three pieces of state, fired by the item-phase churn above.
-
-**Ports are NEVER derealized.** `cachedActivePortIDs` (`:239`) only gains members, reset only on a
-space switch (`:367`); `activatedPortIndices` (`:822`) only gains; `webViews` / `inlineHeights` are
-removed only on explicit close (`PortWindowManager.swift:1145`). A port realized 77 messages up keeps
-a live WKWebView running its JS. There is no viewport-distance eviction anywhere in the codebase.
-
-**One amplifier worth its own line:** `inlineHeights` is `@Published` on `PortWindowManager` and
-`RegisteredInlinePortView` observes the whole object (`:1205`, `:1215`), so **one port's height
-message invalidates every other inline port and the desktop**.
-
-**The intra-pass port height cycle does NOT exist**, and that part of the design is already right:
-`RegisteredInlinePortView.height` (`:1228`) reads a state dictionary, not a measured value, and
-`PortWebViewHost` pins four edges with no intrinsic size, so SwiftUI never asks a webview how tall it
-wants to be.
-
-**RCA 2.3's debounce (`:348-350`) does exactly what it claims and nothing more.** It prevents a body
-re-evaluation per frame. It does not touch this: the GeometryReader body still runs every pass, the
-preference graph still recombines every pass, and a 120 ms debounce is irrelevant to a pass costing
-more than 120 ms. Right fix, different problem.
-
-### THE question that decides the fix, and it is not yet answered
-
-**One unbounded pass, or a non-terminating LOOP of passes?** `sample` merges by symbol, so a repeated
-`beginTransaction` and one long one look identical. **If it is a livelock, the layout fixes below only
-shorten each iteration and the beachball stays**; the fix would have to be the re-dirty source.
-
-Settle it in DEBUG with a `CFRunLoopObserver` on `.beforeWaiting` / `.afterWaiting` in common modes
-that counts and logs every 100 hits, then reproduce. Climbing counter = livelock. Frozen = one pass.
-(Equivalent: an auto-continuing lldb breakpoint on `GraphHost.runTransaction`, counting hits.)
-
-### Fix options, in order, AFTER that measurement
-
-1. **Kill the ideal-size probe.** `.fixedSize(horizontal: false, vertical: true)` +
-   `.layoutPriority(1)` on the input bar in the `VStack` at `:302`, so the ScrollView gets a definite
-   remaining height. Two lines, no behavior change.
-2. **Cut alignment sites.** Drop the redundant `.frame(…, alignment: .leading)` at `:835` and the
-   `alignment:` at `:962`, and apply `.equatable()` at `:310` so the existing `==` becomes live.
-   Attacks the 25% limb. Needs a read-through of `==` first, since anything not in it stops
-   triggering updates.
-3. **Make an inline port row a constant-size box** (`.frame(width:height:)` + `.fixedSize()`) so the
-   lazy stack can size a row without descending into the port, and give
-   `RegisteredInlinePortView` a single-port publisher instead of the whole manager.
-4. **Evict ports by viewport distance.** The only option that bounds cost as a conversation grows.
-   Product decision: a port that scrolls away loses DOM/JS state unless kept alive detached.
-
-**Also open:** do the `:312-324` `onAppear` closures fire during the hang (NSLog and reproduce); does
-port count or message count drive the curve; and is the click load-bearing or would Tab-focus hang too
-(if Tab hangs, the nested tracking loop is incidental).
-
-**How to catch the next one**, since a beachball produces no crash report and macOS captured no hang
-report either: `sample $(pgrep -x Port42) 5 -f ~/port42-hang.txt` from any terminal while it is stuck.
+Neither proposed layout fix was applied and neither is in the tree. `MainLoopProbe.swift` survives as
+the instrument that would have settled livelock-vs-one-pass, still behind
+`defaults write com.port42.dev3 PORT42_MAINLOOP_PROBE -bool true`, and is the first thing to reach for
+if it ever comes back. The detail worth keeping: `sample` cannot tell one unbounded pass from a
+non-terminating loop of passes, because it merges by symbol.
 
 ---
+
 
 ## PERF (2026-07-28, measured): ~30% of a core burned per instance while idle — it is the shell background
 
@@ -1124,6 +989,79 @@ is there (`turnComplete` from the shim; the cross-space peek mechanism; `notify.
 The work is still the **classifier** (needs-attention vs done — don't peek every turn) plus the
 cross-space route + dedup. See the 07-22 write-up for the full scope sketch; this note pins that GM
 wants it, framed as "a port in another space did a turn → peek me."
+
+---
+
+## CODEX PARITY — DONE 2026-07-31. Read this before debugging any codex hook.
+
+**GM: "codex doesn't spin up a companion like it should. running claude in the terminal does."** True,
+and it took a day to find because every obvious explanation was wrong. The finding first, so nobody
+repeats it:
+
+> **Codex does not run `SessionStart` hooks at launch.** It holds them PENDING and runs them inside
+> the FIRST TURN. The span is `session_task.run:run_turn:run_pending_session_start_hooks`, dispatched
+> from `op.dispatch.user_input` — visible in `~/.codex/logs_2.sqlite`, which is where this was
+> finally settled after hours of inference.
+
+So a codex launched and left at its prompt fires nothing, forever. Every test of the shape "launch it
+and wait" fails, on every version, under every configuration. **One prompt registers it instantly.**
+
+**It is not even a strange design.** A `SessionStart` hook returns `additionalContext` that gets
+injected into the model request — its entire output exists to feed a turn. There is nothing for codex
+to do with it until a turn exists. Claude fires at launch because it uses hooks differently.
+
+### What was actually broken, and is now fixed
+
+1. **A plain terminal never wired codex at all.** `TerminalSessionBootstrap.make` fell back to the
+   CLAUDE producer when the startup command matched none, so `CODEX_HOME` was never exported and a
+   typed `codex` read the user's own config with no Port42 hooks in it. The fallback's REASONING was
+   right (a plain shell must be wired for a CLI typed in later) but it named one CLI, and only
+   claude's mechanism — a shell function, which beats PATH — survives being typed later. Now every
+   producer prepares every terminal (`CLIHookProducer.prepareAll`), merged under stated rules.
+2. **The generated config threw the user's own away.** We owned `config.toml` outright, so a
+   Port42-wired codex ran with none of GM's 62 lines: `notify`, marketplaces, plugins, MCP servers.
+   Codex said so on every launch ("Ignored unsupported project-local config keys … notify"). Now the
+   user's config is the BASE and our hooks are merged into it — `[features]` and `[projects.*]` in
+   place, since TOML forbids redefining a table and a naive append yields a config codex REJECTS.
+3. **A codex companion had no way to learn it was one.** Claude gets `--append-system-prompt` via the
+   shim. Codex has no such flag. Its only channel is the `[PROMPT]` positional — and passing the
+   briefing there ALSO runs the turn that fires the pending hook. One change, both problems:
+   `CLIHookProducer.startupCommand`.
+
+### Verified live on Dev2, 2026-07-31
+
+`port.create({type:"terminal", command:"codex", args:[briefing]})` → companion registered within 8
+seconds of spawn, `sessionStarted: 1`, no human step. A hand-typed `codex` also registers, on the
+user's own first turn, with nothing injected into their session.
+
+### The traps, all of them paid for
+
+- **`/hooks` has THREE columns: Installed, Active, Review.** Reading two and calling `1 0` "active"
+  cost hours.
+- **Pressing space on the review screen DISABLES the hook.** It wrote `enabled = false` into the
+  config, which is why it read as "codex ignores SessionStart".
+- **`--dangerously-bypass-hook-trust` is not the answer** and is not used. It suppresses the review
+  PROMPT without enabling or trusting anything, so the one interaction that would turn the hook on
+  can never happen.
+- **Hook trust is keyed by the DEFINING CONFIG'S PATH** (`<path>:session_start:0:0` + `trusted_hash`),
+  written back into that same file. A per-port codex-home meant a hook codex had never seen on every
+  spawn. The home is now stable per instance, so a review is once per install, not once per terminal.
+- **`port.console` returns nothing for a codex terminal.** It is hooks-capable, and output teeing is
+  suppressed for those (a TUI redraw is a screen, not a stream). Debug from
+  `~/port42-build/Port42Dev*.log` and `~/.codex/logs_2.sqlite`, not from the port.
+- **The shim blocks on `io.ReadAll(os.Stdin)`** (`shim/main.go:221`). Not the cause of any of the
+  above — claude always closes stdin — but it hangs a hand-run `notify`, which sent this
+  investigation down a false path. Still worth fixing.
+
+### Left open
+
+- **Gemini and antigravity** remain out, unchanged: gemini cannot authenticate without a paid key,
+  and antigravity's credentials do not survive the per-session config redirect. Neither is a hooks
+  problem. The original section below still stands for those.
+- **`turnComplete`** is in the same config and fired in a live session, so codex companion REPLIES
+  should work — not yet tested end to end.
+- **Auto-registered companions take the port's TITLE as their name** (`codex probe`, `teleport: main`),
+  which is not mentionable. One fix serves codex and teleport both.
 
 ---
 
@@ -4200,7 +4138,52 @@ scoped to space".
 
 ---
 
-## BUG: a generative/stateful port loses its state on restart + on background/pop-out (2026-07-21, GM)
+## ~~BUG: a generative/stateful port loses its state on restart + on background/pop-out~~ — PATH B DISPROVEN live 2026-07-31; only the port-side half remains
+
+**MEASURED, not reasoned about (Dev4, 2026-07-31).** A probe port took a WebGL context, listened for
+`webglcontextlost` / `webglcontextrestored` and the `presentation` event, and ran a 2s heartbeat.
+Backgrounded via `port.manage(minimize)`, then restored. Read back with `port.console`:
+
+```
+[0ms]     BOOT
+[49ms]    webgl context: acquired
+[56ms]    initial presentation: {"state":"tiled","visible":true,"w":360,"h":260}
+[2057ms]  heartbeat 1
+[4058ms]  heartbeat 2
+[4102ms]  >>> presentation event: {"reason":"background","state":"background","visible":false,"w":0,"h":0}
+[6162ms]  heartbeat 3            <- JS still running while backgrounded
+   ...
+[36893ms] >>> presentation event: {"reason":"tiled","state":"tiled","visible":true,"w":360,"h":260}
+[40533ms] heartbeat 16           <- the SAME counter, never reset
+```
+
+**Three findings, and they retire path b.**
+
+1. **`webglcontextlost` never fired.** Backgrounding does not tear the context down, so the RCA's
+   "the unit unmounts → WebGL context loss → blank on remount" does not happen. Whatever `minimize`'s
+   comment says, the surface is not being destroyed.
+2. **The port keeps running and keeps its state.** The heartbeat counter ran 1 through 16 unbroken
+   across background and restore on one `performance.now()` clock. Nothing to re-persist and nothing
+   to rehydrate, because nothing was lost.
+3. **The presentation event fires both ways and carries a `reason`.** So the "is a port told before it
+   is unmounted" worry is moot: there is no unmount to be told about. The debounce is fine.
+
+Side observation, not a defect: timers throttle from 2s to ~3s while backgrounded and recover on
+restore, which is WebKit throttling a non-visible view. It confirms the surface really is treated as
+invisible while remaining alive.
+
+**WHAT ACTUALLY REMAINS is path a, and it is port-side by definition.** On restart the port is
+reloaded from persisted HTML, so a port that never wrote its generated state back gets the original
+back. The fix is the stateful-app pattern the ports manual already teaches: persist to
+`port42.storage` (or snapshot via `port.update`) and rehydrate on load. No platform change is implied.
+The shader port was not doing that.
+
+**Still genuinely open, and now the only platform question here:** whether the shader was a
+self-generating port that regenerates by design, in which case there was never a bug at all.
+
+---
+
+## BUG (historical RCA): a generative/stateful port loses its state on restart + on background/pop-out (2026-07-21, GM)
 
 **Symptom (GM):** a shader port we created (a) does not survive a restart — the shader has to be
 generated again — and (b) loses its state when backgrounded or popped back out, again forcing a

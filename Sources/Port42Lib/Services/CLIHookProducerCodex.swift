@@ -15,9 +15,25 @@ extension CLIHookProducer {
             var out = Output()
             guard let shimPath = ctx.shimPath else { return out }   // no notifier → no hooks
 
-            let home = "\(ctx.tempDir)/codex-home"
             let fm = FileManager.default
+            let realHome = (ctx.home as NSString).appendingPathComponent(".codex")
+
+            // NO REAL ~/.codex → PREPARE NOTHING (2026-07-31). This producer now runs for every
+            // terminal, not only one started with `codex`, so it must be inert on a machine that
+            // has never run codex. Pointing CODEX_HOME at a home with no onboarding state is not
+            // neutral: the mirror comment below records that codex then treats it as a FIRST RUN,
+            // sits on its setup screen and swallows every keystroke pushed at it. Manufacturing
+            // that for users who do not use codex would be a worse bug than the one being fixed.
+            guard fm.fileExists(atPath: realHome) else { return out }
+
+            // STABLE, not per-port. Codex keys hook trust by the defining config's path, so a home
+            // under `tempDir` gave every terminal a hook codex had never seen, which it reviewed
+            // and skipped. `stableDir` is one directory per Port42 instance; falling back to
+            // tempDir keeps tests and any caller that has not supplied one working.
+            let home = "\((ctx.stableDir ?? ctx.tempDir))/codex-home"
             try? fm.createDirectory(atPath: home, withIntermediateDirectories: true)
+            let previousConfig = (try? String(contentsOfFile: "\(home)/config.toml",
+                                              encoding: .utf8)) ?? ""
 
             // MIRROR the user's real ~/.codex, entry by entry, and own ONLY config.toml.
             //
@@ -32,7 +48,6 @@ extension CLIHookProducer {
             // Two of these matter enough to name. `auth.json`: without it every session demands a
             // fresh login. `sessions/`: the Stop payload's `transcript_path` lands INSIDE this home,
             // so leaving it unlinked strands transcripts in a temp dir and breaks `codex resume`.
-            let realHome = (NSHomeDirectory() as NSString).appendingPathComponent(".codex")
             let entries = (try? fm.contentsOfDirectory(atPath: realHome)) ?? []
             for entry in entries where entry != "config.toml" {
                 let link = "\(home)/\(entry)"
@@ -40,10 +55,60 @@ extension CLIHookProducer {
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: "\(realHome)/\(entry)")
             }
 
-            let config = codexConfig(shimPath: shimPath, cwd: ctx.cwd)
+            // The user's own config is the BASE, not something we replace. It is the one entry the
+            // mirror above deliberately does not symlink, so it is the one that has to be carried
+            // across by value.
+            let userConfig = (try? String(contentsOfFile: "\(realHome)/config.toml",
+                                          encoding: .utf8)) ?? ""
+            let config = codexConfig(shimPath: shimPath, cwd: ctx.cwd, userConfig: userConfig,
+                                     previousConfig: previousConfig)
             do {
                 try config.write(toFile: "\(home)/config.toml", atomically: true, encoding: .utf8)
                 out.env["CODEX_HOME"] = home
+                // ALSO exported from the injected zshrc, not only set on the spawned process.
+                // The process env alone covers `codex` as a startup command; it does not survive a
+                // user's own startup files re-exporting CODEX_HOME, and the shell-level export is
+                // what makes a codex TYPED into a plain terminal pick the hooked home up — the
+                // claude-shaped guarantee, by the mechanism codex actually uses.
+                out.shellLines = [
+                    "# Port42: point codex at the hooked home, for a codex typed in later.",
+                    "export CODEX_HOME='\(home.replacingOccurrences(of: "'", with: "'\\''"))'",
+                    // NO `--dangerously-bypass-hook-trust`. It was tried and REMOVED the same day,
+                    // because it makes things worse in a way that is easy to miss (2026-07-31).
+                    //
+                    // The `/hooks` table has three columns — Installed, Active, Review — and the
+                    // flag addresses none of them. It suppresses the startup REVIEW PROMPT without
+                    // enabling or trusting anything, so a hook that needs review silently never
+                    // gets it: `1 0 1` forever, and the user is never asked. Running WITHOUT the
+                    // flag is what produces the prompt, and answering it once writes
+                    // `enabled = true` plus a `trusted_hash` into the config, which is the state
+                    // that actually matters.
+                    //
+                    // Measured: with the flag, no prompt and no hook; without it, prompt, then
+                    // `1 1 0` recorded in the stable config.
+                    //
+                    // TRUST IS ONE GATE, and it is why none of this worked (2026-07-31, measured).
+                    //
+                    // The config was right the whole time: `[features] hooks = true`, the event
+                    // names, the three-level `[[hooks.X]]` / `[[hooks.X.hooks]]` shape, and an
+                    // omitted matcher meaning "all sources" all match the published reference. What
+                    // the reference also says is the part probing could not reveal:
+                    //
+                    //   "Codex records trust against the hook's current hash, so new or changed
+                    //    hooks are marked for review and SKIPPED until trusted."
+                    //
+                    // SKIPPED — not prompted for. `/hooks` still lists the hook as active, which is
+                    // what made this read as "codex ignores SessionStart" through two versions.
+                    // And SessionStart fires before the TUI can ask anything, so the interactive
+                    // grant can never arrive in time for the event that needs it.
+                    //
+                    // The flag is documented for exactly this case: "one-off automation that
+                    // already vets hook sources outside Codex". Port42 GENERATED these hooks, so it
+                    // is that automation. Measured: without it, zero sessionStarted across every
+                    // run on 0.140.0 and 0.146.0; with it, the event lands and the companion
+                    // registers with no interactive step at all.
+                    //
+                ]
             } catch {
                 NSLog("[hooks] codex: failed to write config.toml: \(error)")
             }
@@ -66,18 +131,50 @@ extension CLIHookProducer {
     /// Codex hooks fire in the INTERACTIVE TUI and not under `codex exec`, which is what made three
     /// separate probes read as "hooks are dead in this version". Port42 companions are interactive,
     /// so that limitation does not reach us.
-    static func codexConfig(shimPath: String, cwd: String) -> String {
+    /// THE USER'S CONFIG IS THE BASE, and Port42's hooks are added to it (2026-07-31).
+    ///
+    /// This used to return a standalone document, which meant a Port42-wired codex ran with NONE of
+    /// the user's own settings: `notify`, marketplaces, plugins, MCP servers, TUI state. Codex said
+    /// so on every launch ("Ignored unsupported project-local config keys … : notify"), because with
+    /// CODEX_HOME redirected it found `~/.codex/config.toml` only as a project-local file. The
+    /// producer mirrors every entry in `~/.codex` except this one, so this was the single hole in
+    /// "everything is the user's real state unless we specifically need to replace it".
+    ///
+    /// `[features]` and `[projects."<cwd>"]` are MERGED rather than appended, because the user may
+    /// already declare both and TOML forbids redefining a table — a naive append yields a config
+    /// codex rejects outright. The hook entries are arrays of tables, which may legally repeat, so
+    /// those are appended and compose with any the user has of their own.
+    static func codexConfig(shimPath: String, cwd: String, userConfig: String = "",
+                            previousConfig: String = "") -> String {
         let quotedShim = shimPath.replacingOccurrences(of: "\"", with: "\\\"")
-        let trust = trustedDirectories(for: cwd)
-            .map { "[projects.\"\($0)\"]\ntrust_level = \"trusted\"\n" }
-            .joined(separator: "\n")
-        return """
-        # Written by Port42 for one terminal session. Not the user's own config —
-        # CODEX_HOME points here, and auth.json + sessions/ are symlinks to the real ~/.codex.
-        [features]
-        hooks = true
 
-        \(trust)
+        // The user's config is re-read every time, so edits to it stay live. Its `[hooks.state]` is
+        // STRIPPED: those entries name the file that defined the hook, so they mean nothing here.
+        let userConfig = CodexConfigMerge.partitionHookState(userConfig).rest
+        // Our own previous generation's hook state is CARRIED FORWARD. This is what makes trust
+        // survive, and without it codex re-reviews (and therefore skips) the hook on every spawn.
+        let carried = CodexConfigMerge.partitionHookState(previousConfig).state
+
+        var toml = userConfig.isEmpty
+            ? "# Written by Port42. CODEX_HOME points here; the rest of ~/.codex is symlinked.\n"
+            : "# Port42 added its hooks to your ~/.codex/config.toml for this terminal session.\n"
+              + "# Everything below is yours except the [features].hooks key, the project trust\n"
+              + "# entries for this cwd, and the [[hooks.*]] blocks at the end.\n"
+              + userConfig
+
+        // Hooks are OFF by default, and this key may already exist in the user's own [features].
+        toml = CodexConfigMerge.setKey("hooks", to: "true", inTable: "features", of: toml)
+
+        // Without trust codex refuses to START, which looks exactly like hooks failing. Merged per
+        // directory, so a project the user already trusts keeps its other settings.
+        for dir in trustedDirectories(for: cwd) {
+            toml = CodexConfigMerge.setKey("trust_level", to: "\"trusted\"",
+                                           inTable: "projects.\"\(dir)\"", of: toml)
+        }
+
+        if !toml.hasSuffix("\n") { toml += "\n" }
+        toml += """
+
         [[hooks.Stop]]
 
         [[hooks.Stop.hooks]]
@@ -91,6 +188,8 @@ extension CLIHookProducer {
         command = "'\(quotedShim)' notify sessionStarted"
 
         """
+        // Codex's own trust record goes LAST, after the hooks it refers to.
+        return carried.isEmpty ? toml : toml + "\n" + carried + "\n"
     }
 
     /// Every path codex might CHECK trust against for one working directory.
