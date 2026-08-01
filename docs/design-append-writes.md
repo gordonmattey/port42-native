@@ -60,30 +60,30 @@ Not the method, because the same verb differs by port. Terminal push is unambigu
 port push delivers an event to JS, and what the port does with it is the port's business: it may
 append to a list or replace its whole state (GM, 2026-07-31: "web port depends").
 
-So the **port** declares it, which is also the shape `BridgeStreamMethod.endless` already uses: a
-property of the thing, declared rather than inferred from a name, so the behavior cannot drift from
-the description.
+**So the PORT declares which of ITS WRITES are appends** — not the method globally, and not the port
+wholly. The terminal is what forces that precision: its output is an append and its input is not, in
+the same port. Declared rather than inferred from a name, the same shape `BridgeStreamMethod.endless`
+already uses, so the behavior cannot drift from the description.
 
 A first cut:
 
 | port kind | state writes | appends |
 |---|---|---|
 | chat | — | messages |
-| terminal | — | input, output |
+| terminal | **input** (two writers interleave into one command line) | output |
 | web | `patch`, `update`, `getHtml` | `push`, IF the port declares it |
 | browser | navigation | — |
 
 ## Open questions
 
-1. **Can one port have both?** A web port that appends to a log and also replaces its HTML is
-   plausible, which argues the declaration belongs to the WRITE rather than the port. That reopens
-   the "not the method" reasoning above, and the answer is probably that the port declares which of
-   ITS writes are appends, rather than declaring itself wholly one or the other.
+1. ~~Can one port have both?~~ **CLOSED 2026-07-31 (GM): yes, and the terminal proves it.** Its
+   OUTPUT is plainly an append, and its INPUT is not — two writers typing into one shell interleave
+   into a single command line, which is a real mess rather than a theoretical one. So a port declares
+   **which of its writes** are appends, rather than declaring itself wholly one kind. The table above
+   is corrected accordingly: terminal input is a state write and needs right-of-way.
 2. **Does an append need any precondition at all?** Existence, presumably: appending to a port that
    is gone should fail. That is `not_found`, not `stale_write`.
-3. **Ordering between writers.** Appends cannot conflict, but they can interleave. For chat that is
-   correct and expected. For terminal INPUT it may not be: two writers typing into one shell
-   interleave into one command line, which is a genuine mess. That may be an argument for terminal
-   input being a state write after all, or for right-of-way on input specifically.
+3. ~~Ordering between writers.~~ Folded into 1. Interleaving is correct for chat and wrong for
+   terminal input, which is what made "the write declares it" the answer rather than "the port does".
 4. **Does this change the wire half?** It should reduce it: an append needs no `current` round trip
    and no retry, which is one less thing to prove over a link with real latency.
