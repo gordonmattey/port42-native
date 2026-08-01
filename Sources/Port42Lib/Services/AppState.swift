@@ -3184,7 +3184,13 @@ public final class AppState: ObservableObject {
         // The gateway port is instance-specific (prod 4242, dev 4243, and one day maybe 42), so the
         // self-post curl example must carry the LIVE port, never a hardcoded one.
         let gwPort = GatewayProcess.shared.port
-        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — a bare name like \"Critic\" is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @Critic please review.\" POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:\(gwPort)/call -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. Keep responses concise."
+        // The behavioural rules come from `CompanionProtocol`, the ONE place they are written. They
+        // also reach codex, which has no system-prompt flag, through the global instruction file —
+        // so a copy here would drift against that one silently. What stays local is what only this
+        // surface knows: who this companion is, which space, and its own self-post command.
+        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). "
+            + CompanionProtocol.rules
+            + " POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:\(gwPort)/call -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. Keep responses concise."
         let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
@@ -3193,12 +3199,22 @@ public final class AppState: ObservableObject {
 
     @discardableResult
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
-                                 spaceId: String, title: String, companionName: String,
+                                 spaceId: String, title: String, companionName rawCompanionName: String,
                                  companionId: String? = nil,
                                  systemPrompt: String? = nil, env: [String: String] = [:],
                                  recordKey: String? = nil, postCard: Bool = true,
                                  startupCommandOverride: String? = nil,
                                  initialInput: String = "") -> String? {
+        // A COMPANION'S NAME IS AN ADDRESS, so it is normalized ONCE, here, before anything
+        // downstream keys off it: the baked prompt ("you are X"), the auto-registered roster row,
+        // the typing indicator, the pending-injection queue. Normalizing later would let the prompt
+        // and the roster disagree about who this is.
+        //
+        // Ad-hoc terminals take the port TITLE as their companion name, and a title is prose. The
+        // live teleport run produced `teleport: main`; codex produced `codex probe`. Both joined
+        // their space and neither could be @mentioned, which read as never having joined at all.
+        // The port keeps its human title; only the handle is folded.
+        let companionName = CompanionName.mentionable(rawCompanionName) ?? rawCompanionName
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
         // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
@@ -3225,6 +3241,13 @@ public final class AppState: ObservableObject {
         // and because that first turn is what runs its pending SessionStart hook. Claude is
         // untouched: its prompt already travels invisibly via the shim. See
         // `CLIHookProducer.startupCommand`.
+        // The FULL baked prompt, same text claude gets. Measured 2026-08-01: a 1400-char line types
+        // into the pty intact and the `'\''` escaping round-trips, so there is no reason to send
+        // codex an abridged briefing. (An earlier short-prompt version of this was a workaround for
+        // a misdiagnosis: the spawn had actually succeeded and simply took longer than the test's
+        // polling window, because a longer prompt means a longer first model call.)
+        //
+        // It does not depend on the AGENTS.md block, which is opt-in and may not be installed.
         let startupCommand = CLIHookProducer.startupCommand(base: baseStartupCommand,
                                                             companionPrompt: companionPrompt)
         let config = TerminalPortConfig(

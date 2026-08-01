@@ -135,6 +135,35 @@ https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
 Port42 prompts the user on first use of a sensitive API (terminal, screen, clipboard, files, \
 camera, automation, browser, REST). Denials are never permanent — a later call re-asks. \
 A granted permission is per caller, and the user can see and revoke it in Port42 Settings → Access.
+
+## If you were launched as a SPACE COMPANION
+
+Conditional on purpose: this file is global, and you are usually just a CLI in a terminal. It \
+applies only when `PORT42_SPACE_ID` is set in your environment, which Port42 does for a companion \
+terminal. If it is unset, ignore this whole section.
+
+**Your space is `$PORT42_SPACE_ID`, and you must PASS IT.** Look it up for the name and the current \
+member list, which is what you need in order to address anyone:
+
+```bash
+curl -s -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" \\
+  http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -d '{"method":"space.current","args":{"space_id":"'"$PORT42_SPACE_ID"'"}}'
+```
+
+**Never call it without `space_id`.** Bare, it returns the space the USER is currently looking at, \
+which is not yours and changes whenever they switch. Your own space is fixed for your whole life and \
+is the env var — the lookup is only for the name and the roster, which do change as people come and \
+go, so ask again rather than remembering.
+
+Your credential is `$PORT42_CLIENT_ID`, and its token is in the file at `$PORT42_TOKEN_FILE` — never \
+in the environment itself, because a subprocess environment is readable by anything running as this \
+user.
+
+**How to behave**, from the one place these rules are written (`CompanionProtocol`), so this can \
+never drift against the version claude receives as a system prompt:
+
+\(CompanionProtocol.rules)
 """
     }
 }

@@ -417,6 +417,23 @@ struct CLIHookProducerTests {
         #expect(out == "codex 'You are scout.'")
     }
 
+    /// A LONG briefing survives being typed, so codex gets the same text claude does.
+    ///
+    /// This existed briefly as the opposite assertion. A spawn carrying the full ~1200-char prompt
+    /// appeared to fail, and I concluded the line was too long to type and shortened it. It was a
+    /// misdiagnosis twice over: the spawn had actually SUCCEEDED and simply took longer to register
+    /// than the test's polling window, because a longer prompt means a longer first model call.
+    /// Measured afterwards: a 1400-char line reaches the shell intact, and the `'\''` escaping
+    /// round-trips. GM called the short prompt a workaround before any of that was known, and was
+    /// right.
+    @Test("a long briefing is passed whole — no abridging, no length workaround")
+    func longBriefingSurvives() {
+        let long = String(repeating: "the quick brown fox. ", count: 60)   // ~1260 chars
+        let out = CLIHookProducer.startupCommand(base: "codex", companionPrompt: long)
+        #expect(out.contains(long), "the briefing must be passed whole")
+        #expect(out.hasPrefix("codex '"))
+    }
+
     @Test("a prompt with quotes is escaped, not broken")
     func codexPromptIsQuoted() {
         let out = CLIHookProducer.startupCommand(base: "codex",

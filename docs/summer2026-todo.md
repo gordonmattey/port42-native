@@ -1053,8 +1053,66 @@ user's own first turn, with nothing injected into their session.
   above — claude always closes stdin — but it hangs a hand-run `notify`, which sent this
   investigation down a false path. Still worth fixing.
 
+### A companion's NAME is an address (fixed 2026-08-01)
+
+Auto-registered CLI terminals took the port's TITLE verbatim, and a title is prose. The live teleport
+run produced `teleport: main`; codex produced `codex probe`. Every one of them JOINED its space
+correctly and not one could be reached, because `MentionParser` accepts `@[a-zA-Z][a-zA-Z0-9-]*` and
+stops at the first space or colon.
+
+**So the teleport item's stated root cause is wrong.** It says `port.create` "never reaches
+`joinCompanionToSpace`" and proposes a companion opt-in flag. Demonstrated otherwise: a `port.create`
+terminal registers fine, via `autoRegisterTerminalCompanion` on `SessionStart`, which
+`makeTerminalController` wires for every terminal panel however it was spawned. The session joined;
+it just had a name nobody could type. That item is a naming fix, not new machinery.
+
+`CompanionName.mentionable` folds a title into a handle and lives beside `MentionParser` because it
+is that parser's inverse — the round-trip test feeds every folded handle back through the parser, so
+the two cannot drift. Applied ONCE at `spawnNativeTerminalPort`, before the baked prompt, the roster
+row, the typing indicator and the injection queue key off it.
+
+### Where the companion protocol lives, and why it is in exactly one place
+
+`bakeCompanionPrompt` already stated the rules for claude. Adding them to the codex instruction file
+would have made two prose copies of one protocol, which drift invisibly — the symptom is a companion
+misbehaving with nothing pointing at the stale sentence. GM caught it as it was being written.
+
+One `CompanionProtocol.rules`, reaching two surfaces by two routes:
+
+- **claude**: per session, a real system prompt, `PORT42_COMPANION_PROMPT` → shim →
+  `--append-system-prompt`. Never touches the command line, which is why claude always worked.
+- **codex**: no system-prompt flag exists, so the global `<CODEX_HOME>/AGENTS.md` that
+  `InstructionService` maintains, PLUS the same briefing as its `[PROMPT]` positional (the positional
+  also being the first turn, without which the pending `SessionStart` never fires).
+
+Verified live: codex reads `<CODEX_HOME>/AGENTS.md`; it does **not** follow `@file` imports, so the
+text must be inline. A pointer would fail silently. The extraction is pinned character-for-character
+against `historicalRules`, because a refactor that quietly rewords a live system prompt is a
+behaviour change wearing a refactor's clothes — the first attempt lowercased `@Critic` to `@critic`.
+
+**`space.current` must be called WITH `space_id`.** Bare it returns the space the USER is currently
+looking at. Proved by switching the app to `space-2` while a companion in `general` asked: it
+correctly answered `general`. Before the fix it would have reported `space-2` — plausible, wrong, and
+changing whenever the human navigates.
+
+### Two misdiagnoses recorded, because both were caught by GM rather than by a test
+
+1. **"the briefing is too long to type."** It is not. A 1400-char line reaches the shell intact and
+   the `'\''` escaping round-trips. The spawn I called broken had actually SUCCEEDED and simply took
+   longer to register than the polling window, because a longer prompt means a longer first model
+   call. The short-prompt "fix" was a workaround for nothing and is reverted.
+2. **`--dangerously-bypass-hook-trust` "is the answer."** It is not, and it is not used. It
+   suppresses the review PROMPT without enabling or trusting anything, so the one interaction that
+   would turn the hook on can never happen.
+
 ### Left open
 
+- **Codex subscription auth** has no home in the bios/settings, unlike claude subscriptions. All of
+  the above assumes codex is already logged in: `auth.json` is symlinked from the real `~/.codex`, so
+  a fresh machine has codex auth nowhere and no way to add it from Port42. (GM, 2026-08-01.)
+- **Claude companions are renamed too.** `CompanionName` applies to every terminal companion, so a
+  claude companion previously registered as `claude code` now normalizes to `claude-code`. Whether
+  that orphans the old row and registers a duplicate is UNTESTED (GM: not a concern for now).
 - **Gemini and antigravity** remain out, unchanged: gemini cannot authenticate without a paid key,
   and antigravity's credentials do not survive the per-session config redirect. Neither is a hooks
   problem. The original section below still stands for those.
