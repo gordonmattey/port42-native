@@ -457,6 +457,11 @@ BRIDGE API REFERENCE:
     clobbering whoever moved it:
       catch (e) { if (e.code === 'token_required' || e.code === 'stale_write') retry(e.current); }
 
+    Keep the error OBJECT. `current` and `code` live on it, not in the message text, so
+    re-wrapping — `throw new Error(e.message)`, or `new Error(code + ': ' + msg)` — destroys
+    the retry before it can run. The refusal carries its own fix; stringifying it throws the
+    fix away and turns a one-retry self-correction into a dead end.
+
     EVERY error carries a `code` you can branch on, and a `message` for a human. The codes are a
     closed set, so matching one is safe:
 {{ERROR_CODES}}
