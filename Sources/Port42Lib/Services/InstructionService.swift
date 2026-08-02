@@ -55,7 +55,12 @@ public final class InstructionService: ObservableObject {
         let dir = (mdPath as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
-        let block = "\(Self.blockStart)\n\(buildMarkdown(toolName: target.name))\n\(Self.blockEnd)"
+        // The companion section goes ONLY to a CLI that has no system-prompt channel.
+        // claude receives `CompanionProtocol.rules` per session as a real system prompt (the shim
+        // turns PORT42_COMPANION_PROMPT into --append-system-prompt), so repeating it in CLAUDE.md
+        // is dead weight in a block whose whole discipline is staying a pointer. codex has no such
+        // flag, which is the entire reason the section exists.
+        let block = "\(Self.blockStart)\n\(buildMarkdown(toolName: target.name, companionProtocol: target.tool == "codex"))\n\(Self.blockEnd)"
 
         // Read existing file if present
         let existing = (try? String(contentsOfFile: mdPath, encoding: .utf8)) ?? ""
@@ -95,7 +100,9 @@ public final class InstructionService: ObservableObject {
 
     /// The slim pointer block. API facts live behind `help` / llms.txt (generated, cannot drift);
     /// port craft lives behind `help(topic:"ports")`. Nothing here enumerates methods.
-    private func buildMarkdown(toolName: String) -> String {
+    /// Internal rather than private so the C3 gate can scan it: every generated example that calls
+    /// the gateway must carry a credential, and a hand-checked list of documents would rot.
+    func buildMarkdown(toolName: String, companionProtocol: Bool = false) -> String {
         """
 # Port42 Instructions
 
@@ -105,11 +112,28 @@ Port42 exposes its device and space APIs to you via a local HTTP gateway.
 ## Calling Port42 APIs
 
 ```bash
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"<method>","args":{...}}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" \\
+  -d '{"method":"<method>","args":{...}}'
 ```
 
 Response: `{"content": "..."}` — the result as a string or JSON. A port is a live interactive \
 surface in the user's chat (web HTML/CSS/JS, or a native terminal), created with `port.create`.
+
+## Who you are when you call
+
+**Every call must name a caller, and you have your own.** If Port42 started this session, \
+`$PORT42_TOKEN_FILE` holds the path to your token and `$PORT42_CLIENT_ID` is the name Port42 knows \
+you by. Read the file at call time rather than caching it: it is re-issued when the app restarts.
+
+If `$PORT42_TOKEN_FILE` is not set, Port42 did not start this session and you have no credential \
+here. Ask the user to add a client in **Port42 Settings → Access** and to give you its token. Note \
+that each Port42 instance mints its own, so a token from one instance is refused by another.
+
+**Do not read another tool's token file.** They sit at predictable paths and they will work, and \
+that is exactly the problem: the permission prompt then names that tool instead of you, the grant \
+lands on it, and revoking your access breaks whatever it belonged to. A borrowed credential is not \
+a shortcut, it is a wrong answer that looks right.
 
 **Every write to a port must carry that port's `token`**, and every write, `ports.list` and \
 `port.create` return one — so you thread it and never re-read a port just to write to it again. \
@@ -121,10 +145,12 @@ callers silently overwriting each other.
 
 ```bash
 # The full API reference — every method, params, permissions (generated from the live registry)
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"help"}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help"}'
 
 # The port-authoring manual — REQUIRED READING before building or updating any port
-curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call -d '{"method":"help","args":{"topic":"ports"}}'
+curl -s http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help","args":{"topic":"ports"}}'
 ```
 
 If Port42 is not running, the same reference is published at:
@@ -135,35 +161,39 @@ https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
 Port42 prompts the user on first use of a sensitive API (terminal, screen, clipboard, files, \
 camera, automation, browser, REST). Denials are never permanent — a later call re-asks. \
 A granted permission is per caller, and the user can see and revoke it in Port42 Settings → Access.
+\(companionProtocol ? Self.companionSection : "")
+"""
+    }
+
+    /// The companion briefing, for a CLI that cannot be handed a system prompt.
+    ///
+    /// **Only codex gets this.** claude receives `CompanionProtocol.rules` per session as a real
+    /// system prompt — the shim turns `PORT42_COMPANION_PROMPT` into `--append-system-prompt` — so
+    /// putting it in CLAUDE.md too would be a second copy of something claude already has, in a
+    /// block whose entire discipline is remaining a pointer. Codex has no such flag, which is the
+    /// whole reason this exists.
+    ///
+    /// Kept out of `buildMarkdown` so the general block's slimness gate measures the general block.
+    private static let companionSection = """
+
 
 ## If you were launched as a SPACE COMPANION
 
-Conditional on purpose: this file is global, and you are usually just a CLI in a terminal. It \
-applies only when `PORT42_SPACE_ID` is set in your environment, which Port42 does for a companion \
-terminal. If it is unset, ignore this whole section.
+Applies only when `PORT42_SPACE_ID` is set, which Port42 does for a companion terminal. If it is \
+unset, ignore this section.
 
-**Your space is `$PORT42_SPACE_ID`, and you must PASS IT.** Look it up for the name and the current \
-member list, which is what you need in order to address anyone:
+**Your space is `$PORT42_SPACE_ID` and you must PASS IT** — look it up for the name and roster:
 
 ```bash
-curl -s -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" \\
-  http://127.0.0.1:\(GatewayProcess.shared.port)/call \\
+curl -s -H "Authorization: Bearer $(cat \\"$PORT42_TOKEN_FILE\\")" \\\\
+  http://127.0.0.1:\(GatewayProcess.shared.port)/call \\\\
   -d '{"method":"space.current","args":{"space_id":"'"$PORT42_SPACE_ID"'"}}'
 ```
 
-**Never call it without `space_id`.** Bare, it returns the space the USER is currently looking at, \
-which is not yours and changes whenever they switch. Your own space is fixed for your whole life and \
-is the env var — the lookup is only for the name and the roster, which do change as people come and \
-go, so ask again rather than remembering.
+**Never call it without `space_id`.** Bare, it returns the space the USER is looking at, which is not \
+yours and changes when they switch. Your space is fixed for life; only the name and roster change, \
+so ask again rather than remembering.
 
-Your credential is `$PORT42_CLIENT_ID`, and its token is in the file at `$PORT42_TOKEN_FILE` — never \
-in the environment itself, because a subprocess environment is readable by anything running as this \
-user.
-
-**How to behave**, from the one place these rules are written (`CompanionProtocol`), so this can \
-never drift against the version claude receives as a system prompt:
-
-\(CompanionProtocol.rules)
+**How to behave:** \(CompanionProtocol.rules)
 """
-    }
 }

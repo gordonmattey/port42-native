@@ -268,7 +268,19 @@ pkill -9 -f "$BUILD_REAL/$APP_DIR_NAME.app/Contents/MacOS/$EXEC" 2>/dev/null || 
 for pid in $(lsof -ti "tcp:$GW_PORT" 2>/dev/null); do
     case "$(ps -o comm= -p "$pid" 2>/dev/null)" in "$BUILD_REAL"*) kill -9 "$pid" 2>/dev/null || true ;; esac
 done
-sleep 0.3
+
+# WAIT AFTER THE SIGKILL, not only before it (H1). The loop above waits for a POLITE kill to land;
+# after `kill -9` there used to be a flat `sleep 0.3` and no check at all. A process that still has
+# its binary mapped defeats the `rm -rf` below, which then partially fails, and the next mkdir/cp
+# fails inside a half-deleted bundle. Measured 2026-07-31: three builds died that way, twice on Dev3
+# and once on Dev2, as `Operation not permitted` on a copy and once as an internal codesign error
+# naming the still-running binary.
+for i in {1..40}; do
+    pgrep -f "$BUILD_REAL/$APP_DIR_NAME.app/Contents/MacOS/$EXEC" >/dev/null 2>&1 || break
+    [ "$i" = 40 ] && { echo "[build] FATAL: $DISPLAY_NAME is still running after SIGKILL; refusing to"; \
+                       echo "[build] overwrite its bundle, because a partial teardown produces a bundle that lies."; exit 1; }
+    sleep 0.25
+done
 
 # --- Package the main app ---
 APP="$DIR/.build/$APP_DIR_NAME.app"
@@ -280,6 +292,16 @@ RESOURCES="$APP/Contents/Resources"
 # packaging idempotent. (Previously masked because Dropbox wiped .build between
 # builds; now that .build lives outside Dropbox, the stale bundle persists.)
 rm -rf "$APP"
+# CHECK IT ACTUALLY WENT (H2). `rm -rf` reports nothing useful when it partially fails, and every
+# symptom then appears one step later, inside a bundle that is half old and half new. The project's
+# own rule is that a build reporting a copy or signing failure is not evidence — this makes the
+# failure happen HERE, where it names the cause, instead of surfacing as black videos or an app
+# whose main executable is the wrong program.
+if [ -e "$APP" ]; then
+    echo "[build] FATAL: could not remove $APP — something still holds files inside it."
+    echo "[build] Quit $DISPLAY_NAME and rebuild. Do not trust a bundle assembled over the old one."
+    exit 1
+fi
 mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$DIR/.build/$CONFIG/Port42" "$MACOS/$EXEC"

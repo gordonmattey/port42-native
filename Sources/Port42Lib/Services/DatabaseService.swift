@@ -708,6 +708,25 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v45-reap-unreachable-grants") { db in
+            // `local-http` was DELETED as an identity in 5b, so nothing can ever be that grantee
+            // again. The grants it holds are therefore unreachable rather than merely old: they can
+            // never fire, and the permission manager shows them as a grantee the user cannot place.
+            // Measured 2026-07-31: three in production, two in Dev3.
+            //
+            // **This does not reopen "grants are permanent"** (open question 3, closed 2026-07-29).
+            // That decision is about consent: nothing expires a grant, and revocation stays manual.
+            // This is garbage collection of a row nothing can match, and it is targeted at ONE
+            // grantee that provably cannot return, rather than at anything that merely looks unused.
+            // Approved by GM, 2026-07-31: "yes reap them as we no longer use that path."
+            //
+            // Deliberately NOT generalized to "any grantee with no client row". A grantee may be a
+            // client, a companion, a PORT, or the human — the last two have no row in `clients`, so
+            // a general sweep would delete live consent. The census that found these checked
+            // clients and agents only, and would have mislabeled a port grant the same way.
+            try db.execute(sql: DatabaseService.unreachableGrantsSQL)
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -793,6 +812,19 @@ public final class DatabaseService {
     }
 
     /// What this grantee may do to this object in this zone.
+    /// One definition of "a grantee that can never exist again", shared by the `v45` migration and
+    /// the method below so the migration's behavior is testable without opening a database twice.
+    ///
+    /// Exactly one grantee, deliberately. `local-http` was deleted as an identity in 5b so nothing
+    /// can be it again; a general "no matching client row" sweep would delete live consent, because
+    /// a grantee may also be a companion, a PORT, or the human, none of which are rows in `clients`.
+    static let unreachableGrantsSQL = "DELETE FROM grants WHERE grantee = 'local-http'"
+
+    /// Reap grants held by an identity that cannot return (E3, GM 2026-07-31). Idempotent.
+    public func reapUnreachableGrants() throws {
+        try dbQueue.write { db in try db.execute(sql: Self.unreachableGrantsSQL) }
+    }
+
     public func grants(grantee: String, object: String, zone: String) throws -> Set<PortPermission> {
         try dbQueue.read { db in
             let raw = try String.fetchAll(

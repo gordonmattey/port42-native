@@ -108,7 +108,7 @@ Status: ☐ open · ☑ done. Every gate calibrated by breaking it, per the thre
 *Proof it holds: after a full suite run, the mtimes in `~/.port42/port42/tokens/` were unchanged, and
 the writes landed in `/var/folders/…/T/port42-tests-<pid>/`.*
 
-### B · Enrolment (RC2) — ☑ code and tests DONE, ☐ live check owed
+### B · Enrolment (RC2) — ☑ DONE 2026-07-31, live-verified in Dev3 and again on Dev2's first boot
 
 - ☑ **B1** A companion spawn produces `PORT42_CLIENT_ID` + `PORT42_TOKEN_FILE` and a row, registered
   before the controller is built so the file exists when the child looks
@@ -125,29 +125,197 @@ the writes landed in `/var/folders/…/T/port42-tests-<pid>/`.*
 - ☑ **B5** Respawn lands on the same id, for a companion and for an ad-hoc terminal
 - ☑ **B-calibration** Gate restored to `if let companionId` and all three tests fail, B4 on exactly
   the live symptom: prompt present, `PORT42_CLIENT_ID` nil
-- ☐ **B6** Live in Dev3: spawn a companion, `env | grep PORT42_CLIENT_ID` non-empty, a gateway call
-  served on its own token, and the permission card naming it rather than the CLI
+- ☑ **B6** Live. In Dev3 a created terminal got a row, a 0600 token file, and its own token
+  authenticated against the gateway and was served. GM then ran `echo $PORT42_CLIENT_ID` in a real
+  terminal and it printed `terminal-ecef7daa-…-4b60409c-…`, which is the variable reaching the shell
+  where an agent can actually read it. Confirmed again on Dev2's clean first boot, where a restored
+  companion terminal enrolled as `terminal-40999e56-…` named "claude code".
 
-### C · Instructions (RC3)
+  **Two of my probes returned confident wrong answers before that one line settled it.**
+  `terminal.exec` against a port with no live shell ran as a subprocess of the app and reported
+  success with output from the wrong environment (now G), and a `ps -E` sweep found nothing because
+  no shell had spawned for an API-created tile. A probe that cannot fail loudly is not a measurement.
 
-- ☐ **C1** The baked companion prompt carries the header and `$PORT42_TOKEN_FILE`
-- ☐ **C2** `InstructionService.buildMarkdown` and `llms.txt` agree, regenerated with the diff read
-- ☐ **C3** Gate: no generated curl example appears without the header
+### C · Instructions (RC3) — ☑ DONE 2026-07-31, live-verified on Dev2
 
-### D · Refusal (RC4)
+- ☑ **C1** The companion prompt carries the header, names `$PORT42_TOKEN_FILE` and
+  `$PORT42_CLIENT_ID`, and says not to read another tool's token file. Its text was extracted to a
+  pure `AppState.companionPromptText` so the gate can scan it without an app, the same shape as
+  `PortGrantDisplay.zoneLabel`
+- ☑ **C2** `InstructionService.buildMarkdown` gained a "Who you are when you call" section and the
+  header on every example; `llms-preamble.txt` the same; `llms.txt` regenerated through
+  `PORT42_REGEN_DOCS=1` and the diff read, 18 insertions and 8 deletions, all of them the header and
+  the new paragraphs
+- ☑ **C3** Gate scans every generated surface for a `curl` at `/call` without an `Authorization`
+  header, judging continuation lines as one command so a header on the next line still counts. It
+  also asserts the scan found some curls at all, so it cannot pass vacuously
+- ☑ **C-calibration** Stripped the header from one preamble example; the gate failed naming the file
+  and the exact line
+- ☑ **C4** Live on Dev2 (4244), chosen because its database predated the `clients` table, so this
+  was a clean first boot rather than an upgrade. The block written at boot carries the header and
+  the new section, where it had ZERO `Authorization` lines before. First boot created the table,
+  enrolled `port42-cli`, and enrolled a restored companion terminal as `terminal-40999e56-…` named
+  "claude code" — the population that had nothing this morning. Then, seconds apart on the same
+  instance: the documented call using that terminal's OWN token was SERVED, and the call the old
+  docs taught, with no credential, was REFUSED with `auth_required`
 
-- ☐ **D1** No credential: the message names the instance and port that refused
-- ☐ **D2** A token minted by another instance says so explicitly
-- ☐ **D3** A child caller is told to read its own token file, which it can execute
-- ☐ **D4** Orphan, revoked and unknown are distinguishable by the caller
+**What C does NOT do, deliberately.** It cannot stop a caller reading another tool's token file,
+because §9 concedes that any process running as the user can. It removes the REASON to: the honest
+path is now the documented one, and the borrow is named as a wrong answer rather than left as the
+only working example.
 
-### E · Hygiene (RC5)
+### D · Refusal (RC4) — ☑ DONE 2026-07-31, all four verified live on Dev2
 
-- ☐ **E1** A token file with no client row is removed at boot
-- ☐ **E2** Revoke removes the token file, verifying BR5 actually holds rather than assuming it
-- ☐ **E3** A grant whose grantee can never exist again, like `local-http`, is reaped
-- ☐ **E4** Delete the two orphan files in prod (`claude-code`, `scripts`) once E1 exists to prevent
-  a recurrence
+- ☑ **D1** Every refusal names the instance and the port that refused. **Worth its weight only on a
+  machine like this one** (GM, 2026-07-31): five instances run here, and a token valid three ports
+  away fails with nothing to distinguish it from a broken one. A user with ONE Port42 gets little
+  from this line, and the claim should not be oversold
+- ☑ **D2** A token from another instance says so, rather than reading as a broken credential
+- ☑ **D3** The remedy a PROCESS can execute comes first: read `$PORT42_TOKEN_FILE`. Settings →
+  Access survives for a caller Port42 did not start. This is the part that carries for a single
+  install, together with D4
+- ☑ **D4** Orphan and revoked used to read the same and now differ, because the repair differs:
+  "this is a leftover file, stop using it" versus "a person withdrew this, ask them"
+- ☑ **D-calibration, and it caught the TEST for the fifth time in this thread.** The first D1 gate
+  compared each message against `refusingInstanceLabel()`, the very function under test, so
+  replacing the label with the bare word "Port42" left it passing: both sides moved together. It now
+  asserts the facts a caller needs, the instance name and the port number, derived independently.
+  Broken again, it fails naming both messages and the missing port
+- ☑ **D-live** All four on Dev2 (4244). The orphan was reproduced faithfully: a token that served a
+  request seconds earlier, then refused after deleting only its row, leaving the file — the exact
+  state `~/.port42/port42/tokens/claude-code` was in. Dev2 was restored afterwards. Prod, which
+  predates this, still answers the same orphan with "Client 'claude-code' no longer exists", which
+  is what the session actually hit and reads like the user revoked something
+
+### E · Hygiene (RC5) — ☑ DONE 2026-07-31, live-verified on Dev3
+
+**The census that shaped it** (2026-07-31, every instance). Orphan files exist only in prod:
+`claude-code` and `scripts`, the test residue. Dead grants total five, all `local-http`: three in
+prod, two in Dev3. Dev2 clean, Dev4 one live grant. **And the reverse case exists:** Dev3 has a row
+with NO file, a manual client named `test`.
+
+*The census itself was wrong on its first run and said prod had no orphans.* zsh does not word-split
+unquoted variables, so each list collapsed into one multi-line grep pattern that always matched. A
+probe that returns a reassuring answer is the dangerous kind.
+
+- ☑ **E1** Token files naming no client are reaped at boot, **after** the boot enrolments, because
+  the CLI enrols there and reaping first would delete a file about to be rewritten
+- ☑ **E1b** Only ever FILES with no row, **never rows with no file**. D9 makes deleting a token file
+  a supported act: the row survives on purpose so re-enrolling lands on it and keeps its grants.
+  Deleting the row would discard consent; re-minting the file would resurrect a credential the user
+  may have removed deliberately. Dev3's `test` is that case, working as designed
+- ☑ **E2** BR5 holds and was read rather than assumed: `revoke()` calls `db.revokeClient` then
+  `removeTokenFile`. The guess that revocation leaves files behind was wrong; those files were tests
+- ☑ **E3** `local-http` grants reaped in migration `v45`, approved by GM. **This does not reopen
+  "grants are permanent"** (open question 3): that decision is about consent and expiry, this is
+  garbage collection of a row nothing can match. Scoped to ONE grantee that provably cannot return,
+  and deliberately NOT generalized to "no client row" — a grantee may be a companion, a PORT or the
+  human, none of which are rows in `clients`, so a general sweep would delete live consent
+- ☑ **E-calibration** The reap inverted: it destroys the live client's credential and keeps the
+  orphan, and the test says exactly that
+- ☑ **E-live** Dev3, with a planted orphan: the orphan file deleted, both `local-http` grants gone,
+  `port42-cli`'s grant intact, and the `test` row untouched
+- ☐ **E4** Prod's two orphans. 0.5.52 predates E1, so they stay until prod is rebuilt or they are
+  removed by hand. GM's call, mid-soak
+
+### H · `build.sh` continues after a half-failed teardown
+
+Three failures on 2026-07-31, twice on Dev3 and once on Dev2, always right after the kill:
+`Operation not permitted` on a copy, and once `internal error in Code Signing subsystem` naming the
+still-running binary. The wait loop runs BEFORE `kill -9`, and after it there is only a flat
+`sleep 0.3`. Then `rm -rf "$APP"` runs unchecked, so a partial removal leaves a half-deleted bundle
+and the next `mkdir`/`cp` fails inside it.
+
+- ☑ **H1** DONE. The wait now runs after `kill -9`, polling until the process is really gone, and
+  gives up loudly after 10s rather than proceeding. It was a guess (`sleep 0.3`) in the one place
+  where the answer is knowable
+- ☑ **H2** DONE. `rm -rf "$APP"` is checked, and a bundle that would not go aborts the build naming
+  the cause. **This is the one that matters**: the project's own rule is that a build reporting a
+  copy or signing failure produces a bundle that runs and lies, and every symptom used to appear one
+  step later, inside a bundle half old and half new
+- ☑ **H-calibration** A bundle made un-removable (`chflags uchg`) produces the FATAL message and
+  exit 1; a normal one passes through
+- ☑ **H-live** A Dev3 build against a RUNNING Dev3, which is the exact condition that failed three
+  times today, succeeded first time with no retry
+
+### F · A dev instance inherits the launching terminal's environment — NOT A DEFECT
+
+Launching an instance from inside a Port42 terminal gives it that terminal's `PORT42_*` variables.
+Measured: Dev3's own process carried this session's `PORT42_SPACE_ID`, `PORT42_HOOKS_SOCKET` and
+`ZDOTDIR`.
+
+**Downgraded to a testing note after checking the one thing that would make it serious.**
+`PORT42_DATA_DIR` picks the database, the token directory and the instance identity — and it is NOT
+inherited: `build.sh` sets it explicitly at launch, and a Port42 terminal does not carry one at all,
+so there is nothing to pass down. What is inherited is the harmless set, and any terminal the new
+instance spawns gets its own values written explicitly by the bootstrap, overwriting them.
+
+Its one real cost was making G's wrong answer look plausible: when Dev3 answered with this session's
+space id, that was inherited context, which is exactly why a bogus result read as believable.
+
+### G · WITHDRAWN — the defect did not exist
+
+Recorded here because it was on this list twice and acted on, and striking it silently would leave
+the wrong lesson.
+
+**The claim:** `terminal.exec` aimed at a port with no live shell runs somewhere else and reports
+success. **The code:** `terminal.exec` takes `command`, `cwd` and `timeout`, has no port id, and
+documents itself as "Execute a shell command and return the output. Runs in /bin/zsh." It is a
+headless shell runner and never claimed otherwise. Passing it an `id` did nothing; it ran a real
+shell and returned a real result. `port.push` is what drives a terminal port, which GM said at the
+time.
+
+**What actually survives**, moved to `summer2026-todo.md`: an unknown argument is accepted in
+silence, which is what let the misuse look like success; and GM's idea that `terminal.exec` should
+run in a headless terminal PORT so the command carries a Port42 identity instead of inheriting the
+app's environment.
+
+**The lesson is about the probe, not the product.** Three probes in one day returned confident wrong
+answers: a `terminal.exec` call that was never addressing a port, a `ps -E` sweep that found nothing
+because no shell existed, and a census whose zsh word-splitting made every list match. Each looked
+like evidence. The one that settled it was GM typing `echo $PORT42_CLIENT_ID` into a real terminal.
+
+### H · `build.sh` continues after a half-failed teardown
+
+Three failures on 2026-07-31, twice on Dev3 and once on Dev2, always right after the kill:
+`Operation not permitted` on a copy, and once `internal error in Code Signing subsystem` naming the
+still-running binary. The wait loop runs BEFORE `kill -9`, and after it there is only a flat
+`sleep 0.3`. Then `rm -rf "$APP"` runs unchecked, so a partial removal leaves a half-deleted bundle
+and the next `mkdir`/`cp` fails inside it.
+
+- ☑ **H1** DONE. The wait now runs after `kill -9`, polling until the process is really gone, and
+  gives up loudly after 10s rather than proceeding. It was a guess (`sleep 0.3`) in the one place
+  where the answer is knowable
+- ☑ **H2** DONE. `rm -rf "$APP"` is checked, and a bundle that would not go aborts the build naming
+  the cause. **This is the one that matters**: the project's own rule is that a build reporting a
+  copy or signing failure produces a bundle that runs and lies, and every symptom used to appear one
+  step later, inside a bundle half old and half new
+- ☑ **H-calibration** A bundle made un-removable (`chflags uchg`) produces the FATAL message and
+  exit 1; a normal one passes through
+- ☑ **H-live** A Dev3 build against a RUNNING Dev3, which is the exact condition that failed three
+  times today, succeeded first time with no retry
+
+### F · A dev instance inherits the launching terminal's identity
+
+Launching Dev3 from inside a Port42 terminal gives it that terminal's `PORT42_*` variables, and
+since B those include a `PORT42_CLIENT_ID` belonging to another instance's client. Measured
+2026-07-31: Dev3's own process carried this session's `PORT42_SPACE_ID`, `PORT42_HOOKS_SOCKET` and
+`ZDOTDIR`.
+
+- ☐ **F1** A spawned instance does not inherit `PORT42_*` from whatever launched it
+- ☐ **F2** Anything it spawns gets its own values, never the launcher's
+
+### G · `terminal.exec` runs somewhere else and reports success
+
+Addressed at a port with no live shell, it executed as a subprocess of the app and returned output
+from the app's environment, with `ok`. Two probes on 2026-07-31 returned confident wrong answers
+before GM checked by hand in one line.
+
+- ☐ **G1** `terminal.exec` against a port with no live shell REFUSES, naming the reason
+- ☐ **G2** It never runs anywhere but the addressed port
+
+**F and G compound:** F puts a foreign identity into the app's environment, and G is what hands that
+environment to a command someone believed was running somewhere else.
 
 ---
 

@@ -276,6 +276,35 @@ public final class ClientRegistry {
         removeTokenFile(id: id)
     }
 
+    /// Delete token files that name no client (E1). Returns what it removed.
+    ///
+    /// **An orphan is a credential that verifies and then fails**, which is the worst of both: it
+    /// gets past the MAC, so it looks like a real client to whoever found it, and dies at the row
+    /// lookup with a message about a client the user has never heard of. One sat in production all
+    /// day on 2026-07-31 and a session used it.
+    ///
+    /// **Only ever files with no row, NEVER rows with no file.** A user deleting a token file is a
+    /// supported act (D9): the row survives on purpose, so re-enrolling lands on the same row and
+    /// keeps its grants. Deleting such a row would discard consent the user gave, and re-minting the
+    /// file would resurrect a credential they may have removed deliberately. Dev3 holds exactly this
+    /// case, a manual client named `test`, and it is working as designed.
+    @discardableResult
+    public func reapOrphanTokenFiles() -> [String] {
+        let dir = tokenDirectory()
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
+            return []
+        }
+        let known = Set((try? db.allClients().map(\.id)) ?? [])
+        var removed: [String] = []
+        for name in names where !known.contains(name) {
+            // A revoked client keeps its row, so it is `known` and is not touched here; its file was
+            // already removed by `revoke`.
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+            removed.append(name)
+        }
+        return removed
+    }
+
     // MARK: - The token file (D5)
 
     /// `~/.port42/<instance>/tokens/<id>`, 0600 inside a 0700 directory. The app owns the file, so

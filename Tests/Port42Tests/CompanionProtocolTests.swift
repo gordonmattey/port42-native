@@ -97,6 +97,32 @@ struct CompanionProtocolTests {
         }
     }
 
+    /// Only a CLI that cannot be handed a system prompt gets the section.
+    ///
+    /// claude receives `CompanionProtocol.rules` per session via `--append-system-prompt`, so
+    /// repeating it in CLAUDE.md would be a second copy of something claude already has, inside a
+    /// block whose whole discipline is remaining a pointer — and it pushed that block past its own
+    /// slimness gate, which is how the redundancy was noticed.
+    @Test("claude's block does NOT carry the companion section; codex's does")
+    @MainActor
+    func onlyCodexCarriesTheSection() {
+        let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let svc = InstructionService(homeDirectory: home)
+        svc.installInstructions(for: "claude")
+        svc.installInstructions(for: "codex")
+
+        func read(_ rel: String) -> String {
+            (try? String(contentsOfFile: (home as NSString).appendingPathComponent(rel),
+                         encoding: .utf8)) ?? ""
+        }
+        #expect(!read(".claude/CLAUDE.md").contains("SPACE COMPANION"),
+                "claude already gets the protocol as a system prompt")
+        #expect(read(".codex/AGENTS.md").contains("SPACE COMPANION"),
+                "codex has no system-prompt channel, so this is its only route")
+    }
+
     @Test("the companion section is CONDITIONAL — that file is global, not companion-only")
     @MainActor
     func companionSectionIsGated() {
