@@ -348,6 +348,36 @@ struct CLIHookProducerTests {
                 "two ports must share one codex-home, or trust is re-reviewed every spawn")
     }
 
+    /// THE CANARY. `PORT42_DATA_DIR` is unset under `swift test`, so an unguarded
+    /// `stableSupportDir()` resolves to "Port42" — the DAILY DRIVER's data directory — and the test
+    /// run writes a codex-home into it. It happened twice: GM deleted the directory and the next
+    /// `swift test` recreated it.
+    ///
+    /// The first fix was a `stableDir:` parameter threaded through the one test that noticed, which
+    /// covered 3 of 8 call sites. This asserts the refusal at the SOURCE, so no call site can escape
+    /// however it calls in.
+    @Test("a test process NEVER resolves the real Application Support directory")
+    func testProcessNeverTouchesRealSupportDir() {
+        #expect(AppState.isTestProcess, "this suite must be recognised as a test process")
+        #expect(TerminalSessionBootstrap.stableSupportDir() == nil,
+                "a test run must never be handed the daily driver's data directory")
+
+        // And the consequence callers depend on: with no stable dir, codex-home falls back to the
+        // per-port temp dir, so a test still exercises the real code path.
+        let dir = NSTemporaryDirectory() + "p42-canary-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let session = TerminalSessionBootstrap.make(
+            sessionId: "CANARY00-1111-2222-3333-444444444444",
+            spaceId: "s", spaceName: "n", shimPath: "/tmp/fake-port42-shim",
+            claudePath: "/usr/bin/true", oauthToken: "")
+        defer { TerminalSessionBootstrap.cleanup(tempDir: session.tempDir) }
+        if let home = session.env["CODEX_HOME"] {
+            #expect(home.hasPrefix(session.tempDir),
+                    "codex-home escaped the temp dir: \(home)")
+        }
+    }
+
     @Test("without a stableDir it still works, falling back to the per-port temp dir")
     func codexHomeFallsBackToTempDir() throws {
         let dir = NSTemporaryDirectory() + "p42-prod-\(UUID().uuidString)"

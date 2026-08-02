@@ -368,6 +368,17 @@ public enum TerminalSessionBootstrap {
     /// launcher, "Port42" for the installed app), so dev instances stay isolated from each other and
     /// from the daily driver.
     static func stableSupportDir() -> String? {
+        // NEVER IN A TEST PROCESS. `PORT42_DATA_DIR` is baked by the dev launcher and is UNSET under
+        // `swift test`, so this resolves to "Port42" — the DAILY DRIVER's data directory — and a
+        // test run writes a codex-home into it. Observed: GM deleted that directory and the next
+        // `swift test` put it straight back.
+        //
+        // The first attempt at this was a `stableDir:` parameter threaded through the one test that
+        // caught it. That is the wrong shape: it fixed 3 of 8 call sites and left the other 5 free
+        // to escape, which is exactly how this reached the daily driver twice. Refusing at the
+        // source makes it structural — a test falls back to its own `tempDir` and cannot reach real
+        // state however it calls in. Same lesson as the credential-store fix (1de6a57).
+        guard !AppState.isTestProcess else { return nil }
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
                                                   in: .userDomainMask).first else { return nil }
         let dataDir = ProcessInfo.processInfo.environment["PORT42_DATA_DIR"] ?? "Port42"
