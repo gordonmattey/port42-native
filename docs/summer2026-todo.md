@@ -1071,6 +1071,22 @@ is that parser's inverse — the round-trip test feeds every folded handle back 
 the two cannot drift. Applied ONCE at `spawnNativeTerminalPort`, before the baked prompt, the roster
 row, the typing indicator and the injection queue key off it.
 
+**Old handles are folded at boot, and duplicates reaped** (`reconcileCompanionHandles`). Every
+database predating the fold carries rows like `codex 146`, and once the spawn folds names a stale row
+stops matching its own companion, so a SECOND row appears beside it — both states were on Dev2 at
+once (`codex 146` and `codex-146`). GM: no backward compatibility wanted.
+
+The reap is narrow on purpose. A row is deleted ONLY when its own name is unaddressable AND something
+already answers to the folded name, i.e. it duplicates something reachable. A named companion the
+user created with a space is RENAMED instead: it becomes addressable for the first time, which is the
+fix, and deleting it would be data loss for a cosmetic problem. Idempotent by construction, since
+folding a folded name is a no-op. The test that matters asserts the invariant rather than the
+mechanics: after it runs, every surviving handle is one `MentionParser` actually matches.
+
+Verified on real data: `claude code` → `claude-code`, `codex probe` → `codex-probe`, `codex 146`
+reaped. That first one also closes the claude-rename risk that was briefly listed as open — it was
+never claude-specific, and the same pass handles it.
+
 ### Where the companion protocol lives, and why it is in exactly one place
 
 `bakeCompanionPrompt` already stated the rules for claude. Adding them to the codex instruction file
@@ -1110,9 +1126,11 @@ changing whenever the human navigates.
 - **Codex subscription auth** has no home in the bios/settings, unlike claude subscriptions. All of
   the above assumes codex is already logged in: `auth.json` is symlinked from the real `~/.codex`, so
   a fresh machine has codex auth nowhere and no way to add it from Port42. (GM, 2026-08-01.)
-- **Claude companions are renamed too.** `CompanionName` applies to every terminal companion, so a
-  claude companion previously registered as `claude code` now normalizes to `claude-code`. Whether
-  that orphans the old row and registers a duplicate is UNTESTED (GM: not a concern for now).
+- ~~**Claude companions are renamed too**, and may orphan a row.~~ **CLOSED 2026-08-01, and it was
+  never a claude-specific problem.** `reconcileCompanionHandles` folds every unaddressable handle at
+  boot and reaps only what folding makes redundant. Verified on Dev2's real data: `claude code` →
+  `claude-code` and `codex probe` → `codex-probe` folded, `codex 146` reaped as a duplicate of
+  `codex-146`. See "old handles are folded at boot" below.
 - **Gemini and antigravity** remain out, unchanged: gemini cannot authenticate without a paid key,
   and antigravity's credentials do not survive the per-session config redirect. Neither is a hooks
   problem. The original section below still stands for those.
