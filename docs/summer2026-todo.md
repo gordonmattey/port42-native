@@ -894,6 +894,50 @@ user ASKED for. ⌘L and an explicit tidy arrange; a spawn places; appearing, re
 switching arrange **nothing**. Persisting position per port per space is what makes "arrange nothing"
 possible, and the "user-placed" flag above is what keeps it true across a later ⌘L.
 
+### PLAN (2026-08-03, GM picked this as the next unit)
+
+**GM's framing, and it is the useful one:** "in general rearranging seems to be more confusing than
+helpful." So the fix is not better rearranging, it is LESS of it. Scope explicitly includes adding a
+port to a space, which is symptom 1.
+
+**Every caller, read 2026-08-03:**
+
+| site | trigger | verdict |
+|---|---|---|
+| `ShellDesktop.swift:282` | `onChange(tiledPanels.count)` — spawn, park, close | WRONG. re-grids everything |
+| `ShellDesktop.swift:284` | `onChange(arrangeBump)` — ⌘L | correct, the only one that should |
+| `ShellDesktop.swift:315` | `seedIfNeeded` from `onAppear`, if ANY tile has `position == nil` | WRONG. one unpositioned port moves every tile, on every appear |
+
+And `applyArrange` (`ShellState.swift:1049`) grids by INDEX IN `z` ORDER, so tiles are dealt into
+cells by recent attention. That is why even a legitimate re-grid reads as a shuffle rather than a
+tidy.
+
+**The rule:** a re-grid is something the user ASKED for. ⌘L and an explicit tidy arrange. A spawn
+PLACES. Appearing, returning, resizing and switching arrange NOTHING.
+
+**Phase 0 — instrument, do not guess.** Give `applyArrange` a `reason` and log every call, then
+reproduce four cases: spawn, leave-and-return to the space, switch app away and back, resize while
+away. Symptom 1's mechanism is verified; symptom 2's four candidates are NOT, and the section above
+already says confirm the trigger first. Cheap, and this session repeatedly showed a plausible story
+being the wrong one.
+
+**Phase 1 — split PLACE from ARRANGE.** A pure `place(new:among:in:) -> CGPoint`: first-fit against
+occupied rects, cascade-with-offset when the desktop is full, moving NOTHING that already exists.
+Spawn calls `place`; only ⌘L calls `applyArrange`. Keep the spring on the new tile alone, so a birth
+still reads as motion without the desktop lurching around it. Headless-testable exactly as
+`ShellState.arrange` already is.
+
+**Phase 2 — appearing arranges nothing.** `seedIfNeeded` places only the unpositioned tiles instead
+of re-gridding all of them. Pending Phase 0 confirming this is the trigger behind "I came back and
+the tiles moved".
+
+**Phase 3 — give layout a memory of intent.** A `userPlaced` flag set when a tile is dragged, so even
+⌘L respects hand-placement. This is the root of the whole complaint: today the system cannot tell a
+position the user chose from one it invented, so it treats them identically.
+
+**Decide in 1 or 3:** make `arrange` grid by a STABLE order rather than `z`, so ⌘L tidies instead of
+reshuffling.
+
 ---
 
 ## TODO (2026-07-24, GM): gateway auth + TLS — **see `docs/plan-gateway-auth-tls.md`**
