@@ -150,18 +150,22 @@ const guestPage = `<!doctype html>
     };
   }
 
+  // The payload param is 'data', not 'text'. It always was, and sending 'text' APPEARED to work:
+  // the missing 'data' was defaulted to null, so the write landed, moved the token and delivered
+  // nothing. The required-args pass turned that silent no-op into missing_arg, which is how this
+  // page's first push was found to have been pushing nothing at all.
   document.getElementById("send").onclick = function () {
     var text = document.getElementById("line").value;
     if (!text) return;
     // A write must say what it composed against. If we have not seen a token yet, the refusal
     // carries 'current' and one retry lands — the designed self-correcting path.
-    call("port.push", { id: portId, text: text, token: stateToken || "" })
+    call("port.push", { id: portId, data: text, token: stateToken || "" })
       .then(function (r) { stateToken = r && r.token || stateToken; say("push", "ok @" + stateToken); })
       .catch(function (err) {
         if (!err.current) { say("push", "failed " + err.message); return; }
         stateToken = err.current;
         say("push", "refused (" + err.code + "), retrying against " + stateToken);
-        call("port.push", { id: portId, text: text, token: stateToken })
+        call("port.push", { id: portId, data: text, token: stateToken })
           .then(function (r) { stateToken = r && r.token || stateToken; say("push", "ok @" + stateToken); })
           .catch(function (e2) { say("push", "failed twice " + e2.message); });
       });
