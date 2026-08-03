@@ -1469,6 +1469,19 @@ public final class AppState: ObservableObject {
                 }
             }
 
+            // Companion handles are folded at boot, and duplicates are REAPED (2026-08-01).
+            //
+            // Names used to be the port's TITLE verbatim, so rows like `codex 146` and
+            // `teleport: main` exist in every database that predates the fold. They were never
+            // addressable — `@codex 146` parses as `@codex` — so they are not state anyone can use,
+            // and once the spawn folds names a stale row also stops matching its own companion,
+            // which would register a second row beside it. Both were observed live on Dev2.
+            //
+            // GM: no backward compatibility wanted here. So: fold, and where folding collides with a
+            // row that already carries the folded name, delete the unaddressable one rather than
+            // keep two.
+            self.reconcileCompanionHandles()
+
             // Migrate old auth format
             Port42AuthStore.shared.migrateIfNeeded()
 
@@ -3059,6 +3072,17 @@ public final class AppState: ObservableObject {
         }
         let controller = GhosttyTerminalController(panelId: panel.id, config: config, post: post,
                                                    onOutput: { [weak self] out in
+                                                       // A TERMINAL's output, retained. This is the
+                                                       // half that had no answer at all: diagnosing a
+                                                       // CLI companion meant reading the app's log
+                                                       // file, and twice this session the answer was
+                                                       // "the CLI exited immediately" — which the
+                                                       // port itself could not say.
+                                                       PortConsole.shared.append(
+                                                           portId: PortConsole.key(udid: panel.udid,
+                                                                                   id: panel.id,
+                                                                                   messageId: panel.messageId),
+                                                           level: "out", text: out)
                                                        // Phase L1 / backlog 3.4: terminal output → Notify bus.
                                                        self?.notifyBus.publish(topic: PortNotify.topic(forPortKey: panel.id),
                                                                                kind: PortEventKind.terminalOutput.wire,
@@ -3220,21 +3244,84 @@ public final class AppState: ObservableObject {
     nonisolated static func companionPromptText(name: String, spaceId: String, spaceName: String,
                                                 gatewayPort: Int, systemPrompt: String?) -> String {
         let gwPort = gatewayPort
-        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — a bare name like \"Critic\" is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @Critic please review.\" POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:\(gwPort)/call -H \"Authorization: Bearer $(cat \\\"$PORT42_TOKEN_FILE\\\")\" -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. EVERY Port42 call needs that header: $PORT42_TOKEN_FILE is the path to YOUR OWN token, and $PORT42_CLIENT_ID is the name Port42 knows you by. Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
+        // The behavioural rules come from `CompanionProtocol`, the ONE place they are written. They
+        // also reach codex, which has no system-prompt flag, through the global instruction file —
+        // so a copy here would drift against that one silently. What stays local is what only this
+        // surface knows: who this companion is, which space, its own self-post command, and how to
+        // authenticate it.
+        let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). "
+            + CompanionProtocol.rules
+            + " POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:\(gwPort)/call -H \"Authorization: Bearer $(cat \\\"$PORT42_TOKEN_FILE\\\")\" -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. EVERY Port42 call needs that header: $PORT42_TOKEN_FILE is the path to YOUR OWN token, and $PORT42_CLIENT_ID is the name Port42 knows you by. Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
         let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
         return userPrompt.isEmpty ? framing : "\(framing)\n\n\(userPrompt)"
     }
 
+    /// Fold every companion handle, and reap the rows that folding makes redundant.
+    ///
+    /// Pure over the DB and safe to run on every boot: a database whose handles are already folded
+    /// changes nothing, because folding a folded name is a no-op.
+    ///
+    /// The reap is deliberately narrow. A row is deleted ONLY when its own name is unaddressable AND
+    /// a row already exists under the folded name — i.e. it is a duplicate of something reachable.
+    /// A named companion the user created with a space in it is RENAMED, not deleted: it becomes
+    /// addressable for the first time, which is the fix, and losing it would be data loss for a
+    /// cosmetic problem.
+    @discardableResult
+    func reconcileCompanionHandles() -> (folded: Int, reaped: Int) {
+        guard let all = try? db.getAllAgents() else { return (0, 0) }
+        var live = Set(all.map(\.displayName))
+        var folded = 0, reaped = 0
+
+        for agent in all {
+            guard let handle = CompanionName.mentionable(agent.displayName),
+                  handle != agent.displayName else { continue }   // already addressable
+
+            if live.contains(handle) {
+                // Something reachable already answers to this handle. The unaddressable row is a
+                // duplicate of it, not a distinct companion.
+                try? db.deleteAgent(id: agent.id)
+                live.remove(agent.displayName)
+                reaped += 1
+                NSLog("[Port42] reaped duplicate companion '%@' (superseded by '%@')",
+                      agent.displayName, handle)
+            } else {
+                var renamed = agent
+                renamed.displayName = handle
+                try? db.saveAgent(renamed)
+                live.remove(agent.displayName)
+                live.insert(handle)
+                folded += 1
+                NSLog("[Port42] folded companion handle '%@' → '%@'", agent.displayName, handle)
+            }
+        }
+
+        if folded + reaped > 0 {
+            companions = (try? db.getAllAgents()) ?? companions
+            refreshSpaceCompanions()
+        }
+        return (folded, reaped)
+    }
+
     @discardableResult
     func spawnNativeTerminalPort(command: String, args: [String] = [], cwd: String,
-                                 spaceId: String, title: String, companionName: String,
+                                 spaceId: String, title: String, companionName rawCompanionName: String,
                                  companionId: String? = nil,
                                  systemPrompt: String? = nil, env: [String: String] = [:],
                                  recordKey: String? = nil, postCard: Bool = true,
                                  startupCommandOverride: String? = nil,
                                  initialInput: String = "") -> String? {
+        // A COMPANION'S NAME IS AN ADDRESS, so it is normalized ONCE, here, before anything
+        // downstream keys off it: the baked prompt ("you are X"), the auto-registered roster row,
+        // the typing indicator, the pending-injection queue. Normalizing later would let the prompt
+        // and the roster disagree about who this is.
+        //
+        // Ad-hoc terminals take the port TITLE as their companion name, and a title is prose. The
+        // live teleport run produced `teleport: main`; codex produced `codex probe`. Both joined
+        // their space and neither could be @mentioned, which read as never having joined at all.
+        // The port keeps its human title; only the handle is folded.
+        let companionName = CompanionName.mentionable(rawCompanionName) ?? rawCompanionName
         // Shell line typed into the interactive shell once ready: command + quoted args.
         // (Ghostty runs /bin/zsh so the hooks shim's ZDOTDIR `claude` function applies;
         // the command is typed in, since Ghostty's `command` can't carry args — gap #8.)
@@ -3249,7 +3336,7 @@ public final class AppState: ObservableObject {
         let launchCmd = GhosttyTerminalController.isHooksCapable(cmdName) ? cmdName : command
         // A plain terminal (dock button) passes "" so it just drops into the interactive shell with
         // nothing typed; companions pass nil and get their command auto-typed.
-        let startupCommand = startupCommandOverride ?? (quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)")
+        let baseStartupCommand = startupCommandOverride ?? (quotedArgs.isEmpty ? launchCmd : "\(launchCmd) \(quotedArgs)")
 
         let spaceName = spaces.first(where: { $0.id == spaceId })?.name ?? spaceId
         // Bake the Port42 framing around the RAW systemPrompt here (centralized in
@@ -3257,6 +3344,19 @@ public final class AppState: ObservableObject {
         // produce an identical companion prompt. The spawn record stores the raw systemPrompt,
         // not this baked result, so a respawn re-bakes once rather than double-wrapping.
         let companionPrompt = bakeCompanionPrompt(name: companionName, spaceId: spaceId, systemPrompt: systemPrompt)
+        // Codex takes its briefing as the STARTING PROMPT, because it has no --append-system-prompt
+        // and because that first turn is what runs its pending SessionStart hook. Claude is
+        // untouched: its prompt already travels invisibly via the shim. See
+        // `CLIHookProducer.startupCommand`.
+        // The FULL baked prompt, same text claude gets. Measured 2026-08-01: a 1400-char line types
+        // into the pty intact and the `'\''` escaping round-trips, so there is no reason to send
+        // codex an abridged briefing. (An earlier short-prompt version of this was a workaround for
+        // a misdiagnosis: the spawn had actually succeeded and simply took longer than the test's
+        // polling window, because a longer prompt means a longer first model call.)
+        //
+        // It does not depend on the AGENTS.md block, which is opt-in and may not be installed.
+        let startupCommand = CLIHookProducer.startupCommand(base: baseStartupCommand,
+                                                            companionPrompt: companionPrompt)
         let config = TerminalPortConfig(
             command: "/bin/zsh",
             args: [],

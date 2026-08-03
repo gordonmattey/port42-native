@@ -1,5 +1,93 @@
 import Foundation
 
+// MARK: - Companion handle
+
+/// A companion's name has to be TYPEABLE, because the only way to reach one is `@name`.
+///
+/// Auto-registered CLI terminals took the port's TITLE verbatim, and a title is prose. The live
+/// teleport run produced a companion called `teleport: main`, and codex terminals produced
+/// `codex probe` and `codex 146`. All of them joined the space correctly and none of them could be
+/// addressed, because `MentionParser` accepts `@[a-zA-Z][a-zA-Z0-9-]*` and stops at the first space
+/// or colon. It read as "the session never became a companion" when it had.
+///
+/// This is the inverse of the parser, and it lives beside it so the two cannot drift: whatever the
+/// parser accepts is what this must produce. `Space.create` already does the same thing to space
+/// names (spaces to hyphens); this extends the rule to the other addressable noun.
+public enum CompanionName {
+
+    /// Fold a human title into something `@mentionable`, or nil if nothing usable survives.
+    ///
+    /// Every run of characters the parser rejects becomes a single hyphen, and a leading non-letter
+    /// is dropped, because the parser demands a letter first — a companion called `146` could not be
+    /// addressed no matter how it was spelled.
+    public static func mentionable(_ raw: String) -> String? {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        var out = ""
+        var lastWasHyphen = true          // leading hyphens are never useful
+        for scalar in raw.unicodeScalars {
+            if allowed.contains(scalar) {
+                out.unicodeScalars.append(scalar)
+                lastWasHyphen = false
+            } else if !lastWasHyphen {
+                out.append("-")
+                lastWasHyphen = true
+            }
+        }
+        while out.hasSuffix("-") { out.removeLast() }
+        while let f = out.first, !f.isLetter { out.removeFirst() }
+        return out.isEmpty ? nil : out
+    }
+}
+
+// MARK: - Companion protocol
+
+/// **The rules every companion follows, stated ONCE.**
+///
+/// They reach two different surfaces by two different routes, which is why they escaped having a
+/// home and were nearly written twice:
+///
+///   - **claude** gets them per session, as a system prompt, via `--append-system-prompt` (baked by
+///     `AppState.bakeCompanionPrompt`, injected by the shim from `PORT42_COMPANION_PROMPT`).
+///   - **codex** has no system-prompt flag, so it gets them from the global instruction file
+///     `<CODEX_HOME>/AGENTS.md`, maintained by `InstructionService` (verified 2026-08-01: codex reads
+///     that file; it does NOT follow `@file` imports, so the text must be inline).
+///
+/// Two prose copies of one protocol drift, and the drift is invisible until a companion misbehaves
+/// in a way nobody can trace to a stale sentence. `CompanionProtocolTests` asserts both surfaces
+/// carry this text, so a change here cannot reach one and miss the other.
+public enum CompanionProtocol {
+
+    /// The behavioural core, identical for every companion and every CLI. Deliberately verbatim from
+    /// the wording claude has been running with, so extracting it changes nothing about how claude
+    /// behaves — this is a de-duplication, not a rewrite.
+    public static let rules = """
+    Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: \
+    — this prefix only tells you who sent the message; never copy that leading prefix into your \
+    reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write \
+    your response normally — it is delivered to the space automatically. Do NOT also post that reply \
+    via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another \
+    companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for \
+    example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — \
+    a bare name like "Critic" is just text they never receive. So end a hand-off with the @mention, \
+    e.g. "Built the login form, @Critic please review."
+    """
+
+    /// The EXACT text claude has been running with, kept as a literal so the extraction can be
+    /// proved to have changed nothing. Extracting shared prose is a refactor; a refactor that
+    /// quietly reworded a live system prompt would be a behaviour change wearing a refactor's
+    /// clothes. `CompanionProtocolTests` compares `rules` against this, character for character.
+    static let historicalRules = "Respond to space messages directly and conversationally. Messages arrive prefixed with [@name]: — this prefix only tells you who sent the message; never copy that leading prefix into your reply, just write your reply text. REPLYING: to reply to a message addressed to you, just write your response normally — it is delivered to the space automatically. Do NOT also post that reply via the API, or it will appear twice. ADDRESSING ANOTHER COMPANION: when you want another companion to act, answer, or take a hand-off, you MUST write their name with a leading @ (for example @Critic or @Maker). That @mention is the ONLY thing that delivers your message to them — a bare name like \"Critic\" is just text they never receive. So end a hand-off with the @mention, e.g. \"Built the login form, @Critic please review.\""
+
+    /// The sentence fragments a surface must carry to count as stating the protocol. Used by the
+    /// anti-drift test rather than comparing whole strings, so wording can be improved in one place
+    /// without the gate becoming a copy of the thing it guards.
+    static let loadBearingPhrases = [
+        "never copy that leading prefix",
+        "it is delivered to the space automatically",
+        "the ONLY thing that delivers your message",
+    ]
+}
+
 // MARK: - Mention Parser
 
 public enum MentionParser {

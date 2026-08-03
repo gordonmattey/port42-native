@@ -45,11 +45,16 @@ extension CLIHookProducer {
                     NSLog("[hooks] failed to symlink claude shim: \(error)")
                 }
 
-                if TerminalSessionBootstrap.writeZshIntegration(tempDir: ctx.tempDir) {
-                    out.env["ZDOTDIR"] = ctx.tempDir
-                    out.env["PORT42_REAL_ZDOTDIR"] = TerminalSessionBootstrap.realZdotdir(
-                        inherited: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
-                }
+                // The function itself is contributed as a LINE; the assembler writes the file and
+                // owns ZDOTDIR. Claude used to write the zshrc from in here, which meant the shared
+                // helper hard-coded `claude()` and a second CLI needing shell setup would have had
+                // to edit a file it does not own.
+                out.shellLines = [
+                    "# Port42: intercept `claude` with a function — wins over any PATH entry.",
+                    "if [ -n \"$PORT42_CLAUDE_SHIM\" ]; then",
+                    "  claude() { \"$PORT42_CLAUDE_SHIM\" \"$@\"; }",
+                    "fi",
+                ]
             }
 
             // CLI auth: an OAuth token from the SECRETS STORE (NOT the in-app LLM resolver, which

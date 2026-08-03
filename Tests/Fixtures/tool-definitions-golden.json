@@ -533,6 +533,26 @@
     "name" : "notify_send"
   },
   {
+    "description" : "Read what a port has printed — a web port's console.log\/warn\/error, or a terminal's output. Returns the most recent lines, oldest first, each with a level and a timestamp. Use it to debug a port you built: a generative port that throws at runtime says so here, and a terminal whose command died says nothing else at all. Pass the id from ports_list; tail defaults to 100.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The port's UDID (from ports_list), or a terminal's name.",
+          "type" : "string"
+        },
+        "tail" : {
+          "description" : "How many recent lines to return (default 100).",
+          "type" : "integer"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_console"
+  },
+  {
     "description" : "Create a port and return its id. The uniform way to make any port. type:\"web\" needs html (a full port HTML body) and renders inline in chat. type:\"terminal\" needs command and opens a native terminal (runs in \/bin\/zsh; the command is typed in — claude\/gemini get the Port42 hooks). type:\"browser\" needs url and opens an embedded browser tile with an address bar that follows links. type:\"chat\" reveals that space's chat port (idempotent — one chat per space; brings it back if parked, popped out or closed, and a DM is a space, so pass its space_id to open that conversation). For terminals you may also pass args, cwd, systemPrompt (companion personality), env, and initialInput (a line left waiting, unsent, in the CLI's input box). Drive the result with port_push (input to terminals, data to web ports) and list with ports_list. Pass space_id to target a space (default: current).",
     "input_schema" : {
       "properties" : {
@@ -791,7 +811,7 @@
     "input_schema" : {
       "properties" : {
         "data" : {
-          "description" : "For web ports: any JSON value (object\/array\/string\/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute)."
+          "description" : "For web ports: any JSON value (object\/array\/string\/number) delivered as event.detail. For terminal ports: a string of raw keystrokes (include \\n to execute). Required — omitting it is refused with missing_arg rather than sent as nothing, and a terminal refuses an explicit null because there is no keystroke for null."
         },
         "id" : {
           "description" : "The port's UDID (from ports_list), or a terminal's name.",

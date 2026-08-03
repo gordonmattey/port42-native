@@ -55,7 +55,12 @@ public final class InstructionService: ObservableObject {
         let dir = (mdPath as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
-        let block = "\(Self.blockStart)\n\(buildMarkdown(toolName: target.name))\n\(Self.blockEnd)"
+        // The companion section goes ONLY to a CLI that has no system-prompt channel.
+        // claude receives `CompanionProtocol.rules` per session as a real system prompt (the shim
+        // turns PORT42_COMPANION_PROMPT into --append-system-prompt), so repeating it in CLAUDE.md
+        // is dead weight in a block whose whole discipline is staying a pointer. codex has no such
+        // flag, which is the entire reason the section exists.
+        let block = "\(Self.blockStart)\n\(buildMarkdown(toolName: target.name, companionProtocol: target.tool == "codex"))\n\(Self.blockEnd)"
 
         // Read existing file if present
         let existing = (try? String(contentsOfFile: mdPath, encoding: .utf8)) ?? ""
@@ -97,7 +102,7 @@ public final class InstructionService: ObservableObject {
     /// port craft lives behind `help(topic:"ports")`. Nothing here enumerates methods.
     /// Internal rather than private so the C3 gate can scan it: every generated example that calls
     /// the gateway must carry a credential, and a hand-checked list of documents would rot.
-    func buildMarkdown(toolName: String) -> String {
+    func buildMarkdown(toolName: String, companionProtocol: Bool = false) -> String {
         """
 # Port42 Instructions
 
@@ -156,6 +161,39 @@ https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
 Port42 prompts the user on first use of a sensitive API (terminal, screen, clipboard, files, \
 camera, automation, browser, REST). Denials are never permanent — a later call re-asks. \
 A granted permission is per caller, and the user can see and revoke it in Port42 Settings → Access.
+\(companionProtocol ? Self.companionSection : "")
 """
     }
+
+    /// The companion briefing, for a CLI that cannot be handed a system prompt.
+    ///
+    /// **Only codex gets this.** claude receives `CompanionProtocol.rules` per session as a real
+    /// system prompt — the shim turns `PORT42_COMPANION_PROMPT` into `--append-system-prompt` — so
+    /// putting it in CLAUDE.md too would be a second copy of something claude already has, in a
+    /// block whose entire discipline is remaining a pointer. Codex has no such flag, which is the
+    /// whole reason this exists.
+    ///
+    /// Kept out of `buildMarkdown` so the general block's slimness gate measures the general block.
+    private static let companionSection = """
+
+
+## If you were launched as a SPACE COMPANION
+
+Applies only when `PORT42_SPACE_ID` is set, which Port42 does for a companion terminal. If it is \
+unset, ignore this section.
+
+**Your space is `$PORT42_SPACE_ID` and you must PASS IT** — look it up for the name and roster:
+
+```bash
+curl -s -H "Authorization: Bearer $(cat \\"$PORT42_TOKEN_FILE\\")" \\\\
+  http://127.0.0.1:\(GatewayProcess.shared.port)/call \\\\
+  -d '{"method":"space.current","args":{"space_id":"'"$PORT42_SPACE_ID"'"}}'
+```
+
+**Never call it without `space_id`.** Bare, it returns the space the USER is looking at, which is not \
+yours and changes when they switch. Your space is fixed for life; only the name and roster change, \
+so ask again rather than remembering.
+
+**How to behave:** \(CompanionProtocol.rules)
+"""
 }
