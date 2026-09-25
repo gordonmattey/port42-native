@@ -3558,7 +3558,7 @@ context, composes, and pushes its own lane. This realizes the tick jam — real 
 no conductor, no performer ports — and adds a genuine protocol capability (companions reacting to bus
 events). Prior art in the codebase: a `{beat}` signal already appears on the `bus` topic.
 
-## TODO: reopen a closed port, preserving its id (2026-07-23, GM)
+## DONE 2026-09-25 (nautilus Phase 2 step 2): reopen a closed port, preserving its id (2026-07-23, GM)
 
 **The gap.** Closing a port destroys its live surface AND mints a new id when you recreate it, orphaning
 anyone subscribed to or referencing it (this is what cascaded the Vibe AI / performer churn during the
