@@ -1208,11 +1208,13 @@ public final class AppState: ObservableObject {
         }
     }
 
-    public func createSpace(name: String) {
+    /// Make a space. The shell's New Space enters it (`select`); an API caller does not have to.
+    @discardableResult
+    public func createSpace(name: String, select: Bool = true) -> Space? {
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: " ", with: "-")
-        guard !cleaned.isEmpty else { return }
+        guard !cleaned.isEmpty else { return nil }
 
         var space = Space.create(name: cleaned)
         // SHELL S3 — assign an accent for life by creation position (spec decision #1); the space
@@ -1222,10 +1224,12 @@ public final class AppState: ObservableObject {
         do {
             try db.saveSpace(space)
             spaces = try db.getRegularSpaces()
-            selectSpace(space)
+            if select { selectSpace(space) }
             Analytics.shared.spaceCreated()
+            return space
         } catch {
             print("[Port42] Failed to create space: \(error)")
+            return nil
         }
     }
 

@@ -149,11 +149,12 @@ with the credential given once; the guest page renders and drives a port; existi
 
 ### Phase 1 · Remove what no scenario needs, and build the chat port (1)
 
-**Detailed plan:** `plan-nautilus-phase1.md` (steps 1.1 to 1.6; 1.5, the chat port, waits on GM's
-review of its design). **Progress:** 1.2 bring-your-own-agent removed ✓ · 1.6 shim resume and
-creator names ✓ · 1.4 ngrok and invite payloads removed ✓ · 1.4 sync client, friends, remote
-presence and Apple sign-in removed ✓ · 1.4 schema v47 drops the hub's columns ✓ · housekeeping (keys, spikes,
-version dedupe, orphan reap, repos archived) ✓ · 1.3 engine, Keeper and first run on a CLI ✓.
+**Detailed plan:** `plan-nautilus-phase1.md`. **Phase 1 is complete (2026-09-25).** 1.2
+bring-your-own-agent removed ✓ · 1.6 shim resume and creator names ✓ · 1.4 ngrok, invite payloads,
+sync client, friends, remote presence and Apple sign-in removed, schema v47 ✓ · housekeeping ✓ ·
+1.3 engine, Keeper and first run on a CLI ✓ · 1.5 every port has a chat, the old chat and inline
+ports gone ✓ (the desktop's chat deferred). The harness passes all five scenarios, scenario 1
+through the space's chat.
 
 **Messaging:** the rest of `SyncService`, `TunnelService`, `SpaceCrypto`, `AppleAuthService`,
 `AgentInvite`, friends, member lists, typing, read receipts, join tokens, and the gateway's hub

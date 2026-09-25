@@ -206,9 +206,7 @@ def geometry(c, ids):
 def scenario5(c, do_restart):
     home = c.call("space.current")["id"]
     others = [s["id"] for s in c.call("space.list") if s["id"] != home]
-    if not others:
-        return record(5, "Arrange things", False, "needs a second space")
-    away = others[0]
+    away = others[0] if others else c.call("space.create", {"name": "harness-away"})["id"]
     placed = []
     for sid, base in ((home, 0), (away, 1)):
         c.call("space.switchTo", {"space_id": sid})

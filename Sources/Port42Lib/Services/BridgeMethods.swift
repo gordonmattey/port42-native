@@ -1177,6 +1177,23 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
 
     // Tail item 2. Not an LLM tool (companions navigate by talking; switching the visible space is a
     // surface affordance), so toolExposed: false — same class as the audio playback methods.
+    r["space.create"] = BridgeMethod(permission: nil, paramNames: ["name", "switch"], toolExposed: false,
+        description: "Create a space. Returns {id, name}. The name is lowercased with spaces as dashes. Pass switch: true to also make it the current space; by default the person stays where they are.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "name": ["type": "string", "description": "The space's name."],
+                "switch": ["type": "boolean", "description": "Also switch to it (default false)."],
+            ],
+            "required": ["name"],
+        ]) { _, args in
+        let name = try args.requireString("name")
+        guard let space = appState.createSpace(name: name, select: args.bool("switch") ?? false) else {
+            throw BridgeError.badArg("space.create needs a non-empty name")
+        }
+        return .object(["id": .string(space.id), "name": .string(space.name)])
+    }
+
     r["space.switchTo"] = BridgeMethod(permission: nil, paramNames: ["space_id"], toolExposed: false,
         description: "Switch the app's current space by id.") { _, args in
         let id = try args.requireString("space_id")

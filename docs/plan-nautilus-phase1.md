@@ -12,7 +12,7 @@ desktop, a space, or one port.
 ## Progress
 
 1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
-1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 ✓ (steps 1 to 4; the desktop's chat deferred to later).
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 ✓ (steps 1 to 4; the desktop's chat deferred to later). **Phase 1 complete.**
 
 ## Order, and why
 
@@ -265,6 +265,12 @@ companion and its reply came back. Changes from that run:
 - @name autocomplete is back in the chat panel: suggestions above the input, Tab completes.
 - A plain post in a space's chat still wakes no terminal companion, as before the change; in a
   terminal port's own chat none is needed.
+
+**Harness, 2026-09-25: five of five** on the fresh Dev3 with a re-enrolled client. Scenario 1 asks
+in the space's chat and passes on the port appearing and the companion's reply landing in that chat,
+attributed to it (18s). Scenario 5 makes its own second space when there is none, through the new
+`space.create` (GM: the API should be able to make a space; it creates without switching unless
+asked).
 
 **Step 5, the desktop's chat (port 0), is deferred to a later item (GM, 2026-09-25).** `chat.post`
 and `chat.read` already accept port `0`; only its place in the shell is missing (proposed: the

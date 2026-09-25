@@ -380,6 +380,10 @@ Generated from the live method registry: every entry below is served exactly as 
 
 ### space
 
+  space.create(name, switch)
+      Create a space. Returns {id, name}. The name is lowercased with spaces as dashes. Pass switch: true to also make it the current space; by default the person stays where they are.
+        name (string, required): The space's name.
+        switch (boolean): Also switch to it (default false).
   space.current(space_id)
       Get a space's metadata and member list: { id, name, type, memberCount, members: [{ id, name, type, owner, qualifiedName }] }. Pass space_id to inspect a specific space (e.g. your own PORT42_SPACE_ID); omit it for the currently selected space.
         space_id (string): Optional space id to inspect. Defaults to the currently selected space.

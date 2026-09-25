@@ -57,6 +57,21 @@ struct BridgeCommsTests {
         await #expect(throws: BridgeError.self) { _ = try await call(w, "companions.get", ["id": "nope"]) }
     }
 
+    @Test("space.create makes a space and leaves the person where they are unless asked to switch")
+    @MainActor
+    func spaceCreate() async throws {
+        let w = try makeParityWorld()
+        w.state.currentSpace = w.space
+        let made = try await call(w, "space.create", ["name": "Second Space"])
+        guard case let .object(o) = made, case let .string(id)? = o["id"] else { Issue.record("no id"); return }
+        #expect(o["name"] == .string("second-space"))
+        #expect(w.state.spaces.contains { $0.id == id })
+        #expect(w.state.currentSpace?.id == w.space.id, "creating must not yank the person to it")
+        _ = try await call(w, "space.create", ["name": "third", "switch": true])
+        #expect(w.state.currentSpace?.name == "third")
+        await #expect(throws: BridgeError.self) { _ = try await call(w, "space.create", ["name": "  "]) }
+    }
+
     // MARK: - Tail item 2: space.switchTo
 
     @Test("space.switchTo flips the current space")
