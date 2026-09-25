@@ -226,6 +226,8 @@ scope. The transcript survives restart. Nothing is sent anywhere.
 
 ### Phase 2 · Arranging (5)
 
+**Detailed plan:** `plan-nautilus-phase2.md` (steps 2.1 to 2.4, four decisions for GM at its top).
+
 Built on `shell-layout-place-not-arrange` (2d42eb1, design in `design-shell-layout.md`). A new port
 takes a free spot and moves nothing; only ⌘L re-grids, by creation order. Positions are per space
 (v46), off-screen tiles clamp on resize and restore, every port type gets one default size, and
