@@ -150,7 +150,7 @@ with the credential given once; the guest page renders and drives a port; existi
 
 **Detailed plan:** `plan-nautilus-phase1.md` (steps 1.1 to 1.6; 1.5, the chat port, waits on GM's
 review of its design). **Progress:** 1.2 bring-your-own-agent removed ✓ · 1.6 shim resume and
-creator names ✓.
+creator names ✓ · 1.4 ngrok and invite payloads removed ✓.
 
 **Messaging:** the rest of `SyncService`, `TunnelService`, `SpaceCrypto`, `AppleAuthService`,
 `AgentInvite`, friends, member lists, typing, read receipts, join tokens, and the gateway's hub

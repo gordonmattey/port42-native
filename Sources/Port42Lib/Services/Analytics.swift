@@ -160,15 +160,6 @@ public final class Analytics {
     public func inviteJoined() { track("invite_joined") }
 
 
-    // MARK: - Tunneling
-
-    /// User completed first time ngrok setup.
-    public func ngrokConfigured() { track("ngrok_configured") }
-
-    /// User toggled ngrok on/off from settings.
-    public func ngrokToggled(enabled: Bool) {
-        track("ngrok_toggled", properties: ["enabled": enabled])
-    }
 
     // MARK: - Legacy (keep for backward compat with existing callsites)
 

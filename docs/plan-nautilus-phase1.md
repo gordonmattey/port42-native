@@ -11,7 +11,7 @@ can carry: the desktop, a space, or one port.
 
 ## Progress
 
-1.2 ✓ · 1.6 ✓ (both parts) · 1.1 re-scoped (below) · 1.3, 1.4, 1.5 open.
+1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ngrok and invites ✓ · 1.1 re-scoped (below) · 1.3, rest of 1.4, 1.5 open.
 
 ## Order, and why
 
@@ -76,6 +76,12 @@ These go together, because the first run is the engine's last user.
   `AppState`, `ChatView`, `ConversationContent`, `QuickSwitcher` and `SetupView`.
 - **Invites:** the space-invite and agent-invite payloads go. The flow stays for Phase 4: link grammar,
   deep-link accept path, clipboard, landing page.
+- **Done 2026-09-25, ngrok and invites.** `TunnelService`, `NgrokSetupSheet`, `SpaceInvite` and
+  `AgentInvite` are gone, with the settings sharing section, the chrome's remote-access globe, ngrok
+  autostart and analytics, the switcher's invite-link paste, and `joinSpaceFromInvite`. Creating an
+  invite was already unreachable, since nothing presented the ngrok sheet that built one. The deep-link
+  handler keeps its door and logs what arrives; Phase 4's per-port invite lands there. Suite 1426
+  green (the 15 removed tests were invite and key-exchange cases); harness five of five.
 - **Schema:** v49 drops `spaces.encryptionKey`, `spaces.syncEnabled`, `users.publicKey`,
   `users.privateKey`, `users.appleUserID`, `messages.syncStatus`, `messages.senderOwner`.
 - **Tests:** `ChannelCryptoTests`, `EncryptionIntegrationTests`, `SyncAuthTests`, `AppleAuthTests`,

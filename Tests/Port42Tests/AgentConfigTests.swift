@@ -201,58 +201,8 @@ struct AgentConfigTests {
 
     // MARK: - Agent Invite Link
 
-    @Test("Generate invite link from LLM agent")
-    func generateInviteLink() {
-        let agent = AgentConfig.createLLM(
-            ownerId: "user-1",
-            displayName: "@ai-engineer",
-            systemPrompt: "You are an engineer.",
-            provider: .anthropic,
-            model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
 
-        let link = AgentInvite.generateLink(from: agent)
-        #expect(link.hasPrefix("port42://agent?"))
-        #expect(link.contains("ai-engineer"))
-    }
 
-    @Test("Parse invite link back to config")
-    func parseInviteLink() throws {
-        let agent = AgentConfig.createLLM(
-            ownerId: "user-1",
-            displayName: "@ai-engineer",
-            systemPrompt: "You are an engineer.",
-            provider: .anthropic,
-            model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
-
-        let link = AgentInvite.generateLink(from: agent)
-        let parsed = try AgentInvite.parse(link: link)
-
-        #expect(parsed.displayName == "@ai-engineer")
-        #expect(parsed.systemPrompt == "You are an engineer.")
-        #expect(parsed.provider == .anthropic)
-        #expect(parsed.model == "claude-sonnet-4-20250514")
-    }
-
-    @Test("Invite link does not contain auth credentials")
-    func inviteLinkNoAuth() {
-        let agent = AgentConfig.createLLM(
-            ownerId: "user-1",
-            displayName: "@bot",
-            systemPrompt: "help",
-            provider: .anthropic,
-            model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
-
-        let link = AgentInvite.generateLink(from: agent)
-        #expect(!link.contains("sk-"))
-        #expect(!link.contains("oauth"))
-        #expect(!link.contains("token"))
-    }
 
     // MARK: - Command agent system prompt (#12)
 
@@ -300,19 +250,6 @@ struct AgentConfigTests {
         #expect(fetched.mode == .command)
     }
 
-    @Test("Command agents cannot be shared via invite")
-    func commandAgentNotShareable() {
-        let agent = AgentConfig.createCommand(
-            ownerId: "user-1",
-            displayName: "@custom-bot",
-            command: "/usr/local/bin/my-agent",
-            trigger: .mentionOnly
-        )
-
-        let link = AgentInvite.generateLink(from: agent)
-        // Command agents return nil or empty since they can't be shared
-        #expect(link.isEmpty)
-    }
 
     // MARK: - CLI Presets
 

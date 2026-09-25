@@ -760,10 +760,7 @@ public final class AppState: ObservableObject {
     @Published public private(set) var spaceCompanions: [AgentConfig] = []
     @Published public var friends: [SpaceMember] = []
     @Published public var showDreamscape = true
-    @Published public var showNgrokSetup = false
     @Published public var toastMessage: String?
-    /// Space waiting for ngrok setup to complete before copying invite link
-    public var pendingInviteSpace: Space?
     /// Agent names currently typing, keyed by spaceId
     @Published public var typingAgentNamesBySpace: [String: Set<String>] = [:]
     /// Agent names currently executing tools (for "tooling up" indicator)
@@ -837,7 +834,6 @@ public final class AppState: ObservableObject {
     #if !RELEASE
     public let appleAuth = AppleAuthService()
     #endif
-    public let tunnel = TunnelService.shared
     let fileResolver = FileResolver()
 
     /// Manages popped-out and docked port panels
@@ -1018,7 +1014,6 @@ public final class AppState: ObservableObject {
     private var observationDebounceTask: Task<Void, Never>?
     private var syncConnectionCancellable: AnyCancellable?
     private var doorCancellable: AnyCancellable?
-    private var tunnelCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
 
     /// Active tool executors for remote RPC calls, keyed by senderId
@@ -1026,14 +1021,11 @@ public final class AppState: ObservableObject {
 
     public init(db: DatabaseService) {
         self.db = db
-        // Forward nested sync/tunnel/portWindows changes to trigger SwiftUI updates
+        // Forward nested sync/door/portWindows changes to trigger SwiftUI updates
         syncConnectionCancellable = sync.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         doorCancellable = door.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-        tunnelCancellable = tunnel.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         portWindowsCancellable = portWindows.objectWillChange.sink { [weak self] _ in
@@ -1576,21 +1568,12 @@ public final class AppState: ObservableObject {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 self.door.connect()
-                self.autoStartTunnelIfConfigured()
             }
         } else {
             door.connect()
-            autoStartTunnelIfConfigured()
         }
     }
 
-    /// Auto-start the ngrok tunnel if the user has a saved auth token.
-    private func autoStartTunnelIfConfigured() {
-        guard !tunnel.authToken.isEmpty, !tunnel.isRunning else { return }
-        let port = GatewayProcess.shared.port
-        tunnel.start(port: port)
-        print("[tunnel] auto-started with saved token")
-    }
 
     /// Quick TCP probe to check if a port is listening
     private func canConnectToPort(_ port: Int) -> Bool {
@@ -1661,21 +1644,6 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// Check if a gateway URL points back to our own local gateway
-    /// (either directly via localhost or through our ngrok tunnel).
-    private func isOwnGateway(_ url: String) -> Bool {
-        let local = GatewayProcess.shared.localURL
-        if url == local { return true }
-
-        // Check if the URL matches our tunnel domain
-        if let tunnelURL = tunnel.publicURL {
-            let tunnelHost = URL(string: tunnelURL.replacingOccurrences(of: "wss://", with: "https://"))?.host
-            let urlHost = URL(string: url.replacingOccurrences(of: "wss://", with: "https://").replacingOccurrences(of: "ws://", with: "http://"))?.host
-            if let th = tunnelHost, let uh = urlHost, th == uh { return true }
-        }
-
-        return false
-    }
 
     /// Route incoming synced messages to agents (only human messages to avoid loops).
     /// Route remote messages to local companions. Bare @Echo mentions trigger
@@ -2425,89 +2393,6 @@ public final class AppState: ObservableObject {
                      senderId: "heartbeat", senderName: "heartbeat")
     }
 
-    public func joinSpaceFromInvite(_ invite: SpaceInviteData) {
-        // If space already exists locally, update encryption key if provided and select it
-        if var existing = spaces.first(where: { $0.id == invite.spaceId }) {
-            if let newKey = invite.encryptionKey, existing.encryptionKey == nil {
-                existing.encryptionKey = newKey
-                do {
-                    try db.saveSpace(existing)
-                    spaces = try db.getRegularSpaces()
-                } catch {
-                    print("[Port42] Failed to update space key: \(error)")
-                }
-            }
-
-            // If invite points to a different gateway, switch to it
-            let currentGW = sync.gatewayURL ?? ""
-            if !isOwnGateway(invite.gateway) && currentGW != invite.gateway, let user = currentUser {
-                UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
-                #if !RELEASE
-                sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db, appleAuth: appleAuth, appleUserID: user.appleUserID)
-                #else
-                sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db)
-                #endif
-                sync.connect()
-                for ch in spaces {
-                    syncJoinSpace(ch.id)
-                }
-                syncJoinSpace(existing.id, token: invite.token)
-            }
-
-            selectSpace(existing)
-            return
-        }
-
-        // Create the space with the shared ID and encryption key
-        let space = Space(
-            id: invite.spaceId,
-            name: invite.spaceName,
-            type: "team",
-            createdAt: Date(),
-            encryptionKey: invite.encryptionKey
-        )
-        do {
-            try db.saveSpace(space)
-            spaces = try db.getRegularSpaces()
-        } catch {
-            print("[Port42] Failed to save invited space: \(error)")
-            return
-        }
-
-        // Configure sync to the invite's gateway if different.
-        // But don't switch away from our local gateway if the invite points
-        // back to us (e.g. through our own ngrok tunnel).
-        let currentGW = sync.gatewayURL ?? ""
-        let invitePointsToSelf = isOwnGateway(invite.gateway)
-
-        if invitePointsToSelf {
-            // Invite is for our own gateway, just join the space
-            syncJoinSpace(space.id, token: invite.token)
-        } else if currentGW != invite.gateway, let user = currentUser {
-            // Different remote gateway, switch to it
-            UserDefaults.standard.set(invite.gateway, forKey: "gatewayURL")
-            #if !RELEASE
-            sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db, appleAuth: appleAuth, appleUserID: user.appleUserID)
-            #else
-            sync.configure(gatewayURL: invite.gateway, userId: user.id, userName: user.displayName, db: db)
-            #endif
-            sync.connect()
-            // Join all existing spaces (no token needed, already members)
-            for ch in spaces where ch.id != space.id {
-                syncJoinSpace(ch.id)
-            }
-            // Join the invited space with the token
-            syncJoinSpace(space.id, token: invite.token)
-        } else {
-            syncJoinSpace(space.id, token: invite.token)
-        }
-
-        selectSpace(space)
-        Analytics.shared.inviteJoined()
-        print("[Port42] Joined space from invite: #\(invite.spaceName) via \(invite.gateway)")
-
-        // Don't prompt ngrok setup on join — only needed when sharing invite links
-    }
 
     /// Ensure a space has an encryption key. Generates one for legacy spaces
     /// that were created before encryption was added. Returns the updated space.
