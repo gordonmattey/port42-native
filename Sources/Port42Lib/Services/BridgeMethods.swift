@@ -1464,7 +1464,7 @@ private func desktopFor(_ panel: PortPanel, requested: String?, appState: AppSta
 private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
 
     r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities", "space_id"],
-        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy (an id) with createdByName (who that is, for display), and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1485,6 +1485,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // the same instant — a listing whose rows were read at different moments would hand out
         // tokens that were never all true together.
         let activity = appState.portInput.activitySnapshot
+        // Who each creator id is, resolved once here on the main actor: registered clients first,
+        // then companions by id.
+        var creatorNames: [String: String] = [:]
+        for c in appState.companions { creatorNames[c.id] = c.displayName }
+        for c in appState.clientRegistry.clients() { creatorNames[c.id] = c.name }
 
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
@@ -1503,7 +1508,12 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "token": .string(activity.token(for: id)),
             ]
             if let spaceId { o["spaceId"] = .string(spaceId) }
-            if let createdBy { o["createdBy"] = .string(createdBy) }
+            if let createdBy {
+                o["createdBy"] = .string(createdBy)
+                // The NAME a person reads (audit F7). `createdBy` is an id, and a companion's terminal
+                // client id is `terminal-<panel>-<space>`, which tells nobody who made the port.
+                if let name = creatorNames[createdBy] { o["createdByName"] = .string(name) }
+            }
             if let cwd { o["cwd"] = .string(cwd) }
             if let surfaceBound { o["surfaceBound"] = .bool(surfaceBound) }
             if let x, let y { o["x"] = .double(Double(x)); o["y"] = .double(Double(y)) }
