@@ -88,3 +88,23 @@ jobs:
         working-directory: spikes/windows-kernel/generated
         continue-on-error: true
         run: swift build --target GRDBProbe 2>&1 | tail -5
+
+  # Question 5 of the spike: the Go side is the only part of the tree with a plausible claim to
+  # already being portable. Cross-compiled rather than run, because the claim under test is that it
+  # COMPILES for Windows, and GOOS does that from anywhere.
+  go-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25' }
+      - name: gateway, cli and shim for windows/amd64
+        run: |
+          set -e
+          for d in gateway cli shim; do
+            (cd $d && GOOS=windows GOARCH=amd64 go build -o /dev/null ./...) && echo "$d: builds for windows/amd64"
+          done
+      - name: the Go suites still pass on Linux
+        run: |
+          set -e
+          for d in gateway cli shim; do (cd $d && go test ./... ); done
