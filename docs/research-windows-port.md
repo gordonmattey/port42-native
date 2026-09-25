@@ -283,7 +283,7 @@ spawn now fails a test.
 |---|---|---|
 | 1 | Does the neutral kernel compile on Windows? | **Yes, 30 files and 3,818 lines of it**, the same set as Linux. The rest is blocked by the seam list above, not by the platform. |
 | 2 | Does GRDB build on Windows? | **No.** `CSQLite` fails on a missing `sqlite3.h`; Windows ships no system SQLite. Needs a vendored build or a different store. Builds on Linux with `libsqlite3-dev`. |
-| 3 | ConPTY plus a JS terminal for the terminal ports? | Not attempted. Still the largest unknown, and the one that would also delete a 537 MB dependency from the Mac build. |
+| 3 | ConPTY plus a JS terminal for the terminal ports? | **Answered: it is the route.** libghostty cannot back a Windows surface (no renderer backend, `PlatformTag` is macOS and iOS only, and the portable "libghostty" is a different library). Ghostty's own `src/pty.zig` is a working ConPTY reference. Full evidence in `docs/spike-libghostty-windows.md`. |
 | 4 | Can WebView2 express the `PortBridge` contract? | Not attempted. |
 | 5 | Does the Go side build on Windows? | **Yes, all three.** `gateway` and `shim` cross-compile untouched. `cli` needed one function: `isInteractive()` used a hand-rolled `TIOCGETA` ioctl, replaced with `term.IsTerminal`. Ten lines, tests still pass, demonstrated on this branch. |
 
@@ -349,11 +349,47 @@ ships `ios-arm64`, `ios-arm64-simulator` and `macos-arm64_x86_64` and nothing el
 Windows door is unbuilt rather than closed: it would mean building libghostty from source for Windows
 and writing a host layer, against today's AppKit `NSView` hosting a Metal surface.
 
-That is worth deciding with evidence rather than assumption, because keeping ONE terminal
-implementation across platforms is worth more than the 537 MB that dropping Ghostty would save. A
-spike is running on exactly this question; its findings land in `docs/spike-libghostty-windows.md`.
-Until it reports, ConPTY plus a JS terminal in the WebView2 remains the fallback, and its appeal is
-that it needs no new terminal emulator at all, since the webview is already there.
+**Answered, 2026-09-25, in `docs/spike-libghostty-windows.md`: no. Use ConPTY plus a JS terminal in
+WebView2.** The spike cross-compiled Ghostty rather than reading about it, and three findings each
+settle it on their own:
+
+- **The portable libghostty is a different library.** Ghostty's own `build.zig:213-240` says of the
+  target that produces the header declaring `ghostty_surface_new`: "This is NOT libghostty (even
+  though its named that for historical reasons). It is just the glue between Ghostty GUI on macOS and
+  the full Ghostty GUI core." The README's portability sentence scopes itself to `libghostty-vt`,
+  which is a VT parser and screen state, with no surface, no pty and no renderer.
+- **The build stops at the renderer, not at a detail.** `zig build -Dtarget=x86_64-windows-gnu
+  -Demit-lib-vt=true` succeeds. The full library fails, and patching past the first error (`pwd.h`)
+  reaches the real wall: the "opengl" backend is EGL and DRM, which is the Linux GTK renderer.
+  `grep -rln "wgl\|WGL" pkg/opengl/ src/renderer/` returns nothing. The three backends are opengl,
+  metal and webgl. Windows has no backend.
+- **Even a built library could not make a surface.** `src/apprt/embedded.zig:431-440` defines
+  `PlatformTag` as `macos = 1, ios = 2`, and every other tag returns `error.UnsupportedPlatform`.
+  `GhosttyTerminalView.swift:529` sets exactly that tag.
+
+**The unlooked-for finding: Port42 is not on upstream Ghostty.** `vendor/GhosttyKit-LICENSE.txt` pins
+the `manaflow-ai/ghostty` fork, which carries 14 API symbols upstream does not have. Port42 calls
+three, and one is load-bearing: `ghostty_surface_set_pty_tee_cb` is how `TerminalHooksService` and
+`TerminalOutputProcessor` see terminal output at all, and upstream has no equivalent. So porting this
+would not be work against a 61k-star project with CI. It would be work against a fork, maintained
+through the port, which upstream has no reason to take back while it moves cross-platform effort into
+`libghostty-vt` instead. That is worth knowing regardless of Windows.
+
+**Ghostty's ConPTY implementation is a gift to the other route.** `src/pty.zig:326-490` is a complete
+`CreatePseudoConsole` / `ResizePseudoConsole` implementation. Ghostty's core is Windows-capable; only
+its surface is Apple-only. So the fallback route starts from a 165-line reference rather than a blank
+page.
+
+**And the coupling is smaller than the earlier count suggested.** Of the 2,367 lines, 
+`TerminalHooksService` (424) is a socket receiver with no terminal knowledge,
+`TerminalOutputProcessor` (244) is a pure byte pipeline, and `GhosttyTerminalController` (386)
+contains no `ghostty_*` calls at all and already sits behind a seam. The genuinely bound code is
+`GhosttyTerminalView.swift` (683) plus about 114 lines of app and probe glue.
+
+The honest cost of the chosen route: no GPU cell rendering on Windows, and macOS and Windows terminal
+ports will diverge on VT edge cases. That is a deliberate trade, not an oversight. Against it, the
+alternative's first step is writing a graphics backend for a terminal emulator inside a forked Zig
+codebase, and this one's first step is calling `CreatePseudoConsole`.
 
 ## The recommendation on the boundary
 
