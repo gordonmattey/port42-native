@@ -1036,6 +1036,10 @@ public final class AppState: ObservableObject {
         // then switch to the current space to show its ports.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
+            // F8: a port whose space was deleted is removed before anything lists or draws it.
+            if let reaped = try? self.db.reapOrphanPortPanels(), reaped > 0 {
+                NSLog("[Port42] Removed %d port(s) whose space no longer exists", reaped)
+            }
             self.portWindows.restoreFromDB(appState: self)
             self.portPanelsRestored = true
             if self.isSetupComplete, let space = self.currentSpace {

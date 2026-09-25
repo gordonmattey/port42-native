@@ -69,7 +69,10 @@ These go together, because the first run is the engine's last user.
 - **Schema:** v48 drops `token_usage` and the LLM columns on `agents`, and the heartbeat columns on
   `spaces`.
 
-**Deferred to GM:** the wording of Echo's welcome, which is product copy.
+**Decided (GM, 2026-09-25):** Echo is a command port, a Claude Code or Codex terminal, and its welcome
+prompts the person to ask for something alive, such as a shader port. It no longer nudges toward
+opening a terminal, since Echo is one. Setup detects both CLIs; with both, the person picks; with
+neither, it offers an installer. Echo's welcome is drafted here for GM to edit.
 
 ### 1.4 The messaging system
 
@@ -126,8 +129,23 @@ on it.
 - **Shim (done):** `sessionPin` adds nothing when the person's own arguments choose a session
   (`--resume`, `-r`, `--continue`, `-c`, `--session-id`, `--fork-session`).
 
-**Deferred to GM, because they delete data:** reaping the `port_versions` rows already written as
-layout noise (F6), and reaping the panel whose space no longer exists (F8).
+**Decided (GM, 2026-09-25):**
+- **F6:** a one-time migration deletes each `port_versions` row whose HTML is identical to the row
+  before it for the same port. Every distinct version survives.
+- **F8:** at every launch, a port whose space no longer exists is removed.
+- **Signing keys:** `users.publicKey`, `users.privateKey` and their Keychain entry go. libp2p makes its
+  own peer key.
+- **Spike harnesses:** deleted, with their debug-menu entries and launch flags.
+- **`port42-openclaw` and `port42-python`:** archived on GitHub.
+
+**Done 2026-09-25.** Both repos archived. The five spike harnesses are deleted with their launch flags
+and debug-menu entries; the Ghostty version probe and the live instruments (port units, rest/wake,
+actor, main loop) stay, under a menu renamed "Debug Probes". v48 drops the users' key pair, and the
+boot ceremony loses the three key lines that described it. v49 removes repeated versions. At launch,
+ports whose space is gone are removed. Live on Dev3's real data: 2,162 version rows became 409, all
+408 distinct versions kept plus one legitimate return to an earlier version, and 1 orphaned port
+removed. Suite 1374 green; harness five of five. The database from before v48 is kept in the session
+scratchpad.
 
 ## Verify
 

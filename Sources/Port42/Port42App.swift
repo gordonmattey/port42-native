@@ -55,22 +55,6 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
         MainLoopProbe.enabled = UserDefaults.standard.bool(forKey: "PORT42_MAINLOOP_PROBE")
         MainLoopProbe.install()
 
-        // Spike 3 (I6) hands-free trigger: `defaults write <domain> PORT42_SPIKE3_AUTORUN -bool true`
-        // → the resize spike opens at launch and runs its full sequence. One-shot (self-clearing),
-        // so normal launches are untouched. Exists because permission-gated remote automation can't
-        // click the Debug menu (see plan-port-units-render-refactor.md §11).
-        if UserDefaults.standard.bool(forKey: "PORT42_SPIKE3_AUTORUN") {
-            UserDefaults.standard.removeObject(forKey: "PORT42_SPIKE3_AUTORUN")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                GhosttyResizeSpikeHarness.shared.run(autorun: true)
-            }
-        }
-        if UserDefaults.standard.bool(forKey: "PORT42_SPIKE2_AUTORUN") {
-            UserDefaults.standard.removeObject(forKey: "PORT42_SPIKE2_AUTORUN")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                PortDesktopSpikeHarness.shared.run(autorun: true)
-            }
-        }
         if UserDefaults.standard.bool(forKey: "PORT42_PROBE_AUTORUN") {
             UserDefaults.standard.removeObject(forKey: "PORT42_PROBE_AUTORUN")
             // Waits for the shell to be unlocked + a non-chat tile to exist, then cycles.
@@ -111,19 +95,6 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
             // ⌘` gate: focus(A)→focus(B) swaps in place — zero remakes, zero windowless.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 PortUnitCycleHarness.shared.runCycleSwapWhenReady()
-            }
-        }
-        // screen.record Step 0 spikes (docs/plan-screen-record.md). A/C run hands-free; B needs a human.
-        for (flag, mode) in [("PORT42_RECSPIKE_A_AUTORUN", ScreenRecordSpikeHarness.Mode.a),
-                             ("PORT42_RECSPIKE_B_AUTORUN", .b),
-                             ("PORT42_RECSPIKE_C_AUTORUN", .c),
-                             ("PORT42_RECSPIKE_D_AUTORUN", .d),
-                             ("PORT42_RECSPIKE_E_AUTORUN", .e)] {
-            if UserDefaults.standard.bool(forKey: flag) {
-                UserDefaults.standard.removeObject(forKey: flag)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                    ScreenRecordSpikeHarness.shared.run(mode)
-                }
             }
         }
         #endif
@@ -361,27 +332,7 @@ struct Port42App: App {
             }
 
             #if DEBUG
-            CommandMenu("Ghostty Debug") {
-                Button("Test Ghostty Surface (Steps 2–4, bare AppKit)") {
-                    GhosttyDebugHarness.shared.runSurfaceTest()
-                }
-                Button("Test Ghostty SwiftUI Panel (Step 5)") {
-                    GhosttyDebugHarness.shared.runSwiftUIPanelTest()
-                }
-                Button("Test Ghostty Hooks (Step 7)") {
-                    GhosttyDebugHarness.shared.runHooksTest()
-                }
-                Divider()
-                Button("Port Resize Spike (I1+I2)") {
-                    PortResizeSpikeHarness.shared.run()
-                }
-                Button("Ghostty Resize Spike (I6)") {
-                    GhosttyResizeSpikeHarness.shared.run()
-                }
-                Button("Port Desktop Spike (I2 stressors)") {
-                    PortDesktopSpikeHarness.shared.run()
-                }
-                Divider()
+            CommandMenu("Debug Probes") {
                 Button("Port Units — cycle") {
                     PortUnitCycleHarness.shared.run()
                 }
@@ -399,22 +350,6 @@ struct Port42App: App {
                 }
                 Button("⌘` cycle — focus swap probe") {
                     PortUnitCycleHarness.shared.runCycleSwap()
-                }
-                Divider()
-                Button("screen.record Spike A (self + system audio)") {
-                    ScreenRecordSpikeHarness.shared.run(.a)
-                }
-                Button("screen.record Spike B (occlusion + pointer)") {
-                    ScreenRecordSpikeHarness.shared.run(.b)
-                }
-                Button("screen.record Spike C (sourceRect crop)") {
-                    ScreenRecordSpikeHarness.shared.run(.c)
-                }
-                Button("screen.record Spike D (two-port framing)") {
-                    ScreenRecordSpikeHarness.shared.run(.d)
-                }
-                Button("screen.record Spike E (owner teardown)") {
-                    ScreenRecordSpikeHarness.shared.run(.e)
                 }
             }
             #endif

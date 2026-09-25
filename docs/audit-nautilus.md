@@ -149,6 +149,13 @@ driver: space-3's chat holds 139 messages, 101 of them `[portref]` cards that ev
 posts. Not root-caused. Phase 1 removes both the native chat and the cards, and the harness will show
 whether the stall goes with them.
 
+**F19. The suite can hang with four unrelated tests waiting.** Once on 2026-09-25 the full suite ran
+past 20 minutes with four tests stuck: "granting through the gate PERSISTS", "a dying non-owner port
+leaves someone else's capture running", "in-app companion crease_read routes through the registry"
+and "killProcessOnPort kills the listener only". The main thread was idle, so they were waiting, not
+deadlocked. An immediate rerun of the same tree passed in 31 seconds. Not reproduced; next time,
+sample the test process before stopping it.
+
 **F10. The port-positioning gap is closed.** `port.move` and `port.position` exist and worked live.
 The memory note claiming the gap is retired with this audit.
 

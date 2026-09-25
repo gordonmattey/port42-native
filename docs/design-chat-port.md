@@ -58,9 +58,11 @@ built on messages.
 The harness gains a check at step 3: a companion's reply lands in the chat attributed to the companion,
 and a post through the API is attributed to its caller.
 
-## Open for GM
+## Decided (GM, 2026-09-25)
 
-1. **Existing transcripts:** drop them with the `messages` table, or import each space's history into
-   its space's chat once.
-2. **The panel:** a drawer that slides out from the tile, or a flip to the tile's back.
-3. **Unread:** a count on the chat icon, a peek, or both.
+1. **Old transcripts are dropped** with the `messages` table. This is a breaking upgrade; nothing is
+   imported.
+2. **The panel slides down from the companion bar.** The bar at the top of a port shows who is in its
+   chat as profile pictures, the way the chat tile's header does today. Clicking it slides the chat
+   down over the port.
+3. **Unread lives in that bar.**

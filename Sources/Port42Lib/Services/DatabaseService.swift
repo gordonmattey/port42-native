@@ -769,6 +769,26 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v48-drop-signing-keys") { db in
+            // The P256 key pair served remote identity for the messaging hub. Nothing signs or verifies
+            // with it now, and Phase 4's peer identity is a libp2p key the gateway makes itself
+            // (GM, 2026-09-25). The private half lived in the Keychain, not here; an entry left there
+            // under `com.port42.identity` is inert.
+            try db.alter(table: "users") { t in
+                t.drop(column: "publicKey")
+                t.drop(column: "privateKey")
+            }
+        }
+
+        migrator.registerMigration("v49-dedupe-port-versions") { db in
+            // Audit F6. Before the layout fix, every click, focus and drag saved the port's FULL html
+            // as a new version, so most history rows are exact copies of the row before them. Delete
+            // each row whose html equals the previous version's for the same port. Every distinct
+            // version survives; version numbers keep their gaps. New copies stopped at the source
+            // (`savePortVersion` no-ops on identical html).
+            try db.execute(sql: DatabaseService.dedupePortVersionsSQL)
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1134,6 +1154,31 @@ public final class DatabaseService {
         }
     }
 
+
+    /// Audit F6: delete each version whose html equals the previous version's for the same port. One
+    /// definition, run by migration v49 and by its test.
+    static let dedupePortVersionsSQL = """
+        DELETE FROM port_versions WHERE id IN (
+            SELECT id FROM (
+                SELECT id, html, LAG(html) OVER (PARTITION BY portUdid ORDER BY version) AS prev
+                FROM port_versions
+            ) WHERE prev IS NOT NULL AND html = prev
+        )
+        """
+
+    /// Audit F8: remove every port whose space no longer exists. Run at launch, before ports are
+    /// restored, so an orphan is never listed or drawn. A port with no space is not an orphan.
+    /// Returns how many were removed.
+    @discardableResult
+    public func reapOrphanPortPanels() throws -> Int {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM port_panels
+                WHERE spaceId IS NOT NULL AND spaceId NOT IN (SELECT id FROM spaces)
+                """)
+            return db.changesCount
+        }
+    }
 
     public func deleteSpace(id: String) throws {
         try dbQueue.write { db in

@@ -72,7 +72,7 @@ struct TerminalWriteFunnelTests {
         }
 
         // The funnel itself, plus the DEBUG-only resize harness, which is not a user-reachable path.
-        let allowed: Set<String> = ["GhosttyTerminalView.swift", "GhosttyResizeSpike.swift"]
+        let allowed: Set<String> = ["GhosttyTerminalView.swift"]
         let unexpected = Set(offenders.keys).subtracting(allowed)
         #expect(unexpected.isEmpty,
                 "these files write to a pty outside the funnel: \(unexpected.sorted().joined(separator: ", "))")
@@ -115,7 +115,7 @@ struct TerminalWriteFunnelTests {
             let file = url.lastPathComponent
             // `makeDetached`'s own definition, and the DEBUG resize harness, which deliberately
             // drives the production surface without app wiring. Same allow-list as `oneWriter`.
-            guard file != "GhosttyTerminalView.swift", file != "GhosttyResizeSpike.swift" else { continue }
+            guard file != "GhosttyTerminalView.swift" else { continue }
             let src = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             let n = src.components(separatedBy: "GhosttyTerminalView.makeDetached(").count - 1
             if n > 0 { builders[file] = n }

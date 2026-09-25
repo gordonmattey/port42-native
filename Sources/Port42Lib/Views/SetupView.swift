@@ -99,14 +99,9 @@ public struct SetupView: View {
 
     private var createSequence: [TermLine] {
         let name = submittedName ?? ""
-        let keychainOK = appState.currentUser.map { AppUser.keychainHasKey(account: $0.id) } ?? false
-        let keychainStatus = keychainOK ? "OK" : "FAILED"
         var lines: [TermLine] = [
             .init(text: "", style: .blank, delay: 0.5),
             .init(text: "Creating reality instance for \(name)...", style: .post, delay: 0.8),
-            .init(text: "Generating P256 identity key pair...", style: .post, delay: 0.8),
-            .init(text: "Storing private key in Keychain... \(keychainStatus)", style: .post, delay: 1.0),
-            .init(text: "Public key: \(keyFingerprint)", style: .dim, delay: 0.6),
         ]
         lines += [
             .init(text: "", style: .blank, delay: 0.6),
@@ -116,13 +111,6 @@ public struct SetupView: View {
         return lines
     }
 
-    private var keyFingerprint: String {
-        let pk = appState.currentUser?.publicKey ?? ""
-        if pk.count >= 16 {
-            return String(pk.prefix(8)) + "..." + String(pk.suffix(8))
-        }
-        return pk.isEmpty ? "pending" : pk
-    }
 
     // MARK: - Body
 
