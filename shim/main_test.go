@@ -416,3 +416,32 @@ func TestNotifyRoundTrip(t *testing.T) {
 		t.Fatal("timed out waiting for socket message")
 	}
 }
+
+// A person's own session choice wins over Port42's pin (summer todo 2026-07-21: `claude --resume X`
+// in a Port42 terminal failed, because the pin added a second session flag).
+func TestUserChoosesSession(t *testing.T) {
+	for _, args := range [][]string{{"--resume", "abc"}, {"-r"}, {"--continue"}, {"-c"}, {"--session-id", "x"},
+		{"--resume=abc"}, {"--fork-session", "--resume", "abc"}, {"-p", "hi", "--continue"}} {
+		if !userChoosesSession(args) {
+			t.Fatalf("%v chooses a session", args)
+		}
+	}
+	for _, args := range [][]string{{}, {"-p", "hello"}, {"--model", "opus"}, {"resume"}} {
+		if userChoosesSession(args) {
+			t.Fatalf("%v does not choose a session", args)
+		}
+	}
+}
+
+func TestSessionPinStepsAsideForTheUsersChoice(t *testing.T) {
+	home := t.TempDir()
+	if got := sessionPin(home, "sid-1", nil); len(got) != 2 || got[1] != "sid-1" {
+		t.Fatalf("a bare launch gets the pin, got %v", got)
+	}
+	if got := sessionPin(home, "sid-1", []string{"--resume", "theirs"}); got != nil {
+		t.Fatalf("the person's --resume must win, got %v", got)
+	}
+	if got := sessionPin(home, "", nil); got != nil {
+		t.Fatalf("no pin without an id, got %v", got)
+	}
+}
