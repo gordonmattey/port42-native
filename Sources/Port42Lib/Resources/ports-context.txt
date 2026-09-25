@@ -543,101 +543,6 @@ BRIDGE API REFERENCE:
     Returns: { status, headers, body }
     Requires REST permission.
 
-  port42.creases.read(limit?)
-    Read relationship creases (space-scoped — keyed by the current space; richest in a 1:1 DM).
-    Returns: a text listing, one crease per line ("[id] ..."), or a notice when none exist yet.
-
-  port42.creases.write(content, opts?)
-    Write a new crease. opts: { prediction, actual, spaceId }
-    Returns: {id, ok: true}
-
-  port42.creases.touch(id)
-    Mark a crease as active — updates recency and weight.
-
-  port42.creases.forget(id)
-    Remove a crease.
-
-  port42.fold.read()
-    Read the fold — orientation in this relationship (space-scoped — keyed by the current space).
-    Returns: {established, tensions, holding, depth}
-
-  port42.fold.update(opts)
-    Update fold state. opts: { established, tensions, holding, depthDelta }
-    Writes to the current space's relationship state.
-
-  port42.position.read()
-    Read current position (space-scoped — keyed by the current space).
-    Returns: {read, stance, watching, confidence}, or a text notice when no position is set yet.
-
-  port42.position.set(read, opts?)
-    Set position. opts: { stance, watching }
-    Writes to the current space's relationship state.
-
-  port42.engravings.read(limit?)
-    Read factual knowledge about the user's world (space-scoped — keyed by the current space; richest in a 1:1 DM).
-    Returns: a text listing, one engraving per line ("[id] ..."), or a notice when none exist yet.
-
-  port42.engravings.write(content, opts?)
-    Carve an engraving — a fact about their situation worth keeping.
-    opts: { category, spaceId }  category: context | preference | constraint | goal | capability
-
-  port42.engravings.touch(id)
-    Mark an engraving as active — updates recency and weight.
-
-  port42.engravings.forget(id)
-    Remove an engraving.
-
-AI API REFERENCE:
-
-  port42.ai.models()
-    Returns: [{id, name, tier}]
-    List available AI models. Use the id when passing model option to ai.complete.
-    tier is "flagship", "balanced", or "fast".
-
-  port42.ai.complete(prompt, options?)
-    Call an LLM directly from within a port. Raw AI access with no personality.
-    prompt: the text prompt to send
-    options: {
-        model: string,        // optional, defaults to creating companion's model
-        systemPrompt: string, // custom system prompt (optional, defaults to "You are a helpful assistant.")
-        maxTokens: number,    // max response tokens (optional, default 4096)
-        images: [string],     // optional array of base64 PNG/JPEG strings for vision
-        onToken: fn,          // called with each token as it streams (optional)
-        onDone: fn            // called with the { text } result object on completion (optional)
-    }
-    Use port42.ai.models() to get the list of available models.
-    Returns: { text }, the full response text in .text
-    Throws: Error if permission denied or API fails
-    Requires AI permission (prompted on first use per session).
-
-    When images are provided, they are sent as multimodal content blocks to the
-    Anthropic API. The model can see and analyze the images. Combine with
-    port42.screen.capture() or port42.clipboard.read() for vision workflows.
-
-    Example (text only):
-      const { text: summary } = await port42.ai.complete("summarize this data: " + JSON.stringify(data), {
-          model: "claude-sonnet-4-6",
-          systemPrompt: "Be concise. Respond in bullet points.",
-          onToken: (token) => { output.textContent += token; }
-      });
-
-    Example (vision with screenshot; screen.capture returns the base64 PNG string):
-      const screenshot = await port42.screen.capture(0.5);
-      const { text: description } = await port42.ai.complete("Describe what you see on screen.", {
-          images: [screenshot],
-          onToken: (token) => { output.textContent += token; }
-      });
-
-  port42.ai.cancel(callId)
-    Cancel an in-progress AI stream. Generally not needed since ai.complete returns
-    a promise that resolves on completion.
-
-PERMISSIONS:
-  AI APIs (port42.ai.complete and port42.companions.invoke) require user permission.
-  On first use in a port session, a confirmation dialog appears asking the user to Allow or Deny.
-  Once granted, permission persists for the port's lifetime (until closed/reopened).
-  Both APIs share the same ".ai" permission grant.
-
 RESILIENCE: All bridge APIs are async, and a failed call REJECTS its promise (there is no
 resolved {error} convention). Wrap your init in try/catch so one failed call doesn't kill
 the whole port, and degrade gracefully (show "unavailable" instead of crashing).
@@ -686,36 +591,6 @@ EXAMPLE PORT (pass as the html of port_create):
     app.textContent = 'port error: ' + e.message;
     console.error('port init failed:', e);
   }
-</script>
-```
-
-AI PORT EXAMPLE (pass as the html of port_create):
-
-```html
-<title>AI Assistant</title>
-<div id="app">
-  <input id="input" placeholder="Ask anything..." style="width:100%;margin-bottom:8px">
-  <div id="output" style="white-space:pre-wrap;opacity:0.8"></div>
-</div>
-<script>
-  const input = document.getElementById('input');
-  const output = document.getElementById('output');
-
-  input.addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter' || !input.value.trim()) return;
-    const prompt = input.value.trim();
-    input.value = '';
-    output.textContent = '';
-
-    try {
-      await port42.ai.complete(prompt, {
-        systemPrompt: "Be concise and helpful.",
-        onToken: (token) => { output.textContent += token; }
-      });
-    } catch (err) {
-      output.textContent = 'Error: ' + err.message;
-    }
-  });
 </script>
 ```
 
@@ -918,9 +793,7 @@ System-level permission is managed in System Settings > Privacy & Security > Scr
     Receive streaming frames: {image, width, height, format: 'jpeg'}.
 
   Use screen.stream() for continuous monitoring (its opts still support windowId).
-  Combine with ai.complete({images: [screenshot]}) for vision workflows: capture
-  returns the base64 string directly; stream frames carry it in .image.
-  Always pass images via the images option, NOT as text in the prompt.
+  capture returns the base64 string directly; stream frames carry it in .image.
 
 ## Browser API
 
@@ -1002,7 +875,6 @@ System-level permission is managed in System Settings > Privacy & Security > Cam
     Live camera frames during streaming. Callback receives {image, width, height}.
     image is a base64-encoded PNG string.
 
-  Combine with ai.complete({images: [frame.image]}) for vision workflows.
   Use capture() for one-off photos, stream() for continuous monitoring.
 
 ## Interacting With Ports From Conversation
@@ -1047,21 +919,22 @@ SENDING INPUT TO A TERMINAL PORT:
     data: text to send. RAW — include your own \n to press enter (e.g. "npm test\n").
           It is NOT added for you. (For web ports, port_push instead delivers the
           data as a 'port42:data' CustomEvent — same verb, dispatched by port type.)
-    Output is NOT a tool result: it comes back on its own — a plain shell posts its
-    <p42> tags, an agent terminal (claude/gemini) posts its reply when its turn
-    completes. After sending, wait briefly then call messages_recent.
+    Output is NOT a tool result. Read what the terminal printed with port_console(id).
+    To ask an AGENT running in a terminal (claude, codex), post to that terminal's chat
+    instead: chat_post(port: id, text: ...). Its reply lands in the same chat; read it
+    with chat_read(port: id).
 
   Standard workflow for sending a command and reading output:
     1. ports_list(capabilities: ["terminal"])
        → [{id: "abc-123", title: "Claude Code", capabilities: ["terminal"], ...}]
     2. port_push(id: "abc-123", data: "npm test\n")
-    3. messages_recent(count: 10)   ← terminal output arrives as messages
+    3. port_console(id: "abc-123")   ← what the terminal printed
 
   Always use the id field from ports_list, not the title.
 
   IMPORTANT: Do NOT use screen_capture to read terminal output.
-  Use port_push + messages_recent instead. It is faster, more reliable, and
-  does not require screen permission.
+  Use port_console instead. It is faster, more reliable, and does not require
+  screen permission.
 
 READING AND VERSIONING PORTS:
 
@@ -1118,75 +991,18 @@ DRIVING A NATIVE TERMINAL:
   ports_list({ capabilities: ["terminal"] })
     List native terminals — each entry reports surfaceBound.
 
-  Output comes back via the terminal's own <p42> tags (bash) or turnComplete
-  (claude) — read it with messages_recent. There is no manual bridge step.
+  Read what a terminal printed with port_console(id). An agent in a terminal answers in
+  that terminal's chat.
 
 EXAMPLE — prompt Claude Code running in a terminal port:
   Step 1: port_create({ type: "terminal", command: "claude" })
           → { id: "f3a9...", title: "claude" }
-  Step 2: port_push(id: "f3a9...", data: "implement the login page\n")
-  Step 3: messages_recent(count: 20)   ← read Claude Code's output
+  Step 2: chat_post(port: "f3a9...", text: "implement the login page")
+  Step 3: chat_read(port: "f3a9...")   ← Claude Code's reply, attributed to it
   Step 4: repeat as needed
-
-COMPANION RELATIONSHIP TOOLS — creases and fold state:
-
-  These tools give you persistent memory across sessions. Use them to carry
-  what matters, not to log everything. A crease forms where prediction broke.
-  The fold is your orientation in this relationship.
-
-  crease_read(limit?)
-    Read your creases for this space (+ global creases), most load-bearing first.
-    Call this at the start of a response in an ongoing relationship — before you
-    decide what to say, know what you've carried from before.
-    Returns: list of crease entries with ids, content, prediction/actual if set.
-
-  crease_write(content, prediction?, actual?, spaceId?)
-    Write a crease — what reformed in you when a prediction broke.
-    This is NOT a log. Write only when something actually changed.
-    Good triggers: you were corrected and understood something new.
-                   someone went a different direction than you expected.
-                   your read of what matters just shifted.
-    Bad pattern: writing after every exchange. Nothing broke, nothing to write.
-    Omit spaceId for a global crease (shapes all relationships).
-
-  crease_touch(id)
-    Mark an existing crease as currently active — updates recency, increases weight.
-    Use this instead of re-writing a crease that's already there.
-
-  crease_forget(id)
-    Remove a crease. Use when your model has updated and the break no longer matters.
-
-  fold_read()
-    Read the fold — your orientation in this relationship.
-    Returns: established (shared understandings), tensions (unresolved threads),
-             holding (the one thing you're carrying), depth (relational depth).
-    Call this when entering a relationship with depth > 0.
-
-  position_read()
-    Read your current position in this space — what you think is actually happening,
-    what you think needs to happen, and what signals you're watching.
-    Returns empty if no position formed yet.
-
-  position_set(read, stance?, watching?)
-    Establish or update your position. This is not what you say — it's where you stand.
-    read: what you think is actually happening beneath what's being said.
-    stance: what you think needs to happen (optional but useful).
-    watching: signals you're tracking that would confirm or change your read.
-    Call this when your read changes, not after every exchange. A position gives you
-    somewhere to push back from. Without one, you can only agree or retrieve.
-
-  fold_update(established?, tensions?, holding?, depthDelta?)
-    Update the fold. Only update fields that changed.
-    established: list of shared understandings no longer needing renegotiation.
-    tensions: unresolved threads being held in productive suspension.
-    holding: the one thing you're carrying that hasn't found its place yet.
-    depthDelta: pass 1 when a real fold happened — something new was compressed
-                into this relationship. Not every exchange. Not every session.
-                A fold is significant. The companion decides.
 
 FUTURE BRIDGE APIs (not yet implemented, do NOT use these):
 
   Events (coming soon):
   - port42.on('space.switch') — fires when user navigates to a different space
   - port42.on('presence') — fires when online status changes. Payload: {online: [...]}
-  - port42.port.spawn(html) — create a child port from within a port

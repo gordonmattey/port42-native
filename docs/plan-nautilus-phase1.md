@@ -250,6 +250,14 @@ state, the inline rows in `ports.list` and the inline undock in `port.manage`. T
 states and statuses that remain. Fixtures that used an inline port use a tiled one. Suite 1128
 green.
 
+**The port manual caught up (2026-09-25).** `ports-context.txt` still taught what step 1.3 and step 4
+removed: `ai.*`, `companions.invoke`, Keeper's creases, folds, positions and engravings, `port.spawn`,
+and `messages_recent` as the way to read a terminal. Those sections are gone; a terminal's output is
+read with `port_console`, and an agent in a terminal is asked through that terminal's chat. A new
+gate, `ManualAccuracyTests`, fails when a manual teaches a method or tool the registry does not have
+(a pinned list covers the port's own JS helpers). Calibrated by adding `ai.complete` and
+`messages_recent` back. Suite 1130 green.
+
 ### 1.6 Small, clearly right
 
 - **F7 (done):** `ports.list` entries carry `createdByName` next to `createdBy`: the registered
