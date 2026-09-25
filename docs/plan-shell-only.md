@@ -148,6 +148,9 @@ with the credential given once; the guest page renders and drives a port; existi
 
 ### Phase 1 · Remove what no scenario needs, and build the chat port (1)
 
+**Detailed plan:** `plan-nautilus-phase1.md` (steps 1.1 to 1.6; 1.5, the chat port, waits on GM's
+review of its design).
+
 **Messaging:** the rest of `SyncService`, `TunnelService`, `SpaceCrypto`, `AppleAuthService`,
 `AgentInvite`, friends, member lists, typing, read receipts, join tokens, and the gateway's hub
 (`store.go`, `apple_auth.go`, the channel cases). The space-invite and agent-invite payloads go.
