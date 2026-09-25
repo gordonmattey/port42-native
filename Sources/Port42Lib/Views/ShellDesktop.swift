@@ -48,7 +48,6 @@ struct ShellChrome: View {
                 .onChange(of: sid) { _, new in appState.chats.load(new, from: appState.db) }
             }
 
-            chromeButton("rectangle.3.group", "Arrange (⌘L)") { shell.bumpArrange("chrome-arrange-button") }
             // New Space lives in the galaxy now (spaces are the galaxy's business), not the Chrome.
 
             Spacer()
@@ -153,7 +152,7 @@ struct ShellDesktopView: View {
     private var sid: String? { appState.currentSpace?.id }
 
     /// The tiled ports on this desktop — `ShellState.desktopTilePanels`, the ONE predicate
-    /// shared with `applyArrange` and ShellView's focus branch (Phase 0: no drift possible).
+    /// shared with placement and ShellView's focus branch (Phase 0: no drift possible).
     private var tiledPanels: [PortPanel] { shell.desktopTilePanels }
 
     /// Everything the desktop renders (Phase 1): tiles ∪ peeks, one unit per id — a peek is
@@ -240,8 +239,7 @@ struct ShellDesktopView: View {
                     .zIndex(10_000)
             }
             .coordinateSpace(name: "desktop")   // tile drags read the pointer here for park/close hit-testing
-            // arrange animates via its own withAnimation (ShellState.applyArrange); here we only
-            // spring unit insertion/removal (tiles + peeks) and the exposé transition.
+            // Here we only spring unit insertion/removal (tiles + peeks) and the exposé transition.
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
@@ -282,9 +280,6 @@ struct ShellDesktopView: View {
                 // you had left.
                 ArrangeLog.note("desktop.countChanged", "count=\(old)→\(new) space=\(ShellState.shortId(sid ?? "-"))")
                 shell.placeUnpositioned(area: geo.size)
-            }
-            .onChange(of: shell.arrangeBump) { _, _ in                                     // ⌘L — and everything else that bumps
-                shell.applyArrange(area: geo.size, reason: .bump)
             }
             // Phase 0: app-switch markers, so a trace shows what (if anything) a return actually did.
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
@@ -854,9 +849,8 @@ struct ShellParkRail: View {
         Button {
             appState.portWindows.unpark(id: p.id)
             shell.bringToFront(p.id)          // restored → frontmost + selected (was keeping its stale pre-park z)
-            // No arrangeBump: the matched-geometry morph (below) is the only motion, so the tile
-            // animates out of THIS chip's location instead of the arrange-spring dragging it in from
-            // the screen edge (Bug 2).
+            // The matched-geometry morph (below) is the only motion, so the tile animates out of
+            // THIS chip's location (Bug 2).
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)

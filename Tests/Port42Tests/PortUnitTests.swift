@@ -239,12 +239,10 @@ struct PortUnitPeekTests {
         _ = state.portWindows.registerTiledPort(id: "kp", html: "<title>kp</title>", spaceId: other.id,
                                                 createdBy: "someone", title: "kp", position: nil)
         shell.handlePortCreated(id: "kp", spaceId: other.id, title: "kp")
-        let bump = shell.arrangeBump
 
         shell.keepPeek(shell.peekingPorts[0], arrange: false)   // drag-to-keep: hand-placed
         #expect(shell.peekingPorts.isEmpty)
         #expect(state.portWindows.panels.first { $0.id == "kp" }?.adoptedSpaceIds == [space.id])
-        #expect(shell.arrangeBump == bump)                      // no re-grid on a hand drop
         #expect(shell.isDesktopUnit("kp"))                      // now a tile of this desktop
     }
 }

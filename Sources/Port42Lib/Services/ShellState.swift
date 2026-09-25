@@ -23,12 +23,6 @@ public final class ShellState: ObservableObject {
     @Published public var selectedPortId: String?
     /// The highlighted desktop tile (chat or a tiled port) — hover/click; what ⌘↓ focuses.
     @Published public var selectedTileId: String?
-    /// Bumped to re-trigger the desktop grid layout (the Chrome "arrange" + every spawn). Bump it
-    /// through `bumpArrange(_:)` so the re-grid it causes can name who asked for it.
-    @Published public var arrangeBump: Int = 0
-    /// Who bumped last (Phase 0). `arrangeBump` alone reaches the desktop's `onChange` with no
-    /// sender, so every re-grid it triggers used to read as "⌘L" whether or not a user asked.
-    public private(set) var lastArrangeBumpReason: String = "none"
     /// Exposé (Tab): a TEMPORARY arrange — every tile spreads to the fit grid for selection, without
     /// overwriting its real position. Picking a tile (or Tab/Esc) exits and tiles snap back.
     @Published public var exposeActive: Bool = false
@@ -462,7 +456,7 @@ public final class ShellState: ObservableObject {
 
     /// THE desktop-tile predicate — the one source for "which panels are staged as tiles on
     /// this desktop": the current space's tiled panels, plus adopted
-    /// foreign ports. The desktop renders this set, `applyArrange` grids it, and ShellView's
+    /// foreign ports. The desktop renders this set, placement places into it, and ShellView's
     /// focus branch checks membership — one filter, so they can never drift apart (Phase 0).
     public var desktopTilePanels: [PortPanel] {
         guard let sid = appState.currentSpace?.id else { return [] }
@@ -700,7 +694,6 @@ public final class ShellState: ObservableObject {
         case cycleBackward      // ⇧⌘` — previous
         case jumpSpace(Int)     // ⌘1…9 — Nth working space (0-based)
         case quickSwitcher      // ⌘K — the switcher must open from anywhere
-        case arrange            // ⌘L — grid the desktop (must fire even with a port focused)
     }
 
     /// Classify a keystroke as a shell-global chord (nil = not one; normal yield applies).
@@ -717,7 +710,6 @@ public final class ShellState: ObservableObject {
         }
         guard !shift else { return nil }
         if ch == "k" { return .quickSwitcher }
-        if ch == "l" { return .arrange }       // ⌘L — arrange the grid, even over a focused port
         if let n = Int(ch), (1...9).contains(n) { return .jumpSpace(n - 1) }
         return nil
     }
@@ -943,8 +935,8 @@ public final class ShellState: ObservableObject {
     /// Give every unplaced tile on this desktop a spot, moving NOTHING that already has one.
     ///
     /// Phase 1, and the whole point of the unit: a birth places, it does not re-grid. Everything that
-    /// used to call `applyArrange` because a tile arrived (a spawn, a park restore, an adoption, the
-    /// first paint of a desktop) calls this instead. Tiles are walked in z order so `place` sees the
+    /// places a port (a spawn, a park restore, an adoption, the first paint of a desktop) calls this.
+    /// There is no re-grid at all: ⌘L went in nautilus Phase 2. Tiles are walked in z order so `place` sees the
     /// frontmost tile last, which is what its cascade fallback stacks on.
     public func placeUnpositioned(area: CGSize) {
         guard let desktop = appState.currentSpace?.id else { return }
@@ -985,116 +977,11 @@ public final class ShellState: ObservableObject {
         }
     }
 
-    /// Why a re-grid is happening — the Phase 0 question, since the desktop's three `applyArrange`
-    /// sites are indistinguishable once inside the function.
-    public enum ArrangeReason: String, Sendable {
-        case bump              // `arrangeBump` changed — ⌘L *and* a dozen non-user callers
-        case tileCountChanged  // a spawn/park/close changed `tiledPanels.count`
-        case seedOnAppear      // the desktop appeared with at least one unpositioned tile
-        case probe             // PortRenderProbe / harness
-    }
-
-    /// Bump the arrange counter, recording who asked. The desktop's `onChange(arrangeBump)` is one
-    /// funnel for a dozen callers, so the name has to be carried alongside the count.
-    public func bumpArrange(_ reason: String) {
-        lastArrangeBumpReason = reason
-        arrangeBump += 1
-        ArrangeLog.note("bumpArrange", "by=\(reason) n=\(arrangeBump)")
-    }
-
-    /// Re-grid the current space's tiled ports (the chat is one of them now) via the pure `arrange`
-    /// and WRITE the resulting positions back — the layout authority (§4). Called on ⌘L and every
-    /// user-initiated spawn/park; hand-drag positions survive a restart but a spawn re-grids them.
-    public func applyArrange(area: CGSize, reason: ArrangeReason) {
-        guard let desktop = appState.currentSpace?.id else {
-            ArrangeLog.note("applyArrange.skipped", "reason=\(reason.rawValue) no-current-space")
-            return
-        }
-        // Arrange the SAME set the desktop renders — `desktopTilePanels`, the shared predicate
-        // (Phase 0). Previously this filter omitted adopted foreign ports, so a kept peek
-        // never got gridded and stacked at its home-space position.
-        let panels = desktopTilePanels
-        // Stable order = the panel list's own order (creation, and the same order after a restore),
-        // NOT z. See ArrangeTile.
-        let order = Dictionary(uniqueKeysWithValues: appState.portWindows.panels.enumerated().map { ($1.id, $0) })
-        let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, order: order[$0.id] ?? 0) }
-        let origins = Self.arrange(tiles, in: area)
-        // Phase 0 measurement: how many tiles this call actually MOVES, and by how far. An arrange
-        // that fires but moves nothing is not the symptom; one that moves tiles the user placed is.
-        if ArrangeLog.enabled {
-            var moved: [String] = []
-            var unpositioned = 0
-            for p in panels {
-                guard let to = origins[p.id] else { continue }
-                guard let from = p.position(on: desktop) else { unpositioned += 1; continue }
-                let dx = to.x - from.x, dy = to.y - from.y
-                if abs(dx) > 0.5 || abs(dy) > 0.5 {
-                    moved.append("\(shortId(p.id)):\(Int(from.x)),\(Int(from.y))→\(Int(to.x)),\(Int(to.y))")
-                }
-            }
-            ArrangeLog.note("applyArrange",
-                            "reason=\(reason.rawValue) bump=\(arrangeBump)/\(lastArrangeBumpReason) "
-                            + "space=\(shortId(appState.currentSpace?.id ?? "-")) "
-                            + "area=\(Int(area.width))x\(Int(area.height)) tiles=\(panels.count) "
-                            + "unpositioned=\(unpositioned) moved=\(moved.count) [\(moved.joined(separator: " "))]")
-        }
-        // Animate the moves here (not via a distant `.animation(value:)`) so the tiles visibly spring
-        // to their spots — a bouncy, slightly slow settle, like the prototype.
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.68)) {
-            for p in panels where origins[p.id] != nil {
-                appState.portWindows.updateTileFrame(id: p.id, position: origins[p.id]!, size: nil, on: desktop)   // reposition only — keep varied sizes
-            }
-        }
-    }
-
     /// Log-friendly id: the tail is what distinguishes two ports, and a full UUID per tile makes a
     /// line unreadable.
     nonisolated static func shortId(_ id: String) -> String { String(id.suffix(6)) }
     nonisolated func shortId(_ id: String) -> String { Self.shortId(id) }
 
-    // MARK: Arrange (pure — prototype `arrange()`; the layout authority, §4)
-
-    /// One tile's geometry input to `arrange` (id + current size + its STABLE order). Pure so the
-    /// grid is headless.
-    ///
-    /// `order` is deliberately not `z`. Arrange used to deal cells by z, which is recent attention, so
-    /// clicking a tile changed where the next arrange would put it: the tile you had just dragged had
-    /// the highest z and was dealt the LAST cell, which is why a tidy read as a shuffle. Order is the
-    /// tile's position in the panel list (creation order, restored in the same order), so ⌘L lands
-    /// every tile in the same cell every time.
-    public struct ArrangeTile: Equatable {
-        public let id: String
-        public let size: CGSize
-        public let order: Int
-        public init(id: String, size: CGSize, order: Int) { self.id = id; self.size = size; self.order = order }
-    }
-
-    /// Tidy tiles into a grid — the prototype's `arrange`, preserved. It ONLY repositions: each tile
-    /// keeps its own (varied) size and is centered in a uniform cell, so the desktop stays lively
-    /// rather than homogenized into equal boxes (a strict grid is exposé's job). `cols = ceil(√n)`;
-    /// cells fill the shared work area (`ShellPlacement.workArea`, the ONE definition — this used to
-    /// carry its own insets and disagreed with the drag clamp by 70pt). Walks tiles in STABLE order,
-    /// not z, so ⌘L is a tidy rather than a reshuffle. Returns each tile's top-left origin; callers
-    /// set `panel.position` (never `.size`). Pure → headless.
-    nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGPoint] {
-        let items = tiles.sorted { ($0.order, $0.id) < ($1.order, $1.id) }
-        guard !items.isEmpty else { return [:] }
-        let n = items.count
-        let cols = max(1, Int(ceil(sqrt(Double(n)))))
-        let rows = max(1, Int(ceil(Double(n) / Double(cols))))
-        // When crowded, cells get smaller than the tiles so they overlap a little (lively) rather than
-        // run off-screen; the origin is clamped to the work area so nothing is ever pushed out of view.
-        let work = ShellPlacement.workArea(in: area)
-        let colW = work.width / Double(cols), rowH = work.height / Double(rows)
-        var out: [String: CGPoint] = [:]
-        for (i, item) in items.enumerated() {
-            let cx = work.minX + (Double(i % cols) + 0.5) * colW     // cell center
-            let cy = work.minY + (Double(i / cols) + 0.5) * rowH
-            let o = CGPoint(x: cx - item.size.width / 2, y: cy - item.size.height / 2)
-            out[item.id] = ShellPlacement.clamped(o, size: item.size, in: work)   // centered, clamped in-bounds
-        }
-        return out
-    }
 }
 
 // MARK: - Hex color (shell accents)

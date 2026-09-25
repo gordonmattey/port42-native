@@ -339,7 +339,6 @@ public struct ShellView: View {
                 case .cycleBackward:    shell.cycleStep(forward: false)
                 case .jumpSpace(let i): shell.jumpToSpace(index: i)
                 case .quickSwitcher:    shell.showQuickSwitcher.toggle()
-                case .arrange:          shell.bumpArrange("cmd-L")
                 }
                 return nil
             }

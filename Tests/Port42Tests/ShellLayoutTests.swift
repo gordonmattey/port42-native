@@ -4,7 +4,7 @@ import CoreGraphics
 import SwiftUI
 @testable import Port42Lib
 
-/// SHELL — S3 test gate (headless): the layout authority (`arrange`), per-space accent bound for
+/// SHELL — S3 test gate (headless): per-space accent bound for
 /// life (decision #5), and desktop-layout persistence (`presentation` + `z` + `position` survive a
 /// restart — the bug this phase fixes). Pure functions + `DatabaseService(inMemory: true)`, no
 /// window/webview. The interaction layer (drag/park/pop-out/exposé) is verified manually + by
@@ -17,70 +17,6 @@ struct ShellLayoutTests {
         let db = try DatabaseService(inMemory: true)
         let state = AppState(db: db)
         return (ShellState(appState: state), state)
-    }
-
-    // MARK: - arrange (the layout authority)
-
-    @Test("arrange grids by ceil(√n), stays inside the shared work area + deterministic (position only)")
-    func arrangeGrid() throws {
-        let size = CGSize(width: 360, height: 260)
-        let tiles = (0..<5).map { ShellState.ArrangeTile(id: "p\($0)", size: size, order: $0) }
-        let area = CGSize(width: 1440, height: 900)
-        let pos = ShellState.arrange(tiles, in: area)
-        let work = ShellPlacement.workArea(in: area)
-
-        #expect(pos.count == 5)
-        for p in pos.values {
-            #expect(work.contains(CGRect(origin: p, size: size)))   // ONE work-area definition, shared with place
-        }
-        #expect(ShellState.arrange(tiles, in: area) == pos)     // deterministic
-        let vals = Array(pos.values)
-        for i in 0..<vals.count { for j in (i + 1)..<vals.count {
-            #expect(!(vals[i].x == vals[j].x && vals[i].y == vals[j].y))   // distinct cells
-        } }
-    }
-
-    @Test("arrange keeps a crowded desktop in bounds — 16 tiles never run off-screen")
-    func arrangeCrowdedInBounds() throws {
-        let size = CGSize(width: 360, height: 260)
-        let tiles = (0..<16).map { ShellState.ArrangeTile(id: "p\($0)", size: size, order: $0) }
-        let area = CGSize(width: 1440, height: 900)
-        let work = ShellPlacement.workArea(in: area)
-        for p in ShellState.arrange(tiles, in: area).values {
-            #expect(work.contains(CGRect(origin: p, size: size)))
-        }
-    }
-
-    @Test("arrange keeps each tile's OWN size (varied) — it repositions, doesn't homogenize")
-    func arrangePreservesVariedSizes() throws {
-        // A wide tile and a tall tile share a row; each is centered in the SAME cell, so their
-        // centers line up on Y but their origins differ by the size gap — proof sizes aren't equalized.
-        let wide = ShellState.ArrangeTile(id: "wide", size: CGSize(width: 440, height: 200), order: 0)
-        let tall = ShellState.ArrangeTile(id: "tall", size: CGSize(width: 260, height: 340), order: 1)
-        let pos = ShellState.arrange([wide, tall], in: CGSize(width: 1440, height: 900))
-        let wc = CGPoint(x: pos["wide"]!.x + 220, y: pos["wide"]!.y + 100)   // centers
-        let tc = CGPoint(x: pos["tall"]!.x + 130, y: pos["tall"]!.y + 170)
-        #expect(abs(wc.y - tc.y) < 1)              // same row → cell centers share Y
-        #expect(pos["wide"]!.y != pos["tall"]!.y)  // but ORIGINS differ (sizes preserved, centered)
-    }
-
-    @Test("arrange walks tiles in STABLE order, not z — ⌘L tidies instead of reshuffling")
-    func arrangeStableOrder() throws {
-        // Phase 1: `order` is the panel list's own order (creation), so where a tile lands does not
-        // depend on what was clicked last. Under the old z rule the tile you had just touched had the
-        // highest z and was dealt the LAST cell, which is why one spawn threw a hand-placed tile
-        // across the desktop.
-        let a = ShellState.ArrangeTile(id: "a", size: CGSize(width: 300, height: 200), order: 0)
-        let b = ShellState.ArrangeTile(id: "b", size: CGSize(width: 300, height: 200), order: 1)
-        let area = CGSize(width: 1000, height: 800)
-        let pos = ShellState.arrange([a, b], in: area)
-        #expect(pos["a"]!.x <= pos["b"]!.x)                       // n=2 → cols=2, first order → left cell
-        #expect(ShellState.arrange([b, a], in: area) == pos)      // input order is irrelevant; only `order` counts
-    }
-
-    @Test("arrange of an empty desktop is empty (no crash)")
-    func arrangeEmpty() throws {
-        #expect(ShellState.arrange([], in: CGSize(width: 800, height: 600)).isEmpty)
     }
 
     // MARK: - z-order counter
@@ -215,7 +151,7 @@ struct ShellLayoutTests {
         #expect(fetched.posX == 10 && fetched.posY == 20)
     }
 
-    // MARK: - movable tiles (S3 Chunk 2 — bringToFront, applyArrange, drag/resize commit)
+    // MARK: - movable tiles (S3 Chunk 2 — bringToFront, drag/resize commit)
 
     @Test("bringToFront stamps ascending z (frontmost) + selects; chat stays the z=0 anchor")
     @MainActor
@@ -233,33 +169,6 @@ struct ShellLayoutTests {
         let zb = try #require(mgr.panels.first { $0.id == "b" }?.z)
         #expect(zb > za)                          // b is now frontmost
         #expect(shell.selectedTileId == "b")
-    }
-
-    @Test("applyArrange (⌘L) positions every tiled port and re-grids over hand positions")
-    @MainActor
-    func applyArrangePositionsAndRegrid() throws {
-        let (shell, state) = try makeState()
-        state.currentSpace = Space(id: "s1", name: "s", type: "team", createdAt: Date())
-        let mgr = state.portWindows
-        mgr.registerTiledPort(id: "a", html: "<div/>", spaceId: "s1", createdBy: nil, title: "a", position: nil)
-        mgr.registerTiledPort(id: "b", html: "<div/>", spaceId: "s1", createdBy: nil, title: "b", position: nil)
-
-        let area = CGSize(width: 1440, height: 900)
-        shell.applyArrange(area: area, reason: .bump)
-
-        let pa = try #require(mgr.panels.first { $0.id == "a" }?.position)  // ports got positions
-        let pb = try #require(mgr.panels.first { $0.id == "b" }?.position)
-        #expect(pa.y >= 70 && pb.y >= 70)                                  // clears the Chrome
-        #expect(pa != pb)
-
-        // Hand-move a tile, then ⌘L re-grids over it (Phase 3 will add the userPlaced flag that
-        // makes even ⌘L respect a hand position; today it does not).
-        mgr.updateTileFrame(id: "a", position: CGPoint(x: 5, y: 5), size: nil)
-        #expect(mgr.panels.first { $0.id == "a" }?.position == CGPoint(x: 5, y: 5))
-        mgr.registerTiledPort(id: "c", html: "<div/>", spaceId: "s1", createdBy: nil, title: "c", position: nil)
-        shell.applyArrange(area: area, reason: .bump)
-        let pa2 = try #require(mgr.panels.first { $0.id == "a" }?.position)
-        #expect(pa2 != CGPoint(x: 5, y: 5))                               // re-gridded over the hand position
     }
 
     @Test("parkZone: right strip is park, its bottom portion is close, the rest is nil")

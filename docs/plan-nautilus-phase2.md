@@ -52,6 +52,12 @@ Each step is its own commit: suite green, harness five of five, plans updated.
 `applyArrange` or `bumpArrange` returns); a spawn, park, unpark and adoption each place only the new
 port; the pure grid tests that covered `arrange` go with it.
 
+**Done 2026-09-25.** ⌘L, the chrome's arrange button, `bumpArrange`, `applyArrange` and the pure grid
+are gone; their only callers were the key, the button and a debug probe, so nothing relied on a
+re-grid to place a port. Gates in `NoRegridTests`: a source scan for any re-grid path (calibrated by
+adding one back), ⌘L is not a chord, and placing a new port moves none that has a spot. Suite 1127
+green.
+
 ### 2.2 Closing never destroys
 
 - Close becomes archive: the surface is torn down and every acquisition released exactly as today,
