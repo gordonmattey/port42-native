@@ -1609,6 +1609,64 @@ public final class DatabaseService {
         }
     }
 
+    // MARK: - Port chats (PortChat.swift)
+    //
+    // One storage row per entry: scope `PortChat.storageScope`, creator = the chat's key, key = the
+    // zero-padded seq. Seq is assigned inside the write, so two posts can never share one.
+
+    public func appendChatEntry(chat: String, text: String, at: Date,
+                                fromId: String, fromName: String, fromKind: String) throws -> PortChatEntry {
+        try dbQueue.write { db in
+            let last = try String.fetchOne(db, sql: """
+                SELECT MAX(portKey) FROM port_storage WHERE spaceId = ? AND creatorId = ?
+                """, arguments: [PortChat.storageScope, chat]).flatMap { Int($0) } ?? 0
+            let entry = PortChatEntry(seq: last + 1, at: at, text: text,
+                                      fromId: fromId, fromName: fromName, fromKind: fromKind)
+            try db.execute(sql: """
+                INSERT INTO port_storage (portKey, spaceId, creatorId, value, updatedAt) VALUES (?, ?, ?, ?, ?)
+                """, arguments: [PortChat.rowKey(entry.seq), PortChat.storageScope, chat, entry.storedJSON(), at])
+            return entry
+        }
+    }
+
+    /// The newest `limit` entries with seq > `after`, oldest first.
+    public func chatEntries(chat: String, after: Int, limit: Int) throws -> [PortChatEntry] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT portKey, value FROM port_storage
+                WHERE spaceId = ? AND creatorId = ? AND portKey > ?
+                ORDER BY portKey DESC LIMIT ?
+                """, arguments: [PortChat.storageScope, chat, PortChat.rowKey(after), limit])
+            return rows.reversed().compactMap { row in
+                guard let seq = Int(row["portKey"] as String) else { return nil }
+                return PortChatEntry.fromStored(seq: seq, json: row["value"])
+            }
+        }
+    }
+
+    public func lastChatSeq(chat: String) throws -> Int {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT MAX(portKey) FROM port_storage WHERE spaceId = ? AND creatorId = ?
+                """, arguments: [PortChat.storageScope, chat]).flatMap { Int($0) } ?? 0
+        }
+    }
+
+    /// Remove the chats whose port no longer exists: not port 0, not a space, not a port panel.
+    /// A chat goes when its port is closed for good; this runs at launch, like the orphan-port reap.
+    public func reapOrphanChats() throws -> Int {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM port_storage
+                WHERE spaceId = ? AND creatorId != ?
+                  AND creatorId NOT IN (SELECT id FROM spaces)
+                  AND creatorId NOT IN (SELECT udid FROM port_panels WHERE udid IS NOT NULL)
+                  AND creatorId NOT IN (SELECT id FROM port_panels)
+                """, arguments: [PortChat.storageScope, PortChat.desktopKey])
+            return db.changesCount
+        }
+    }
+
     // MARK: - Port Panels
 
     public func savePortPanel(_ panel: PersistedPortPanel) throws {

@@ -12,7 +12,7 @@ can carry: the desktop, a space, or one port.
 ## Progress
 
 1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
-1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 open.
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (step 1 of 5 ✓).
 
 ## Order, and why
 
@@ -168,8 +168,18 @@ on it.
   end-of-turn hook posts the reply back.
 - The native chat tile, `ChatView`, `ConversationContent`, inline ports, port fences (D11), the
   `[portref]` cards and the `messages` table go.
-- **Open for GM:** how the chat port looks, and how a wider-scope chat shows while focused on a
-  narrower one. **A buildable draft is in `design-chat-port.md`**, with four questions for GM at its end.
+- **Design:** `design-chat-port.md`, decided by GM 2026-09-25 (history dropped, the panel slides down
+  from the companion bar, unread lives in the bar). It sets five build steps.
+
+**Step 1 done 2026-09-25: the transcript and its door.** `chat.post(port, text)` and
+`chat.read(port, after, limit)` in `PortChat.swift`. `port` is `0` for the desktop, a space id, or a
+port's id, udid or title, resolved to the port's one key. Each entry is a storage row in a scope
+`storage.*` cannot name, so an entry is written only through `chat.post`. Its sender is the calling
+principal (id, name, kind), and there is no sender-name argument (fixes F16 for chat). A post is
+published on `port:<key>` as a new system event kind, `chat`, carrying the entry. At launch, a chat
+whose port or space no longer exists is removed. Eight gates in `PortChatTests`, calibrated by
+breaking attribution and the reap. Not yet verified live: the harness client must be re-enrolled on
+the fresh Dev3.
 
 ### 1.6 Small, clearly right
 

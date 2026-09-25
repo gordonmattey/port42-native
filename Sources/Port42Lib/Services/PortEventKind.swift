@@ -73,6 +73,8 @@ public enum PortEventKind: String, CaseIterable, Equatable {
 
     // Space traffic a port can observe
     case message
+    /// A post to the port's chat (`chat.post`); the payload is the entry.
+    case chat
     case companionActivity = "companion.activity"
 
     /// The name on the wire.

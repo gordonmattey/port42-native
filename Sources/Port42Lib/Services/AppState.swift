@@ -457,6 +457,10 @@ public final class AppState: ObservableObject {
             if let reaped = try? self.db.reapOrphanPortPanels(), reaped > 0 {
                 NSLog("[Port42] Removed %d port(s) whose space no longer exists", reaped)
             }
+            // A chat goes with its port (docs/design-chat-port.md).
+            if let reaped = try? self.db.reapOrphanChats(), reaped > 0 {
+                NSLog("[Port42] Removed %d chat entr(ies) whose port no longer exists", reaped)
+            }
             self.portWindows.restoreFromDB(appState: self)
             self.portPanelsRestored = true
             if self.isSetupComplete, let space = self.currentSpace {

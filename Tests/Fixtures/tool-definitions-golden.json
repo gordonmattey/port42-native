@@ -155,6 +155,51 @@
     "name" : "camera_capture"
   },
   {
+    "description" : "Post to a port's chat. Every port has one: pass port 0 for the desktop, a space id, or a port's id. The entry is attributed to you, the caller, and every subscriber of the port gets a `chat` event carrying it.",
+    "input_schema" : {
+      "properties" : {
+        "port" : {
+          "description" : "Whose chat: `0` (the desktop), a space id, or a port id \/ udid \/ title.",
+          "type" : "string"
+        },
+        "text" : {
+          "description" : "What to say.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port",
+        "text"
+      ],
+      "type" : "object"
+    },
+    "name" : "chat_post"
+  },
+  {
+    "description" : "Read a port's chat, oldest first. Pass `after` (a seq you have seen) to get only what is newer. Returns { entries, last }, where `last` is the newest seq in the chat (0 when empty).",
+    "input_schema" : {
+      "properties" : {
+        "after" : {
+          "description" : "Only entries with a seq greater than this.",
+          "type" : "integer"
+        },
+        "limit" : {
+          "description" : "At most this many, the newest ones (default 50, max 200).",
+          "type" : "integer"
+        },
+        "port" : {
+          "description" : "Whose chat: `0` (the desktop), a space id, or a port id \/ udid \/ title.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "port"
+      ],
+      "type" : "object"
+    },
+    "name" : "chat_read"
+  },
+  {
     "description" : "Read the current clipboard contents. Returns text or base64 image data.",
     "input_schema" : {
       "properties" : {

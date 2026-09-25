@@ -21,6 +21,7 @@ public func buildBridgeRegistry(_ appState: AppState) -> BridgeRegistry {
     registerDeviceMethods(into: &r, appState: appState)
     registerLiveDeviceMethods(into: &r, appState: appState)
     registerPortLiveMethods(into: &r, appState: appState)
+    registerChatMethods(into: &r, appState: appState)       // chat.* (PortChat.swift)
     // R3: every WRITE verb gains the optional `expect` token here, once, instead of eight times in
     // eight declarations. A write verb added tomorrow gets compare-and-swap by construction.
     return r.mapValues { $0.acceptingExpect() }
