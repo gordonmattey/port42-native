@@ -36,7 +36,7 @@ struct ShellChrome: View {
             }
             .buttonStyle(.plain).help("All spaces (⌘↑ / pinch out)")
 
-            chromeButton("rectangle.3.group", "Arrange (⌘L)") { shell.arrangeBump += 1 }
+            chromeButton("rectangle.3.group", "Arrange (⌘L)") { shell.bumpArrange("chrome-arrange-button") }
             // New Space lives in the galaxy now (spaces are the galaxy's business), not the Chrome.
 
             Spacer()
@@ -167,9 +167,6 @@ struct ShellChrome: View {
 struct ShellDesktopView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
-    /// The space the tile count last belonged to — so a count change from a SPACE SWITCH doesn't
-    /// re-grid (tiles keep their saved per-space positions); only spawn/park/close within a space does.
-    @State private var arrangedForSpace: String?
     /// Shared namespace for the park-rail-chip → tile restore morph (Bug 2): a parked port's chip
     /// (isSource) and its tile (dest) are never present together, so the tile animates OUT of the
     /// chip's location on restore instead of sliding in from the screen edge.
@@ -221,7 +218,7 @@ struct ShellDesktopView: View {
                 ForEach(contextItems) { item in
                     let fallbackIdx = tiledPanels.firstIndex { $0.id == item.id } ?? 0
                     let pl = ShellPlacement.placement(
-                        id: item.id, position: item.panel?.position,
+                        id: item.id, position: item.panel?.position(on: sid),
                         size: item.panel?.size ?? ShellPlacement.peekSize,
                         z: item.panel?.z ?? 0,
                         zoom: shell.zoom, onDesktop: true,
@@ -232,7 +229,7 @@ struct ShellDesktopView: View {
                                                    title: item.peek?.title ?? item.panel?.title ?? "port",
                                                    panel: item.panel),
                               frame: ShellPlacement.resolvedTileFrame(
-                                  position: item.panel?.position,
+                                  position: item.panel?.position(on: sid),
                                   size: item.panel?.size ?? ShellPlacement.peekSize,
                                   fallbackIndex: fallbackIdx),
                               area: geo.size,
@@ -269,19 +266,55 @@ struct ShellDesktopView: View {
             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: tiledPanels.count)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shell.peekingPorts)
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: shell.exposeActive)
-            .onAppear { shell.lastDesktopArea = geo.size; seedIfNeeded(area: geo.size); arrangedForSpace = sid }
-            .onChange(of: geo.size) { _, s in shell.lastDesktopArea = s }   // keep the presentation card size honest
-            .onChange(of: appState.currentSpace?.id) { _, _ in
+            .onAppear {
+                // Phase 0: the desktop appearing is candidate #1 for "I came back and the tiles moved" —
+                // it is logged whether or not it ends up arranging.
+                ArrangeLog.note("desktop.onAppear",
+                                "space=\(ShellState.shortId(sid ?? "-")) "
+                                + "area=\(Int(geo.size.width))x\(Int(geo.size.height)) tiles=\(tiledPanels.count) "
+                                + "unpositioned=\(tiledPanels.filter { $0.position(on: sid) == nil }.count)")
+                shell.lastDesktopArea = geo.size; seedIfNeeded(area: geo.size)
+            }
+            .onChange(of: geo.size) { old, s in
+                // Candidate #4: a resize does not arrange by itself, but it changes the area every
+                // later arrange grids into. Logged so a resize-while-away shows up in the trace.
+                ArrangeLog.note("desktop.resize",
+                                "from=\(Int(old.width))x\(Int(old.height)) to=\(Int(s.width))x\(Int(s.height)) tiles=\(tiledPanels.count)")
+                shell.lastDesktopArea = s   // keep the presentation card size honest
+                // A resize arranges NOTHING. It only rescues tiles the smaller window pushed out of
+                // reach — without this they are unreachable, since nothing re-clamps at render.
+                shell.clampTilesIntoView(area: s)
+            }
+            .onChange(of: appState.currentSpace?.id) { old, new in
+                ArrangeLog.note("desktop.spaceChanged",
+                                "from=\(ShellState.shortId(old ?? "-")) to=\(ShellState.shortId(new ?? "-"))")
                 shell.clearOpenDMs()                                                       // DMs are per-desktop
                 if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile
+                shell.placeUnpositioned(area: geo.size)    // an unplaced tile on the arriving desktop
             }
-            .onChange(of: tiledPanels.count) { _, _ in
-                // A spawn/park/close WITHIN the current space re-grids; a space SWITCH also changes the
-                // count, but each space's tiles keep their saved positions — adopt the space, don't arrange.
-                guard arrangedForSpace == sid else { arrangedForSpace = sid; return }
-                shell.applyArrange(area: geo.size)
+            .onChange(of: tiledPanels.count) { old, new in
+                // Phase 1: a birth PLACES. This used to re-grid every tile on the desktop, which is
+                // why adding one port threw the others around (and why closing one did it again).
+                //
+                // The `arrangedForSpace` guard that used to sit here is GONE with the re-grid it was
+                // protecting against: it existed only to stop a space switch from arranging, and
+                // placement cannot arrange — it touches unplaced tiles and nothing else, so on a
+                // switch (every tile already placed) it is a no-op. That also retires Phase 0's
+                // candidate 3, where two spaces with EQUAL tile counts left the flag naming the space
+                // you had left.
+                ArrangeLog.note("desktop.countChanged", "count=\(old)→\(new) space=\(ShellState.shortId(sid ?? "-"))")
+                shell.placeUnpositioned(area: geo.size)
             }
-            .onChange(of: shell.arrangeBump) { _, _ in shell.applyArrange(area: geo.size) }   // ⌘L
+            .onChange(of: shell.arrangeBump) { _, _ in                                     // ⌘L — and everything else that bumps
+                shell.applyArrange(area: geo.size, reason: .bump)
+            }
+            // Phase 0: app-switch markers, so a trace shows what (if anything) a return actually did.
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                ArrangeLog.note("app.resignActive", "tiles=\(tiledPanels.count) area=\(Int(geo.size.width))x\(Int(geo.size.height))")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                ArrangeLog.note("app.becomeActive", "tiles=\(tiledPanels.count) area=\(Int(geo.size.width))x\(Int(geo.size.height))")
+            }
             // L2.e: one driver subscription per visible port, kept in step with the unit set.
             .onAppear { shell.syncDriverSubscriptions() }
             .onChange(of: shell.contextItems.map(\.id)) { _, _ in shell.syncDriverSubscriptions() }
@@ -311,9 +344,17 @@ struct ShellDesktopView: View {
     /// come back from the DB with positions are left exactly as-is (arrange only re-grids on spawn/⌘L).
     private func seedIfNeeded(area: CGSize) {
         if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }      // chat → visible tile
-        if tiledPanels.contains(where: { $0.position == nil }) {               // a never-positioned port →
-            shell.applyArrange(area: area)                                     // grid everything once
+        let unpositioned = tiledPanels.filter { $0.position(on: sid) == nil }
+        if !unpositioned.isEmpty {                                             // never-positioned ports →
+            ArrangeLog.note("seedIfNeeded.placing",
+                            "unpositioned=\(unpositioned.map { ShellState.shortId($0.id) }.joined(separator: ",")) of \(tiledPanels.count)")
+            shell.placeUnpositioned(area: area)                                // place THOSE, move nothing else
+        } else {
+            ArrangeLog.note("seedIfNeeded.noop", "tiles=\(tiledPanels.count)")
         }
+        // A layout restored from the database can be off-screen if the window is smaller than the
+        // one it was saved on. Same rescue as a resize, at the only other moment it can happen.
+        shell.clampTilesIntoView(area: area)
     }
 }
 
@@ -768,8 +809,10 @@ struct ShellTile: View {
     /// Persist the tile's new geometry (drag/resize end) → the panel record (survives restart, §4).
     /// The origin clamps into the work area — a drag can wander, but it can't STICK out of reach.
     private func commit(origin: CGPoint, size: CGSize) {
+        // Scoped to the desktop the drag happened on: the same port can be a tile on two desktops,
+        // and dragging it here must not move it there (v46, per-desktop positions).
         appState.portWindows.updateTileFrame(
-            id: tile.id, position: Self.clampedOrigin(origin, size: size, area: area), size: size)
+            id: tile.id, position: Self.clampedOrigin(origin, size: size, area: area), size: size, on: sid)
     }
 }
 
@@ -1099,7 +1142,6 @@ struct ShellDock: View {
         if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == s.id }) {
             shell.bringToFront(panel.id)
         }
-        shell.arrangeBump += 1
     }
 
     /// Dock "Terminal" → a real plain-shell terminal port. In the shell it's a tile (hoisted Ghostty
@@ -1118,7 +1160,6 @@ struct ShellDock: View {
         _ = appState.spawnNativeTerminalPort(command: "/bin/zsh", cwd: cwd, spaceId: space.id,
                                              title: name, companionName: name,
                                              postCard: false, startupCommandOverride: "")
-        shell.arrangeBump += 1
     }
 
     /// Dock "Browser" → an embedded WebKit browser tile (address bar + real navigation) at a start page.
@@ -1127,7 +1168,6 @@ struct ShellDock: View {
         // Current-space birth → a tile, not a peek (gated in handlePortCreated).
         _ = appState.portWindows.addTiledBrowserPanel(url: "https://duckduckgo.com", spaceId: sid,
                                                        createdBy: nil, title: "browser")
-        shell.arrangeBump += 1
     }
 }
 

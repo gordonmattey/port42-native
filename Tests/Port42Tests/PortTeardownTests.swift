@@ -83,7 +83,7 @@ struct PortTeardownTests {
         let panel = PortPanel(
             id: "P", udid: "P", html: "", bridge: bridge,
             spaceId: nil, createdBy: nil, messageId: "P",
-            userTitle: nil, size: CGSize(width: 100, height: 100), position: nil)
+            userTitle: nil, size: CGSize(width: 100, height: 100), positions: [:])
         state.portWindows.panels.append(panel)
 
         state.portWindows.close("P")

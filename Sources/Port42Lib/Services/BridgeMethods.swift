@@ -1428,6 +1428,24 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
 // Deferred to a follow-up sub-batch (they touch a live webview/terminal, so they are Phase-2 live-only):
 // port.create, port.push, port.exec, port.manage, port.info/resize/setTitle/setCapabilities.
 
+/// Which DESKTOP a position verb is talking about (v46). A port renders on its home space and on
+/// every space that kept it, and since 2026-08-03 it holds a position for each, so "move this port"
+/// has to name one. An explicit `space_id` must be a desktop the port is actually on — silently
+/// writing a position for a desktop it never appears on would be a value nothing reads.
+@MainActor
+private func desktopFor(_ panel: PortPanel, requested: String?, appState: AppState) throws -> String? {
+    let desktops = [panel.spaceId].compactMap { $0 } + panel.adoptedSpaceIds
+    if let requested {
+        guard desktops.contains(requested) else {
+            throw BridgeError.badArg("port '\(panel.udid)' is not on space '\(requested)' "
+                                     + "(it is on: \(desktops.joined(separator: ", ")))")
+        }
+        return requested
+    }
+    if let current = appState.currentSpace?.id, desktops.contains(current) { return current }
+    return panel.spaceId
+}
+
 @MainActor
 private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
 
@@ -1630,15 +1648,16 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y"], writesTarget: "id",
+    r["port.move"] = BridgeMethod(permission: nil, paramNames: ["id", "x", "y", "space_id"], writesTarget: "id",
         needsLiveSurface: true,
         description: "Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID (from ports_list)"],
-                "x": ["type": "number", "description": "Horizontal position in screen points"],
-                "y": ["type": "number", "description": "Vertical position in screen points"]
+                "x": ["type": "number", "description": "Horizontal position in desktop points"],
+                "y": ["type": "number", "description": "Vertical position in desktop points"],
+                "space_id": ["type": "string", "description": "Which desktop to move it on. A port kept from another space is a tile on BOTH, with a position on each. Defaults to the current space when the port is on it, else the port's home space."]
             ],
             "required": ["id", "x", "y"]
         ]) { _, args in
@@ -1647,10 +1666,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             throw BridgeError.badArg("port.move requires numeric x and y")
         }
         let target = appState.resolvePortRef(id)?.udid ?? id
-        guard appState.portWindows.findPort(by: target) != nil else {
+        guard let panel = appState.portWindows.findPort(by: target) else {
             throw BridgeError.notFound("port '\(id)'")
         }
-        appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y))
+        let desktop = try desktopFor(panel, requested: args.string("space_id"), appState: appState)
+        appState.portWindows.movePort(id: target, x: CGFloat(x), y: CGFloat(y), on: desktop)
         return .object(["ok": .bool(true)])
     }
 
@@ -1744,10 +1764,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         return .object(["ok": .bool(true)])
     }
 
-    r["port.position"] = BridgeMethod(permission: nil, paramNames: ["id"], toolExposed: false,
-        description: "Return a port's position and size.") { _, args in
+    r["port.position"] = BridgeMethod(permission: nil, paramNames: ["id", "space_id"], toolExposed: false,
+        description: "Return a port's position and size on one desktop (a kept port has a position per desktop).") { _, args in
         let id = try args.requireString("id")
-        guard let frame = appState.portWindows.portFrame(by: id) else {
+        let desktop = try appState.portWindows.findPort(by: id).map { try desktopFor($0, requested: args.string("space_id"), appState: appState) }
+        guard let frame = appState.portWindows.portFrame(by: id, on: desktop ?? nil) else {
             throw BridgeError.notFound("port '\(id)' (no positioned tile)")
         }
         return .object([
