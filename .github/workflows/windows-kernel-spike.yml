@@ -31,10 +31,12 @@ jobs:
         shell: bash
         working-directory: spikes/windows-kernel/generated
         run: |
+          set +e -o posix
           for r in 1 2 3 4 5 6 7 8; do
-            out=$(swift build --target Port42Kernel 2>&1 || true)
+            out=$(swift build --target Port42Kernel 2>&1)
+            echo "$out" | tail -3
             bad=$(echo "$out" | grep -oE "Port42Kernel[\\/][A-Za-z+0-9]+\.swift[^ ]*: error:" \
-                  | sed -E "s|.*[\\/]([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u)
+                  | sed -E "s|.*[\\/]([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u || true)
             if [ -z "$bad" ]; then echo "WINDOWS GREEN after $((r-1)) prune round(s)"; break; fi
             for b in $bad; do echo "  round $r: dropping $b"; rm -f "Sources/Port42Kernel/$b.swift"; done
           done
@@ -57,10 +59,11 @@ jobs:
       - name: build the kernel, pruning what fails
         working-directory: spikes/windows-kernel/generated
         run: |
+          set +e
           for r in 1 2 3 4 5 6 7 8; do
-            out=$(swift build --target Port42Kernel 2>&1 || true)
+            out=$(swift build --target Port42Kernel 2>&1)
             bad=$(echo "$out" | grep -oE "/Port42Kernel/[A-Za-z+0-9]+\.swift[^ ]*: error:" \
-                  | sed -E "s|/Port42Kernel/([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u)
+                  | sed -E "s|/Port42Kernel/([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u || true)
             if [ -z "$bad" ]; then echo "LINUX GREEN after $((r-1)) prune round(s)"; break; fi
             for b in $bad; do echo "  round $r: dropping $b"; rm -f "Sources/Port42Kernel/$b.swift"; done
           done
