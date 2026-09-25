@@ -312,19 +312,6 @@ struct PortUnitCollapseTests {
         #expect(shell.zoom == .space)
     }
 
-    @Test("shell undock lands a tile — there is no floating presentation in the shell")
-    @MainActor
-    func shellUndockTiles() throws {
-        let (_, state) = try makeState()
-        _ = state.portWindows.registerInlinePort(id: "i1", html: "<title>i1</title>", spaceId: "s1",
-                                                 createdBy: nil, title: "i1", anchorMessageId: nil)
-
-        state.portWindows.undockInline(id: "i1", in: CGSize(width: 800, height: 600))
-        let p = try #require(state.portWindows.panels.first { $0.id == "i1" })
-        #expect(p.presentation == "tiled")
-        #expect(p.size.width >= 200 && p.size.height >= 150)    // outgrew its 100×100 inline seed
-    }
-
     @Test("move re-homes a port: it renders in the new space, not the old")
     @MainActor
     func moveRehomes() throws {

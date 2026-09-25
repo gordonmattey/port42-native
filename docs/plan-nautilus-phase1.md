@@ -244,6 +244,12 @@ the native chat port (which had pinned it) went, and died silently partway throu
 holds a retained box with a weak reference. With the fix the suite runs to completion; without it,
 it dies at the same point every run. Suite 1143 green (the removed features' tests went with them).
 
+**Inline ports gone too (GM, 2026-09-25: "we don't need inline ports anymore").** The follow-up
+above is done: `registerInlinePort`, `undockInline`, the anchor field, the `inline` presentation
+state, the inline rows in `ports.list` and the inline undock in `port.manage`. The manual lists the
+states and statuses that remain. Fixtures that used an inline port use a tiled one. Suite 1128
+green.
+
 ### 1.6 Small, clearly right
 
 - **F7 (done):** `ports.list` entries carry `createdByName` next to `createdBy`: the registered

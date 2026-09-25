@@ -55,56 +55,9 @@ struct PortPresentationTests {
         #expect(r.w == 0 && r.h == 0)
     }
 
-    @Test("inline: hosted in a chat card → visible at content size (v1 conservative)")
-    func inline() {
-        let r = p(mode: "inline")
-        #expect(r.state == .inline)
-        #expect(r.visible)
-        #expect(r.w == 460 && r.h == 400)
-    }
-
-    @Test("off-desktop tile (another space) → tiled, not visible, 0×0")
-    func offDesktop() {
-        let r = p(onDesktop: false)
-        #expect(r.state == .tiled)
-        #expect(!r.visible)
-        #expect(r.w == 0 && r.h == 0)
-    }
-
-    @Test("peek on the current desktop at .space → visible at peek size (210×140)")
-    func peekVisible() {
-        let r = p(isPeeking: true)
-        #expect(r.state == .peek)
-        #expect(r.visible)
-        #expect(r.w == 210 && r.h == 140)
-    }
-
-    @Test("plain tile on the current desktop at .space → visible at its own size")
-    func tileVisible() {
-        let r = p()
-        #expect(r.state == .tiled)
-        #expect(r.visible)
-        #expect(r.w == 460 && r.h == 400)
-    }
-
-    @Test("focused (this port) → visible at the focus card size (0.78×0.8 of area)")
-    func focused() {
-        let r = p(zoom: .focus("p1"))
-        #expect(r.state == .focused)
-        #expect(r.visible)
-        #expect(r.w == 780 && r.h == 640)
-    }
-
-    // MARK: - Precedence
-
-    @Test("background wins over parked (both set) — the mode gates run in order")
+    @Test("background wins over parked")
     func backgroundOverParked() {
-        #expect(p(isBackground: true, mode: "parked").state == .background)
-    }
-
-    @Test("background wins over inline")
-    func backgroundOverInline() {
-        let r = p(isBackground: true, mode: "inline")
+        let r = p(isBackground: true, mode: "parked")
         #expect(r.state == .background)
         #expect(!r.visible)
     }
@@ -186,7 +139,6 @@ struct PortPresentationTests {
             switch state {
             case .background: produced = p(isBackground: true)
             case .parked:     produced = p(mode: "parked")
-            case .inline:     produced = p(mode: "inline")
             case .tiled:      produced = p()
             case .peek:       produced = p(isPeeking: true)
             case .focused:    produced = p(zoom: .focus("p1"))

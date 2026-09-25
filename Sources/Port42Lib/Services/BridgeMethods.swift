@@ -387,11 +387,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
         case "minimize", "dock":
             appState.portWindows.minimize(panel.id)
         case "restore", "undock":
-            if panel.presentation == "inline" {
-                appState.portWindows.undockInline(id: panel.id, in: CGSize(width: 800, height: 600))
-            } else {
-                _ = appState.portWindows.restore(panel.id)
-            }
+            _ = appState.portWindows.restore(panel.id)
         default:
             throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, dock, undock, background, unbackground")
         }
@@ -1312,7 +1308,6 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         let filterCaps = (args.array("capabilities") as? [String]) ?? []
         let filterSpace = args.string("space_id")
         let registered = appState.portWindows.allPorts()
-        let inline = appState.inlinePorts().filter { $0.spaceId == p.spaceId || p.spaceId == nil }.suffix(5)
 
         // Snapshot the counters once, before building the list. A value type, so every entry reports
         // the same instant — a listing whose rows were read at different moments would hand out
@@ -1357,10 +1352,6 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                   cwd: pt.cwd, status: pt.isBackground ? "docked" : pt.presentation, spaceId: pt.spaceId,
                   x: pt.x, y: pt.y,
                   surfaceBound: appState.terminalControllers[pt.udid]?.isSurfaceBound)
-        }
-        for pt in inline {
-            entry(id: pt.id, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
-                  cwd: pt.cwd, status: "inline", spaceId: pt.spaceId, x: nil, y: nil, surfaceBound: nil)
         }
         return .array(entries)
     }

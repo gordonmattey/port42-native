@@ -1641,7 +1641,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var portType: String
     public var dockOrder: Int?
     public var createdAt: Date
-    /// SHELL S3 — the port's presentation ("floating" | "tiled" | "parked"; "inline" is never
+    /// SHELL S3 — the port's presentation ("floating" | "tiled" | "parked"; "inline" was never
     /// persisted). Was previously lost on restore (defaulted to "floating").
     public var presentation: String
     /// SHELL S3 — z-order among tiled ports (monotonic; higher = frontmost).

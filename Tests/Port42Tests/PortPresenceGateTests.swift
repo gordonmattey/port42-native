@@ -20,9 +20,9 @@ struct PortLeaseGateTests {
         let db = try DatabaseService(inMemory: true)
         let state = AppState(db: db)
         let id = "lease-target-1"
-        _ = state.portWindows.registerInlinePort(
+        _ = state.portWindows.registerTiledPort(
             id: id, html: "<html><body>hi</body></html>",
-            spaceId: nil, createdBy: nil, title: "t", anchorMessageId: nil)
+            spaceId: nil, createdBy: nil, title: "t", position: nil)
         return (state, id)
     }
 
@@ -132,9 +132,9 @@ struct PortLeaseGateTests {
                                             args: BridgeArgs(["id": id, "title": "a", PortActivity.expectParam: state.portInput.token(for: state.portKey(for: id) ?? id)]))
         state.portWindows.close(id)
 
-        _ = state.portWindows.registerInlinePort(
+        _ = state.portWindows.registerTiledPort(
             id: id, html: "<html><body>again</body></html>",
-            spaceId: nil, createdBy: nil, title: "t", anchorMessageId: nil)
+            spaceId: nil, createdBy: nil, title: "t", position: nil)
         let udid = try #require(state.portWindows.panels.first(where: { $0.id == id })?.udid)
         // Nobody is driving the new port. Under R1 this no longer shows up as a blocked write, so
         // the table is the assertion: a reused id must not inherit the dead port's driver and show

@@ -21,9 +21,9 @@ struct BridgeStreamWriteTests {
         let db = try DatabaseService(inMemory: true)
         let state = AppState(db: db)
         let id = "stream-target-1"
-        _ = state.portWindows.registerInlinePort(
+        _ = state.portWindows.registerTiledPort(
             id: id, html: "<html><body>hi</body></html>",
-            spaceId: nil, createdBy: nil, title: "t", anchorMessageId: nil)
+            spaceId: nil, createdBy: nil, title: "t", position: nil)
         let udid = state.portWindows.panels.first(where: { $0.id == id })!.udid
         return (state, udid)
     }

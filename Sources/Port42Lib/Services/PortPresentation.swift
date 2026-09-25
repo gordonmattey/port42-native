@@ -17,7 +17,7 @@ import CoreGraphics
 public struct PortPresentation: Equatable {
 
     public enum State: String, Equatable, CaseIterable {
-        case focused, tiled, peek, parked, background, inline
+        case focused, tiled, peek, parked, background
     }
 
     /// The placement/mode.
@@ -76,7 +76,7 @@ extension ShellState {
     /// `ShellPlacement.placement` — no window, no AppState. `onDesktop` / `isPeeking` ARE the shared
     /// membership + peek-index decision `contextItems` already made (see the `for panel:` overload);
     /// this function only layers the visibility gates. Precedence, first match wins:
-    ///   background > parked > inline > off-desktop > (zoom occlusion) > peek/tiled.
+    ///   background > parked > off-desktop > (zoom occlusion) > peek/tiled.
     nonisolated public static func presentation(id: String,
                                                 isBackground: Bool,
                                                 mode: String,
@@ -97,11 +97,6 @@ extension ShellState {
             return PortPresentation(state: .background, visible: false)
         }
         if mode == "parked" { return PortPresentation(state: .parked, visible: false) }
-        if mode == "inline" {
-            // v1 conservative: an inline card reports visible; true chat-scroll visibility is a
-            // scoped follow-up (never wrongly idles a visible port).
-            return PortPresentation(state: .inline, visible: true, size: size)
-        }
         // A "tiled" panel that is not staged on the current desktop (another space) — not visible.
         guard onDesktop else { return PortPresentation(state: .tiled, visible: false) }
         // On the current desktop: the zoom rung decides occlusion for BOTH tiles and peeks, because

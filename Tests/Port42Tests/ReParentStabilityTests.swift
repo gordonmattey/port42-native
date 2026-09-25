@@ -24,35 +24,6 @@ struct ReParentStabilityTests {
         return (state.portWindows, state)
     }
 
-    @Test("re-registering an existing id never swaps the webview instance")
-    @MainActor
-    func reRegisterPreservesInstance() throws {
-        let (manager, state) = try makeManager()
-        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
-        manager.registerInlinePort(id: "p1", html: "<div>a</div>", spaceId: "s1",
-                                    createdBy: nil, title: nil, anchorMessageId: "m1")
-        let before = try #require(manager.webViews["p1"])
-        manager.registerInlinePort(id: "p1", html: "<div>DIFFERENT</div>", spaceId: "s1",
-                                    createdBy: nil, title: nil, anchorMessageId: "m1")
-        #expect(manager.webViews["p1"] === before)
-    }
-
-    // MARK: - S3/Phase 2 (tiled / parked — the shell's only presentations)
-
-    @Test("shell undock (inline → tiled) keeps the SAME webview instance (no recreate)")
-    @MainActor
-    func shellUndockPreservesInstance() throws {
-        let (manager, state) = try makeManager()
-        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
-        manager.registerInlinePort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
-                                    createdBy: nil, title: nil, anchorMessageId: "m1")
-        let before = try #require(manager.webViews["p1"])
-
-        manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600))
-        #expect(manager.webViews["p1"] === before)   // the tile adopts the same live view
-        #expect(manager.panels.first { $0.id == "p1" }?.presentation == "tiled")
-    }
-
     @Test("tiled → parked → tiled round-trip keeps the SAME webview instance")
     @MainActor
     func parkRoundTripPreservesInstance() throws {

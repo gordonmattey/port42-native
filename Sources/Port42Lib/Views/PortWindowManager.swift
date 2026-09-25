@@ -61,13 +61,10 @@ public struct PortPanel: Identifiable {
     public var isAlwaysOnTop: Bool = false
     public var isBackground: Bool = false
     public var portType: String = "web"
-    /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip), or "inline" (hosted in
-    /// a chat `[port:id]` card; session-only, never persisted). "floating" is RETIRED with
-    /// classic mode — the v39 migration rewrote any legacy rows to "tiled".
+    /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip) or "background" (the desktop
+    /// wallpaper). "floating" is RETIRED with classic mode (the v39 migration rewrote legacy rows to
+    /// "tiled"), and "inline" with the chat (D11).
     public var presentation: String = "tiled"
-    /// For an inline port, the id of the chat message whose `[port:id]` card (or `` ```port ``
-    /// fence) anchors it. Lets dock-back return the webview to its inline host.
-    public var anchorMessageId: String? = nil
 
     /// Resolved display title: userTitle > HTML <title> > "port"
     public var title: String {
@@ -322,10 +319,6 @@ public final class PortWindowManager: ObservableObject {
     /// Persist a panel to the database and snapshot a version.
     private func persistPanel(_ id: String) {
         guard let db = db, let panel = panels.first(where: { $0.id == id }) else { return }
-        // Step 8: inline-presented ports are session-only — they re-register from their anchor
-        // message each session, so they must never land a DB row (else they'd restore as orphan
-        // floating windows). Promotion to "floating" persists normally.
-        guard panel.presentation != "inline" else { return }
         do {
             let record = PersistedPortPanel(from: panel)
             try db.savePortPanel(record)
@@ -415,40 +408,6 @@ public final class PortWindowManager: ObservableObject {
         return newUdid
     }
 
-    // MARK: - Inline Ports (Step 8)
-
-    /// Register (or reuse) a session-only inline-presented port. Creates ONE registry-owned
-    /// WKWebView and an inline `PortPanel` — but never a window and never a DB row. Idempotent
-    /// by id: a re-render (or scroll-back) returns the existing port untouched, preserving its
-    /// DOM/JS state. The same registered port is later re-parented into a floating window by
-    /// `undockInline` with no reload. Returns the port's bridge (for permission/event
-    /// observation by the inline host), or nil if AppState is gone.
-    @discardableResult
-    public func registerInlinePort(id: String, html: String, spaceId: String?, createdBy: String?,
-                                   title: String?, anchorMessageId: String?) -> PortBridge? {
-        if let existing = panels.first(where: { $0.id == id }) {
-            return existing.bridge
-        }
-        guard let appState = appState else { return nil }
-        let resolvedTitle = (title?.isEmpty == false) ? title : PortPanel.extractTitle(from: html)
-        // bridge.messageId == the port's own derived id, matching the legacy inline path's
-        // permission-cache key (registerPortBridge caches by messageId). `anchorMessageId` (the
-        // host chat message) is tracked separately on the panel for re-render / dock-back.
-        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: id,
-                                createdBy: createdBy, title: resolvedTitle)
-        var panel = PortPanel(
-            id: id, udid: id, html: html, bridge: bridge,
-            spaceId: spaceId, createdBy: createdBy, messageId: id,
-            userTitle: title, size: CGSize(width: 100, height: 100))
-        panel.portType = "web"
-        panel.presentation = "inline"
-        panel.anchorMessageId = anchorMessageId
-        panels.append(panel)
-        createPortWebView(for: panel)
-        // Deliberately NOT persisted: inline ports re-register from their anchor each session.
-        return bridge
-    }
-
     /// SHELL — S2.2: register a desktop TILE. A tiled port is a registry-owned webview composited on
     /// the shell desktop (`ShellView`), positioned by `position` (arrange picks the spot when nil) —
     /// NOT a chat message (unlike an inline port). It is the same registered entity as any port and
@@ -530,25 +489,6 @@ public final class PortWindowManager: ObservableObject {
         if !s.contains(" "), s.contains(".") { return "https://" + s }
         let q = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
         return "https://duckduckgo.com/?q=" + q
-    }
-
-    /// Step 8: undock an inline port — give it its own window. A tile IS a port's window:
-    /// the port lands on its space's desktop; the desktop's count-change arrange places it.
-    public func undockInline(id: String, in bounds: CGSize) {
-        guard let idx = panels.firstIndex(where: { $0.id == id }),
-              panels[idx].presentation == "inline" else {
-            bringToFront(id)
-            return
-        }
-        // Give it a real size now that it owns a surface (it was created at 100×100).
-        let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        if panels[idx].size.width < 200 || panels[idx].size.height < 150 {
-            panels[idx].size = CGSize(width: screen.width * 0.4, height: screen.height * 0.4)
-        }
-        panels[idx].presentation = "tiled"
-        panels[idx].position = nil                    // let arrange place it
-        persistPanel(id)                              // now a desktop tile → persisted
-        Analytics.shared.portPoppedOut()
     }
 
     // MARK: - SHELL port verbs (tiled ↔ parked; the SAME view, no reload, no floating)

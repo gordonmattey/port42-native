@@ -105,9 +105,9 @@ struct PortTeardownTests {
         // Confine the strong bridge ref to this call, so after it returns the only strong holders
         // are the panel and the "port42" UCC handler — exactly what close() must drop.
         func register() {
-            let bridge = state.portWindows.registerInlinePort(
+            let bridge = state.portWindows.registerTiledPort(
                 id: portId, html: "<html><body>hi</body></html>",
-                spaceId: nil, createdBy: nil, title: "t", anchorMessageId: nil)
+                spaceId: nil, createdBy: nil, title: "t", position: nil)
             weakBridge = bridge
         }
         register()

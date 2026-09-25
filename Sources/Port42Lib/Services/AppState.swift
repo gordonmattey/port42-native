@@ -148,10 +148,6 @@ public final class AppState: ObservableObject {
 
     @Published public var spaces: [Space] = []
     @Published public var currentSpace: Space? { didSet { refreshSpaceCompanions() } }
-    /// Step 8 feature flag: render active inline web ports through the registry (one WKWebView,
-    /// re-parented on pop-out — `RegisteredInlinePortView`) instead of the legacy self-owned
-    /// `InlinePortView`. Reversible by flipping to false until the legacy path is deleted.
-    @Published public var useRegistryInlinePorts: Bool = true
     @Published public var currentUser: AppUser?
     @Published public var isSetupComplete = false {
         didSet {
@@ -447,36 +443,9 @@ public final class AppState: ObservableObject {
         }
     }
 
-    /// All inline ports (not yet popped out), excluding ones already tracked as floating panels.
-    public func inlinePorts() -> [(id: String, title: String, createdBy: String?, spaceId: String?, capabilities: [String], cwd: String?)] {
-        activeBridges.compactMap { wrapper in
-            guard let bridge = wrapper.bridge, let mid = bridge.messageId else { return nil }
-            // Skip if already a floating panel
-            guard !portWindows.panels.contains(where: { $0.messageId == mid }) else { return nil }
-            let title: String
-            if let explicit = bridge.title, !explicit.isEmpty {
-                title = explicit
-            } else {
-                title = "port"
-            }
-            // Inline ports are never native terminals (native terminals always pop out as a
-            // `terminal` panel), so capabilities come straight from the bridge's stored set.
-            return (id: mid, title: title, createdBy: bridge.createdBy,
-                    spaceId: bridge.spaceId,
-                    capabilities: bridge.storedCapabilities,
-                    cwd: nil)
-        }
-    }
-
-    /// Find an inline port bridge by message ID.
+    /// Find a registered port bridge by its id (a port's bridge registers under its own id).
     public func findInlineBridge(by messageId: String) -> PortBridge? {
         activeBridges.first(where: { $0.bridge?.messageId == messageId })?.bridge
-    }
-
-    private func extractPortHtml(from content: String) -> String? {
-        guard let start = content.range(of: "```port\n"),
-              let end = content.range(of: "\n```", range: start.upperBound..<content.endIndex) else { return nil }
-        return String(content[start.upperBound..<end.lowerBound])
     }
 
     /// Cache a port's granted permissions so they survive view recycling
@@ -1849,20 +1818,10 @@ public final class AppState: ObservableObject {
     /// (tool). Validates the request, then dispatches by type. Returns `["id":…, "title":…]` on
     /// success or `["error":…]` on failure (no half-success).
     ///
-    /// `inline` carries the caller-context routing for WEB ports (decided w/ gordon 2026-06-29):
-    /// an in-chat companion composing a reply passes `true` → the port renders inline in the space;
-    /// an external caller (a web port's own JS, a gateway/CLI call) passes `false` → it opens as a
-    /// floating window. Terminals ignore `inline` — they're always a native window + card.
+    /// A web port is always a port on the desktop, at `position` when given (arrange picks the spot
+    /// otherwise); `presentation: "parked"` puts it in the rail. Inline ports went with the chat
+    /// (D11).
     @discardableResult
-    /// SHELL — S2.2: `presentation` replaces the old (dead) `inline: Bool` routing flag
-    /// (`spec-shell-reimplementation.md` open-decision #2). "inline" — a web port renders inline
-    /// in chat; "tiled" registers it as a desktop tile at `position` (arrange picks the spot when
-    /// nil). Terminals are unaffected (always a native window / shell tile).
-    ///
-    /// PHASE 1 (port-units): when the caller doesn't say (nil), the default is **tiled** —
-    /// the shell's surface IS the desktop; the old inline default made every remote/companion
-    /// `port.create` a chat-fence message that never reached the desktop or the peek path.
-    /// An explicit "inline" is still honored. Returns {id, title} or {error}.
     func createPort(type: String?, title: String?, html: String?,
                     command: String?, args: [String] = [], cwd: String?,
                     systemPrompt: String?, env: [String: String] = [:],

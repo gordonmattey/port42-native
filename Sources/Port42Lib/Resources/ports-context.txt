@@ -321,7 +321,7 @@ BRIDGE API REFERENCE:
 
   port42.presentation()  /  port42.on('presentation', callback)
     This port's presentation state: { state, visible, w, h }.
-    - state: "focused" | "tiled" | "peek" | "parked" | "background" | "inline" — your placement/mode.
+    - state: "focused" | "tiled" | "peek" | "parked" | "background" — your placement/mode.
     - visible: true only when your pixels are actually on screen right now. False when off-desktop
       (another space is showing), in the galaxy overview, parked, backgrounded, or behind another
       port's focus. This is the one authoritative "render now" flag.
@@ -378,7 +378,7 @@ BRIDGE API REFERENCE:
   port42.ports.list(opts?)
     Returns: [{id, title, capabilities, status, createdBy, cwd?, x?, y?}]
     List all active ports. opts: { capabilities: ['terminal'] } to filter.
-    status is 'tiled', 'parked', 'docked', or 'inline'. Use id for all subsequent calls.
+    status is 'tiled', 'parked' or 'docked'. Use id for all subsequent calls.
     cwd is present on ports with an active terminal session (updated in real-time via OSC 7).
     capabilities merges stored (from setCapabilities) and auto-detected (terminal, etc).
     x, y are present for positioned ports (desktop coordinates of the tile origin).
@@ -404,9 +404,8 @@ BRIDGE API REFERENCE:
   port42.port.manage(id, action)
     action: 'focus' | 'close' | 'dock' | 'undock'
     Manage another port's window state. Returns {ok: true}.
-    'undock' on an INLINE port pops it out onto the desktop as a tile by re-parenting its
-    live surface (no reload — DOM/JS state is preserved). 'undock' on a backgrounded
-    port restores it to the desktop. 'dock' backgrounds a port (off the desktop, still running).
+    'undock' on a docked port restores it to the desktop (no reload; DOM/JS state is
+    preserved). 'dock' backgrounds a port (off the desktop, still running).
 
   port42.port.restore(id, version)
     Restore a port to a specific earlier version. Returns {ok: true} on success.
