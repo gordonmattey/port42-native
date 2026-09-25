@@ -11,7 +11,8 @@ can carry: the desktop, a space, or one port.
 
 ## Progress
 
-1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ngrok and invites ✓ · 1.1 re-scoped (below) · 1.3, rest of 1.4, 1.5 open.
+1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ngrok and invites ✓ · 1.4 sync client ✓ · 1.1 re-scoped (below) · 1.3,
+1.4 schema, 1.5 open.
 
 ## Order, and why
 
@@ -82,6 +83,13 @@ These go together, because the first run is the engine's last user.
   invite was already unreachable, since nothing presented the ngrok sheet that built one. The deep-link
   handler keeps its door and logs what arrives; Phase 4's per-port invite lands there. Suite 1426
   green (the 15 removed tests were invite and key-exchange cases); harness five of five.
+- **Done 2026-09-25, the sync client.** `SyncService`, `SpaceCrypto` and `AppleAuthService` are gone. So
+  are every send, typing broadcast, join and read receipt that went through them. The incoming-message
+  and presence handlers are gone, along with friends (remote humans), their direct messages and their
+  switcher entries, remote typing and presence in the chat, and setup's dev-only Apple sign-in step
+  and its boot line. The chat keeps its local companions' typing. Suite 1375 green (51 fewer: the
+  crypto, sync-auth, Apple-auth and sync-envelope suites). Harness five of five, with one scenario 5
+  timeout on the first run that passed twice on rerun (F18).
 - **Schema:** v49 drops `spaces.encryptionKey`, `spaces.syncEnabled`, `users.publicKey`,
   `users.privateKey`, `users.appleUserID`, `messages.syncStatus`, `messages.senderOwner`.
 - **Tests:** `ChannelCryptoTests`, `EncryptionIntegrationTests`, `SyncAuthTests`, `AppleAuthTests`,

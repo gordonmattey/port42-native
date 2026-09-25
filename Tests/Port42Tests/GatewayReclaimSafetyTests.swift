@@ -129,8 +129,7 @@ struct GatewayReclaimSafetyTests {
         state.currentUser = user
         state.completeSetup(displayName: "Guard")
 
-        #expect(state.sync.gatewayURL == nil, "a test process must not configure sync")
-        #expect(!state.sync.isConnected, "a test process must not connect to a gateway")
+        #expect(!state.door.isConnected, "a test process must not connect to a gateway")
         #expect(!GatewayProcess.shared.isRunning, "a test process must not spawn a gateway")
         #expect(mtimes() == before, "a test process must never rewrite the user's real instruction files")
     }

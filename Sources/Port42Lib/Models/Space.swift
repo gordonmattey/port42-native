@@ -86,8 +86,7 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
             id: UUID().uuidString,
             name: name,
             type: type,
-            createdAt: Date(),
-            encryptionKey: SpaceCrypto.generateKey()
+            createdAt: Date()
         )
     }
 }

@@ -12,7 +12,6 @@ struct QuickSwitcherItem: Identifiable {
     enum Kind {
         case space(Space)
         case companion(AgentConfig)
-        case friend(SpaceMember)
     }
 }
 
@@ -160,21 +159,16 @@ public struct QuickSwitcher: View {
         }
     }
 
-    private var friendItems: [QuickSwitcherItem] {
-        appState.friends.map { friend in
-            QuickSwitcherItem(id: "fr-\(friend.senderId)", icon: "@", name: friend.displayName(localOwner: appState.currentUser?.displayName), kind: .friend(friend))
-        }
-    }
 
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Empty query: show spaces only (companions and friends are in sidebar)
+        // Empty query: show spaces only (companions are in the sidebar)
         guard !raw.isEmpty else { return spaceItems }
 
-        // @ prefix: search companions and friends
+        // @ prefix: search companions
         if raw.hasPrefix("@") {
             let q = String(raw.dropFirst())
-            let people = companionItems + friendItems
+            let people = companionItems
             if q.isEmpty { return people }
             return people.filter { match(q, $0.name.lowercased()) }
         }
@@ -187,7 +181,7 @@ public struct QuickSwitcher: View {
         }
 
         // No prefix: search all
-        let all = spaceItems + companionItems + friendItems
+        let all = spaceItems + companionItems
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -228,8 +222,6 @@ public struct QuickSwitcher: View {
         case .companion(let companion):
             if let shell { shell.activateCompanion(companion) }   // DM tile on this desktop
             else { appState.startSwim(with: companion) }
-        case .friend(let friend):
-            appState.startDM(with: friend)
         }
         isPresented = false
     }
@@ -240,7 +232,6 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
-        case .friend: return Port42Theme.accent.opacity(0.6)
         }
     }
 
@@ -248,7 +239,6 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space(let space): return space.isResting ? "resting" : "space"
         case .companion: return "🏊"
-        case .friend: return "friend"
         }
     }
 }

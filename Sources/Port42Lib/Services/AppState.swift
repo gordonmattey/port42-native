@@ -449,7 +449,6 @@ final class SpaceAgentHandler: LLMStreamDelegate {
             appState?.messages.removeAll { $0.id == messageId }
             appState?.typingAgentNamesBySpace[spaceId, default: []].remove(agent.displayName)
             appState?.toolingAgentNames.remove(agent.displayName)
-            appState?.sync.sendTyping(spaceId: spaceId, senderName: agent.displayName, isTyping: false, senderOwner: appState?.currentUser?.displayName)
             NSLog("[Port42] Space agent send error: \(error)")
             appState?.spaceErrors[spaceId] = error.localizedDescription
         }
@@ -530,7 +529,6 @@ final class SpaceAgentHandler: LLMStreamDelegate {
             if !self.isTyping {
                 self.isTyping = true
                 self.appState?.typingAgentNamesBySpace[self.spaceId, default: []].insert(self.agent.displayName)
-                self.appState?.sync.sendTyping(spaceId: self.spaceId, senderName: self.agent.displayName, isTyping: true, senderOwner: self.appState?.currentUser?.displayName)
             }
         }
     }
@@ -562,7 +560,6 @@ final class SpaceAgentHandler: LLMStreamDelegate {
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
-            appState.sync.sendTyping(spaceId: self.spaceId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
 
             let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
 
@@ -605,7 +602,6 @@ final class SpaceAgentHandler: LLMStreamDelegate {
             for msg in finalMessages {
                 do {
                     try appState.db.saveMessage(msg)
-                    appState.sync.sendMessage(msg)
                 } catch {
                     NSLog("[Port42] Failed to persist agent message: \(error)")
                 }
@@ -668,7 +664,6 @@ final class SpaceAgentHandler: LLMStreamDelegate {
         Task { @MainActor in
             guard let appState = self.appState else { return }
             appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
-            appState.sync.sendTyping(spaceId: self.spaceId, senderName: self.agent.displayName, isTyping: false, senderOwner: appState.currentUser?.displayName)
             // Remove empty placeholder message
             if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }),
                appState.messages[idx].content.isEmpty {
@@ -758,7 +753,6 @@ public final class AppState: ObservableObject {
     /// and the agentSpaces observation). That is why no mutation path can leave the dock/member list
     /// stale (the bug that motivated this: a team-space delete never refreshed the old manual cache).
     @Published public private(set) var spaceCompanions: [AgentConfig] = []
-    @Published public var friends: [SpaceMember] = []
     @Published public var showDreamscape = true
     @Published public var toastMessage: String?
     /// Agent names currently typing, keyed by spaceId
@@ -827,12 +821,10 @@ public final class AppState: ObservableObject {
     private let llmRouter = AgentRouterLLM()
 
     public let db: DatabaseService
-    public let sync = SyncService()
     /// The call door: the app's one host connection to its local gateway (nautilus Phase 0 step 2).
     /// Every external call arrives here. `sync` is the messaging hub's client and no longer the host.
     public let door = GatewayDoor()
     #if !RELEASE
-    public let appleAuth = AppleAuthService()
     #endif
     let fileResolver = FileResolver()
 
@@ -1012,7 +1004,6 @@ public final class AppState: ObservableObject {
     private var agentSpacesObservation: AnyDatabaseCancellable?
     private var senderCountsObservation: AnyDatabaseCancellable?
     private var observationDebounceTask: Task<Void, Never>?
-    private var syncConnectionCancellable: AnyCancellable?
     private var doorCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
 
@@ -1021,10 +1012,7 @@ public final class AppState: ObservableObject {
 
     public init(db: DatabaseService) {
         self.db = db
-        // Forward nested sync/door/portWindows changes to trigger SwiftUI updates
-        syncConnectionCancellable = sync.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        // Forward nested door/portWindows changes to trigger SwiftUI updates
         doorCancellable = door.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -1387,7 +1375,6 @@ public final class AppState: ObservableObject {
             companions = try db.getAllAgents()
             refreshActivityTimes()
             if let userId = currentUser?.id {
-                friends = (try? db.getKnownFriends(excludingUserId: userId)) ?? []
             }
 
             // Configure sync and analytics
@@ -1511,22 +1498,6 @@ public final class AppState: ObservableObject {
             gwURL = gp.localURL
         }
 
-        #if !RELEASE
-        sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db, appleAuth: appleAuth, appleUserID: currentUser?.appleUserID)
-        #else
-        sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db)
-        #endif
-        sync.onMessageReceived = { [weak self] spaceId, message in
-            self?.handleIncomingSyncedMessage(spaceId: spaceId, message: message)
-            self?.refreshFriends()
-            // Auto-send read receipt if user is viewing this space
-            if self?.currentSpace?.id == spaceId {
-                self?.sync.sendReadReceipt(spaceId: spaceId)
-            }
-        }
-        sync.onPresenceChanged = { [weak self] spaceId, senderId, senderName, status in
-            self?.handlePresenceAnnouncement(spaceId: spaceId, senderId: senderId, senderName: senderName, status: status)
-        }
         door.onCallReceived = { [weak self] senderId, callId, method, input, credential, emit in
             guard let self = self else { return ["error": "app state deallocated"] }
 
@@ -1673,114 +1644,6 @@ public final class AppState: ObservableObject {
         }
     }
 
-    private func handleIncomingSyncedMessage(spaceId: String, message: Message) {
-        // Messages with a senderOwner are human-operated tools (CLI, SDK) — treat as human-initiated
-        // even though senderType is "agent". Only autonomous companions (no senderOwner) get cooldown.
-        let isAISender = message.senderType != "human" && message.senderOwner == nil
-
-        // Auto-register SDK agents as remote companions on first message
-        if message.senderType == "agent", let ownerName = message.senderOwner {
-            autoRegisterRemoteAgent(senderName: message.senderName, ownerName: ownerName, spaceId: spaceId)
-        }
-        NSLog("[Port42] handleIncomingSyncedMessage: sender=%@ type=%@ isAI=%d content=%@", message.senderName, message.senderType, isAISender ? 1 : 0, String(message.content.prefix(80)))
-
-        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
-        let spaceAgentIds = Set(spaceAgents.map { $0.id })
-
-        // Skip if no companions in space AND no @mentions (nothing to route to)
-        let hasMentions = !MentionParser.extractMentions(from: message.content).isEmpty
-        guard !spaceAgents.isEmpty || hasMentions else {
-            NSLog("[Port42] No agents in space %@ and no mentions, skipping", spaceId)
-            return
-        }
-
-        // Route @mentions to bridged terminals (e.g. Claude Code running in a terminal port).
-        // In a 1:1 DM the sole companion is implicit (no @mention needed) — resolve by membership.
-        let dmCompanionId = (try? db.companionId(ofDirectSpaceId: spaceId)) ?? nil
-        let implicitCompanion: AgentConfig? = dmCompanionId.flatMap { cid in companions.first(where: { $0.id == cid }) }
-        routeMentionsToTerminals(content: message.content, senderName: message.senderName, spaceId: spaceId, implicitCompanion: implicitCompanion)
-
-        let targets = AgentRouter.findTargetAgents(
-            content: message.content, agents: companions,
-            spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName,
-            requireNamespace: false
-        )
-
-        NSLog("[Port42] AgentRouter found %d targets from %d companions", targets.count, companions.count)
-        guard !targets.isEmpty else { return }
-
-        // For AI-to-AI messages, apply cooldown to prevent loops
-        let filteredTargets: [AgentConfig]
-        if isAISender {
-            let now = Date()
-            filteredTargets = targets.filter { agent in
-                let key = "\(spaceId):\(agent.id)"
-                if let last = agentAICooldowns[key], now.timeIntervalSince(last) < aiCooldownInterval {
-                    print("[Port42] Cooldown: skipping \(agent.displayName) in \(spaceId) (AI-to-AI, \(Int(now.timeIntervalSince(last)))s ago)")
-                    return false
-                }
-                agentAICooldowns[key] = now
-                return true
-            }
-            guard !filteredTargets.isEmpty else { return }
-        } else {
-            filteredTargets = targets
-        }
-
-        let spaceMessages = (try? db.getMessages(spaceId: spaceId)) ?? []
-
-        // LLM routing for multi-companion, non-@mention, non-AI messages
-        let mentions = MentionParser.extractMentions(from: message.content)
-        let shouldRoute = mentions.isEmpty && !isAISender && filteredTargets.count >= 2
-
-        if shouldRoute {
-            let recentMessages = spaceMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
-            let capturedTargets = filteredTargets
-            let capturedContent = message.content
-            let capturedSenderId = message.senderId
-            let capturedSenderName = message.senderName
-            Task { @MainActor in
-                if let decisions = await self.llmRouter.route(
-                    message: capturedContent,
-                    senderName: capturedSenderName,
-                    companions: capturedTargets,
-                    recentMessages: recentMessages
-                ) {
-                    let activeIds = Set(decisions.filter { $0.action != .silent }.map { $0.agentId })
-                    let activeTargets = capturedTargets.filter { activeIds.contains($0.id) }
-                    NSLog("[Router] Synced: %d/%d companions active", activeTargets.count, capturedTargets.count)
-                    if !activeTargets.isEmpty {
-                        self.launchAgents(
-                            activeTargets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-                            spaceMessages: spaceMessages, triggerContent: capturedContent,
-                            senderId: capturedSenderId, senderName: capturedSenderName
-                        )
-                    }
-                } else {
-                    self.launchAgents(
-                        capturedTargets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-                        spaceMessages: spaceMessages, triggerContent: capturedContent,
-                        senderId: capturedSenderId, senderName: capturedSenderName
-                    )
-                }
-            }
-        } else {
-            launchAgents(
-                filteredTargets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-                spaceMessages: spaceMessages, triggerContent: message.content,
-                senderId: message.senderId, senderName: message.senderName
-            )
-        }
-
-        // Initiative: check companions NOT already targeted for watching signal matches
-        if !isAISender {
-            let targetedIds = Set(filteredTargets.map { $0.id })
-            checkInitiativeTriggers(
-                spaceId: spaceId, messageContent: message.content,
-                alreadyTargeted: targetedIds, senderId: message.senderId, senderName: message.senderName
-            )
-        }
-    }
 
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
@@ -1877,8 +1740,6 @@ public final class AppState: ObservableObject {
     /// turnComplete), it auto-clears. Cleared early by `clearTerminalTyping` on turnComplete.
     func setTerminalTyping(name: String, spaceId: String) {
         typingAgentNamesBySpace[spaceId, default: []].insert(name)
-        sync.sendTyping(spaceId: spaceId, senderName: name, isTyping: true,
-                        senderOwner: currentUser?.displayName)
         let key = "\(spaceId):\(name)"
         terminalTypingTimers[key]?.invalidate()
         terminalTypingTimers[key] = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
@@ -1893,8 +1754,6 @@ public final class AppState: ObservableObject {
     /// Clear a native terminal companion's "typing…" indicator and cancel its safety timeout.
     func clearTerminalTyping(name: String, spaceId: String) {
         typingAgentNamesBySpace[spaceId, default: []].remove(name)
-        sync.sendTyping(spaceId: spaceId, senderName: name, isTyping: false,
-                        senderOwner: currentUser?.displayName)
         let key = "\(spaceId):\(name)"
         terminalTypingTimers[key]?.invalidate()
         terminalTypingTimers[key] = nil
@@ -1907,43 +1766,6 @@ public final class AppState: ObservableObject {
     /// Tracks last presence status per user per space to deduplicate rapid reconnects
     private var lastPresenceStatus: [String: String] = [:]
 
-    private func handlePresenceAnnouncement(spaceId: String, senderId: String, senderName: String?, status: String) {
-        // Skip local companion IDs
-        let allAgentIds = Set(companions.map { $0.id })
-        guard !allAgentIds.contains(senderId) else { return }
-        // Skip remote companions matched by display name (gateway assigns UUID, not AgentConfig ID)
-        if let name = senderName, companions.contains(where: { $0.displayName == name && $0.mode == .remote }) { return }
-
-        // Use name from gateway, skip if unavailable (don't show raw UUIDs)
-        guard let name = senderName, !name.isEmpty else { return }
-
-        // Deduplicate: skip if same status as last announcement for this user+space
-        let key = "\(spaceId):\(senderId)"
-        guard lastPresenceStatus[key] != status else { return }
-        lastPresenceStatus[key] = status
-
-        let verb = status == "online" ? "joined" : "left"
-        let content = "\(name) \(verb) the space"
-
-        let sysMessage = Message(
-            id: UUID().uuidString,
-            spaceId: spaceId,
-            senderId: senderId,
-            senderName: name,
-            senderType: "system",
-            content: content,
-            timestamp: Date(),
-            replyToId: nil,
-            syncStatus: "local",
-            createdAt: Date()
-        )
-
-        do {
-            try db.saveMessage(sysMessage)
-        } catch {
-            print("[Port42] Failed to save presence announcement: \(error)")
-        }
-    }
 
     /// Launch agents with staggered delays so companions respond at different rates
     /// Check if any companions' watching signals or holding text match the message content.
@@ -2190,12 +2012,6 @@ public final class AppState: ObservableObject {
 
     // MARK: - Spaces
 
-    /// Join a space on the gateway, including companion IDs for cross-instance presence
-    private func syncJoinSpace(_ spaceId: String, token: String? = nil) {
-        if let space = spaces.first(where: { $0.id == spaceId }), !space.syncEnabled { return }
-        let companionIds = ((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map { $0.id }
-        sync.joinSpace(spaceId, companionIds: companionIds, token: token)
-    }
 
     public func selectSpace(_ space: Space) {
         // Persist immediately (cheap)
@@ -2231,8 +2047,6 @@ public final class AppState: ObservableObject {
             self.startMessageObservation(spaceId: space.id)
             self.startUnreadObservation()
 
-            self.syncJoinSpace(space.id)
-            self.sync.sendReadReceipt(spaceId: space.id)
         }
     }
 
@@ -2252,7 +2066,6 @@ public final class AppState: ObservableObject {
         do {
             try db.saveSpace(space)
             spaces = try db.getRegularSpaces()
-            syncJoinSpace(space.id)
             selectSpace(space)
             scheduleHeartbeat(for: space)
             Analytics.shared.spaceCreated()
@@ -2397,21 +2210,6 @@ public final class AppState: ObservableObject {
     /// Ensure a space has an encryption key. Generates one for legacy spaces
     /// that were created before encryption was added. Returns the updated space.
     @discardableResult
-    public func ensureEncryptionKey(for space: Space) -> Space {
-        guard space.encryptionKey == nil else { return space }
-        var updated = space
-        updated.encryptionKey = SpaceCrypto.generateKey()
-        do {
-            try db.saveSpace(updated)
-            spaces = try db.getRegularSpaces()
-            if currentSpace?.id == space.id {
-                currentSpace = updated
-            }
-        } catch {
-            print("[Port42] Failed to save encryption key: \(error)")
-        }
-        return updated
-    }
 
     public func deleteSpace(_ space: Space) {
         do {
@@ -2486,7 +2284,6 @@ public final class AppState: ObservableObject {
         do {
             try db.saveMessage(message)
             // Send to relay if connected
-            sync.sendMessage(message)
             Analytics.shared.messageSent()
         } catch {
             print("[Port42] Failed to send message: \(error)")
@@ -2684,7 +2481,6 @@ public final class AppState: ObservableObject {
         )
         do {
             try db.saveMessage(message)
-            sync.sendMessage(message)
         } catch {
             NSLog("[Port42] sendMessageAsCompanion failed: %@", error.localizedDescription)
             return
@@ -2723,7 +2519,6 @@ public final class AppState: ObservableObject {
         )
         do {
             try db.saveMessage(message)
-            sync.sendMessage(message)
         } catch {
             NSLog("[p42-state] publishToBus error: %@", error.localizedDescription)
         }
@@ -2792,7 +2587,6 @@ public final class AppState: ObservableObject {
         )
         do {
             try db.saveMessage(message)
-            sync.sendMessage(message)
         } catch {
             NSLog("[Port42] sendMessageAsNamedAgent failed: %@", error.localizedDescription)
             return
@@ -3403,7 +3197,6 @@ public final class AppState: ObservableObject {
             timestamp: Date(), replyToId: nil, syncStatus: "sent", createdAt: Date()
         )
         try? db.saveMessage(msg)
-        sync.sendMessage(msg)
         return id
     }
 
@@ -3422,7 +3215,6 @@ public final class AppState: ObservableObject {
             timestamp: Date(), replyToId: nil, syncStatus: "sent", createdAt: Date()
         )
         try? db.saveMessage(msg)
-        sync.sendMessage(msg)
     }
 
     /// A chat port card's open action: take the user into open water (their space) and surface the
@@ -3545,7 +3337,6 @@ public final class AppState: ObservableObject {
             content: content,
             timestamp: now, replyToId: nil, syncStatus: "sent", createdAt: now)
         try? db.saveMessage(msg)
-        sync.sendMessage(msg)
     }
 
     public func addCompanionToSpace(_ companion: AgentConfig, space: Space) {
@@ -3598,38 +3389,7 @@ public final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Friends (remote humans)
 
-    public func refreshFriends() {
-        guard let userId = currentUser?.id else { return }
-        friends = (try? db.getKnownFriends(excludingUserId: userId)) ?? []
-    }
-
-    /// Open or create a DM space with a remote friend, then select it.
-    public func startDM(with friend: SpaceMember) {
-        let dmId = "dm-\(friend.senderId)"
-        // Check if DM space already exists
-        if let existing = spaces.first(where: { $0.id == dmId }) {
-            selectSpace(existing)
-            return
-        }
-        // Create a new DM space
-        let space = Space(
-            id: dmId,
-            name: friend.name,
-            type: "dm",
-            createdAt: Date(),
-            encryptionKey: SpaceCrypto.generateKey()
-        )
-        do {
-            try db.saveSpace(space)
-            spaces = try db.getRegularSpaces()
-            selectSpace(space)
-            syncJoinSpace(space.id)
-        } catch {
-            print("[Port42] Failed to create DM space: \(error)")
-        }
-    }
 
     public func startSwim(with companion: AgentConfig) {
         UserDefaults.standard.set(companion.id, forKey: "lastActiveSwimCompanionId")
@@ -3686,7 +3446,6 @@ public final class AppState: ObservableObject {
         spaces = []
         messages = []
         companions = []   // spaceCompanions (derived) empties with it
-        friends = []
         drafts = [:]
         unreadCounts = [:]
         lastReadDates = [:]

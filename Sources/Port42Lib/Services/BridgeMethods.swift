@@ -1425,8 +1425,6 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         // delegate to clear it (moved verbatim from the old port switch case).
         if let sid = target {
             appState.typingAgentNamesBySpace[sid, default: []].remove(senderName)
-            appState.sync.sendTyping(spaceId: sid, senderName: senderName, isTyping: false,
-                                     senderOwner: appState.currentUser?.displayName)
         }
         return .object(["ok": .bool(true)])
     }

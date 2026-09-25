@@ -151,8 +151,4 @@ struct GatewayDoorTests {
         #expect(GatewayProcess.shouldRespawn(after: old, now: now), "deaths older than the window do not count")
     }
 
-    @Test("the messaging client no longer claims to be host")
-    func syncIsNotHost() {
-        #expect(SyncService().actAsHost == false)
-    }
 }

@@ -1637,29 +1637,6 @@ public final class DatabaseService {
         }
     }
 
-    /// Returns distinct remote human senders across all spaces (excluding the local user).
-    public func getKnownFriends(excludingUserId: String) throws -> [SpaceMember] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT senderId,
-                       MAX(senderName) as senderName,
-                       MAX(senderOwner) as senderOwner
-                FROM messages
-                WHERE senderType = 'human'
-                  AND senderId != ?
-                GROUP BY senderId
-                ORDER BY MAX(senderName) ASC
-                """, arguments: [excludingUserId])
-            return rows.map { row in
-                SpaceMember(
-                    senderId: row["senderId"],
-                    name: row["senderName"],
-                    type: "human",
-                    owner: row["senderOwner"]
-                )
-            }
-        }
-    }
 
     /// Returns the timestamp of the most recent message in a space, or nil if empty.
     public func getLastMessageTime(spaceId: String) throws -> Date? {
