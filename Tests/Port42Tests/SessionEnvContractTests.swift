@@ -30,9 +30,13 @@ struct SessionEnvContractTests {
         "PATH",
     ]
 
-    func session() -> TerminalHookSession {
+    /// Each test's session id has its OWN first 8 characters, because the session's temp directory is
+    /// named from them (`/tmp/port42-shim-<8>`). These tests run in parallel, and when they shared a
+    /// prefix one test's cleanup deleted the directory while another was writing its zsh files, so
+    /// ZDOTDIR went unset and this contract failed at random (2026-09-25).
+    func session(_ id: String) -> TerminalHookSession {
         TerminalSessionBootstrap.make(
-            sessionId: "ENVCONTR-1111-2222-3333-444444444444",
+            sessionId: id,
             spaceId: "space-1", spaceName: "general",
             shimPath: "/tmp/fake-port42-shim",
             claudePath: "/usr/bin/true", oauthToken: "")
@@ -40,7 +44,7 @@ struct SessionEnvContractTests {
 
     @Test("every promised variable is actually set, and none is empty")
     func allPromisedVarsPresent() {
-        let s = session()
+        let s = session("E0C00001-1111-2222-3333-444444444444")
         defer { TerminalSessionBootstrap.cleanup(tempDir: s.tempDir) }
         for key in Self.promised {
             #expect(s.env[key] != nil, "promised but never set: \(key)")
@@ -50,13 +54,13 @@ struct SessionEnvContractTests {
 
     @Test("the companion prompt is set only when there IS a companion")
     func companionPromptIsConditional() {
-        let bare = session()
+        let bare = session("E0C00003-1111-2222-3333-444444444444")
         defer { TerminalSessionBootstrap.cleanup(tempDir: bare.tempDir) }
         #expect(bare.env["PORT42_COMPANION_PROMPT"] == nil,
                 "a plain terminal is not a companion and must not be briefed as one")
 
         let briefed = TerminalSessionBootstrap.make(
-            sessionId: "ENVCONTR-5555-6666-7777-888888888888",
+            sessionId: "E0C00002-5555-6666-7777-888888888888",
             spaceId: "space-1", spaceName: "general", companionPrompt: "You are scout.",
             shimPath: "/tmp/fake-port42-shim", claudePath: "/usr/bin/true", oauthToken: "")
         defer { TerminalSessionBootstrap.cleanup(tempDir: briefed.tempDir) }
@@ -68,7 +72,7 @@ struct SessionEnvContractTests {
     /// whole distinction.
     @Test("the environment carries a token PATH, never a token")
     func envCarriesPathNotSecret() {
-        let s = session()
+        let s = session("E0C00004-1111-2222-3333-444444444444")
         defer { TerminalSessionBootstrap.cleanup(tempDir: s.tempDir) }
         let path = s.env["PORT42_TOKEN_FILE"] ?? ""
         #expect(path.hasPrefix("/"), "must be a path: \(path)")
