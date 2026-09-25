@@ -8,27 +8,25 @@ Detailed plan for Phase 2 of `plan-shell-only.md`. Scenario served: 5. Written 2
 Ports stay where the person put them, a closed port can come back as itself, the rail keeps the
 order it is given, and the background costs nothing when nobody can see it.
 
-## Decisions for GM
+## Decided (GM, 2026-09-25)
 
-Each step below is buildable on its recommendation; these are the calls that change what gets built.
-
-1. **What ⌘L does to a hand-placed port.** Recommended: ⌘L grids the ports nobody placed and leaves
-   hand-placed ones where they are, laying the rest around them; ⇧⌘L re-grids everything and forgets
-   the hand placements. Alternative: ⌘L re-grids everything and nothing is remembered (today).
-2. **Where a closed port is found again.** Recommended: a "Recently closed" section at the bottom of
-   the ⌘K switcher, newest first, and `port.manage(id, "reopen")` for agents. Alternative: a closed
-   section in the park rail.
-3. **Whether closed ports are ever purged.** Recommended: never automatically; the ⌘K entry carries a
-   "delete forever" action. Alternative: purge after a fixed age.
-4. **When the background pauses.** Recommended: when the window is fully occluded or minimized, when
-   a port is set as the wallpaper, and while a port is focused (the backdrop covers the desktop).
-   Not when the app is merely inactive, since the background is still on screen then.
+1. **⌘L goes.** A birth already places without moving anything and off-screen ports are clamped back,
+   so the only thing ⌘L still does is overwrite positions the person chose. The arrange button and
+   the re-grid go with it.
+2. **A closed port is found again in ⌘K**, under "Recently closed", newest first; agents reopen with
+   `port.manage(id, "reopen")`.
+3. **Closed ports are never purged automatically.** The ⌘K entry carries "delete forever".
+4. **The ambient background pauses only when none of it can be seen:** the window hidden, minimized
+   or fully occluded, or a wallpaper port drawn over it. It keeps running behind a focused port,
+   which dims it but does not hide it. (This is the animated scene, not a port set as the wallpaper;
+   a wallpaper port always runs.)
 
 ## What is measured
 
-- **Arranging.** A birth places and moves nothing (`placeUnpositioned`); ⌘L runs `applyArrange`, which
-  re-grids every tile on the desktop by creation order and overwrites hand positions. Positions are
-  per desktop (v46). Nothing records that a position was chosen by hand.
+- **Arranging.** A birth places and moves nothing (`placeUnpositioned`); a resize clamps only what is
+  off-screen. ⌘L, the chrome's arrange button and a dozen internal `bumpArrange` callers run
+  `applyArrange`, which re-grids every port by creation order and overwrites hand positions.
+  Positions are per desktop (v46).
 - **Closing.** `PortWindowManager.close` tears down the surface and deletes the `port_panels` row. The
   port's versions survive in `port_versions` under its udid, and its chat survives until the next
   launch reaps it. The id is gone: anything subscribed to it, or holding it, is left pointing at
@@ -43,16 +41,16 @@ Each step below is buildable on its recommendation; these are the calls that cha
 
 Each step is its own commit: suite green, harness five of five, plans updated.
 
-### 2.1 Hand-placed ports stay put
+### 2.1 ⌘L goes
 
-- A port records, per desktop, that its position was chosen by hand. A drag or resize commit sets it;
-  placement, clamping and ⌘L do not. Stored beside the per-desktop positions (migration v52).
-- ⌘L lays out only the ports not placed by hand, treating hand-placed rects as occupied, so the grid
-  flows around them. ⇧⌘L clears the flags on this desktop and re-grids everything (decision 1).
-- `port.move` from an agent counts as placed by hand: a caller that chose a spot meant it.
+- Remove ⌘L, the chrome's arrange button, `bumpArrange` and its internal callers, and
+  `applyArrange`. Each caller is checked first: any that relies on a re-grid to place a port it just
+  made moves to `placeUnpositioned`, which places without moving anything.
+- Exposé stays: it spreads ports temporarily and writes nothing back.
 
-*Gates:* ⌘L leaves a hand-placed tile's origin unchanged and places the rest without overlapping it;
-⇧⌘L moves it and clears the flag; the flag is per desktop; it survives a restart.
+*Gates:* no path re-grids ports that already have a position (a source scan that fails if
+`applyArrange` or `bumpArrange` returns); a spawn, park, unpark and adoption each place only the new
+port; the pure grid tests that covered `arrange` go with it.
 
 ### 2.2 Closing never destroys
 
@@ -86,23 +84,23 @@ space.
 
 ### 2.4 The background costs nothing unseen
 
-- The `TimelineView` pauses (`paused:`) under decision 4's conditions, from one computed predicate on
+- The ambient background's `TimelineView` pauses (`paused:`) under decision 4, from one predicate on
   `ShellState` so every case goes through the same rule. Window occlusion comes from
   `NSWindow.occlusionState`.
 - Measured before and after on Dev3 idle, with the same method as the 2026-07-29 sweep: the window
-  visible and uncovered (expected unchanged), a focused port, a wallpaper port, and the window hidden.
+  visible (expected unchanged), a focused port (expected unchanged, it keeps running), a wallpaper
+  port, and the window hidden.
   The figures go in this plan; no target is set before measuring.
 
-*Gates:* the pause predicate is pure and tested for each condition, and false for an uncovered,
-visible desktop.
+*Gates:* the pause predicate is pure and tested for each condition; it is false for a visible
+desktop and behind a focused port.
 
 ## Verify, live on Dev3
 
-- The harness passes five of five after every step. Scenario 5 gains three checks: ⌘L leaves a
-  hand-placed port where it is, a closed port reopens with its id, and a park at a chosen slot holds
-  across the restart it already does.
-- GM tries each step on Dev3: drag, ⌘L, ⇧⌘L; close and reopen from ⌘K; park into a slot; watch the
-  background pause behind a focused port.
+- The harness passes five of five after every step. Scenario 5 gains two checks: a closed port
+  reopens with its id, and a park at a chosen slot holds across the restart it already does.
+- GM tries each step on Dev3: drag and spawn with nothing moving; close and reopen from ⌘K; park
+  into a slot; the background still moving behind a focused port.
 
 ## Not in this phase
 
