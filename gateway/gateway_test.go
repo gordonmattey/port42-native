@@ -269,3 +269,32 @@ func TestHTTPCallNeedsNoChannelState(t *testing.T) {
 		t.Fatalf("expected pong, got %v (status %d)", body, resp.StatusCode)
 	}
 }
+
+// A CONNECTION IS ONE CALLER (Phase 0 step 4). The credential given at identify reaches the host on
+// every call, and a different one on an envelope is replaced, not honored.
+func TestIdentifyCredentialIsStampedOnEveryCall(t *testing.T) {
+	gw := NewGateway()
+	srv, wsURL := setupTestServer(gw)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	host := identified(t, ctx, wsURL, "host", true)
+	defer host.CloseNow()
+
+	guest, _ := dialAndRead(t, ctx, wsURL)
+	defer guest.CloseNow()
+	sendEnvelope(t, ctx, guest, Envelope{Type: "identify", SenderID: "guest", Credential: "p42_guest_tok"})
+	readEnvelope(t, ctx, guest) // welcome
+
+	sendEnvelope(t, ctx, guest, Envelope{Type: "call", Method: "port.subscribe", CallID: "c-1"})
+	if got := readEnvelope(t, ctx, host); got.Credential != "p42_guest_tok" {
+		t.Fatalf("a call with no credential must carry the identify one, got %q", got.Credential)
+	}
+
+	sendEnvelope(t, ctx, guest, Envelope{Type: "call", Method: "x", CallID: "c-2", Credential: "p42_someone_else"})
+	if got := readEnvelope(t, ctx, host); got.Credential != "p42_guest_tok" {
+		t.Fatalf("an envelope credential must not override the connection's, got %q", got.Credential)
+	}
+}

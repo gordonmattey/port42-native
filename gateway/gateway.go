@@ -80,7 +80,10 @@ type Peer struct {
 	IsHost bool // true if this is the Port42 app
 	// HostCredential as presented in `identify`, checked against the one the app handed over.
 	HostCredential string
-	mu             sync.Mutex
+	// Credential is the CALLER's token as given once at `identify`, carried opaquely like every
+	// credential here. Every call this peer sends carries it (see routeCall).
+	Credential string
+	mu         sync.Mutex
 	// Rate limiting: sliding window of frame timestamps
 	msgTimes []time.Time
 	rateMu   sync.Mutex
@@ -197,6 +200,7 @@ func (g *Gateway) HandleWebSocket(w http.ResponseWriter, req *http.Request) {
 		Conn:           conn,
 		IsHost:         ident.IsHost,
 		HostCredential: ident.HostCredential,
+		Credential:     ident.Credential,
 	}
 
 	g.addPeer(peer)
@@ -445,6 +449,11 @@ func (g *Gateway) routeCall(ctx context.Context, sender *Peer, env Envelope) {
 	// cannot ask to be streamable on a transport that cannot carry it.
 	env.SenderID = sender.ID
 	env.Streamable = true
+	// A CONNECTION IS ONE CALLER (nautilus Phase 0 step 4). The credential given at `identify` goes on
+	// every call this peer sends, REPLACING whatever the envelope carries: one connection, one
+	// identity, set once. Before this, a WS caller had to repeat its token on every envelope, and
+	// the browser guest, which gives it once, had its live subscription refused (audit F2).
+	env.Credential = sender.Credential
 	if err := hostPeer.Send(ctx, env); err != nil {
 		log.Printf("[gateway] failed to send call to host %s: %v", hostID, err)
 		sender.Send(ctx, Envelope{Type: "error", Error: "failed to reach host", Code: CodeTransportFailed, CallID: env.CallID})

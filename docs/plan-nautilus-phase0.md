@@ -110,6 +110,11 @@ The gateway stores the credential given at `identify` on the peer, and `routeCal
 every call that peer forwards, replacing whatever the envelope carries. One connection, one
 identity, set once. This fixes the guest page's live half (audit F2) without touching the page.
 
+**Done 2026-09-25.** The peer keeps the credential it gave at identify, and `routeCall` stamps it on
+every call, replacing any credential on the envelope. The Go gate was checked by removing the
+stamp. **Harness: all five scenarios pass**, the first time on this branch; scenario 4's guest gets
+live events, has its stale write refused, and lands its retry.
+
 ### 0.5 Opening a terminal is consented: already true
 
 Verified 2026-09-25: a client without the grant that opens a terminal running `claude` raises a

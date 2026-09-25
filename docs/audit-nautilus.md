@@ -45,6 +45,10 @@ as transport for the door (finding F1) and as the channel the prompt travelled o
 | 4 | FAIL | Unchanged: identify-only credential refused (F2, step 4). |
 | 5 | PASS | Unchanged, restart included. |
 
+**Harness, after Phase 0 step 4** (2026-09-25): **all five pass.** Scenario 4's guest gives its
+credential once at identify, receives live state events, is refused a stale write with `current`,
+and lands its retry.
+
 ## 2. Findings that change the plan
 
 **F1. The door rides the hub.** `/call` → gateway → WebSocket → the app identified as host peer →
