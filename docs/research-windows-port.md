@@ -309,3 +309,57 @@ So deleting Apple-coupled features shrinks the SHELL's porting surface and leave
 where it was. Only moving types moves that. Anyone reasoning that "nautilus will make this portable"
 should read this row: it did not, and it was never going to, because the two are different problems
 that happen to share a direction.
+
+## Persistence: the license is not the problem, the wrapper is
+
+Verified 2026-09-25 at sqlite.org/copyright.html. **SQLite is public domain**: "free to copy, modify,
+publish, use, compile, sell, or distribute the original SQLite code... for any purpose, commercial or
+non-commercial, and by any means." Shipping it inside a closed-source commercial product needs no
+license and no attribution. Hwaci sells a Warranty of Title, which is indemnity paperwork for
+organizations that need proof of provenance or that operate where public domain dedication is not
+recognized. It is optional.
+
+So the Windows failure (`CSQLite` cannot find `sqlite3.h`) is not a licensing question. It is that
+GRDB uses the operating system's SQLite by default and Windows ships none.
+
+**GRDB's own support statement**, from its README: "iOS 13.0+ / macOS 10.15+ / tvOS 13.0+ /
+watchOS 7.0+ • SQLite 3.20.0+ • Swift 6.1+ / Xcode 16.3+", and "Linux support is provided by
+contributors. It is not automatically tested, and not officially maintained." Windows is not
+mentioned at all.
+
+Three options, in the order I would try them:
+
+1. **Vendor SQLite into the build.** GRDB documents custom SQLite builds, so `DatabaseService`'s
+   2,133 lines survive untouched. The cost is not the license, it is becoming the maintainer of a
+   GRDB configuration that upstream does not test on a platform upstream does not claim.
+2. **Drop GRDB and talk to SQLite's C API through a thin Swift wrapper.** SQLite is C and builds
+   everywhere. You rewrite the GRDB-flavored parts of `DatabaseService` and own a small wrapper
+   instead of depending on an unsupported configuration of a large one.
+3. **Move persistence to Go.** `modernc.org/sqlite` is pure Go with no cgo and builds for Windows
+   without ceremony. Only sensible if the kernel is moving to Go anyway, in which case it is free.
+
+## Ghostty: the app has no Windows build, but Port42 does not embed the app
+
+Ghostty's install documentation covers macOS and Linux only; Windows is not mentioned. The GUI is
+macOS SwiftUI plus Linux GTK.
+
+But Port42 embeds **libghostty**, not the app, and Ghostty's README describes libghostty as
+"compatible for macOS, Linux, Windows, and WebAssembly". The `GhosttyKit.xcframework` in this tree
+ships `ios-arm64`, `ios-arm64-simulator` and `macos-arm64_x86_64` and nothing else (measured), so the
+Windows door is unbuilt rather than closed: it would mean building libghostty from source for Windows
+and writing a host layer, against today's AppKit `NSView` hosting a Metal surface.
+
+That is worth deciding with evidence rather than assumption, because keeping ONE terminal
+implementation across platforms is worth more than the 537 MB that dropping Ghostty would save. A
+spike is running on exactly this question; its findings land in `docs/spike-libghostty-windows.md`.
+Until it reports, ConPTY plus a JS terminal in the WebView2 remains the fallback, and its appeal is
+that it needs no new terminal emulator at all, since the webview is already there.
+
+## The recommendation on the boundary
+
+Written up separately and in full in **`docs/recommend-kernel-boundary.md`**, so it can travel on its
+own. In short: make three mechanical moves (`PortPanel` into `Models`, the geometry constants off
+`ShellState`, `GatewayProcess` behind a protocol), wire `carve.sh` into CI so the boundary is
+enforced rather than asserted, and defer both the `AppState` split and the kernel-language question
+until nautilus lands and a second client is real. None of the three is a Windows change. If Windows
+never happens they are all still right.
