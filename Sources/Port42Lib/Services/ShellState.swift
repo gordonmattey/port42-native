@@ -146,6 +146,26 @@ public final class ShellState: ObservableObject {
     public var debugAppState: AppState? { appState }
     #endif
 
+    /// Whether any of the shell's window can be seen: false when it is hidden, minimized or fully
+    /// covered (`NSWindow.occlusionState`). The ambient background pauses on it (Phase 2 step 4).
+    @Published public private(set) var windowVisible = true
+    private var visibilityObservers: [NSObjectProtocol] = []
+
+    /// Whether the ambient background animates. It runs whenever any of it can be seen, including
+    /// behind a focused port, which dims it but does not hide it (GM, 2026-09-25). A wallpaper port
+    /// replaces it entirely, so it is not drawn at all then.
+    nonisolated public static func ambientPaused(windowVisible: Bool, wallpaperShown: Bool) -> Bool {
+        !windowVisible || wallpaperShown
+    }
+
+    /// Re-read the shell window's visibility. The shell window is the app's one key-able window.
+    func refreshWindowVisibility() {
+        guard let app = NSApp,
+              let window = app.windows.first(where: { !($0 is NSPanel) && $0.canBecomeKey }) else { return }
+        let visible = !app.isHidden && !window.isMiniaturized && window.occlusionState.contains(.visible)
+        if visible != windowVisible { windowVisible = visible }
+    }
+
     public init(appState: AppState) {
         self.appState = appState
         appState.shell = self          // back-ref so the bridge can reach shell-level state
@@ -155,6 +175,13 @@ public final class ShellState: ObservableObject {
         // Notifications (§8b): a TILED port's birth in ANOTHER space raises a peeking port notification — the
         // live port, clickable to surface here (§8b). A port born in the CURRENT space is just a
         // tile on this desktop (gated in handlePortCreated), never a peek.
+        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification, NSApplication.didHideNotification,
+                     NSApplication.didUnhideNotification] {
+            visibilityObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshWindowVisibility() }
+            })
+        }
         portSink = appState.portWindows.portCreated
             .receive(on: RunLoop.main)
             .sink { [weak self] p in self?.handlePortCreated(id: p.id, spaceId: p.spaceId, title: p.title) }

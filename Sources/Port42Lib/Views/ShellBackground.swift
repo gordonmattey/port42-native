@@ -48,9 +48,11 @@ struct ShellBackground: View {
     }()
 
     /// The schedule the cap implies. `.animation` with no interval means "as fast as the display".
+    /// Paused whenever none of it can be seen (Phase 2 step 4): measured on Dev3 idle, 2026-09-25,
+    /// before the pause, it cost 12.2% of a core visible and 35.5% with the window hidden.
     private var schedule: AnimationTimelineSchedule {
-        Self.fpsCap > 0 ? .animation(minimumInterval: 1.0 / Double(Self.fpsCap))
-                        : .animation
+        let paused = ShellState.ambientPaused(windowVisible: shell.windowVisible, wallpaperShown: false)
+        return .animation(minimumInterval: Self.fpsCap > 0 ? 1.0 / Double(Self.fpsCap) : nil, paused: paused)
     }
 
     @ObservedObject var shell: ShellState

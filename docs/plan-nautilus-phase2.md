@@ -117,6 +117,21 @@ it, and a click still restores it. The rail reads in that order, per space. Five
 *Gates:* the pause predicate is pure and tested for each condition; it is false for a visible
 desktop and behind a focused port.
 
+**Done 2026-09-25.** A wallpaper port already replaces the ambient background entirely (it is not
+mounted), so the one remaining case was a window nobody can see. `ShellState.windowVisible` follows
+the shell window's occlusion, minimize and app hide; the background's `TimelineView` pauses on
+`ambientPaused`. Three gates in `AmbientPauseTests` (a focused port is not an input, so it never
+pauses). Measured on Dev3 idle, CPU time over 15 s:
+
+| Window | Before | After |
+|---|---|---|
+| Visible | 12.2% of a core | 10.5% |
+| Hidden | 35.5% | 0.4% |
+
+Hidden cost MORE than visible before the pause, so this was the larger saving. A reading taken with
+Dev3 covered but still on the lock screen measured the lock screen's own video, not this background.
+Suite 1141 green.
+
 ## Verify, live on Dev3
 
 - The harness passes five of five after every step. Scenario 5 gains two checks: a closed port
