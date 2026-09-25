@@ -44,6 +44,8 @@ public struct DolphinProtocolView: View {
     @State private var stageOpacity: Double = 0
     @State private var sequenceComplete = false
     @State private var sequenceGeneration = 0
+    /// True during the fade between two scenes, so a double press or key repeat cannot skip two.
+    @State private var sceneChanging = false
     @State private var glitchOffset: CGFloat = 0
     @State private var textGlow: CGFloat = 10
     @State private var eyeScaleY: CGFloat = 1.0
@@ -95,14 +97,9 @@ public struct DolphinProtocolView: View {
             dismiss()
             return .handled
         }
-        .onKeyPress(.return) {
-            handleKeyPress()
-        }
-        .onKeyPress(.space) {
-            handleKeyPress()
-        }
-        .onKeyPress(characters: CharacterSet(charactersIn: "s")) { _ in
-            if phase == .cinematic && !sequenceComplete && currentStage != .glitch {
+        // Any key, not just return and space: the screen says "press any key".
+        .onKeyPress(phases: .down) { press in
+            if press.characters == "s" && phase == .cinematic && !sequenceComplete && currentStage != .glitch {
                 skipToEnd()
                 return .handled
             }
@@ -110,9 +107,11 @@ public struct DolphinProtocolView: View {
         }
     }
 
+    /// A key moves the cinematic ONE scene on (GM, 2026-09-25: a key mid-scene must not end it).
+    /// Only the last screen's key continues past the cinematic; `s` skips to that screen; Esc exits.
     private func handleKeyPress() -> KeyPress.Result {
-        if phase == .cinematic && currentStage == .glitch && !sequenceComplete {
-            advanceFromGlitch()
+        if phase == .cinematic && !sequenceComplete {
+            advanceScene()
             return .handled
         }
         if phase == .cinematic && sequenceComplete {
@@ -130,14 +129,18 @@ public struct DolphinProtocolView: View {
         return .ignored
     }
 
-    private func advanceFromGlitch() {
+    /// Cut the current scene short and go to the next. Bumping the generation cancels the
+    /// scene's own timer, so it cannot advance a second time behind the key.
+    private func advanceScene() {
+        guard !sceneChanging, let next = DolphinStage(rawValue: currentStage.rawValue + 1) else { return }
+        sceneChanging = true
+        sequenceGeneration += 1
         withAnimation(.easeOut(duration: 0.5)) { stageOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            if let next = DolphinStage(rawValue: currentStage.rawValue + 1) {
-                currentStage = next
-                withAnimation(.easeIn(duration: 0.8)) { stageOpacity = 1 }
-                advanceAfterDelay()
-            }
+            currentStage = next
+            sceneChanging = false
+            withAnimation(.easeIn(duration: 0.8)) { stageOpacity = 1 }
+            advanceAfterDelay()
         }
     }
 
@@ -147,9 +150,12 @@ public struct DolphinProtocolView: View {
     }
 
     private func skipToEnd() {
+        guard !sceneChanging else { return }
+        sceneChanging = true
         sequenceGeneration += 1
         withAnimation(.easeIn(duration: 0.5)) { stageOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            sceneChanging = false
             sequenceComplete = true
             currentStage = .invitation
             withAnimation(.easeIn(duration: 0.8)) { stageOpacity = 1 }
@@ -199,7 +205,7 @@ public struct DolphinProtocolView: View {
                         .padding(.bottom, 40)
                         .transition(.opacity)
                 } else if currentStage != .glitch {
-                    Text("press s to skip")
+                    Text("any key: next  ·  s: skip")
                         .font(Port42Theme.mono(11))
                         .foregroundStyle(Port42Theme.textSecondary.opacity(0.3))
                         .padding(.bottom, 20)
