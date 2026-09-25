@@ -6,8 +6,8 @@ Detailed plan for Phase 1 of `plan-shell-only.md`. Scenario served: 1. Written 2
 ## Goal
 
 Port42 holds ports, a registry, grants and a door, and nothing else. The messaging system, the in-app
-model and the memory service are gone. The native chat tile is replaced by a chat port that any scope
-can carry: the desktop, a space, or one port.
+model and the memory service are gone. The native chat port is replaced by a chat in every port: the
+desktop, a space, or one port.
 
 ## Progress
 
@@ -166,7 +166,7 @@ on it.
   and the teleport hooks move off the `messages` table onto those events.
 - A terminal port's chat is its companion's session: a message goes in as terminal input, the shim's
   end-of-turn hook posts the reply back.
-- The native chat tile, `ChatView`, `ConversationContent`, inline ports, port fences (D11), the
+- The native chat port, `ChatView`, `ConversationContent`, inline ports, port fences (D11), the
   `[portref]` cards and the `messages` table go.
 - **Design:** `design-chat-port.md`, decided by GM 2026-09-25 (history dropped, the panel slides down
   from the companion bar, unread lives in the bar). It sets five build steps.
@@ -181,14 +181,15 @@ whose port or space no longer exists is removed. Eight gates in `PortChatTests`,
 breaking attribution and the reap. Not yet verified live: the harness client must be re-enrolled on
 the fresh Dev3.
 
-**Step 2 done 2026-09-25: the companion bar and the panel.** Every port tile except the old chat tile
+**Step 2 done 2026-09-25: the companion bar and the panel.** Every port except the old native chat
 carries a companion bar in its title bar: avatars of who has posted, newest first, and an unread
 count; a bubble when the chat is empty. Clicking it slides the chat down from the bar. The panel
 pushes the port body down rather than covering it, because SwiftUI laid over a hosted web or
 terminal view does not reliably get the click. The person posts through `chat.post` as a human
 principal, like any caller. `PortChatStore` (on `AppState`) holds what the shell shows, is fed by the
 one write path, and keeps the last-read seq per chat across launches. Four more gates, calibrated by
-counting the person's own posts as unread. Not yet seen by GM.
+counting the person's own posts as unread. **Verified live by GM on Dev3:** the bubble opened Echo's
+chat, a post without a mention reached Echo, and its answer came back in the same panel.
 
 **Step 3 done 2026-09-25: companions answer in the chat that asked.** Every post runs the mention
 router. A mention wakes that companion, and a post in a terminal port's own chat wakes its companion
@@ -198,8 +199,8 @@ there as the companion, through the one write path. An ask from the old space ch
 record, so the latest ask decides where the reply goes. The decisions are pure (`ChatRouting`) with
 two gates, calibrated by letting a companion wake itself. The harness's scenario 1 now asks in the
 space's chat and passes only when the port appears, the harness's post is attributed to the harness,
-and the reply lands in the same chat attributed to the companion. Not yet run: the harness client
-needs re-enrolling on the fresh Dev3.
+and the reply lands in the same chat attributed to the companion. The terminal-port path is verified
+live (above); the harness run waits on re-enrolling its client on the fresh Dev3.
 
 ### 1.6 Small, clearly right
 

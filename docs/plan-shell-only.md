@@ -358,3 +358,18 @@ Things that would be cool once the five scenarios hold.
 - **The program as the credential.** Authenticate a caller by its code signature, not a token.
 - **One guided permission flow** in place of a series of dialogs.
 - **The membrane interprets.** Port42 understands what crosses it rather than only carrying it.
+- **Windows and Linux** (GM wants Windows, 2026-09-25; demand unvalidated). A research branch
+  (`research-windows-port`, `docs/recommend-kernel-boundary.md`) proposes moving the kernel to Go so
+  other shells become clients of the door. Against this plan:
+  - **The terminal comes first.** libghostty does not run on Windows (the branch's own spike), and
+    every companion lives in a terminal port. A Windows shell needs another terminal, and a
+    kernel-owned pty would replace Ghostty's on macOS too, or leave two terminal paths.
+  - **A Go kernel reverses the door-only gateway.** The registry, grants, principals, tokens, the
+    event bus, storage and the chat move to Go, and every method body that drives a native surface
+    (terminal, browser, screen, camera) needs a call back into the shell, not yet designed.
+  - **What stays compatible:** the pluggable transport (D6), no model in the kernel (D9) and the
+    per-port invite (D10) do not depend on the platform.
+  - **Cheap now, whatever is decided:** keep kernel code free of AppKit and view types (the port
+    panel model out of a view file, shell geometry out of kernel code, the gateway process behind a
+    protocol), and a CI build of the kernel files on Linux to hold that line.
+  - Its figures predate the engine removal and the chat work and need re-measuring on nautilus.
