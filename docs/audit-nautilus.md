@@ -141,6 +141,14 @@ card; approving records `terminal` on port 0.
 crash refused every caller until the app was relaunched. Fixed in Phase 0 step 2: respawn on an
 unasked exit, at most five times a minute.
 
+**F18. The app's main thread stalls for up to 70 seconds in SwiftUI layout during port churn.** Seen
+three times on 2026-09-25 while the harness created and closed a dozen ports in a row. Calls queue
+behind it, so a harness step times out and the scenario flakes. The sample shows `NSHostingView.layout`
+and attributed-text rendering, with no Port42 frame beneath. The accumulated chat is a plausible
+driver: space-3's chat holds 139 messages, 101 of them `[portref]` cards that every `port.create`
+posts. Not root-caused. Phase 1 removes both the native chat and the cards, and the harness will show
+whether the stall goes with them.
+
 **F10. The port-positioning gap is closed.** `port.move` and `port.position` exist and worked live.
 The memory note claiming the gap is retired with this audit.
 

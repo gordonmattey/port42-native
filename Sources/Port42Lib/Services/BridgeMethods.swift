@@ -163,7 +163,8 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "systemPrompt": ["type": "string", "description": "type:\"terminal\" — companion personality/role appended to the CLI's system prompt."],
                 "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
                 "initialInput": ["type": "string", "description": "type:\"terminal\" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input."],
-                "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."]
+                "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."],
+                "presentation": ["type": "string", "description": "Where the port appears: \"tiled\" (default, a desktop tile) or \"parked\"."]
             ],
             "required": ["type"]
         ] as [String: Any]) { p, args in
@@ -687,7 +688,16 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     }
 
     r["browser.html"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"], toolExposed: false,
-        description: "Read the HTML of an open browser session, optionally scoped to a CSS selector.") { _, args in
+        description: "Read the HTML of an open browser session, optionally scoped to a CSS selector.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "sessionId": ["type": "string", "description": "The browser session."],
+                "options": ["type": "object", "description": "{ selector } to scope the read."],
+                "selector": ["type": "string", "description": "CSS selector to read from (default: the whole page)."]
+            ] as [String: Any],
+            "required": ["sessionId"]
+        ]) { _, args in
         let sessionId = try args.requireString("sessionId")
         var opts = args.object("options") ?? args.dictionary
         if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
@@ -1359,7 +1369,9 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             "properties": [
                 "topic": ["type": "string", "description": "Bus topic (e.g. 'bus', 'port:myPortId')"],
                 "payload": ["type": "string", "description": "Message payload — any string, typically JSON"],
-                "space_id": ["type": "string", "description": "Target space ID. Omit for current space."]
+                "space_id": ["type": "string", "description": "Target space ID. Omit for current space."],
+                "senderName": ["type": "string", "description": "The name the publish is attributed to. Also accepted as sender_name."],
+                "sender_name": ["type": "string", "description": "Alias of senderName."]
             ],
             "required": ["topic", "payload"]
         ]) { p, args in
@@ -1375,7 +1387,9 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             "type": "object",
             "properties": [
                 "text": ["type": "string", "description": "The message text to send"],
-                "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."]
+                "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."],
+                "senderName": ["type": "string", "description": "The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name."],
+                "sender_name": ["type": "string", "description": "Alias of senderName."]
             ],
             "required": ["text"]
         ]) { p, args in

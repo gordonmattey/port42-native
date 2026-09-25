@@ -128,6 +128,29 @@ the reserved write fields (`token`), and refuses the rest with `bad_arg`. The er
 argument it did not know and lists the ones the method takes. Ports that pass extra arguments today
 break, and that is accepted (no backward compatibility, D7).
 
+**Done 2026-09-25.** The dispatcher refuses an undeclared argument before the permission gate, with
+`bad_arg`, naming the argument and listing what the method takes. Declared means `paramNames` plus
+the schema's properties. `token` is accepted on every method; writes check it and reads ignore it.
+Port JS can never send an undeclared name, because positional arguments are zipped against the
+declared ones, so the rule only bites named callers (the gateway and the CLI).
+
+Four gaps were declared first, found by comparing every method body with the live registry:
+`port.create` reads `presentation`, `browser.html` reads `selector`, and `messages.send` and
+`bus.publish` read `senderName`, which every companion uses to post on its own initiative. Seven
+methods declare only an opaque `options` bag and take their options flat: `audio.capture`,
+`camera.stream`, `fs.pick`, `screen.record`, `screen.record.start`, `screen.stream` and `storage.list`.
+They stay open until their keys are declared, and a gate pins that list so it can only shrink.
+
+Gates in `BridgeDeclaredArgsTests`: the refusal, before any gated method runs, the token, positional
+safety, the pinned open bags, and a source scan that fails if a method body reads an argument it
+does not declare. Each was checked by breaking it. The first version of the ordering test waited on a
+permission prompt when the rule was switched off, which hung the suite rather than failing it. It now
+pre-grants the permission, so a regression runs a harmless `true` and fails at once. Live on Dev3:
+`ports.list` with `all_spaces` answers "ports.list does not take argument 'all_spaces'. It takes:
+capabilities, space_id." The harness passes all five scenarios.
+
+**Phase 0 is complete.**
+
 ## Tests
 
 Every new gate is calibrated by breaking the code it guards and watching it fail.

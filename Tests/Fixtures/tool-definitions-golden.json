@@ -95,6 +95,14 @@
           "description" : "Message payload — any string, typically JSON",
           "type" : "string"
         },
+        "sender_name" : {
+          "description" : "Alias of senderName.",
+          "type" : "string"
+        },
+        "senderName" : {
+          "description" : "The name the publish is attributed to. Also accepted as sender_name.",
+          "type" : "string"
+        },
         "space_id" : {
           "description" : "Target space ID. Omit for current space.",
           "type" : "string"
@@ -495,6 +503,14 @@
     "description" : "Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.",
     "input_schema" : {
       "properties" : {
+        "sender_name" : {
+          "description" : "Alias of senderName.",
+          "type" : "string"
+        },
+        "senderName" : {
+          "description" : "The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name.",
+          "type" : "string"
+        },
         "space_id" : {
           "description" : "Target space ID (from space_list). Omit for current space.",
           "type" : "string"
@@ -581,6 +597,10 @@
         },
         "initialInput" : {
           "description" : "type:\"terminal\" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input.",
+          "type" : "string"
+        },
+        "presentation" : {
+          "description" : "Where the port appears: \"tiled\" (default, a desktop tile) or \"parked\".",
           "type" : "string"
         },
         "space_id" : {
