@@ -78,6 +78,16 @@ id receives events again after reopen; a closed port is absent from the desktop,
 `ports.list`; a pre-close token is refused after reopen; delete forever removes row, versions and
 chat.
 
+**Done 2026-09-25.** Close tears down as before and keeps the row, marked closed (v52 `closedAt`);
+launch restores only open ports. `reopen` rebuilds the port from its row through the same restore
+path as launch, with its id, content, position and chat; a terminal relaunches in its last cwd, which
+is now kept until delete forever. ⌘K lists "Recently closed" after the spaces (newest first, and
+searchable): selecting one reopens it on its home desktop, and the trash button or ⌘⌫ deletes it
+for good (row, versions, chat). Agents reopen with a new `port.reopen(id)`, not through
+`port.manage`: that is a write verb, and the dispatcher checks a live port's token before the body
+runs, so a closed port could not reach it. `ports.list` takes `include_closed`. Six gates in
+`PortArchiveTests`, calibrated by making close delete again (all six fail). Suite 1133 green.
+
 ### 2.3 Parking places exactly
 
 - The rail keeps an explicit order in `dockOrder`, per space. Dropping a port on the rail inserts it

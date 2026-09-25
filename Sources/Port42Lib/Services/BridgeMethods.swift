@@ -363,7 +363,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close, minimize/dock (off the desktop but still running), restore/undock (bring a docked/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), minimize/dock (off the desktop but still running), restore/undock (bring a docked port back onto the desktop). Check the status field from ports_list — 'tiled' | 'parked' | 'docked'.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1309,7 +1309,21 @@ private func desktopFor(_ panel: PortPanel, requested: String?, appState: AppSta
 @MainActor
 private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
 
-    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities", "space_id"],
+    r["port.reopen"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Reopen a closed port with its id, content, position and chat. A terminal relaunches its command in its last working directory. Closed ports are listed by ports_list with include_closed.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["id": ["type": "string", "description": "The closed port's id."]],
+            "required": ["id"],
+        ]) { _, args in
+        let id = try args.requireString("id")
+        guard appState.portWindows.reopen(id) else { throw BridgeError.notFound("closed port '\(id)'") }
+        let key = appState.portWindows.panels.first { $0.id == id }?.udid ?? id
+        return .object(["ok": .bool(true), "id": .string(id),
+                        PortActivity.tokenKey: .string(appState.portInput.token(for: key))])
+    }
+
+    r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities", "space_id", "include_closed"],
         description: "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy (an id) with createdByName (who that is, for display), and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
         inputSchema: [
             "type": "object",
@@ -1319,7 +1333,8 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                     "items": ["type": "string"],
                     "description": "Filter to ports that have all of these capabilities. Examples: \"terminal\", \"claude-code\", \"browser\". Omit to list all ports."
                 ] as [String: Any],
-                "space_id": ["type": "string", "description": "List only this space's ports. Omit to list every space's."]
+                "space_id": ["type": "string", "description": "List only this space's ports. Omit to list every space's."],
+                "include_closed": ["type": "boolean", "description": "Also list closed (archived) ports, with status 'closed'. Reopen one with port.reopen."]
             ]
         ]) { p, args in
         let filterCaps = (args.array("capabilities") as? [String]) ?? []
@@ -1369,6 +1384,15 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                   cwd: pt.cwd, status: pt.isBackground ? "docked" : pt.presentation, spaceId: pt.spaceId,
                   x: pt.x, y: pt.y,
                   surfaceBound: appState.terminalControllers[pt.udid]?.isSurfaceBound)
+        }
+        if args.bool("include_closed") == true {
+            for row in appState.portWindows.closedPorts() {
+                let caps = (row.capabilities?.data(using: .utf8))
+                    .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String] } ?? []
+                entry(id: row.udid ?? row.id, title: row.userTitle ?? row.title, createdBy: row.createdBy,
+                      capabilities: caps, cwd: nil, status: "closed", spaceId: row.spaceId,
+                      x: nil, y: nil, surfaceBound: nil)
+            }
         }
         return .array(entries)
     }

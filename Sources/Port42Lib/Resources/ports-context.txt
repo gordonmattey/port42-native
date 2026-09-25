@@ -405,7 +405,8 @@ BRIDGE API REFERENCE:
     action: 'focus' | 'close' | 'dock' | 'undock'
     Manage another port's window state. Returns {ok: true}.
     'undock' on a docked port restores it to the desktop (no reload; DOM/JS state is
-    preserved). 'dock' backgrounds a port (off the desktop, still running).
+    preserved). 'close' archives a port: port42.port.reopen(id) brings back the same port,
+    and ports.list({include_closed: true}) lists closed ones with status 'closed'. 'dock' backgrounds a port (off the desktop, still running).
 
   port42.port.restore(id, version)
     Restore a port to a specific earlier version. Returns {ok: true} on success.

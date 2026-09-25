@@ -817,6 +817,12 @@ public final class DatabaseService {
             try db.execute(sql: "DROP TABLE IF EXISTS input_history")
         }
 
+        migrator.registerMigration("v52-close-is-archive") { db in
+            // Nautilus Phase 2 step 2: closing a port archives it. The row stays, marked closed, so
+            // the port can reopen with its id; only "delete forever" removes it.
+            try db.alter(table: "port_panels") { t in t.add(column: "closedAt", .datetime) }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1479,9 +1485,38 @@ public final class DatabaseService {
         }
     }
 
+    /// The open ports (a closed one is archived, not restored at launch).
     public func fetchPortPanels() throws -> [PersistedPortPanel] {
         try dbQueue.read { db in
-            try PersistedPortPanel.fetchAll(db)
+            try PersistedPortPanel.filter(Column("closedAt") == nil).fetchAll(db)
+        }
+    }
+
+    /// Closed ports, most recently closed first.
+    public func fetchClosedPortPanels() throws -> [PersistedPortPanel] {
+        try dbQueue.read { db in
+            try PersistedPortPanel.filter(Column("closedAt") != nil).order(Column("closedAt").desc).fetchAll(db)
+        }
+    }
+
+    public func fetchPortPanel(id: String) throws -> PersistedPortPanel? {
+        try dbQueue.read { db in try PersistedPortPanel.fetchOne(db, key: id) }
+    }
+
+    /// Mark a port closed (nil reopens it).
+    public func setPortClosed(id: String, at: Date?) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE port_panels SET closedAt = ? WHERE id = ?", arguments: [at, id])
+        }
+    }
+
+    /// Delete a port for good: its row, its versions and its chat.
+    public func deletePortForever(id: String, udid: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM port_panels WHERE id = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM port_versions WHERE portUdid = ?", arguments: [udid])
+            try db.execute(sql: "DELETE FROM port_storage WHERE spaceId = ? AND creatorId IN (?, ?)",
+                           arguments: [PortChat.storageScope, id, udid])
         }
     }
 
@@ -1632,6 +1667,8 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var height: Double
     public var isDocked: Bool
     public var isBackground: Bool
+    /// When the port was closed (archived); nil while it is open.
+    public var closedAt: Date?
     public var isAlwaysOnTop: Bool
     public var posX: Double?
     public var posY: Double?

@@ -215,82 +215,86 @@ public final class PortWindowManager: ObservableObject {
         guard let db = db else { return }
         do {
             let saved = try db.fetchPortPanels()
-            for row in saved {
-                // I1.4: `row.id` carries the chat port's identity back across a launch. Without it a
-                // restored bridge with no creator and no message id would fall to a heap address
-                // again, which is exactly the case where a persisted grant needs to be found.
-                let bridge = PortBridge(appState: appState, spaceId: row.spaceId, messageId: row.messageId,
-                                        createdBy: row.createdBy, stableIdentity: row.id)
-                // Restore previously granted permissions so the user isn't re-prompted
-                if let permsStr = row.grantedPermissions {
-                    let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
-                    bridge.grantedPermissions = perms
-                }
-                // Per-desktop positions (v46). `positions` is the authority; posX/posY is the
-                // home-space projection a pre-v46 row carries, and the fallback when the JSON is
-                // missing or unreadable — a restore must never silently unplace a layout.
-                var restoredPositions: [String: CGPoint] = [:]
-                if let json = row.positions, let data = json.data(using: .utf8),
-                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Double]] {
-                    for (space, p) in obj {
-                        if let x = p["x"], let y = p["y"] { restoredPositions[space] = CGPoint(x: x, y: y) }
-                    }
-                }
-                if restoredPositions.isEmpty, let x = row.posX, let y = row.posY {
-                    restoredPositions[row.spaceId ?? PortPanel.homelessKey] = CGPoint(x: x, y: y)
-                }
-                let restoredCaps: [String]
-                if let capStr = row.capabilities,
-                   let data = capStr.data(using: .utf8),
-                   let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
-                    restoredCaps = arr
-                } else {
-                    restoredCaps = []
-                }
-                var panel = PortPanel(
-                    id: row.id,
-                    udid: row.udid ?? row.id,
-                    html: row.html,
-                    bridge: bridge,
-                    spaceId: row.spaceId,
-                    createdBy: row.createdBy,
-                    messageId: row.messageId,
-                    userTitle: row.userTitle,
-                    storedCapabilities: restoredCaps,
-                    size: CGSize(width: row.width, height: row.height),
-                    positions: restoredPositions,
-                    isAlwaysOnTop: row.isAlwaysOnTop,
-                    isBackground: row.isBackground,
-                    portType: row.portType
-                )
-                // SHELL S3 — restore the shell desktop layout: presentation ("tiled"/"parked"/
-                // "floating") and z-order. Without this a tiled port restored as "floating" and
-                // fell out of the desktop render (which filters presentation == "tiled").
-                panel.presentation = row.presentation
-                panel.z = row.z
-                // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
-                if let adoptedStr = row.adoptedSpaceIds,
-                   let data = adoptedStr.data(using: .utf8),
-                   let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
-                    panel.adoptedSpaceIds = arr
-                }
-                panels.append(panel)
-                // Terminal ports host a Ghostty surface; only web ports get a WKWebView.
-                if panel.portType != "terminal" {
-                    createPortWebView(for: panel)
-                } else if panel.portType == "terminal" {
-                    // A terminal was on a desktop at shutdown — rebuild its controller + hoisted
-                    // Ghostty surface now so its tile has a live shell to host again. The process
-                    // itself is gone across a restart, so this relaunches the startup command.
-                    rebuildTiledTerminal(panel, app: appState)
-                }
-            }
+            for row in saved { restorePanel(from: row, appState: appState) }
             if !saved.isEmpty {
                 NSLog("[Port42] Restored %d port panels from database", saved.count)
             }
         } catch {
             NSLog("[Port42] Failed to restore port panels: %@", error.localizedDescription)
         }
+    }
+
+    /// Bring one saved port back as a live panel: its bridge (with its grants), geometry, layout and
+    /// surface. Used at launch for every open port, and by `reopen` for a closed one.
+    private func restorePanel(from row: PersistedPortPanel, appState: AnyObject) {
+            // I1.4: `row.id` carries the chat port's identity back across a launch. Without it a
+            // restored bridge with no creator and no message id would fall to a heap address
+            // again, which is exactly the case where a persisted grant needs to be found.
+            let bridge = PortBridge(appState: appState, spaceId: row.spaceId, messageId: row.messageId,
+                                    createdBy: row.createdBy, stableIdentity: row.id)
+            // Restore previously granted permissions so the user isn't re-prompted
+            if let permsStr = row.grantedPermissions {
+                let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
+                bridge.grantedPermissions = perms
+            }
+            // Per-desktop positions (v46). `positions` is the authority; posX/posY is the
+            // home-space projection a pre-v46 row carries, and the fallback when the JSON is
+            // missing or unreadable — a restore must never silently unplace a layout.
+            var restoredPositions: [String: CGPoint] = [:]
+            if let json = row.positions, let data = json.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Double]] {
+                for (space, p) in obj {
+                    if let x = p["x"], let y = p["y"] { restoredPositions[space] = CGPoint(x: x, y: y) }
+                }
+            }
+            if restoredPositions.isEmpty, let x = row.posX, let y = row.posY {
+                restoredPositions[row.spaceId ?? PortPanel.homelessKey] = CGPoint(x: x, y: y)
+            }
+            let restoredCaps: [String]
+            if let capStr = row.capabilities,
+               let data = capStr.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
+                restoredCaps = arr
+            } else {
+                restoredCaps = []
+            }
+            var panel = PortPanel(
+                id: row.id,
+                udid: row.udid ?? row.id,
+                html: row.html,
+                bridge: bridge,
+                spaceId: row.spaceId,
+                createdBy: row.createdBy,
+                messageId: row.messageId,
+                userTitle: row.userTitle,
+                storedCapabilities: restoredCaps,
+                size: CGSize(width: row.width, height: row.height),
+                positions: restoredPositions,
+                isAlwaysOnTop: row.isAlwaysOnTop,
+                isBackground: row.isBackground,
+                portType: row.portType
+            )
+            // SHELL S3 — restore the shell desktop layout: presentation ("tiled"/"parked"/
+            // "floating") and z-order. Without this a tiled port restored as "floating" and
+            // fell out of the desktop render (which filters presentation == "tiled").
+            panel.presentation = row.presentation
+            panel.z = row.z
+            // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
+            if let adoptedStr = row.adoptedSpaceIds,
+               let data = adoptedStr.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
+                panel.adoptedSpaceIds = arr
+            }
+            panels.append(panel)
+            // Terminal ports host a Ghostty surface; only web ports get a WKWebView.
+            if panel.portType != "terminal" {
+                createPortWebView(for: panel)
+            } else if panel.portType == "terminal" {
+                // A terminal was on a desktop at shutdown — rebuild its controller + hoisted
+                // Ghostty surface now so its tile has a live shell to host again. The process
+                // itself is gone across a restart, so this relaunches the startup command.
+                rebuildTiledTerminal(panel, app: appState)
+            }
     }
 
     /// Rebuild a tiled/parked terminal's controller + hoisted Ghostty surface after a restart, and
@@ -325,16 +329,6 @@ public final class PortWindowManager: ObservableObject {
             try db.savePortVersion(portUdid: panel.udid, html: panel.html, createdBy: panel.createdBy)
         } catch {
             NSLog("[Port42] Failed to persist port panel: %@", error.localizedDescription)
-        }
-    }
-
-    /// Remove a panel from the database.
-    private func unpersistPanel(_ id: String) {
-        guard let db = db else { return }
-        do {
-            try db.deletePortPanel(id)
-        } catch {
-            NSLog("[Port42] Failed to delete port panel: %@", error.localizedDescription)
         }
     }
 
@@ -609,10 +603,41 @@ public final class PortWindowManager: ObservableObject {
         terminalCoordinators.removeValue(forKey: id)?.teardown()
         terminalViews[id]?.removeFromSuperview()
         terminalViews.removeValue(forKey: id)
-        TerminalSessionBootstrap.clearLiveCwd(portId: id)   // a closed port forgets its cwd
-        unpersistPanel(id)
+        // Closing ARCHIVES (nautilus Phase 2 step 2, GM: "we should never close them"): the row
+        // stays, marked closed, with its latest state, so `reopen` brings back the same port with
+        // the same id. A terminal keeps its live cwd for that. Only `deleteForever` removes it.
+        if panels.contains(where: { $0.id == id }) {
+            persistPanel(id)
+            try? db?.setPortClosed(id: id, at: Date())
+        }
         Analytics.shared.portClosed()
         panels.removeAll { $0.id == id }
+    }
+
+    /// Reopen a closed port with its id, content, position and chat. A terminal relaunches its
+    /// command in its last cwd. Returns false if there is no closed port by that id.
+    @discardableResult
+    public func reopen(_ id: String) -> Bool {
+        guard let db, let appState, !panels.contains(where: { $0.id == id }),
+              let row = try? db.fetchPortPanel(id: id), row.closedAt != nil else { return false }
+        try? db.setPortClosed(id: id, at: nil)
+        restorePanel(from: row, appState: appState)
+        NSLog("[Port42] Reopened port %@", id)
+        return true
+    }
+
+    /// The closed ports, most recently closed first.
+    public func closedPorts() -> [PersistedPortPanel] {
+        (try? db?.fetchClosedPortPanels()) ?? []
+    }
+
+    /// Delete a port for good: close it if open, then remove its record, versions and chat.
+    public func deleteForever(_ id: String) {
+        if panels.contains(where: { $0.id == id }) { close(id) }
+        guard let row = try? db?.fetchPortPanel(id: id) else { return }
+        TerminalSessionBootstrap.clearLiveCwd(portId: id)
+        try? db?.deletePortForever(id: id, udid: row.udid ?? id)
+        NSLog("[Port42] Deleted port %@ for good", id)
     }
 
     /// Resize a panel.

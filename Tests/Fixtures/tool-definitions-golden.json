@@ -480,7 +480,7 @@
     "name" : "port_history"
   },
   {
-    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close, minimize\/dock (off the desktop but still running), restore\/undock (bring a docked\/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.",
+    "description" : "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), minimize\/dock (off the desktop but still running), restore\/undock (bring a docked port back onto the desktop). Check the status field from ports_list — 'tiled' | 'parked' | 'docked'.",
     "input_schema" : {
       "properties" : {
         "action" : {
@@ -642,6 +642,22 @@
     "name" : "port_rename"
   },
   {
+    "description" : "Reopen a closed port with its id, content, position and chat. A terminal relaunches its command in its last working directory. Closed ports are listed by ports_list with include_closed.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The closed port's id.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_reopen"
+  },
+  {
     "description" : "Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.",
     "input_schema" : {
       "properties" : {
@@ -703,6 +719,10 @@
             "type" : "string"
           },
           "type" : "array"
+        },
+        "include_closed" : {
+          "description" : "Also list closed (archived) ports, with status 'closed'. Reopen one with port.reopen.",
+          "type" : "boolean"
         },
         "space_id" : {
           "description" : "List only this space's ports. Omit to list every space's.",

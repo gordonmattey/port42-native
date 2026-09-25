@@ -283,7 +283,7 @@ Generated from the live method registry: every entry below is served exactly as 
   port.info()
       Return the calling port's own id, title, space, capabilities, and activity token.
   port.manage(id, action, token)
-      Manage a port. Actions: focus (raise to the front of the desktop), close, minimize/dock (off the desktop but still running), restore/undock (bring a docked/inline port onto the desktop as a tile). Check the status field from ports_list — 'tiled' | 'parked' | 'docked' | 'inline'.
+      Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), minimize/dock (off the desktop but still running), restore/undock (bring a docked port back onto the desktop). Check the status field from ports_list — 'tiled' | 'parked' | 'docked'.
         action (string, required): One of: focus, close, minimize, dock, restore, undock
         id (string, required): The port's UDID or title
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
@@ -316,6 +316,9 @@ Generated from the live method registry: every entry below is served exactly as 
         id (string, required): The port's UDID (from ports_list)
         title (string, required): The new title for the port
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
+  port.reopen(id)
+      Reopen a closed port with its id, content, position and chat. A terminal relaunches its command in its last working directory. Closed ports are listed by ports_list with include_closed.
+        id (string, required): The closed port's id.
   port.restore(id, version, token)
       Restore a port to a specific earlier version. The port's live HTML is replaced with the snapshot and a new version entry is recorded. Use port_history to find available version numbers.
         id (string, required): The port's UDID (from ports_list)
@@ -336,9 +339,10 @@ Generated from the live method registry: every entry below is served exactly as 
 
 ### ports
 
-  ports.list(capabilities, space_id)
+  ports.list(capabilities, space_id, include_closed)
       List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy (an id) with createdByName (who that is, for display), and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: ["terminal"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.
         capabilities (array): Filter to ports that have all of these capabilities. Examples: "terminal", "claude-code", "browser". Omit to list all ports.
+        include_closed (boolean): Also list closed (archived) ports, with status 'closed'. Reopen one with port.reopen.
         space_id (string): List only this space's ports. Omit to list every space's.
 
 ### rest

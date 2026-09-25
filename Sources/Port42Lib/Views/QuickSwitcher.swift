@@ -12,6 +12,8 @@ struct QuickSwitcherItem: Identifiable {
     enum Kind {
         case space(Space)
         case companion(AgentConfig)
+        /// A closed (archived) port: selecting it reopens it (nautilus Phase 2 step 2).
+        case closedPort(id: String, spaceId: String?)
     }
 }
 
@@ -24,6 +26,8 @@ public struct QuickSwitcher: View {
 
     @State private var query = ""
     @State private var selectedIndex = 0
+    /// Closed ports, read once when the switcher opens (most recently closed first).
+    @State private var closed: [QuickSwitcherItem] = []
     @FocusState private var isFocused: Bool
 
     public init(isPresented: Binding<Bool>, shell: ShellState? = nil) {
@@ -58,6 +62,13 @@ public struct QuickSwitcher: View {
                     }
                     .onKeyPress(.escape) {
                         isPresented = false
+                        return .handled
+                    }
+                    // ⌘⌫ on a closed port deletes it for good.
+                    .onKeyPress(.delete, phases: .down) { press in
+                        guard press.modifiers.contains(.command), selectedIndex < filteredItems.count,
+                              case .closedPort(let id, _) = filteredItems[selectedIndex].kind else { return .ignored }
+                        deleteForever(id)
                         return .handled
                     }
 
@@ -103,6 +114,14 @@ public struct QuickSwitcher: View {
                                         Text(kindLabel(item))
                                             .font(Port42Theme.mono(10))
                                             .foregroundStyle(Port42Theme.textSecondary)
+                                        if case .closedPort(let id, _) = item.kind {
+                                            Button { deleteForever(id) } label: {
+                                                Image(systemName: "trash").font(.system(size: 10))
+                                                    .foregroundStyle(Port42Theme.textSecondary)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Delete forever (⌘⌫)")
+                                        }
                                     }
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 8)
@@ -135,6 +154,7 @@ public struct QuickSwitcher: View {
         .shadow(color: .black.opacity(0.5), radius: 20)
         .frame(width: 420)
         .onAppear {
+            loadClosed()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isFocused = true
             }
@@ -162,8 +182,8 @@ public struct QuickSwitcher: View {
 
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Empty query: show spaces only (companions are in the sidebar)
-        guard !raw.isEmpty else { return spaceItems }
+        // Empty query: spaces, then recently closed ports.
+        guard !raw.isEmpty else { return spaceItems + closed.prefix(10) }
 
         // @ prefix: search companions
         if raw.hasPrefix("@") {
@@ -181,7 +201,7 @@ public struct QuickSwitcher: View {
         }
 
         // No prefix: search all
-        let all = spaceItems + companionItems
+        let all = spaceItems + companionItems + closed
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -222,8 +242,29 @@ public struct QuickSwitcher: View {
         case .companion(let companion):
             if let shell { shell.activateCompanion(companion) }   // DM tile on this desktop
             else { appState.startSwim(with: companion) }
+        case .closedPort(let id, let spaceId):
+            // Reopen on its home desktop, and go there so the person sees it come back.
+            if let sid = spaceId, sid != appState.currentSpace?.id,
+               let space = appState.spaces.first(where: { $0.id == sid }) {
+                appState.selectSpace(space)
+            }
+            appState.portWindows.reopen(id)
+            shell?.bringToFront(id)
         }
         isPresented = false
+    }
+
+    private func loadClosed() {
+        closed = appState.portWindows.closedPorts().map { row in
+            QuickSwitcherItem(id: "closed-\(row.id)", icon: "↺", name: row.userTitle ?? row.title,
+                              kind: .closedPort(id: row.id, spaceId: row.spaceId))
+        }
+    }
+
+    private func deleteForever(_ id: String) {
+        appState.portWindows.deleteForever(id)
+        loadClosed()
+        selectedIndex = min(selectedIndex, max(0, filteredItems.count - 1))
     }
 
     // MARK: - Helpers
@@ -232,6 +273,7 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
+        case .closedPort: return Port42Theme.textSecondary
         }
     }
 
@@ -239,6 +281,7 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space(let space): return space.isResting ? "resting" : "space"
         case .companion: return "🏊"
+        case .closedPort: return "recently closed"
         }
     }
 }
