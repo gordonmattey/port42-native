@@ -86,6 +86,22 @@ struct PortChatPanel: View {
                     chats.markRead(key)
                 }
             }
+            if !suggestions.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(suggestions, id: \.id) { c in
+                        Button { draft = ChatRouting.complete(draft, with: c.displayName) } label: {
+                            Text("@" + c.displayName)
+                                .font(Port42Theme.mono(10)).foregroundStyle(accent)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Port42Theme.bgHover, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                    Text("tab").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+                }
+                .padding(.horizontal, 10).padding(.top, 4)
+            }
             if let error {
                 Text(error).font(Port42Theme.mono(9)).foregroundStyle(.red.opacity(0.8))
                     .padding(.horizontal, 10).frame(maxWidth: .infinity, alignment: .leading)
@@ -96,6 +112,12 @@ struct PortChatPanel: View {
                     .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                     .focused($inputFocused)
                     .onSubmit(send)
+                    // Tab completes the @name being typed to the first suggestion.
+                    .onKeyPress(.tab) {
+                        guard let first = suggestions.first else { return .ignored }
+                        draft = ChatRouting.complete(draft, with: first.displayName)
+                        return .handled
+                    }
                 Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill").font(.system(size: 14))
                         .foregroundStyle(draft.isEmpty ? Port42Theme.textSecondary : accent)
@@ -112,6 +134,12 @@ struct PortChatPanel: View {
             chats.markRead(key)
             inputFocused = true
         }
+    }
+
+    /// Companions matching the @name being typed, up to five.
+    private var suggestions: [AgentConfig] {
+        guard let q = ChatRouting.mentionQuery(in: draft) else { return [] }
+        return Array(MentionParser.autocomplete(query: "@" + q, agents: appState.companions).prefix(5))
     }
 
     private func row(_ e: PortChatEntry) -> some View {

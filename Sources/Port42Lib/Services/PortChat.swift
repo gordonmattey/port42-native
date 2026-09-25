@@ -122,7 +122,8 @@ extension AppState {
             }
         }
         routeMentionsToTerminals(content: entry.text, senderName: entry.fromName, spaceId: spaceId,
-                                 implicitCompanion: implicit, replyChat: key)
+                                 implicitCompanion: implicit, replyChat: key,
+                                 source: chatSourceLabel(key: key, panel: panel))
         // Headless companions: the ones mentioned, or every member when a PERSON posts without a
         // mention. A companion's post wakes only whom it names, so two companions cannot loop.
         let headless = ChatRouting.headlessTargets(
@@ -135,8 +136,52 @@ extension AppState {
     }
 }
 
+@MainActor
+extension AppState {
+    /// Where a post was made, as a companion reads it: the desktop, a space, or a port by title.
+    func chatSourceLabel(key: String, panel: PortPanel?) -> String {
+        if key == PortChat.desktopKey { return ChatRouting.sourceLabel(desktop: true) }
+        if let space = spaces.first(where: { $0.id == key }) { return ChatRouting.sourceLabel(space: space.name) }
+        return ChatRouting.sourceLabel(port: panel?.title ?? "port",
+                                       ownTerminal: panel?.terminalConfig?.companionName.isEmpty == false)
+    }
+}
+
 /// The routing decisions, pure so they are testable without a terminal.
 public enum ChatRouting {
+    /// The line a companion's terminal receives: who said it, where, and what. A companion reads
+    /// which chat a message came from here, and its reply goes back to that chat.
+    public static func terminalLine(sender: String, source: String?, text: String) -> String {
+        guard let source, !source.isEmpty else { return "[@\(sender)]: \(text)\r" }
+        return "[@\(sender) in \(source)]: \(text)\r"
+    }
+
+    public static func sourceLabel(desktop: Bool = false, space: String? = nil,
+                                   port: String? = nil, ownTerminal: Bool = false) -> String {
+        if desktop { return "the desktop chat" }
+        if let space { return "#\(space)" }
+        if ownTerminal { return "your terminal's chat" }
+        return "the chat of port '\(port ?? "port")'"
+    }
+
+    /// The @name being typed at the end of a draft ("" right after a bare @), or nil if none.
+    public static func mentionQuery(in draft: String) -> String? {
+        guard let at = draft.lastIndex(of: "@") else { return nil }
+        if at > draft.startIndex {
+            let before = draft[draft.index(before: at)]
+            guard before.isWhitespace else { return nil }       // an email, not a mention
+        }
+        let tail = draft[draft.index(after: at)...]
+        guard tail.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return nil }
+        return String(tail)
+    }
+
+    /// The draft with the @name being typed completed to `name`, followed by a space.
+    public static func complete(_ draft: String, with name: String) -> String {
+        guard mentionQuery(in: draft) != nil, let at = draft.lastIndex(of: "@") else { return draft }
+        return String(draft[..<at]) + "@" + name + " "
+    }
+
     /// The companions a post addresses, lowercased, once each, in order: its mentions, then the
     /// port's own companion. Never the sender, so a companion cannot wake itself.
     public static func targets(text: String, senderName: String, portCompanion: String?) -> [String] {

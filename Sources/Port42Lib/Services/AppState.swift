@@ -951,7 +951,8 @@ public final class AppState: ObservableObject {
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
     func routeMentionsToTerminals(content: String, senderName: String, spaceId: String,
-                                  implicitCompanion: AgentConfig? = nil, replyChat: String? = nil) {
+                                  implicitCompanion: AgentConfig? = nil, replyChat: String? = nil,
+                                  source: String? = nil) {
         // Proceed if there's any terminal bridge/controller OR any openInTerminal companion —
         // the last case lets a mention auto-reopen a companion whose port is currently closed
         // (no live controller), which the early-return would otherwise prevent.
@@ -966,7 +967,7 @@ public final class AppState: ObservableObject {
 
         // Prefix the sender with "@" so terminal companions see usernames in the same
         // @mention form they use to reference others — consistent referencing the LLM learns from.
-        let line = "[@\(senderName)]: \(content)\r"
+        let line = ChatRouting.terminalLine(sender: senderName, source: source, text: content)
         for key in keys {
             if let companion = companions.first(where: {
                 $0.displayName.lowercased() == key && $0.openInTerminal

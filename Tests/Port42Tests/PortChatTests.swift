@@ -217,4 +217,25 @@ struct PortChatTests {
                                             senderName: "Bot", senderIsPerson: false).isEmpty,
                 "never the sender")
     }
+
+    @Test("a companion's terminal is told which chat a message came from")
+    func terminalLineCarriesSource() {
+        #expect(ChatRouting.terminalLine(sender: "gordon", source: "#genesis", text: "hi")
+                == "[@gordon in #genesis]: hi\r")
+        #expect(ChatRouting.terminalLine(sender: "gordon", source: nil, text: "hi") == "[@gordon]: hi\r")
+        #expect(ChatRouting.sourceLabel(space: "genesis") == "#genesis")
+        #expect(ChatRouting.sourceLabel(port: "shader", ownTerminal: true) == "your terminal's chat")
+        #expect(ChatRouting.sourceLabel(port: "shader") == "the chat of port 'shader'")
+        #expect(ChatRouting.sourceLabel(desktop: true) == "the desktop chat")
+    }
+
+    @Test("@name autocomplete: the name being typed, and completing it")
+    func mentionCompletion() {
+        #expect(ChatRouting.mentionQuery(in: "hey @ec") == "ec")
+        #expect(ChatRouting.mentionQuery(in: "@") == "")
+        #expect(ChatRouting.mentionQuery(in: "mail me@x") == nil, "an email is not a mention")
+        #expect(ChatRouting.mentionQuery(in: "@echo done") == nil, "a finished mention is not being typed")
+        #expect(ChatRouting.complete("hey @ec", with: "Echo") == "hey @Echo ")
+        #expect(ChatRouting.complete("no mention", with: "Echo") == "no mention")
+    }
 }

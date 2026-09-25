@@ -12,7 +12,7 @@ desktop, a space, or one port.
 ## Progress
 
 1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
-1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (steps 1 to 4 of 5 ✓).
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 ✓ (steps 1 to 4; the desktop's chat deferred to later).
 
 ## Order, and why
 
@@ -257,6 +257,18 @@ read with `port_console`, and an agent in a terminal is asked through that termi
 gate, `ManualAccuracyTests`, fails when a manual teaches a method or tool the registry does not have
 (a pinned list covers the port's own JS helpers). Calibrated by adding `ai.complete` and
 `messages_recent` back. Suite 1130 green.
+
+**Verified live by GM on Dev3, 2026-09-25:** an @mention in the space's chat reached the Claude
+companion and its reply came back. Changes from that run:
+- A companion's terminal now reads where a message came from: `[@gordon in #genesis]: …`, or the
+  chat of a named port, or its own terminal's chat.
+- @name autocomplete is back in the chat panel: suggestions above the input, Tab completes.
+- A plain post in a space's chat still wakes no terminal companion, as before the change; in a
+  terminal port's own chat none is needed.
+
+**Step 5, the desktop's chat (port 0), is deferred to a later item (GM, 2026-09-25).** `chat.post`
+and `chat.read` already accept port `0`; only its place in the shell is missing (proposed: the
+galaxy view, the rung above every space).
 
 ### 1.6 Small, clearly right
 
