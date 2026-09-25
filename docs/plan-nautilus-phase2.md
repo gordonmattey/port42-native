@@ -67,7 +67,7 @@ port; the pure grid tests that covered `arrange` go with it.
 - A reopened port keeps its activity token counter (it never rewinds), so a write composed against
   the pre-close state is still refused.
 
-*Gates:* close then reopen returns the same id with its html and position; a subscriber holding the
+*Gates:* close then reopen returns the same id with its html and position, and moves no other port; a subscriber holding the
 id receives events again after reopen; a closed port is absent from the desktop, rail and default
 `ports.list`; a pre-close token is refused after reopen; delete forever removes row, versions and
 chat.
