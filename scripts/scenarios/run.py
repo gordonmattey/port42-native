@@ -6,8 +6,9 @@
 
 Prints one row per scenario with its evidence and exits non-zero if any scenario fails.
 
-- Scenario 1 needs a command companion in the current space, named with --agent, and costs one agent
-  turn. Without --agent it is skipped.
+- Scenario 1 opens a fresh terminal running --cli (default claude), waits for it to register as a
+  companion, and asks it for a port. It costs one agent turn and needs the `terminal` grant on port 0.
+  --agent asks an existing companion instead, which measures its transcript as much as Port42.
 - Scenario 5 restarts the instance it is pointed at, unless --no-restart.
 - Every port the harness makes is titled "harness:" and closed at the end, unless --keep.
 """
@@ -41,10 +42,25 @@ def dom_text(c, pid, element="log"):
 
 
 # ---------------------------------------------------------------------------------------------- 1
-def scenario1(c, agent):
-    if not agent:
-        return record(1, "Make a thing", None, "skipped: pass --agent <command companion in the current space>")
+def fresh_agent(c, cli):
+    """Open a terminal running `cli` and wait for it to register as a companion.
+
+    A FRESH session, on purpose: a resumed companion answers from its old transcript and never reads
+    the current manual (2026-09-25, audit F14), so it measures its memory rather than Port42.
+    Needs the `terminal` grant on port 0 for the harness client.
+    """
+    title = f"harness: s1 {cli}"
+    t = made(c.call("port.create", {"type": "terminal", "title": title, "command": cli}, timeout=120))
+    # Not read back from the member list: it lags and duplicates (audit F15). Mention routing finds the
+    # companion by name once it auto-registers, which the terminal's sessionStarted hook does within
+    # seconds; the wait covers that and the CLI's own boot.
+    time.sleep(12)
+    return "harness-s1-" + cli
+
+
+def scenario1(c, agent, cli):
     nonce = "harness s1 " + uuid.uuid4().hex[:6]
+    agent = agent or fresh_agent(c, cli)
     space = c.call("space.current")["id"]
     c.call("messages.send", {"space_id": space,
                              "text": f"@{agent} make a web port titled '{nonce}' that shows the current time, ticking."})
@@ -54,9 +70,9 @@ def scenario1(c, agent):
         if hit:
             MADE.append(hit[0]["id"])
             return record(1, "Make a thing", True,
-                          f"'{nonce}' appeared after {time.time() - t0:.0f}s, created by {hit[0].get('createdBy')!r}")
+                          f"@{agent}: '{nonce}' appeared after {time.time() - t0:.0f}s, created by {hit[0].get('createdBy')!r}")
         time.sleep(3)
-    record(1, "Make a thing", False, f"no port titled '{nonce}' within 240s")
+    record(1, "Make a thing", False, f"@{agent}: no port titled '{nonce}' within 240s")
 
 
 # ---------------------------------------------------------------------------------------------- 2
@@ -217,14 +233,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=4245)
     ap.add_argument("--only", default="1,2,3,4,5")
-    ap.add_argument("--agent")
+    ap.add_argument("--agent", help="an existing companion to ask instead of a fresh session")
+    ap.add_argument("--cli", default="claude", help="the CLI a fresh session runs (claude or codex)")
     ap.add_argument("--no-restart", action="store_true")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
     c = Client(a.port, os.environ.get("P42_TOKEN_FILE"))
     if not c.host_up():
         sys.exit(f"no Port42 answering on {a.port}")
-    runs = {1: lambda: scenario1(c, a.agent), 2: lambda: scenario2(c), 3: lambda: scenario3(c),
+    runs = {1: lambda: scenario1(c, a.agent, a.cli), 2: lambda: scenario2(c), 3: lambda: scenario3(c),
             4: lambda: scenario4(c), 5: lambda: scenario5(c, not a.no_restart)}
     names = {1: "Make a thing", 2: "Drive a thing", 3: "Compose things", 4: "Share a thing (local half)",
              5: "Arrange things"}

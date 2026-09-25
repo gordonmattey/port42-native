@@ -35,6 +35,16 @@ as transport for the door (finding F1) and as the channel the prompt travelled o
 | 4 | FAIL | A guest giving its credential once at identify is refused `auth_required` on subscribe and on write (F2). The gate for Phase 0 step 4. |
 | 5 | PASS | Six ports across two spaces, two parked, one added: nothing moved; restart moved nothing. |
 
+**Harness, after Phase 0 step 1b** (manuals teach `port.create`; scenario 1 asks a fresh session):
+
+| # | Result | Evidence |
+|---|--------|----------|
+| 1 | PASS | A fresh `claude` session made the port with `port.create` in 12 s. |
+| 2 | PASS | Unchanged. |
+| 3 | PASS | 12 events in 6 s; median 3 ms, max 6 ms. |
+| 4 | FAIL | Unchanged: identify-only credential refused (F2, step 4). |
+| 5 | PASS | Unchanged, restart included. |
+
 ## 2. Findings that change the plan
 
 **F1. The door rides the hub.** `/call` → gateway → WebSocket → the app identified as host peer →
@@ -104,6 +114,24 @@ whether or not anything renders it, or fences go and the skill (Phase 5) steers 
 **F13. `ports.list` has no `all_spaces` argument.** Every audit call passed one; it was ignored, and
 the method returns every space by default. A live instance of the silent-argument defect Phase 0
 step 6 fixes.
+
+**F14. A resumed companion answers from its transcript, not the manual.** After the manuals were
+rewritten, `swift-otter`, respawned onto its old session, answered "make a web port" with a fence in
+five seconds without reading anything. A fresh session read the new manual and called `port.create`.
+Consequence for Phase 5: a skill or manual change reaches only new sessions, so shipping one means
+new sessions for long-lived companions.
+
+**F15. The space member list lags and duplicates.** A companion that auto-registered did not appear
+in `space.current` members within 90 seconds, while one closed earlier appeared twice. Mention
+routing ignores the list and worked. Membership is replaced by subscription in Phase 1.
+
+**F16. `messages.send` from a client speaks as the human.** The harness's message reached the
+companion as `[@gordontest3]`, the person, not `nautilus-harness`. An API caller can put words in the
+person's mouth. In Phase 1 a mention becomes a port event, and it must carry the caller who sent it.
+
+**Corrected 2026-09-25: opening a terminal is consented.** Section 5's claim that `port.create`
+spawns agents ungated came from a July todo item. A client without the grant raises a permission
+card; approving records `terminal` on port 0.
 
 **F10. The port-positioning gap is closed.** `port.move` and `port.position` exist and worked live.
 The memory note claiming the gap is retired with this audit.

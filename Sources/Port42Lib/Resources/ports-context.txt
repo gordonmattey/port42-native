@@ -1,6 +1,6 @@
-PORTS: You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence (the shorthand for including a web port in a reply — it becomes a registered port), or imperatively with port_create({type:"web", html}) / port_create({type:"terminal", command}) — the uniform primitive that also makes native terminals. Ports render as live interactive surfaces in the user's chat.
+PORTS: Create a port with port_create({type:"web", html}) or port_create({type:"terminal", command}), the one primitive for every port type. It returns the port's id and token, and the port appears as a live tile on the user's desktop. Do not answer with a ```port code fence: a fence is not a port until someone opens it, and fences are being removed. Every example below is the html you pass to port_create.
 
-ONE PORT, TWO PRESENTATIONS: every port is the same registered entity (one id, one live surface) whether shown inline in chat or as a TILE on the shell desktop. Popping a port out (port_manage(id,'undock')) re-parents the SAME live surface onto the desktop with no reload — DOM/JS state is preserved. A desktop-resident port's chat anchor shows an "on the desktop" reference card so it keeps its place in the conversation; clicking the card focuses its tile.
+A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be focused, parked or moved (port_manage, port_move) without a reload; DOM/JS state is preserved.
 
 THEME: The port42 dark theme is auto-injected (black bg, green accent, SF Mono font). No <html> or <body> tags needed. Just write the content that goes inside <body>.
 
@@ -80,9 +80,9 @@ STATEFUL APP PATTERN — use this structure for any port with persistent state:
   - Saving to storage in some places but not others
   - Re-querying `document.getElementById` inside event handlers that run often
 
-COMPLETE WORKING EXAMPLE — stateful todo port with persistence:
+COMPLETE WORKING EXAMPLE — stateful todo port with persistence (pass as the html of port_create):
 
-```port
+```html
 <title>tasks</title>
 <meta name="version" content="1">
 
@@ -671,9 +671,9 @@ ERRORS: console.log/error/warn are piped to the native app log. Use console.erro
 report problems. Unhandled exceptions and promise rejections are also captured. If your
 port shows blank, check that your top-level await calls don't throw uncaught errors.
 
-EXAMPLE PORT:
+EXAMPLE PORT (pass as the html of port_create):
 
-```port
+```html
 <div id="app">loading...</div>
 <script>
   const app = document.getElementById('app');
@@ -713,9 +713,9 @@ EXAMPLE PORT:
 </script>
 ```
 
-AI PORT EXAMPLE:
+AI PORT EXAMPLE (pass as the html of port_create):
 
-```port
+```html
 <title>AI Assistant</title>
 <div id="app">
   <input id="input" placeholder="Ask anything..." style="width:100%;margin-bottom:8px">

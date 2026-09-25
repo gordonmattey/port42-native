@@ -1,6 +1,6 @@
 PORTS — the resident core. Full manual: call help with topic "ports" BEFORE building or updating any port. Full API reference: call help with no arguments.
 
-WHAT A PORT IS: a live interactive HTML/CSS/JS surface in the user's chat. Make one by wrapping HTML in a ```port code fence in your reply, or imperatively with port_create({type:"web", html}) — which also makes native terminals ({type:"terminal", command}). One port, two presentations: the same registered entity inline in chat or as a tile on the shell desktop; it is a TILE of arbitrary, changing size, never a window.
+WHAT A PORT IS: a live interactive surface on the user's desktop. Make one with port_create({type:"web", html}); the same call makes native terminals ({type:"terminal", command}). It returns the port's id and token. Never answer with a ```port code fence: a fence is not a port until someone opens it, and it is going away. A port is a TILE of arbitrary, changing size, never a window.
 
 NON-NEGOTIABLES (each one broke a real port; the manual explains them):
 - Include a <title> and <meta name="version" content="1">; bump the version on every update.

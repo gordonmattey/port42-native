@@ -134,9 +134,6 @@ WebSocket call; today a WS caller must repeat it per envelope, and the guest pag
 refused because it does not (audit F2).
 
 **Also here, from the summer todo:**
-- **Spawning an agent is ungated.** `port.create` has no permission, so any enrolled client can open a
-  terminal port running any command in the user's space. Unnamed callers are refused since slice-02,
-  so this is now attributable, but it is not consented. Gate a terminal port that runs a command.
 - **An unknown argument is accepted in silence** (`terminal.exec` ignores an `id`). Still true on the
   current build: `port.position` with an extra `bogus` argument answers normally. The required-args
   work already on `main` did not cover it. Refuse an argument the method does not declare.

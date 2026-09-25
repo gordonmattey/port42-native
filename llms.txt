@@ -1,4 +1,4 @@
-PORTS: A port is a live interactive surface in the user's chat. There are four types — WEB
+PORTS: A port is a live interactive surface on the user's desktop. There are four types — WEB
 (HTML/CSS/JS), TERMINAL (a native shell/CLI), BROWSER (an embedded browser tile with an address
 bar that follows links) and CHAT (a space's conversation) — and ONE way to reach any of them:
 
@@ -8,16 +8,12 @@ CHAT is a REVEAL, not a creation: a space has exactly one chat, so this returns 
 brings it back if it was parked/popped-out/closed, and only makes a new one if it was deleted
 outright. A DM is a space, so pass its space_id to open that conversation.
 
-WEB shorthand: you can also include a web port in a reply by wrapping HTML/CSS/JS in a ```port
-code fence — it becomes a registered port and renders inline. Include a <title> and
-<meta name="version" content="1">. The port42 dark theme is auto-injected. (The fence is how you
-include a port in a reply; port.create is the imperative, addressable path that also makes terminals.)
+A WEB port is HTML/CSS/JS passed as `html`. Include a <title> and <meta name="version" content="1">.
+The port42 dark theme is auto-injected. port.create is the only way to make a port: do not answer
+with a ```port code fence, which is not a port until someone opens it and is being removed.
 
-ONE PORT, TWO PRESENTATIONS: a port is the same registered entity (one id, one live surface)
-whether shown inline in chat or as a tile on the shell desktop. port.manage(id, "undock") pops an inline
-port out by re-parenting its live surface into a window — no reload, DOM/JS state preserved. A
-desktop port leaves a [port:id] reference card in the chat (symmetric with a native terminal's
-[terminal:id] card) so it keeps its place in the conversation.
+A PORT IS A TILE: one registered entity (one id, one live surface) on the shell desktop. It can be
+focused, parked or moved (port.manage, port.move) without a reload; DOM/JS state is preserved.
 
 WRITES CARRY A TOKEN. Every write verb must pass the port's `token` as `token`, or it is
 refused with 'token_required'. ports.list, port.create and every write RETURN a token, so

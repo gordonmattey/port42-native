@@ -42,6 +42,17 @@ five and prints a pass or fail row per scenario with its evidence.
 
 Blocked on one thing: a client enrolled for the harness in Settings → Access.
 
+### 0.1b The manuals teach `port.create`, never the fence (done)
+
+Scenario 1 failed because the agent followed its manual: the port manual's first line, the reference
+preamble and `llms.txt` all taught the ```` ```port ```` fence first. They now teach only `port_create`
+and warn off the fence (D11), with a gate that fails if any of them teaches the fence again. Echo's
+first-run prompt still asks for a fence; Echo is rebuilt in Phase 1.
+
+A resumed companion still answered with a fence, from its old transcript, without reading the
+manual. So scenario 1 asks a fresh session: the harness opens a terminal running the CLI, waits for
+it to register as a companion, and mentions it. With that, scenario 1 passes in 12 seconds.
+
 ### 0.2 The app's door gets its own connection
 
 New `Services/GatewayDoor.swift`. It connects to `/ws`, identifies as host with the per-spawn host
@@ -74,12 +85,11 @@ The gateway stores the credential given at `identify` on the peer, and `routeCal
 every call that peer forwards, replacing whatever the envelope carries. One connection, one
 identity, set once. This fixes the guest page's live half (audit F2) without touching the page.
 
-### 0.5 Opening a terminal is consented
+### 0.5 Opening a terminal is consented: already true
 
-`port.create` with a terminal that runs a command asks for the `terminal` permission on port 0,
-through `PermissionCoordinator`, keyed on the caller. A human creating a terminal from the shell is
-not asked. The check sits inside the method body, because the registry's permission is per method
-and this one depends on the arguments.
+Verified 2026-09-25: a client without the grant that opens a terminal running `claude` raises a
+permission card, and approving it records `terminal` on port 0 for that client. The summer todo item
+predates slice-02's consent work. Nothing to build.
 
 ### 0.6 An argument the method does not declare is refused
 
@@ -97,7 +107,6 @@ Every new gate is calibrated by breaking the code it guards and watching it fail
 | 0.2 | A call reaches the handler through `GatewayDoor` and its response returns; a streaming method's frames arrive in order on the same call id; the door reconnects after the gateway restarts; `SyncService` is not connected after launch. |
 | 0.3 | Go: an HTTP call and a WS subscribe work with no channel state; `join`, `message`, `typing`, `read` and `create_token` each get `unknown_method`. `store_test.go`, `apple_auth_test.go` and the hub cases in `gateway_test.go` are deleted with their code. |
 | 0.4 | Go: a WS call with no credential on its envelope arrives carrying the identify credential; an envelope credential different from the identify one is replaced, not honored. |
-| 0.5 | A terminal port with a command, from a client without the grant, is refused; with the grant it opens; from the human it opens without asking. |
 | 0.6 | An undeclared argument is refused and named; a declared one passes; `token` passes on a write. `BridgeSchemaParity` still holds. |
 
 `SyncAuth` is reworked to cover the door's host identify, or deleted if `GatewayDoor`'s tests cover
