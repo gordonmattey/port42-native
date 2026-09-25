@@ -175,28 +175,6 @@ public struct ShellView: View {
                 }.zIndex(220)
             }
 
-            // Bring-Your-Own-Agent flow (invite deep links) — the classic sheets, hosted as
-            // shell overlays: an encrypted space invite opens the connect card, which chains
-            // into the Python/LangChain or OpenClaw snippet card.
-            if appState.showAgentConnectSheet, let space = appState.agentConnectSpace {
-                shellSheetOverlay(isPresented: $appState.showAgentConnectSheet) {
-                    AgentConnectSheet(isPresented: $appState.showAgentConnectSheet,
-                                      space: space, inviteURL: appState.agentConnectInviteURL)
-                        .environmentObject(appState)
-                }
-            }
-            if appState.showPythonAgentSheet, let space = appState.pythonAgentSpace {
-                shellSheetOverlay(isPresented: $appState.showPythonAgentSheet) {
-                    PythonAgentSheet(isPresented: $appState.showPythonAgentSheet, space: space)
-                        .environmentObject(appState)
-                }
-            }
-            if appState.showOpenClawSheet, let space = appState.openClawSpace {
-                shellSheetOverlay(isPresented: $appState.showOpenClawSheet) {
-                    OpenClawSheet(isPresented: $appState.showOpenClawSheet, space: space)
-                        .environmentObject(appState)
-                }
-            }
 
             // Epistemic-memory inspector (the eye in a chat's member strip) — same shell
             // overlay chrome as Settings/Usage: scrim, rounded card, accent stroke, glow.
@@ -359,9 +337,6 @@ public struct ShellView: View {
         if shell.inspecting != nil { shell.inspecting = nil; return true }
         if shell.showUsage { shell.showUsage = false; return true }
         if shell.showSettings { shell.showSettings = false; return true }
-        if appState.showAgentConnectSheet { appState.showAgentConnectSheet = false; return true }
-        if appState.showPythonAgentSheet { appState.showPythonAgentSheet = false; return true }
-        if appState.showOpenClawSheet { appState.showOpenClawSheet = false; return true }
         if shell.showNewCompanion { shell.showNewCompanion = false; return true }
         if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }

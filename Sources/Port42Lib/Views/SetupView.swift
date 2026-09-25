@@ -25,7 +25,6 @@ public struct SetupView: View {
     @State private var keychainEntries: [ClaudeKeychainEntry] = []
     @State private var selectedTokenIndex: Int = 0
     @State private var submittedName: String?
-    @State private var appleAuthStatus: String?
     @State private var showAnalyticsConsent = false
     @State private var terminalVisible = false
     @State private var terminalOffset: CGSize = .zero
@@ -109,10 +108,6 @@ public struct SetupView: View {
             .init(text: "Storing private key in Keychain... \(keychainStatus)", style: .post, delay: 1.0),
             .init(text: "Public key: \(keyFingerprint)", style: .dim, delay: 0.6),
         ]
-        #if !RELEASE
-        let appleStatus = appleAuthStatus ?? "pending"
-        lines.append(.init(text: "Linking Apple identity... \(appleStatus)", style: .post, delay: 0.6))
-        #endif
         lines += [
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Welcome, \(name).", style: .header, delay: 0.6),
@@ -944,12 +939,7 @@ public struct SetupView: View {
             NSLog("[Port42] Failed to save user during key gen: \(error)")
         }
 
-        // Trigger Apple sign-in (dev only), then start create sequence
         Task {
-            #if !RELEASE
-            await performAppleSignIn()
-            #endif
-
             // Start create sequence (which shows analytics then auth options)
             try? await Task.sleep(nanoseconds: 400_000_000)
             withAnimation(.easeIn(duration: 0.2)) {
@@ -958,26 +948,6 @@ public struct SetupView: View {
         }
     }
 
-    private func performAppleSignIn() async {
-        let appleAuth = AppleAuthService()
-        let nonce = UUID().uuidString
-        do {
-            let result = try await appleAuth.authenticate(nonce: nonce)
-            // Store Apple user ID on AppUser
-            if var user = appState.currentUser {
-                user.appleUserID = result.appleUserID
-                try appState.db.saveUser(user)
-                appState.currentUser = user
-            }
-            appleAuthStatus = "OK"
-            NSLog("[Port42] Apple sign-in linked successfully")
-        } catch {
-            // Apple sign-in failed or cancelled, continue without it.
-            // User can still use local features, just won't auth to remote gateway.
-            appleAuthStatus = "skipped"
-            NSLog("[Port42] Apple sign-in skipped: \(error)")
-        }
-    }
 
     private func selectApiKey() {
         claudeSetup.cancel()

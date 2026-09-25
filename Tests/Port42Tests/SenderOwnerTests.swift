@@ -107,65 +107,9 @@ struct SenderOwnerTests {
         #expect(withNil == noParam)
     }
 
-    // MARK: - SyncPayload Encoding
 
-    @Test("SyncPayload encodes and decodes senderOwner")
-    func syncPayloadRoundTrip() throws {
-        let payload = SyncPayload(
-            senderName: "Echo", senderType: "agent",
-            content: "hello", replyToId: nil,
-            senderOwner: "Gordon"
-        )
-        let data = try JSONEncoder().encode(payload)
-        let decoded = try JSONDecoder().decode(SyncPayload.self, from: data)
-        #expect(decoded.senderOwner == "Gordon")
-        #expect(decoded.senderName == "Echo")
-    }
 
-    @Test("SyncPayload without senderOwner decodes as nil")
-    func syncPayloadNoOwner() throws {
-        let payload = SyncPayload(
-            senderName: "Alice", senderType: "human",
-            content: "hey", replyToId: nil
-        )
-        let data = try JSONEncoder().encode(payload)
-        let decoded = try JSONDecoder().decode(SyncPayload.self, from: data)
-        #expect(decoded.senderOwner == nil)
-    }
 
-    @Test("SyncPayload backward compatible with old clients")
-    func syncPayloadBackwardCompat() throws {
-        // Old client payload without senderOwner field
-        let json = """
-        {"senderName":"Echo","senderType":"agent","content":"hello","replyToId":null}
-        """
-        let data = json.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(SyncPayload.self, from: data)
-        #expect(decoded.senderOwner == nil)
-        #expect(decoded.senderName == "Echo")
-    }
-
-    // MARK: - SyncEnvelope Round-Trip
-
-    @Test("SyncEnvelope preserves senderOwner through encoding")
-    func syncEnvelopeRoundTrip() throws {
-        let payload = SyncPayload(
-            senderName: "Echo", senderType: "agent",
-            content: "test", replyToId: nil,
-            encrypted: false, senderOwner: "Gordon"
-        )
-        let envelope = SyncEnvelope(
-            type: "message", spaceId: "ch1",
-            senderId: "user1", messageId: "m1",
-            payload: payload,
-            timestamp: 1710000000000
-        )
-        let data = try JSONEncoder().encode(envelope)
-        let decoded = try JSONDecoder().decode(SyncEnvelope.self, from: data)
-        #expect(decoded.payload?.senderOwner == "Gordon")
-        #expect(decoded.type == "message")
-        #expect(decoded.spaceId == "ch1")
-    }
 
     // MARK: - Database Persistence
 

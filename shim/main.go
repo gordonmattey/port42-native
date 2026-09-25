@@ -92,6 +92,28 @@ func sessionIDArgs(home, id string) []string {
 	return []string{"--session-id", id}
 }
 
+// userChoosesSession reports whether the person's own arguments already pick a session, in which case
+// Port42's per-port pin must stay out of the way.
+func userChoosesSession(args []string) bool {
+	for _, a := range args {
+		switch {
+		case a == "--resume", a == "-r", a == "--continue", a == "-c", a == "--session-id", a == "--fork-session",
+			strings.HasPrefix(a, "--resume="), strings.HasPrefix(a, "--session-id="):
+			return true
+		}
+	}
+	return false
+}
+
+// sessionPin is the session flags Port42 adds for this launch: the per-port pin, or nothing when there
+// is no pin or the person's own arguments already choose a session.
+func sessionPin(home, sid string, userArgs []string) []string {
+	if sid == "" || userChoosesSession(userArgs) {
+		return nil
+	}
+	return sessionIDArgs(home, sid)
+}
+
 // runClaude execs the real claude, injecting Port42 hooks via --settings when a hook socket
 // is present. Resolves the real binary from $PORT42_CLAUDE_PATH so it can never re-exec itself.
 func runClaude() {
@@ -121,10 +143,10 @@ func runClaude() {
 	// companions sharing one space working dir land on DISTINCT transcripts. The app derives the
 	// id (UUIDv5 of space:companion) and passes it via env; the shim decides new-vs-resume here
 	// because it runs with the terminal's real cwd.
-	if sid := os.Getenv("PORT42_CLAUDE_SESSION_ID"); sid != "" {
-		home, _ := os.UserHomeDir()
-		argv = append(argv, sessionIDArgs(home, sid)...)
-	}
+	// Unless the person chose a session themselves: `claude --resume X` typed into a Port42 terminal
+	// used to fail, because the pin added a second session flag claude refuses to combine with it.
+	home, _ := os.UserHomeDir()
+	argv = append(argv, sessionPin(home, os.Getenv("PORT42_CLAUDE_SESSION_ID"), os.Args[1:])...)
 	argv = append(argv, os.Args[1:]...)
 
 	if err := syscall.Exec(real, argv, sanitizeEnv(os.Environ())); err != nil {

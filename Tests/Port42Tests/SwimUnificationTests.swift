@@ -7,23 +7,21 @@ import Foundation
 @Suite("Step 2 — Space model and sync filtering")
 struct SpaceModelTests {
 
-    @Test("Space.create() defaults: syncEnabled=true, type=team")
+    @Test("Space.create() defaults: type=team")
     func createSpaceDefaults() throws {
         let space = Space.create(name: "general")
-        #expect(space.syncEnabled == true)
         #expect(space.type == "team")
     }
 
-    @Test("Direct space round-trips through DatabaseService (unsynced)")
+    @Test("Direct space round-trips through DatabaseService")
     func directSpacePersists() throws {
         let db = try DatabaseService(inMemory: true)
         let direct = Space(id: UUID().uuidString, name: "Echo", type: "direct",
-                           createdAt: Date(), encryptionKey: nil, syncEnabled: false)
+                           createdAt: Date())
         try db.upsertSpace(direct)
 
         let loaded = try db.getAllSpaces().first { $0.id == direct.id }
         #expect(loaded != nil)
-        #expect(loaded?.syncEnabled == false)
         #expect(loaded?.type == "direct")
         #expect(loaded?.name == "Echo")
     }
@@ -32,22 +30,12 @@ struct SpaceModelTests {
     func upsertIdempotent() throws {
         let db = try DatabaseService(inMemory: true)
         let direct = Space(id: UUID().uuidString, name: "Echo", type: "direct",
-                           createdAt: Date(), encryptionKey: nil, syncEnabled: false)
+                           createdAt: Date())
         try db.upsertSpace(direct)
         try db.upsertSpace(direct) // second upsert should not throw
         #expect(try db.getAllSpaces().count == 1)
     }
 
-    @Test("Regular space defaults to synced")
-    func regularSpaceSynced() throws {
-        let db = try DatabaseService(inMemory: true)
-        let space = Space.create(name: "dev")
-        try db.saveSpace(space)
-
-        let loaded = try db.getAllSpaces().first!
-        #expect(loaded.type == "team")
-        #expect(loaded.syncEnabled == true)
-    }
 }
 
 // MARK: - Step 3: AppState additions
@@ -158,7 +146,6 @@ struct SwimSpaceInfraTests {
         #expect(directSpace != nil)
         #expect(directSpace?.type == "direct")
         #expect(directSpace?.id.hasPrefix("swim-") == false)
-        #expect(directSpace?.syncEnabled == false)
     }
 
     @Test("startSwim populates spaceCompanions with the direct companion")
@@ -201,15 +188,6 @@ struct SwimSpaceInfraTests {
         #expect(state.currentSpace?.id == regular.id)
     }
 
-    @Test("direct space has syncEnabled=false so it will not be synced")
-    @MainActor
-    func swimNotSynced() throws {
-        let (state, companion) = try makeStateWithCompanion()
-        state.startSwim(with: companion)
-
-        let directSpace = try state.db.findDirectSpace(companionId: companion.id)
-        #expect(directSpace?.syncEnabled == false)
-    }
 
     @Test("selectSpace with a regular space leaves the direct (DM) state")
     @MainActor

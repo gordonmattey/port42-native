@@ -26,9 +26,7 @@ public struct ChatView: View {
                     entries: spaceEntries,
                     placeholder: "chat with your reality... (press ? for help)",
                     error: appState.spaceErrors[spaceId ?? ""],
-                    typingNames: Array((appState.typingAgentNamesBySpace[spaceId ?? ""] ?? []).union(
-                        appState.sync.remoteTypingNames[spaceId ?? ""] ?? []
-                    )),
+                    typingNames: Array(appState.typingAgentNamesBySpace[spaceId ?? ""] ?? []),
                     toolingNames: Array(appState.toolingAgentNames),
                     mentionCandidates: buildMentionCandidates(),
                     localOwner: appState.currentUser?.displayName,
@@ -53,12 +51,7 @@ public struct ChatView: View {
                     onOpenSettings: {
                         NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
                     },
-                    onTypingChanged: { isTyping in
-                        if let spaceId = spaceId,
-                           let userName = appState.currentUser?.displayName {
-                            appState.sync.sendTyping(spaceId: spaceId, senderName: userName, isTyping: isTyping)
-                        }
-                    }
+                    onTypingChanged: { _ in }
                 )
             }
             .overlay(alignment: .bottomTrailing) {
@@ -138,19 +131,6 @@ public struct ChatView: View {
             let key = name.lowercased()
             if seenNames.insert(key).inserted {
                 candidates.append(MentionSuggestion(id: member.senderId, name: name, isAgent: member.isAgent))
-            }
-        }
-
-        // Online users from presence who haven't messaged yet
-        let onlineIds = appState.sync.onlineUsers[spaceId] ?? []
-        for userId in onlineIds {
-            if userId == localUserId { continue }
-            if seenIds.contains(userId) { continue }
-            if let name = appState.sync.knownNames[userId] {
-                let key = name.lowercased()
-                if seenNames.insert(key).inserted {
-                    candidates.append(MentionSuggestion(id: userId, name: name, isAgent: false))
-                }
             }
         }
 

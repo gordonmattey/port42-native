@@ -33,6 +33,8 @@ public struct BridgeArgs {
     }
 
     public var isEmpty: Bool { raw.isEmpty }
+    /// The argument names the caller sent, for the undeclared-argument refusal.
+    public var names: [String] { Array(raw.keys) }
     public func any(_ key: String) -> Any? { raw[key] }
     public var dictionary: [String: Any] { raw }
 

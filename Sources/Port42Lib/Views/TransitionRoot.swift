@@ -347,65 +347,12 @@ public struct TransitionRoot: View {
         }
     }
 
+    /// The deep-link door stays; what came through it is gone. `port42://agent` recipes went with LLM
+    /// companions, and `port42://space` invites rode the messaging hub (nautilus Phase 1 step 4).
+    /// Phase 4 routes the per-port invite (D10) through here.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "port42" else { return }
-
-        switch url.host {
-        case "agent":
-            do {
-                let invite = try AgentInvite.parse(link: url.absoluteString)
-                guard let user = appState.currentUser else {
-                    NSLog("[Port42] Cannot add invited agent: no current user")
-                    return
-                }
-                let agent = AgentConfig.createLLM(
-                    ownerId: user.id,
-                    displayName: invite.displayName,
-                    systemPrompt: invite.systemPrompt,
-                    provider: invite.provider,
-                    model: invite.model,
-                    trigger: .mentionOnly
-                )
-                appState.addCompanion(agent)
-                NSLog("[Port42] Added invited agent: %@", invite.displayName)
-            } catch {
-                NSLog("[Port42] Failed to parse agent invite: %@", error.localizedDescription)
-            }
-
-        case "space":
-            guard let invite = SpaceInvite.parse(url: url) else {
-                NSLog("[Port42] Failed to parse space invite: %@", url.absoluteString)
-                return
-            }
-            // If invite contains an encryption key it's an agent invite — show connect sheet
-            if invite.encryptionKey != nil {
-                let space = Space.create(name: invite.spaceName)
-                appState.agentConnectSpace = space
-                appState.agentConnectInviteURL = url.absoluteString
-                appState.showAgentConnectSheet = true
-            } else {
-                appState.joinSpaceFromInvite(invite)
-            }
-
-        case "openclaw":
-            let outerComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            if let inviteParam = outerComponents?.queryItems?.first(where: { $0.name == "invite" })?.value {
-                NSLog("[Port42] Agent deep link with invite: %@", inviteParam)
-                // Parse space name from invite URL (works with both port42:// and https:// formats)
-                let innerComponents = URLComponents(string: inviteParam)
-                let items = innerComponents?.queryItems ?? []
-                let dict = Dictionary(items.compactMap { i in i.value.map { (i.name, $0) } },
-                                      uniquingKeysWith: { _, last in last })
-                let spaceName = dict["name"] ?? "space"
-                let space = Space.create(name: spaceName)
-                appState.agentConnectSpace = space
-                appState.agentConnectInviteURL = inviteParam
-                appState.showAgentConnectSheet = true
-            }
-
-        default:
-            NSLog("[Port42] Unknown deep link type: %@", url.host ?? "nil")
-        }
+        NSLog("[Port42] Unhandled deep link: %@", url.host ?? "nil")
     }
 }
 

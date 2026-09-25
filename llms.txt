@@ -166,6 +166,9 @@ Generated from the live method registry: every entry below is served exactly as 
       Run JavaScript in an open browser session and return the result.
   browser.html(sessionId, options)  [permission: browser]
       Read the HTML of an open browser session, optionally scoped to a CSS selector.
+        options (object): { selector } to scope the read.
+        selector (string): CSS selector to read from (default: the whole page).
+        sessionId (string, required): The browser session.
   browser.navigate(sessionId, url)  [permission: browser]
       Navigate an open browser session to a new URL.
   browser.open(url, options)  [permission: browser]
@@ -181,6 +184,8 @@ Generated from the live method registry: every entry below is served exactly as 
   bus.publish(topic, payload, space_id)
       Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.
         payload (string, required): Message payload — any string, typically JSON
+        senderName (string): The name the publish is attributed to. Also accepted as sender_name.
+        sender_name (string): Alias of senderName.
         space_id (string): Target space ID. Omit for current space.
         topic (string, required): Bus topic (e.g. 'bus', 'port:myPortId')
   bus.read(topic, limit, space_id)
@@ -301,6 +306,8 @@ Generated from the live method registry: every entry below is served exactly as 
         topic (string): Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join/leave events.
   messages.send(text, space_id)
       Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.
+        senderName (string): The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name.
+        sender_name (string): Alias of senderName.
         space_id (string): Target space ID (from space_list). Omit for current space.
         text (string, required): The message text to send
   messages.sendAsCreator(text, space_id)
@@ -329,6 +336,7 @@ Generated from the live method registry: every entry below is served exactly as 
         env (object): type:"terminal" — custom environment variables for the shell.
         html (string): type:"web" — full port HTML body (include a <title> and <meta name="version">).
         initialInput (string): type:"terminal" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input.
+        presentation (string): Where the port appears: "tiled" (default, a desktop tile) or "parked".
         space_id (string): Space to create the port in (default: current space).
         systemPrompt (string): type:"terminal" — companion personality/role appended to the CLI's system prompt.
         title (string): Port title (default: derived from html <title>, or the command).
@@ -407,7 +415,7 @@ Generated from the live method registry: every entry below is served exactly as 
 ### ports
 
   ports.list(capabilities, space_id)
-      List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: ["terminal"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.
+      List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy (an id) with createdByName (who that is, for display), and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: ["terminal"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.
         capabilities (array): Filter to ports that have all of these capabilities. Examples: "terminal", "claude-code", "browser". Omit to list all ports.
         space_id (string): List only this space's ports. Omit to list every space's.
 

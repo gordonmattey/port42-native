@@ -30,6 +30,11 @@ extension AppState {
         guard let method = bridgeRegistry[canonical] else {
             throw BridgeError(code: .unknownMethod, message: "Unknown method: \(canonical)")
         }
+        // Before the permission gate: a call that names an argument the method does not take is a
+        // mistake in the call, and nobody should be asked to approve it.
+        if let refusal = DeclaredArgs.refusal(method: canonical, declared: method.declaredArgs, sent: args.names) {
+            throw refusal
+        }
 
         #if DEBUG
         // I1.1 (plan §B). Recorded BEFORE the permission gate, so a call that is about to be
@@ -510,6 +515,9 @@ extension AppState {
         let canonical = resolveBridgeAlias(canonicalOrAlias)
         guard let method = bridgeStreamRegistry[canonical] else {
             throw BridgeError(code: .unknownMethod, message: "Unknown streaming method: \(canonical)")
+        }
+        if let refusal = DeclaredArgs.refusal(method: canonical, declared: method.declaredArgs, sent: args.names) {
+            throw refusal
         }
         #if DEBUG
         ActorProbe.dispatch(method: canonical, principal: principal,

@@ -8,11 +8,6 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var name: String
     public var type: String
     public var createdAt: Date
-    /// Base64-encoded AES-256-GCM symmetric key for E2E encryption.
-    /// Nil for spaces created before encryption was added.
-    public var encryptionKey: String?
-    /// Whether this space participates in WebSocket sync. False for direct (DM) spaces.
-    public var syncEnabled: Bool
     /// Heartbeat interval in minutes. 0 = off. Fires a prompt to wake up companions.
     public var heartbeatInterval: Int
     /// The prompt sent to companions on each heartbeat tick.
@@ -35,13 +30,11 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// a new space lands at the end (`nextSortIndex`, assigned in `AppState.createSpace`).
     public var sortIndex: Int = 0
 
-    public init(id: String, name: String, type: String, createdAt: Date, encryptionKey: String? = nil, syncEnabled: Bool = true, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil, sortIndex: Int = 0) {
+    public init(id: String, name: String, type: String, createdAt: Date, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil, sortIndex: Int = 0) {
         self.id = id
         self.name = name
         self.type = type
         self.createdAt = createdAt
-        self.encryptionKey = encryptionKey
-        self.syncEnabled = syncEnabled
         self.heartbeatInterval = heartbeatInterval
         self.heartbeatPrompt = heartbeatPrompt
         self.accent = accent
@@ -86,8 +79,7 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
             id: UUID().uuidString,
             name: name,
             type: type,
-            createdAt: Date(),
-            encryptionKey: SpaceCrypto.generateKey()
+            createdAt: Date()
         )
     }
 }

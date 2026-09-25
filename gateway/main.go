@@ -27,21 +27,16 @@ func main() {
 	home, _ := os.UserHomeDir()
 	logPath := home + "/Library/Application Support/Port42/gateway" + *addr + ".log"
 	os.MkdirAll(home+"/Library/Application Support/Port42", 0755)
+	// KEEP THE LAST RUN'S LOG. This used to open with O_TRUNC, so a gateway that crashed and was
+	// restarted wiped the only record of why. The previous run's file is kept as `.1`.
+	if _, err := os.Stat(logPath); err == nil {
+		os.Rename(logPath, logPath+".1")
+	}
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err == nil {
 		log.SetOutput(f)
 	}
 
 	gw := NewGateway()
-
-	// Initialize message store for history replay (survives restarts)
-	dataDir := home + "/Library/Application Support/Port42"
-	if msgStore, err := NewMessageStore(dataDir); err != nil {
-		log.Printf("[gateway] message store disabled: %v", err)
-	} else {
-		gw.messageStore = msgStore
-		defer msgStore.Close()
-		log.Printf("[gateway] message store ready")
-	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", gw.HandleWebSocket)

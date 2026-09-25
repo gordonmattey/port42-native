@@ -163,7 +163,8 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "systemPrompt": ["type": "string", "description": "type:\"terminal\" — companion personality/role appended to the CLI's system prompt."],
                 "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
                 "initialInput": ["type": "string", "description": "type:\"terminal\" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input."],
-                "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."]
+                "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."],
+                "presentation": ["type": "string", "description": "Where the port appears: \"tiled\" (default, a desktop tile) or \"parked\"."]
             ],
             "required": ["type"]
         ] as [String: Any]) { p, args in
@@ -687,7 +688,16 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
     }
 
     r["browser.html"] = BridgeMethod(permission: .browser, paramNames: ["sessionId", "options"], toolExposed: false,
-        description: "Read the HTML of an open browser session, optionally scoped to a CSS selector.") { _, args in
+        description: "Read the HTML of an open browser session, optionally scoped to a CSS selector.",
+        inputSchema: [
+            "type": "object",
+            "properties": [
+                "sessionId": ["type": "string", "description": "The browser session."],
+                "options": ["type": "object", "description": "{ selector } to scope the read."],
+                "selector": ["type": "string", "description": "CSS selector to read from (default: the whole page)."]
+            ] as [String: Any],
+            "required": ["sessionId"]
+        ]) { _, args in
         let sessionId = try args.requireString("sessionId")
         var opts = args.object("options") ?? args.dictionary
         if opts["selector"] == nil, let sel = args.string("selector") { opts["selector"] = sel }
@@ -1359,7 +1369,9 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             "properties": [
                 "topic": ["type": "string", "description": "Bus topic (e.g. 'bus', 'port:myPortId')"],
                 "payload": ["type": "string", "description": "Message payload — any string, typically JSON"],
-                "space_id": ["type": "string", "description": "Target space ID. Omit for current space."]
+                "space_id": ["type": "string", "description": "Target space ID. Omit for current space."],
+                "senderName": ["type": "string", "description": "The name the publish is attributed to. Also accepted as sender_name."],
+                "sender_name": ["type": "string", "description": "Alias of senderName."]
             ],
             "required": ["topic", "payload"]
         ]) { p, args in
@@ -1375,7 +1387,9 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             "type": "object",
             "properties": [
                 "text": ["type": "string", "description": "The message text to send"],
-                "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."]
+                "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."],
+                "senderName": ["type": "string", "description": "The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name."],
+                "sender_name": ["type": "string", "description": "Alias of senderName."]
             ],
             "required": ["text"]
         ]) { p, args in
@@ -1411,8 +1425,6 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         // delegate to clear it (moved verbatim from the old port switch case).
         if let sid = target {
             appState.typingAgentNamesBySpace[sid, default: []].remove(senderName)
-            appState.sync.sendTyping(spaceId: sid, senderName: senderName, isTyping: false,
-                                     senderOwner: appState.currentUser?.displayName)
         }
         return .object(["ok": .bool(true)])
     }
@@ -1450,7 +1462,7 @@ private func desktopFor(_ panel: PortPanel, requested: String?, appState: AppSta
 private func registerPortMethods(into r: inout BridgeRegistry, appState: AppState) {
 
     r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities", "space_id"],
-        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy, and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
+        description: "List active ports. Each port has an id (UDID), title, capabilities array, status, spaceId, createdBy (an id) with createdByName (who that is, for display), and cwd (if it has a terminal). Terminal ports also report surfaceBound. Use capabilities: [\"terminal\"] to filter to terminal ports; pass space_id to list only that space's ports. Use the id field with port_push for reliable routing (raw keystrokes to terminals, data to web ports). Always show the id and capabilities fields when presenting results — they are required for follow-up tool calls.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -1471,6 +1483,11 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         // the same instant — a listing whose rows were read at different moments would hand out
         // tokens that were never all true together.
         let activity = appState.portInput.activitySnapshot
+        // Who each creator id is, resolved once here on the main actor: registered clients first,
+        // then companions by id.
+        var creatorNames: [String: String] = [:]
+        for c in appState.companions { creatorNames[c.id] = c.displayName }
+        for c in appState.clientRegistry.clients() { creatorNames[c.id] = c.name }
 
         var entries: [BridgeValue] = []
         func entry(id: String, title: String, createdBy: String?, capabilities: [String],
@@ -1489,7 +1506,12 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
                 "token": .string(activity.token(for: id)),
             ]
             if let spaceId { o["spaceId"] = .string(spaceId) }
-            if let createdBy { o["createdBy"] = .string(createdBy) }
+            if let createdBy {
+                o["createdBy"] = .string(createdBy)
+                // The NAME a person reads (audit F7). `createdBy` is an id, and a companion's terminal
+                // client id is `terminal-<panel>-<space>`, which tells nobody who made the port.
+                if let name = creatorNames[createdBy] { o["createdByName"] = .string(name) }
+            }
             if let cwd { o["cwd"] = .string(cwd) }
             if let surfaceBound { o["surfaceBound"] = .bool(surfaceBound) }
             if let x, let y { o["x"] = .double(Double(x)); o["y"] = .double(Double(y)) }

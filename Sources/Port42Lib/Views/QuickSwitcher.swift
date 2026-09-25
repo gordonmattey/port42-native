@@ -12,7 +12,6 @@ struct QuickSwitcherItem: Identifiable {
     enum Kind {
         case space(Space)
         case companion(AgentConfig)
-        case friend(SpaceMember)
     }
 }
 
@@ -75,46 +74,7 @@ public struct QuickSwitcher: View {
 
             Divider().background(Port42Theme.border)
 
-            // Agent invite hint (port42://agent — adds a companion; a feature migrated
-            // from the classic app along with the switcher).
-            if let agent = parsedAgentInvite {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Port42Theme.accent)
-                    Text("press enter to add companion \(agent.displayName)")
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.accent)
-                    Text(agent.model)
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Port42Theme.accent.opacity(0.1))
-            }
 
-            // Space invite link hint
-            if let inviteInfo = parsedInvite {
-                HStack(spacing: 8) {
-                    Image(systemName: "link")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Port42Theme.accent)
-                    Text("press enter to join #\(inviteInfo.spaceName)")
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.accent)
-                    if let host = inviteInfo.hostName {
-                        Text("hosted by \(host)")
-                            .font(Port42Theme.mono(10))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Port42Theme.accent.opacity(0.1))
-            }
 
             // Results
             ScrollViewReader { proxy in
@@ -199,21 +159,16 @@ public struct QuickSwitcher: View {
         }
     }
 
-    private var friendItems: [QuickSwitcherItem] {
-        appState.friends.map { friend in
-            QuickSwitcherItem(id: "fr-\(friend.senderId)", icon: "@", name: friend.displayName(localOwner: appState.currentUser?.displayName), kind: .friend(friend))
-        }
-    }
 
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Empty query: show spaces only (companions and friends are in sidebar)
+        // Empty query: show spaces only (companions are in the sidebar)
         guard !raw.isEmpty else { return spaceItems }
 
-        // @ prefix: search companions and friends
+        // @ prefix: search companions
         if raw.hasPrefix("@") {
             let q = String(raw.dropFirst())
-            let people = companionItems + friendItems
+            let people = companionItems
             if q.isEmpty { return people }
             return people.filter { match(q, $0.name.lowercased()) }
         }
@@ -226,7 +181,7 @@ public struct QuickSwitcher: View {
         }
 
         // No prefix: search all
-        let all = spaceItems + companionItems + friendItems
+        let all = spaceItems + companionItems
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -247,102 +202,12 @@ public struct QuickSwitcher: View {
         return true
     }
 
-    // MARK: - Invite Link
 
-    /// Extract the first URL from text that may contain surrounding prose
-    private func extractURL(from text: String) -> String? {
-        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-        let range = NSRange(text.startIndex..., in: text)
-        if let match = detector?.firstMatch(in: text, range: range),
-           let urlRange = Range(match.range, in: text) {
-            return String(text[urlRange])
-        }
-        return nil
-    }
 
-    /// A pasted `port42://agent?...` link → the invited companion (nil if the query isn't one).
-    private var parsedAgentInvite: AgentInviteData? {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        for candidate in [trimmed, extractURL(from: trimmed)].compactMap({ $0 })
-        where candidate.hasPrefix("port42://agent") {
-            return try? AgentInvite.parse(link: candidate)
-        }
-        return nil
-    }
-
-    private var parsedInvite: SpaceInviteData? {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Try parsing the input directly, or extract a URL from surrounding text
-        let candidates = [trimmed, extractURL(from: trimmed)].compactMap { $0 }
-
-        for candidate in candidates {
-            // Direct port42:// deep link
-            if candidate.hasPrefix("port42://space"),
-               let url = URL(string: candidate) {
-                return SpaceInvite.parse(url: url)
-            }
-
-            // HTTPS invite page link (e.g. https://port42.ai/invite.html?gateway=wss://...&id=...&name=...)
-            // Also supports legacy format where the invite page IS the gateway host
-            if let url = URL(string: candidate),
-               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               (components.scheme == "https" || components.scheme == "http"),
-               (components.path == "/invite" || components.path == "/invite.html") {
-                let items = components.queryItems ?? []
-                let dict = Dictionary(items.compactMap { item in
-                    item.value.map { (item.name, $0) }
-                }, uniquingKeysWith: { _, last in last })
-
-                guard let spaceId = dict["id"],
-                      let name = dict["name"] else { continue }
-
-                // Prefer explicit gateway param (new format via port42.ai)
-                // Fall back to deriving from the invite page host (legacy self-hosted format)
-                let gateway: String
-                if let gw = dict["gateway"], !gw.isEmpty {
-                    gateway = gw
-                } else {
-                    guard let host = components.host else { continue }
-                    let scheme = components.scheme == "https" ? "wss" : "ws"
-                    let port = components.port.map { ":\($0)" } ?? ""
-                    gateway = "\(scheme)://\(host)\(port)"
-                }
-
-                return SpaceInviteData(
-                    gateway: gateway,
-                    spaceId: spaceId,
-                    spaceName: name,
-                    encryptionKey: dict["key"],
-                    token: dict["token"],
-                    hostName: dict["host"]
-                )
-            }
-        }
-
-        return nil
-    }
 
     // MARK: - Actions
 
     private func selectCurrent() {
-        if let agent = parsedAgentInvite, let user = appState.currentUser {
-            let companion = AgentConfig.createLLM(
-                ownerId: user.id, displayName: agent.displayName,
-                systemPrompt: agent.systemPrompt, provider: agent.provider,
-                model: agent.model, trigger: .mentionOnly)
-            appState.addCompanion(companion)
-            if let space = appState.currentSpace {          // land it in THIS space's crew
-                appState.addCompanionToSpace(companion, space: space)
-            }
-            isPresented = false
-            return
-        }
-        if let invite = parsedInvite {
-            appState.joinSpaceFromInvite(invite)
-            isPresented = false
-            return
-        }
 
         guard selectedIndex < filteredItems.count else { return }
         select(filteredItems[selectedIndex])
@@ -357,8 +222,6 @@ public struct QuickSwitcher: View {
         case .companion(let companion):
             if let shell { shell.activateCompanion(companion) }   // DM tile on this desktop
             else { appState.startSwim(with: companion) }
-        case .friend(let friend):
-            appState.startDM(with: friend)
         }
         isPresented = false
     }
@@ -369,7 +232,6 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
-        case .friend: return Port42Theme.accent.opacity(0.6)
         }
     }
 
@@ -377,7 +239,6 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space(let space): return space.isResting ? "resting" : "space"
         case .companion: return "🏊"
-        case .friend: return "friend"
         }
     }
 }

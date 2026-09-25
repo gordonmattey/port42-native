@@ -159,24 +159,7 @@ public final class Analytics {
     /// User joined via an invite link.
     public func inviteJoined() { track("invite_joined") }
 
-    /// OpenClaw gateway detected and connected.
-    public func openClawDetected() { track("openclaw_detected") }
 
-    /// Port42 plugin installed into OpenClaw.
-    public func openClawPluginInstalled() { track("openclaw_plugin_installed") }
-
-    /// User connected an OpenClaw agent to a space.
-    public func openClawConnected() { track("openclaw_agent_connected") }
-
-    // MARK: - Tunneling
-
-    /// User completed first time ngrok setup.
-    public func ngrokConfigured() { track("ngrok_configured") }
-
-    /// User toggled ngrok on/off from settings.
-    public func ngrokToggled(enabled: Bool) {
-        track("ngrok_toggled", properties: ["enabled": enabled])
-    }
 
     // MARK: - Legacy (keep for backward compat with existing callsites)
 

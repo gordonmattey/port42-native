@@ -132,7 +132,11 @@ public final class GatewayProcess: ObservableObject {
             Task { @MainActor in
                 guard let self, self.process === ended else { return }   // an older spawn's exit
                 self.isRunning = false
-                print("[gateway] process terminated")
+                // HOW it ended, so a crash explains itself: an uncaught signal (SIGKILL, SIGSEGV) and a
+                // clean exit with a status are different failures, and nothing recorded which until now.
+                let how = ended.terminationReason == .uncaughtSignal ? "signal" : "exit"
+                NSLog("[gateway] process ended: %@ %d%@", how, ended.terminationStatus,
+                      self.stopRequested ? " (asked to stop)" : "")
                 guard !self.stopRequested, !AppState.isTestProcess else { return }
                 let now = Date()
                 guard Self.shouldRespawn(after: self.respawns, now: now) else {

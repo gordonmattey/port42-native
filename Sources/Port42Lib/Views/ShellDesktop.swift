@@ -43,7 +43,7 @@ struct ShellChrome: View {
 
             // Same order as the pre-shell header cluster: status dots → pause → usage → settings.
             // (Power/sign-out/reset moved to the PORT42 mark menu on the left.)
-            chromeRow { statusCluster }                      // gateway · tunnel · auth-key
+            chromeRow { statusCluster }                      // gateway · auth-key
             stopAllButton                                    // kill switch for every companion call
             // Reset background — a SHELL-level control, not a per-port one. Appears only when a port
             // is set as the background; clears it back to the ambient dreamscape and pops the port
@@ -101,16 +101,13 @@ struct ShellChrome: View {
 
     // MARK: global status + kill switch (ported from the pre-shell header cluster)
 
-    /// gateway (bolt) · tunnel (globe, when active) · Anthropic auth (key, colored by state).
+    /// gateway (bolt) · Anthropic auth (key, colored by state).
     private var statusCluster: some View {
         HStack(spacing: 9) {
             // Every indicator ALWAYS shows — the icon+color carry on/off state, they never disappear.
             Image(systemName: appState.door.isConnected ? "bolt.fill" : "bolt.slash").font(.system(size: 10))
                 .foregroundStyle(appState.door.isConnected ? .green : Port42Theme.textSecondary)
                 .appKitTooltip(appState.door.isConnected ? "Gateway connected" : "Gateway disconnected")
-            Image(systemName: "globe").font(.system(size: 10))
-                .foregroundStyle(appState.tunnel.publicURL != nil ? shell.accent : Port42Theme.textSecondary.opacity(0.4))
-                .appKitTooltip(appState.tunnel.publicURL != nil ? "Remote access on — \(appState.tunnel.publicURL ?? "")" : "Remote access off")
             Image(systemName: "key.fill").font(.system(size: 10)).foregroundStyle(authDotColor)
                 .appKitTooltip(authTooltip)
         }

@@ -27,10 +27,6 @@ const (
 	CodeUnknownMethod = "unknown_method"
 )
 
-// DELIBERATELY NOT CODED: the channel and message path.
-//
-// "rate limit exceeded", "channel_id too long", "not a member of this channel", "too many active
-// tokens", "message requires channel_id" are all on the MESSAGING protocol, which slice-02 leaves
-// untouched by BR1 and which no bridge caller meets. Typing them would mean either inventing codes
-// the app's enum does not have, or bending messaging failures into names built for the RPC surface.
-// The line is drawn at what a CALLER can act on, which is what Part 0's ERRORS row is about.
+// The channel and message path that once sat beside these ("not a member of this channel", "too many
+// active tokens") went with the hub in nautilus Phase 0 step 3. What is left uncoded is "rate limit
+// exceeded", which is a transport condition rather than a bridge result.

@@ -310,3 +310,52 @@ public func anthropicToolSchema(canonical: String, method: BridgeStreamMethod) -
 
 /// Canonical method name → its streaming implementation (separate from the one-shot registry).
 public typealias BridgeStreamRegistry = [String: BridgeStreamMethod]
+
+
+// MARK: - Undeclared arguments (nautilus Phase 0 step 6)
+//
+// AN ARGUMENT A METHOD DOES NOT DECLARE IS REFUSED, NOT IGNORED. Ignoring it is how a wrong answer
+// looked right: on 2026-07-31 `terminal.exec` was called with an `id`, as if it addressed a terminal.
+// It has no such parameter, so it ran on the machine, and a session spent time chasing a defect that
+// did not exist. The audit for this plan passed `ports.list` an `all_spaces` it does not have, on every
+// call, for a day (audit F13).
+//
+// A method declares its arguments twice over, in `paramNames` (the positional order port JS uses) and
+// in its schema's `properties` (what the reference and the tool schema publish). The accepted set is
+// the union. One exception: a method whose ONLY declared argument is an opaque `options` bag accepts
+// its options flat as well, and its keys are not enumerated anywhere yet. Those stay open until each
+// bag's keys are declared; `BridgeDeclaredArgsTests` lists them so the set can only shrink.
+
+enum DeclaredArgs {
+    static func names(paramNames: [String], inputSchema: [String: Any]) -> Set<String> {
+        let props = (inputSchema["properties"] as? [String: Any]).map { Set($0.keys) } ?? []
+        return Set(paramNames).union(props)
+    }
+
+    /// Only an opaque option bag (plus the write token every write verb gains) is declared.
+    static func isOpenBag(_ declared: Set<String>) -> Bool {
+        declared.subtracting([PortActivity.expectParam]) == ["options"]
+    }
+
+    /// The error for the names this call sent that the method does not take, or nil.
+    static func refusal(method: String, declared: Set<String>, sent: [String]) -> BridgeError? {
+        guard !isOpenBag(declared) else { return nil }
+        // `token` is accepted everywhere: a write checks it, a read ignores it. Agents thread the
+        // token through every call they make, and refusing it on a read would punish the habit the
+        // write contract asks for.
+        let unknown = sent.filter { !declared.contains($0) && $0 != PortActivity.expectParam }.sorted()
+        guard !unknown.isEmpty else { return nil }
+        let takes = declared.sorted().joined(separator: ", ")
+        let what = unknown.count == 1 ? "argument '\(unknown[0])'" : "arguments " + unknown.map { "'\($0)'" }.joined(separator: ", ")
+        return BridgeError(code: .badArg,
+                           message: "\(method) does not take \(what). It takes: \(takes.isEmpty ? "no arguments" : takes).")
+    }
+}
+
+extension BridgeMethod {
+    var declaredArgs: Set<String> { DeclaredArgs.names(paramNames: paramNames, inputSchema: inputSchema) }
+}
+
+extension BridgeStreamMethod {
+    var declaredArgs: Set<String> { DeclaredArgs.names(paramNames: paramNames, inputSchema: inputSchema) }
+}

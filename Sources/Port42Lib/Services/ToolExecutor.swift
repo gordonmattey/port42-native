@@ -126,7 +126,7 @@ public final class ToolExecutor {
 
 // MARK: - Remote Tool Executor
 
-/// Specialized executor for remote RPC calls (CLIs, OpenClaw).
+/// Specialized executor for remote RPC calls (the CLI, companions, any enrolled client).
 /// Includes "Always Allow" permission bypasses from global settings.
 @MainActor
 public final class RemoteToolExecutor: ObservableObject {

@@ -1,0 +1,136 @@
+# Nautilus Phase 1: remove what no scenario needs, and build the chat port
+
+Detailed plan for Phase 1 of `plan-shell-only.md`. Scenario served: 1. Written 2026-09-25 against
+`nautilus` at `872fae8`, with Phase 0 complete and all five scenarios passing.
+
+## Goal
+
+Port42 holds ports, a registry, grants and a door, and nothing else. The messaging system, the in-app
+model and the memory service are gone. The native chat tile is replaced by a chat port that any scope
+can carry: the desktop, a space, or one port.
+
+## Progress
+
+1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · 1.1 re-scoped (below) ·
+1.3 and 1.5 open.
+
+## Order, and why
+
+Pure removals first, each shippable alone and each leaving the harness at five of five. The chat port
+comes last, because it is the one design in the phase and it replaces the thing scenario 1 runs
+through today.
+
+Each step is its own commit. Suite green, Go suites green, harness five of five, plans updated.
+
+### 1.1 Retired spikes, the Keeper service, swims
+
+- **Spikes stay (decided 2026-09-25).** `PortDesktopSpike`, `PortResizeSpike`, `ScreenRecordSpike` and
+  the rest are wired into `Port42App`'s debug menu and its hands-free launch flags, so they are dev
+  tooling, not dead code. No scenario needs them and none ships in a release build. Removing them
+  is GM's call.
+- **Keeper moves to step 1.3.** The in-app engine's system prompt teaches the Keeper tools and injects
+  Keeper's memory, and the engine's initiative triggers (watched signals, held topics, bus signals) read
+  Keeper's positions and folds. The two come out together.
+- **Keeper:** `BridgeServiceKeeper`, `CompanionRelationship`, `CreaseInspectorSheet`, the `crease`,
+  `fold`, `position` and `engrave` methods, their `DatabaseService` sections, and the four
+  `companion_*` tables (empty on Dev3). Tests: `CompanionRelationshipTests`, `D4MemoryScopeTests`,
+  `BridgeParityMemoryTests`, and the Keeper cases in any mixed suite.
+- **Swims:** `swimMessages` and the swim branches of `ConversationContent`. Tests: `SwimTests`,
+  `SwimUnificationTests`.
+- **Schema:** migration v47 drops the four `companion_*` tables and `swimMessages`. Existing migrations
+  are never edited.
+
+### 1.2 Bring-your-own-agent over invites
+
+`OpenClawService`, `OpenClawSheet`, `PythonAgentSheet`, `AgentConnectSheet`, their `AppState` flags and
+their `ShellView` sheets. The `port42-openclaw` and `port42-python` repos are left alone here; retiring
+them is GM's call and outside this repo.
+
+**Done 2026-09-25.** The four files are gone, along with the flags and prefill state in `AppState`, the
+OpenClaw detection at launch, the three sheet overlays and their escape-key closes in `ShellView`,
+the settings button that upgraded the OpenClaw plugin, and three analytics events. `port42://openclaw`
+links now fall through to "unknown deep link". A space invite carrying an encryption key, which was
+the agent-connect flow, is logged as unsupported rather than joined. Suite 1441 green; harness five
+of five.
+
+### 1.3 The in-app engine, and the first run rebuilt on a CLI agent
+
+These go together, because the first run is the engine's last user.
+
+- **Engine:** `LLMEngine`, `GeminiEngine`, `LLMBackend`, `LLMStreamCollector`, `BridgeServiceAI`,
+  `AgentRouterLLM`, `AppState+PortAI`, `AgentAuth`, `ModelPicker`, `UsageView`, the `ai.*` methods,
+  `companions.invoke`, `token_usage`, heartbeats, and the `.llm` companion mode with its columns
+  (D7, D4).
+- **First run:** Echo becomes a command companion. Setup detects `claude` and `codex` on the PATH. With
+  one, Echo runs on it; with both, the person picks; with neither, setup offers the Claude Code
+  installer or a new Codex installer. The Keychain token step goes (D9). Setup ends focused on Echo's
+  terminal with the prefilled line. Echo's prompt is rewritten for a command companion: `port.create`,
+  never a fence (D11), with the Codex welcome delivered through `AGENTS.md`.
+- **Schema:** v48 drops `token_usage` and the LLM columns on `agents`, and the heartbeat columns on
+  `spaces`.
+
+**Deferred to GM:** the wording of Echo's welcome, which is product copy.
+
+### 1.4 The messaging system
+
+- **App:** the rest of `SyncService`, `TunnelService`, `SpaceCrypto`, `AppleAuthService`, `AgentInvite`,
+  `Port42Members`, `NgrokSetupSheet`; friends, typing, read receipts, member lists and join tokens in
+  `AppState`, `ChatView`, `ConversationContent`, `QuickSwitcher` and `SetupView`.
+- **Invites:** the space-invite and agent-invite payloads go. The flow stays for Phase 4: link grammar,
+  deep-link accept path, clipboard, landing page.
+- **Done 2026-09-25, ngrok and invites.** `TunnelService`, `NgrokSetupSheet`, `SpaceInvite` and
+  `AgentInvite` are gone, with the settings sharing section, the chrome's remote-access globe, ngrok
+  autostart and analytics, the switcher's invite-link paste, and `joinSpaceFromInvite`. Creating an
+  invite was already unreachable, since nothing presented the ngrok sheet that built one. The deep-link
+  handler keeps its door and logs what arrives; Phase 4's per-port invite lands there. Suite 1426
+  green (the 15 removed tests were invite and key-exchange cases); harness five of five.
+- **Done 2026-09-25, the sync client.** `SyncService`, `SpaceCrypto` and `AppleAuthService` are gone. So
+  are every send, typing broadcast, join and read receipt that went through them. The incoming-message
+  and presence handlers are gone, along with friends (remote humans), their direct messages and their
+  switcher entries, remote typing and presence in the chat, and setup's dev-only Apple sign-in step
+  and its boot line. The chat keeps its local companions' typing. Suite 1375 green (51 fewer: the
+  crypto, sync-auth, Apple-auth and sync-envelope suites). Harness five of five, with one scenario 5
+  timeout on the first run that passed twice on rerun (F18).
+- **Schema (done 2026-09-25, v47):** drops `spaces.encryptionKey`, `spaces.syncEnabled` and
+  `users.appleUserID`, with the fields from `Space` and `AppUser`. `messages.syncStatus` and
+  `messages.senderOwner` go with the `messages` table in step 1.5. `users.publicKey` and
+  `users.privateKey` stay for now: whether Phase 4's peer identity reuses them is GM's call. Live
+  on Dev3's real data: 4 spaces, 1 user and 28 ports before and after, and the harness passed five of
+  five. The pre-migration database is kept at the session scratchpad as `dev3-pre-v47.sqlite`.
+- **Tests:** `ChannelCryptoTests`, `EncryptionIntegrationTests`, `SyncAuthTests`, `AppleAuthTests`,
+  `SenderOwnerTests`, `Port42MembersTests` and the messaging cases of mixed suites.
+
+### 1.5 The chat port
+
+The one design in the phase. It needs GM's review before it is built, and nothing before it depends
+on it.
+
+- A chat is a web port that any scope can carry: port 0, a space, or a port. Its transcript is an
+  append-only record in the storage service, keyed to that port (D1, D3).
+- A companion attached to a scope subscribes to that port's chat. Membership (`agentSpaces`) migrates
+  to subscriptions.
+- A mention is an event on the chat port and carries the caller who sent it (F16). The mention router
+  and the teleport hooks move off the `messages` table onto those events.
+- A terminal port's chat is its companion's session: a message goes in as terminal input, the shim's
+  end-of-turn hook posts the reply back.
+- The native chat tile, `ChatView`, `ConversationContent`, inline ports, port fences (D11), the
+  `[portref]` cards and the `messages` table go.
+- **Open for GM:** how the chat port looks, and how a wider-scope chat shows while focused on a
+  narrower one. **A buildable draft is in `design-chat-port.md`**, with four questions for GM at its end.
+
+### 1.6 Small, clearly right
+
+- **F7 (done):** `ports.list` entries carry `createdByName` next to `createdBy`: the registered
+  client's name, else the companion's. `createdBy` stays an id because other code reads it as one.
+  Live: the scenario 1 port lists `harness-s1-claude`, and `nautilus s1 cpu` lists `swift-otter`.
+- **Shim (done):** `sessionPin` adds nothing when the person's own arguments choose a session
+  (`--resume`, `-r`, `--continue`, `-c`, `--session-id`, `--fork-session`).
+
+**Deferred to GM, because they delete data:** reaping the `port_versions` rows already written as
+layout noise (F6), and reaping the panel whose space no longer exists (F8).
+
+## Verify
+
+After every step: suite, Go suites, and the harness at five of five. After 1.3, a fresh data directory
+runs the ceremony, detects the CLI and lands on Echo's terminal, once with each CLI. After 1.5,
+scenario 1 passes at all three scopes and a transcript survives a restart.
