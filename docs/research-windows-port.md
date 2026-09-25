@@ -286,3 +286,26 @@ spawn now fails a test.
 | 3 | ConPTY plus a JS terminal for the terminal ports? | Not attempted. Still the largest unknown, and the one that would also delete a 537 MB dependency from the Mac build. |
 | 4 | Can WebView2 express the `PortBridge` contract? | Not attempted. |
 | 5 | Does the Go side build on Windows? | **Yes, all three.** `gateway` and `shim` cross-compile untouched. `cli` needed one function: `isInteractive()` used a hand-rolled `TIOCGETA` ioctl, replaced with `term.IsTerminal`. Ten lines, tests still pass, demonstrated on this branch. |
+
+## Re-measured after nautilus Phase 1 landed (run 36111898137)
+
+Phase 0 finished and Phase 1 steps 1 to 4 landed while this spike was running: the sync client,
+ngrok, the invite payloads and the hub's columns are gone. The tree shrank by about 3,965 lines.
+
+| | Before (6d37d0d) | After Phase 1 (c0c4eff) |
+|---|---|---|
+| Views | 25 files, 14,930 lines | 21 files, 13,337 |
+| Services | 96 files, 28,935 | 89 files, 26,563 |
+| CryptoKit importers | 5 | 0 in the top imports |
+| **Kernel portable on Linux and Windows** | 30 files, 3,818 lines | **30 files, 3,869 lines** |
+
+**The portable set did not grow.** That is the useful result, and it was not the expected one. Phase 1
+deleted several thousand lines of Apple-coupled code, and the kernel's portable fraction stayed
+exactly where it was, because the deleted code was never what blocked it. What blocks it is the seam
+list: `PortPanel` inside a view file, geometry constants on `ShellState`, and `AppState` in the
+dispatch path.
+
+So deleting Apple-coupled features shrinks the SHELL's porting surface and leaves the KERNEL boundary
+where it was. Only moving types moves that. Anyone reasoning that "nautilus will make this portable"
+should read this row: it did not, and it was never going to, because the two are different problems
+that happen to share a direction.
