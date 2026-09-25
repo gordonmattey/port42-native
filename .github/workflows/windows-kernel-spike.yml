@@ -1,0 +1,71 @@
+# Spike, not CI for the product. It answers one question with a build instead of an opinion:
+# how much of Port42's kernel compiles off Apple, and does GRDB compile on Windows?
+#
+# `spikes/windows-kernel/carve.sh` generates a package from the tree's own sources (nothing is
+# duplicated in git), then prunes whatever fails until the build is green and PRINTS what it dropped.
+# The dropped list is the deliverable: it is the seam list between kernel and shell.
+#
+# Scoped to its own branch and manual runs, so it never gates anyone's work.
+name: windows kernel spike
+
+on:
+  push:
+    branches: [research-windows-port]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          swift-version: swift-6.0.3-release
+          swift-build: 6.0.3-RELEASE
+      - uses: actions/checkout@v4
+      - name: swift version
+        run: swift --version
+      - name: carve the kernel
+        shell: bash
+        run: ./spikes/windows-kernel/carve.sh
+      - name: build the kernel, pruning what fails
+        shell: bash
+        working-directory: spikes/windows-kernel/generated
+        run: |
+          for r in 1 2 3 4 5 6 7 8; do
+            out=$(swift build --target Port42Kernel 2>&1 || true)
+            bad=$(echo "$out" | grep -oE "Port42Kernel[\\/][A-Za-z+0-9]+\.swift[^ ]*: error:" \
+                  | sed -E "s|.*[\\/]([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u)
+            if [ -z "$bad" ]; then echo "WINDOWS GREEN after $((r-1)) prune round(s)"; break; fi
+            for b in $bad; do echo "  round $r: dropping $b"; rm -f "Sources/Port42Kernel/$b.swift"; done
+          done
+          echo "SURVIVES ON WINDOWS: $(ls Sources/Port42Kernel | wc -l) files, $(cat Sources/Port42Kernel/*.swift | wc -l) lines"
+          ls Sources/Port42Kernel
+      - name: does GRDB build on Windows
+        shell: bash
+        working-directory: spikes/windows-kernel/generated
+        continue-on-error: true
+        run: swift build --target GRDBProbe 2>&1 | tail -30
+
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev
+      - name: carve the kernel
+        run: ./spikes/windows-kernel/carve.sh
+      - name: build the kernel, pruning what fails
+        working-directory: spikes/windows-kernel/generated
+        run: |
+          for r in 1 2 3 4 5 6 7 8; do
+            out=$(swift build --target Port42Kernel 2>&1 || true)
+            bad=$(echo "$out" | grep -oE "/Port42Kernel/[A-Za-z+0-9]+\.swift[^ ]*: error:" \
+                  | sed -E "s|/Port42Kernel/([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u)
+            if [ -z "$bad" ]; then echo "LINUX GREEN after $((r-1)) prune round(s)"; break; fi
+            for b in $bad; do echo "  round $r: dropping $b"; rm -f "Sources/Port42Kernel/$b.swift"; done
+          done
+          echo "SURVIVES ON LINUX: $(ls Sources/Port42Kernel | wc -l) files, $(cat Sources/Port42Kernel/*.swift | wc -l) lines"
+      - name: does GRDB build on Linux
+        working-directory: spikes/windows-kernel/generated
+        continue-on-error: true
+        run: swift build --target GRDBProbe 2>&1 | tail -5
