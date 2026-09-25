@@ -17,10 +17,6 @@ is not on screen, and when the receiver is a companion rather than a port.
 2. **What a burst of events costs.** Every wake is a full model turn (the Open Synth report measured
    one inference per beat). Recommended: at most one turn in flight per companion; events that arrive
    during a turn are delivered together as the next turn.
-3. **Whether port JavaScript needs a token to write.** Today a port's own JS can push without one,
-   which the field report called a carve-out from R5. Recommended: a port writing to ITSELF needs
-   none (the bridge knows the caller is that surface); a write to ANY OTHER port needs the target's
-   token, like every other caller. The manual states the rule either way.
 
 ## What is measured
 
@@ -35,8 +31,10 @@ is not on screen, and when the receiver is a companion rather than a port.
   should therefore already hear its events. Not yet shown by the harness.
 - **A companion wakes only on chat.** A mention wakes it (a closed terminal is respawned first). It
   cannot watch a port.
-- **Errors do not reach port JS.** The bridge rejects with a bare `Error`: `e.code`, `e.current` and
-  `e.ran` are undefined, so a port cannot do the one-retry recovery the token design promises.
+- **Errors reach port JS, and there is no token carve-out** (both field-report defects, verified
+  2026-09-25). Since 2026-07-28 the bridge rejects with the whole envelope, so `e.code` and
+  `e.current` are set in a port's catch. A port's own JS writing without a token is refused
+  `token_required`, whether it writes to itself or to another port: one rule for every caller.
 - **`terminal.exec` runs as a raw child of the app**, attributed to its caller only by the grant it
   needed. It has no port.
 - **There is no tile-less port.** Every port is tiled, parked or the wallpaper.
@@ -45,14 +43,12 @@ is not on screen, and when the receiver is a companion rather than a port.
 
 Each step is its own commit: suite green, harness five of five, plans updated.
 
-### 3.1 Errors reach port JS
+### 3.1 Errors reach port JS: already true
 
-The bridge's rejection keeps `code`, `current` (on `stale_write` and `token_required`) and `ran` (on
-`js_syntax`), so a port can read `e.code` and retry once with `e.current`. The manual's retry example
-runs from a port.
-
-*Gates:* a refused write from port JS rejects with `code` and `current` set; the manual's retry
-example, run in a port, lands on the second attempt.
+Verified 2026-09-25, nothing to build (like Phase 0 step 0.5). The rejection carries `code` and every
+detail (`PortBridge.handleMethod`), and a port's tokenless write to itself or another port is refused
+`token_required`. One gate is added with 3.2: a refused write from a port principal carries `code`
+and `current` in the envelope the page receives.
 
 ### 3.2 Invisible ports
 
