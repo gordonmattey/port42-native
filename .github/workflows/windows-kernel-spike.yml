@@ -15,7 +15,12 @@ on:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    # windows-latest now carries Visual Studio 18 (MSVC 14.51), whose STL refuses any compiler older
+    # than Clang 20: "error STL1000: Unexpected compiler version, expected Clang 20 or newer". Swift
+    # 6.2 ships an older Clang, so the pairing fails before a line of Port42 is read. Pinned to the
+    # 2022 image, and noted as a finding: Swift on Windows is sensitive to the MSVC it is paired
+    # with, which is a standing maintenance cost rather than a one-time setup step.
+    runs-on: windows-2022
     steps:
       - uses: compnerd/gha-setup-swift@main
         with:
