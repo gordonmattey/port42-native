@@ -1,24 +1,22 @@
-# Recommendation: make the kernel boundary real
+# Recommendation: make the kernel boundary real, and move the kernel to Go
 
-**For:** whoever picks up the seam work. **From:** the Windows research spike, 2026-09-25.
-**Status:** a recommendation, not a decision. GM has not approved it.
+**For:** whoever picks up the seam work. **Status:** recommendation, not an approved decision.
 
-Everything here is measured on `research-windows-port`, which branches from `nautilus` and carries
-`spikes/windows-kernel/carve.sh` plus a CI workflow that runs it. Full background in
+Measured on `research-windows-port`, which branches from `nautilus` and carries
+`spikes/windows-kernel/carve.sh` plus a CI workflow that runs it. Evidence in
 `docs/research-windows-port.md`.
 
-## The finding this rests on
+## The finding
 
-Port42's own documents describe a kernel (ports, the registry, addresses, permissions, the bus) and a
-shell (the desktop, the chrome, the window manager). That boundary is asserted, not enforced: kernel
-and shell are one SwiftPM target, so nothing stops a kernel service reaching into the shell, and
-several do.
+Port42's architecture describes a kernel (ports, the registry, addresses, permissions, the bus) and a
+shell (the desktop, the chrome, the window manager). The boundary is asserted, not enforced: kernel
+and shell are one SwiftPM target, so a kernel service can reach into the shell, and several do.
 
-Carving the candidate kernel into its own package and building it shows where. On Linux and Windows
-the same 30 files, 3,869 lines, compile. Everything else was dropped for naming something on the
-shell's side of the line, never for anything about the platform.
+Carving the candidate kernel into its own package and building it locates every breach. On Linux and
+Windows the same 30 files, 3,869 lines, compile. Everything else was dropped for naming something on
+the shell's side of the line, never for anything about the platform.
 
-The blocked work, grouped by what it reaches for, counting code references only:
+Blocked work, grouped by what it reaches for, counting code references only:
 
 | Reaches for | Files | Lines blocked |
 |---|---|---|
@@ -30,65 +28,68 @@ The blocked work, grouped by what it reaches for, counting code references only:
 | `Port42AuthStore` | 2 | 436 |
 | `TerminalPortConfig` | 1 | 386 |
 
-## Recommendation
+## The direction: the kernel moves to Go
 
-**Do these three. They are defects on the project's own terms and each is mechanical.**
+The gateway is already Go, already the door, and already cross-platform: `gateway` and `shim`
+cross-compile to windows/amd64 untouched, and `cli` needs one ten-line change. The registry is the
+API, the transport is a seam, and the shell is a client of both. A Go kernel makes that structure the
+program rather than a description of it.
 
-### 1. Move `PortPanel` into `Models/`
+What it buys:
 
-It is the port's data model and it is defined inside `Views/PortWindowManager.swift`, so
-`DatabaseService` (persistence) depends on a view file. Nothing about that is correct today,
-independently of any platform. Blocks 2,305 lines.
+- **A second client becomes a UI, not a port.** Windows and Linux shells talk to the same kernel over
+  the same door the guest page already uses.
+- **Persistence stops being a platform question.** `modernc.org/sqlite` is pure Go, no cgo, and builds
+  for Windows. The Swift path does not: GRDB claims Apple platforms only, calls Linux "provided by
+  contributors, not automatically tested, not officially maintained", and does not mention Windows.
+- **The `AppState` problem is dissolved rather than refactored.** Its 4,015 lines are a Swift object
+  in the registry's dispatch path. Under a Go kernel the dispatch path is Go and the Swift side keeps
+  only what a shell needs, so the untangling is not a 4,015-line Swift refactor anyone has to survive.
+- **One terminal story.** ConPTY on Windows and a pty on Unix both live in the kernel, where the
+  hooks and the output pipeline already are.
 
-The move is the definition plus its `Codable`/`Identifiable` conformances. `PortWindowManager` keeps
-everything that manages panels; it stops owning what a panel *is*.
+Sequencing: **after nautilus lands.** Nautilus is deleting and rewriting large parts of exactly this
+code, and the five scenarios pass today. Starting the move mid-phase trades a passing product for an
+unfinished one. The three moves below are the preparation, and they are worth doing on their own
+terms.
 
-### 2. Move the geometry constants off `ShellState`
+## The three moves to make first
 
-`PortPlacement` and `PortPresentation` are the pure geometry layer and they reach up into shell state
-for `parkWidth`, `minTileSize` and `Zoom`. The constants belong beside the geometry that uses them,
-not on the object that happens to have declared them first. Blocks 2,528 lines, and it is the
-cheapest of the three.
+Each is mechanical, each is a defect on the project's own terms, and each holds whether or not the Go
+move happens.
 
-Note for whoever does it: `parkWidth` and `minTileSize` are already `nonisolated static let` on
-`ShellState`, so this is a move plus a rename of the references, not a redesign. `Zoom` is an enum
-that describes the zoom ladder, which is genuinely shell state; the fix there is for
-`PortPresentation` to take what it needs as a parameter rather than to import the ladder.
+### 1. `PortPanel` into `Models/`
 
-### 3. Put `GatewayProcess` behind a protocol
+The port's data model is defined inside `Views/PortWindowManager.swift`, so `DatabaseService`
+depends on a view file. Blocks 2,305 lines. The move is the type and its conformances;
+`PortWindowManager` keeps everything that manages panels and stops owning what a panel is.
 
-Four files (`GatewayDoor`, `CLIInstallService`, `InstructionService`, `BridgeReference`) want a port
-number and a lifecycle, and reach an AppKit-importing class to get them. A two-method protocol, with
-the AppKit class as its only implementation today, cuts 870 lines loose and changes no behavior.
+### 2. Geometry constants off `ShellState`
+
+`PortPlacement` and `PortPresentation` are the pure geometry layer and reach up into shell state for
+`parkWidth`, `minTileSize` and `Zoom`. Blocks 2,528 lines, and it is the cheapest of the three:
+`parkWidth` and `minTileSize` are already `nonisolated static let`, so it is a move plus renamed
+references. `Zoom` is genuinely shell state, so `PortPresentation` takes what it needs as a parameter
+instead of importing the ladder.
+
+### 3. `GatewayProcess` behind a protocol
+
+`GatewayDoor`, `CLIInstallService`, `InstructionService` and `BridgeReference` want a port number and
+a lifecycle and reach an AppKit-importing class to get them. A two-method protocol, with the AppKit
+class as its only implementation, frees 870 lines and changes no behavior.
 
 ### Then wire the gate
 
-`spikes/windows-kernel/carve.sh` already does the carving. Run it in CI and the boundary stops being
-a claim: a kernel service that reaches into the shell fails a build, the same way a re-grid on spawn
-now fails a test. Without the gate, these three moves will be undone by the next person who needs
-something from `AppState` and has no reason to know there is a line.
+`spikes/windows-kernel/carve.sh` does the carving. Run it in CI and the boundary is enforced: a
+kernel service that reaches into the shell fails a build. Without it, the three moves are undone by
+the next person who needs something from `AppState` and has no reason to know there is a line.
 
-## Do NOT do these now
+## Not part of this
 
-**Splitting `AppState`.** It is 4,015 lines, it sits in the registry's dispatch path, and six kernel
-files reach it. It is the right eventual move and it is a project, not a chore. Doing it inside
-nautilus Phase 1 would put five passing scenarios at risk for a benefit nobody can cash yet.
+A Swift-side `AppState` split as its own project. Under the Go direction the dispatch path leaves
+Swift, so splitting a 4,015-line Swift object first is work the move discards.
 
-**Moving the kernel to Go.** Only pays off once a second client is actually being built. Deciding it
-now means deciding it with no user and no deadline.
-
-**Anything for Windows specifically.** No part of this recommendation is a Windows change. If Windows
-never happens, all three moves are still right.
-
-## One correction worth carrying forward
-
-An earlier draft of the research claimed nautilus was "the largest single reduction in the cost of a
-Windows port". Re-measuring after Phase 0 finished and Phase 1 steps 1 to 4 landed showed that was
-wrong: the tree shrank by about 3,965 lines and the portable kernel did not grow at all, 30 files
-before and 30 after. Deleting Apple-coupled features shrinks the SHELL's porting surface. Only moving
-types moves the KERNEL boundary. They are different problems that share a direction.
-
-## How to verify the work
+## Verification
 
 Not by reading the diff. Run the carve:
 
@@ -96,10 +97,9 @@ Not by reading the diff. Run the carve:
 ./spikes/windows-kernel/carve.sh --prune
 ```
 
-It prints every file it had to drop. Each of the three moves above should remove specific names from
-that list, and the survivor count should rise from 30. If a move does not change the list, it did not
-do what it claimed.
+It prints every file it had to drop. Each move removes specific names from that list and raises the
+survivor count above 30. A move that does not change the list did not do what it claimed.
 
-The CI workflow (`.github/workflows/windows-kernel-spike.yml`) runs the same carve on Linux and
-Windows, and cross-compiles the Go side. It is scoped to its own branch, so it gates nothing until
-someone decides it should.
+`.github/workflows/windows-kernel-spike.yml` runs the same carve on Linux and Windows and
+cross-compiles the Go side. It is scoped to its own branch and gates nothing until someone decides it
+should.
