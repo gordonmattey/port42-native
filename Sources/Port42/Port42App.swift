@@ -288,13 +288,11 @@ struct Port42App: App {
             NSApplication.shared.applicationIconImage = icon
         }
 
-        // Preload breakout video so it's ready instantly
-        BreakoutVideoPreloader.shared.preload()
     }
 
     var body: some Scene {
         WindowGroup {
-            TransitionRoot(appState: appState, useBreakoutVideo: true)
+            TransitionRoot(appState: appState)
                 .environmentObject(appState)
                 .frame(minWidth: 180, minHeight: 400)
                 .background(Port42Theme.bgPrimary)

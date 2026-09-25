@@ -30,9 +30,6 @@ public struct ShellView: View {
     /// First run only: the onboarding focus is applied ONCE. Without this latch the reactive
     /// hook would yank a user back to the chat every time the panel set changes.
     @State private var onboardingFocusApplied = false
-    /// The breakout's two animated values: false = still on the port's frame, 1 = fully opaque.
-    @State private var breakoutExpanded = false
-    @State private var breakoutOpacity: Double = 1
 
     /// First run: Echo's terminal port, which setup spawned (nautilus Phase 1 step 3). nil until the
     /// panel has landed.
@@ -187,11 +184,6 @@ public struct ShellView: View {
                                        request: request)
                     .zIndex(230)
             }
-
-            // First-run breakout: above everything (it is a moment, not a surface).
-            if let from = shell.breakoutFrom {
-                breakoutOverlay(from: from).zIndex(240)
-            }
         }
         .ignoresSafeArea()                                            // edge-to-edge: fill the screen
         .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
@@ -211,21 +203,11 @@ public struct ShellView: View {
         }
         .animation(.spring(response: 0.4), value: shell.zoom)
         .onChange(of: shell.zoom) { old, z in
-            // Moving the ladder while the breakout plays SKIPS it (GM found the hole). The video is
-            // never a wall: it cannot trap you, and it must not play on over a rung you have already
-            // left — it promises to fade back to the space you are in, and you would be in the
-            // galaxy. Read before the first-run branch below, so the run that STARTS it is exempt.
-            let breakoutWasPlaying = shell.breakoutFrom != nil
-
-            // FIRST RUN ends here, at the moment you leave the chat for your desktop: the one-shot
-            // flag clears and the breakout plays. Any focus → space counts (the arrow, ⌘↑, a pinch,
-            // or following a port card out) — they are all the same milestone, the first time you
-            // are actually in open water.
+            // FIRST RUN ends here, the first time you leave Echo's terminal for your desktop (the
+            // arrow, ⌘↑, a pinch). No video plays: the desktop with your new port is the arrival
+            // (GM, 2026-09-25, the dolphin breakout is gone).
             if case .focus = old, z == .space, appState.isOnboarding {
                 appState.endOnboarding()
-                shell.startBreakout(area: shell.lastDesktopArea)
-            } else if breakoutWasPlaying {
-                finishBreakout(fade: 0.3)                 // a quick clear, not the full outro
             }
             if z != .space { shell.exposeActive = false }   // exposé lives at .space
             if z == .space { shell.settleAfterPreview() }   // a previewed peek returns as seen + counting down
@@ -259,45 +241,6 @@ public struct ShellView: View {
         // moment it does. No-op for a returning user (`onboardingChatUdid` is nil).
         .onChange(of: onboardingChatUdid) { _, _ in applyOnboardingFocus() }
         .onDisappear { removeInputMonitors() }
-    }
-
-    // MARK: - First-run breakout
-
-    /// The video starts ON the port you were focused on, grows to full screen while it plays, then
-    /// fades off to leave you in your space. It is not a screen you land on — the desktop is already
-    /// behind it at `.space`, so the fade IS the arrival.
-    /// End the breakout: fade it off, then clear the state. `fade` is the full outro when the video
-    /// played out, and a short clear when the user moved the ladder and skipped it.
-    private func finishBreakout(fade: Double) {
-        guard shell.breakoutFrom != nil else { return }
-        withAnimation(.easeOut(duration: fade)) { breakoutOpacity = 0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + fade) {
-            shell.endBreakout()
-            breakoutExpanded = false          // reset for the (never) next run
-            breakoutOpacity = 1
-        }
-    }
-
-    @ViewBuilder
-    private func breakoutOverlay(from: CGRect) -> some View {
-        GeometryReader { geo in
-            let full = CGRect(origin: .zero, size: geo.size)
-            let r = breakoutExpanded ? full : from
-            AquariumBreakoutView(onFinished: { finishBreakout(fade: 0.9) }, playDelay: 0)
-            .frame(width: r.width, height: r.height)
-            .clipShape(RoundedRectangle(cornerRadius: breakoutExpanded ? 0 : ShellPlacement.focusCorner))
-            .position(x: r.midX, y: r.midY)
-            .opacity(breakoutOpacity)
-            .allowsHitTesting(false)                  // a moment you watch, not a surface you use
-            .onAppear {
-                // A beat on the port's frame so the eye registers WHERE it came from, then a SLOW
-                // grow (GM) — the expansion is the moment, so it should be watched, not glimpsed.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    withAnimation(.easeInOut(duration: 2.6)) { breakoutExpanded = true }
-                }
-            }
-        }
-        .ignoresSafeArea()
     }
 
     /// Esc pressed with a shell modal open → close the topmost one (matches every card's ✕

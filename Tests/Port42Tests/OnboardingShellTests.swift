@@ -6,7 +6,7 @@ import Foundation
 ///
 /// The first swim runs inside the real shell: setup ends by flipping into `ShellView` with the
 /// space's chat tile focused, instead of `SetupView`'s bespoke `.swim` surface. Only the pure
-/// decision logic at each seam is testable here; the views, the dive/breakout videos and the
+/// decision logic at each seam is testable here; the views, the dive video and the
 /// zoom animation are verified manually in a fresh Dev3.
 @Suite("Onboarding into the shell")
 struct OnboardingShellTests {
@@ -24,7 +24,7 @@ struct OnboardingShellTests {
         // …which is the setup terminal once the cinematic is done, not the lock screen.
         #expect(RootScreen.decide(showDreamscape: state.showDreamscape,
                                   isSetupComplete: state.isSetupComplete,
-                                  transitionPlaying: false, bootCinematicDone: true) == .setup)
+                                  bootCinematicDone: true) == .setup)
     }
 
     @MainActor
@@ -39,7 +39,7 @@ struct OnboardingShellTests {
         // without being applied — the regression this test exists to catch.
         #expect(RootScreen.decide(showDreamscape: state.showDreamscape,
                                   isSetupComplete: state.isSetupComplete,
-                                  transitionPlaying: false, bootCinematicDone: false) == .none)
+                                  bootCinematicDone: false) == .none)
     }
 
     @Test("A launch with an identity never plays the cinematic")
@@ -55,33 +55,27 @@ struct OnboardingShellTests {
     @Test("Locked wins over everything")
     func lockScreenWins() {
         #expect(RootScreen.decide(showDreamscape: true, isSetupComplete: true,
-                                  transitionPlaying: false, bootCinematicDone: true) == .lock)
+                                  bootCinematicDone: true) == .lock)
         #expect(RootScreen.decide(showDreamscape: true, isSetupComplete: false,
-                                  transitionPlaying: true, bootCinematicDone: false) == .lock)
+                                  bootCinematicDone: false) == .lock)
     }
 
     @Test("Fresh install shows setup once the boot cinematic is done")
     func freshInstallShowsSetup() {
         #expect(RootScreen.decide(showDreamscape: false, isSetupComplete: false,
-                                  transitionPlaying: false, bootCinematicDone: true) == .setup)
+                                  bootCinematicDone: true) == .setup)
         // Before the cinematic finishes there is no root screen — the overlay covers the gap.
         #expect(RootScreen.decide(showDreamscape: false, isSetupComplete: false,
-                                  transitionPlaying: false, bootCinematicDone: false) == .none)
+                                  bootCinematicDone: false) == .none)
     }
 
     @Test("Setup complete lands on the shell — the first-run seam")
     func setupCompleteShowsShell() {
         #expect(RootScreen.decide(showDreamscape: false, isSetupComplete: true,
-                                  transitionPlaying: false, bootCinematicDone: true) == .shell)
+                                  bootCinematicDone: true) == .shell)
         // Returning user, cinematic never ran: still the shell.
         #expect(RootScreen.decide(showDreamscape: false, isSetupComplete: true,
-                                  transitionPlaying: false, bootCinematicDone: false) == .shell)
-    }
-
-    @Test("Mid-transition mounts the shell UNDER the video overlay (no blank frame)")
-    func midTransitionMountsShell() {
-        #expect(RootScreen.decide(showDreamscape: false, isSetupComplete: false,
-                                  transitionPlaying: true, bootCinematicDone: false) == .shell)
+                                  bootCinematicDone: false) == .shell)
     }
 
     // MARK: - Phase 2: where the shell lands
@@ -117,28 +111,7 @@ struct OnboardingShellTests {
 
     // MARK: - Phase 3: seeding the first message
 
-    // MARK: - Phases 4/6: first run ends at the first zoom-out, and the breakout plays there
-
-    @MainActor
-    @Test("The breakout starts on the focused port's frame, not full screen")
-    func breakoutStartsOnThePort() throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let shell = ShellState(appState: state)
-        let area = CGSize(width: 1600, height: 1000)
-
-        shell.startBreakout(area: area)
-        let from = try #require(shell.breakoutFrom)
-        #expect(from == ShellPlacement.focusRect(in: area), "it must start where the port was")
-        #expect(from.width < area.width, "starting full-bleed would lose the grow-out")
-
-        // Idempotent: a second zoom-out mid-play cannot restart it.
-        shell.startBreakout(area: CGSize(width: 100, height: 100))
-        #expect(shell.breakoutFrom == from)
-
-        shell.endBreakout()
-        #expect(shell.breakoutFrom == nil)
-    }
+    // MARK: - Phases 4/6: first run ends at the first zoom-out
 
     @MainActor
     @Test("Onboarding is a one-shot: ending it twice is harmless, and it never restarts")

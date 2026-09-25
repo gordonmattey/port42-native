@@ -6,8 +6,6 @@ import AVKit
 /// Which screen the app root shows. Extracted from `TransitionRoot.body` so the truth table is
 /// testable headlessly (the views, videos and dive overlays are not).
 ///
-/// `shell` covers the mid-transition frame too: the breakout video is an OVERLAY composited on
-/// top of the shell, not a screen of its own, so the shell must already be mounted under it.
 /// `none` is the gap before the boot cinematic has finished on a fresh install — the cinematic
 /// overlay covers it.
 public enum RootScreen: Equatable {
@@ -16,13 +14,12 @@ public enum RootScreen: Equatable {
     case setup
     case none
 
-    /// The root's only branch. `transitionPlaying` = the breakout video is up.
+    /// The root's only branch.
     public static func decide(showDreamscape: Bool,
                               isSetupComplete: Bool,
-                              transitionPlaying: Bool,
                               bootCinematicDone: Bool) -> RootScreen {
         if showDreamscape { return .lock }
-        if transitionPlaying || isSetupComplete { return .shell }
+        if isSetupComplete { return .shell }
         if bootCinematicDone { return .setup }
         return .none
     }
@@ -45,16 +42,13 @@ public enum RootScreen: Equatable {
 
 public struct TransitionRoot: View {
     @ObservedObject var appState: AppState
-    let useBreakoutVideo: Bool
 
-    public init(appState: AppState, useBreakoutVideo: Bool = true) {
+    public init(appState: AppState) {
         self.appState = appState
-        self.useBreakoutVideo = useBreakoutVideo
     }
 
     @State private var isKeyWindow = false
     @State private var nsWindow: NSWindow? = nil
-    @State private var transitionPhase: TransitionPhase = .none
     @State private var prevSetupComplete = false
     @State private var diveProgress: CGFloat = 0.0  // 0 = surface, 1 = submerged
     @State private var isDiving = false
@@ -67,7 +61,6 @@ public struct TransitionRoot: View {
     /// black rather than being switched on under it. Scale + opacity only: a blur over a live
     /// surface forces offscreen rendering, which this shell cannot afford.
     @State private var onboardingMaterialize: CGFloat = 0.0
-    @State private var preWarmBreakoutVideo = false  // Mount video view hidden to avoid resize glitch
 
     /// The dreamscape video plays behind the LOCK screen and through a dive. The boot terminal
     /// (name/auth/consent) runs with NO video behind it — the terminal is the whole surface.
@@ -78,14 +71,7 @@ public struct TransitionRoot: View {
     private var rootScreen: RootScreen {
         RootScreen.decide(showDreamscape: appState.showDreamscape,
                           isSetupComplete: appState.isSetupComplete,
-                          transitionPlaying: transitionPhase != .none,
                           bootCinematicDone: bootCinematicDone)
-    }
-
-    enum TransitionPhase {
-        case none
-        case playingVideo  // aquarium breakout video playing
-        case fadingOut     // video fading out to reveal aquarium
     }
 
     @ViewBuilder
@@ -125,41 +111,6 @@ public struct TransitionRoot: View {
             rootContent
                 .scaleEffect(1 + 0.05 * onboardingMaterialize)
                 .opacity(1 - onboardingMaterialize)
-
-            // Pre-warm breakout video (hidden, sized to window so no resize glitch)
-            if useBreakoutVideo && preWarmBreakoutVideo && transitionPhase == .none {
-                AquariumBreakoutView(onFinished: {}, playDelay: 999999)
-                    .ignoresSafeArea()
-                    .opacity(0)
-                    .allowsHitTesting(false)
-            }
-
-            // Aquarium breakout video overlay
-            if useBreakoutVideo && (transitionPhase == .playingVideo || transitionPhase == .fadingOut) {
-                AquariumBreakoutView(onFinished: {
-                    // Video ended, blur out
-                    withAnimation(.easeIn(duration: 0.8)) {
-                        diveProgress = 1.0
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        // Resize to sidebar width while fully covered by dive overlay
-                        restoreWindowFrame()
-                        // Reveal port windows (panelsVisible) — same gate as the post-lock
-                        // and returning-user reveals. Without this, fresh onboarding never
-                        // sets panelsVisible, so chat-port windows never open.
-                        appState.unlock()
-                        transitionPhase = .none
-                        withAnimation(.easeOut(duration: 1.0)) {
-                            diveProgress = 0.0
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            isDiving = false
-                        }
-                    }
-                }, playDelay: 0.6)
-                .ignoresSafeArea()
-                .transition(.opacity)
-            }
 
             // Full-screen dive overlay (blur + zoom + tint on top of everything)
             if isDiving {
@@ -257,20 +208,17 @@ public struct TransitionRoot: View {
         .onChange(of: appState.isSetupComplete) { _, newValue in
             if newValue && !prevSetupComplete {
                 // FIRST RUN: hold the setup transition's BLACK across the swap and fade it off
-                // the focused chat. No dive (its blue tint belongs to lock/unlock) and no
-                // breakout video — that moves onto the first zoom-out to open water.
+                // Echo's focused terminal. No dive (its blue tint belongs to lock/unlock).
                 if appState.isOnboarding {
                     onboardingReveal = 1.0
                     onboardingMaterialize = 1.0
-                    // Hold the black long enough for the shell to mount and the chat focus to
-                    // land, then lift it while the chat settles up into place — the two overlap,
-                    // so it reads as the port materializing, not a screen being switched on.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                        withAnimation(.easeOut(duration: 0.55)) { onboardingReveal = 0.0 }
-                        withAnimation(.easeOut(duration: 1.2)) { onboardingMaterialize = 0.0 }
+                    // Hold the black while the shell mounts, the focus lands and the agent CLI
+                    // draws, then lift it slowly while the terminal settles into place. Paced to be
+                    // watched (GM, 2026-09-25): the first version at 0.45s + 0.55s read as a cut.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        withAnimation(.easeInOut(duration: 1.6)) { onboardingReveal = 0.0 }
+                        withAnimation(.easeOut(duration: 2.6)) { onboardingMaterialize = 0.0 }
                     }
-                } else if useBreakoutVideo {
-                    startBreakoutTransition()
                 } else {
                     // Simple fade transition
                     isDiving = true
@@ -288,11 +236,6 @@ public struct TransitionRoot: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .diveRequested)) { _ in
             startDiveTransition()
-        }
-        .onChange(of: appState.currentSpace?.type == "direct") { _, hasSession in
-            if hasSession && !appState.isSetupComplete && useBreakoutVideo {
-                preWarmBreakoutVideo = true
-            }
         }
         .background(WindowRefAccessor { w in nsWindow = w })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
@@ -334,167 +277,12 @@ public struct TransitionRoot: View {
         ShellMode.applyShellWindow(to: window)
     }
 
-    private func startBreakoutTransition() {
-        isDiving = true
-        withAnimation(.easeIn(duration: 0.8)) {
-            diveProgress = 1.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            transitionPhase = .playingVideo
-            withAnimation(.easeOut(duration: 0.6)) {
-                diveProgress = 0.0
-            }
-        }
-    }
-
     /// The deep-link door stays; what came through it is gone. `port42://agent` recipes went with LLM
     /// companions, and `port42://space` invites rode the messaging hub (nautilus Phase 1 step 4).
     /// Phase 4 routes the per-port invite (D10) through here.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "port42" else { return }
         NSLog("[Port42] Unhandled deep link: %@", url.host ?? "nil")
-    }
-}
-
-// MARK: - Video Preloader
-
-public final class BreakoutVideoPreloader {
-    public static let shared = BreakoutVideoPreloader()
-
-    public private(set) var asset: AVAsset?
-    public private(set) var thumbnail: NSImage?
-    public private(set) var videoURL: URL?
-
-    public func preload() {
-        guard asset == nil else { return }
-
-        let url: URL? = {
-            if let resourceBundle = Bundle.main.url(forResource: "Port42_Port42Lib", withExtension: "bundle"),
-               let bundle = Bundle(url: resourceBundle) {
-                return bundle.url(forResource: "TheAquariumsDoorIsOpen", withExtension: "mp4")
-            }
-            return Bundle.main.url(forResource: "TheAquariumsDoorIsOpen", withExtension: "mp4")
-        }()
-
-        guard let url else {
-            NSLog("[Port42] TheAquariumsDoorIsOpen.mp4 not found for preload")
-            return
-        }
-
-        videoURL = url
-        let avAsset = AVAsset(url: url)
-        asset = avAsset
-
-        avAsset.loadTracks(withMediaType: .video) { [weak self] _, _ in
-            let generator = AVAssetImageGenerator(asset: avAsset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 1920, height: 1080)
-            let time = CMTime(seconds: 0.1, preferredTimescale: 600)
-            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { _, cgImage, _, _, _ in
-                if let cgImage {
-                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    DispatchQueue.main.async {
-                        self?.thumbnail = nsImage
-                        NSLog("[Port42] Breakout video preloaded with thumbnail")
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Aquarium Breakout Video
-
-public struct AquariumBreakoutView: NSViewRepresentable {
-    let onFinished: () -> Void
-    var playDelay: Double = 0.0
-
-    public init(onFinished: @escaping () -> Void, playDelay: Double = 0.0) {
-        self.onFinished = onFinished
-        self.playDelay = playDelay
-    }
-
-    public func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.controlsStyle = .none
-        playerView.videoGravity = .resizeAspectFill
-
-        let preloader = BreakoutVideoPreloader.shared
-        guard let url = preloader.videoURL ?? findVideoURL() else {
-            NSLog("[Port42] TheAquariumsDoorIsOpen.mp4 not found in any bundle")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                onFinished()
-            }
-            return playerView
-        }
-
-        if let thumb = preloader.thumbnail {
-            let imageView = NSImageView(image: thumb)
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.frame = playerView.bounds
-            imageView.autoresizingMask = [.width, .height]
-            playerView.addSubview(imageView)
-            context.coordinator.posterView = imageView
-        }
-
-        let item: AVPlayerItem
-        if let asset = preloader.asset {
-            item = AVPlayerItem(asset: asset)
-        } else {
-            item = AVPlayerItem(url: url)
-        }
-
-        let player = AVPlayer(playerItem: item)
-        playerView.player = player
-
-        context.coordinator.observation = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { _ in
-            onFinished()
-        }
-        context.coordinator.player = player
-
-        if playDelay > 0 {
-            player.pause()
-            DispatchQueue.main.asyncAfter(deadline: .now() + playDelay) {
-                player.play()
-                context.coordinator.posterView?.removeFromSuperview()
-            }
-        } else {
-            player.play()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                context.coordinator.posterView?.removeFromSuperview()
-            }
-        }
-
-        return playerView
-    }
-
-    public func updateNSView(_ nsView: AVPlayerView, context: Context) {}
-
-    public func makeCoordinator() -> Coordinator { Coordinator() }
-
-    private func findVideoURL() -> URL? {
-        if let resourceBundle = Bundle.main.url(forResource: "Port42_Port42Lib", withExtension: "bundle"),
-           let bundle = Bundle(url: resourceBundle) {
-            return bundle.url(forResource: "TheAquariumsDoorIsOpen", withExtension: "mp4")
-        }
-        return Bundle.main.url(forResource: "TheAquariumsDoorIsOpen", withExtension: "mp4")
-    }
-
-    public class Coordinator: NSObject {
-        var player: AVPlayer?
-        var observation: NSObjectProtocol?
-        var posterView: NSImageView?
-
-        deinit {
-            if let observation {
-                NotificationCenter.default.removeObserver(observation)
-            }
-            player?.pause()
-        }
     }
 }
 

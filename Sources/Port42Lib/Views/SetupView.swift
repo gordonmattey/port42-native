@@ -69,15 +69,23 @@ public struct SetupView: View {
             .init(text: "REALITY KERNEL v0.1.0", style: .post, delay: 0.8),
             .init(text: "Port42 :: Active", style: .warn, delay: 0.5),
             .init(text: "", style: .blank, delay: 0.4),
-            .init(text: "Checking consciousness drivers...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
-            .init(text: "Loading memory subsystem...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
-            .init(text: "Initializing possibility engine...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
+            // What actually comes up now (nautilus, GM 2026-09-25): surfaces, the agents on this Mac,
+            // and the namespace. The agent line reports a real result. Draft copy; GM owns the words.
+            .init(text: "Mounting surface drivers...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
+            .init(text: "Scanning for agents...", style: .post, delay: 0.7, suffix: " \(agentScanResult)", suffixDelay: 1.5),
+            .init(text: "Opening the port namespace...", style: .post, delay: 0.7, suffix: " OK", suffixDelay: 1.5),
             .init(text: "", style: .blank, delay: 0.6),
             .init(text: "Welcome to Port42.", style: .header, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.5),
-            .init(text: "Your companions. Your friends. One room.", style: .accent, delay: 0.6),
+            .init(text: "Every program has a face.", style: .accent, delay: 0.6),
             .init(text: "", style: .blank, delay: 0.8),
         ]
+    }
+
+    /// The boot line's real result: which agent CLIs are on this Mac.
+    private var agentScanResult: String {
+        let found = ["claude", "codex"].filter { ClaudeCodeSetup.findBinary($0) != nil }
+        return found.isEmpty ? "NONE YET" : found.map { $0 == "codex" ? "CODEX" : "CLAUDE CODE" }.joined(separator: ", ")
     }
 
     // MARK: - Create Sequence
@@ -650,24 +658,25 @@ public struct SetupView: View {
     }
 
 
+    /// The hand-off is paced to be watched (GM, 2026-09-25: it was too quick). A slow fade to black,
+    /// the circle held long enough to register, then the shell, which opens on Echo's terminal
+    /// focused and lifts the black off it slowly (`TransitionRoot`). The agent CLI starts meanwhile,
+    /// so the terminal is drawn by the time it is revealed.
     private func startTransition() {
-        withAnimation(.easeIn(duration: 0.5)) {
+        withAnimation(.easeIn(duration: 0.9)) {
             transitionOpacity = 1.0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            withAnimation(.easeIn(duration: 0.3)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+            withAnimation(.easeIn(duration: 0.6)) {
                 diamondVisible = true
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation(.easeOut(duration: 0.3)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.9) {
+            withAnimation(.easeOut(duration: 0.6)) {
                 diamondVisible = false
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.9) {
-            // Hand the first swim to the SHELL: it opens focused on the space's chat tile and
-            // seeds the opening message there. The bespoke `.swim` phase below is unreachable
-            // from here now and retires with phase 6.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) {
             appState.enterShellFromSetup()
         }
     }

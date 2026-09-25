@@ -87,6 +87,15 @@ extension ShellState {
                                                 area: CGSize) -> PortPresentation {
         // Panel-mode gates first — these hold regardless of the current desktop or zoom.
         if isBackground { return PortPresentation(state: .background, visible: false) }
+        // THE DESKTOP WALLPAPER ("Set as background", `presentation == "background"`). It is drawn
+        // full-bleed behind every desktop, so it is VISIBLE whenever a desktop is showing. It used to
+        // fall through to "not on this desktop" below and report visible:false, so a shader set as
+        // the background did what the port manual says and paused itself (GM, 2026-09-25). Not
+        // visible in the galaxy (no desktop drawn) or behind a focused port (the backdrop covers it).
+        if mode == "background" {
+            if case .space = zoom { return PortPresentation(state: .background, visible: true, size: area) }
+            return PortPresentation(state: .background, visible: false)
+        }
         if mode == "parked" { return PortPresentation(state: .parked, visible: false) }
         if mode == "inline" {
             // v1 conservative: an inline card reports visible; true chat-scroll visibility is a

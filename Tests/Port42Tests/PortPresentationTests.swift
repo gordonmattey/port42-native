@@ -26,6 +26,19 @@ struct PortPresentationTests {
 
     // MARK: - The six states
 
+    /// The desktop wallpaper ("Set as background") is drawn behind every desktop, so it is visible
+    /// whenever a desktop shows. It reported not-visible until 2026-09-25, and a shader set as the
+    /// background paused itself, as the port manual tells it to.
+    @Test("wallpaper: visible on the desktop, full-bleed; hidden in the galaxy and behind a focused port")
+    func wallpaper() {
+        let shown = p(mode: "background", onDesktop: false)
+        #expect(shown.state == .background)
+        #expect(shown.visible)
+        #expect(shown.w == Int(area.width) && shown.h == Int(area.height))
+        #expect(!p(mode: "background", zoom: .galaxy, onDesktop: false).visible)
+        #expect(!p(mode: "background", zoom: .focus("other"), onDesktop: false).visible)
+    }
+
     @Test("background: off the desktop, view unmounts → not visible, 0×0")
     func background() {
         let r = p(isBackground: true)

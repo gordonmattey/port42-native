@@ -103,7 +103,19 @@ Migration v50 deletes LLM and remote companions with their memberships, drops th
 re-executed sessions hold `CLAUDE_CODE_OAUTH_TOKEN`, from their own login; the shells Port42
 prepared hold none. Suite 1203 green (171 removed tests covered removed features).
 
-**Not verified live:** the first run itself, which needs a person to type a name and pick a CLI.
+**Verified live by GM on Dev3, 2026-09-25:** name, pick Claude Code, land focused on Echo's terminal
+with the opening line typed in, ask for a shader port, get one. The first request failed with Anthropic's
+"Connection lost mid-response", outside Port42. Changes from that run:
+
+- The boot check lines describe what now comes up: surfaces, the agents found on this Mac (a real
+  result), and the port namespace. Draft copy for GM.
+- The hand-off from setup into Echo's terminal is slower: a longer black and circle, then the terminal
+  lifts out of the black over about two and a half seconds.
+- The dolphin breakout video that played on the first zoom out is gone, with its preloader and file.
+  Leaving the terminal for the desktop just ends the first run.
+- A port set as the desktop wallpaper paused itself, because the presentation reported it hidden on
+  the desktop. It is now visible whenever a desktop is showing (gate in `PortPresentationTests`).
+
 The agent-field columns (`provider`, `model`, `thinking*`, `providerBaseURL`) stay in the schema,
 unused, for a follow-up.
 
