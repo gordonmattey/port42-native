@@ -43,15 +43,13 @@ struct ShellChrome: View {
 
             // Same order as the pre-shell header cluster: status dots → pause → usage → settings.
             // (Power/sign-out/reset moved to the PORT42 mark menu on the left.)
-            chromeRow { statusCluster }                      // gateway · auth-key
-            stopAllButton                                    // kill switch for every companion call
+            chromeRow { statusCluster }                      // gateway
             // Reset background — a SHELL-level control, not a per-port one. Appears only when a port
             // is set as the background; clears it back to the ambient dreamscape and pops the port
             // back onto the desktop.
             if shell.hasBackgroundPort {
                 chromeButton("moon.stars", "Reset background") { shell.clearBackgroundToTile() }
             }
-            chromeButton("chart.bar", "Token usage") { shell.showUsage = true }
             chromeButton("gearshape", "Settings") { shell.showSettings = true }
 
             chromeRow { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 20) }
@@ -101,29 +99,16 @@ struct ShellChrome: View {
 
     // MARK: global status + kill switch (ported from the pre-shell header cluster)
 
-    /// gateway (bolt) · Anthropic auth (key, colored by state).
+    /// gateway (bolt).
     private var statusCluster: some View {
         HStack(spacing: 9) {
             // Every indicator ALWAYS shows — the icon+color carry on/off state, they never disappear.
             Image(systemName: appState.door.isConnected ? "bolt.fill" : "bolt.slash").font(.system(size: 10))
                 .foregroundStyle(appState.door.isConnected ? .green : Port42Theme.textSecondary)
                 .appKitTooltip(appState.door.isConnected ? "Gateway connected" : "Gateway disconnected")
-            Image(systemName: "key.fill").font(.system(size: 10)).foregroundStyle(authDotColor)
-                .appKitTooltip(authTooltip)
         }
     }
 
-    /// Pause/resume EVERY companion call in one place — the global kill switch.
-    private var stopAllButton: some View {
-        Button {
-            appState.aiPaused.toggle()
-            LLMEngine.paused = appState.aiPaused
-        } label: {
-            Image(systemName: appState.aiPaused ? "pause.circle.fill" : "pause.circle").font(.system(size: 13))
-                .foregroundStyle(appState.aiPaused ? .red : Port42Theme.textSecondary)
-                .frame(width: 26, height: 26).contentShape(Rectangle())
-        }.buttonStyle(.plain).appKitTooltip(appState.aiPaused ? "AI paused — resume all" : "Pause all AI")
-    }
 
     /// Account identity on the far right: display name, then the PFP disc (name left of the PFP).
     private var profileChip: some View {
@@ -141,22 +126,6 @@ struct ShellChrome: View {
         return String(n.prefix(2)).uppercased()
     }
 
-    private var authDotColor: Color {
-        switch appState.authStatus {
-        case .connected: return .green
-        case .checking, .unknown: return Port42Theme.accent
-        case .noCredential: return .orange
-        case .error: return .red
-        }
-    }
-    private var authTooltip: String {
-        switch appState.authStatus {
-        case .connected: return "Anthropic auth active"
-        case .checking, .unknown: return "Checking credentials…"
-        case .noCredential: return "No Anthropic key — open Settings"
-        case .error(let msg): return "Anthropic auth error: \(msg)"
-        }
-    }
 }
 
 // MARK: - Desktop (tiled ports over the dreamscape; movable + resizable, z-ordered)
@@ -1254,18 +1223,7 @@ struct ShellMemberRow: View {
             if isYou { Text("you").font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary) }
             Spacer(minLength: 6)
             if companion != nil { statusView(thinking: thinking) }
-            if hot, let c = companion {
-                // The eye — inspect this companion's epistemic memory (fold/position/creases/
-                // engravings) in THIS chat's space. Migrated from the swim window's titlebar.
-                Button {
-                    if let sid = spaceId ?? appState.currentSpace?.id {
-                        shell.inspecting = ShellState.InspectTarget(companion: c, spaceId: sid)
-                    }
-                } label: {
-                    Image(systemName: "eye").font(.system(size: 9)).foregroundStyle(Port42Theme.textSecondary)
-                        .frame(width: 18, height: 18).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).help("Inspect \(c.displayName)'s inner state")
+            if hot, companion != nil {
                 Image(systemName: "bubble.left").font(.system(size: 9)).foregroundStyle(accent)   // → DM hint
             }
         }
@@ -1454,12 +1412,6 @@ struct PortMorePopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // AI pause — stays open so you see it flip to Resume. Same behaviour as the token guard.
-            row(bridge.aiPaused ? "Resume AI" : "Pause AI",
-                icon: bridge.aiPaused ? "play.circle" : "pause.circle") {
-                bridge.aiPaused.toggle()
-                if bridge.aiPaused { bridge.suspendAI() }
-            }
             row("Refresh", icon: "arrow.clockwise", action: onRefresh)
             row("History…", icon: "clock.arrow.circlepath", action: onHistory)
             Divider().opacity(0.4)

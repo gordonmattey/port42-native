@@ -34,11 +34,13 @@ public struct ShellView: View {
     @State private var breakoutExpanded = false
     @State private var breakoutOpacity: Double = 1
 
-    /// First run: the chat tile to open focused on. nil until `ensureChatPort` has landed it.
+    /// First run: Echo's terminal port, which setup spawned (nautilus Phase 1 step 3). nil until the
+    /// panel has landed.
     private var onboardingChatUdid: String? {
         guard appState.isOnboarding, !onboardingFocusApplied,
-              let sid = appState.currentSpace?.id else { return nil }
-        return appState.chatPortUdid(forSpace: sid)
+              let id = appState.onboardingFocusPortId,
+              appState.portWindows.panels.contains(where: { $0.id == id || $0.udid == id }) else { return nil }
+        return appState.portWindows.panels.first(where: { $0.id == id || $0.udid == id })?.udid ?? id
     }
 
     /// SPIKE 1: `switchToSpace` → `ensureChatPort` guarantees the chat panel EXISTS, but not by
@@ -48,7 +50,6 @@ public struct ShellView: View {
         guard !onboardingFocusApplied, let udid = onboardingChatUdid else { return }
         onboardingFocusApplied = true
         shell.zoom = .focus(udid)
-        appState.seedOnboardingFirstMessage()
     }
 
     private var galaxyShown: Bool { shell.zoom == .galaxy }
@@ -176,33 +177,6 @@ public struct ShellView: View {
             }
 
 
-            // Epistemic-memory inspector (the eye in a chat's member strip) — same shell
-            // overlay chrome as Settings/Usage: scrim, rounded card, accent stroke, glow.
-            if let target = shell.inspecting {
-                ZStack {
-                    Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { shell.inspecting = nil }
-                    CreaseInspectorSheet(companion: target.companion, spaceId: target.spaceId,
-                                         onClose: { shell.inspecting = nil })
-                        .environmentObject(appState)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.6), radius: 40)
-                }.zIndex(220)
-            }
-
-            // Token Usage — the app's UsageSheet as a shell overlay.
-            if shell.showUsage {
-                ZStack {
-                    Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
-                        .onTapGesture { shell.showUsage = false }
-                    UsageSheet(isPresented: $shell.showUsage, accent: shell.accent)
-                        .environmentObject(appState)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(shell.accent.opacity(0.4), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.6), radius: 40)
-                }.zIndex(220)
-            }
 
             // Permission — the top layer, above every other overlay, because it BLOCKS: a caller
             // is suspended on the answer. One site for every asker (port JS / companion tool use /
@@ -334,8 +308,6 @@ public struct ShellView: View {
         // Permission is topmost and BLOCKING — Esc is an explicit deny (a caller is suspended on
         // the answer; there is no "close without answering").
         if permissions.current != nil { permissions.resolveCurrent(granted: false); return true }
-        if shell.inspecting != nil { shell.inspecting = nil; return true }
-        if shell.showUsage { shell.showUsage = false; return true }
         if shell.showSettings { shell.showSettings = false; return true }
         if shell.showNewCompanion { shell.showNewCompanion = false; return true }
         if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
@@ -865,45 +837,17 @@ struct ShellSettingsView: View {
                     .onSubmit { dismiss(save: true) }.onExitCommand { dismiss(save: false) }
             }
 
-            fieldLabel("MODE")
-            segmented(["llm", "command", "remote"], selected: c.mode.rawValue) { v in
-                edit(c) { $0.mode = AgentMode(rawValue: v) ?? .llm }
+            // Every companion is a command companion now: a CLI agent in a terminal port (D7, D9).
+            fieldLabel("TRIGGER")
+            segmented(["mention-only", "all messages"], selected: c.trigger == .allMessages ? "all messages" : "mention-only") { v in
+                edit(c) { $0.trigger = v == "all messages" ? .allMessages : .mentionOnly }
             }
-
-            if c.mode == .llm {
-                fieldLabel("TRIGGER")
-                segmented(["mention-only", "all messages"], selected: c.trigger == .allMessages ? "all messages" : "mention-only") { v in
-                    edit(c) { $0.trigger = v == "all messages" ? .allMessages : .mentionOnly }
-                }
-                fieldLabel("PROVIDER")
-                segmented(["anthropic", "gemini", "compatible"], selected: (c.provider ?? .anthropic).rawValue) { v in
-                    edit(c) { $0.provider = provider(from: v) }
-                }
-                fieldLabel("MODEL")
-                TextField("model id", text: Binding(get: { c.model ?? "" }, set: { m in edit(c) { $0.model = m.isEmpty ? nil : m } }))
-                    .textFieldStyle(.plain).font(Port42Theme.mono(12)).foregroundStyle(Port42Theme.textPrimary)
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(col.opacity(0.3), lineWidth: 1))
-                HStack {
-                    fieldLabel("THINKING").fixedSize()
-                    Spacer()
-                    Toggle("", isOn: Binding(get: { c.thinkingEnabled }, set: { on in edit(c) { $0.thinkingEnabled = on } }))
-                        .labelsHidden().toggleStyle(.switch).tint(col)
-                }
-                if c.thinkingEnabled {
-                    segmented(["low", "medium", "high"], selected: c.thinkingEffort) { v in edit(c) { $0.thinkingEffort = v } }
-                }
-                fieldLabel("SYSTEM PROMPT")
-                TextEditor(text: $promptDraft)
-                    .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
-                    .frame(height: 96).padding(8)
-                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(col.opacity(0.3), lineWidth: 1))
-            } else {
-                Text("\(c.mode.rawValue) config — command / connection editing lands in Advanced (soon)")
-                    .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary)
-            }
+            fieldLabel("SYSTEM PROMPT")
+            TextEditor(text: $promptDraft)
+                .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
+                .frame(height: 96).padding(8)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(col.opacity(0.3), lineWidth: 1))
 
             fieldLabel("SECRETS")
             ShellSecretsField(selected: Binding(
@@ -1105,16 +1049,13 @@ struct ShellSettingsView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
-    private func provider(from v: String) -> AgentProvider {
-        switch v { case "gemini": return .gemini; case "compatible": return .compatibleEndpoint; default: return .anthropic }
-    }
 }
 
 // MARK: - New companion (shell-native card — quick + full "Advanced" inline)
 
 /// The shell-native create-companion card. Default: name + type → a real companion in this space.
-/// "Advanced" expands the SAME card (no macOS sheet) to the full option set — mode (LLM/API/Command),
-/// provider/model/base-URL, thinking, system prompt, scope, secrets, command config, trigger.
+/// "Advanced" expands the SAME card (no macOS sheet) to the full option set: which CLI, trigger, working
+/// directory, system prompt and secrets. Every companion is a CLI agent in a terminal (D7, D9).
 struct ShellNewCompanionView: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
@@ -1122,20 +1063,13 @@ struct ShellNewCompanionView: View {
     @State private var selectedType: CompanionTypePreset?
     @State private var showAdvanced = false
     // Advanced fields:
-    private enum NMode: String, CaseIterable { case llm, api, command }
-    @State private var mode: NMode = .llm
-    @State private var providerSel = "anthropic"      // llm: anthropic | gemini
-    @State private var model = "claude-opus-4-6"
-    @State private var baseURL = ""                   // api mode
-    @State private var thinkingOn = false
-    @State private var thinkingEffort = "low"
     @State private var promptOverride = ""            // empty → type constitution / default
-    @State private var scopePath = ""
     @State private var selectedSecrets: Set<String> = []
     @State private var command = ""
     @State private var argsText = ""
     @State private var workingDir = ""
-    @State private var cliChoice = "claude"          // claude | gemini | codex | custom
+    @State private var cliChoice = ClaudeCodeSetup.findBinary("claude") == nil && ClaudeCodeSetup.findBinary("codex") != nil
+        ? "codex" : "claude"                         // claude | gemini | codex | custom
     @State private var triggerSel = "mention-only"
     // anim
     @State private var cardScale: CGFloat = 0.92
@@ -1147,8 +1081,7 @@ struct ShellNewCompanionView: View {
     private var canCreate: Bool {
         guard appState.currentUser != nil, !effectiveName.isEmpty else { return false }
         // CLI presets (claude/gemini/codex) carry their own command; only "custom" needs the field.
-        if mode == .command { return cliChoice != "custom" || !command.trimmingCharacters(in: .whitespaces).isEmpty }
-        return true
+        return cliChoice != "custom" || !command.trimmingCharacters(in: .whitespaces).isEmpty
     }
     private func typeIcon(_ t: CompanionTypePreset) -> String {
         switch t { case .echo: return "sparkles"; case .architect: return "triangle"
@@ -1199,7 +1132,7 @@ struct ShellNewCompanionView: View {
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(acc.opacity(0.35), lineWidth: 1))
 
-            if mode != .command {
+            if cliChoice != "custom" {
                 label("TYPE — one tap sets identity + prompt")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                     ForEach(CompanionTypePreset.allCases, id: \.rawValue) { t in
@@ -1252,47 +1185,25 @@ struct ShellNewCompanionView: View {
 
     @ViewBuilder private var advancedFields: some View {
         Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-        label("MODE")
-        seg(["llm", "api", "command"], sel: mode.rawValue) { mode = NMode(rawValue: $0) ?? .llm }
         label("TRIGGER")
         seg(["mention-only", "all messages"], sel: triggerSel) { triggerSel = $0 }
-
-        switch mode {
-        case .llm:
-            label("PROVIDER");  seg(["anthropic", "gemini"], sel: providerSel) { providerSel = $0 }
-            label("MODEL");     boxField("model id", $model)
-            thinkingRow
-            label("SYSTEM PROMPT (overrides type)"); promptBox
-            label("KNOWLEDGE-BASE SCOPE"); boxField("scopes/…", $scopePath)
-        case .api:
-            label("BASE URL");  boxField("https://…/v1", $baseURL)
-            label("MODEL");     boxField("model id", $model)
-            label("SYSTEM PROMPT"); promptBox
-        case .command:
-            // Two kinds of command companion: a CLI LLM (claude/gemini/codex) that lives in a
-            // terminal tile, or a straight custom command that runs headless (NDJSON) — no terminal.
-            label("CLI")
-            seg(["claude", "gemini", "codex", "custom"], sel: cliChoice) { cliChoice = $0 }
-            if cliChoice == "custom" {
-                label("COMMAND");   boxField("my-cli", $command)
-                label("ARGS");      boxField("--flag value", $argsText)
-                Text("runs headless (NDJSON) — no terminal").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
-            } else {
-                Text("opens in a terminal tile").font(Port42Theme.mono(9)).foregroundStyle(acc.opacity(0.8))
-            }
-            label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
-            label("SYSTEM PROMPT"); promptBox
+        // Two kinds of command companion: a CLI LLM (claude/gemini/codex) that lives in a
+        // terminal tile, or a straight custom command that runs headless (NDJSON) — no terminal.
+        label("CLI")
+        seg(["claude", "gemini", "codex", "custom"], sel: cliChoice) { cliChoice = $0 }
+        if cliChoice == "custom" {
+            label("COMMAND");   boxField("my-cli", $command)
+            label("ARGS");      boxField("--flag value", $argsText)
+            Text("runs headless (NDJSON) — no terminal").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
+        } else {
+            Text("opens in a terminal tile").font(Port42Theme.mono(9)).foregroundStyle(acc.opacity(0.8))
         }
+        label("WORKING DIR (blank = space cwd)"); boxField("~/project", $workingDir)
+        label("SYSTEM PROMPT"); promptBox
         // Secrets apply to any mode (rest.call / provider keys) — create + grant inline.
         label("SECRETS"); ShellSecretsField(selected: $selectedSecrets, accent: acc)
     }
 
-    private var thinkingRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack { label("THINKING"); Spacer(); Toggle("", isOn: $thinkingOn).labelsHidden().toggleStyle(.switch).tint(acc) }
-            if thinkingOn { seg(["low", "medium", "high"], sel: thinkingEffort) { thinkingEffort = $0 } }
-        }
-    }
     private var promptBox: some View {
         TextEditor(text: $promptOverride).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).scrollContentBackground(.hidden)
             .frame(height: 84).padding(8)
@@ -1333,26 +1244,16 @@ struct ShellNewCompanionView: View {
         guard canCreate, let user = appState.currentUser else { return }
         let nm = effectiveName
         let trig: AgentTrigger = triggerSel == "all messages" ? .allMessages : .mentionOnly
-        var c: AgentConfig
-        if mode == .command {
-            // CLI LLM (claude/gemini/codex) → a terminal tile; custom → headless NDJSON command.
-            let isCLI = cliChoice != "custom"
-            let cmd = isCLI ? cliChoice : command.trimmingCharacters(in: .whitespaces)
-            let args = isCLI ? [] : argsText.split(separator: " ").map(String.init)
-            c = AgentConfig.createCommand(ownerId: user.id, displayName: nm, command: cmd,
+        // A CLI (claude/gemini/codex) runs in a terminal tile; a custom command runs headless (NDJSON).
+        // The type's constitution, or the override, is the companion's appended system prompt.
+        let isCLI = cliChoice != "custom"
+        let cmd = isCLI ? cliChoice : command.trimmingCharacters(in: .whitespaces)
+        let args = isCLI ? [] : argsText.split(separator: " ").map(String.init)
+        let prompt = nilIfEmpty(promptOverride) ?? selectedType.map(loadConstitution)
+        var c = AgentConfig.createCommand(ownerId: user.id, displayName: nm, command: cmd,
                                           args: args.isEmpty ? nil : args, workingDir: nilIfEmpty(workingDir), envVars: nil,
-                                          systemPrompt: nilIfEmpty(promptOverride), openInTerminal: isCLI, trigger: trig)
-        } else {
-            let prov: AgentProvider = mode == .api ? .compatibleEndpoint : (providerSel == "gemini" ? .gemini : .anthropic)
-            let prompt = !promptOverride.isEmpty ? promptOverride
-                : (selectedType.map(loadConstitution) ?? "You are \(nm), a companion in Port42. Not an assistant, a companion.")
-            c = AgentConfig.createLLM(ownerId: user.id, displayName: nm, systemPrompt: prompt, provider: prov,
-                                      model: nilIfEmpty(model) ?? "claude-opus-4-6", trigger: trig)
-            c.providerBaseURL = mode == .api ? nilIfEmpty(baseURL) : nil
-            c.thinkingEnabled = thinkingOn; c.thinkingEffort = thinkingEffort
-            c.scopePath = nilIfEmpty(scopePath) ?? selectedType?.defaultKBPath
-        }
-        c.secretNames = selectedSecrets.isEmpty ? nil : selectedSecrets.sorted()   // any mode
+                                          systemPrompt: prompt, openInTerminal: isCLI, trigger: trig)
+        c.secretNames = selectedSecrets.isEmpty ? nil : selectedSecrets.sorted()
         appState.addCompanion(c)
         if let s = appState.currentSpace { appState.addCompanionToSpace(c, space: s) }
         dismiss()
@@ -1437,7 +1338,6 @@ struct ShellSecretsField: View {
                 Text("API Key").tag(Port42AuthStore.SecretType.apiKey)
                 Text("Basic").tag(Port42AuthStore.SecretType.basicAuth)
                 Text("Header").tag(Port42AuthStore.SecretType.header)
-                Text("LLM").tag(Port42AuthStore.SecretType.llm)
             }.labelsHidden().pickerStyle(.menu).tint(accent)
             secureBox("credential value", $newValue)
             HStack {

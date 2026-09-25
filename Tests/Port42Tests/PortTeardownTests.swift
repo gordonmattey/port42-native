@@ -146,24 +146,6 @@ struct PortTeardownTests {
 
     // MARK: - Step 7 field regression: owner resolution for a createdBy-set port
 
-    // The live mic-down (Step 7) found teardown no-opping for a port whose createdBy differs from its
-    // own id (every gateway/companion-created port): portPrincipal.id is the CREATOR, so owner
-    // resolution matched nothing and the capture recorded a nil owner. The port's own id now rides on
-    // Principal.portId; owner resolution keys on it. This proves the resolution, headlessly.
-    @Test("owner resolution finds a createdBy-set port by its own id")
-    @MainActor
-    func ownerResolvesForCreatedByPort() throws {
-        let state = try makeState()
-        let bridge = try #require(state.portWindows.registerInlinePort(
-            id: "port-own-id", html: "<html><body>x</body></html>",
-            spaceId: nil, createdBy: "companion-x", title: "t", anchorMessageId: nil))
-
-        let p = bridge.portPrincipal
-        #expect(p.id == "companion-x", "authz identity stays the creator (P-260)")
-        #expect(p.portId == "port-own-id", "the port's own id rides alongside for owner resolution")
-        #expect(state.streamPortBridge(for: p) === bridge,
-                "resolution finds the specific port by its own id, not the shared creator id")
-    }
 
     @Test("Principal.portId is excluded from identity (grants do not split)")
     @MainActor

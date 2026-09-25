@@ -125,7 +125,9 @@ struct BridgeSchemaParityTests {
         // without `port.exec` bumping its activity token and invalidating the caller's own read.
         // The hybrid list is empty; every golden schema is parity-checked against the generator.
         // + port.console (a READ of what a port printed; a port's output was write-only before it) = 65.
-        #expect(checked == 65, "expected 65 parity-set methods, checked \(checked)")
+        // − the 12 Keeper tools (crease/engrave/fold/position), which went with the in-app engine
+        //   (nautilus Phase 1 step 3). = 53.
+        #expect(checked == 53, "expected 53 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

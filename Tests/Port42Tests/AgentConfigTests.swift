@@ -11,25 +11,6 @@ struct AgentConfigTests {
 
     // MARK: - Model (LLM mode)
 
-    @Test("Create LLM agent config")
-    func createLLMConfig() {
-        let agent = AgentConfig.createLLM(
-            ownerId: "user-1",
-            displayName: "@ai-engineer",
-            systemPrompt: "You are a senior engineer. Be concise.",
-            provider: .anthropic,
-            model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
-        #expect(agent.displayName == "@ai-engineer")
-        #expect(agent.mode == .llm)
-        #expect(agent.systemPrompt == "You are a senior engineer. Be concise.")
-        #expect(agent.provider == .anthropic)
-        #expect(agent.model == "claude-sonnet-4-20250514")
-        #expect(agent.trigger == .mentionOnly)
-        #expect(agent.command == nil)
-        #expect(!agent.id.isEmpty)
-    }
 
     // MARK: - Model (Command mode)
 
@@ -53,62 +34,15 @@ struct AgentConfigTests {
 
     @Test("Agent trigger modes")
     func triggerModes() {
-        let mentionOnly = AgentConfig.createLLM(
-            ownerId: "u", displayName: "@bot",
-            systemPrompt: "help", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
-        let allMessages = AgentConfig.createLLM(
-            ownerId: "u", displayName: "@watcher",
-            systemPrompt: "watch", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .allMessages
-        )
+        let mentionOnly = AgentConfig.createCommand(ownerId: "u", displayName: "@bot", command: "claude", systemPrompt: "help", trigger: .mentionOnly)
+        let allMessages = AgentConfig.createCommand(ownerId: "u", displayName: "@watcher", command: "claude", systemPrompt: "watch", trigger: .allMessages)
         #expect(mentionOnly.trigger == .mentionOnly)
         #expect(allMessages.trigger == .allMessages)
     }
 
-    @Test("Agent mode distinguishes LLM from Command")
-    func agentModes() {
-        let llm = AgentConfig.createLLM(
-            ownerId: "u", displayName: "@llm",
-            systemPrompt: "hi", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
-        let cmd = AgentConfig.createCommand(
-            ownerId: "u", displayName: "@cmd",
-            command: "/bin/bot", trigger: .mentionOnly
-        )
-        #expect(llm.mode == .llm)
-        #expect(cmd.mode == .command)
-        #expect(llm.mode != cmd.mode)
-    }
 
     // MARK: - Database CRUD
 
-    @Test("Save and retrieve LLM agent")
-    func saveAndGetLLM() throws {
-        let db = try makeDB()
-        let user = AppUser.createForTesting(displayName: "Test")
-        try db.saveUser(user)
-
-        let agent = AgentConfig.createLLM(
-            ownerId: user.id,
-            displayName: "@ai-engineer",
-            systemPrompt: "You are an engineer.",
-            provider: .anthropic,
-            model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
-        try db.saveAgent(agent)
-
-        let agents = try db.getAllAgents()
-        #expect(agents.count == 1)
-        #expect(agents.first?.displayName == "@ai-engineer")
-        #expect(agents.first?.mode == .llm)
-        #expect(agents.first?.systemPrompt == "You are an engineer.")
-        #expect(agents.first?.provider == .anthropic)
-        #expect(agents.first?.model == "claude-sonnet-4-20250514")
-    }
 
     @Test("Save and retrieve command agent")
     func saveAndGetCommand() throws {
@@ -141,11 +75,7 @@ struct AgentConfigTests {
         let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
-        let agent = AgentConfig.createLLM(
-            ownerId: user.id, displayName: "@bot",
-            systemPrompt: "help", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
+        let agent = AgentConfig.createCommand(ownerId: user.id, displayName: "@bot", command: "claude", systemPrompt: "help", trigger: .mentionOnly)
         try db.saveAgent(agent)
         #expect(try db.getAllAgents().count == 1)
 
@@ -159,11 +89,7 @@ struct AgentConfigTests {
         let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
-        var agent = AgentConfig.createLLM(
-            ownerId: user.id, displayName: "@bot",
-            systemPrompt: "v1", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
+        var agent = AgentConfig.createCommand(ownerId: user.id, displayName: "@bot", command: "claude", systemPrompt: "v1", trigger: .mentionOnly)
         try db.saveAgent(agent)
 
         agent.systemPrompt = "v2 improved prompt"
@@ -182,11 +108,7 @@ struct AgentConfigTests {
         let user = AppUser.createForTesting(displayName: "Test")
         try db.saveUser(user)
 
-        try db.saveAgent(AgentConfig.createLLM(
-            ownerId: user.id, displayName: "@ai-engineer",
-            systemPrompt: "engineer", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        ))
+        try db.saveAgent(AgentConfig.createCommand(ownerId: user.id, displayName: "@ai-engineer", command: "claude", systemPrompt: "engineer", trigger: .mentionOnly))
         try db.saveAgent(AgentConfig.createCommand(
             ownerId: user.id, displayName: "@custom-bot",
             command: "/bin/bot", trigger: .mentionOnly
@@ -195,7 +117,6 @@ struct AgentConfigTests {
         let agents = try db.getAllAgents()
         #expect(agents.count == 2)
         let modes = Set(agents.map { $0.mode })
-        #expect(modes.contains(.llm))
         #expect(modes.contains(.command))
     }
 

@@ -165,8 +165,6 @@ struct BridgePrincipalTests {
             let m = try #require(w.registry[name], "\(name) missing from registry")
             #expect(m.permission == perm, "\(name) permission should be \(String(describing: perm))")
         }
-        let ai = try #require(stream["ai.complete"], "ai.complete missing from stream registry")
-        #expect(ai.permission == .ai)
     }
 
     // MARK: - port principal resolution (GM decision 2026-07-19: a port acts as its creator)

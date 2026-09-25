@@ -43,29 +43,27 @@ struct AppStateTests {
         #expect(state.currentSpace == nil)
     }
 
-    @Test("Complete setup creates user, space, companion, and swim session")
+    /// The first run is a terminal (nautilus Phase 1 step 3): setup makes genesis, puts Echo in it as a
+    /// command companion on the CLI the person chose, and spawns Echo's terminal for the shell to focus.
+    @Test("Complete setup makes genesis and Echo as a command companion on the chosen CLI")
     @MainActor
     func completeSetup() throws {
         let state = try makeStateWithUser(displayName: "Gordon")
-        state.completeSetup(displayName: "Gordon")
+        state.completeSetup(displayName: "Gordon", cli: "codex")
 
-        // Setup is not yet complete; the onboarding swim phase handles that
-        #expect(state.isSetupComplete == false)
-        #expect(state.currentUser?.displayName == "Gordon")
+        #expect(state.isSetupComplete == false, "the shell's hand-off completes setup, not this")
+        #expect(state.currentSpace?.name == "genesis")
+        #expect(state.currentSpace?.type != "direct", "no direct messages: genesis is an ordinary space")
 
-        let allSpaces = try state.db.getAllSpaces()
-        let generalSpace = allSpaces.first { $0.type != "direct" }
-        #expect(generalSpace?.name == "general")
-
-        // Companion created during onboarding
         #expect(state.companions.count == 1)
-        #expect(state.companions.first?.displayName == "echo")
-        #expect(state.companions.first?.mode == .llm)
-        #expect(state.companions.first?.model == "claude-opus-4-6")
-
-        // Swim opened with companion (a DM is a `direct` space)
-        #expect(state.currentSpace?.type == "direct")
+        let echo = try #require(state.companions.first)
+        #expect(echo.displayName == "echo")
+        #expect(echo.mode == .command)
+        #expect(echo.command == "codex")
+        #expect(echo.openInTerminal)
+        #expect(echo.systemPrompt?.contains("Gordon") == true, "the brief is personalised")
         #expect(state.spaceCompanions.first?.displayName == "echo")
+        #expect(state.onboardingFocusPortId != nil, "Echo's terminal exists for the shell to focus")
     }
 
     // MARK: - Spaces
@@ -78,8 +76,8 @@ struct AppStateTests {
         state.createSpace(name: "Builders Club")
 
         let spaces = try state.db.getAllSpaces()
-        // general + swim + builders-club
-        #expect(spaces.count == 3)
+        // genesis + builders-club
+        #expect(spaces.count == 2)
         #expect(state.currentSpace?.name == "builders-club")
     }
 
@@ -99,7 +97,7 @@ struct AppStateTests {
 
         state.createSpace(name: "   ")
         let spaces = try state.db.getAllSpaces()
-        #expect(spaces.count == 2) // general + swim
+        #expect(spaces.count == 1) // genesis
     }
 
     @Test("Delete space switches to another")
@@ -114,23 +112,22 @@ struct AppStateTests {
         state.deleteSpace(temp)
 
         let remaining = try state.db.getAllSpaces()
-        #expect(remaining.count == 2) // general + swim
-        #expect(state.currentSpace?.name == "general")
+        #expect(remaining.count == 1) // genesis
+        #expect(state.currentSpace?.name == "genesis")
     }
 
-    @Test("Deleting the last team space recreates a home general (DMs don't count)")
+    @Test("Deleting the last space recreates a home general")
     @MainActor
     func deletingLastTeamSpaceRecreatesGeneral() throws {
         let state = try makeStateReady()
 
-        // Delete the only team space. A direct/DM (swim) space still exists, but DMs aren't shown
-        // in the galaxy (getRegularSpaces excludes type "direct"), so deleteSpace recreates a fresh
-        // "general" to keep a home world. Result: swim + fresh general, and we land on the general.
-        let general = state.spaces.first { $0.type != "direct" }!
-        state.deleteSpace(general)
+        // Delete the only space (genesis). deleteSpace recreates a fresh "general" so there is always
+        // a home world, and we land on it.
+        let only = state.spaces.first { $0.type != "direct" }!
+        state.deleteSpace(only)
 
         let all = try state.db.getAllSpaces()
-        #expect(all.count == 2)                        // the swim DM + a freshly created general
+        #expect(all.count == 1)                        // a freshly created general
         #expect(all.contains { $0.type != "direct" })  // a regular/home space exists again
         #expect(state.currentSpace?.type != "direct")  // landed on the home space, not the DM
     }
@@ -186,8 +183,7 @@ struct AppStateTests {
     @MainActor
     func sendToDirectSpace() throws {
         let state = try makeStateReady()
-        let companion = AgentConfig.createLLM(ownerId: state.currentUser!.id, displayName: "echo",
-                                              systemPrompt: "hi", provider: .anthropic, model: "x", trigger: .mentionOnly)
+        let companion = AgentConfig.createCommand(ownerId: state.currentUser!.id, displayName: "echo", command: "claude", systemPrompt: "hi", trigger: .mentionOnly)
         state.addCompanion(companion)
         let dm = try state.db.getOrCreateDirectSpace(companion: companion)
 
@@ -241,7 +237,7 @@ struct AppStateTests {
         state.createSpace(name: "other")
 
         let spaces = try state.db.getAllSpaces()
-        let general = spaces.first(where: { $0.name == "general" })!
+        let general = spaces.first(where: { $0.name == "genesis" })!
         let other = spaces.first(where: { $0.name == "other" })!
 
         state.selectSpace(general)

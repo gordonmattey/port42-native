@@ -43,19 +43,8 @@ public final class ShellState: ObservableObject {
     /// The Quick Switcher (⌘K), migrated from the classic app — fuzzy jump across spaces/companions.
     @Published public var showQuickSwitcher: Bool = false
 
-    /// A companion whose epistemic memory (fold/position/creases/engravings) is being
-    /// inspected — the classic swim window's eye icon, re-homed to the chat member strip.
-    /// Space-scoped: the inspector reads the relationship state of THAT chat's space.
-    public struct InspectTarget: Identifiable {
-        public let companion: AgentConfig
-        public let spaceId: String
-        public var id: String { companion.id + spaceId }
-    }
-    @Published public var inspecting: InspectTarget?
     /// The global Settings panel (the app's SignOutSheet) surfaced as a shell overlay.
     @Published public var showSettings: Bool = false
-    /// The Token Usage panel (UsageSheet) surfaced as a shell overlay.
-    @Published public var showUsage: Bool = false
     /// Which space-world the mouse is over in galaxy (zoom-in dives into it).
     @Published public var galaxyHover: Int?
     /// Normalized cursor position (0…1) for the ambient background parallax (prototype's `mouse`).

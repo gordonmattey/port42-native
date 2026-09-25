@@ -34,9 +34,8 @@ public struct CLIHookProducer: Sendable {
         /// rather than failing, and the CLI runs as the user's own.
         public let shimPath: String?
         /// Test seams. Production passes nil and the producer resolves for itself; tests pass
-        /// values to avoid a `which` spawn and a Keychain read that can block or prompt.
+        /// values to avoid a `which` spawn.
         public let binaryPathOverride: String?
-        public let tokenOverride: String?
         /// Test seam for the user's home. Codex mirrors `~/.codex` and, since it now prepares every
         /// terminal rather than only a `codex` one, does nothing at all when that directory is
         /// absent. Without this seam a codex test would pass or fail depending on whether the
@@ -54,7 +53,7 @@ public struct CLIHookProducer: Sendable {
 
         public init(tempDir: String, socketPath: String, sessionId: String, spaceId: String,
                     companionId: String?, cwd: String = "", shimPath: String?,
-                    binaryPathOverride: String? = nil, tokenOverride: String? = nil,
+                    binaryPathOverride: String? = nil,
                     homeOverride: String? = nil, stableDir: String? = nil) {
         self.stableDir = stableDir
             self.tempDir = tempDir
@@ -65,7 +64,6 @@ public struct CLIHookProducer: Sendable {
             self.cwd = cwd
             self.shimPath = shimPath
             self.binaryPathOverride = binaryPathOverride
-            self.tokenOverride = tokenOverride
             self.homeOverride = homeOverride
         }
 

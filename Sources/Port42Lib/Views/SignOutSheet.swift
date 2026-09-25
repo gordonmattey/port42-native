@@ -5,20 +5,7 @@ public struct SignOutSheet: View {
     @EnvironmentObject var appState: AppState
     @Binding var isPresented: Bool
     @State private var isHovering = false
-    @FocusState private var apiKeyFieldFocused: Bool
     @State private var autoUpdatesEnabled: Bool = UserDefaults.standard.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? true
-    @State private var selectedAuthPref: AuthPreference = Port42AuthStore.shared.loadPreference()
-    @State private var authCredentialInput = ""
-    @State private var authSaved = false
-    @State private var detectedType: CredentialType = .unknown
-    @State private var testResult: TestConnectionResult = .idle
-    @StateObject private var claudeSetup = ClaudeCodeSetup()
-    @State private var autoDetectStatus: AutoDetectStatus = .unknown
-    @State private var currentCheckId: UUID?
-    @State private var geminiKeyInput = ""
-    @State private var geminiTestResult: TestConnectionResult = .idle
-    @State private var compatibleBaseURL: String = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
-    @State private var compatibleKeyInput = ""
     @StateObject private var instructionsSvc = InstructionService.shared
     @State private var newSecretName = ""
     @State private var newSecretValue = ""
@@ -26,19 +13,7 @@ public struct SignOutSheet: View {
     @State private var secrets: [Port42AuthStore.Secret] = Port42AuthStore.shared.listSecrets()
     @AppStorage(ShellMode.takeoverKey) private var fullscreenTakeover = false
 
-    enum AutoDetectStatus: Equatable {
-        case unknown
-        case checking
-        case connected(expiresIn: String?, account: String?)
-        case notFound
-    }
 
-    enum TestConnectionResult: Equatable {
-        case idle
-        case testing
-        case success
-        case failure(String)
-    }
 
     enum SettingsTab: String, CaseIterable { case ai = "AI", grants = "Access", secrets = "Secrets", remote = "Remote", display = "Display", updates = "Updates" }
     @State private var tab: SettingsTab = .ai
@@ -104,9 +79,6 @@ public struct SignOutSheet: View {
         }
         .frame(width: 460, height: 640)
         .background(Port42Theme.shellCard)
-        .onDisappear {
-            claudeSetup.cancel()
-        }
     }
 
     /// Shell segmented tab bar (§3) — the whole segment is tappable.
@@ -169,294 +141,11 @@ public struct SignOutSheet: View {
     @ViewBuilder
     private var aiConnectionSection: some View {
         if tab == .ai {
-
-        // Provider picker — shell seg (replaces the radio-accordion).
-        seg(["Anthropic", "Gemini", "Compatible"], sel: providerSel) { providerSel = $0 }
-            .padding(.bottom, 12)
-
-        // MARK: Anthropic
-        VStack(alignment: .leading, spacing: 0) {
-            if providerSel == "Anthropic" {
-                VStack(alignment: .leading, spacing: 8) {
-                    // auto / manual — shell seg
-                    seg(["auto", "manual"], sel: selectedAuthPref == .autoDetect ? "auto" : "manual") { v in
-                        applyAuthPref(v == "auto" ? .autoDetect : .manualEntry)
-                    }
-
-        // Auto-detect status and guided setup
-        Group { if selectedAuthPref == .autoDetect {
-            switch autoDetectStatus {
-            case .unknown:
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .frame(width: 12, height: 12)
-                    Text("checking...")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-
-            case .checking:
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .frame(width: 12, height: 12)
-                    Text("Detecting...")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-
-            case .connected(let expiresIn, let account):
-                HStack(spacing: 6) {
-                    if let account {
-                        Text(account)
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textPrimary)
-                    }
-                    if let exp = expiresIn {
-                        Text("expires in \(exp)")
-                            .font(Port42Theme.mono(10))
-                            .foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-                    }
-                }
-                HStack(spacing: 8) {
-                    Button(action: doTestConnection) {
-                        Text("test")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(accent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(accent.opacity(0.1))
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: refreshAutoDetect) {
-                        Text("refresh")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(accent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(accent.opacity(0.1))
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-
-                    testResultView
-                }
-
-                // Account switcher when multiple entries exist
-                if case .multipleTokens = claudeSetup.state {
-                    ClaudeCodeSetupView(setup: claudeSetup)
-                }
-
-            case .notFound:
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(.orange)
-                        .frame(width: 6, height: 6)
-                    Text("no Claude Code token found")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(.orange)
-                }
-
-                ClaudeCodeSetupView(setup: claudeSetup)
-                    .onAppear {
-                        if claudeSetup.state == .idle {
-                            claudeSetup.diagnose()
-                        }
-                    }
-            }
-
-        } }
-        .onChange(of: claudeSetup.state) { _, newState in
-            if newState == .success {
-                // Invalidate any in-flight async check so it won't overwrite
-                currentCheckId = nil
-                let resolver = AgentAuthResolver.shared
-                let exp = resolver.cachedExpiryDescription
-                let acct = resolver.activeAccountLabel
-                autoDetectStatus = .connected(expiresIn: exp, account: acct)
-            }
+            Text("Port42 runs AI agents as CLIs in terminal ports: Claude Code, Codex, or your own. Each signs in to its own account in its own terminal; Port42 holds no model and no provider key.")
+                .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            cliInstructionsBlock
         }
-        .onAppear {
-            if selectedAuthPref == .autoDetect {
-                checkAutoDetect()
-            }
-        }
-
-        // Manual mode: single input field with live type detection
-        if selectedAuthPref == .manualEntry {
-            SecureField("paste API key or OAuth session key", text: $authCredentialInput)
-                .textFieldStyle(.plain)
-                .font(Port42Theme.mono(12))
-                .foregroundStyle(Port42Theme.textPrimary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
-                .onSubmit { saveManualCredential() }
-                .onChange(of: authCredentialInput) { _, newValue in
-                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
-                    testResult = .idle
-                }
-                .focused($apiKeyFieldFocused)
-                .onChange(of: apiKeyFieldFocused) { _, focused in
-                    if !focused { saveManualCredential() }
-                }
-
-            // Live detection label
-            if !authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                HStack(spacing: 6) {
-                    if detectedType == .unknown {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.orange)
-                    } else {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.green)
-                    }
-                    Text("detected: \(TokenDetector.humanLabel(detectedType))")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(detectedType == .unknown ? .orange : Port42Theme.textSecondary)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button(action: saveManualCredential) {
-                    Text(authCredentialInput.isEmpty ? "clear" : "save")
-                        .font(Port42Theme.monoBold(12))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(accent.opacity(0.1))
-                        .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: doTestConnection) {
-                    Text("test")
-                        .font(Port42Theme.monoBold(12))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(accent.opacity(0.1))
-                        .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-
-                testResultView
-
-                Spacer()
-            }
-        }
-                } // end if anthropicExpanded
-                .padding(.leading, 8)
-            }
-        } // end Anthropic VStack
-
-        // MARK: Gemini
-        VStack(alignment: .leading, spacing: 0) {
-            if providerSel == "Gemini" {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Paste your Gemini API key from AI Studio:")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-
-                    SecureField("AIzaSy...", text: $geminiKeyInput)
-                        .textFieldStyle(.plain)
-                        .font(Port42Theme.mono(12))
-                        .foregroundStyle(Port42Theme.textPrimary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
-
-                    HStack(spacing: 8) {
-                        Button(action: saveGeminiKey) {
-                            Text(geminiKeyInput.isEmpty ? "clear" : "save")
-                                .font(Port42Theme.monoBold(12))
-                                .foregroundStyle(accent)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(accent.opacity(0.1))
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: testGeminiKey) {
-                            Text("test")
-                                .font(Port42Theme.monoBold(12))
-                                .foregroundStyle(accent)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(accent.opacity(0.1))
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-
-                        geminiTestResultView
-
-                        Spacer()
-                    }
-                }
-                .padding(.leading, 8)
-                .padding(.top, 8)
-            }
-        }
-
-        // MARK: Compatible
-        VStack(alignment: .leading, spacing: 0) {
-            if providerSel == "Compatible" {
-                VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Base URL")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        TextField("http://localhost:11434/v1", text: $compatibleBaseURL)
-                            .textFieldStyle(.plain)
-                            .font(Port42Theme.mono(12))
-                            .foregroundStyle(Port42Theme.textPrimary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("API key (optional)")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.textSecondary)
-                        SecureField("leave blank for Ollama", text: $compatibleKeyInput)
-                            .textFieldStyle(.plain)
-                            .font(Port42Theme.mono(12))
-                            .foregroundStyle(Port42Theme.textPrimary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent.opacity(0.3), lineWidth: 1))
-                    }
-
-                    Button(action: saveCompatibleConfig) {
-                        Text("save")
-                            .font(Port42Theme.monoBold(12))
-                            .foregroundStyle(accent)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(accent.opacity(0.1))
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.leading, 8)
-                .padding(.top, 8)
-            }
-        }
-
-        cliInstructionsBlock              // §B — CLI install lives on the AI screen (wires CLI LLMs)
-        } // end if tab == .ai
     }
 
     @ViewBuilder
@@ -508,134 +197,13 @@ public struct SignOutSheet: View {
         .buttonStyle(.plain)
     }
 
-    private var isAnthropicConfigured: Bool {
-        if Port42AuthStore.shared.loadPreference() == .manualEntry {
-            return Port42AuthStore.shared.loadCredential(provider: "anthropic") != nil
-        }
-        return (try? AgentAuthResolver.shared.resolve()) != nil
-    }
 
-    private var isGeminiConfigured: Bool {
-        Port42AuthStore.shared.loadCredential(provider: "gemini") != nil
-    }
 
-    private var isCompatibleConfigured: Bool {
-        let url = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
-        return !url.isEmpty
-    }
 
-    private func saveGeminiKey() {
-        let trimmed = geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            Port42AuthStore.shared.deleteCredential(provider: "gemini")
-        } else {
-            Port42AuthStore.shared.saveCredential(trimmed, provider: "gemini")
-        }
-    }
 
-    private func testGeminiKey() {
-        geminiTestResult = .testing
-        let key = geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else {
-            geminiTestResult = .failure("No key entered.")
-            return
-        }
-        Task {
-            // Minimal Gemini test: count tokens equivalent doesn't exist; use generateContent with 1 token
-            let urlStr = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(key)"
-            guard let url = URL(string: urlStr) else {
-                await MainActor.run { geminiTestResult = .failure("Invalid URL.") }
-                return
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let body: [String: Any] = [
-                "contents": [["parts": [["text": "hi"]], "role": "user"]],
-                "generationConfig": ["maxOutputTokens": 1]
-            ]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                await MainActor.run {
-                    if code == 200 {
-                        geminiTestResult = .success
-                    } else {
-                        var detail = "HTTP \(code)"
-                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let err = json["error"] as? [String: Any],
-                           let msg = err["message"] as? String {
-                            detail = "HTTP \(code): \(msg)"
-                        }
-                        geminiTestResult = .failure(detail)
-                    }
-                }
-            } catch {
-                await MainActor.run { geminiTestResult = .failure(error.localizedDescription) }
-            }
-        }
-    }
 
-    private func saveCompatibleConfig() {
-        let url = compatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = compatibleKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if url.isEmpty {
-            Port42AuthStore.shared.deleteCredential(provider: "compatible-url")
-        } else {
-            Port42AuthStore.shared.saveCredential(url, provider: "compatible-url")
-        }
-        if key.isEmpty {
-            Port42AuthStore.shared.deleteCredential(provider: "compatibleEndpoint")
-        } else {
-            Port42AuthStore.shared.saveCredential(key, provider: "compatibleEndpoint")
-        }
-    }
 
-    @ViewBuilder
-    private var geminiTestResultView: some View {
-        switch geminiTestResult {
-        case .idle:
-            EmptyView()
-        case .testing:
-            ProgressView()
-                .scaleEffect(0.5)
-                .frame(width: 12, height: 12)
-        case .success:
-            Text("connected")
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(.green)
-        case .failure(let msg):
-            Text(msg)
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(.red)
-                .lineLimit(2)
-        }
-    }
 
-    @ViewBuilder
-    private var testResultView: some View {
-        switch testResult {
-        case .idle:
-            EmptyView()
-        case .testing:
-            ProgressView()
-                .scaleEffect(0.5)
-                .frame(width: 12, height: 12)
-        case .success:
-            Text("connected")
-                .font(Port42Theme.mono(11))
-                .foregroundStyle(.green)
-                .transition(.opacity)
-        case .failure(let msg):
-            Text(msg)
-                .font(Port42Theme.mono(10))
-                .foregroundStyle(.red)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .transition(.opacity)
-        }
-    }
 
     @ViewBuilder
     private var displaySection: some View {
@@ -663,91 +231,8 @@ public struct SignOutSheet: View {
         ShellMode.applyShellWindow(to: window)
     }
 
-    private func applyAuthPref(_ pref: AuthPreference) {
-        withAnimation(.easeIn(duration: 0.1)) {
-            selectedAuthPref = pref
-            authSaved = false
-            testResult = .idle
-            // Pre-fill with saved credential when switching to manual
-            if pref == .manualEntry {
-                authCredentialInput = Port42AuthStore.shared.loadCredential() ?? ""
-                let trimmed = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                detectedType = trimmed.isEmpty ? .unknown : TokenDetector.detect(trimmed)
-            }
-        }
-        Port42AuthStore.shared.savePreference(pref: pref)
-        if pref == .autoDetect {
-            AgentAuthResolver.shared.clearCache()
-            checkAutoDetect()
-        } else {
-            claudeSetup.cancel()
-        }
-        // Update global auth status
-        appState.authStatus = .checking
-        DispatchQueue.global(qos: .userInitiated).async {
-            let status = AgentAuthResolver.shared.checkStatus()
-            DispatchQueue.main.async {
-                appState.authStatus = status
-            }
-        }
-    }
 
-    private func saveManualCredential() {
-        let value = authCredentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if value.isEmpty {
-            Port42AuthStore.shared.deleteCredential()
-        } else {
-            Port42AuthStore.shared.saveCredential(value)
-        }
-        AgentAuthResolver.shared.resetAuth()
-
-        withAnimation(.easeIn(duration: 0.2)) {
-            authSaved = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeOut(duration: 0.3)) {
-                authSaved = false
-            }
-        }
-
-        // Update global auth status
-        appState.authStatus = .checking
-        DispatchQueue.global(qos: .userInitiated).async {
-            let status = AgentAuthResolver.shared.checkStatus()
-            DispatchQueue.main.async {
-                appState.authStatus = status
-            }
-        }
-    }
-
-    private func doTestConnection() {
-        // Commit any unsaved input before testing so the test uses what's on screen
-        if selectedAuthPref == .manualEntry {
-            saveManualCredential()
-        }
-        testResult = .testing
-        Task {
-            let error = await LLMEngine.testConnection()
-            await MainActor.run {
-                withAnimation(.easeIn(duration: 0.2)) {
-                    if let error {
-                        testResult = .failure(error)
-                    } else {
-                        testResult = .success
-                    }
-                }
-                // Auto-clear success after 5s
-                if testResult == .success {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            if testResult == .success { testResult = .idle }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     /// One revocable chip per capability, wrapping.
     private struct FlowChips: View {
@@ -1015,7 +500,6 @@ public struct SignOutSheet: View {
         case .apiKey: return "API Key"
         case .basicAuth: return "Basic"
         case .header: return "Header"
-        case .llm: return "LLM"
         }
     }
 
@@ -1069,7 +553,6 @@ public struct SignOutSheet: View {
                             Button("API Key") { newSecretType = .apiKey }
                             Button("Basic") { newSecretType = .basicAuth }
                             Button("Header") { newSecretType = .header }
-                            Button("LLM") { newSecretType = .llm }
                         } label: {
                             HStack(spacing: 5) {
                                 Text(secretTypeLabel(newSecretType)).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
@@ -1185,57 +668,7 @@ public struct SignOutSheet: View {
         }
     }
 
-    private func checkAutoDetect() {
-        autoDetectStatus = .checking
-        let checkId = UUID()
-        currentCheckId = checkId
-        DispatchQueue.global(qos: .userInitiated).async {
-            let resolver = AgentAuthResolver.shared
-            let entries = resolver.listKeychainEntries()
-            let status = resolver.checkStatus()
 
-            DispatchQueue.main.async {
-                // Stale check: a selection happened while we were async
-                guard self.currentCheckId == checkId else { return }
-
-                let isConnected: Bool
-                if case .connected = status { isConnected = true } else { isConnected = false }
-
-                if entries.count > 1 {
-                    if isConnected {
-                        let expiresIn = resolver.cachedExpiryDescription
-                        let account = resolver.activeAccountLabel
-                        autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
-                    } else {
-                        autoDetectStatus = .notFound
-                    }
-                    claudeSetup.state = .multipleTokens(entries)
-                } else if entries.count == 1 {
-                    autoDetectStatus = .checking
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        resolver.selectEntry(entries[0])
-                        let expiresIn = resolver.cachedExpiryDescription
-                        let account = resolver.activeAccountLabel
-                        DispatchQueue.main.async {
-                            autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
-                        }
-                    }
-                } else if isConnected {
-                    let expiresIn = resolver.cachedExpiryDescription
-                    let account = resolver.activeAccountLabel
-                    autoDetectStatus = .connected(expiresIn: expiresIn, account: account)
-                } else {
-                    autoDetectStatus = .notFound
-                }
-            }
-        }
-    }
-
-    private func refreshAutoDetect() {
-        AgentAuthResolver.shared.clearCache()
-        testResult = .idle
-        checkAutoDetect()
-    }
 
 
     private func doSignOut() {

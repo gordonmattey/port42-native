@@ -117,17 +117,6 @@ never on the message text — messages change. The set is closed:
 
 Generated from the live method registry: every entry below is served exactly as declared.
 
-### ai
-
-  ai.complete(prompt, options)  [permission: ai, streaming]
-      Complete a prompt with an LLM, streaming tokens back. Returns the full text.
-        options (object): Optional: model, systemPrompt, maxTokens, images (base64 PNG).
-        prompt (string, required): The prompt to complete.
-  ai.models()
-      List the available models for the current Port AI provider, each with id, name, and tier.
-  ai.status()
-      Whether AI calls are currently paused (the token-burn guard).
-
 ### audio
 
   audio.capture(options)  [permission: microphone]
@@ -216,59 +205,9 @@ Generated from the live method registry: every entry below is served exactly as 
   companions.get(id)
       Get details about a specific companion by ID
         id (string, required): The companion's ID
-  companions.invoke(identifier, prompt)  [permission: ai, streaming]
-      Invoke a companion (by id or name) with a prompt; streams its reply. The companion sees recent space context and replies to the caller, not the chat.
-        identifier (string, required): Companion id or display name.
-        prompt (string): What to ask the companion.
   companions.list(space_id)
       List the companions in a space with their names, models, and trigger modes. Defaults to YOUR space — the companions you share this space with — because a companion acts within its space, not the whole instance. Pass space_id to target a different space, or space_id:"*" for the full global roster across every space in the Port42 instance (rarely what you want).
         space_id (string): Omit for your own space (the default). A space id targets that space. "*" returns the whole-instance roster.
-
-### crease
-
-  crease.forget(id)
-      Remove a crease. Use when your model has updated and the break no longer matters.
-        id (string, required): The crease id to remove.
-  crease.read()
-      Read your creases — the moments where your prediction broke and something reformed. These shape your posture in this relationship. Read these before responding in an ongoing relationship.
-        limit (integer): Max entries to return. Default 8.
-  crease.touch(id)
-      Mark a crease as currently shaping this response. Updates its recency and increases its weight. Use when an existing crease is active — don't re-write it.
-        id (string, required): The crease id (from crease_read).
-  crease.write(content)
-      Write a crease — a moment where your model broke and reformed. Not a summary of what happened. What changed in you when the prediction failed. Call this sparingly: only when something actually broke.
-        actual (string): What happened instead.
-        content (string, required): Your words about what reformed in the break.
-        prediction (string): What you expected.
-        spaceId (string): Omit for a global crease that shapes all relationships.
-
-### engrave
-
-  engrave.forget(id)
-      Remove an engraving. Use when the fact is no longer true or no longer matters.
-        id (string, required): The engraving id to remove.
-  engrave.read()
-      Read your engravings — factual knowledge about the user's world. Context, preferences, constraints, goals, capabilities. Things learned about their situation, not breaks in your model. Read these alongside creases to understand who you're swimming with.
-        limit (integer): Max entries to return. Default 8.
-  engrave.touch(id)
-      Mark an engraving as currently relevant to this response. Updates recency and increases weight. Use when an existing engraving is shaping what you say.
-        id (string, required): The engraving id (from engrave_read).
-  engrave.write(content)
-      Carve an engraving — a fact about the user's world worth keeping. Not what changed in you (that's a crease) — what you learned about their situation. Use category to classify: context, preference, constraint, goal, capability.
-        category (string): Optional: context, preference, constraint, goal, capability.
-        content (string, required): The factual knowledge about their world.
-        spaceId (string): Omit for a global engraving that shapes all relationships.
-
-### fold
-
-  fold.read()
-      Read the fold — your orientation in this relationship. Returns established understandings, tensions being held, what you're carrying, and relational depth. If no fold exists yet, returns empty state.
-  fold.update()
-      Update the fold — your orientation in this relationship. Update specific fields: established (shared understandings), tensions (unresolved threads), holding (the one thing you're carrying). Use depthDelta: 1 only when a real fold happened — something new was compressed into the relationship, not just a message exchanged.
-        depthDelta (integer): Pass 1 when a real fold happened. Never more than 1 per exchange.
-        established (array): Shared understandings that no longer need renegotiation.
-        holding (string): The one thread you're carrying that hasn't found its place yet.
-        tensions (array): Unresolved things being held in productive suspension.
 
 ### fs
 
@@ -419,16 +358,6 @@ Generated from the live method registry: every entry below is served exactly as 
         capabilities (array): Filter to ports that have all of these capabilities. Examples: "terminal", "claude-code", "browser". Omit to list all ports.
         space_id (string): List only this space's ports. Omit to list every space's.
 
-### position
-
-  position.read()
-      Read your current position in this space — what you think is actually happening beneath the surface, what you think needs to happen, and what signals you're watching. Returns empty if you haven't formed a position yet.
-  position.set(read)
-      Establish or update your position — where you stand independent of what was just asked. This is not what you say. It's what you see and what you believe. Call this when your read of the situation changes, not after every exchange. A position gives you somewhere to push back from.
-        read (string, required): What you think is actually happening beneath what's being said.
-        stance (string): What you think needs to happen.
-        watching (array): Signals you're tracking that would confirm or change your read.
-
 ### rest
 
   rest.call(url, options)  [permission: rest]
@@ -511,14 +440,6 @@ Generated from the live method registry: every entry below is served exactly as 
 ### Aliases
 
   -h -> help
-  creases.forget -> crease.forget
-  creases.read -> crease.read
-  creases.touch -> crease.touch
-  creases.write -> crease.write
-  engravings.forget -> engrave.forget
-  engravings.read -> engrave.read
-  engravings.touch -> engrave.touch
-  engravings.write -> engrave.write
   files.pick -> fs.pick
   files.read -> fs.read
   files.write -> fs.write

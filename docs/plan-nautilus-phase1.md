@@ -11,8 +11,8 @@ can carry: the desktop, a space, or one port.
 
 ## Progress
 
-1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · 1.1 re-scoped (below) ·
-1.3 and 1.5 open.
+1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 open.
 
 ## Order, and why
 
@@ -66,8 +66,46 @@ These go together, because the first run is the engine's last user.
   installer or a new Codex installer. The Keychain token step goes (D9). Setup ends focused on Echo's
   terminal with the prefilled line. Echo's prompt is rewritten for a command companion: `port.create`,
   never a fence (D11), with the Codex welcome delivered through `AGENTS.md`.
-- **Schema:** v48 drops `token_usage` and the LLM columns on `agents`, and the heartbeat columns on
-  `spaces`.
+- **Schema:** a new migration drops `token_usage` and the LLM columns on `agents`, and the heartbeat
+  columns on `spaces`. LLM and remote companions are deleted first, with their space memberships,
+  because their mode no longer decodes.
+- **Found while mapping (2026-09-25):** Port42 keeps a Claude OAuth token in its own secrets store and
+  injects it into every companion terminal as `CLAUDE_CODE_OAUTH_TOKEN`. D9 says Port42 reads no
+  provider credential, so the injection and the stored secret go. Each CLI uses its own sign-in.
+- **Commits:**
+  - **1.3a:** the engine, Keeper, `.llm` and `.remote` companions, heartbeats and the token injection
+    go. Echo becomes a command companion in `genesis`, running the detected CLI, with the drafted
+    welcome. Routing keeps mentions and command companions; the LLM pre-router's branches go.
+  - **1.3b:** setup's credential step becomes the CLI chooser (detect, pick, or install).
+
+**Done 2026-09-25, as one commit** (1.3a and 1.3b could not land apart: setup's credential step was
+the last user of the engine's auth). Gone: `LLMEngine`, `GeminiEngine`, `LLMBackend`,
+`LLMStreamCollector`, `BridgeServiceAI`, `AgentRouterLLM`, `AppState+PortAI`, the engine's auth
+resolver, `ModelPicker`, `UsageView`, Keeper and its inspector, `companions.invoke`, the `ai.*`
+methods and `port42.ai.complete`, heartbeats and `NewSpaceSheet`, the `.llm` and `.remote` modes,
+the chrome's auth key and AI pause, and the settings AI tab's provider forms. `AgentAuth.swift`
+became `Port42AuthStore.swift`: named secrets for `rest.call` and the gateway root secret, and it
+deletes the engine's leftover credentials at launch. The Claude OAuth token Port42 injected into
+companion terminals is no longer injected.
+
+Routing: a message launches its targets directly. A companion's reply reaches only the companions
+it @mentions; the pre-router that decided for unmentioned ones is gone, and launching all of them
+would invite loops.
+
+First run: setup finds Claude Code or Codex (or offers to install one), makes `genesis`, adds Echo
+as a command companion on that CLI with the drafted brief, spawns its terminal with the first line
+waiting (Claude) or the brief as the first turn (Codex), and the shell opens focused on it.
+
+Migration v50 deletes LLM and remote companions with their memberships, drops the Keeper tables,
+`token_usage` and `swimMessages`, and the heartbeat columns. Live on Dev3's real data: the old LLM
+`echo` went, the seven command companions stayed, and the harness passed five of five.
+`ai.complete` now answers `unknown_method`. Of the processes Dev3 launched, only Claude Code's own
+re-executed sessions hold `CLAUDE_CODE_OAUTH_TOKEN`, from their own login; the shells Port42
+prepared hold none. Suite 1203 green (171 removed tests covered removed features).
+
+**Not verified live:** the first run itself, which needs a person to type a name and pick a CLI.
+The agent-field columns (`provider`, `model`, `thinking*`, `providerBaseURL`) stay in the schema,
+unused, for a follow-up.
 
 **Decided (GM, 2026-09-25):** Echo is a command port, a Claude Code or Codex terminal, and its welcome
 prompts the person to ask for something alive, such as a shader port. It no longer nudges toward

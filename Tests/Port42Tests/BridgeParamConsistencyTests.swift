@@ -111,7 +111,6 @@ struct BridgeParamConsistencyTests {
     /// A new service module is added here so its methods are consistency-checked too.
     static let registrySources = [
         "Sources/Port42Lib/Services/BridgeMethods.swift",
-        "Sources/Port42Lib/Services/BridgeServiceAI.swift",
     ]
 
     /// Parse every registry method out of the registry source files.
@@ -173,8 +172,8 @@ struct BridgeParamConsistencyTests {
     @Test("Parser finds all registry methods (sanity)")
     func parserCoverage() throws {
         let methods = try Self.parseMethods()
-        // Source-scan covers the `r["..."] = BridgeMethod` form. Manifest-declared services (Keeper 12,
-        // storage 4) leave the source-scan and are checked by the runtime probe below instead.
+        // Source-scan covers the `r["..."] = BridgeMethod` form. Manifest-declared services (storage 4;
+        // Keeper's 12 went with the engine) leave the source-scan and are checked by the runtime probe below instead.
         // BridgeMethods.swift: 60 one-shot (38 + tail items 1+2: messages.sendAsCreator,
         // space.switchTo + tail item 9: port.info, port.setTitle, port.setCapabilities, port.close,
         // port.position + tail item 4: rest.call + tail item 5: the 7 browser methods + tail item 6:
@@ -192,7 +191,9 @@ struct BridgeParamConsistencyTests {
         //   terminal's output was published to whoever had already subscribed and then dropped. An
         //   agent that generated a port could not see it throw, and a terminal whose command died
         //   said nothing at all. = 75.
-        #expect(methods.count == 75, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // − companions.invoke and the three ai.* methods (BridgeServiceAI.swift), which went with the
+        //   in-app engine (nautilus Phase 1 step 3). = 71.
+        #expect(methods.count == 71, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")
@@ -294,25 +295,5 @@ struct BridgeParamConsistencyTests {
             }
         }
 
-        // The dispatch path resolves the DSL surface to canonical (the fix for the broken creases.read /
-        // engravings.* calls). bridgeHandles routes through the same resolver every adapter uses.
-        #expect(world.state.resolveBridgeAlias("creases.read") == "crease.read")
-        #expect(world.state.resolveBridgeAlias("engravings.write") == "engrave.write")
-        #expect(world.state.bridgeHandles("creases.read"))
-        #expect(world.state.bridgeHandles("engravings.write"))
-    }
-
-    @Test("Keeper's declared name-map resolves the DSL surface to canonical")
-    @MainActor
-    func keeperNameMapResolves() throws {
-        let map = keeperManifest().nameMap
-        #expect(map["creases.read"] == "crease.read")
-        #expect(map["creases.write"] == "crease.write")
-        #expect(map["engravings.read"] == "engrave.read")
-        #expect(map["engravings.forget"] == "engrave.forget")
-        // fold / position surfaces equal their canonical, so they are NOT in the map.
-        #expect(map["fold.read"] == nil)
-        #expect(map["position.set"] == nil)
-        #expect(map.count == 8)
     }
 }

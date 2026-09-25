@@ -1,8 +1,9 @@
 import Foundation
 import SwiftUI
 
-/// State machine that guides users through installing Node, Claude Code,
-/// and authenticating so that Keychain auto-detect works.
+/// Installs a CLI agent when the machine has none (nautilus Phase 1 step 3): Node when npm is missing,
+/// then Claude Code or Codex. It does not sign anyone in: each CLI signs in to its own provider, in its
+/// own terminal, and Port42 never reads that credential (D9).
 @MainActor
 public final class ClaudeCodeSetup: ObservableObject {
 
@@ -11,14 +12,14 @@ public final class ClaudeCodeSetup: ObservableObject {
         case checking
         case noNode
         case claudeNotInstalled
-        case claudeNeedsAuth
-        case multipleTokens([ClaudeKeychainEntry])  // user must pick one
         case running(String)   // status message
         case failed(String)    // error message
         case success
     }
 
     @Published public var state: State = .idle
+    /// Which CLI an install puts on the machine: "claude" or "codex".
+    @Published public var target = "claude"
     @Published public var output: String = ""
 
     private var process: Process?
@@ -29,48 +30,16 @@ public final class ClaudeCodeSetup: ObservableObject {
     public func diagnose() {
         state = .checking
         output = ""
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let hasNode = Self.findBinary("node") != nil
-            let hasClaude = Self.findBinary("claude") != nil
-            let resolver = AgentAuthResolver.shared
-
-            // Check for existing tokens
-            var hasToken = false
-            var entries: [ClaudeKeychainEntry] = []
-            if hasClaude {
-                hasToken = { if case .connected = resolver.checkStatus() { return true }; return false }()
-                if !hasToken {
-                    // Check for multiple entries that need user selection
-                    entries = resolver.listKeychainEntries()
-                }
-            }
-
+            let hasCLI = Self.findBinary("claude") != nil || Self.findBinary("codex") != nil
             DispatchQueue.main.async {
                 guard let self else { return }
-                if hasToken {
-                    self.state = .success
-                } else if entries.count > 1 {
-                    self.state = .multipleTokens(entries)
-                } else if entries.count == 1 {
-                    // Single suffixed entry found, select it automatically
-                    resolver.selectEntry(entries[0])
-                    self.state = .success
-                } else if !hasNode {
-                    self.state = .noNode
-                } else if !hasClaude {
-                    self.state = .claudeNotInstalled
-                } else {
-                    self.state = .claudeNeedsAuth
-                }
+                if hasCLI { self.state = .success }
+                else if !hasNode { self.state = .noNode }
+                else { self.state = .claudeNotInstalled }
             }
         }
-    }
-
-    /// Select a specific Keychain entry from the picker.
-    public func selectKeychainEntry(_ entry: ClaudeKeychainEntry) {
-        AgentAuthResolver.shared.selectEntry(entry)
-        state = .success
     }
 
     /// Cancel the currently running process.
@@ -124,6 +93,30 @@ public final class ClaudeCodeSetup: ObservableObject {
         }
     }
 
+    /// Install the chosen target: Claude Code or Codex.
+    public func installTarget() {
+        target == "codex" ? installCodex() : installClaudeCode()
+    }
+
+    /// Install Codex via npm.
+    public func installCodex() {
+        guard let npm = Self.findBinary("npm") else {
+            state = .failed("npm not found. Please install Node.js first.")
+            return
+        }
+        state = .running("Installing Codex...")
+        output = "$ npm install -g @openai/codex\n"
+        run(command: npm, args: ["install", "-g", "@openai/codex"], status: "Installing Codex...") { [weak self] ok in
+            guard let self else { return }
+            if ok, Self.findBinary("codex") != nil {
+                self.output += "\nCodex installed.\n"
+                self.state = .success
+            } else {
+                self.failIfRunning("Codex installation failed. Install it by hand, or install Claude Code.")
+            }
+        }
+    }
+
     /// Install Claude Code via npm.
     public func installClaudeCode() {
         guard let npm = Self.findBinary("npm") else {
@@ -138,9 +131,9 @@ public final class ClaudeCodeSetup: ObservableObject {
             guard let self else { return }
             if ok {
                 // Verify
-                if Self.findBinary("claude") != nil {
+                if Self.findBinary(target) != nil {
                     self.output += "\nClaude Code installed.\n"
-                    self.state = .claudeNeedsAuth
+                    self.state = .success
                 } else {
                     self.failIfRunning("npm install succeeded but 'claude' binary not found on PATH.")
                 }
@@ -154,47 +147,10 @@ public final class ClaudeCodeSetup: ObservableObject {
                     guard let self else { return }
                     if ok && Self.findBinary("claude") != nil {
                         self.output += "\nClaude Code installed.\n"
-                        self.state = .claudeNeedsAuth
+                        self.state = .success
                     } else {
-                        self.failIfRunning("Claude Code installation failed. You can try manually or switch to another auth method.")
+                        self.failIfRunning("Claude Code installation failed. Install it by hand, or install Codex.")
                     }
-                }
-            }
-        }
-    }
-
-    /// Run `claude setup-token` to authenticate via browser OAuth.
-    public func authenticate() {
-        guard let claude = Self.findBinary("claude") else {
-            state = .failed("Claude Code binary not found.")
-            return
-        }
-
-        state = .running("Waiting for browser sign-in...")
-        output = "$ claude setup-token\n"
-
-        run(command: claude, args: ["setup-token"], status: "Waiting for browser sign-in...") { [weak self] ok in
-            guard let self else { return }
-            if ok {
-                self.retryDetection()
-            } else {
-                self.failIfRunning("Authentication was cancelled or failed. You can retry or switch to another auth method.")
-            }
-        }
-    }
-
-    /// Re-check Keychain after authentication completes.
-    public func retryDetection() {
-        AgentAuthResolver.shared.resetAuth()
-        DispatchQueue.global(qos: .userInitiated).async {
-            let resolver = AgentAuthResolver.shared
-            let found = { if case .connected = resolver.checkStatus() { return true }; return false }()
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if found {
-                    self.state = .success
-                } else {
-                    self.state = .failed("Authentication completed but token not found in Keychain. Try again or use another auth method.")
                 }
             }
         }
@@ -265,8 +221,8 @@ public final class ClaudeCodeSetup: ObservableObject {
         if Self.findBinary("node") != nil {
             output += "\nNode.js installed.\n"
             // Check if Claude is already installed
-            if Self.findBinary("claude") != nil {
-                state = .claudeNeedsAuth
+            if Self.findBinary(target) != nil {
+                state = .success
             } else {
                 state = .claudeNotInstalled
             }

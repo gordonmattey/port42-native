@@ -3,10 +3,11 @@ import GRDB
 
 // MARK: - Enums
 
+/// Every companion is a command companion: a CLI agent in a terminal port, or a headless command over
+/// NDJSON. The in-app LLM mode and the hub's remote mode are gone (nautilus Phase 1 steps 3 and 4);
+/// migration v50 deletes companions of either.
 public enum AgentMode: String, Codable, Equatable {
-    case llm
     case command
-    case remote  // Python SDK / CLI agent connected via WebSocket
 }
 
 public enum AgentTrigger: String, Codable, Equatable {
@@ -84,53 +85,6 @@ public struct AgentConfig: Codable, FetchableRecord, PersistableRecord, Identifi
     }
 
     // MARK: - Factory Methods
-
-    public static func createLLM(
-        ownerId: String,
-        displayName: String,
-        systemPrompt: String,
-        provider: AgentProvider,
-        model: String,
-        trigger: AgentTrigger
-    ) -> AgentConfig {
-        AgentConfig(
-            id: UUID().uuidString,
-            ownerId: ownerId,
-            displayName: displayName,
-            mode: .llm,
-            trigger: trigger,
-            systemPrompt: systemPrompt,
-            provider: provider,
-            model: model,
-            command: nil,
-            args: nil,
-            workingDir: nil,
-            envVars: nil,
-            createdAt: Date()
-        )
-    }
-
-    public static func createRemote(
-        ownerId: String,
-        displayName: String,
-        ownerName: String
-    ) -> AgentConfig {
-        AgentConfig(
-            id: UUID().uuidString,
-            ownerId: ownerId,
-            displayName: displayName,
-            mode: .remote,
-            trigger: .mentionOnly,
-            systemPrompt: nil,
-            provider: nil,
-            model: nil,
-            command: nil,
-            args: nil,
-            workingDir: nil,
-            envVars: nil,
-            createdAt: Date()
-        )
-    }
 
     public static func createCommand(
         ownerId: String,

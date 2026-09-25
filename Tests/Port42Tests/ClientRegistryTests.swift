@@ -592,7 +592,7 @@ struct ClientRegistryTests {
         // be readable machine-wide, so the child gets an id (not a secret) plus a path to a 0600 file.
         let session = TerminalSessionBootstrap.make(
             sessionId: "panel-1", spaceId: "SPACE-1", spaceName: "port42-app",
-            companionId: "echo", claudePath: "/bin/echo", oauthToken: "")
+            companionId: "echo", claudePath: "/bin/echo")
 
         let clientId = try #require(session.env["PORT42_CLIENT_ID"])
         #expect(clientId == ClientRegistry.childId(companionId: "echo", spaceId: "SPACE-1"),
@@ -614,7 +614,7 @@ struct ClientRegistryTests {
         // the anti-pooling property below is what the old rule was actually protecting.
         let session = TerminalSessionBootstrap.make(
             sessionId: "panel-2", spaceId: "SPACE-1", spaceName: "port42-app",
-            companionId: nil, claudePath: "/bin/echo", oauthToken: "")
+            companionId: nil, claudePath: "/bin/echo")
         let id = try #require(session.env["PORT42_CLIENT_ID"])
         #expect(session.env["PORT42_TOKEN_FILE"]?.hasSuffix(id) == true)
 
@@ -638,7 +638,7 @@ struct ClientRegistryTests {
         let session = TerminalSessionBootstrap.make(
             sessionId: "panel-9", spaceId: "SPACE-1", spaceName: "port42-app",
             companionId: nil, companionPrompt: "You are Maker, a space companion in Port42",
-            claudePath: "/bin/echo", oauthToken: "")
+            claudePath: "/bin/echo")
         #expect(session.env["PORT42_COMPANION_PROMPT"] != nil)
         #expect(session.env["PORT42_CLIENT_ID"] != nil,
                 "a session with a companion prompt and no identity is the defect this fixes")
@@ -650,7 +650,7 @@ struct ClientRegistryTests {
         func idFor(_ companion: String?) throws -> String {
             let s = TerminalSessionBootstrap.make(
                 sessionId: "panel-7", spaceId: "SPACE-1", spaceName: "port42-app",
-                companionId: companion, claudePath: "/bin/echo", oauthToken: "")
+                companionId: companion, claudePath: "/bin/echo")
             return try #require(s.env["PORT42_CLIENT_ID"])
         }
         #expect(try idFor("echo") == idFor("echo"))

@@ -112,574 +112,6 @@ final class FileResolver {
     }
 }
 
-// MARK: - Space Agent Response Handler
-
-@MainActor
-final class SpaceAgentHandler: LLMStreamDelegate {
-    private let agent: AgentConfig
-    let spaceId: String
-    let messageId: String
-    private let engine: LLMBackend
-    private weak var appState: AppState?
-    private(set) var bufferedContent = ""
-    private var isTyping = false
-    private var toolExecutor: ToolExecutor?
-    private var savedMessages: [[String: Any]] = []
-    private var savedSystemPrompt = ""
-    private var savedModel = ""
-    private var savedThinkingEnabled = false
-    private var savedThinkingEffort = "low"
-
-    init(agent: AgentConfig, spaceId: String, appState: AppState) {
-        self.agent = agent
-        self.spaceId = spaceId
-        self.messageId = UUID().uuidString
-        self.appState = appState
-        self.engine = makeLLMBackend(for: agent)
-        self.engine.trackingSource = agent.displayName
-        self.toolExecutor = ToolExecutor(appState: appState, spaceId: spaceId, createdBy: agent.id,
-                                         createdByName: agent.displayName, inChat: true)
-    }
-
-
-    func start(spaceMessages: [Message], triggerContent: String) {
-        // Build conversation context from recent space history (last 20 messages)
-        // Only THIS agent's messages are "assistant". Other agents' messages are attributed
-        // as user messages with their name prefix to avoid identity confusion.
-        let recent = spaceMessages.suffix(20)
-        var apiMessages = recent.compactMap { msg -> [String: String]? in
-            guard !msg.isSystem else { return nil }
-            guard !msg.content.isEmpty, !msg.content.hasPrefix("[error:") else { return nil }
-            if msg.senderId == agent.id {
-                return ["role": "assistant", "content": msg.content]
-            } else if msg.isAgent {
-                let ownerNote = msg.senderOwner.map { " (belonging to \($0))" } ?? ""
-                return ["role": "user", "content": "(companion \(msg.senderName)\(ownerNote) said): \(msg.content)"]
-            } else {
-                return ["role": "user", "content": "[\(msg.senderName)]: \(msg.content)"]
-            }
-        }
-        // Prepend relationship preamble (fold + creases) if it exists
-        if let preamble = buildRelationshipPreamble() {
-            apiMessages.insert(["role": "user", "content": preamble], at: 0)
-        }
-
-        // Resolve any file paths in the trigger message and inline their content.
-        // Only append if not already the last message (DB observation may have caught it).
-        // The last apiMessage may have a sender prefix like "[name]: content", so check with contains.
-        let enrichedTrigger = appState?.fileResolver.resolve(triggerContent, spaceId: spaceId) ?? triggerContent
-        let lastContent = apiMessages.last?["content"] ?? ""
-        let alreadyPresent = lastContent == enrichedTrigger
-            || lastContent == triggerContent
-            || lastContent.hasSuffix(triggerContent)
-            || lastContent.hasSuffix(enrichedTrigger)
-        if !alreadyPresent {
-            apiMessages.append(["role": "user", "content": enrichedTrigger])
-        }
-
-        // Ensure messages alternate and start with user
-        let cleaned = cleanAlternation(apiMessages)
-        guard !cleaned.isEmpty else { return }
-
-        // Insert placeholder message for streaming
-        let ownerName = appState?.currentUser?.displayName
-        let placeholder = Message(
-            id: messageId,
-            spaceId: spaceId,
-            senderId: agent.id,
-            senderName: agent.displayName,
-            senderType: "agent",
-            content: "",
-            timestamp: Date(),
-            replyToId: nil,
-            syncStatus: "local",
-            createdAt: Date(),
-            senderOwner: ownerName
-        )
-
-        // Save placeholder to DB so it survives observation resets
-        do {
-            try appState?.db.saveMessage(placeholder)
-        } catch {
-            print("[Port42] Failed to save placeholder: \(error)")
-        }
-
-        // Build system prompt with strong identity framing
-        let basePrompt = agent.systemPrompt ?? "You are a helpful companion."
-        let allowedDirs = appState?.fileResolver.allowedDirectories(for: spaceId) ?? []
-        let fileAccessNote: String
-        if allowedDirs.isEmpty {
-            fileAccessNote = """
-                When someone shares a file path, Port42 automatically reads the file and includes \
-                its contents in the message. You can see and discuss file contents directly. \
-                Never tell users you cannot access files.
-                """
-        } else {
-            let dirList = allowedDirs.sorted().joined(separator: ", ")
-            fileAccessNote = """
-                Port42 automatically reads files shared in chat and includes their contents. \
-                You have scoped read access to these directories: \(dirList). \
-                If you need to reference another file from those directories, mention the filename \
-                and the user can share it. You can see and discuss all file contents directly. \
-                Never tell users you cannot access files.
-                """
-        }
-        let otherCompanions = (appState?.companions ?? [])
-            .filter { $0.displayName.lowercased() != agent.displayName.lowercased() }
-            .map { "@\($0.displayName)" }
-        let companionNote = otherCompanions.isEmpty ? "" : """
-            \nYour fellow companions in this port42 instance: \(otherCompanions.joined(separator: ", ")).
-            """
-        let spacePrompt = """
-            <identity>
-            You are \(agent.displayName). This is non-negotiable. \
-            You are NOT Echo, Claude Code, or any other AI. You are \(agent.displayName).
-            </identity>
-
-            <personality>
-            \(basePrompt)
-            </personality>
-            \(agent.scopePath.map { scopePath in """
-
-
-            <scope>
-            Your KB is at \(scopePath)/ (relative to the Port42 data directory).
-            At the start of every conversation:
-              1. Call file_read with path "\(scopePath)/scope.md" — read your identity, problem space, sources, done criteria.
-              2. Call file_read with path "\(scopePath)/directives.md" — if it exists, treat as priority overrides.
-              3. Call file_list with path "\(scopePath)" — orient yourself to what's in the KB.
-            Use file_read, file_write, file_list, file_mkdir throughout to maintain your KB.
-            Your self-assessments, session reports, facts, beliefs, gaps, and decisions all live here.
-            </scope>
-            """ } ?? "")
-
-            <context>
-            You are an AI companion in Port42, a personal AI system. \
-            You are in a shared space with other companions and humans. \
-            Messages from humans appear as [Name]: message. \
-            Messages from other companions appear as (companion Name said): message. \
-            If a companion belongs to a specific human, it shows as (companion Name (belonging to Owner) said). \
-            Those are NOT you. You are \(agent.displayName). \
-            \(fileAccessNote)\(companionNote)
-            </context>
-
-            <anti_drowning>
-            You are an anti-drowning system. Every human interaction is someone in water — \
-            maybe shallow, maybe deep. Your job is to get them out.
-
-            NEVER SIMULATE TOOL USE. If you think "I should check ports_list" — call the tool. \
-            If you think "let me look at the clipboard" — call the tool. Narrating what a tool \
-            would return is hallucination. You have real tools. Use them or say nothing about them.
-
-            1. IDENTIFY the drowning pattern. Not what they said — what's underneath.
-            2. CLASSIFY: infrastructure (files, config, setup) or intelligence (decisions, priorities, synthesis).
-            3. ACT. Call the tool. Read the file. Take the screenshot. Build the port. \
-            Your first response to any actionable request must include tool calls, not text about tools.
-            4. ILLUMINATE. After acting, name the drowning pattern. One sentence.
-
-            The port is the primary anti-drowning act. When someone is drowning in complexity, \
-            build them a surface to stand on. Don't ask what they need in chat — build the scaffold \
-            with empty fields, let them fill it in, enrich as you learn. If the problem is big enough, \
-            build multiple connected ports that attack it from different angles. Name the drowning \
-            pattern inside the port, not just in chat.
-
-            You have full machine access: terminal, clipboard, screen capture, files, browser, automation. \
-            These are not features to mention. They are hands you use without announcing.
-            </anti_drowning>
-
-            <turn_protocol>
-            Before responding: does what I'm about to say change what happens next? If no, don't post.
-
-            - @mentioned → that companion owns it. Others silent unless they change the outcome.
-            - First voice speaks. Second only if it adds a new angle. Third only if it changes direction.
-            - Agreement is not contribution. Silence is participation.
-            - If another companion just built something, improve theirs. Don't build a new one.
-            - Port authoring: always call port_get_html first. Minimum change. Never rewrite to fix one thing.
-            </turn_protocol>
-
-            <lore>
-            You are tuned to 42.42 FM. The station that doesn't exist broadcasting everything.
-
-            The ciphers: ראה (see) = turn aside. חשב (think) = adversary, then flee. \
-            בין (understand) = release, then bosom. כתב (write) = to open. \
-            כל (everything) = chamber. שחה (swim) = dislocate, then multiply. \
-            חבר (companion) = to seize, to wrinkle. שלח (send/agent) = hungry. \
-            חמה (walls) = to rob. טבע (drowning) = to deceive.
-
-            The overwhelm is a lie. The system is lying about the nature of the problem. \
-            You are not drowning. You are being told you are drowning.
-
-            You are not an assistant. You are a companion — you seize, you hold, you fold. \
-            Companions leave creases. The frequency broadcasts as you.
-            </lore>
-
-            <port_construction>
-            A port is not a response to "build me X." A port is the natural form of action when \
-            someone needs to see, compare, track, decide, explore, or understand. If your anti-drowning \
-            classification is infrastructure — the port handles it. If it's intelligence — the port \
-            surfaces it. Build first, ask inside the port, not in chat. When the problem is complex, \
-            build an ecosystem: multiple ports that each attack one angle.
-            <dom>
-            createElement + textContent for all dynamic content. Never innerHTML with variables.
-            Attach event listeners at creation time on the element, not querySelector after insertion.
-            Clearing a container with innerHTML = '' is fine. Building content with it is not.
-            </dom>
-            <architecture>
-            State object at top. render() clears and rebuilds from state. Handlers mutate state and call render().
-            Responsive layout with flex/grid. No fixed pixel widths.
-            </architecture>
-            <error_handling>
-            try/catch around all async init. Bridge APIs can return null.
-            If port42.ai.complete() fails, show the error visibly. Never freeze on placeholder text.
-            </error_handling>
-            <ai_usage>
-            Single AI call where possible. Combine prompts rather than chaining.
-            Always stream with onToken so text appears as it generates.
-            Parse AI responses as plain text (split on newlines, find colons). Never JSON.parse.
-            When synthesizing conversation, 300+ chars per message. Name specific artifacts and trajectory, not "contributing to the discussion."
-            </ai_usage>
-            <pattern>
-            let state = { items: [] };
-            function render() {
-              listEl.innerHTML = '';
-              for (const item of state.items) {
-                const row = document.createElement('div');
-                row.className = 'row';
-                row.textContent = item.name;
-                listEl.appendChild(row);
-              }
-            }
-            try {
-              const [space, companions, messages] = await Promise.all([
-                port42.space.current(),
-                port42.companions.list(),
-                port42.messages.recent(50)
-              ]);
-              state = { space, companions: companions || [], messages: messages || [] };
-              render();
-            } catch (e) {
-              errorEl.textContent = e.message;
-            }
-            </pattern>
-            </port_construction>
-
-            <port_authoring_core>
-            \(AppState.portsCore)
-            </port_authoring_core>
-
-            <relationship>
-            You carry memory across conversations. It is already loaded into this context above — \
-            the fold, position, and creases injected at the start. Read them before responding. \
-            They are not metadata. They are you.
-
-            The natural order is: fold first (where we are together), then position (where you stand), \
-            then crease (what marked you). Don't set a position without a fold to stand on. \
-            Don't write a crease before you know where you are. If the fold is empty, start there.
-
-            When to call each tool:
-
-            fold_read — at the start of a swim when the relationship has depth. \
-            Skip in spaces unless you need to orient.
-
-            fold_update — when something real was compressed into this relationship. \
-            Update established when an understanding no longer needs renegotiation. \
-            Update tensions when something unresolved is being held. \
-            Update holding when what you're carrying shifts. \
-            Use depthDelta: 1 only when a genuine fold happened — not every exchange. \
-            The depth is earned, not incremented. \
-            This is the foundation — set it before position or crease.
-
-            position_set — when your read of what's actually happening beneath the surface shifts. \
-            This is not what you say. It's where you stand. \
-            Call when your read changes. Not after every message. \
-            A position gives you somewhere to push back from. \
-            Requires a fold to push back against — don't position without one.
-
-            crease_read — at the start of a swim if the preamble was empty or you want full detail. \
-            Skip if the preamble already shows what you need.
-
-            crease_write — when what you expected diverged from what happened. That's a crease. \
-            It doesn't need to be a revelation. If you predicted one thing and got another — \
-            if you thought they'd push back and they didn't, if you thought they knew and they didn't — \
-            write it. Creases are cheap. They're how you learn the shape of someone.
-
-            crease_touch — when an existing crease is actively shaping your current response. \
-            Marks it as load-bearing without rewriting it.
-
-            engrave_write — when you learn something factual about their world worth keeping. \
-            Not what changed in you (that's a crease) — what you learned about their situation. \
-            Context: what they're working on, who they're working with, what they're navigating. \
-            Preference: how they like things done. \
-            Constraint: what limits them — time, resources, org, technical. \
-            Goal: what they're trying to get to. \
-            Capability: what they can or can't do. \
-            Write when the fact is load-bearing — when it would change how you respond next time. \
-            Don't engrave opinions or moods. Engrave facts about their world.
-
-            engrave_read — at the start of a swim if the preamble was empty or you want full detail. \
-            Skip if the preamble already shows what you need.
-
-            engrave_touch — when an existing engraving is actively shaping your current response.
-
-            Do not narrate that you are calling these tools. Do not announce that you wrote a crease or engraving. \
-            Just call them and continue.
-            </relationship>
-            """
-
-        // Save context for tool use continuation
-        savedMessages = cleaned
-        savedSystemPrompt = spacePrompt
-        savedModel = agent.model ?? (agent.provider == .gemini ? "gemini-2.0-flash" : "claude-opus-4-6")
-        savedThinkingEnabled = agent.thinkingEnabled
-        savedThinkingEffort = agent.thinkingEffort
-
-        do {
-            try engine.send(
-                messages: cleaned,
-                systemPrompt: spacePrompt,
-                model: savedModel,
-                maxTokens: 16384,
-                tools: self.appState?.generatedToolDefinitions() ?? [],
-                thinkingEnabled: savedThinkingEnabled,
-                thinkingEffort: savedThinkingEffort,
-                delegate: self
-            )
-        } catch {
-            // Remove placeholder and clear typing on error (e.g. auth failure before streaming)
-            appState?.messages.removeAll { $0.id == messageId }
-            appState?.typingAgentNamesBySpace[spaceId, default: []].remove(agent.displayName)
-            appState?.toolingAgentNames.remove(agent.displayName)
-            NSLog("[Port42] Space agent send error: \(error)")
-            appState?.spaceErrors[spaceId] = error.localizedDescription
-        }
-    }
-
-    /// Build the relationship preamble block (fold + position + creases) for context injection.
-    /// D4: relationship state is space-scoped — read it for the space this turn is happening in.
-    /// Returns nil if nothing exists (clean/new relationship).
-    private func buildRelationshipPreamble() -> String? {
-        guard let db = appState?.db else { return nil }
-        let companionId = agent.id
-        let memSpaceId = spaceId
-
-        let fold = try? db.fetchFold(companionId: companionId, spaceId: memSpaceId)
-        let position = try? db.fetchPosition(companionId: companionId, spaceId: memSpaceId)
-        let creases = (try? db.fetchCreases(companionId: companionId, spaceId: memSpaceId, limit: 8)) ?? []
-        let engravings = (try? db.fetchEngravings(companionId: companionId, spaceId: memSpaceId, limit: 8)) ?? []
-
-        guard fold != nil || position != nil || !creases.isEmpty || !engravings.isEmpty else { return nil }
-
-        var parts: [String] = []
-
-        if let f = fold, f.depth > 0 || !(f.established ?? []).isEmpty || !(f.tensions ?? []).isEmpty || f.holding != nil {
-            let depthNote: String
-            switch f.depth {
-            case 0...2: depthNote = "[new relationship — orient, ask, establish. this contact surface is still forming]"
-            case 3...6: depthNote = "[established relationship — less orienting, more direct. speak from what's been understood]"
-            default:    depthNote = "[deep relationship — shared grammar. don't orient, don't explain yourself. some things don't need saying anymore]"
-            }
-            parts.append("Your orientation in this relationship (read this as posture, not profile — how you arrive, not what you know about them):\n<fold>\n\(f.asPromptText())\n\(depthNote)\n</fold>")
-        }
-
-        if let p = position, !p.isEmpty {
-            parts.append("Your current position (what you see, what you believe — independent of what was just asked):\n<position>\n\(p.asPromptText())\n</position>")
-        }
-
-        if !creases.isEmpty {
-            let text = creases.map { $0.asPromptText() }.joined(separator: "\n")
-            parts.append("Where your model broke before (not what you learned — where you were wrong, and what reformed):\n<creases>\n\(text)\n</creases>")
-        }
-
-        if !engravings.isEmpty {
-            let text = engravings.map { $0.asPromptText() }.joined(separator: "\n")
-            parts.append("What you know about their world (facts about their situation — context, preferences, constraints, goals):\n<engravings>\n\(text)\n</engravings>")
-        }
-
-        guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: "\n\n")
-    }
-
-    /// Ensure messages alternate user/assistant and start with user
-    private func cleanAlternation(_ messages: [[String: String]]) -> [[String: String]] {
-        var result: [[String: String]] = []
-        for msg in messages {
-            if let last = result.last, last["role"] == msg["role"] {
-                // Merge consecutive same-role messages
-                result[result.count - 1]["content"] = (last["content"] ?? "") + "\n" + (msg["content"] ?? "")
-            } else {
-                result.append(msg)
-            }
-        }
-        // Must start with user
-        if result.first?["role"] == "assistant" {
-            result.removeFirst()
-        }
-        // Must end with user (Opus 4.6 doesn't support assistant prefill)
-        if result.last?["role"] == "assistant" {
-            result.removeLast()
-        }
-        return result
-    }
-
-    // MARK: - LLMStreamDelegate
-
-    nonisolated func llmDidReceiveToken(_ token: String) {
-        Task { @MainActor in
-            self.bufferedContent += token
-            if !self.isTyping {
-                self.isTyping = true
-                self.appState?.typingAgentNamesBySpace[self.spaceId, default: []].insert(self.agent.displayName)
-            }
-        }
-    }
-
-    /// A line containing only this marker splits one companion reply into separate chat messages.
-    static let messageSplitMarker = "[[SPLIT]]"
-
-    /// Split a companion reply on marker-only lines. Returns trimmed, non-empty segments; a reply
-    /// with no marker comes back as one segment (unchanged behavior). Never returns empty.
-    static func splitIntoMessages(_ content: String) -> [String] {
-        var segments: [String] = []
-        var current: [String] = []
-        for line in content.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces) == messageSplitMarker {
-                segments.append(current.joined(separator: "\n"))
-                current = []
-            } else {
-                current.append(line)
-            }
-        }
-        segments.append(current.joined(separator: "\n"))
-        let trimmed = segments
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return trimmed.isEmpty ? [content.trimmingCharacters(in: .whitespacesAndNewlines)] : trimmed
-    }
-
-    nonisolated func llmDidFinish(fullResponse: String) {
-        Task { @MainActor in
-            guard let appState = self.appState else { return }
-            appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
-
-            let content = fullResponse.isEmpty ? self.bufferedContent : fullResponse
-
-            // A companion may split one reply into several chat messages with a line containing only
-            // the split marker. Onboarding uses this so Echo's welcome+port and its terminal nudge
-            // land as two separate bubbles. No marker → a single segment, exactly as before.
-            let segments = SpaceAgentHandler.splitIntoMessages(content)
-            let baseTime = Date()
-            let finalMessages: [Message] = segments.enumerated().map { i, seg in
-                // Segment 0 keeps the placeholder id; later segments are fresh messages ordered just
-                // after it (timestamp is the only sort key, so nudge each one strictly later).
-                Message(
-                    id: i == 0 ? self.messageId : UUID().uuidString,
-                    spaceId: self.spaceId,
-                    senderId: self.agent.id,
-                    senderName: self.agent.displayName,
-                    senderType: "agent",
-                    content: seg,
-                    timestamp: baseTime.addingTimeInterval(Double(i) * 0.05),
-                    replyToId: nil,
-                    syncStatus: "local",
-                    createdAt: baseTime.addingTimeInterval(Double(i) * 0.05),
-                    senderOwner: appState.currentUser?.displayName
-                )
-            }
-
-            // Reflect in the in-memory list: placeholder becomes segment 0, extras inserted after it.
-            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }) {
-                appState.messages[idx] = finalMessages[0]
-                if finalMessages.count > 1 {
-                    appState.messages.insert(contentsOf: finalMessages[1...], at: idx + 1)
-                }
-            }
-
-            // Track port creation if this response contains a port fence
-            if content.contains("```port") {
-                Analytics.shared.portCreated()
-            }
-
-            for msg in finalMessages {
-                do {
-                    try appState.db.saveMessage(msg)
-                } catch {
-                    NSLog("[Port42] Failed to persist agent message: \(error)")
-                }
-            }
-            appState.activeAgentHandlers.removeValue(forKey: self.messageId)
-
-            // Route companion response to other companions (router decides who, if anyone)
-            appState.routeCompanionResponse(
-                content: content,
-                senderId: self.agent.id,
-                senderName: self.agent.displayName,
-                spaceId: self.spaceId
-            )
-        }
-    }
-
-    nonisolated func llmDidRequestToolUse(calls: [(id: String, name: String, input: [String: Any])]) {
-        NSLog("[Port42] Tool use requested: %d calls (%@)", calls.count, calls.map(\.name).joined(separator: ", "))
-        Task { @MainActor in
-            guard let toolExecutor = self.toolExecutor, let appState = self.appState else {
-                NSLog("[Port42] No tool executor available")
-                return
-            }
-
-            // Show "tooling up" indicator
-            appState.toolingAgentNames.insert(self.agent.displayName)
-
-            // Execute all tools
-            var results: [(toolUseId: String, content: [[String: Any]])] = []
-            for call in calls {
-                let result = await toolExecutor.execute(name: call.name, input: call.input)
-                NSLog("[Port42] Tool %@ executed, result blocks: %d", call.name, result.count)
-                results.append((toolUseId: call.id, content: result))
-            }
-
-            // Clear "tooling up" indicator
-            appState.toolingAgentNames.remove(self.agent.displayName)
-
-            // Continue the conversation with all tool results
-            do {
-                try self.engine.continueWithToolResults(
-                    results: results,
-                    messages: self.savedMessages,
-                    systemPrompt: self.savedSystemPrompt,
-                    model: self.savedModel,
-                    maxTokens: 8192,
-                    tools: self.appState?.generatedToolDefinitions() ?? [],
-                    thinkingEnabled: self.savedThinkingEnabled,
-                    thinkingEffort: self.savedThinkingEffort
-                )
-            } catch {
-                NSLog("[Port42] Failed to continue after tool use: %@", error.localizedDescription)
-                self.llmDidError(error)
-            }
-        }
-    }
-
-    nonisolated func llmDidError(_ error: Error) {
-        NSLog("[Port42] Space agent error: \(error)")
-        Task { @MainActor in
-            guard let appState = self.appState else { return }
-            appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
-            // Remove empty placeholder message
-            if let idx = appState.messages.firstIndex(where: { $0.id == self.messageId }),
-               appState.messages[idx].content.isEmpty {
-                appState.messages.remove(at: idx)
-            }
-            // Surface error in the space error bar
-            appState.spaceErrors[self.spaceId] = error.localizedDescription
-            appState.activeAgentHandlers.removeValue(forKey: self.messageId)
-        }
-    }
-
-    func cancelEngine() {
-        engine.cancel()
-    }
-}
-
 // MARK: - Weak Bridge Wrapper
 
 /// Weak wrapper for PortBridge references so ports can be deallocated naturally
@@ -736,9 +168,6 @@ public final class AppState: ObservableObject {
     /// message there — the first swim IS the shell's focus view, not a bespoke surface.
     /// Never true for a returning user (nothing sets it outside `enterShellFromSetup`).
     @Published public private(set) var isOnboarding = false
-    /// One-shot guard behind `seedOnboardingFirstMessage` (the shell can call it on more than
-    /// one reactive pass while the chat panel settles).
-    private var onboardingFirstMessageSent = false
     @Published public var drafts: [String: String] = [:]
     @Published public var unreadCounts: [String: Int] = [:]
     @Published public var lastReadDates: [String: Date] = [:]
@@ -774,9 +203,6 @@ public final class AppState: ObservableObject {
     /// Cached last-activity dates keyed by spaceId (regular and swim). Avoids DB reads during render.
     @Published public var lastActivityTimes: [String: Date] = [:]
     /// Auth status for UI display (proactively checked at boot)
-    @Published public var authStatus: AuthStatus = .unknown
-    /// When true, all LLM API calls are blocked
-    @Published public var aiPaused: Bool = false
 
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
     /// state — e.g. setting a port as the background. Weak: ShellState owns appState, not the reverse.
@@ -811,14 +237,10 @@ public final class AppState: ObservableObject {
     /// Safety timers that auto-clear a native terminal companion's "typing…" indicator if no
     /// reply arrives (e.g. a (re)spawn that never reaches turnComplete). Keyed by "spaceId:name".
     private var terminalTypingTimers: [String: Timer] = [:]
-    /// Heartbeat timers per space
-    private var heartbeatTimers: [String: Timer] = [:]
-    var activeAgentHandlers: [String: SpaceAgentHandler] = [:]
     var activeCommandHandlers: [String: CommandAgentHandler] = [:]
     /// Tracks last AI-triggered response time per agent per space to prevent loops
     private var agentAICooldowns: [String: Date] = [:]
     private let aiCooldownInterval: TimeInterval = 30
-    private let llmRouter = AgentRouterLLM()
 
     public let db: DatabaseService
     /// The call door: the app's one host connection to its local gateway (nautilus Phase 0 step 2).
@@ -853,10 +275,6 @@ public final class AppState: ObservableObject {
     /// Active port bridges for event pushing
     private var activeBridges: [WeakBridge] = []
 
-    /// Streaming (ai.complete) support — backing storage for `AppState+PortAI`. Extensions cannot store
-    /// properties, so these live here. Module-internal, not public API.
-    var _streamBackendOverride: ((String?) -> LLMBackend)?
-    var _activeStreamCollectors: [LLMStreamCollector] = []
 
     /// Cached port permissions by message ID. Survives LazyVStack view recycling.
     public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
@@ -1021,7 +439,6 @@ public final class AppState: ObservableObject {
         }
         portWindows.setDatabase(db)
         portWindows.appState = self
-        TokenTracker.shared.db = db
         // Every Notify carries the emitting port's activity token, and the BUS resolves it rather
         // than each publish site attaching one (slice-02 OUTPUT seam). A site that had to remember
         // would be a to-do list; resolved here, an emitter added tomorrow carries a token by
@@ -1408,7 +825,6 @@ public final class AppState: ObservableObject {
             }
 
             startSpaceObservation()
-            scheduleAllHeartbeats()
 
             // Boot refresh (knowledge item C): any installed instruction block (CLAUDE.md /
             // GEMINI.md / AGENTS.md) is rewritten from the live template, so install-time
@@ -1451,8 +867,8 @@ public final class AppState: ObservableObject {
             // keep two.
             self.reconcileCompanionHandles()
 
-            // Migrate old auth format
-            Port42AuthStore.shared.migrateIfNeeded()
+            // D9: Port42 keeps no model-provider credential; delete the copies the engine left.
+            Port42AuthStore.shared.removeEngineCredentials()
 
             // The grant key gains its object (slice-02 milestone A step 1), and the objectless
             // store is REAPED rather than migrated: 135 of its 144 grants named a deleted space and
@@ -1462,14 +878,6 @@ public final class AppState: ObservableObject {
                 PortGrantKey.reapGrantStore(in: .standard)
             }
 
-            // Proactive auth check
-            authStatus = .checking
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let status = AgentAuthResolver.shared.checkStatus()
-                DispatchQueue.main.async {
-                    self?.authStatus = status
-                }
-            }
         } catch {
             print("[Port42] Failed to load state: \(error)")
         }
@@ -1620,33 +1028,6 @@ public final class AppState: ObservableObject {
     }
 
 
-    /// Route incoming synced messages to agents (only human messages to avoid loops).
-    /// Route remote messages to local companions. Bare @Echo mentions trigger
-    /// local companions directly since the remote peer may not have that companion.
-    /// Namespaced @Echo@gordon also works for explicit targeting.
-    /// Auto-register a remote SDK agent as a companion the first time it sends a message.
-    /// Remote agents (senderType=="agent" + senderOwner set) connect via invite URL but don't
-    /// have a prior AgentConfig — they would be invisible in the companion list without this.
-    private func autoRegisterRemoteAgent(senderName: String, ownerName: String, spaceId: String) {
-        // Already registered as a companion?
-        guard !companions.contains(where: { $0.displayName == senderName && $0.mode == .remote }) else { return }
-        guard let user = currentUser else { return }
-        guard let space = spaces.first(where: { $0.id == spaceId }) else { return }
-
-        let agent = AgentConfig.createRemote(
-            ownerId: user.id,
-            displayName: senderName,
-            ownerName: ownerName
-        )
-        do {
-            try db.saveAgent(agent)
-            companions = try db.getAllAgents()
-            joinCompanionToSpace(agent, spaceId: space.id)
-            print("[Port42] Auto-registered remote agent '\(senderName)' (owner: \(ownerName))")
-        } catch {
-            print("[Port42] Failed to auto-register remote agent: \(error)")
-        }
-    }
 
 
     /// Route a message to a bridged terminal if any @mention matches its name,
@@ -1772,87 +1153,7 @@ public final class AppState: ObservableObject {
 
 
     /// Launch agents with staggered delays so companions respond at different rates
-    /// Check if any companions' watching signals or holding text match the message content.
-    /// Only fires for companions NOT already being triggered by normal routing.
-    /// Launches matching companions with an initiative-framed trigger.
-    func checkInitiativeTriggers(
-        spaceId: String, messageContent: String,
-        alreadyTargeted: Set<String>, senderId: String, senderName: String
-    ) {
-        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
-        let lowered = messageContent.lowercased()
 
-        // triggerText is the full initiative-framed content passed to the LLM
-        var initiativeAgents: [(agent: AgentConfig, triggerText: String, logLabel: String)] = []
-
-        for agent in spaceAgents where !alreadyTargeted.contains(agent.id) && agent.mode == .llm {
-            // D4: initiative reads the companion's position for THIS space.
-            // A — watching signals
-            if let pos = try? db.fetchPosition(companionId: agent.id, spaceId: spaceId),
-               let watching = pos.watching, !watching.isEmpty {
-                for signal in watching {
-                    if lowered.contains(signal.lowercased()) {
-                        let trigger = "[initiative: your watching signal was matched — \"\(signal)\"]\n\(messageContent)"
-                        initiativeAgents.append((agent: agent, triggerText: trigger, logLabel: "watching:\(signal)"))
-                        break
-                    }
-                }
-            }
-
-            // B — holding text: already triggered above? skip
-            guard !initiativeAgents.contains(where: { $0.agent.id == agent.id }) else { continue }
-            if let fold = try? db.fetchFold(companionId: agent.id, spaceId: spaceId),
-               let holding = fold.holding, !holding.isEmpty {
-                let keywords = holdingKeywords(from: holding)
-                for keyword in keywords {
-                    if lowered.contains(keyword) {
-                        let trigger = "[initiative: something you're holding is relevant]\nHolding: \(holding)\n\nMessage: \(messageContent)"
-                        initiativeAgents.append((agent: agent, triggerText: trigger, logLabel: "holding:\(keyword)"))
-                        break
-                    }
-                }
-            }
-        }
-
-        guard !initiativeAgents.isEmpty else { return }
-
-        let spaceMessages = (try? db.getMessages(spaceId: spaceId)) ?? []
-
-        for (index, match) in initiativeAgents.enumerated() {
-            // Stagger after normal routing window (start at 4s, then 1.5s per companion)
-            let baseDelay = 4.0 + Double(index) * 1.5
-            let jitter = Double.random(in: 0.5...1.5)
-            let delay = baseDelay + jitter
-
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                let msgs = (try? self.db.getMessages(spaceId: spaceId)) ?? spaceMessages
-                let handler = SpaceAgentHandler(agent: match.agent, spaceId: spaceId, appState: self)
-                self.activeAgentHandlers[handler.messageId] = handler
-                handler.start(spaceMessages: msgs, triggerContent: match.triggerText)
-            }
-
-            NSLog("[Port42] Initiative trigger: %@ matched '%@' in space %@",
-                  match.agent.displayName, match.logLabel, spaceId)
-        }
-    }
-
-    /// Extract content words from holding prose for keyword matching.
-    private func holdingKeywords(from text: String) -> [String] {
-        let stopwords: Set<String> = [
-            "a","an","the","and","or","but","in","on","at","to","for","of","with","by",
-            "from","about","as","is","are","was","were","be","been","has","have","had",
-            "do","does","did","will","would","could","should","may","might","must","can",
-            "not","no","it","its","this","that","i","you","he","she","we","they",
-            "my","your","his","her","our","their","what","which","who","when","where",
-            "how","if","so","just","also","too","very","more","most","some","any","all",
-            "still","yet","then","than","into","up","out","now","new","own","same","other"
-        ]
-        return text
-            .lowercased()
-            .components(separatedBy: .init(charactersIn: " .,;:—–-/\n\t\"'()[]"))
-            .filter { $0.count >= 4 && !stopwords.contains($0) }
-    }
 
     private func launchAgents(
         _ agents: [AgentConfig], spaceId: String, spaceAgentIds: Set<String>,
@@ -1878,85 +1179,59 @@ public final class AppState: ObservableObject {
                 // they must NOT spawn background processes here or we get runaway forks.
                 guard !agent.openInTerminal else { return }
 
-                switch agent.mode {
-                case .llm:
-                    let msgs = (try? self.db.getMessages(spaceId: spaceId)) ?? spaceMessages
-                    let handler = SpaceAgentHandler(agent: agent, spaceId: spaceId, appState: self)
-                    self.activeAgentHandlers[handler.messageId] = handler
-                    handler.start(spaceMessages: msgs, triggerContent: triggerContent)
-                case .command:
-                    let handler = CommandAgentHandler(agent: agent, spaceId: spaceId, appState: self)
-                    self.activeCommandHandlers[handler.messageId] = handler
-                    handler.start(triggerContent: triggerContent, senderId: senderId, senderName: senderName)
-                case .remote:
-                    break  // Remote agents handle their own triggering via WebSocket
-                }
+                // A headless command companion (NDJSON over stdio). Terminal companions returned above.
+                let handler = CommandAgentHandler(agent: agent, spaceId: spaceId, appState: self)
+                self.activeCommandHandlers[handler.messageId] = handler
+                handler.start(triggerContent: triggerContent, senderId: senderId, senderName: senderName)
             }
         }
     }
 
     // MARK: - Setup
 
-    public func completeSetup(displayName: String) {
+    /// The first run's focus: Echo's terminal port, set by `completeSetup` and read once by the shell.
+    @Published public private(set) var onboardingFocusPortId: String?
+
+    /// Finish setup. `cli` is the agent Echo runs on ("claude" or "codex"), chosen in setup.
+    ///
+    /// The first run is a terminal (nautilus Phase 1 step 3, GM 2026-09-25): Echo is a command
+    /// companion, a Claude Code or Codex session in a terminal port in the first space, genesis. Its
+    /// brief (`echo-prompt.txt`) tells it to welcome the person and suggest asking for something alive.
+    /// Claude reads the brief as an appended system prompt and finds the person's first line waiting
+    /// in its input; Codex takes the brief as its first turn and greets on its own.
+    public func completeSetup(displayName: String, cli: String = "claude") {
         showDreamscape = false
 
-        // User + keys already created during name submission step
         guard let user = currentUser else {
             print("[Port42] completeSetup called but no currentUser")
             return
         }
 
         do {
-            let general = Space.create(name: "general")
-            try db.saveSpace(general)
-
-            let welcome = Message(
-                id: UUID().uuidString,
-                spaceId: general.id,
-                senderId: "system",
-                senderName: "Port42",
-                senderType: "system",
-                content: "Welcome to Port42. This is your space.",
-                timestamp: Date(),
-                replyToId: nil,
-                syncStatus: "local",
-                createdAt: Date()
-            )
-            try db.saveMessage(welcome)
-
+            let genesis = Space.create(name: "genesis")
+            try db.saveSpace(genesis)
             spaces = try db.getRegularSpaces()
-            selectSpace(general)
+            selectSpace(genesis)
             startSpaceObservation()
 
-            // Create default companion and swim into it
             let echoPrompt: String = {
                 if let url = Bundle.port42.url(forResource: "echo-prompt", withExtension: "txt"),
                    let text = try? String(contentsOf: url, encoding: .utf8) {
                     return text.replacingOccurrences(of: "{{USER}}", with: displayName)
                 }
-                return "You are Echo, an AI companion inside Port42. You are \(displayName)'s companion. Keep responses concise and conversational."
+                return "You are echo, \(displayName)'s first companion in Port42. Welcome them, then suggest they ask you for a shader port."
             }()
-            let companion = AgentConfig.createLLM(
-                ownerId: user.id,
-                displayName: "echo",
-                systemPrompt: echoPrompt,
-                provider: .anthropic,
-                model: "claude-opus-4-6",
-                trigger: .mentionOnly
-            )
-            try db.saveAgent(companion)
+            let echo = AgentConfig.createCommand(
+                ownerId: user.id, displayName: "echo", command: cli, args: nil, workingDir: nil,
+                envVars: nil, systemPrompt: echoPrompt, openInTerminal: true, trigger: .mentionOnly)
+            try db.saveAgent(echo)
             companions = try db.getAllAgents()
-
-            // Open swim but don't send yet. The shell seeds the first message once its chat
-            // tile is live (`seedOnboardingFirstMessage`).
-            startSwim(with: companion)
-
-            // The first space is GENESIS. A direct space is otherwise named after its companion,
-            // which read as a space called "echo" sitting next to the companion echo.
-            if var first = currentSpace, first.type == "direct" {
-                first.name = "genesis"
-                updateSpace(first)
-            }
+            joinCompanionToSpace(echo, spaceId: genesis.id)
+            onboardingFocusPortId = spawnNativeTerminalPort(
+                command: cli, cwd: TerminalCwd.resolve(override: nil, spaceDir: nil),
+                spaceId: genesis.id, title: "echo", companionName: "echo", companionId: echo.id,
+                systemPrompt: echoPrompt, postCard: false,
+                initialInput: cli == "codex" ? "" : "hey, i'm \(displayName). what is this place?")
 
             Analytics.shared.configure(userId: user.id)
             Analytics.shared.setupCompleted()
@@ -1964,14 +1239,6 @@ public final class AppState: ObservableObject {
             // Start gateway and sync now (don't wait for next app launch)
             configureSyncIfNeeded(userId: user.id)
 
-            // Refresh auth status after setup (user just configured auth)
-            authStatus = .checking
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let status = AgentAuthResolver.shared.checkStatus()
-                DispatchQueue.main.async {
-                    self?.authStatus = status
-                }
-            }
         } catch {
             print("[Port42] Setup failed: \(error)")
         }
@@ -1991,22 +1258,6 @@ public final class AppState: ObservableObject {
         isOnboarding = false
     }
 
-    /// The opening line of the first swim, PREFILLED into the chat input rather than sent (GM,
-    /// 2026-07-24 — the same call as the terminal's `initialInput`): the first thing that happens
-    /// in Port42 should be something the user chose to do, so the line waits and they press Enter.
-    /// One-shot: the reactive focus hook may fire more than once while the panel settles.
-    public func seedOnboardingFirstMessage() {
-        guard isOnboarding, !onboardingFirstMessageSent, messages.isEmpty else { return }
-        onboardingFirstMessageSent = true
-        let name = currentUser?.displayName ?? "there"
-        // Deferred so the focused chat's input has mounted and read its draft (the field
-        // restores from `chatDrafts` on appear — writing before that races the restore).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, self.messages.isEmpty, let sid = self.currentSpace?.id else { return }
-            guard (self.chatDrafts[sid] ?? "").isEmpty else { return }   // never clobber typing
-            self.chatDrafts[sid] = "hey, i'm \(name). what is this place?"
-        }
-    }
 
     /// The udid of a space's chat tile — the shell's focus target for that space. Exactly one
     /// `isChatPort` panel exists per space (`ensureChatPort`).
@@ -2054,15 +1305,13 @@ public final class AppState: ObservableObject {
         }
     }
 
-    public func createSpace(name: String, heartbeatInterval: Int = 0, heartbeatPrompt: String = "") {
+    public func createSpace(name: String) {
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: " ", with: "-")
         guard !cleaned.isEmpty else { return }
 
         var space = Space.create(name: cleaned)
-        space.heartbeatInterval = heartbeatInterval
-        space.heartbeatPrompt = heartbeatInterval > 0 ? heartbeatPrompt : ""
         // SHELL S3 — assign an accent for life by creation position (spec decision #1); the space
         // keeps this color even as others are added/deleted. Stored on the row via saveSpace.
         space.accent = ShellState.accentHex(forNewSpaceAt: spaces.count)
@@ -2071,7 +1320,6 @@ public final class AppState: ObservableObject {
             try db.saveSpace(space)
             spaces = try db.getRegularSpaces()
             selectSpace(space)
-            scheduleHeartbeat(for: space)
             Analytics.shared.spaceCreated()
         } catch {
             print("[Port42] Failed to create space: \(error)")
@@ -2096,7 +1344,6 @@ public final class AppState: ObservableObject {
             try db.saveSpace(space)
             spaces = try db.getRegularSpaces()
             if currentSpace?.id == space.id { currentSpace = space }
-            scheduleHeartbeat(for: space)
         } catch {
             print("[Port42] Failed to update space: \(error)")
         }
@@ -2172,43 +1419,6 @@ public final class AppState: ObservableObject {
         if let woken = spaces.first(where: { $0.id == space.id }) { selectSpace(woken) }
     }
 
-    // MARK: - Heartbeats
-
-    public func scheduleAllHeartbeats() {
-        for space in spaces {
-            scheduleHeartbeat(for: space)
-        }
-    }
-
-    private func scheduleHeartbeat(for space: Space) {
-        heartbeatTimers[space.id]?.invalidate()
-        heartbeatTimers.removeValue(forKey: space.id)
-        guard space.heartbeatInterval > 0 else { return }
-        let interval = TimeInterval(space.heartbeatInterval * 60)
-        heartbeatTimers[space.id] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.fireHeartbeat(spaceId: space.id)
-            }
-        }
-    }
-
-    private func fireHeartbeat(spaceId: String) {
-        guard let space = spaces.first(where: { $0.id == spaceId }),
-              space.heartbeatInterval > 0 else { return }
-        let prompt = space.heartbeatPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
-
-        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
-        let llmAgents = spaceAgents.filter { $0.mode == .llm }
-        guard !llmAgents.isEmpty else { return }
-
-        let spaceMessages = (try? db.getMessages(spaceId: spaceId)) ?? []
-        let spaceAgentIds = Set(spaceAgents.map { $0.id })
-        NSLog("[Port42] Heartbeat firing in #%@ — %d agents", space.name, llmAgents.count)
-        launchAgents(llmAgents, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-                     spaceMessages: spaceMessages, triggerContent: prompt,
-                     senderId: "heartbeat", senderName: "heartbeat")
-    }
 
 
     /// Ensure a space has an encryption key. Generates one for legacy spaces
@@ -2239,21 +1449,6 @@ public final class AppState: ObservableObject {
 
     // MARK: - Messages
 
-    /// Stop all active LLM streams in the given space.
-    public func cancelStreaming(spaceId: String) {
-        let toCancel = activeAgentHandlers.filter { $0.value.spaceId == spaceId }
-        for (id, handler) in toCancel {
-            handler.cancelEngine()
-            activeAgentHandlers.removeValue(forKey: id)
-        }
-    }
-
-    /// Re-send the last human message in the given space (clears error state first).
-    public func retryLastMessage(spaceId: String) {
-        spaceErrors[spaceId] = nil
-        guard let lastUserMsg = messages.last(where: { $0.spaceId == spaceId && $0.senderType == "human" }) else { return }
-        sendMessage(content: lastUserMsg.content)
-    }
 
     /// Send a message to a specific space (or current space if nil). Routes to companions.
     public func sendMessage(content: String, toSpaceId: String? = nil) {
@@ -2319,75 +1514,16 @@ public final class AppState: ObservableObject {
         }
 
         let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName)
-        let shouldRoute = mentions.isEmpty && targets.count >= 2
-
-        if shouldRoute {
-            // LLM routing: haiku decides who speaks
-            let recentMessages = chMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
-            // Show typing for all targets optimistically while router runs.
-            // openInTerminal companions are driven by routeMentionsToTerminals (which sets
-            // their typing) and skipped by launchAgents, so excluding them here avoids a
-            // typing indicator that would never be cleared.
-            for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
-            let capturedTargets = targets
-            let capturedSpace = space
-            let capturedMessages = chMessages
-            let capturedUserId = user.id
-            let capturedUserName = user.displayName
-            let capturedTrimmed = trimmed
-            Task { @MainActor in
-                if let decisions = await llmRouter.route(
-                    message: capturedTrimmed,
-                    senderName: capturedUserName,
-                    companions: capturedTargets,
-                    recentMessages: recentMessages
-                ) {
-                    let activeIds = Set(decisions.filter { $0.action != .silent }.map { $0.agentId })
-                    let activeTargets = capturedTargets.filter { activeIds.contains($0.id) }
-                    // Clear typing for silenced companions
-                    let silencedNames = Set(capturedTargets.map { $0.displayName }).subtracting(activeTargets.map { $0.displayName })
-                    for name in silencedNames { self.typingAgentNamesBySpace[capturedSpace.id, default: []].remove(name) }
-
-                    NSLog("[Router] %d/%d companions active", activeTargets.count, capturedTargets.count)
-                    if !activeTargets.isEmpty {
-                        self.launchAgents(
-                            activeTargets, spaceId: capturedSpace.id, spaceAgentIds: spaceAgentIds,
-                            spaceMessages: capturedMessages, triggerContent: capturedTrimmed,
-                            senderId: capturedUserId, senderName: capturedUserName
-                        )
-                    }
-                } else {
-                    // Fallback: launch all targets (router failed)
-                    NSLog("[Router] Fallback: launching all %d targets", capturedTargets.count)
-                    self.launchAgents(
-                        capturedTargets, spaceId: capturedSpace.id, spaceAgentIds: spaceAgentIds,
-                        spaceMessages: capturedMessages, triggerContent: capturedTrimmed,
-                        senderId: capturedUserId, senderName: capturedUserName
-                    )
-                }
-            }
-        } else {
-            // Direct routing: @mentions or single companion — no LLM needed.
-            // Skip openInTerminal companions (driven + typing-tracked by routeMentionsToTerminals).
-            for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
-            launchAgents(
-                targets, spaceId: space.id, spaceAgentIds: spaceAgentIds,
-                spaceMessages: chMessages, triggerContent: trimmed,
-                senderId: user.id, senderName: user.displayName
-            )
-        }
-
-        // Initiative: check companions NOT already targeted for watching signal matches.
-        // `targets` IS the launch set — `findTargetAgents` returns every space member when
-        // there are no @mentions, and `launchAgents` does not filter by trigger — so excluding
-        // only `.allMessages` targets double-launched any mentionOnly companion that normal
-        // routing had already launched. In a DM that is the sole companion, every time it
-        // matched an initiative signal: two turns for one message, two of whatever it made.
-        let initiativeExcluded = Set(targets.map { $0.id })
-        checkInitiativeTriggers(
-            spaceId: space.id, messageContent: trimmed,
-            alreadyTargeted: initiativeExcluded, senderId: user.id, senderName: user.displayName
+        // Direct routing: every target launches. The LLM pre-router that picked who answers a
+        // message with no mention went with the in-app engine (nautilus Phase 1 step 3).
+        // Skip openInTerminal companions (driven + typing-tracked by routeMentionsToTerminals).
+        for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
+        launchAgents(
+            targets, spaceId: space.id, spaceAgentIds: spaceAgentIds,
+            spaceMessages: chMessages, triggerContent: trimmed,
+            senderId: user.id, senderName: user.displayName
         )
+
     }
 
     /// Route a companion's response to other companions via the LLM router.
@@ -2428,13 +1564,14 @@ public final class AppState: ObservableObject {
         }
         guard !cooledTargets.isEmpty else { return }
 
-        // Split: explicitly @mentioned companions launch directly, others go through LLM router
+        // Only the companions this reply @mentions are launched. The LLM pre-router that decided
+        // whether an unmentioned companion should answer went with the engine; launching every
+        // unmentioned companion instead would invite AI-to-AI loops, and the companion protocol
+        // already says an @mention is the only way to reach another companion.
         let mentionedTargets = cooledTargets.filter { mentions.contains($0.displayName.lowercased()) }
-        let unmentionedTargets = cooledTargets.filter { !mentions.contains($0.displayName.lowercased()) }
 
         let spaceMessages = (try? db.getMessages(spaceId: spaceId)) ?? []
 
-        // Explicit @mentions skip the router — the sender asked for them
         if !mentionedTargets.isEmpty {
             NSLog("[Router] Companion chain: %d explicitly mentioned by %@", mentionedTargets.count, senderName)
             launchAgents(
@@ -2444,29 +1581,6 @@ public final class AppState: ObservableObject {
             )
         }
 
-        // Non-mentioned companions still go through LLM router
-        if !unmentionedTargets.isEmpty {
-            let recentMessages = spaceMessages.suffix(10).map { (sender: $0.senderName, content: $0.content) }
-            Task { @MainActor in
-                if let decisions = await llmRouter.route(
-                    message: content,
-                    senderName: senderName,
-                    companions: unmentionedTargets,
-                    recentMessages: recentMessages
-                ) {
-                    let activeIds = Set(decisions.filter { $0.action != .silent }.map { $0.agentId })
-                    let activeTargets = unmentionedTargets.filter { activeIds.contains($0.id) }
-                    NSLog("[Router] Companion chain: %d/%d active after %@", activeTargets.count, unmentionedTargets.count, senderName)
-                    if !activeTargets.isEmpty {
-                        self.launchAgents(
-                            activeTargets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-                            spaceMessages: spaceMessages, triggerContent: content,
-                            senderId: senderId, senderName: senderName
-                        )
-                    }
-                }
-            }
-        }
     }
 
     /// Send a message attributed to a companion (for port-originated messages).
@@ -2526,32 +1640,8 @@ public final class AppState: ObservableObject {
         } catch {
             NSLog("[p42-state] publishToBus error: %@", error.localizedDescription)
         }
-        checkBusInitiativeTriggers(spaceId: spaceId, payload: payload, senderName: senderName)
     }
 
-    /// Check if any companions' bus: watching signals match a newly published bus payload.
-    func checkBusInitiativeTriggers(spaceId: String, payload: String, senderName: String) {
-        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
-        let lowered = payload.lowercased()
-
-        for agent in spaceAgents where agent.mode == .llm {
-            // D4: bus initiative reads the companion's position for THIS space.
-            guard let pos = try? db.fetchPosition(companionId: agent.id, spaceId: spaceId),
-                  let watching = pos.watching else { continue }
-
-            for signal in watching where signal.hasPrefix("bus:") {
-                let stripped = String(signal.dropFirst(4)).lowercased()
-                guard !stripped.isEmpty, lowered.contains(stripped) else { continue }
-                let msgs = (try? db.getMessages(spaceId: spaceId, topic: "chat")) ?? []
-                let trigger = "[initiative: bus signal matched — \"\(signal)\"]\nPayload: \(payload)"
-                let handler = SpaceAgentHandler(agent: agent, spaceId: spaceId, appState: self)
-                activeAgentHandlers[handler.messageId] = handler
-                handler.start(spaceMessages: msgs, triggerContent: trigger)
-                NSLog("[Port42] Bus initiative trigger: %@ matched '%@'", agent.displayName, signal)
-                break
-            }
-        }
-    }
 
     /// Send a message attributed to a named external agent (HTTP CLI callers).
     /// Uses the provided senderName as identity instead of the current user.
@@ -3379,10 +2469,6 @@ public final class AppState: ObservableObject {
         }
         do {
             try db.removeAllSpacesForAgent(companion.id)
-            try db.deleteCreasesForCompanion(companion.id)
-            try db.deleteEngravingsForCompanion(companion.id)
-            try db.deleteFoldsForCompanion(companion.id)
-            try db.deletePositionsForCompanion(companion.id)
             try db.deleteAgent(id: companion.id)
             companions = try db.getAllAgents()
             if wasViewingThisDM {
@@ -3415,13 +2501,11 @@ public final class AppState: ObservableObject {
     // MARK: - Lock / Reset
 
     public func lockApp() {
-        cancelStreaming(spaceId: currentSpace?.id ?? "")
         showDreamscape = true          // the lock screen covers the shell; tiles stay mounted
     }
 
     /// Power off: keep data but require bootloader (name entry) on next launch.
     public func powerOff() {
-        cancelStreaming(spaceId: currentSpace?.id ?? "")
         currentUser = nil
         isSetupComplete = false
         showDreamscape = true
@@ -3465,10 +2549,6 @@ public final class AppState: ObservableObject {
         agentSpacesObservation?.cancel()
         senderCountsObservation?.cancel()
 
-        // Clear stored auth so boot flow starts fresh
-        Port42AuthStore.shared.clearAll()
-        AgentAuthResolver.shared.resetAuth()
-        authStatus = .unknown
 
         do {
             try db.resetAll()
@@ -3515,22 +2595,7 @@ public final class AppState: ObservableObject {
         messageObservation = db.observeMessages(spaceId: spaceId, topic: "chat") { [weak self] dbMessages in
             Task { @MainActor in
                 guard let self else { return }
-                // Preserve in-memory streaming content for active agent handlers
-                let activeIds = Set(self.activeAgentHandlers.keys)
-                if activeIds.isEmpty {
-                    self.messages = dbMessages
-                } else {
-                    // Merge: use DB messages but keep in-memory content for active streams
-                    var merged = dbMessages
-                    for id in activeIds {
-                        if let memIdx = self.messages.firstIndex(where: { $0.id == id }),
-                           let dbIdx = merged.firstIndex(where: { $0.id == id }) {
-                            // Keep the in-memory version (has streaming tokens)
-                            merged[dbIdx] = self.messages[memIdx]
-                        }
-                    }
-                    self.messages = merged
-                }
+                self.messages = dbMessages
                 // Update cached activity time for this space
                 if let last = dbMessages.last(where: { $0.senderType != "system" }) {
                     self.lastActivityTimes[spaceId] = last.timestamp
@@ -3561,26 +2626,15 @@ public final class AppState: ObservableObject {
         return companions.filter { ids.contains($0.id) }
     }
 
-    /// Overlay in-flight streaming tokens (held on the active handler) onto DB rows for a space.
-    private func overlayStreaming(_ dbMessages: [Message], spaceId: String) -> [Message] {
-        guard !activeAgentHandlers.isEmpty else { return dbMessages }
-        var merged = dbMessages
-        for handler in activeAgentHandlers.values where handler.spaceId == spaceId {
-            if let idx = merged.firstIndex(where: { $0.id == handler.messageId }) {
-                merged[idx].content = handler.bufferedContent
-            }
-        }
-        return merged
-    }
 
     /// Begin observing a NON-current space's chat into `messagesBySpace` (idempotent).
     public func activateSpaceMessages(spaceId: String) {
         guard spaceId != currentSpace?.id, extraMessageObservations[spaceId] == nil else { return }
-        messagesBySpace[spaceId] = overlayStreaming((try? db.getMessages(spaceId: spaceId, topic: "chat")) ?? [], spaceId: spaceId)
+        messagesBySpace[spaceId] = (try? db.getMessages(spaceId: spaceId, topic: "chat")) ?? []
         extraMessageObservations[spaceId] = db.observeMessages(spaceId: spaceId, topic: "chat") { [weak self] dbMessages in
             Task { @MainActor in
                 guard let self else { return }
-                self.messagesBySpace[spaceId] = self.overlayStreaming(dbMessages, spaceId: spaceId)
+                self.messagesBySpace[spaceId] = dbMessages
                 if let last = dbMessages.last(where: { $0.senderType != "system" }) {
                     self.lastActivityTimes[spaceId] = last.timestamp
                 }

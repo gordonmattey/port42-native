@@ -8,10 +8,6 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     public var name: String
     public var type: String
     public var createdAt: Date
-    /// Heartbeat interval in minutes. 0 = off. Fires a prompt to wake up companions.
-    public var heartbeatInterval: Int
-    /// The prompt sent to companions on each heartbeat tick.
-    public var heartbeatPrompt: String
     /// SHELL S3 — per-space accent as a hex string, assigned at creation and kept for life so a
     /// space never loses its color when others are added/deleted. Nil for spaces predating this /
     /// remote spaces → `ShellState.accent(for:)` falls back to a stable id-hash.
@@ -30,13 +26,11 @@ public struct Space: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     /// a new space lands at the end (`nextSortIndex`, assigned in `AppState.createSpace`).
     public var sortIndex: Int = 0
 
-    public init(id: String, name: String, type: String, createdAt: Date, heartbeatInterval: Int = 0, heartbeatPrompt: String = "", accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil, sortIndex: Int = 0) {
+    public init(id: String, name: String, type: String, createdAt: Date, accent: String? = nil, restedAt: Date? = nil, workingDirectory: String? = nil, sortIndex: Int = 0) {
         self.id = id
         self.name = name
         self.type = type
         self.createdAt = createdAt
-        self.heartbeatInterval = heartbeatInterval
-        self.heartbeatPrompt = heartbeatPrompt
         self.accent = accent
         self.restedAt = restedAt
         self.workingDirectory = workingDirectory

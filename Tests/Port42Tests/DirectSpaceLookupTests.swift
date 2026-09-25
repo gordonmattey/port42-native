@@ -12,11 +12,7 @@ struct DirectSpaceLookupTests {
         let db = try DatabaseService(inMemory: true)
         let user = AppUser.createForTesting(displayName: "Alice")
         try db.saveUser(user)
-        let companion = AgentConfig.createLLM(
-            ownerId: user.id, displayName: displayName,
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
+        let companion = AgentConfig.createCommand(ownerId: user.id, displayName: displayName, command: "claude", systemPrompt: "hi", trigger: .mentionOnly)
         try db.saveAgent(companion)
         return (db, companion)
     }
@@ -46,11 +42,7 @@ struct DirectSpaceLookupTests {
     @Test("Two-agent direct ignored: a direct space with 2 agent members is not a 1:1 DM")
     func twoAgentDirectIgnored() throws {
         let (db, companion) = try makeDBWithCompanion()
-        let other = AgentConfig.createLLM(
-            ownerId: companion.ownerId, displayName: "Nova",
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
+        let other = AgentConfig.createCommand(ownerId: companion.ownerId, displayName: "Nova", command: "claude", systemPrompt: "hi", trigger: .mentionOnly)
         try db.saveAgent(other)
         let space = Space(id: UUID().uuidString, name: "pair", type: "direct",
                           createdAt: Date())
@@ -107,11 +99,7 @@ struct DirectSpaceReverseTests {
         let db = try DatabaseService(inMemory: true)
         let user = AppUser.createForTesting(displayName: "Alice")
         try db.saveUser(user)
-        let companion = AgentConfig.createLLM(
-            ownerId: user.id, displayName: displayName,
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
+        let companion = AgentConfig.createCommand(ownerId: user.id, displayName: displayName, command: "claude", systemPrompt: "hi", trigger: .mentionOnly)
         try db.saveAgent(companion)
         return (db, companion)
     }
@@ -135,11 +123,7 @@ struct DirectSpaceReverseTests {
     @Test("companionId(ofDirectSpaceId:): two-agent direct → nil")
     func reverseTwoAgentNil() throws {
         let (db, companion) = try makeDBWithCompanion()
-        let other = AgentConfig.createLLM(
-            ownerId: companion.ownerId, displayName: "Nova",
-            systemPrompt: "hi", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
+        let other = AgentConfig.createCommand(ownerId: companion.ownerId, displayName: "Nova", command: "claude", systemPrompt: "hi", trigger: .mentionOnly)
         try db.saveAgent(other)
         let space = Space(id: UUID().uuidString, name: "pair", type: "direct",
                           createdAt: Date())

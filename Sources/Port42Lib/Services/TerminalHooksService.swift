@@ -187,11 +187,6 @@ public struct TerminalHookSession: Sendable {
 }
 
 public enum TerminalSessionBootstrap {
-    /// Canonical name of the secret in `Port42AuthStore` holding the `claude` CLI's OAuth
-    /// token. Decoupled from the env var name: this secret's value is injected as the env
-    /// var `CLAUDE_CODE_OAUTH_TOKEN`. Setup-time credential handling must use this same name.
-    public static let claudeOAuthSecretName = "claude-oauth"
-
     /// Resolve the bundled shim binary (`Contents/MacOS/port42-claude-shim`).
     public static func bundledShimPath() -> String? {
         Bundle.main.url(forAuxiliaryExecutable: "port42-claude-shim")?.path
@@ -200,9 +195,8 @@ public enum TerminalSessionBootstrap {
     /// Build a per-session temp dir + `claude` shim symlink + hooks socket path + env vars.
     /// If the shim is unavailable, PATH is left unmodified and `claude` falls back to the
     /// user's own login (no hooks) — graceful degradation, not an error.
-    /// `claudePath` / `oauthToken` are nil in production (resolved via `ClaudeCodeSetup`
-    /// and the Keychain); tests pass them explicitly to avoid the slow `which` spawn and
-    /// the Keychain access (which can block or prompt in a test process).
+    /// `claudePath` is nil in production (resolved via `ClaudeCodeSetup`); tests pass it
+    /// explicitly to avoid the slow `which` spawn.
     public static func make(sessionId: String,
                             spaceId: String,
                             spaceName: String,
@@ -211,7 +205,6 @@ public enum TerminalSessionBootstrap {
                             customEnv: [String: String] = [:],
                             shimPath: String? = bundledShimPath(),
                             claudePath: String? = nil,
-                            oauthToken: String? = nil,
                             cwd: String = "",
                             producer: CLIHookProducer? = nil,
                             home: String? = nil,
@@ -283,7 +276,7 @@ public enum TerminalSessionBootstrap {
         let ctx = CLIHookProducer.Context(
             tempDir: tempDir, socketPath: socketPath, sessionId: sessionId, spaceId: spaceId,
             companionId: companionId, cwd: cwd, shimPath: shimPath,
-            binaryPathOverride: claudePath, tokenOverride: oauthToken, homeOverride: home,
+            binaryPathOverride: claudePath, homeOverride: home,
             // Test seam, and not a cosmetic one: without it a test reaches the REAL Application
             // Support directory and writes into the daily driver's state. Same lesson as the
             // credential-store fix — a test that touches a live instance is a bug in the test.

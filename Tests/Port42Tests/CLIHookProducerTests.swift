@@ -40,11 +40,12 @@ struct CLIHookProducerTests {
         let out = CLIHookProducer.claude.prepare(.init(
             tempDir: dir, socketPath: "\(dir)/h.sock", sessionId: "panel-1", spaceId: "space-1",
             companionId: "comp-1", cwd: "/tmp", shimPath: "/x/port42-claude-shim",
-            binaryPathOverride: "/usr/local/bin/claude", tokenOverride: "tok"))
+            binaryPathOverride: "/usr/local/bin/claude"))
 
         #expect(out.env["PORT42_CLAUDE_SHIM"] == "/x/port42-claude-shim")
         #expect(out.env["PORT42_CLAUDE_PATH"] == "/usr/local/bin/claude")
-        #expect(out.env["CLAUDE_CODE_OAUTH_TOKEN"] == "tok")
+        // D9: Port42 hands a terminal no provider credential. The CLI signs in with its own login.
+        #expect(out.env["CLAUDE_CODE_OAUTH_TOKEN"] == nil)
         #expect(out.env["PORT42_CLAUDE_SESSION_ID"]?.isEmpty == false)
         // The interceptor has to be FIRST on PATH, which is what the prefix is for.
         #expect(out.pathPrefix == dir)
@@ -218,7 +219,7 @@ struct CLIHookProducerTests {
         let out = CLIHookProducer.prepareAll(.init(
             tempDir: dir, socketPath: "\(dir)/h.sock", sessionId: "panel-1", spaceId: "space-1",
             companionId: nil, cwd: "/tmp", shimPath: "/tmp/fake-port42-shim",
-            binaryPathOverride: "/usr/bin/true", tokenOverride: "", homeOverride: home))
+            binaryPathOverride: "/usr/bin/true", homeOverride: home))
 
         // Claude's guarantee is unchanged. Losing this would stop ad-hoc terminals becoming
         // companions, which is the thing the old fallback existed to protect.
@@ -307,7 +308,7 @@ struct CLIHookProducerTests {
         let session = TerminalSessionBootstrap.make(
             sessionId: "ALLPROD0-1111-2222-3333-444444444444",
             spaceId: "s", spaceName: "n", shimPath: "/tmp/fake-port42-shim",
-            claudePath: "/usr/bin/true", oauthToken: "", home: home, stableDir: stable)
+            claudePath: "/usr/bin/true", home: home, stableDir: stable)
         defer { TerminalSessionBootstrap.cleanup(tempDir: session.tempDir) }
 
         // Claude, as the old fallback already guaranteed.
@@ -370,7 +371,7 @@ struct CLIHookProducerTests {
         let session = TerminalSessionBootstrap.make(
             sessionId: "CANARY00-1111-2222-3333-444444444444",
             spaceId: "s", spaceName: "n", shimPath: "/tmp/fake-port42-shim",
-            claudePath: "/usr/bin/true", oauthToken: "")
+            claudePath: "/usr/bin/true")
         defer { TerminalSessionBootstrap.cleanup(tempDir: session.tempDir) }
         if let home = session.env["CODEX_HOME"] {
             #expect(home.hasPrefix(session.tempDir),

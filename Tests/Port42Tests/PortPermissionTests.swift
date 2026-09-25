@@ -7,10 +7,6 @@ struct PortPermissionTests {
 
     // MARK: - the registry permission map (the old parallel table is gone)
 
-    @Test("ai.complete requires .ai permission")
-    @MainActor func aiCompletePermission() throws {
-        #expect(try registryPermission("ai.complete") == .ai)
-    }
 
     @Test("ai.cancel is bridge machinery, not a registry method — no separate permission")
     @MainActor func aiCancelPermission() throws {
@@ -20,10 +16,6 @@ struct PortPermissionTests {
         #expect(try registryPermission("ai.cancel") == nil)
     }
 
-    @Test("companions.invoke requires .ai permission")
-    @MainActor func companionsInvokePermission() throws {
-        #expect(try registryPermission("companions.invoke") == .ai)
-    }
 
     @Test("user.get requires no permission")
     @MainActor func userGetNoPermission() throws {

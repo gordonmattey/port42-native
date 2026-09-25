@@ -13,17 +13,7 @@ public struct SetupView: View {
     @State private var cursorVisible = true
     @State private var transitionOpacity = 0.0
     @State private var diamondVisible = false
-    @State private var apiKeyInput = ""
-    @State private var manualTokenInput = ""
-    @State private var geminiKeyInput = ""
-    @State private var compatibleBaseURLInput = ""
-    @State private var compatibleKeyInput = ""
-    @State private var authMethod: AuthMethod?
-    @State private var authError: String?
-    @State private var isCheckingAuth = false
     @StateObject private var claudeSetup = ClaudeCodeSetup()
-    @State private var keychainEntries: [ClaudeKeychainEntry] = []
-    @State private var selectedTokenIndex: Int = 0
     @State private var submittedName: String?
     @State private var showAnalyticsConsent = false
     @State private var terminalVisible = false
@@ -31,17 +21,12 @@ public struct SetupView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var revealedSuffixes: Set<Int> = []
     @FocusState private var isFocused: Bool
-    @FocusState private var isApiKeyFocused: Bool
-    @FocusState private var isManualTokenFocused: Bool
     @FocusState private var isAuthPickerFocused: Bool
+    /// The option under the cursor in the agent chooser.
+    @State private var cliSelected = 0
+    /// Bumped after an install finishes, so the chooser re-reads which CLIs exist.
+    @State private var cliScanTick = 0
 
-    enum AuthMethod {
-        case claudeCode
-        case manualToken
-        case apiKey
-        case geminiApiKey
-        case compatibleEndpoint
-    }
 
     /// Setup is the BIOS and the handover, nothing else. The old `.swim` phase (a bespoke
     /// full-screen chat with its own branded bar and a 🐬 "swim in open water" button) is gone:
@@ -249,9 +234,9 @@ public struct SetupView: View {
                                 .id("analytics")
                         }
 
-                        // Auth options (appear after analytics consent)
+                        // The agent chooser (appears after analytics consent)
                         if showAuthOptions {
-                            authOptionsContent
+                            agentChooserContent
                                 .id("auth")
 
                             // Bottom padding so scroll can reach auth content
@@ -283,7 +268,8 @@ public struct SetupView: View {
                 }
                 .onChange(of: claudeSetup.state) { _, newState in
                     if newState == .success {
-                        completeAuth()
+                        cliScanTick += 1   // an install finished: offer what is now there
+                        cliSelected = 0
                     }
                     scrollToEnd(proxy: proxy)
                 }
@@ -291,365 +277,99 @@ public struct SetupView: View {
         }
     }
 
-    // MARK: - Auth Options (inline, not a separate terminal)
+    // MARK: - The agent Echo runs on
 
-    private var authSelected: AuthMethod {
-        authMethod ?? .claudeCode
+    /// The CLI agents on this machine, in the order offered. Echo runs on one of them. Port42 holds no
+    /// model and reads no provider credential (D9): the agent signs in to its own account, in its own
+    /// terminal. `cliScanTick` is read so the list is re-evaluated after an install.
+    private var detectedCLIs: [String] {
+        _ = cliScanTick
+        return ["claude", "codex"].filter { ClaudeCodeSetup.findBinary($0) != nil }
     }
 
-    private var isMultiTokenState: Bool {
-        if case .multipleTokens = claudeSetup.state { return true }
-        return false
+    private func agentLabel(_ cli: String) -> String { cli == "codex" ? "Codex" : "Claude Code" }
+
+    /// What the chooser offers: the CLIs found, or with none found, the two installers.
+    private var agentOptions: [String] {
+        let found = detectedCLIs
+        return found.isEmpty ? ["install:claude", "install:codex"] : found
     }
 
-    private var authOptionsContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Neural bridge requires an AI connection.")
-                .font(Port42Theme.mono(13))
-                .foregroundStyle(Port42Theme.textSecondary)
-
-            Spacer().frame(height: 4)
-
-            Text("Choose your connection method:")
-                .font(Port42Theme.mono(13))
-                .foregroundStyle(Port42Theme.textPrimary)
-
-            Spacer().frame(height: 8)
-
-            // Option 1: Claude subscription (accounts + enter token)
-            if keychainEntries.count > 1 {
-                // Header
-                Text("Claude subscription")
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(authSelected == .claudeCode || authSelected == .manualToken ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
-
-                // Detected accounts
-                ForEach(Array(keychainEntries.enumerated()), id: \.element.id) { idx, entry in
-                    subOptionButton(
-                        selected: authSelected == .claudeCode && selectedTokenIndex == idx,
-                        label: entry.label,
-                        hint: {
-                            var parts: [String] = []
-                            if let suf = entry.suffix { parts.append(String(suf.prefix(8))) }
-                            if let exp = entry.expiresAt {
-                                let fmt = DateFormatter()
-                                fmt.dateFormat = "MMM d, HH:mm"
-                                let label = exp > Date() ? "exp \(fmt.string(from: exp))" : "expired \(fmt.string(from: exp))"
-                                parts.append(label)
-                            }
-                            return parts.isEmpty ? nil : parts.joined(separator: " · ")
-                        }()
-                    ) {
-                        selectTokenEntry(idx)
-                    }
-                }
-
-                // Enter session key manually (as last sub-option)
-                subOptionButton(
-                    selected: authSelected == .manualToken,
-                    label: "enter OAuth session key manually",
-                    hint: nil
-                ) {
-                    selectManualToken()
-                }
+    private var agentChooserContent: some View {
+        let found = detectedCLIs
+        let options = agentOptions
+        let installing = claudeSetup.state != .idle && claudeSetup.state != .success
+        return VStack(alignment: .leading, spacing: 8) {
+            if found.isEmpty {
+                Text("Port42 runs your AI agent in its own terminal. No agent was found on this Mac.")
+                    .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textSecondary)
+                Spacer().frame(height: 4)
+                Text("Install one:").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
+            } else if found.count == 1 {
+                Text("Found \(agentLabel(found[0])).").font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             } else {
-                // No multi-account: just Claude subscription (sub-options show after selection)
-                authOptionButton(.claudeCode, label: "Claude subscription", hint: "(auto-detect)", action: selectAndSubmitClaudeCode)
-
-                if authMethod == .claudeCode || authMethod == .manualToken {
-                    subOptionButton(
-                        selected: authSelected == .manualToken,
-                        label: "enter OAuth session key manually",
-                        hint: nil
-                    ) {
-                        selectManualToken()
-                    }
-                }
+                Text("Found Claude Code and Codex. Pick the one Echo runs on:")
+                    .font(Port42Theme.mono(13)).foregroundStyle(Port42Theme.textPrimary)
             }
-
-            if authMethod == .manualToken {
-                Spacer().frame(height: 8)
-                SecureField("paste your OAuth session key", text: $manualTokenInput)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .focused($isManualTokenFocused)
-                    .onSubmit { submitManualToken() }
-
-                if !manualTokenInput.isEmpty {
-                    Button(action: submitManualToken) {
-                        Text("connect \u{21B5}")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
-                }
-            }
-
             Spacer().frame(height: 4)
-
-            // Option 2: API key
-            authOptionButton(.apiKey, label: "API key", hint: nil, action: selectApiKey)
-
-            if authMethod == .apiKey {
-                Spacer().frame(height: 8)
-                SecureField("paste your Anthropic API key", text: $apiKeyInput)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .focused($isApiKeyFocused)
-                    .onSubmit { submitApiKey() }
-
-                if !apiKeyInput.isEmpty {
-                    Button(action: submitApiKey) {
-                        Text("connect \u{21B5}")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
+            ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
+                let install = option.hasPrefix("install:")
+                let cli = install ? String(option.dropFirst("install:".count)) : option
+                agentOptionButton(idx, label: install ? "install \(agentLabel(cli))" : agentLabel(cli),
+                                  hint: cli == "codex" ? "your ChatGPT account" : "your Claude subscription") {
+                    cliSelected = idx
+                    submitAgentChoice()
                 }
             }
-
-            Spacer().frame(height: 4)
-
-            // Option 3: Gemini API key
-            authOptionButton(.geminiApiKey, label: "Gemini API key", hint: "(from AI Studio)", action: selectGeminiKey)
-
-            if authMethod == .geminiApiKey {
-                Spacer().frame(height: 8)
-                SecureField("paste your Gemini API key", text: $geminiKeyInput)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .onSubmit { submitGeminiKey() }
-
-                if !geminiKeyInput.isEmpty {
-                    Button(action: submitGeminiKey) {
-                        Text("connect \u{21B5}")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
-                }
+            if installing {
+                ClaudeCodeSetupView(setup: claudeSetup).padding(.top, 8)
             }
-
-            Spacer().frame(height: 4)
-
-            // Option 4: Compatible endpoint (Ollama, xAI, LM Studio, etc.)
-            authOptionButton(.compatibleEndpoint, label: "Compatible endpoint", hint: "(Ollama, xAI, LM Studio…)", action: selectCompatibleEndpoint)
-
-            if authMethod == .compatibleEndpoint {
-                Spacer().frame(height: 8)
-                TextField("http://localhost:11434/v1", text: $compatibleBaseURLInput)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textPrimary)
-                    .onSubmit { submitCompatibleEndpoint() }
-
-                Text("API key (optional for Ollama)")
-                    .font(Port42Theme.mono(10))
-                    .foregroundStyle(Port42Theme.textSecondary.opacity(0.5))
-                    .padding(.top, 4)
-
-                SecureField("leave blank for Ollama", text: $compatibleKeyInput)
-                    .textFieldStyle(.plain)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(Port42Theme.textPrimary)
-
-                if !compatibleBaseURLInput.isEmpty {
-                    Button(action: submitCompatibleEndpoint) {
-                        Text("connect \u{21B5}")
-                            .font(Port42Theme.mono(11))
-                            .foregroundStyle(Port42Theme.accent.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
-                }
-            }
-
-            if isCheckingAuth {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .frame(width: 12, height: 12)
-                    Text("Connecting...")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-                }
-                .padding(.top, 4)
-            }
-
-            if let error = authError {
-                HStack(spacing: 6) {
-                    Text("!")
-                        .font(Port42Theme.monoBold(13))
-                        .foregroundStyle(.red)
-                    Text(error)
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(.red.opacity(0.8))
-                }
-                .padding(.top, 4)
-            }
-
-            // Guided setup for Claude Code (shown when no tokens found, not for multi-token picker)
-            if authMethod == .claudeCode, keychainEntries.isEmpty,
-               claudeSetup.state != .idle, claudeSetup.state != .success,
-               !isMultiTokenState {
-                ClaudeCodeSetupView(setup: claudeSetup)
-                    .padding(.top, 8)
-            }
-
             Spacer().frame(height: 8)
-
-            Text("Auto-detect reads from Claude Code/Desktop. Session key for manual OAuth entry.")
-                .font(Port42Theme.mono(10))
-                .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
+            Text("Your agent signs in to its own account in its own terminal. Port42 never sees that credential.")
+                .font(Port42Theme.mono(10)).foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
         }
         .focusable()
         .focusEffectDisabled()
         .focused($isAuthPickerFocused)
         .onKeyPress(.downArrow) {
-            cycleAuthMethod(forward: true)
-            return .handled
+            cliSelected = min(cliSelected + 1, agentOptions.count - 1); return .handled
         }
         .onKeyPress(.upArrow) {
-            cycleAuthMethod(forward: false)
-            return .handled
+            cliSelected = max(cliSelected - 1, 0); return .handled
         }
         .onKeyPress(.return) {
-            submitSelectedAuth()
-            return .handled
+            submitAgentChoice(); return .handled
         }
     }
 
-    private func subOptionButton(selected: Bool, label: String, hint: String?, action: @escaping () -> Void) -> some View {
+    private func agentOptionButton(_ idx: Int, label: String, hint: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Text(selected ? ">" : " ")
-                    .font(Port42Theme.monoBold(14))
-                    .foregroundStyle(Port42Theme.accent)
-                    .opacity(selected ? (cursorVisible ? 1 : 0.3) : 0)
-                Text("\u{25B8} \(label)")
-                    .font(Port42Theme.mono(12))
-                    .foregroundStyle(selected ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
-                if let hint {
-                    Text(hint)
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.3))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.leading, 20)
-    }
-
-    private func authOptionButton(_ method: AuthMethod, label: String, hint: String?, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Text(authSelected == method ? ">" : " ")
-                    .font(Port42Theme.monoBold(14))
-                    .foregroundStyle(Port42Theme.accent)
-                    .opacity(authSelected == method ? (cursorVisible ? 1 : 0.3) : 0)
-                Text(label)
-                    .font(Port42Theme.mono(13))
-                    .foregroundStyle(authSelected == method ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
-                if let hint {
-                    Text(hint)
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
-                }
+                Text(cliSelected == idx ? ">" : " ")
+                    .font(Port42Theme.monoBold(14)).foregroundStyle(Port42Theme.accent)
+                    .opacity(cliSelected == idx ? (cursorVisible ? 1 : 0.3) : 0)
+                Text(label).font(Port42Theme.mono(13))
+                    .foregroundStyle(cliSelected == idx ? Port42Theme.textPrimary : Port42Theme.textSecondary.opacity(0.5))
+                Text(hint).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textSecondary.opacity(0.4))
             }
         }
         .buttonStyle(.plain)
     }
 
-    private func submitSelectedAuth() {
-        switch authSelected {
-        case .claudeCode:
-            if keychainEntries.count > 1 {
-                selectTokenEntry(selectedTokenIndex)
-            } else {
-                selectAndSubmitClaudeCode()
-            }
-        case .manualToken:
-            selectManualToken()
-        case .apiKey:
-            selectApiKey()
-        case .geminiApiKey:
-            selectGeminiKey()
-        case .compatibleEndpoint:
-            selectCompatibleEndpoint()
+    /// Enter on the chooser: run Echo on the chosen CLI, or start installing one.
+    private func submitAgentChoice() {
+        let options = agentOptions
+        guard cliSelected < options.count else { return }
+        let option = options[cliSelected]
+        if option.hasPrefix("install:") {
+            claudeSetup.target = String(option.dropFirst("install:".count))
+            claudeSetup.diagnose()   // Node first when npm is missing, then the CLI
+            return
         }
-    }
-
-    private func selectTokenEntry(_ index: Int) {
-        guard index < keychainEntries.count else { return }
-        selectedTokenIndex = index
-        authMethod = .claudeCode
-        isCheckingAuth = true
-
-        let entry = keychainEntries[index]
-        DispatchQueue.global(qos: .userInitiated).async {
-            AgentAuthResolver.shared.selectEntry(entry)
-            DispatchQueue.main.async {
-                isCheckingAuth = false
-                completeAuth()
-            }
-        }
-    }
-
-    private func cycleAuthMethod(forward: Bool) {
-        if keychainEntries.count > 1 {
-            // Multi-account mode: flat list is [entry0, entry1, ..., enterToken, apiKey]
-            // Map current position to an index in that flat list
-            let entryCount = keychainEntries.count
-            let totalPositions = entryCount + 4 // entries + "enter token" + "API key" + "Gemini" + "Compatible"
-
-            var currentPos: Int
-            if authSelected == .claudeCode {
-                currentPos = selectedTokenIndex
-            } else if authSelected == .manualToken {
-                currentPos = entryCount
-            } else if authSelected == .apiKey {
-                currentPos = entryCount + 1
-            } else if authSelected == .geminiApiKey {
-                currentPos = entryCount + 2
-            } else {
-                currentPos = entryCount + 3 // compatible
-            }
-
-            let newPos = forward
-                ? min(currentPos + 1, totalPositions - 1)
-                : max(currentPos - 1, 0)
-
-            withAnimation(.easeIn(duration: 0.1)) {
-                if newPos < entryCount {
-                    authMethod = .claudeCode
-                    selectedTokenIndex = newPos
-                } else if newPos == entryCount {
-                    authMethod = .manualToken
-                } else if newPos == entryCount + 1 {
-                    authMethod = .apiKey
-                } else if newPos == entryCount + 2 {
-                    authMethod = .geminiApiKey
-                } else {
-                    authMethod = .compatibleEndpoint
-                }
-            }
-        } else {
-            // Simple mode: [claudeCode, manualToken (sub-item), apiKey, geminiApiKey, compatibleEndpoint]
-            let order: [AuthMethod] = [.claudeCode, .manualToken, .apiKey, .geminiApiKey, .compatibleEndpoint]
-            let current = authSelected
-            guard let idx = order.firstIndex(of: current) else { return }
-            let next = forward ? min(idx + 1, order.count - 1) : max(idx - 1, 0)
-            withAnimation(.easeIn(duration: 0.1)) { authMethod = order[next] }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            isAuthPickerFocused = true
-        }
+        Analytics.shared.setupStep("agent_\(option)")
+        let name = submittedName ?? displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        appState.completeSetup(displayName: name, cli: option)
+        phase = .transition
     }
 
     // MARK: - Analytics Consent
@@ -700,13 +420,6 @@ public struct SetupView: View {
         Analytics.shared.setupStep(optIn ? "analytics_opted_in" : "analytics_opted_out")
         withAnimation(.easeIn(duration: 0.15)) {
             showAnalyticsConsent = false
-        }
-
-        // Pre-fill API key from environment if available (but keep auto-detect as default)
-        if let envKey = ProcessInfo.processInfo.environment.first(where: {
-            $0.key.uppercased().contains("API_KEY") && !$0.value.isEmpty
-        }) {
-            apiKeyInput = envKey.value
         }
 
         // Show auth options after analytics consent
@@ -936,154 +649,6 @@ public struct SetupView: View {
         }
     }
 
-
-    private func selectApiKey() {
-        claudeSetup.cancel()
-        withAnimation(.easeIn(duration: 0.1)) {
-            authMethod = .apiKey
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            isApiKeyFocused = true
-        }
-    }
-
-    private func selectManualToken() {
-        claudeSetup.cancel()
-        withAnimation(.easeIn(duration: 0.1)) {
-            authMethod = .manualToken
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            isManualTokenFocused = true
-        }
-    }
-
-    private func submitManualToken() {
-        let token = manualTokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else { return }
-        authError = nil
-        isCheckingAuth = true
-
-        Port42AuthStore.shared.saveCredential(token)
-        Port42AuthStore.shared.savePreference(pref: .manualEntry)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isCheckingAuth = false
-            completeAuth()
-        }
-    }
-
-    private func selectAndSubmitClaudeCode() {
-        authMethod = .claudeCode
-        tryClaudeCodeAuth()
-    }
-
-    private func tryClaudeCodeAuth() {
-        NSLog("[Port42] tryClaudeCodeAuth() called")
-        authError = nil
-        isCheckingAuth = true
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let resolver = AgentAuthResolver.shared
-
-            // Check Port42's own stored credentials first (no Keychain prompt)
-            if Port42AuthStore.shared.loadPreference() == .manualEntry,
-               Port42AuthStore.shared.loadCredential() != nil {
-                DispatchQueue.main.async {
-                    isCheckingAuth = false
-                    completeAuth()
-                }
-                return
-            }
-
-            // Attributes-only query (zero Keychain prompts)
-            let entries = resolver.listKeychainEntries()
-            NSLog("[Port42] Found %d Keychain entries", entries.count)
-
-            DispatchQueue.main.async {
-                isCheckingAuth = false
-                keychainEntries = entries
-                if entries.count > 1 {
-                    // Picker will show inline, wait for user selection
-                    selectedTokenIndex = 0
-                } else if entries.count == 1 {
-                    // Single entry: select it (one Keychain prompt for data)
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        resolver.selectEntry(entries[0])
-                        DispatchQueue.main.async { completeAuth() }
-                    }
-                } else {
-                    claudeSetup.diagnose()
-                }
-            }
-        }
-    }
-
-    private func submitApiKey() {
-        let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
-        authError = nil
-        isCheckingAuth = true
-
-        Port42AuthStore.shared.saveCredential(key)
-        Port42AuthStore.shared.savePreference(pref: .manualEntry)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isCheckingAuth = false
-            completeAuth()
-        }
-    }
-
-    private func selectGeminiKey() {
-        claudeSetup.cancel()
-        withAnimation(.easeIn(duration: 0.1)) { authMethod = .geminiApiKey }
-    }
-
-    private func submitGeminiKey() {
-        let key = geminiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
-        authError = nil
-        isCheckingAuth = true
-        Port42AuthStore.shared.saveCredential(key, provider: "gemini")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isCheckingAuth = false
-            completeAuth()
-        }
-    }
-
-    private func selectCompatibleEndpoint() {
-        claudeSetup.cancel()
-        withAnimation(.easeIn(duration: 0.1)) { authMethod = .compatibleEndpoint }
-    }
-
-    private func submitCompatibleEndpoint() {
-        let url = compatibleBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        authError = nil
-        isCheckingAuth = true
-        Port42AuthStore.shared.saveCredential(url, provider: "compatible-url")
-        let key = compatibleKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !key.isEmpty { Port42AuthStore.shared.saveCredential(key, provider: "compatibleEndpoint") }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isCheckingAuth = false
-            completeAuth()
-        }
-    }
-
-    private func completeAuth() {
-        let method: String
-        switch authMethod {
-        case .claudeCode: method = "claude_code"
-        case .manualToken: method = "manual_token"
-        case .apiKey: method = "api_key"
-        case .geminiApiKey: method = "gemini_api_key"
-        case .compatibleEndpoint: method = "compatible_endpoint"
-        case .none: method = "unknown"
-        }
-        Analytics.shared.setupStep("auth_\(method)")
-        let name = submittedName ?? displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        appState.completeSetup(displayName: name)
-        phase = .transition
-    }
 
     private func startTransition() {
         withAnimation(.easeIn(duration: 0.5)) {

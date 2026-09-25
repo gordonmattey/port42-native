@@ -39,7 +39,7 @@ struct SessionEnvContractTests {
             sessionId: id,
             spaceId: "space-1", spaceName: "general",
             shimPath: "/tmp/fake-port42-shim",
-            claudePath: "/usr/bin/true", oauthToken: "")
+            claudePath: "/usr/bin/true")
     }
 
     @Test("every promised variable is actually set, and none is empty")
@@ -62,7 +62,7 @@ struct SessionEnvContractTests {
         let briefed = TerminalSessionBootstrap.make(
             sessionId: "E0C00002-5555-6666-7777-888888888888",
             spaceId: "space-1", spaceName: "general", companionPrompt: "You are scout.",
-            shimPath: "/tmp/fake-port42-shim", claudePath: "/usr/bin/true", oauthToken: "")
+            shimPath: "/tmp/fake-port42-shim", claudePath: "/usr/bin/true")
         defer { TerminalSessionBootstrap.cleanup(tempDir: briefed.tempDir) }
         #expect(briefed.env["PORT42_COMPANION_PROMPT"] == "You are scout.")
     }

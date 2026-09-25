@@ -111,12 +111,4 @@ struct BridgeDispatchTests {
         #expect(parsed is [Any])
     }
 
-    @Test("in-app companion crease_read routes through the registry (prose preserved)")
-    @MainActor
-    func inAppCreaseReadProse() async throws {
-        let w = try makeParityWorld()
-        let exec = ToolExecutor(appState: w.state, spaceId: w.space.id, createdBy: w.companion.id, createdByName: w.companion.displayName)
-        let blocks = await exec.execute(name: "crease_read", input: [:])
-        #expect(blocks.first?["text"] as? String == "No creases yet. Creases form when a prediction breaks.")
-    }
 }

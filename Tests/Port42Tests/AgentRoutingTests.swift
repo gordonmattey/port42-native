@@ -135,11 +135,7 @@ struct AgentRoutingTests {
 
     @Test("LLM and command agents both route by mention")
     func mixedModeRouting() {
-        let llmAgent = AgentConfig.createLLM(
-            ownerId: "u", displayName: "ai-engineer",
-            systemPrompt: "engineer", provider: .anthropic, model: "claude-sonnet-4-20250514",
-            trigger: .mentionOnly
-        )
+        let llmAgent = AgentConfig.createCommand(ownerId: "u", displayName: "ai-engineer", command: "claude", systemPrompt: "engineer", trigger: .mentionOnly)
         let cmdAgent = AgentConfig.createCommand(
             ownerId: "u", displayName: "custom-bot",
             command: "/bin/bot", trigger: .mentionOnly
@@ -196,13 +192,6 @@ struct AgentRoutingTests {
     // MARK: - Helpers
 
     private func makeAgent(name: String, trigger: AgentTrigger) -> AgentConfig {
-        AgentConfig.createLLM(
-            ownerId: "user-1",
-            displayName: name,
-            systemPrompt: "test",
-            provider: .anthropic,
-            model: "claude-sonnet-4-20250514",
-            trigger: trigger
-        )
+        AgentConfig.createCommand(ownerId: "user-1", displayName: name, command: "claude", systemPrompt: "test", trigger: trigger)
     }
 }

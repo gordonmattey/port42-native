@@ -32,17 +32,8 @@ public struct ChatView: View {
                     localOwner: appState.currentUser?.displayName,
                     spaceId: spaceId,
                     onSend: { content in appState.sendMessage(content: content, toSpaceId: spaceId) },
-                    onStop: {
-                        if let spaceId = spaceId {
-                            appState.cancelStreaming(spaceId: spaceId)
-                        }
-                    },
-                    onRetry: {
-                        if let spaceId = spaceId {
-                            AgentAuthResolver.shared.clearCache()
-                            appState.retryLastMessage(spaceId: spaceId)
-                        }
-                    },
+                    onStop: {},
+                    onRetry: {},
                     onDismissError: {
                         if let spaceId = spaceId {
                             appState.spaceErrors[spaceId] = nil

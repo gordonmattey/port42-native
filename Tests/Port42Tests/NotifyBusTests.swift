@@ -180,13 +180,6 @@ struct NotifyExitTests {
                 "a method that never returns must say so, or a one-shot door hangs on it")
     }
 
-    @Test("a FINITE stream method is not endless, so HTTP still serves it collect-into-final")
-    func completionIsNotEndless() async throws {
-        let w = try makeParityWorld()
-        #expect(w.state.bridgeStreamHandles("ai.complete"))
-        #expect(!w.state.bridgeStreamIsEndless("ai.complete"),
-                "ai.complete finishes, so its final value IS the answer on a one-shot transport")
-    }
 
     // CALIBRATION, and the trap it walked into is worth keeping. Removing `endless: true` from
     // `port.subscribe` did NOT fail this test: it HUNG it, because the un-refused method runs until

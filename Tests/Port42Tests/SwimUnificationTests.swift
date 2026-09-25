@@ -67,46 +67,8 @@ struct AppStateSpaceErrorTests {
         #expect(state.spaceErrors["space-1"] == nil)
     }
 
-    @Test("cancelStreaming on empty handlers is a no-op")
-    @MainActor
-    func cancelStreamingNoHandlers() throws {
-        let state = try makeState()
-        // Should not crash with no active handlers
-        state.cancelStreaming(spaceId: "some-space")
-        #expect(state.activeAgentHandlers.isEmpty)
-    }
 
-    @Test("retryLastMessage clears spaceError for that space")
-    @MainActor
-    func retryClears() throws {
-        let state = try makeState()
-        // Put an error in and call retry with no messages
-        state.spaceErrors["space-1"] = "error"
-        state.retryLastMessage(spaceId: "space-1")
-        // Error should be cleared even with no messages to retry
-        #expect(state.spaceErrors["space-1"] == nil)
-    }
 
-    @Test("retryLastMessage sends last user message in space")
-    @MainActor
-    func retryFindsLastUserMessage() throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let user = AppUser.createForTesting(displayName: "Alice")
-        try db.saveUser(user)
-        state.currentUser = user
-        let space = Space.create(name: "test")
-        try db.saveSpace(space)
-
-        // Populate messages array directly (simulating loaded state)
-        let msg = Message.create(spaceId: space.id, senderId: user.id, senderName: "Alice", content: "retry this")
-        state.messages = [msg]
-        state.currentSpace = space
-
-        // retryLastMessage should find the user message (won't actually send since no agent, but shouldn't crash)
-        state.retryLastMessage(spaceId: space.id)
-        // No crash = pass
-    }
 }
 
 // MARK: - Step 4: Swim via space infrastructure
@@ -122,11 +84,7 @@ struct SwimSpaceInfraTests {
         let user = AppUser.createForTesting(displayName: "Alice")
         try db.saveUser(user)
         state.currentUser = user
-        let companion = AgentConfig.createLLM(
-            ownerId: user.id, displayName: "Echo",
-            systemPrompt: "You are Echo.", provider: .anthropic,
-            model: "claude-opus-4-6", trigger: .mentionOnly
-        )
+        let companion = AgentConfig.createCommand(ownerId: user.id, displayName: "Echo", command: "claude", systemPrompt: "You are Echo.", trigger: .mentionOnly)
         try db.saveAgent(companion)
         state.companions = [companion]
         let general = Space.create(name: "general")

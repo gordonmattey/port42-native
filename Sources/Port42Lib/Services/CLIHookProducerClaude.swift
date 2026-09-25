@@ -4,10 +4,6 @@ import Foundation
 // comments read as history — they are the ones that were earned there.
 extension CLIHookProducer {
 
-    /// Canonical name of the secret holding the `claude` CLI's OAuth token. Decoupled from the env
-    /// var name: this secret's value is injected as `CLAUDE_CODE_OAUTH_TOKEN`.
-    public static let claudeOAuthSecretName = "claude-oauth"
-
     public static let claude = CLIHookProducer(
         name: "claude",
         matches: { $0.lowercased().contains("claude") },
@@ -57,14 +53,9 @@ extension CLIHookProducer {
                 ]
             }
 
-            // CLI auth: an OAuth token from the SECRETS STORE (NOT the in-app LLM resolver, which
-            // holds an API key for a different connection). Absent → the CLI falls back to its own
-            // login.
-            if let token = ctx.tokenOverride
-                ?? Port42AuthStore.shared.loadSecretValue(name: claudeOAuthSecretName),
-               !token.isEmpty {
-                out.env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-            }
+            // NO CREDENTIAL IS INJECTED (D9, nautilus Phase 1 step 3). This used to put an OAuth token
+            // from Port42's own store into `CLAUDE_CODE_OAUTH_TOKEN`. Port42 reads no provider
+            // credential now: claude signs in with its own login, in its own terminal.
 
             return out
         })

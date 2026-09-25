@@ -95,7 +95,7 @@ struct TerminalHooksServiceTests {
         let session = TerminalSessionBootstrap.make(
             sessionId: "ABCDEF12-3456-7890-ABCD-EF1234567890",
             spaceId: "space-1", spaceName: "demo", shimPath: nil,
-            claudePath: "/usr/bin/true", oauthToken: ""   // skip the slow which/Keychain lookups
+            claudePath: "/usr/bin/true"   // skip the slow which/Keychain lookups
         )
         #expect(session.env["PORT42_HOOKS_SOCKET"] == session.socketPath)
         #expect(session.env["PORT42_SPACE_ID"] == "space-1")
@@ -114,7 +114,7 @@ struct TerminalHooksServiceTests {
                 "PORT42_HOOKS_SOCKET": "/evil/sock",   // attempt to hijack the socket
                 "PATH": "/evil/bin",                   // attempt to hijack PATH
             ],
-            shimPath: nil, claudePath: "/usr/bin/true", oauthToken: "")
+            shimPath: nil, claudePath: "/usr/bin/true")
         #expect(session.env["FOO"] == "bar")                                  // custom var survives
         #expect(session.env["PORT42_HOOKS_SOCKET"] == session.socketPath)     // hooks socket wins
         #expect(session.env["PATH"] != "/evil/bin")                          // real PATH wins
@@ -126,7 +126,7 @@ struct TerminalHooksServiceTests {
         let session = TerminalSessionBootstrap.make(
             sessionId: "ZSHTEST0-1111-2222-3333-444444444444",
             spaceId: "s", spaceName: "n", shimPath: "/tmp/fake-port42-shim",
-            claudePath: "/usr/bin/true", oauthToken: "")
+            claudePath: "/usr/bin/true")
         defer { TerminalSessionBootstrap.cleanup(tempDir: session.tempDir) }
         #expect(session.env["PORT42_CLAUDE_SHIM"] == "/tmp/fake-port42-shim")
         #expect(session.env["ZDOTDIR"] == session.tempDir)

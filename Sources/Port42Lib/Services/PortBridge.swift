@@ -673,31 +673,14 @@ public final class PortBridge: NSObject, WKScriptMessageHandler, ObservableObjec
                         }
                     }
                 },
+                // The in-app model is gone (D7, D9), so `ai.complete` is too. `ai.cancel` stays: it is
+                // the stream-cancel shim `port.subscribe(...).cancel()` rides on.
                 ai: __ns('ai', {
-                    complete: function(prompt, opts) {
-                        opts = opts || {};
-                        const id = _callId + 1;
-                        if (opts.onToken) _tokenCallbacks[id] = opts.onToken;
-                        const p = call('ai.complete', [prompt, {
-                            model: opts.model,
-                            systemPrompt: opts.systemPrompt,
-                            maxTokens: opts.maxTokens,
-                            images: opts.images
-                        }]).then(function(r) { if (opts.onDone) opts.onDone(r); return r; });
-                        p.callId = id;
-                        p.cancel = function() { return port42.ai.cancel(id); };
-                        return p;
-                    },
                     cancel: function(callId) { return call('ai.cancel', [callId]); }
                 }),
-                companions: __ns('companions', {
-                    invoke: function(id, prompt, opts) {
-                        opts = opts || {};
-                        const cid = _callId + 1;
-                        if (opts.onToken) _tokenCallbacks[cid] = opts.onToken;
-                        return call('companions.invoke', [id, prompt]).then(function(r) { if (opts.onDone) opts.onDone(r); return r; });
-                    }
-                }),
+                // companions.list / companions.get reach the registry through the proxy. `invoke` went
+                // with the in-app engine; a port talks to a companion through its terminal's chat.
+                companions: __ns('companions', {}),
                 port: __ns('port', {
                     resize: (w, h) => {
                         document.body.style.width = w + 'px';

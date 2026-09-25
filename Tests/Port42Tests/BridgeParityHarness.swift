@@ -41,11 +41,7 @@ func makeParityWorld(companionName: String = "Echo", spaceName: String = "projec
     let user = AppUser.createForTesting(displayName: "Alice")
     try db.saveUser(user)
     state.currentUser = user
-    let companion = AgentConfig.createLLM(
-        ownerId: user.id, displayName: companionName,
-        systemPrompt: "You are \(companionName).", provider: .anthropic,
-        model: "claude-opus-4-6", trigger: .mentionOnly
-    )
+    let companion = AgentConfig.createCommand(ownerId: user.id, displayName: companionName, command: "claude", systemPrompt: "You are \(companionName).", trigger: .mentionOnly)
     try db.saveAgent(companion)
     let space = Space.create(name: spaceName)
     try db.saveSpace(space)

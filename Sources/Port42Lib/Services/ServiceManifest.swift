@@ -69,7 +69,7 @@ public struct ServiceManifest {
 /// the manifest-consistency runtime probe iterates this list. A new manifest service is added here.
 @MainActor
 func appManifestServices() -> [ServiceManifest] {
-    [keeperManifest(), storageManifest()]
+    [storageManifest()]
 }
 
 /// Register a manifest's methods into the registry. Each method becomes a `BridgeMethod` carrying the

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Inline guided setup view for Claude Code installation and authentication.
+/// Inline guided setup view for installing a CLI agent (Node, then Claude Code).
 /// Embeddable in both SetupView (boot) and SignOutSheet (settings).
 public struct ClaudeCodeSetupView: View {
     @ObservedObject var setup: ClaudeCodeSetup
@@ -27,7 +27,7 @@ public struct ClaudeCodeSetupView: View {
                 }
 
             case .noNode:
-                Text("Node.js is required to install Claude Code.")
+                Text(setup.target == "codex" ? "Node.js is required to install Codex." : "Node.js is required to install Claude Code.")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
 
@@ -36,50 +36,12 @@ public struct ClaudeCodeSetupView: View {
                 }
 
             case .claudeNotInstalled:
-                Text("Installing Claude Code...")
+                Text(setup.target == "codex" ? "Installing Codex..." : "Installing Claude Code...")
                     .font(Port42Theme.mono(11))
                     .foregroundStyle(Port42Theme.textSecondary)
                     .onAppear {
-                        setup.installClaudeCode()
+                        setup.installTarget()
                     }
-
-            case .claudeNeedsAuth:
-                Text("Claude Code is installed. Sign in with your Claude subscription.")
-                    .font(Port42Theme.mono(11))
-                    .foregroundStyle(Port42Theme.textSecondary)
-
-                actionButton("Sign in to Claude") {
-                    setup.authenticate()
-                }
-
-            case .multipleTokens(let entries):
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(">")
-                            .font(Port42Theme.monoBold(14))
-                            .foregroundStyle(Port42Theme.accent)
-                        Text("Multiple Claude accounts detected")
-                            .font(Port42Theme.monoBold(12))
-                            .foregroundStyle(Port42Theme.textPrimary)
-                    }
-
-                    Text("Select which account to use:")
-                        .font(Port42Theme.mono(11))
-                        .foregroundStyle(Port42Theme.textSecondary)
-
-                    Spacer().frame(height: 4)
-
-                    ForEach(entries) { entry in
-                        tokenEntryButton(entry)
-                    }
-                }
-                .padding(12)
-                .background(Color.white.opacity(0.05))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Port42Theme.accent.opacity(0.3), lineWidth: 1)
-                )
 
             case .running(let status):
                 HStack(spacing: 6) {
@@ -151,43 +113,7 @@ public struct ClaudeCodeSetupView: View {
         }
     }
 
-    private func tokenEntryButton(_ entry: ClaudeKeychainEntry) -> some View {
-        Button(action: { setup.selectKeychainEntry(entry) }) {
-            HStack(spacing: 8) {
-                Text("\u{25B8}")
-                    .font(Port42Theme.monoBold(12))
-                    .foregroundStyle(Port42Theme.accent)
 
-                Text(entry.label)
-                    .font(Port42Theme.monoBold(12))
-                    .foregroundStyle(Port42Theme.textPrimary)
-
-                if let exp = entry.expiresAt {
-                    Text(expiryLabel(exp))
-                        .font(Port42Theme.mono(10))
-                        .foregroundStyle(exp > Date() ? Port42Theme.textSecondary.opacity(0.6) : .orange.opacity(0.8))
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Port42Theme.accent.opacity(0.08))
-            .cornerRadius(7)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(Port42Theme.accent.opacity(0.2), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func expiryLabel(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "MMM d, HH:mm"
-        let dateStr = fmt.string(from: date)
-        return date > Date() ? "expires \(dateStr)" : "expired \(dateStr)"
-    }
 
     private func actionButton(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {

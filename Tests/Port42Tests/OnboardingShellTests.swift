@@ -117,47 +117,6 @@ struct OnboardingShellTests {
 
     // MARK: - Phase 3: seeding the first message
 
-    @MainActor
-    @Test("The first message seeds once, and only into an empty chat")
-    func firstMessageSeedsOnce() throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-
-        // Not onboarding → no seed.
-        state.seedOnboardingFirstMessage()
-        #expect(state.isOnboarding == false)
-
-        state.enterShellFromSetup()
-        #expect(state.isOnboarding)
-        #expect(state.isSetupComplete)
-
-        // A non-empty chat is never seeded over (the guard moved from SetupView).
-        state.messages = [Message.create(spaceId: "s", senderId: "u", senderName: "u", content: "hi")]
-        state.seedOnboardingFirstMessage()
-
-        state.endOnboarding()
-        #expect(state.isOnboarding == false)
-    }
-
-    @MainActor
-    @Test("The opening line is PREFILLED as a draft, never sent for the user")
-    func firstMessageIsADraft() async throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let space = Space.create(name: "genesis")
-        try db.saveSpace(space)
-        state.spaces = try db.getRegularSpaces()
-        state.currentSpace = space
-        state.enterShellFromSetup()
-
-        state.seedOnboardingFirstMessage()
-        try await Task.sleep(nanoseconds: 900_000_000)   // the seed defers ~0.5s
-
-        // It waits in the input for the user to press Enter — nothing was sent.
-        #expect(state.chatDrafts[space.id]?.contains("what is this place?") == true)
-        #expect(state.messages.isEmpty)
-    }
-
     // MARK: - Phases 4/6: first run ends at the first zoom-out, and the breakout plays there
 
     @MainActor
@@ -198,21 +157,4 @@ struct OnboardingShellTests {
                                        onboarding: state.isOnboarding, chatUdid: "c") == .space)
     }
 
-    @MainActor
-    @Test("A draft the user is already typing is never clobbered")
-    func prefillNeverClobbersTyping() async throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let space = Space.create(name: "genesis")
-        try db.saveSpace(space)
-        state.spaces = try db.getRegularSpaces()
-        state.currentSpace = space
-        state.enterShellFromSetup()
-        state.chatDrafts[space.id] = "already typing this"
-
-        state.seedOnboardingFirstMessage()
-        try await Task.sleep(nanoseconds: 900_000_000)
-
-        #expect(state.chatDrafts[space.id] == "already typing this")
-    }
 }

@@ -789,6 +789,24 @@ public final class DatabaseService {
             try db.execute(sql: DatabaseService.dedupePortVersionsSQL)
         }
 
+        migrator.registerMigration("v50-drop-the-engine") { db in
+            // Nautilus Phase 1 step 3: the in-app engine, Keeper, swims and heartbeats are gone.
+            // LLM and remote companions no longer decode (AgentMode is command only), so they and
+            // their space memberships go first. Their tables and the heartbeat columns follow.
+            try db.execute(sql: """
+                DELETE FROM agentSpaces WHERE agentId IN (SELECT id FROM agents WHERE mode IN ('llm', 'remote'))
+                """)
+            try db.execute(sql: "DELETE FROM agents WHERE mode IN ('llm', 'remote')")
+            for table in ["companion_creases", "companion_engravings", "companion_folds",
+                          "companion_positions", "token_usage", "swimMessages"] {
+                try db.execute(sql: "DROP TABLE IF EXISTS \(table)")
+            }
+            try db.alter(table: "spaces") { t in
+                t.drop(column: "heartbeatInterval")
+                t.drop(column: "heartbeatPrompt")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1265,120 +1283,11 @@ public final class DatabaseService {
         }
     }
 
-    // MARK: - Token Usage
-
-    public func recordTokenUsage(source: String, model: String, inputTokens: Int, outputTokens: Int, cacheReadTokens: Int = 0, cacheCreationTokens: Int = 0) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "INSERT INTO token_usage (source, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                arguments: [source, model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, Date()]
-            )
-        }
-    }
-
-    /// Aggregated usage row returned from queries.
-    public struct UsageAggregate {
-        public let key: String          // source or model name
-        public let inputTokens: Int
-        public let outputTokens: Int
-        public let requests: Int
-    }
-
-    /// Get usage aggregated by source within a date range.
-    public func usageBySource(from: Date, to: Date) throws -> [UsageAggregate] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(db,
-                sql: """
-                    SELECT source, SUM(inputTokens) as inp, SUM(outputTokens) as outp, COUNT(*) as cnt
-                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
-                    GROUP BY source ORDER BY inp + outp DESC
-                    """,
-                arguments: [from, to]
-            )
-            return rows.map { UsageAggregate(key: $0["source"], inputTokens: $0["inp"], outputTokens: $0["outp"], requests: $0["cnt"]) }
-        }
-    }
-
-    /// Get usage aggregated by model within a date range.
-    public func usageByModel(from: Date, to: Date) throws -> [UsageAggregate] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(db,
-                sql: """
-                    SELECT model, SUM(inputTokens) as inp, SUM(outputTokens) as outp, COUNT(*) as cnt
-                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
-                    GROUP BY model ORDER BY inp + outp DESC
-                    """,
-                arguments: [from, to]
-            )
-            return rows.map { UsageAggregate(key: $0["model"], inputTokens: $0["inp"], outputTokens: $0["outp"], requests: $0["cnt"]) }
-        }
-    }
-
-    /// Get total usage within a date range.
-    public func usageTotal(from: Date, to: Date) throws -> (inputTokens: Int, outputTokens: Int, requests: Int, cacheReadTokens: Int, cacheCreationTokens: Int) {
-        try dbQueue.read { db in
-            let row = try Row.fetchOne(db,
-                sql: """
-                    SELECT COALESCE(SUM(inputTokens), 0) as inp, COALESCE(SUM(outputTokens), 0) as outp, COUNT(*) as cnt,
-                           COALESCE(SUM(cacheReadTokens), 0) as cacheRead, COALESCE(SUM(cacheCreationTokens), 0) as cacheCreate
-                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
-                    """,
-                arguments: [from, to]
-            )
-            return (inputTokens: row?["inp"] ?? 0, outputTokens: row?["outp"] ?? 0, requests: row?["cnt"] ?? 0,
-                    cacheReadTokens: row?["cacheRead"] ?? 0, cacheCreationTokens: row?["cacheCreate"] ?? 0)
-        }
-    }
-
-    /// Get daily usage totals for charting within a date range.
-    public func usageByDay(from: Date, to: Date) throws -> [(date: String, inputTokens: Int, outputTokens: Int, requests: Int)] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(db,
-                sql: """
-                    SELECT strftime('%Y-%m-%d', timestamp) as day,
-                           SUM(inputTokens) as inp, SUM(outputTokens) as outp, COUNT(*) as cnt
-                    FROM token_usage WHERE timestamp >= ? AND timestamp < ?
-                    GROUP BY day ORDER BY day
-                    """,
-                arguments: [from, to]
-            )
-            return rows.map { (date: $0["day"] as String, inputTokens: $0["inp"], outputTokens: $0["outp"], requests: $0["cnt"]) }
-        }
-    }
-
-    /// Recent individual token usage records.
-    public struct UsageRecord {
-        public let source: String
-        public let model: String
-        public let inputTokens: Int
-        public let outputTokens: Int
-        public let timestamp: Date
-    }
-
-    public func recentUsage(from: Date, to: Date, limit: Int = 5) throws -> [UsageRecord] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(db,
-                sql: "SELECT source, model, inputTokens, outputTokens, timestamp FROM token_usage WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?",
-                arguments: [from, to, limit]
-            )
-            return rows.map {
-                UsageRecord(
-                    source: $0["source"],
-                    model: $0["model"],
-                    inputTokens: $0["inputTokens"],
-                    outputTokens: $0["outputTokens"],
-                    timestamp: $0["timestamp"]
-                )
-            }
-        }
-    }
-
     // MARK: - Reset
 
     public func resetAll() throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM agentSpaces")
-            try db.execute(sql: "DELETE FROM swimMessages")
             try db.execute(sql: "DELETE FROM messages")
             try db.execute(sql: "DELETE FROM spaces")
             try db.execute(sql: "DELETE FROM agents")
@@ -1387,200 +1296,6 @@ public final class DatabaseService {
             try db.execute(sql: "DELETE FROM port_panels")
             try db.execute(sql: "DELETE FROM port_versions")
             try db.execute(sql: "DELETE FROM input_history")
-            try db.execute(sql: "DELETE FROM companion_creases")
-            try db.execute(sql: "DELETE FROM companion_engravings")
-            try db.execute(sql: "DELETE FROM companion_folds")
-            try db.execute(sql: "DELETE FROM companion_positions")
-            try db.execute(sql: "DELETE FROM token_usage")
-        }
-    }
-
-    // MARK: - Companion Creases
-
-    public func saveCrease(_ crease: CompanionCrease) throws {
-        var crease = crease
-        try dbQueue.write { db in
-            try crease.save(db)
-        }
-    }
-
-    /// Fetch creases for a companion: space-scoped + global, most recently touched first.
-    public func fetchCreases(companionId: String, spaceId: String?, limit: Int = 8) throws -> [CompanionCrease] {
-        try dbQueue.read { db in
-            if let sid = spaceId {
-                return try CompanionCrease
-                    .filter(Column("companionId") == companionId &&
-                            (Column("spaceId") == sid || Column("spaceId") == nil))
-                    .order(Column("touchedAt").desc)
-                    .limit(limit)
-                    .fetchAll(db)
-            } else {
-                return try CompanionCrease
-                    .filter(Column("companionId") == companionId && Column("spaceId") == nil)
-                    .order(Column("touchedAt").desc)
-                    .limit(limit)
-                    .fetchAll(db)
-            }
-        }
-    }
-
-    /// Mark a crease as currently shaping a response — updates touchedAt, bumps weight.
-    public func touchCrease(id: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE companion_creases SET touchedAt = ?, weight = weight + 0.1 WHERE id = ?",
-                arguments: [Date(), id]
-            )
-        }
-    }
-
-    public func deleteCrease(id: String) throws {
-        try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM companion_creases WHERE id = ?", arguments: [id])
-        }
-    }
-
-    /// Remove all creases for a companion (called when companion is deleted).
-    public func deleteCreasesForCompanion(_ companionId: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "DELETE FROM companion_creases WHERE companionId = ?",
-                arguments: [companionId]
-            )
-        }
-    }
-
-    // MARK: - Companion Engravings
-
-    public func saveEngraving(_ engraving: CompanionEngraving) throws {
-        var engraving = engraving
-        try dbQueue.write { db in
-            try engraving.save(db)
-        }
-    }
-
-    /// Fetch engravings for a companion: space-scoped + global, most recently touched first.
-    public func fetchEngravings(companionId: String, spaceId: String?, limit: Int = 8) throws -> [CompanionEngraving] {
-        try dbQueue.read { db in
-            if let sid = spaceId {
-                return try CompanionEngraving
-                    .filter(Column("companionId") == companionId &&
-                            (Column("spaceId") == sid || Column("spaceId") == nil))
-                    .order(Column("touchedAt").desc)
-                    .limit(limit)
-                    .fetchAll(db)
-            } else {
-                return try CompanionEngraving
-                    .filter(Column("companionId") == companionId && Column("spaceId") == nil)
-                    .order(Column("touchedAt").desc)
-                    .limit(limit)
-                    .fetchAll(db)
-            }
-        }
-    }
-
-    /// Mark an engraving as currently shaping a response — updates touchedAt, bumps weight.
-    public func touchEngraving(id: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE companion_engravings SET touchedAt = ?, weight = weight + 0.1 WHERE id = ?",
-                arguments: [Date(), id]
-            )
-        }
-    }
-
-    public func deleteEngraving(id: String) throws {
-        try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM companion_engravings WHERE id = ?", arguments: [id])
-        }
-    }
-
-    /// Remove all engravings for a companion (called when companion is deleted).
-    public func deleteEngravingsForCompanion(_ companionId: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "DELETE FROM companion_engravings WHERE companionId = ?",
-                arguments: [companionId]
-            )
-        }
-    }
-
-    // MARK: - Companion Folds
-
-    public func fetchFold(companionId: String, spaceId: String) throws -> CompanionFold? {
-        try dbQueue.read { db in
-            try CompanionFold
-                .filter(Column("companionId") == companionId && Column("spaceId") == spaceId)
-                .fetchOne(db)
-        }
-    }
-
-    /// Upsert fold state for a companion×space pair.
-    public func saveFold(_ fold: CompanionFold) throws {
-        var fold = fold
-        try dbQueue.write { db in
-            // Check for existing fold
-            if var existing = try CompanionFold
-                .filter(Column("companionId") == fold.companionId && Column("spaceId") == fold.spaceId)
-                .fetchOne(db) {
-                existing.established = fold.established
-                existing.tensions = fold.tensions
-                existing.holding = fold.holding
-                existing.depth = fold.depth
-                existing.updatedAt = fold.updatedAt
-                try existing.update(db)
-            } else {
-                try fold.insert(db)
-            }
-        }
-    }
-
-    /// Remove all folds for a companion (called when companion is deleted).
-    public func deleteFoldsForCompanion(_ companionId: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "DELETE FROM companion_folds WHERE companionId = ?",
-                arguments: [companionId]
-            )
-        }
-    }
-
-    // MARK: - Companion Positions
-
-    public func fetchPosition(companionId: String, spaceId: String) throws -> CompanionPosition? {
-        try dbQueue.read { db in
-            try CompanionPosition
-                .filter(Column("companionId") == companionId && Column("spaceId") == spaceId)
-                .fetchOne(db)
-        }
-    }
-
-    /// Upsert position for a companion×space pair.
-    public func savePosition(_ position: CompanionPosition) throws {
-        var position = position
-        try dbQueue.write { db in
-            if var existing = try CompanionPosition
-                .filter(Column("companionId") == position.companionId && Column("spaceId") == position.spaceId)
-                .fetchOne(db) {
-                existing.read = position.read
-                existing.stance = position.stance
-                existing.watching = position.watching
-                existing.confidence = position.confidence
-                existing.updatedAt = position.updatedAt
-                try existing.update(db)
-            } else {
-                try position.insert(db)
-            }
-        }
-    }
-
-    /// Remove all positions for a companion (called when companion is deleted).
-    public func deletePositionsForCompanion(_ companionId: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "DELETE FROM companion_positions WHERE companionId = ?",
-                arguments: [companionId]
-            )
         }
     }
 

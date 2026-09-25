@@ -153,7 +153,7 @@ with the credential given once; the guest page renders and drives a port; existi
 review of its design). **Progress:** 1.2 bring-your-own-agent removed ✓ · 1.6 shim resume and
 creator names ✓ · 1.4 ngrok and invite payloads removed ✓ · 1.4 sync client, friends, remote
 presence and Apple sign-in removed ✓ · 1.4 schema v47 drops the hub's columns ✓ · housekeeping (keys, spikes,
-version dedupe, orphan reap, repos archived) ✓.
+version dedupe, orphan reap, repos archived) ✓ · 1.3 engine, Keeper and first run on a CLI ✓.
 
 **Messaging:** the rest of `SyncService`, `TunnelService`, `SpaceCrypto`, `AppleAuthService`,
 `AgentInvite`, friends, member lists, typing, read receipts, join tokens, and the gateway's hub
