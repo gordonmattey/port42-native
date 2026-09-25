@@ -213,11 +213,11 @@ public struct TransitionRoot: View {
                     onboardingReveal = 1.0
                     onboardingMaterialize = 1.0
                     // Hold the black while the shell mounts, the focus lands and the agent CLI
-                    // draws, then lift it slowly while the terminal settles into place. Paced to be
-                    // watched (GM, 2026-09-25): the first version at 0.45s + 0.55s read as a cut.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        withAnimation(.easeInOut(duration: 1.6)) { onboardingReveal = 0.0 }
-                        withAnimation(.easeOut(duration: 2.6)) { onboardingMaterialize = 0.0 }
+                    // draws, then reveal it FAST. GM, 2026-09-25: the pause is wanted, a slow reveal
+                    // is not (a live terminal scaling over seconds reads as a glitch).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                        withAnimation(.easeOut(duration: 0.35)) { onboardingReveal = 0.0 }
+                        withAnimation(.easeOut(duration: 0.5)) { onboardingMaterialize = 0.0 }
                     }
                 } else {
                     // Simple fade transition

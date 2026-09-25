@@ -109,8 +109,8 @@ with the opening line typed in, ask for a shader port, get one. The first reques
 
 - The boot check lines describe what now comes up: surfaces, the agents found on this Mac (a real
   result), and the port namespace. Draft copy for GM.
-- The hand-off from setup into Echo's terminal is slower: a longer black and circle, then the terminal
-  lifts out of the black over about two and a half seconds.
+- The hand-off from setup into Echo's terminal is slower: a longer black and circle, a held beat of
+  black while the CLI draws, then a fast reveal of the terminal, zoomed in.
 - The dolphin breakout video that played on the first zoom out is gone, with its preloader and file.
   Leaving the terminal for the desktop just ends the first run.
 - A port set as the desktop wallpaper paused itself, because the presentation reported it hidden on
