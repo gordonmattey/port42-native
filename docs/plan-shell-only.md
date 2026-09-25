@@ -226,7 +226,7 @@ scope. The transcript survives restart. Nothing is sent anywhere.
 
 ### Phase 2 · Arranging (5)
 
-**Detailed plan:** `plan-nautilus-phase2.md` (steps 2.1 to 2.4, four decisions for GM at its top).
+**Detailed plan:** `plan-nautilus-phase2.md`. **Built 2026-09-25:** ⌘L gone ✓ · close is archive, reopen from ⌘K ✓ · exact parking ✓ · background pauses unseen ✓. Harness five of five; GM's manual pass pending.
 
 Built on `shell-layout-place-not-arrange` (2d42eb1, design in `design-shell-layout.md`). A new port
 takes a free spot and moves nothing; only ⌘L re-grids, by creation order. Positions are per space

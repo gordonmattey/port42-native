@@ -656,9 +656,10 @@ public final class PortWindowManager: ObservableObject {
     /// Reopen a closed port with its id, content, position and chat. A terminal relaunches its
     /// command in its last cwd. Returns false if there is no closed port by that id.
     @discardableResult
-    public func reopen(_ id: String) -> Bool {
-        guard let db, let appState, !panels.contains(where: { $0.id == id }),
-              let row = try? db.fetchPortPanel(id: id), row.closedAt != nil else { return false }
+    public func reopen(_ idOrUdid: String) -> Bool {
+        guard let db, let appState, let id = closedPortId(idOrUdid),
+              !panels.contains(where: { $0.id == id }),
+              let row = try? db.fetchPortPanel(id: id) else { return false }
         try? db.setPortClosed(id: id, at: nil)
         restorePanel(from: row, appState: appState)
         NSLog("[Port42] Reopened port %@", id)
@@ -668,6 +669,11 @@ public final class PortWindowManager: ObservableObject {
     /// The closed ports, most recently closed first.
     public func closedPorts() -> [PersistedPortPanel] {
         (try? db?.fetchClosedPortPanels()) ?? []
+    }
+
+    /// A closed port's row id, given either of its ids (a caller may hold the udid `ports.list` shows).
+    public func closedPortId(_ idOrUdid: String) -> String? {
+        closedPorts().first { $0.id == idOrUdid || $0.udid == idOrUdid }?.id
     }
 
     /// Delete a port for good: close it if open, then remove its record, versions and chat.

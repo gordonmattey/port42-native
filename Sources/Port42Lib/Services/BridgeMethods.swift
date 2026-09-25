@@ -1317,10 +1317,26 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
             "required": ["id"],
         ]) { _, args in
         let id = try args.requireString("id")
-        guard appState.portWindows.reopen(id) else { throw BridgeError.notFound("closed port '\(id)'") }
-        let key = appState.portWindows.panels.first { $0.id == id }?.udid ?? id
+        let rowId = appState.portWindows.closedPortId(id) ?? id
+        guard appState.portWindows.reopen(rowId) else { throw BridgeError.notFound("closed port '\(id)'") }
+        let key = appState.portWindows.panels.first { $0.id == rowId }?.udid ?? id
         return .object(["ok": .bool(true), "id": .string(id),
                         PortActivity.tokenKey: .string(appState.portInput.token(for: key))])
+    }
+
+    r["port.delete"] = BridgeMethod(permission: nil, paramNames: ["id"],
+        description: "Delete a CLOSED port for good: its record, versions and chat. Close it first (port.manage close); an open port is refused, so nothing live is ever deleted in one step.",
+        inputSchema: [
+            "type": "object",
+            "properties": ["id": ["type": "string", "description": "The closed port's id."]],
+            "required": ["id"],
+        ]) { _, args in
+        let id = try args.requireString("id")
+        guard let rowId = appState.portWindows.closedPortId(id) else {
+            throw BridgeError.notFound("closed port '\(id)' (close it first)")
+        }
+        appState.portWindows.deleteForever(rowId)
+        return .object(["ok": .bool(true)])
     }
 
     r["ports.list"] = BridgeMethod(permission: nil, paramNames: ["capabilities", "space_id", "include_closed"],

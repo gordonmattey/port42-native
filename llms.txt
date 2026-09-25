@@ -264,6 +264,9 @@ Generated from the live method registry: every entry below is served exactly as 
         title (string): Port title (default: derived from html <title>, or the command).
         type (string, required): The port type to create.
         url (string): type:"browser" — the page to open (e.g. "https://example.com").
+  port.delete(id)
+      Delete a CLOSED port for good: its record, versions and chat. Close it first (port.manage close); an open port is refused, so nothing live is ever deleted in one step.
+        id (string, required): The closed port's id.
   port.exec(id, js, token)
       Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.
         id (string, required): The port's UDID (from ports_list)

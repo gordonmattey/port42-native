@@ -132,6 +132,15 @@ Hidden cost MORE than visible before the pause, so this was the larger saving. A
 Dev3 covered but still on the lock screen measured the lock screen's own video, not this background.
 Suite 1141 green.
 
+## Status (2026-09-25)
+
+All four steps are built and committed. **Harness: five of five** on Dev3, with scenario 5 now also
+closing a port, finding it listed as closed, and reopening it as itself at its place with nothing
+else moving. The harness closes and then deletes what it made (a new `port.delete`, which refuses an
+open port), finds a terminal by title when `port.create` returned an id `ports.list` does not show,
+and retries its cleanup once because it runs straight after scenario 5's restart. Suite 1142 green.
+**Not yet done: GM's manual pass (below).**
+
 ## Verify, live on Dev3
 
 - The harness passes five of five after every step. Scenario 5 gains two checks: a closed port

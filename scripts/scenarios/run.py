@@ -19,6 +19,7 @@ from p42 import Client, Refused, WSGuest  # noqa: E402
 
 RESULTS = []
 MADE = []
+TITLES = {}
 
 
 def record(n, name, ok, evidence):
@@ -27,6 +28,7 @@ def record(n, name, ok, evidence):
 
 def made(port):
     MADE.append(port["id"])
+    TITLES[port["id"]] = port.get("title")
     return port
 
 
@@ -230,6 +232,21 @@ def scenario5(c, do_restart):
     moved_by_spawn = [k[:8] for k in placed if arranged[k] != after_spawn[k]]
     notes = [f"6 placed across 2 spaces, 2 parked; adding a port moved {len(moved_by_spawn)} {moved_by_spawn or ''}"]
     ok = not moved_by_spawn
+    # Closing archives (Phase 2 step 2): the port leaves the listing, is listed closed, and reopens as
+    # itself at its position, moving nothing else.
+    victim = placed[0]
+    c.call("port.manage", {"id": victim, "action": "close",
+                           "token": next(q for q in c.call("ports.list") if q["id"] == victim)["token"]})
+    gone = all(q["id"] != victim for q in c.call("ports.list"))
+    listed_closed = any(q["id"] == victim and q.get("status") == "closed"
+                        for q in c.call("ports.list", {"include_closed": True}))
+    c.call("port.reopen", {"id": victim})
+    time.sleep(1)
+    after_reopen = geometry(c, placed)
+    moved_by_reopen = [k[:8] for k in placed if after_reopen[k] != after_spawn[k]]
+    reopen_ok = gone and listed_closed and not moved_by_reopen
+    notes.append(f"close+reopen: {'same port, same place' if reopen_ok else f'gone={gone} closed={listed_closed} moved={moved_by_reopen}'}")
+    ok = ok and reopen_ok
     if do_restart:
         restart(c)
         after = geometry(c, placed + [newcomer["id"]])
@@ -265,13 +282,28 @@ def main():
         except Exception as e:
             record(n, names[n], False, f"harness error: {type(e).__name__}: {e}")
     if not a.keep:
+        # Closing archives, so the harness closes AND deletes what it made. A port is found by id, or
+        # by title when the id port.create returned is not the one ports.list shows (terminals).
+        def clean(pid):
+                listed = c.call("ports.list")
+                q = next((q for q in listed if q["id"] == pid), None) \
+                    or next((q for q in listed if TITLES.get(pid) and q["title"] == TITLES[pid]), None)
+                if q:
+                    c.call("port.manage", {"id": q["id"], "action": "close", "token": q["token"]})
+                    c.call("port.delete", {"id": q["id"]})
+                elif any(r["id"] == pid for r in c.call("ports.list", {"include_closed": True})):
+                    c.call("port.delete", {"id": pid})
+        # Cleanup runs straight after scenario 5 restarts the instance, so a call can land before it
+        # answers again: one retry after a pause.
         for pid in MADE:
-            try:
-                tok = next((q["token"] for q in c.call("ports.list") if q["id"] == pid), None)
-                if tok:
-                    c.call("port.manage", {"id": pid, "action": "close", "token": tok})
-            except Exception:
-                pass
+            for attempt in (1, 2):
+                try:
+                    clean(pid)
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        print(f"cleanup: {TITLES.get(pid) or pid}: {e}", file=sys.stderr)
+                    time.sleep(3)
     width = max(len(r[1]) for r in RESULTS)
     for n, name, status, ev in RESULTS:
         print(f"{n}  {name:<{width}}  {status:<4}  {ev}")

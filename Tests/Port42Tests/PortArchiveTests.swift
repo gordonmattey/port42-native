@@ -105,6 +105,17 @@ struct PortArchiveTests {
         withExtendedLifetime(w.state) {}
     }
 
+    @Test("port.delete refuses an open port and deletes a closed one")
+    func portDelete() async throws {
+        let w = try world()
+        await #expect(throws: BridgeError.self) { _ = try await call(w, "port.delete", ["id": "p"]) }
+        #expect(w.pw.panels.contains { $0.id == "p" }, "an open port is never deleted in one step")
+        w.pw.close("p")
+        _ = try await call(w, "port.delete", ["id": "p"])
+        #expect(try w.state.db.fetchPortPanel(id: "p") == nil)
+        withExtendedLifetime(w.state) {}
+    }
+
     @Test("delete forever removes the record, its versions and its chat")
     func deleteForever() throws {
         let w = try world()

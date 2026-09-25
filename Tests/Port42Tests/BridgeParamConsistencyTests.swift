@@ -198,7 +198,8 @@ struct BridgeParamConsistencyTests {
         //   outside this scan. = 66.
         // + space.create (the API can make a space, GM 2026-09-25). = 67.
         // + port.reopen (closing archives, Phase 2 step 2). = 68.
-        #expect(methods.count == 68, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // + port.delete (delete a closed port for good). = 69.
+        #expect(methods.count == 69, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

@@ -131,7 +131,8 @@ struct BridgeSchemaParityTests {
         // − messages_send, messages_recent, bus_publish and bus_read, which went with the old chat
         //   (Phase 1 step 5.4). = 51.
         // + port_reopen (closing archives, Phase 2 step 2). = 52.
-        #expect(checked == 52, "expected 52 parity-set methods, checked \(checked)")
+        // + port_delete (delete a closed port for good). = 53.
+        #expect(checked == 53, "expected 53 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

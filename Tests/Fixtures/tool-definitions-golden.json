@@ -398,6 +398,22 @@
     "name" : "port_create"
   },
   {
+    "description" : "Delete a CLOSED port for good: its record, versions and chat. Close it first (port.manage close); an open port is refused, so nothing live is ever deleted in one step.",
+    "input_schema" : {
+      "properties" : {
+        "id" : {
+          "description" : "The closed port's id.",
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "id"
+      ],
+      "type" : "object"
+    },
+    "name" : "port_delete"
+  },
+  {
     "description" : "Execute JavaScript on a live port. Use this to call functions, push data, or update state on an existing port without replacing its HTML. The JS runs in the port's webview context with access to window, document, and any globals the port defines.",
     "input_schema" : {
       "properties" : {
