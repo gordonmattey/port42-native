@@ -144,3 +144,107 @@ Nothing here asks for a change to Phase 0. The recommendation is to finish nauti
 deletes the most Apple-coupled code in the tree and draws the kernel boundary that any port depends
 on, and to run spikes 1, 2 and 5 alongside it, because they are cheap, they are measurements rather
 than commitments, and their answers change which option is even available.
+
+## Measured by building it, 2026-09-25
+
+The section above was read from the tree. This section was produced by a compiler. The spike is
+`spikes/windows-kernel/carve.sh`: it generates a package from the tree's own files, builds it, and
+prunes whatever fails until it is green, printing every drop. Nothing in `Sources` is edited and
+nothing is duplicated in git. The dropped list is the deliverable, because it is the seam list
+between kernel and shell, found rather than asserted.
+
+### The candidate kernel and where it leaks
+
+58 files, 11,449 lines qualify as candidates: no Apple-framework import, minus everything nautilus
+Phase 1 deletes. Building them alone on macOS, 22 references reach out of that set into the shell:
+
+| Symbol | References | Where it lives |
+|---|---|---|
+| `AppState` | 88 | `Services/AppState.swift`, 4,015 lines, imports AppKit |
+| `GatewayProcess` | 78 | an AppKit-importing service |
+| `ShellState` | 54 | the shell's own state |
+| `Port42AuthStore` | 34 | Keychain, so Security |
+| `TerminalPortConfig` | 24 | the Ghostty side |
+| `AppUser` | 24 | a Model, but Keychain-backed so Security |
+| `PortPanel` | 22 | **`Views/PortWindowManager.swift`** |
+| `Zoom`, `ClaudeSessionId`'s peers, `SpaceCrypto`, `PortContextItem`, `keeperManifest` | 10 or fewer each | |
+
+Two of those are structural rather than incidental. `PortPanel` is the port's own data model and it
+is defined inside a view file, so `DatabaseService` (persistence) depends on the window manager. And
+`AppState` at 4,015 lines is referenced by `BridgeDispatcher`, `BridgeReference`,
+`BridgeServiceStorage`, `CommandAgent` and `TerminalHooksService`: the registry's dispatch path runs
+through the shell's god object.
+
+### Three Apple frameworks hide in files that import no UI
+
+The import scan misses them because they arrive through Foundation-looking code:
+
+- **CryptoKit**, 5 files. `swift-crypto` is API-compatible, so a conditional import is the whole fix.
+- **CoreGraphics**, 4 files. `CGPoint`, `CGSize`, `CGRect` and `CGFloat` come from Foundation off
+  Apple, so again a conditional import is the whole fix.
+- **Combine**, and this one is real. **15 of 96 service files are `ObservableObject`s with
+  `@Published` properties**, which binds them to Apple's observation model without importing any UI
+  framework. Six of the 15 are deleted by Phase 1; the rest (`AppState`, `PermissionCoordinator`,
+  `PortBridge`, `GatewayDoor`, `GatewayProcess`, `ToolExecutor`, `InstructionService`,
+  `CLIInstallService`, `ClaudeCodeSetup`) need an observation story off Apple: OpenCombine, or
+  callbacks and `AsyncStream`.
+
+### One four-line Apple-ism was blocking the registry
+
+`BridgeValue.fromJSONObject` tells a bool-carrying `NSNumber` from a numeric one with `CFGetTypeID`,
+which does not exist off Apple. That single check took `BridgeArgs`, `BridgeRegistry`, `NotifyBus`
+and `PublishedDocs` down with it. Replacing it with the `objCType` equivalent (in the generated copy
+only, to measure) moved the Linux result from 25 files and 3,014 lines to **30 files and 3,818
+lines**. The registry layer is portable; it was one type check away.
+
+### Results
+
+| Platform | Kernel | GRDB |
+|---|---|---|
+| macOS | builds | builds |
+| Linux (`swift:6.0`) | **30 files, 3,818 lines**, only `AutomationBridge` excluded, which is AppleScript and macOS by nature | builds, with `libsqlite3-dev` present |
+| Windows (Swift 6.2, windows-2022) | **30 files, 3,818 lines**, the same set as Linux | **does not build**: no system `sqlite3.h`, so `CSQLite` fails |
+
+Run 36107519772: Windows green after 8 prune rounds, Linux green after 9, both landing on the same
+30 files. The portable set is the port model and the registry's own types:
+
+```
+ActorProbe AgentProtocol ArrangeLog BridgeArgs BridgeErrorCode BridgeRegistry BridgeValue
+ClaudeSessionId CodexConfigMerge CompanionCodename FileDropUtil NotifyBus PortActivity PortAddress
+PortConsole PortCreate PortEventKind PortInput PortInputProbe PortObject PortOwnedResource
+PortPermission PortPresence PortResolution Principal PublishedDocs RecordFraming ShellExec
+TerminalOutputProcessor ToolNaming
+```
+
+**GRDB does not build on Windows.** `CSQLite` fails with `'sqlite3.h' file not found`, because
+Windows ships no system SQLite. On Linux the same probe passes once `libsqlite3-dev` is installed.
+So persistence needs either a vendored SQLite (GRDB supports a custom build) or a different store.
+That is question 2 of the spike, answered: not a blocker, but not free either.
+
+**Two findings about the Windows toolchain itself, both from failures rather than reading:**
+
+- `windows-latest` now carries Visual Studio 18 (MSVC 14.51), whose STL hard-fails on any compiler
+  older than Clang 20: `error STL1000: Unexpected compiler version, expected Clang 20 or newer`.
+  Swift 6.2's bundled Clang is older, so the build died before reading a line of Port42. Pinning
+  `windows-2022` fixed it. The lesson is that Swift on Windows is sensitive to the MSVC it is paired
+  with, which is a standing maintenance cost rather than a one-time setup step.
+- The harness itself reported a false pass twice before it reported a true one: once because GitHub
+  runs `shell: bash` with `-e`, so a `grep` finding no errors killed the step at the moment the build
+  succeeded, and once because it printed a survivor count after exhausting its round limit, turning
+  "still failing" into "49 files survive". Both are fixed and both are the reason the numbers above
+  are trustworthy: a spike that cannot fail honestly is not a measurement.
+
+So roughly 3,800 lines of the kernel are portable today with three conditional imports and one type
+check. That is not the whole kernel. What it is, precisely, is the part that does not touch
+`AppState`, and the distance between 3,818 and the full 15,490 is almost entirely the cost of
+untangling one 4,015-line object and moving `PortPanel` out of a view file.
+
+### What this changes in the analysis above
+
+It moves option A from "unknown" toward "possible but not free", and it sharpens the real work. The
+obstacle to a Windows port is not Swift and not the frameworks. It is that kernel and shell share one
+object graph. Untangling that is the same work nautilus is already doing for a different reason, which
+is the strongest argument yet for finishing nautilus before deciding anything about Windows.
+
+A useful side effect regardless of Windows: `carve.sh` is a fitness function. Run it in CI and the
+kernel boundary becomes something the compiler enforces instead of something a document asserts.
