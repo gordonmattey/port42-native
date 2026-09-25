@@ -82,8 +82,9 @@ Three decisions already point the same way:
 - **"The chrome is ports too"** on the future roadmap. If the shell's own parts become ports, the
   shell becomes HTML, and the Windows UI problem changes shape entirely.
 
-So nautilus is, incidentally, the largest single reduction in the cost of a Windows port. Doing the
-port before it would mean porting code that is about to be deleted.
+Those deletions shrink the SHELL's porting surface. They do not move the kernel boundary: measured
+before and after Phase 1 landed, the portable kernel is the same 30 files either way (see "Re-measured
+after nautilus Phase 1"). What blocks the kernel is the seam list, not these features.
 
 ## The options
 
@@ -105,8 +106,8 @@ also yields Linux. It turns "port to Windows" into "write a second UI", which is
 wants the chrome to be ports. Then the Windows app is a WebView2 host over a Go kernel, and macOS
 either keeps its native shell or converges on the same one. The only option where the desktop's look
 is shared rather than re-implemented twice. The cost is that the ceremony, the dreamscape and the
-shell's feel get rebuilt in the browser, and the native-app character is the thing GM has been most
-deliberate about.
+shell's feel get rebuilt in the browser, and the native-app character is a deliberate product
+decision.
 
 **D. A separate Windows-native app.** WinUI 3 or similar, sharing only the Go gateway and the
 protocol. Best Windows result, two codebases forever, and every feature lands twice.
@@ -147,11 +148,10 @@ than commitments, and their answers change which option is even available.
 
 ## Measured by building it, 2026-09-25
 
-The section above was read from the tree. This section was produced by a compiler. The spike is
-`spikes/windows-kernel/carve.sh`: it generates a package from the tree's own files, builds it, and
-prunes whatever fails until it is green, printing every drop. Nothing in `Sources` is edited and
-nothing is duplicated in git. The dropped list is the deliverable, because it is the seam list
-between kernel and shell, found rather than asserted.
+Produced by a compiler rather than by reading. `spikes/windows-kernel/carve.sh` generates a package
+from the tree's own files, builds it, and prunes whatever fails until it is green, printing every
+drop. Nothing in `Sources` is edited and nothing is duplicated in git. The dropped list is the
+deliverable: it is the seam list between kernel and shell.
 
 ### The candidate kernel and where it leaks
 
@@ -221,33 +221,28 @@ Windows ships no system SQLite. On Linux the same probe passes once `libsqlite3-
 So persistence needs either a vendored SQLite (GRDB supports a custom build) or a different store.
 That is question 2 of the spike, answered: not a blocker, but not free either.
 
-**Two findings about the Windows toolchain itself, both from failures rather than reading:**
+**Two constraints on the Windows toolchain, both established by failure:**
 
-- `windows-latest` now carries Visual Studio 18 (MSVC 14.51), whose STL hard-fails on any compiler
-  older than Clang 20: `error STL1000: Unexpected compiler version, expected Clang 20 or newer`.
-  Swift 6.2's bundled Clang is older, so the build died before reading a line of Port42. Pinning
-  `windows-2022` fixed it. The lesson is that Swift on Windows is sensitive to the MSVC it is paired
-  with, which is a standing maintenance cost rather than a one-time setup step.
-- The harness itself reported a false pass twice before it reported a true one: once because GitHub
-  runs `shell: bash` with `-e`, so a `grep` finding no errors killed the step at the moment the build
-  succeeded, and once because it printed a survivor count after exhausting its round limit, turning
-  "still failing" into "49 files survive". Both are fixed and both are the reason the numbers above
-  are trustworthy: a spike that cannot fail honestly is not a measurement.
+- `windows-latest` carries Visual Studio 18 (MSVC 14.51), whose STL rejects any compiler older than
+  Clang 20: `error STL1000: Unexpected compiler version, expected Clang 20 or newer`. Swift 6.2's
+  bundled Clang is older, so the build fails before reading any Port42 source. The workflow pins
+  `windows-2022`. Swift on Windows is sensitive to the MSVC it is paired with, which is a standing
+  maintenance cost rather than a one-time setup step.
+- The harness reports a result only when the build's exit code is zero, and refuses to print a
+  survivor count otherwise. Both guards are load-bearing: GitHub runs `shell: bash` with `-e`, so a
+  `grep` that finds no errors kills the step at the moment a build succeeds, and a prune loop that
+  exhausts its rounds will otherwise report "still failing" as a survivor count.
 
 So roughly 3,800 lines of the kernel are portable today with three conditional imports and one type
 check. That is not the whole kernel. What it is, precisely, is the part that does not touch
 `AppState`, and the distance between 3,818 and the full 15,490 is almost entirely the cost of
 untangling one 4,015-line object and moving `PortPanel` out of a view file.
 
-### What this changes in the analysis above
+### What follows from this
 
-It moves option A from "unknown" toward "possible but not free", and it sharpens the real work. The
-obstacle to a Windows port is not Swift and not the frameworks. It is that kernel and shell share one
-object graph. Untangling that is the same work nautilus is already doing for a different reason, which
-is the strongest argument yet for finishing nautilus before deciding anything about Windows.
-
-A useful side effect regardless of Windows: `carve.sh` is a fitness function. Run it in CI and the
-kernel boundary becomes something the compiler enforces instead of something a document asserts.
+The obstacle to a Windows port is not Swift and not the frameworks. It is that kernel and shell share
+one object graph. `carve.sh` is therefore a fitness function beyond this question: run it in CI and
+the kernel boundary is enforced by the compiler instead of asserted by a document.
 
 ## The seam list, priced
 
@@ -267,7 +262,7 @@ code references only, ignoring comments:
 | `TerminalPortConfig` | 1 | 386 | Lives with the Ghostty side; it is a config struct, not a terminal. |
 | `ClaudeCodeSetup` | 1 | 71 | |
 
-Read as a whole: **nothing on that list is about Windows, or about Swift.** Every entry is a type
+**Nothing on that list is about Windows, or about Swift.** Every entry is a type
 that sits on the wrong side of a line the project already believes in. The three biggest are a data
 model inside a view file, geometry constants on the shell object, and a god object in the dispatch
 path. Fixing them is refactoring Port42 into what its own documents say it is, and a Windows build
@@ -299,16 +294,13 @@ ngrok, the invite payloads and the hub's columns are gone. The tree shrank by ab
 | CryptoKit importers | 5 | 0 in the top imports |
 | **Kernel portable on Linux and Windows** | 30 files, 3,818 lines | **30 files, 3,869 lines** |
 
-**The portable set did not grow.** That is the useful result, and it was not the expected one. Phase 1
-deleted several thousand lines of Apple-coupled code, and the kernel's portable fraction stayed
-exactly where it was, because the deleted code was never what blocked it. What blocks it is the seam
-list: `PortPanel` inside a view file, geometry constants on `ShellState`, and `AppState` in the
-dispatch path.
+**The portable set did not grow.** Phase 1 deleted several thousand lines of Apple-coupled code and
+the kernel's portable fraction stayed where it was, because the deleted code was never what blocked
+it. What blocks it is the seam list: `PortPanel` inside a view file, geometry constants on
+`ShellState`, `AppState` in the dispatch path.
 
-So deleting Apple-coupled features shrinks the SHELL's porting surface and leaves the KERNEL boundary
-where it was. Only moving types moves that. Anyone reasoning that "nautilus will make this portable"
-should read this row: it did not, and it was never going to, because the two are different problems
-that happen to share a direction.
+Deleting Apple-coupled features shrinks the SHELL's porting surface and leaves the KERNEL boundary
+where it is. Only moving types moves that. The two are different problems that share a direction.
 
 ## Persistence: the license is not the problem, the wrapper is
 
@@ -327,7 +319,7 @@ watchOS 7.0+ • SQLite 3.20.0+ • Swift 6.1+ / Xcode 16.3+", and "Linux suppor
 contributors. It is not automatically tested, and not officially maintained." Windows is not
 mentioned at all.
 
-Three options, in the order I would try them:
+Three options, in preference order:
 
 1. **Vendor SQLite into the build.** GRDB documents custom SQLite builds, so `DatabaseService`'s
    2,133 lines survive untouched. The cost is not the license, it is becoming the maintainer of a

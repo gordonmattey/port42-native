@@ -1,6 +1,6 @@
 # Spike: can libghostty back a Windows terminal port?
 
-Status: complete. Date: 2026-09-25. Worktree: `worktree-arrange` (research only, no product code changed).
+Date: 2026-09-25. Research only; no product code changed. Evidence gathered by building Ghostty, not by reading it.
 
 ## Verdict
 
@@ -371,7 +371,7 @@ The Windows host would have to deliver, in order:
 3. A surface for the renderer to draw into, and a swapchain presentation contract that does
    not exist yet in the library.
 
-Step 1 has no upper bound I can defend from evidence. It is open-ended engineering in a
+Step 1 has no upper bound that evidence can bound. It is open-ended engineering in a
 language and codebase Port42 does not otherwise touch, on a fork, with no upstream to
 absorb it.
 
