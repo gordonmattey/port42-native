@@ -37,9 +37,10 @@ jobs:
         working-directory: spikes/windows-kernel/generated
         run: |
           set +e -o posix
-          for r in 1 2 3 4 5 6 7 8; do
+          green=0
+          for r in $(seq 1 20); do
             out=$(swift build --target Port42Kernel 2>&1); rc=$?
-            if [ $rc -eq 0 ]; then echo "WINDOWS GREEN after $((r-1)) prune round(s)"; break; fi
+            if [ $rc -eq 0 ]; then echo "WINDOWS GREEN after $((r-1)) prune round(s)"; green=1; break; fi
             echo "$out" | grep -E "error:" | sort -u | head -5
             bad=$(echo "$out" | grep -oE "Port42Kernel[\\/][A-Za-z+0-9]+\.swift[^ ]*: error:" \
                   | sed -E "s|.*[\\/]([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u || true)
@@ -49,6 +50,7 @@ jobs:
             fi
             for b in $bad; do echo "  round $r: dropping $b"; rm -f "Sources/Port42Kernel/$b.swift"; done
           done
+          if [ "$green" != "1" ]; then echo "NO RESULT: still failing when the round limit ran out"; exit 1; fi
           echo "SURVIVES ON WINDOWS: $(ls Sources/Port42Kernel | wc -l) files, $(cat Sources/Port42Kernel/*.swift | wc -l) lines"
           ls Sources/Port42Kernel
       - name: does GRDB build on Windows
@@ -69,9 +71,10 @@ jobs:
         working-directory: spikes/windows-kernel/generated
         run: |
           set +e
-          for r in 1 2 3 4 5 6 7 8; do
+          green=0
+          for r in $(seq 1 20); do
             out=$(swift build --target Port42Kernel 2>&1); rc=$?
-            if [ $rc -eq 0 ]; then echo "LINUX GREEN after $((r-1)) prune round(s)"; break; fi
+            if [ $rc -eq 0 ]; then echo "LINUX GREEN after $((r-1)) prune round(s)"; green=1; break; fi
             bad=$(echo "$out" | grep -oE "/Port42Kernel/[A-Za-z+0-9]+\.swift[^ ]*: error:" \
                   | sed -E "s|/Port42Kernel/([A-Za-z+0-9]+)\.swift.*|\1|" | sort -u || true)
             if [ -z "$bad" ]; then
@@ -79,6 +82,7 @@ jobs:
             fi
             for b in $bad; do echo "  round $r: dropping $b"; rm -f "Sources/Port42Kernel/$b.swift"; done
           done
+          if [ "$green" != "1" ]; then echo "NO RESULT: still failing when the round limit ran out"; exit 1; fi
           echo "SURVIVES ON LINUX: $(ls Sources/Port42Kernel | wc -l) files, $(cat Sources/Port42Kernel/*.swift | wc -l) lines"
       - name: does GRDB build on Linux
         working-directory: spikes/windows-kernel/generated

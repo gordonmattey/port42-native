@@ -36,12 +36,22 @@ for f in $(find "$ROOT/Sources/Port42Lib/Services" "$ROOT/Sources/Port42Lib/Mode
   cp "$f" "$SRC/"
   # CryptoKit is Apple-only; swift-crypto is API-compatible. This is the shim a real port would use,
   # applied to the copy so the spike measures the move without editing the tree.
-  if grep -q '^import CryptoKit' "$SRC/$base.swift"; then
-    perl -0pi -e 's/^import CryptoKit$/#if canImport(CryptoKit)\nimport CryptoKit\n#else\nimport Crypto\n#endif/m' "$SRC/$base.swift"
-  fi
-  # CoreGraphics is Apple-only, but its geometry types (CGPoint, CGSize, CGRect, CGFloat) are
-  # provided by Foundation on other platforms, so a conditional import is the whole fix.
-  perl -0pi -e 's/^import CoreGraphics$/#if canImport(CoreGraphics)\nimport CoreGraphics\n#endif/m' "$SRC/$base.swift"
+  # Portability shims, applied to the COPY. awk rather than perl or sed -i: BSD sed cannot put a
+  # newline in a replacement and the Windows runner's perl behaved differently, which silently left
+  # the shim unapplied and cost a CI round to notice.
+  shim() { # file, module-to-guard, optional replacement module
+    awk -v m="$2" -v alt="$3" '{
+      if ($0 == "import " m) {
+        print "#if canImport(" m ")"; print "import " m
+        if (alt != "") { print "#else"; print "import " alt }
+        print "#endif"
+      } else print
+    }' "$1" > "$1.shim" && mv "$1.shim" "$1"
+  }
+  # CryptoKit is Apple-only; swift-crypto is API-compatible. CoreGraphics is Apple-only but its
+  # geometry types come from Foundation elsewhere, so guarding the import is the whole fix.
+  shim "$SRC/$base.swift" CryptoKit Crypto
+  shim "$SRC/$base.swift" CoreGraphics ""
   kept=$((kept + 1)); lines=$((lines + $(wc -l < "$f")))
 done
 
