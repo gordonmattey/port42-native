@@ -29,7 +29,8 @@ Each step is its own commit. Suite green, Go suites green, harness five of five,
   tooling, not dead code. No scenario needs them and none ships in a release build. Removing them
   is GM's call.
 - **Keeper moves to step 1.3.** The in-app engine's system prompt teaches the Keeper tools and injects
-  Keeper's memory, so the two come out together.
+  Keeper's memory, and the engine's initiative triggers (watched signals, held topics, bus signals) read
+  Keeper's positions and folds. The two come out together.
 - **Keeper:** `BridgeServiceKeeper`, `CompanionRelationship`, `CreaseInspectorSheet`, the `crease`,
   `fold`, `position` and `engrave` methods, their `DatabaseService` sections, and the four
   `companion_*` tables (empty on Dev3). Tests: `CompanionRelationshipTests`, `D4MemoryScopeTests`,
@@ -115,7 +116,7 @@ on it.
 - The native chat tile, `ChatView`, `ConversationContent`, inline ports, port fences (D11), the
   `[portref]` cards and the `messages` table go.
 - **Open for GM:** how the chat port looks, and how a wider-scope chat shows while focused on a
-  narrower one.
+  narrower one. **A buildable draft is in `design-chat-port.md`**, with four questions for GM at its end.
 
 ### 1.6 Small, clearly right
 
