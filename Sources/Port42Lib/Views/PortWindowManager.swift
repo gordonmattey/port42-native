@@ -65,6 +65,9 @@ public struct PortPanel: Identifiable {
     /// wallpaper). "floating" is RETIRED with classic mode (the v39 migration rewrote legacy rows to
     /// "tiled"), and "inline" with the chat (D11).
     public var presentation: String = "tiled"
+    /// This port's slot in its space's park rail (0 = top) while parked; nil otherwise. Persisted
+    /// in the `dockOrder` column (nautilus Phase 2 step 3).
+    public var railOrder: Int? = nil
 
     /// Resolved display title: userTitle > HTML <title> > "port"
     public var title: String {
@@ -279,6 +282,7 @@ public final class PortWindowManager: ObservableObject {
             // fell out of the desktop render (which filters presentation == "tiled").
             panel.presentation = row.presentation
             panel.z = row.z
+            panel.railOrder = row.dockOrder
             // Phase 3 — restore adoption (kept peeks survive a restart on their adopters).
             if let adoptedStr = row.adoptedSpaceIds,
                let data = adoptedStr.data(using: .utf8),
@@ -528,18 +532,53 @@ public final class PortWindowManager: ObservableObject {
 
     /// Park a tiled port into the right-edge rail (minimize to a chip). Same webview, no reload —
     /// the parked port is excluded from the desktop render and from `arrange`/`exposé`.
-    public func park(id: String) {
+    /// `slot` places it in the rail (0 = top); nil puts it at the bottom.
+    public func park(id: String, at slot: Int? = nil) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
+        let rail = railIds(in: panels[idx].spaceId).filter { $0 != id }
         panels[idx].presentation = "parked"
         panels[idx].bridge.suspendAI()      // stop any in-flight generation the moment it's parked
-        persistPanel(id)
+        renumberRail(Self.railInserting(id, into: rail, at: slot))
     }
 
-    /// Restore a parked port back onto the desktop as a tile (no reload).
+    /// Restore a parked port back onto the desktop as a tile (no reload). The rail closes the gap.
     public func unpark(id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].presentation = "tiled"
+        panels[idx].railOrder = nil
         persistPanel(id)
+        renumberRail(railIds(in: panels[idx].spaceId))
+    }
+
+    /// Move a parked port to another slot in its rail.
+    public func moveInRail(id: String, to slot: Int) {
+        guard let p = panels.first(where: { $0.id == id }), p.presentation == "parked" else { return }
+        let rail = railIds(in: p.spaceId).filter { $0 != id }
+        renumberRail(Self.railInserting(id, into: rail, at: slot))
+    }
+
+    /// The parked ports of a space, top to bottom: by rail order, then by when they were made.
+    public func railIds(in spaceId: String?) -> [String] {
+        panels.enumerated()
+            .filter { $0.element.spaceId == spaceId && $0.element.presentation == "parked" }
+            .sorted { ($0.element.railOrder ?? Int.max, $0.offset) < ($1.element.railOrder ?? Int.max, $1.offset) }
+            .map(\.element.id)
+    }
+
+    /// `ids` with `id` inserted at `slot` (clamped; nil = the end). Pure.
+    nonisolated public static func railInserting(_ id: String, into ids: [String], at slot: Int?) -> [String] {
+        var out = ids.filter { $0 != id }
+        out.insert(id, at: min(max(0, slot ?? out.count), out.count))
+        return out
+    }
+
+    /// Write 0…n-1 as the rail order of `ids` and persist them.
+    private func renumberRail(_ ids: [String]) {
+        for (n, id) in ids.enumerated() {
+            guard let idx = panels.firstIndex(where: { $0.id == id }) else { continue }
+            panels[idx].railOrder = n
+            persistPanel(id)
+        }
     }
 
     /// Move a port to a presentation (tiled / background) — a POSITION change only; the render layer

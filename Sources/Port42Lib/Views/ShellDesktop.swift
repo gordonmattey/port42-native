@@ -727,7 +727,11 @@ struct ShellTile: View {
                 let zone = railZone(at: v.location)
                 switch zone {                                                    // any tile (chat included) — count↓ re-grids
                 case .close: if let panel = tile.panel { shell.dismissTile(panel) }
-                case .park:  if let panel = tile.panel { appState.portWindows.park(id: panel.id) }
+                case .park:
+                    if let panel = tile.panel {
+                        let count = appState.portWindows.railIds(in: panel.spaceId).count
+                        appState.portWindows.park(id: panel.id, at: ShellState.railSlot(forY: v.location.y, count: count))
+                    }
                 case nil:
                     commit(origin: CGPoint(x: frame.minX + v.translation.width, y: frame.minY + v.translation.height),
                            size: CGSize(width: frame.width, height: frame.height))
@@ -818,8 +822,8 @@ struct ShellParkRail: View {
     /// (Phase 2): a port here is tiled, parked, or peeking. One click restores a chip to a tile.
     private var railPanels: [PortPanel] {
         guard let sid = appState.currentSpace?.id else { return [] }
-        return appState.portWindows.panels.filter {
-            $0.spaceId == sid && $0.presentation == "parked"
+        return appState.portWindows.railIds(in: sid).compactMap { id in
+            appState.portWindows.panels.first { $0.id == id }
         }
     }
 
@@ -828,9 +832,10 @@ struct ShellParkRail: View {
         let overPark = shell.draggingOverPark == .park
         let overClose = shell.draggingOverPark == .close
 
-        VStack(spacing: 10) {
+        VStack(spacing: ShellState.railChipSpacing) {
             Image(systemName: "tray.and.arrow.down")
                 .font(.system(size: 12))
+                .frame(height: 14)
                 .foregroundStyle(Port42Theme.textSecondary.opacity(overPark ? 1 : 0.5))
                 .padding(.top, 12)
             ForEach(railPanels, id: \.id) { chip($0) }   // parked/floating ports incl. the chat panel
@@ -856,12 +861,17 @@ struct ShellParkRail: View {
                 Image(systemName: "square.on.square").font(.system(size: 13)).foregroundStyle(shell.accent)
                 Text(p.title.prefix(6)).font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary).lineLimit(1)
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .frame(maxWidth: .infinity).frame(height: ShellState.railChipHeight)
             .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(shell.accent.opacity(0.3), lineWidth: 1))
         }
-        .buttonStyle(.plain).help("Restore \(p.title)")
+        .buttonStyle(.plain).help("Restore \(p.title) (drag to reorder)")
         .padding(.horizontal, 6)
+        // Drag a chip up or down the rail to reorder it; a click still restores it.
+        .highPriorityGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named("desktop")).onEnded { v in
+            let count = appState.portWindows.railIds(in: p.spaceId).count
+            appState.portWindows.moveInRail(id: p.id, to: ShellState.railSlot(forY: v.location.y, count: count - 1))
+        })
         // Source of the restore morph: the tile animates its position out of this chip's frame.
         .matchedGeometryEffect(id: "restore-\(p.id)", in: restoreNS, properties: .position, anchor: .center, isSource: true)
     }

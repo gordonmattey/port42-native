@@ -874,6 +874,19 @@ public final class ShellState: ObservableObject {
     /// The right rail's width (spec §4: `max(64, screenW·0.05)`).
     nonisolated public static func parkWidth(_ screenW: CGFloat) -> CGFloat { max(64, screenW * 0.05) }
 
+    /// Rail geometry, fixed so a point maps to a slot exactly (Phase 2 step 3): the chrome clearance
+    /// plus the tray icon put the first chip's top here, and every chip is one pitch below the last.
+    nonisolated public static let railChipHeight: CGFloat = 44
+    nonisolated public static let railChipSpacing: CGFloat = 10
+    nonisolated public static let railFirstChipTop: CGFloat = 46 + 12 + 14 + railChipSpacing
+
+    /// The rail slot under a desktop-space y, among `count` chips (count = append at the bottom).
+    nonisolated public static func railSlot(forY y: CGFloat, count: Int) -> Int {
+        let pitch = railChipHeight + railChipSpacing
+        let slot = Int(((y - railFirstChipTop) / pitch).rounded())
+        return min(max(0, slot), count)
+    }
+
     /// The close sub-zone's height — the bottom portion of the rail.
     nonisolated public static func closeZoneHeight(_ screenH: CGFloat) -> CGFloat { max(120, screenH * 0.2) }
 

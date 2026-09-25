@@ -98,6 +98,12 @@ runs, so a closed port could not reach it. `ports.list` takes `include_closed`. 
 *Gates:* a drop at slot 1 of 3 lands at slot 1; a reorder persists across a restart; order is per
 space.
 
+**Done 2026-09-25.** A port's rail slot is `railOrder`, persisted in the old `dockOrder` column.
+Parking inserts at a slot (a drop maps the pointer's y to a slot through fixed chip geometry) and
+renumbers the space's rail; unparking closes the gap; dragging a chip up or down the rail reorders
+it, and a click still restores it. The rail reads in that order, per space. Five gates in
+`RailOrderTests`, calibrated by making a drop ignore its slot. Suite 1138 green.
+
 ### 2.4 The background costs nothing unseen
 
 - The ambient background's `TimelineView` pauses (`paused:`) under decision 4, from one predicate on

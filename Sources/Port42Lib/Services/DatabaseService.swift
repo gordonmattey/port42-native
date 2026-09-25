@@ -1720,7 +1720,7 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
             self.capabilities = str
         }
         self.portType = panel.portType
-        self.dockOrder = nil
+        self.dockOrder = panel.railOrder
         self.createdAt = Date()
         self.presentation = panel.presentation
         self.z = panel.z
