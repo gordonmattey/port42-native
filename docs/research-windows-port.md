@@ -248,3 +248,41 @@ is the strongest argument yet for finishing nautilus before deciding anything ab
 
 A useful side effect regardless of Windows: `carve.sh` is a fitness function. Run it in CI and the
 kernel boundary becomes something the compiler enforces instead of something a document asserts.
+
+## The seam list, priced
+
+The 27 files the prune dropped were each dropped for naming something on the shell's side of the
+line. Grouping them by what they name turns "untangle the kernel" into a list with prices. Counting
+code references only, ignoring comments:
+
+| Reach for | Files blocked | Lines blocked | What cutting it means |
+|---|---|---|---|
+| `GRDB` | 5 | 2,849 | Not a real seam: the spike's kernel target deliberately excludes GRDB, so these were never in scope. Adding it helps Linux and does nothing for Windows, where `CSQLite` cannot find `sqlite3.h`. |
+| `ShellState` | 3 | 2,528 | `PortPlacement` and `PortPresentation` reach up into shell state for `parkWidth`, `minTileSize` and `Zoom`. Geometry constants living on the shell rather than beside the geometry. |
+| `PortPanel` | 2 | 2,305 | The port's own data model, defined in `Views/PortWindowManager.swift`. Moving it to `Models` is the single highest-value structural fix in this list. |
+| `AppUser` | 1 | 2,133 | `DatabaseService` needs it, and it is Keychain-backed. Phase 1 already drops the signing keys from `users`, which may remove this by itself. |
+| `AppState` | 6 | 1,491 | `BridgeDispatcher`, `BridgeServiceStorage`, `BridgeReference`, `CommandAgent`, `TerminalHooksService`, `Port42Members`. The registry's dispatch path reaching into a 4,015-line object. |
+| `GatewayProcess` | 4 | 870 | `GatewayDoor`, `CLIInstallService`, `InstructionService`, `BridgeReference` want the gateway's port number and lifecycle, which is a small interface behind an AppKit-importing class. |
+| `Port42AuthStore` | 2 | 436 | Keychain. D9 already removes the app's reason to hold provider credentials. |
+| `TerminalPortConfig` | 1 | 386 | Lives with the Ghostty side; it is a config struct, not a terminal. |
+| `ClaudeCodeSetup` | 1 | 71 | |
+
+Read as a whole: **nothing on that list is about Windows, or about Swift.** Every entry is a type
+that sits on the wrong side of a line the project already believes in. The three biggest are a data
+model inside a view file, geometry constants on the shell object, and a god object in the dispatch
+path. Fixing them is refactoring Port42 into what its own documents say it is, and a Windows build
+is a side effect.
+
+That is also the argument for `carve.sh` outliving this question. Run it in CI and the boundary
+stops being a claim: a service that reaches into the shell fails a build, the same way a re-grid on
+spawn now fails a test.
+
+## Where the five questions ended up
+
+| | Question | Answer |
+|---|---|---|
+| 1 | Does the neutral kernel compile on Windows? | **Yes, 30 files and 3,818 lines of it**, the same set as Linux. The rest is blocked by the seam list above, not by the platform. |
+| 2 | Does GRDB build on Windows? | **No.** `CSQLite` fails on a missing `sqlite3.h`; Windows ships no system SQLite. Needs a vendored build or a different store. Builds on Linux with `libsqlite3-dev`. |
+| 3 | ConPTY plus a JS terminal for the terminal ports? | Not attempted. Still the largest unknown, and the one that would also delete a 537 MB dependency from the Mac build. |
+| 4 | Can WebView2 express the `PortBridge` contract? | Not attempted. |
+| 5 | Does the Go side build on Windows? | **Yes, all three.** `gateway` and `shim` cross-compile untouched. `cli` needed one function: `isInteractive()` used a hand-rolled `TIOCGETA` ioctl, replaced with `term.IsTerminal`. Ten lines, tests still pass, demonstrated on this branch. |
