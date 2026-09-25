@@ -733,16 +733,20 @@
           "description" : "The port's UDID (from ports_list)",
           "type" : "string"
         },
+        "space_id" : {
+          "description" : "Which desktop to move it on. A port kept from another space is a tile on BOTH, with a position on each. Defaults to the current space when the port is on it, else the port's home space.",
+          "type" : "string"
+        },
         "token" : {
           "description" : "REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.",
           "type" : "string"
         },
         "x" : {
-          "description" : "Horizontal position in screen points",
+          "description" : "Horizontal position in desktop points",
           "type" : "number"
         },
         "y" : {
-          "description" : "Vertical position in screen points",
+          "description" : "Vertical position in desktop points",
           "type" : "number"
         }
       },

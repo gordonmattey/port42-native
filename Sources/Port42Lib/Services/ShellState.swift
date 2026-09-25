@@ -23,8 +23,12 @@ public final class ShellState: ObservableObject {
     @Published public var selectedPortId: String?
     /// The highlighted desktop tile (chat or a tiled port) — hover/click; what ⌘↓ focuses.
     @Published public var selectedTileId: String?
-    /// Bumped to re-trigger the desktop grid layout (the Chrome "arrange" + every spawn).
+    /// Bumped to re-trigger the desktop grid layout (the Chrome "arrange" + every spawn). Bump it
+    /// through `bumpArrange(_:)` so the re-grid it causes can name who asked for it.
     @Published public var arrangeBump: Int = 0
+    /// Who bumped last (Phase 0). `arrangeBump` alone reaches the desktop's `onChange` with no
+    /// sender, so every re-grid it triggers used to read as "⌘L" whether or not a user asked.
+    public private(set) var lastArrangeBumpReason: String = "none"
     /// Exposé (Tab): a TEMPORARY arrange — every tile spreads to the fit grid for selection, without
     /// overwriting its real position. Picking a tile (or Tab/Esc) exits and tiles snap back.
     @Published public var exposeActive: Bool = false
@@ -137,7 +141,7 @@ public final class ShellState: ObservableObject {
         if let cur = backgroundPortId {
             let pid = appState.portWindows.panels.first(where: { $0.id == cur || $0.udid == cur })?.id
             setBackgroundPort(id: nil)                           // flips it to "tiled" + clears the background
-            if let pid { bringToFront(pid); arrangeBump += 1 }   // frontmost + re-grid into place
+            if let pid { bringToFront(pid) }   // frontmost; the count change places it if unplaced
             return
         }
         let html = backgroundPortHtml
@@ -367,7 +371,7 @@ public final class ShellState: ObservableObject {
             appState.portWindows.adopt(id: peek.id, into: sid)
         }
         bringToFront(peek.id)
-        if arrange { arrangeBump += 1 }
+        if arrange { placeUnpositioned(area: lastDesktopArea) }   // an adopted peek arrives unplaced
     }
 
     private func startPeekCountdown(_ id: String) {
@@ -407,7 +411,7 @@ public final class ShellState: ObservableObject {
         if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == spaceId }) {
             bringToFront(panel.id)
         }
-        arrangeBump += 1
+        placeUnpositioned(area: lastDesktopArea)
     }
 
     // MARK: Per-space accent theme (prototype's SpaceDef.accent)
@@ -668,7 +672,7 @@ public final class ShellState: ObservableObject {
         peekingPorts.removeAll { $0.id == id }
         peekRemaining[id] = nil
         exitFocusIfGone()
-        arrangeBump += 1
+        placeUnpositioned(area: lastDesktopArea)
     }
 
     /// Non-background port udids on the current space, in panel order.
@@ -948,7 +952,7 @@ public final class ShellState: ObservableObject {
     public static let defaultTileSize = CGSize(width: 460, height: 400)
 
     /// Minimum tile size (drag-resize floor).
-    public static let minTileSize = CGSize(width: 220, height: 160)
+    nonisolated public static let minTileSize = CGSize(width: 220, height: 160)
 
     /// The right-edge rail's two drop zones: park (minimize to a chip) and close (delete the port).
     public enum ParkZone: Equatable { case park, close }
@@ -1006,7 +1010,7 @@ public final class ShellState: ObservableObject {
     public func closeDM(spaceId: String) {
         openDMSpaceIds.removeAll { $0 == spaceId }
         appState.deactivateSpaceMessages(spaceId: spaceId)
-        arrangeBump += 1
+
     }
 
     /// Drop every surfaced DM (used when leaving a desktop — DMs belong to the working session on the
@@ -1030,7 +1034,7 @@ public final class ShellState: ObservableObject {
         }
         if let cur = appState.currentSpace?.id, panel.adoptedSpaceIds.contains(cur) {
             appState.portWindows.unadopt(id: panel.id, from: cur)   // adopted foreign port → detach (persisted)
-            arrangeBump += 1
+
             return
         }
         appState.portWindows.close(panel.id)                         // a real tile of this space → close it
@@ -1043,63 +1047,158 @@ public final class ShellState: ObservableObject {
         appState.portWindows.setZ(id: tileId, z: nextZ())
     }
 
+    /// Give every unplaced tile on this desktop a spot, moving NOTHING that already has one.
+    ///
+    /// Phase 1, and the whole point of the unit: a birth places, it does not re-grid. Everything that
+    /// used to call `applyArrange` because a tile arrived (a spawn, a park restore, an adoption, the
+    /// first paint of a desktop) calls this instead. Tiles are walked in z order so `place` sees the
+    /// frontmost tile last, which is what its cascade fallback stacks on.
+    public func placeUnpositioned(area: CGSize) {
+        guard let desktop = appState.currentSpace?.id else { return }
+        let panels = desktopTilePanels.sorted { $0.z < $1.z }
+        // Occupied = every tile placed ON THIS DESKTOP, plus the peek column, which is drawn OVER the
+        // tiles at a fixed left-edge slot. Without the peeks a newborn lands under one.
+        var occupied = panels.compactMap { p in p.position(on: desktop).map { CGRect(origin: $0, size: p.size) } }
+        occupied.insert(contentsOf: peekingPorts.indices.map { ShellPlacement.railSlot($0, in: area) }, at: 0)
+
+        for p in panels where p.position(on: desktop) == nil {
+            let origin = ShellPlacement.place(p.size, among: occupied, in: area)
+            ArrangeLog.note("place", "id=\(shortId(p.id)) at=\(Int(origin.x)),\(Int(origin.y)) "
+                            + "size=\(Int(p.size.width))x\(Int(p.size.height)) among=\(occupied.count) "
+                            + "desktop=\(shortId(desktop))")
+            appState.portWindows.updateTileFrame(id: p.id, position: origin, size: nil, on: desktop)
+            occupied.append(CGRect(origin: origin, size: p.size))
+        }
+    }
+
+    /// Rescue tiles the window shrank out from under. A tile holds an absolute position and nothing
+    /// re-clamps it, so making the window smaller (or restoring a layout saved on a bigger display)
+    /// can leave a tile completely outside the visible desktop with no drag able to reach it. Phase 1
+    /// removes the accidental re-grids that used to rescue it by luck, so this is the replacement:
+    /// it moves ONLY what is off-screen, and never the rest.
+    public func clampTilesIntoView(area: CGSize) {
+        guard let desktop = appState.currentSpace?.id else { return }
+        let bounds = ShellPlacement.workArea(in: area)
+        for p in desktopTilePanels {
+            guard let pos = p.position(on: desktop) else { continue }
+            let frame = CGRect(origin: pos, size: p.size)
+            // Off-screen means genuinely unreachable, not merely hanging over an edge: a hand-placed
+            // tile that overlaps the dock or the rail is a choice, and it stays.
+            guard !bounds.intersects(frame) || frame.minX >= bounds.maxX || frame.minY >= bounds.maxY
+                    || frame.maxX <= bounds.minX || frame.maxY <= bounds.minY else { continue }
+            let fixed = ShellPlacement.clamped(pos, size: p.size, in: bounds)
+            ArrangeLog.note("clampIntoView", "id=\(shortId(p.id)) \(Int(pos.x)),\(Int(pos.y))→\(Int(fixed.x)),\(Int(fixed.y))")
+            appState.portWindows.updateTileFrame(id: p.id, position: fixed, size: nil, on: desktop)
+        }
+    }
+
+    /// Why a re-grid is happening — the Phase 0 question, since the desktop's three `applyArrange`
+    /// sites are indistinguishable once inside the function.
+    public enum ArrangeReason: String, Sendable {
+        case bump              // `arrangeBump` changed — ⌘L *and* a dozen non-user callers
+        case tileCountChanged  // a spawn/park/close changed `tiledPanels.count`
+        case seedOnAppear      // the desktop appeared with at least one unpositioned tile
+        case probe             // PortRenderProbe / harness
+    }
+
+    /// Bump the arrange counter, recording who asked. The desktop's `onChange(arrangeBump)` is one
+    /// funnel for a dozen callers, so the name has to be carried alongside the count.
+    public func bumpArrange(_ reason: String) {
+        lastArrangeBumpReason = reason
+        arrangeBump += 1
+        ArrangeLog.note("bumpArrange", "by=\(reason) n=\(arrangeBump)")
+    }
+
     /// Re-grid the current space's tiled ports (the chat is one of them now) via the pure `arrange`
     /// and WRITE the resulting positions back — the layout authority (§4). Called on ⌘L and every
     /// user-initiated spawn/park; hand-drag positions survive a restart but a spawn re-grids them.
-    public func applyArrange(area: CGSize) {
-        guard appState.currentSpace != nil else { return }
+    public func applyArrange(area: CGSize, reason: ArrangeReason) {
+        guard let desktop = appState.currentSpace?.id else {
+            ArrangeLog.note("applyArrange.skipped", "reason=\(reason.rawValue) no-current-space")
+            return
+        }
         // Arrange the SAME set the desktop renders — `desktopTilePanels`, the shared predicate
         // (Phase 0). Previously this filter omitted adopted foreign ports, so a kept peek
         // never got gridded and stacked at its home-space position.
         let panels = desktopTilePanels
-        let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, z: max($0.z, 1)) }
+        // Stable order = the panel list's own order (creation, and the same order after a restore),
+        // NOT z. See ArrangeTile.
+        let order = Dictionary(uniqueKeysWithValues: appState.portWindows.panels.enumerated().map { ($1.id, $0) })
+        let tiles = panels.map { ArrangeTile(id: $0.id, size: $0.size, order: order[$0.id] ?? 0) }
         let origins = Self.arrange(tiles, in: area)
+        // Phase 0 measurement: how many tiles this call actually MOVES, and by how far. An arrange
+        // that fires but moves nothing is not the symptom; one that moves tiles the user placed is.
+        if ArrangeLog.enabled {
+            var moved: [String] = []
+            var unpositioned = 0
+            for p in panels {
+                guard let to = origins[p.id] else { continue }
+                guard let from = p.position(on: desktop) else { unpositioned += 1; continue }
+                let dx = to.x - from.x, dy = to.y - from.y
+                if abs(dx) > 0.5 || abs(dy) > 0.5 {
+                    moved.append("\(shortId(p.id)):\(Int(from.x)),\(Int(from.y))→\(Int(to.x)),\(Int(to.y))")
+                }
+            }
+            ArrangeLog.note("applyArrange",
+                            "reason=\(reason.rawValue) bump=\(arrangeBump)/\(lastArrangeBumpReason) "
+                            + "space=\(shortId(appState.currentSpace?.id ?? "-")) "
+                            + "area=\(Int(area.width))x\(Int(area.height)) tiles=\(panels.count) "
+                            + "unpositioned=\(unpositioned) moved=\(moved.count) [\(moved.joined(separator: " "))]")
+        }
         // Animate the moves here (not via a distant `.animation(value:)`) so the tiles visibly spring
         // to their spots — a bouncy, slightly slow settle, like the prototype.
         withAnimation(.spring(response: 0.55, dampingFraction: 0.68)) {
             for p in panels where origins[p.id] != nil {
-                appState.portWindows.updateTileFrame(id: p.id, position: origins[p.id]!, size: nil)   // reposition only — keep varied sizes
+                appState.portWindows.updateTileFrame(id: p.id, position: origins[p.id]!, size: nil, on: desktop)   // reposition only — keep varied sizes
             }
         }
     }
 
+    /// Log-friendly id: the tail is what distinguishes two ports, and a full UUID per tile makes a
+    /// line unreadable.
+    nonisolated static func shortId(_ id: String) -> String { String(id.suffix(6)) }
+    nonisolated func shortId(_ id: String) -> String { Self.shortId(id) }
+
     // MARK: Arrange (pure — prototype `arrange()`; the layout authority, §4)
 
-    /// One tile's geometry input to `arrange` (id + current size + z). Pure so the grid is headless.
+    /// One tile's geometry input to `arrange` (id + current size + its STABLE order). Pure so the
+    /// grid is headless.
+    ///
+    /// `order` is deliberately not `z`. Arrange used to deal cells by z, which is recent attention, so
+    /// clicking a tile changed where the next arrange would put it: the tile you had just dragged had
+    /// the highest z and was dealt the LAST cell, which is why a tidy read as a shuffle. Order is the
+    /// tile's position in the panel list (creation order, restored in the same order), so ⌘L lands
+    /// every tile in the same cell every time.
     public struct ArrangeTile: Equatable {
         public let id: String
         public let size: CGSize
-        public let z: Int
-        public init(id: String, size: CGSize, z: Int) { self.id = id; self.size = size; self.z = z }
+        public let order: Int
+        public init(id: String, size: CGSize, order: Int) { self.id = id; self.size = size; self.order = order }
     }
 
-    /// Tidy tiles into a centered grid — the prototype's `arrange`, preserved. It ONLY repositions:
-    /// each tile keeps its own (varied) size and is centered in a uniform cell sized to the LARGEST
-    /// tile, so the desktop stays lively rather than homogenized into equal boxes (a strict grid is
-    /// exposé's job). `cols = ceil(√n)`; the block is centered horizontally (may spill symmetrically
-    /// when crowded) and pinned below the Chrome (`startY ≥ 70`). Walks tiles in `z` order (stable).
-    /// Returns each tile's top-left origin; callers set `panel.position` (never `.size`). Pure → headless.
+    /// Tidy tiles into a grid — the prototype's `arrange`, preserved. It ONLY repositions: each tile
+    /// keeps its own (varied) size and is centered in a uniform cell, so the desktop stays lively
+    /// rather than homogenized into equal boxes (a strict grid is exposé's job). `cols = ceil(√n)`;
+    /// cells fill the shared work area (`ShellPlacement.workArea`, the ONE definition — this used to
+    /// carry its own insets and disagreed with the drag clamp by 70pt). Walks tiles in STABLE order,
+    /// not z, so ⌘L is a tidy rather than a reshuffle. Returns each tile's top-left origin; callers
+    /// set `panel.position` (never `.size`). Pure → headless.
     nonisolated public static func arrange(_ tiles: [ArrangeTile], in area: CGSize) -> [String: CGPoint] {
-        let items = tiles.sorted { $0.z < $1.z }
+        let items = tiles.sorted { ($0.order, $0.id) < ($1.order, $1.id) }
         guard !items.isEmpty else { return [:] }
         let n = items.count
         let cols = max(1, Int(ceil(sqrt(Double(n)))))
         let rows = max(1, Int(ceil(Double(n) / Double(cols))))
-        // Cells fill the WORK AREA (inside Chrome/dock/rail), so the grid always fits. Each tile keeps
-        // its OWN size, centered in its cell (variety preserved — not homogenized). When crowded, cells
-        // get smaller than the tiles so they overlap a little (lively) rather than run off-screen; the
-        // origin is clamped to the work area so nothing is ever pushed out of view.
-        let top: CGFloat = 70, bottom: CGFloat = 100, side: CGFloat = 40
-        let workX = side, workW = max(240, area.width - side * 2 - parkWidth(area.width))
-        let workY = top, workH = max(200, area.height - top - bottom)
-        let colW = workW / Double(cols), rowH = workH / Double(rows)
+        // When crowded, cells get smaller than the tiles so they overlap a little (lively) rather than
+        // run off-screen; the origin is clamped to the work area so nothing is ever pushed out of view.
+        let work = ShellPlacement.workArea(in: area)
+        let colW = work.width / Double(cols), rowH = work.height / Double(rows)
         var out: [String: CGPoint] = [:]
         for (i, item) in items.enumerated() {
-            let cx = workX + (Double(i % cols) + 0.5) * colW         // cell center
-            let cy = workY + (Double(i / cols) + 0.5) * rowH
-            let ox = min(max(cx - item.size.width / 2, workX), workX + workW - item.size.width)
-            let oy = min(max(cy - item.size.height / 2, workY), workY + workH - item.size.height)
-            out[item.id] = CGPoint(x: ox, y: oy)                     // centered, clamped in-bounds
+            let cx = work.minX + (Double(i % cols) + 0.5) * colW     // cell center
+            let cy = work.minY + (Double(i / cols) + 0.5) * rowH
+            let o = CGPoint(x: cx - item.size.width / 2, y: cy - item.size.height / 2)
+            out[item.id] = ShellPlacement.clamped(o, size: item.size, in: work)   // centered, clamped in-bounds
         }
         return out
     }

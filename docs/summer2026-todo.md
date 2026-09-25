@@ -894,6 +894,14 @@ user ASKED for. ⌘L and an explicit tidy arrange; a spawn places; appearing, re
 switching arrange **nothing**. Persisting position per port per space is what makes "arrange nothing"
 possible, and the "user-placed" flag above is what keeps it true across a later ⌘L.
 
+> **STATUS 2026-08-04: Phase 0 and Phase 1 are DONE** (Phase 2 folded into 1). Suite green at 1406.
+> Landed: `place` (largest empty gap, 8pt margins and gaps, cascade-on-top when full), one shared work
+> area, `placeUnpositioned` on every birth, nine of eleven `arrangeBump` callers deleted, `⌘L` grids by
+> creation order rather than `z`, per-desktop positions (migration v46), clamp-into-view on resize and
+> restore, one default tile size, and the version-snapshot defect fixed. Verified live on Dev2: a spawn
+> moves nothing. REMAINING: Phase 3 (`userPlaced`, so even ⌘L respects a hand-placed tile), and the one
+> Phase 0 case never reproduced (resize while away — it needs a hand drag).
+
 ### PLAN (2026-08-03, GM picked this as the next unit)
 
 **GM's framing, and it is the useful one:** "in general rearranging seems to be more confusing than
@@ -905,7 +913,7 @@ port to a space, which is symptom 1.
 | site | trigger | verdict |
 |---|---|---|
 | `ShellDesktop.swift:282` | `onChange(tiledPanels.count)` — spawn, park, close | WRONG. re-grids everything |
-| `ShellDesktop.swift:284` | `onChange(arrangeBump)` — ⌘L | correct, the only one that should |
+| `ShellDesktop.swift:284` | `onChange(arrangeBump)` — ⌘L | WRONG as written (corrected by Phase 0). ELEVEN callers bump this, only two are the user asking: `cmd-L`, `chrome-arrange-button`, `dock.openChat`, `dock.spawnTerminal`, `dock.spawnBrowser`, `clearBackgroundToTile`, `adoptPeek`, `surfaceSpaceChat`, `movePort`, `closeDM`, `dismissTile.unadopt` |
 | `ShellDesktop.swift:315` | `seedIfNeeded` from `onAppear`, if ANY tile has `position == nil` | WRONG. one unpositioned port moves every tile, on every appear |
 
 And `applyArrange` (`ShellState.swift:1049`) grids by INDEX IN `z` ORDER, so tiles are dealt into
@@ -921,15 +929,151 @@ away. Symptom 1's mechanism is verified; symptom 2's four candidates are NOT, an
 already says confirm the trigger first. Cheap, and this session repeatedly showed a plausible story
 being the wrong one.
 
+#### Phase 0 RESULT (2026-08-03) — measured on Dev2, not inferred
+
+`applyArrange` now takes a required `reason`; `arrangeBump` is only reachable through
+`ShellState.bumpArrange(_:)`, which records WHO asked (a bare `+= 1` reached the desktop with no
+sender, so every re-grid it caused reported as ⌘L). Both pinned by `ArrangeAttributionTests`, which
+broke on its first run and found three unconverted sites. Trace lands in
+`/tmp/port42-arrange-<bundle id>.log`, opt-in via `defaults write com.port42.dev2 PORT42_ARRANGE_LOG -bool true`.
+
+**What fires, measured:**
+
+| case | result |
+|---|---|
+| spawn a port | re-grids everything, **TWICE** — `tileCountChanged`, then `bump` from `dock.spawnTerminal` 34ms later |
+| close / park a port | re-grids everything, same path. NOT in the original symptom list |
+| leave the space and return | **nothing**. `spaceChanged` → `countChanged.swallowed`, no arrange |
+| switch app away and back | **nothing**. Only `app.becomeActive` — the desktop view stays mounted |
+| resize while away | not yet run (needs a hand drag; no assistive access from the agent shell) |
+
+So symptom 2 is NOT caused by returning. Candidate 1 (`seedIfNeeded` from `onAppear`) never re-fires:
+the desktop view is mounted once and survives space switches, so it runs at launch only. Candidate 3's
+guard behaved correctly for spaces with DIFFERENT tile counts; the equal-count case is still untested
+and is the one that can go stale. The trigger that actually moves tiles is **candidate 2, the z-order
+deal**, and it fires on spawn/park/close — not on returning.
+
+**Live capture of GM's own report ("I created a 4th tile and one moved from left to right"):**
+
+```
+11:13:18 applyArrange reason=tileCountChanged bump=10/dock.spawnTerminal tiles=4 moved=3
+         B8CAB8:147,520→951,508   5B9CD5:1124,58→957,70   520FC8:170,96→170,528
+```
+
+Two mechanisms compound. `arrange` deals cells by INDEX IN `z` ORDER, and a drag calls `bringToFront`,
+so **the tile you just touched has the highest z and is dealt the LAST cell** (bottom-right) — the
+hand-placed tile is the one guaranteed to move furthest. Meanwhile a new panel is born `z = 0`
+(`PortWindowManager.swift:27`), floored to 1 by arrange, far under the established tiles' 276–295, so
+**the newborn takes the FIRST cell** (top-left) and shifts every existing tile one cell along.
+
+**And the deeper finding (GM, 2026-08-03): there is no placement at all.** "A new panel shouldn't be
+placed where there is a panel already" is not a placement bug — nothing in the system reads occupancy.
+A newborn is `position = nil`, and the arrange that follows deals it a cell by index. Cell geometry is
+a function of `n`, so adding or removing one tile moves every tile's target; when crowded, cells are
+deliberately SMALLER than the tiles so they overlap. Position is an output of the grid, never an input
+to it. That is the root cause under both symptoms, and Phase 1 is where it is fixed.
+
 **Phase 1 — split PLACE from ARRANGE.** A pure `place(new:among:in:) -> CGPoint`: first-fit against
 occupied rects, cascade-with-offset when the desktop is full, moving NOTHING that already exists.
 Spawn calls `place`; only ⌘L calls `applyArrange`. Keep the spring on the new tile alone, so a birth
 still reads as motion without the desktop lurching around it. Headless-testable exactly as
 `ShellState.arrange` already is.
 
-**Phase 2 — appearing arranges nothing.** `seedIfNeeded` places only the unpositioned tiles instead
-of re-gridding all of them. Pending Phase 0 confirming this is the trigger behind "I came back and
-the tiles moved".
+> **Read `docs/design-shell-layout.md` first (2026-08-03).** GM asked whether the subsystem had been
+> analysed in detail before committing to Phase 1. It had not. That pass covers the state model, every
+> reader and writer of position, the render path, persistence, cross-desktop behaviour and window
+> resize. Three findings change Phase 1: a port on two desktops shares ONE position, a resize can
+> strand a tile with no way back once the accidental re-grids are gone, and `persistPanel` snapshots a
+> full HTML version row on every click (1108 rows, 1.7MB, one distinct html per port, measured on Dev2).
+
+#### Phase 1 DETAIL (2026-08-03, GM decided the four open questions)
+
+**GM's decisions, verbatim in substance:** the work area starts 5–10px in from the edge, no more, and
+tiles may sit that close to each other too. If nothing fits, a new tile goes **on top of** the others
+rather than pushing in, "because everything moves at that point and it could have moved something I
+placed intentionally". The chat is an obstacle like any other port. Largest-gap, not first-fit.
+
+**A measurement that changes the margins.** The desktop's coordinate space ALREADY excludes the
+Chrome — `ShellView` is `VStack { ShellChrome; ShellDesktopView }` — and then `arrange` insets a
+further 70pt from the top (`ShellState.swift:1125`), plus 40pt at each side. The same file contradicts
+itself: the drag clamp allows `y ≥ 0` (`ShellDesktop.swift:802`) because a tile is perfectly reachable
+there. So ~70pt of usable desktop is dead by accident, which is exactly the space GM is asking for
+back. Only the BOTTOM inset is earned: the dock is a real overlay (its pill plus a 24pt bottom
+padding, ~88pt) and a tile behind it cannot be clicked.
+
+New insets, used by BOTH `place` and `arrange`: top 8, left 8, right `parkWidth + 8` (the rail is a
+live drop target), bottom = dock clearance (~96, measured not guessed). Minimum gap between tiles: 8.
+
+**The API** — pure, static, headless, exactly like `arrange`:
+
+```swift
+nonisolated public static func place(_ size: CGSize, among occupied: [CGRect], in area: CGSize) -> CGPoint
+```
+
+1. Work rect `W` = `area` inset as above.
+2. Inflate every occupied rect by the 8pt gap → the no-go set. (Inflating is what makes "5–10px apart"
+   fall out of the geometry instead of being a second rule.)
+3. Enumerate the MAXIMAL EMPTY RECTANGLES of `W` minus the no-go set — the literal reading of
+   "largest gap". Candidate edges come from the occupied rects, so it is O(n³) on a desktop that never
+   holds more than a couple of dozen tiles, and it is pure, so the cost is measurable in a test.
+4. Keep the ones that can contain `size`; take the largest by area. Ties break topmost, then leftmost,
+   so the function is deterministic (a test pins this).
+5. Center the tile in that rectangle.
+6. **Nothing fits → cascade ON TOP**, per GM: origin = frontmost tile's origin + (30, 30), wrapped back
+   into `W` when it runs off. An overlap you can grab, and not one existing tile moves.
+
+**The wiring — this is what actually removes the symptom.**
+
+`ShellState.placeUnpositioned(area:)`: for every desktop tile with `position == nil`, in panel order,
+call `place` against the rects of the tiles that already have one (including tiles placed earlier in
+the same pass), and write ONLY that tile's position. A positioned tile is never touched.
+
+| site | today | Phase 1 |
+|---|---|---|
+| `onChange(tiledPanels.count)` | `applyArrange` — re-grids everything | `placeUnpositioned` |
+| `seedIfNeeded` (onAppear) | `applyArrange` if any tile is unpositioned | `placeUnpositioned` (this is old Phase 2, folded in — it is the same one-line change) |
+| `onChange(arrangeBump)` | `applyArrange` for all 11 bumpers | unchanged, but only 2 bumpers remain |
+
+The other nine bumpers stop bumping. Four become nothing at all (`closeDM`, `dismissTile.unadopt`,
+`movePort`, `clearBackgroundToTile` — a departure leaves a hole, and leaving the hole IS the fix),
+five become a `placeUnpositioned` (`dock.spawnTerminal`, `dock.spawnBrowser`, `dock.openChat`,
+`adoptPeek`, `surfaceSpaceChat`). `arrangeBump` is then reachable by `cmd-L` and
+`chrome-arrange-button` only, which is what the plan's table claimed was already true.
+`ArrangeAttributionTests` keeps it that way: a new bump must name itself, a new arrange must state a
+reason. The double re-grid on a dock spawn disappears with the bump, not by special-casing it.
+
+**Arrange itself (the ⌘L path) grids by a STABLE order** — the "decide in 1 or 3" question, answered
+in 1, because ⌘L that reshuffles is why ⌘L feels unsafe to press. Sort by `createdAt` (the column is
+already in `port_panels`; carry it onto `PortPanel`), tie-break on `id`. Not `z`. Same new margins,
+same spring.
+
+**Tests, each calibrated by breaking it:**
+- `place` on an empty desktop; with one tile (no overlap, gap ≥ 8); against a wall of tiles with a
+  single hole (it must find the hole); on a full desktop (cascades, and `occupied` is unchanged);
+  determinism on ties; the result is always inside `W`.
+- `placeUnpositioned`: two newborns in one pass do not overlap each other.
+- The gate that matters: **a spawn moves no existing tile.** Snapshot every position, add a tile,
+  assert every prior position is byte-identical and only the newborn gained one.
+
+**What Phase 1 deliberately does NOT do:** a close leaves a hole (no re-flow — that is the point); and
+⌘L still flattens hand-placement, which is Phase 3's `userPlaced`.
+
+**Three additions from the design pass, decided by GM 2026-08-03** (detail in
+`docs/design-shell-layout.md` §10):
+
+- **Position becomes PER-DESKTOP.** A port on two desktops sharing one position is "something we
+  shouldn't have". `position` becomes a map keyed by space id; the current value migrates to the home
+  space. New migration, plus `restoreFromDB`, `port.move`, `port.position`, `ports.list`. This has to
+  land WITH `place`, since `place` is the first thing that writes a position per desktop.
+- **Clamp on resize (and on restore).** Only what is off-screen, nothing else. Without this, Phase 1
+  makes stranding permanent: the accidental re-grids are what rescue a stranded tile today.
+- **ONE default tile size for every port type.** 360x260 / 520x380 / 900x640 / 40%-of-screen collapse
+  to a single value. Also removes the reason the cascade fallback would have been common rather than
+  exceptional.
+
+**Phase 2 — appearing arranges nothing.** FOLDED INTO PHASE 1 (the `seedIfNeeded` row above). Phase 0
+measured that appearing is not the trigger behind "I came back and the tiles moved" — the desktop view
+mounts once and survives space switches — but the line is wrong regardless and costs one edit.
 
 **Phase 3 — give layout a memory of intent.** A `userPlaced` flag set when a tile is dragged, so even
 ⌘L respects hand-placement. This is the root of the whole complaint: today the system cannot tell a

@@ -361,20 +361,21 @@ Generated from the live method registry: every entry below is served exactly as 
         action (string, required): One of: focus, close, minimize, dock, restore, undock
         id (string, required): The port's UDID or title
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
-  port.move(id, x, y, token)
+  port.move(id, x, y, space_id, token)
       Move a port's tile to specific desktop coordinates. Use screen_info to get display bounds first.
         id (string, required): The port's UDID (from ports_list)
+        space_id (string): Which desktop to move it on. A port kept from another space is a tile on BOTH, with a position on each. Defaults to the current space when the port is on it, else the port's home space.
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
-        x (number, required): Horizontal position in screen points
-        y (number, required): Vertical position in screen points
+        x (number, required): Horizontal position in desktop points
+        y (number, required): Vertical position in desktop points
   port.patch(id, search, replace, token)
       Make a targeted edit to a port's HTML — replace an exact string with new content. Much safer than port_update for small changes because only the specified text is replaced; everything else is preserved exactly. Use port_get_html first to read the current HTML, find the exact string to replace, then call port_patch. Errors if 'search' is not found in the current HTML, so the port is never silently mangled. Snapshots the result the same as port_update.
         id (string, required): The port's UDID (from ports_list)
         replace (string, required): The string to replace it with.
         search (string, required): The exact string to find in the current HTML. Must match exactly — copy it from port_get_html output.
         token (string, required): REQUIRED. The port's `token`, as it was when you composed this write — from ports_list, port_create, or whatever your last write returned. Without it the write is refused with 'token_required'; if the port has changed since, with 'stale_write'. Both carry the current token, so retry once with that instead of clobbering whoever moved it.
-  port.position(id)
-      Return a port's position and size.
+  port.position(id, space_id)
+      Return a port's position and size on one desktop (a kept port has a position per desktop).
   port.publish(kind, payload)
       A port emits its OWN state or event on its own Notify topic, for consumers watching via port_subscribe. This is a port broadcasting AS itself — distinct from port_push, which is input sent INTO a port. Only meaningful from inside a port; the topic is the calling port's own id, so there is no target argument. Use this instead of having a consumer reach in with port_exec to read state: the port publishes, consumers subscribe.
         kind (string, required): Event kind, e.g. 'state', 'progress', 'error'. Namespaced on the way out: you publish 'state', subscribers see 'port.state', so a port cannot emit a system event like 'driver' or 'browser.load'.

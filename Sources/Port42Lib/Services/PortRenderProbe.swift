@@ -474,7 +474,7 @@ public final class PortUnitCycleHarness {
             if let p = peek(peekIds[1]) { shell.dismissPeek(p) }
             PortRenderProbe.untrack(peekIds[1])
         }))
-        steps.append(("arrange-1", { shell.applyArrange(area: area) }))
+        steps.append(("arrange-1", { shell.applyArrange(area: area, reason: .probe) }))
         steps.append(("expose-on", { withAnimation(.spring(response: 0.4)) { shell.exposeActive = true } }))
         steps.append(("expose-off", { withAnimation(.spring(response: 0.4)) { shell.exposeActive = false } }))
         steps.append(("drag-sim", {                            // a hand move: commit frame + raise
@@ -488,7 +488,7 @@ public final class PortUnitCycleHarness {
             steps.append(("focus-term", { withAnimation(.spring(response: 0.4)) { shell.zoom = .focus(term.id) } }))
             steps.append(("out-term", { withAnimation(.spring(response: 0.4)) { shell.zoom = .space } }))
         }
-        steps.append(("arrange-2", { shell.applyArrange(area: area) }))
+        steps.append(("arrange-2", { shell.applyArrange(area: area, reason: .probe) }))
         steps.append(("switch-away", {                         // A→B: A's units unstage BY DESIGN…
             for id in stagedIds() where id != peekIds[0] {     // …except the adopted port: it is in
                 PortRenderProbe.untrack(id)                    // BOTH desktops' contextItems and must

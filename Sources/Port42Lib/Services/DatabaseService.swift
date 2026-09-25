@@ -727,6 +727,34 @@ public final class DatabaseService {
             try db.execute(sql: DatabaseService.unreachableGrantsSQL)
         }
 
+        migrator.registerMigration("v46-per-desktop-positions") { db in
+            // A port can be on more than one desktop: it renders on its home space AND on every space
+            // that adopted it (`adoptedSpaceIds`), plus surfaced foreign chats. `posX`/`posY` is ONE
+            // position, so arranging on one desktop moved the tile on the other. GM 2026-08-03: "we
+            // shouldn't have this."
+            //
+            // `positions` is a JSON object keyed by space id. `posX`/`posY` stay as the HOME-space
+            // projection: they are what a pre-v46 build reads, and what `ports.list` reports for a
+            // port considered on its own rather than on a desktop. The map is the authority; the pair
+            // is kept in step by `PersistedPortPanel`.
+            try db.alter(table: "port_panels") { t in
+                t.add(column: "positions", .text)
+            }
+            // Backfill: the single position becomes the home space's position, so nothing moves on
+            // upgrade. A row with no position stays unplaced and gets placed on first appearance.
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, spaceId, posX, posY FROM port_panels
+                WHERE posX IS NOT NULL AND posY IS NOT NULL AND spaceId IS NOT NULL
+                """)
+            for row in rows {
+                let id: String = row["id"], spaceId: String = row["spaceId"]
+                let x: Double = row["posX"], y: Double = row["posY"]
+                let json = #"{"\#(spaceId)":{"x":\#(x),"y":\#(y)}}"#
+                try db.execute(sql: "UPDATE port_panels SET positions = ? WHERE id = ?",
+                               arguments: [json, id])
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1868,6 +1896,16 @@ public final class DatabaseService {
             }
         }
         try dbQueue.write { db in
+            // A version is a CHANGE to the port, not a save of the panel record. `persistPanel` calls
+            // this on every geometry write, and `setZ` calls `persistPanel` on every click, hover and
+            // focus — so an unguarded insert turns the history into layout noise and stores a full
+            // copy of the HTML per click. Measured on a 6-panel dev instance before this guard: 1108
+            // rows, 1.7MB, and EVERY port had exactly one distinct html. Guarding here rather than at
+            // the call sites covers every future caller too.
+            let latest = try String.fetchOne(db,
+                sql: "SELECT html FROM port_versions WHERE portUdid = ? ORDER BY version DESC LIMIT 1",
+                arguments: [portUdid])
+            guard latest != html else { return }
             let nextVersion = try Int.fetchOne(db,
                 sql: "SELECT COALESCE(MAX(version), 0) + 1 FROM port_versions WHERE portUdid = ?",
                 arguments: [portUdid]) ?? 1
@@ -2047,6 +2085,10 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     /// Port Units Phase 3 — spaces that ADOPTED this port (kept its peek), JSON string array.
     /// nil/empty = none. The port renders on its home desktop AND every adopter's.
     public var adoptedSpaceIds: String?
+    /// v46 — the tile's position ON EACH DESKTOP, JSON `{"<spaceId>": {"x": …, "y": …}}`. A port on
+    /// two desktops needs two positions; `posX`/`posY` above is the home-space projection of this map,
+    /// kept in step so a pre-v46 reader and `ports.list` still see something sane.
+    public var positions: String?
 
     public init(from panel: PortPanel) {
         self.id = panel.id
@@ -2063,6 +2105,11 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         self.isAlwaysOnTop = panel.isAlwaysOnTop
         self.posX = panel.position.map { Double($0.x) }
         self.posY = panel.position.map { Double($0.y) }
+        if !panel.positions.isEmpty {
+            let obj = panel.positions.mapValues { ["x": Double($0.x), "y": Double($0.y)] }
+            self.positions = (try? JSONSerialization.data(withJSONObject: obj))
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
         let perms = panel.bridge.grantedPermissions
         self.grantedPermissions = perms.isEmpty ? nil : perms.map { $0.rawValue }.joined(separator: ",")
         self.userTitle = panel.userTitle

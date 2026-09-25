@@ -21,7 +21,37 @@ public struct PortPanel: Identifiable {
     /// Capabilities declared by the port via port42.port.setCapabilities([...]).
     public var storedCapabilities: [String] = []
     public var size: CGSize
-    public var position: CGPoint?
+    /// Where this tile sits ON EACH DESKTOP it appears on, keyed by space id.
+    ///
+    /// A port renders on its home space AND on every space that adopted it (`adoptedSpaceIds`), plus
+    /// surfaced foreign chats. It used to carry ONE position, so placing it on one desktop moved it
+    /// on the other (GM 2026-08-03: "we shouldn't have this"). An absent key means "not placed on
+    /// that desktop yet", which is what makes a newly adopted port get placed there rather than
+    /// inheriting a spot chosen somewhere else.
+    public var positions: [String: CGPoint] = [:]
+    /// Key for a port with no space at all, so the map still has somewhere to put its position.
+    static let homelessKey = ""
+
+    /// This tile's position on one desktop. `nil` for the space it has not been placed on.
+    public func position(on spaceId: String?) -> CGPoint? {
+        positions[spaceId ?? self.spaceId ?? Self.homelessKey]
+    }
+
+    public mutating func setPosition(_ p: CGPoint?, on spaceId: String?) {
+        let key = spaceId ?? self.spaceId ?? Self.homelessKey
+        if let p { positions[key] = p } else { positions.removeValue(forKey: key) }
+    }
+
+    /// The HOME-space position: what `posX`/`posY`, `ports.list` and `port.position` report when no
+    /// desktop is named. Setting it to nil unplaces the port EVERYWHERE, which is what the birth
+    /// paths mean by `position = nil`.
+    public var position: CGPoint? {
+        get { positions[spaceId ?? Self.homelessKey] }
+        set {
+            guard let newValue else { positions.removeAll(); return }
+            positions[spaceId ?? Self.homelessKey] = newValue
+        }
+    }
     /// SHELL S3 — z-order among tiled ports on the shell desktop (monotonic; higher = frontmost).
     /// Assigned by `ShellState.focus(_:)`; persisted so a hand-tuned layout restores in order.
     public var z: Int = 0
@@ -204,8 +234,19 @@ public final class PortWindowManager: ObservableObject {
                     let perms = Set(permsStr.split(separator: ",").compactMap { PortPermission(rawValue: String($0)) })
                     bridge.grantedPermissions = perms
                 }
-                let pos: CGPoint? = (row.posX != nil && row.posY != nil)
-                    ? CGPoint(x: row.posX!, y: row.posY!) : nil
+                // Per-desktop positions (v46). `positions` is the authority; posX/posY is the
+                // home-space projection a pre-v46 row carries, and the fallback when the JSON is
+                // missing or unreadable — a restore must never silently unplace a layout.
+                var restoredPositions: [String: CGPoint] = [:]
+                if let json = row.positions, let data = json.data(using: .utf8),
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Double]] {
+                    for (space, p) in obj {
+                        if let x = p["x"], let y = p["y"] { restoredPositions[space] = CGPoint(x: x, y: y) }
+                    }
+                }
+                if restoredPositions.isEmpty, let x = row.posX, let y = row.posY {
+                    restoredPositions[row.spaceId ?? PortPanel.homelessKey] = CGPoint(x: x, y: y)
+                }
                 let restoredCaps: [String]
                 if let capStr = row.capabilities,
                    let data = capStr.data(using: .utf8),
@@ -225,7 +266,7 @@ public final class PortWindowManager: ObservableObject {
                     userTitle: row.userTitle,
                     storedCapabilities: restoredCaps,
                     size: CGSize(width: row.width, height: row.height),
-                    position: pos,
+                    positions: restoredPositions,
                     isAlwaysOnTop: row.isAlwaysOnTop,
                     isBackground: row.isBackground,
                     portType: row.portType,
@@ -330,7 +371,7 @@ public final class PortWindowManager: ObservableObject {
                 userTitle: title ?? panels[idx].userTitle,
                 storedCapabilities: panels[idx].storedCapabilities,
                 size: panels[idx].size,
-                position: panels[idx].position,
+                positions: panels[idx].positions,
                 isAlwaysOnTop: panels[idx].isAlwaysOnTop,
                 isBackground: wasBackground,
                 portType: panels[idx].portType,
@@ -349,9 +390,11 @@ public final class PortWindowManager: ObservableObject {
             return existingId
         }
 
-        let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let w: CGFloat = screen.width * 0.4
-        let h: CGFloat = screen.height * 0.4
+        // One default size for every port type (GM 2026-08-03), so a pop-out is the same tile a
+        // spawn is. This used to be 40% of the SCREEN, which is not even the desktop's coordinate
+        // space, so a pop-out on a large display arrived larger than the work area.
+        let w = ShellPlacement.defaultTileSize.width
+        let h = ShellPlacement.defaultTileSize.height
 
         let newUdid = UUID().uuidString
         var panel = PortPanel(
@@ -432,7 +475,7 @@ public final class PortWindowManager: ObservableObject {
         var panel = PortPanel(
             id: id, udid: id, html: html, bridge: bridge,
             spaceId: spaceId, createdBy: createdBy, messageId: id,
-            userTitle: title, size: size ?? CGSize(width: 360, height: 260))
+            userTitle: title, size: size ?? ShellPlacement.defaultTileSize)
         panel.portType = "web"
         panel.presentation = "tiled"
         panel.position = position
@@ -454,7 +497,7 @@ public final class PortWindowManager: ObservableObject {
         var panel = PortPanel(
             id: id, udid: id, html: configJSON, bridge: bridge,
             spaceId: spaceId, createdBy: createdBy, messageId: id,
-            userTitle: title, size: size ?? CGSize(width: 520, height: 380))
+            userTitle: title, size: size ?? ShellPlacement.defaultTileSize)
         panel.portType = "terminal"
         panel.presentation = "tiled"
         panel.position = nil                    // let arrange place it
@@ -475,7 +518,7 @@ public final class PortWindowManager: ObservableObject {
         var panel = PortPanel(
             id: id, udid: id, html: url, bridge: bridge,
             spaceId: spaceId, createdBy: createdBy, messageId: id,
-            userTitle: title, size: size ?? CGSize(width: 900, height: 640))
+            userTitle: title, size: size ?? ShellPlacement.defaultTileSize)
         panel.portType = "browser"
         panel.presentation = "tiled"
         panel.position = nil
@@ -612,11 +655,12 @@ public final class PortWindowManager: ObservableObject {
         persistPanel(id)
     }
 
-    /// Persist a tile's new geometry after a drag/resize ends (the shell desktop is the layout
-    /// authority; hand positions survive restart). No-op for a port that isn't tiled/floating.
-    public func updateTileFrame(id: String, position: CGPoint, size: CGSize? = nil) {
+    /// Persist a tile's new geometry after a drag/resize ends, or after placement (hand positions
+    /// survive restart). `on` names the DESKTOP the geometry belongs to: the same port can be on two
+    /// desktops, and a position chosen on one must not move it on the other. nil = its home space.
+    public func updateTileFrame(id: String, position: CGPoint, size: CGSize? = nil, on spaceId: String? = nil) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
-        panels[idx].position = position
+        panels[idx].setPosition(position, on: spaceId)
         if let size { panels[idx].size = size }
         persistPanel(id)
     }
@@ -924,17 +968,17 @@ public final class PortWindowManager: ObservableObject {
         }
     }
 
-    /// Current frame of a port's tile (nil if it has no committed position yet).
-    public func portFrame(by id: String) -> CGRect? {
-        guard let panel = findPort(by: id), let pos = panel.position else { return nil }
+    /// Current frame of a port's tile on one desktop (nil if it has no committed position there).
+    public func portFrame(by id: String, on spaceId: String? = nil) -> CGRect? {
+        guard let panel = findPort(by: id), let pos = panel.position(on: spaceId) else { return nil }
         return CGRect(origin: pos, size: panel.size)
     }
 
     /// Move a port's tile to the given desktop coordinates.
-    public func movePort(id: String, x: CGFloat, y: CGFloat) {
+    public func movePort(id: String, x: CGFloat, y: CGFloat, on spaceId: String? = nil) {
         guard let panel = findPort(by: id) else { return }
         if let idx = panels.firstIndex(where: { $0.id == panel.id }) {
-            panels[idx].position = CGPoint(x: x, y: y)
+            panels[idx].setPosition(CGPoint(x: x, y: y), on: spaceId)
             persistPanel(panel.id)
         }
     }
@@ -1176,7 +1220,7 @@ public final class PortWindowManager: ObservableObject {
                                 stableIdentity: newId)
         // A visible default; `ensureChatTiled`/arrange position it on the shell desktop.
         let size = CGSize(width: 520, height: 420)
-        let position: CGPoint? = nil
+        let positions: [String: CGPoint] = [:]
         var panel = PortPanel(
             id: newId,
             udid: newId,
@@ -1187,7 +1231,7 @@ public final class PortWindowManager: ObservableObject {
             messageId: nil,
             userTitle: "chat",
             size: size,
-            position: position
+            positions: positions
         )
         panel.portType = "chat"
         panel.isChatPort = true
