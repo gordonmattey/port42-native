@@ -169,4 +169,28 @@ struct PortChatTests {
         #expect((e?["from"] as? [String: Any])?["kind"] as? String == "human")
         #expect((e?["from"] as? [String: Any])?["name"] as? String == "Alice")
     }
+
+    // MARK: - Who a post wakes, and where the reply goes (build step 3)
+
+    @Test("a post wakes its mentions, then the port's own companion, once each, never the sender")
+    func routingTargets() {
+        #expect(ChatRouting.targets(text: "@Critic look", senderName: "Alice", portCompanion: nil) == ["critic"])
+        #expect(ChatRouting.targets(text: "hi", senderName: "Alice", portCompanion: "Echo") == ["echo"],
+                "a terminal port's chat is its companion's session: no mention needed")
+        #expect(ChatRouting.targets(text: "@echo @Critic @echo", senderName: "Alice", portCompanion: "Echo")
+                == ["echo", "critic"], "once each")
+        #expect(ChatRouting.targets(text: "done, @Critic review", senderName: "Echo", portCompanion: "Echo")
+                == ["critic"], "a companion's reply in its own chat must not wake itself")
+        #expect(ChatRouting.targets(text: "plain", senderName: "Alice", portCompanion: nil).isEmpty)
+    }
+
+    @Test("a reply goes to the chat that asked last; an ask from the old space chat clears it")
+    func replyTargets() {
+        var t: [String: String] = [:]
+        ChatRouting.recordReply(&t, companion: "echo", chat: "port-A")
+        ChatRouting.recordReply(&t, companion: "echo", chat: "port-B")
+        #expect(t["echo"] == "port-B", "the latest ask wins")
+        ChatRouting.recordReply(&t, companion: "echo", chat: nil)
+        #expect(t["echo"] == nil, "asked from the old chat, the reply goes there, not to a stale port chat")
+    }
 }

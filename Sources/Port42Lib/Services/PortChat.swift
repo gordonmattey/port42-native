@@ -96,7 +96,41 @@ extension AppState {
         chats.received(key, entry)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
+        routeChat(key: key, entry: entry)
         return entry
+    }
+
+    /// A post wakes the companions it addresses (build step 3). Mentions address a companion, and a
+    /// terminal port's own companion is addressed by any post in that port's chat, since that chat
+    /// is its session. The reply comes back to this chat (`chatReplyTargets`).
+    func routeChat(key: String, entry: PortChatEntry) {
+        let panel = portWindows.panels.first { $0.udid == key || $0.id == key }
+        let own = panel?.terminalConfig?.companionName
+        let spaceId = panel?.spaceId ?? (spaces.contains { $0.id == key } ? key : currentSpace?.id)
+        guard let spaceId else { return }
+        let implicit = own.flatMap { name in
+            companions.first { $0.displayName.lowercased() == name.lowercased() && $0.openInTerminal }
+        }
+        routeMentionsToTerminals(content: entry.text, senderName: entry.fromName, spaceId: spaceId,
+                                 implicitCompanion: implicit, replyChat: key)
+    }
+}
+
+/// The routing decisions, pure so they are testable without a terminal.
+public enum ChatRouting {
+    /// The companions a post addresses, lowercased, once each, in order: its mentions, then the
+    /// port's own companion. Never the sender, so a companion cannot wake itself.
+    public static func targets(text: String, senderName: String, portCompanion: String?) -> [String] {
+        var keys = MentionParser.extractMentions(from: text).map { String($0.dropFirst()).lowercased() }
+        if let own = portCompanion?.lowercased(), !own.isEmpty { keys.append(own) }
+        var seen = Set<String>()
+        return keys.filter { $0 != senderName.lowercased() && seen.insert($0).inserted }
+    }
+
+    /// Record where a routed companion's next reply goes. A port chat names itself; the old space
+    /// chat names nothing, and clears any port chat an earlier mention left, so the latest ask wins.
+    public static func recordReply(_ targets: inout [String: String], companion: String, chat: String?) {
+        if let chat { targets[companion] = chat } else { targets.removeValue(forKey: companion) }
     }
 }
 

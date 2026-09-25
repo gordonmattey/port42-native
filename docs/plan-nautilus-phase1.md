@@ -12,7 +12,7 @@ can carry: the desktop, a space, or one port.
 ## Progress
 
 1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
-1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (steps 1 and 2 of 5 ✓).
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (steps 1 to 3 of 5 ✓).
 
 ## Order, and why
 
@@ -189,6 +189,17 @@ terminal view does not reliably get the click. The person posts through `chat.po
 principal, like any caller. `PortChatStore` (on `AppState`) holds what the shell shows, is fed by the
 one write path, and keeps the last-read seq per chat across launches. Four more gates, calibrated by
 counting the person's own posts as unread. Not yet seen by GM.
+
+**Step 3 done 2026-09-25: companions answer in the chat that asked.** Every post runs the mention
+router. A mention wakes that companion, and a post in a terminal port's own chat wakes its companion
+without one, since that chat is its session. Never the sender, so a companion's reply cannot wake
+itself. The router records, per companion, the chat that asked; the end-of-turn reply is posted back
+there as the companion, through the one write path. An ask from the old space chat clears that
+record, so the latest ask decides where the reply goes. The decisions are pure (`ChatRouting`) with
+two gates, calibrated by letting a companion wake itself. The harness's scenario 1 now asks in the
+space's chat and passes only when the port appears, the harness's post is attributed to the harness,
+and the reply lands in the same chat attributed to the companion. Not yet run: the harness client
+needs re-enrolling on the fresh Dev3.
 
 ### 1.6 Small, clearly right
 

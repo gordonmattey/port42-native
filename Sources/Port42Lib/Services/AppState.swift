@@ -232,6 +232,9 @@ public final class AppState: ObservableObject {
     /// Space messages waiting for a (re)spawning native terminal companion to become ready,
     /// keyed by lowercased companion name. Drained by the controller on CLI readiness.
     var pendingTerminalInjections: [String: [String]] = [:]
+    /// Companion name (lowercased) → the port chat its next reply goes to. Set when a port chat
+    /// routes to it; absent means the reply goes to the space's old chat tile (until step 4).
+    var chatReplyTargets: [String: String] = [:]
     /// panelId → auto-registered companion id. A live `claude` in a plain terminal is registered
     /// as a space companion on SessionStart (docs/summer2026-todo.md); the entry is removed when
     /// the terminal tears down, so the roster reflects only terminals that are actually live.
@@ -1038,22 +1041,18 @@ public final class AppState: ObservableObject {
 
     /// Route a message to a bridged terminal if any @mention matches its name,
     /// or if an implicit companion is supplied (e.g. the Swim companion).
-    private func routeMentionsToTerminals(content: String, senderName: String, spaceId: String, implicitCompanion: AgentConfig? = nil) {
+    func routeMentionsToTerminals(content: String, senderName: String, spaceId: String,
+                                  implicitCompanion: AgentConfig? = nil, replyChat: String? = nil) {
         // Proceed if there's any terminal bridge/controller OR any openInTerminal companion —
         // the last case lets a mention auto-reopen a companion whose port is currently closed
         // (no live controller), which the early-return would otherwise prevent.
         let hasTerminalCompanions = companions.contains(where: { $0.openInTerminal })
         guard !terminalControllers.isEmpty || hasTerminalCompanions else { return }
 
-        // Build the set of keys to route to: explicit @mentions + implicit companion (Swim)
-        var keys: [String] = MentionParser.extractMentions(from: content)
-            .map { String($0.dropFirst()).lowercased() }  // strip leading @
-        if let implicit = implicitCompanion, !keys.contains(implicit.displayName.lowercased()) {
-            keys.append(implicit.displayName.lowercased())
-        }
-        // Never route a message back into the sender's own terminal (a companion @mentioning
-        // itself would otherwise self-inject and could loop).
-        keys.removeAll { $0 == senderName.lowercased() }
+        // Explicit @mentions, then the implicit companion (a terminal port's own). Never the
+        // sender's own terminal: a companion @mentioning itself would self-inject and could loop.
+        let keys = ChatRouting.targets(text: content, senderName: senderName,
+                                       portCompanion: implicitCompanion?.displayName)
         guard !keys.isEmpty else { return }
 
         // Prefix the sender with "@" so terminal companions see usernames in the same
@@ -1068,6 +1067,7 @@ public final class AppState: ObservableObject {
                 // skips openInTerminal companions, so the optimistic typing loops must NOT
                 // set it — this route is the only point a native terminal companion is driven.
                 let name = companion.displayName
+                ChatRouting.recordReply(&chatReplyTargets, companion: key, chat: replyChat)
                 if let controller = terminalControllers.values.first(where: {
                     $0.config.companionName.lowercased() == key
                 }), controller.isSurfaceBound {
@@ -1801,7 +1801,17 @@ public final class AppState: ObservableObject {
             // timeout). Native terminal companions are skipped by launchAgents (which is what
             // clears typing for LLM/command agents), so without this the indicator hangs forever.
             self.clearTerminalTyping(name: config.companionName, spaceId: config.spaceId)
-            if let companion = self.companions.first(where: { $0.displayName == config.companionName }) {
+            let companion = self.companions.first(where: { $0.displayName == config.companionName })
+            // Asked from a port's chat: the reply goes back to that chat, as the companion.
+            if let chat = self.chatReplyTargets.removeValue(forKey: config.companionName.lowercased()) {
+                let who: Principal = companion.map {
+                    .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
+                } ?? .peer(id: terminalClientId, displayName: config.companionName, spaceId: config.spaceId)
+                do { try self.postToChat(key: chat, text: content, from: who) }
+                catch { NSLog("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
+                return
+            }
+            if let companion {
                 self.sendMessageAsCompanion(companion, content: content, spaceId: config.spaceId)
             } else {
                 self.sendMessageAsNamedAgent(content: content, senderName: config.companionName, toSpaceId: config.spaceId)

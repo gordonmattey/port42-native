@@ -59,20 +59,36 @@ def fresh_agent(c, cli):
 
 
 def scenario1(c, agent, cli):
+    """Asked in the space's chat (every port has one; a space is a port). Passes when the port appears,
+    the harness's own post is attributed to the harness, and the companion's reply lands back in the
+    same chat attributed to the companion (docs/design-chat-port.md, build step 3)."""
     nonce = "harness s1 " + uuid.uuid4().hex[:6]
     agent = agent or fresh_agent(c, cli)
     space = c.call("space.current")["id"]
-    c.call("messages.send", {"space_id": space,
-                             "text": f"@{agent} make a web port titled '{nonce}' that shows the current time, ticking."})
-    t0 = time.time()
-    while time.time() - t0 < 240:
-        hit = [p for p in c.call("ports.list") if p.get("title") == nonce]
-        if hit:
-            MADE.append(hit[0]["id"])
-            return record(1, "Make a thing", True,
-                          f"@{agent}: '{nonce}' appeared after {time.time() - t0:.0f}s, created by {hit[0].get('createdBy')!r}")
+    posted = c.call("chat.post", {"port": space,
+                                  "text": f"@{agent} make a web port titled '{nonce}' that shows the current time, ticking."})
+    mine = posted["entry"]
+    if mine["from"]["kind"] != "peer":
+        return record(1, "Make a thing", False, f"the harness's post was attributed to {mine['from']!r}")
+    t0, port, reply = time.time(), None, None
+    while time.time() - t0 < 240 and not (port and reply):
+        if not port:
+            hit = [p for p in c.call("ports.list") if p.get("title") == nonce]
+            if hit:
+                port = hit[0]
+                MADE.append(port["id"])
+        if not reply:
+            later = c.call("chat.read", {"port": space, "after": mine["seq"]})["entries"]
+            reply = next((e for e in later if e["from"]["name"].lower() == agent.lower()), None)
         time.sleep(3)
-    record(1, "Make a thing", False, f"@{agent}: no port titled '{nonce}' within 240s")
+    if not port:
+        return record(1, "Make a thing", False, f"@{agent}: no port titled '{nonce}' within 240s")
+    if not reply:
+        return record(1, "Make a thing", False, f"@{agent}: the port appeared but no reply came back to the chat")
+    if reply["from"]["kind"] != "companion":
+        return record(1, "Make a thing", False, f"@{agent}'s reply was attributed to {reply['from']!r}")
+    record(1, "Make a thing", True,
+           f"@{agent}: '{nonce}' appeared and the reply landed in the space chat after {time.time() - t0:.0f}s")
 
 
 # ---------------------------------------------------------------------------------------------- 2
