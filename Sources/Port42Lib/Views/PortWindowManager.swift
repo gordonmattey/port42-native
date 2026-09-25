@@ -61,7 +61,6 @@ public struct PortPanel: Identifiable {
     public var isAlwaysOnTop: Bool = false
     public var isBackground: Bool = false
     public var portType: String = "web"
-    public var isChatPort: Bool = false
     /// Presentation: "tiled" (a desktop unit), "parked" (a rail chip), or "inline" (hosted in
     /// a chat `[port:id]` card; session-only, never persisted). "floating" is RETIRED with
     /// classic mode — the v39 migration rewrote any legacy rows to "tiled".
@@ -179,10 +178,6 @@ public final class PortWindowManager: ObservableObject {
             guard let self else { return }
             if let v = self.hostView(for: id), let win = v.window {
                 win.makeFirstResponder(v)
-            } else if let panel = self.panels.first(where: { $0.id == id }), panel.isChatPort {
-                // The chat unit is pure SwiftUI — focus its input FIELD via the existing
-                // focusChatInput listener (scoped by spaceId so only THIS chat's field grabs).
-                NotificationCenter.default.post(name: .focusChatInput, object: panel.spaceId)
             } else if let win = NSApp?.keyWindow {   // NSApp is nil headless (tests)
                 win.makeFirstResponder(nil)
             }
@@ -269,8 +264,7 @@ public final class PortWindowManager: ObservableObject {
                     positions: restoredPositions,
                     isAlwaysOnTop: row.isAlwaysOnTop,
                     isBackground: row.isBackground,
-                    portType: row.portType,
-                    isChatPort: row.isChatPort
+                    portType: row.portType
                 )
                 // SHELL S3 — restore the shell desktop layout: presentation ("tiled"/"parked"/
                 // "floating") and z-order. Without this a tiled port restored as "floating" and
@@ -284,9 +278,8 @@ public final class PortWindowManager: ObservableObject {
                     panel.adoptedSpaceIds = arr
                 }
                 panels.append(panel)
-                // Chat ports render ChatView; terminal ports host a Ghostty surface —
-                // only web ports get a WKWebView.
-                if !panel.isChatPort && panel.portType != "terminal" {
+                // Terminal ports host a Ghostty surface; only web ports get a WKWebView.
+                if panel.portType != "terminal" {
                     createPortWebView(for: panel)
                 } else if panel.portType == "terminal" {
                     // A terminal was on a desktop at shutdown — rebuild its controller + hoisted
@@ -374,8 +367,7 @@ public final class PortWindowManager: ObservableObject {
                 positions: panels[idx].positions,
                 isAlwaysOnTop: panels[idx].isAlwaysOnTop,
                 isBackground: wasBackground,
-                portType: panels[idx].portType,
-                isChatPort: panels[idx].isChatPort
+                portType: panels[idx].portType
             )
             // Recreate webview with new content — skipped for native terminal ports,
             // which host a Ghostty surface (no WKWebView).
@@ -600,17 +592,6 @@ public final class PortWindowManager: ObservableObject {
             && ($0.spaceId == spaceId || $0.adoptedSpaceIds.contains(spaceId)) }
     }
 
-    /// SHELL: make sure a space's `isChatPort` panel is a desktop tile with a visible slot
-    /// (legacy rows could carry an off-screen classic-layout position; parked stays parked).
-    public func ensureChatTiled(spaceId: String) {
-        guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }),
-              panels[idx].presentation != "parked" else { return }
-        if panels[idx].presentation != "tiled" {
-            panels[idx].presentation = "tiled"
-            persistPanel(panels[idx].id)
-        }
-    }
-
     /// Park a tiled port into the right-edge rail (minimize to a chip). Same webview, no reload —
     /// the parked port is excluded from the desktop render and from `arrange`/`exposé`.
     public func park(id: String) {
@@ -618,25 +599,6 @@ public final class PortWindowManager: ObservableObject {
         panels[idx].presentation = "parked"
         panels[idx].bridge.suspendAI()      // stop any in-flight generation the moment it's parked
         persistPanel(id)
-    }
-
-    /// SHELL: bring a space's chat back onto the desktop as a tile from any state (parked, docked,
-    /// popped-out floating, already tiled — or DELETED). The dock's "chat" button uses this; it's how
-    /// a closed/parked chat is reopened, and it RE-CREATES the chat port if you deleted them all.
-    ///
-    /// "Any state" was NOT true until 2026-07-27: this set `presentation` and never cleared
-    /// `isBackground`, which is a SEPARATE flag (`minimize`/`dock` sets it, `restore` clears it, and
-    /// `ports.list` reports it as status "docked"). So a docked chat stayed docked and the dock's own
-    /// chat button did nothing for it. Found by exposing chat through `port.create`, which exercised
-    /// a path the UI rarely reaches.
-    public func revealChat(spaceId: String, spaceName: String) {
-        if !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) {
-            ensureChatPort(spaceId: spaceId, spaceName: spaceName)   // gone entirely → make a fresh one
-        }
-        guard let idx = panels.firstIndex(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
-        panels[idx].presentation = "tiled"
-        panels[idx].isBackground = false
-        persistPanel(panels[idx].id)
     }
 
     /// Restore a parked port back onto the desktop as a tile (no reload).
@@ -682,12 +644,9 @@ public final class PortWindowManager: ObservableObject {
         if let panel = panels.first(where: { $0.id == id }) {
             // Release every ongoing resource this port acquired (mic, camera, screen, speech,
             // playback, browser sessions, in-flight generation) BEFORE the webview goes — the
-            // close-path teardown for the leak (backlog 0.5). Chat ports carry no messageId, so
-            // this only cancels any AI loop for them.
+            // close-path teardown for the leak (backlog 0.5).
             panel.bridge.releaseAcquisitions()
-            if !panel.isChatPort {
-                destroyWebView(id)
-            }
+            destroyWebView(id)
         }
         // The port is gone, so presence on it is meaningless: drop it (a close, not a release, so
         // no holder check, because the thing being held no longer exists). Without this a
@@ -1200,44 +1159,10 @@ public final class PortWindowManager: ObservableObject {
 
     // MARK: - Space-Aware Port Visibility
 
-    /// Switch to a new space: track it and make sure its chat port record exists (the shell
-    /// desktop renders per-space from `panels` — there are no windows to hide/show).
+    /// Switch to a new space (the shell desktop renders per-space from `panels`; there are no
+    /// windows to hide or show). The space's chat is its own, opened from the top bar.
     public func switchToSpace(_ spaceId: String, spaceName: String) {
         activeSpaceId = spaceId
-        ensureChatPort(spaceId: spaceId, spaceName: spaceName)
-    }
-
-    /// Ensure a chat port record exists for the space (record only; the shell tiles it).
-    private func ensureChatPort(spaceId: String, spaceName: String) {
-        guard let appState = appState else { return }
-        guard !panels.contains(where: { $0.isChatPort && $0.spaceId == spaceId }) else { return }
-        let newId = UUID().uuidString
-        // I1.4: the chat port has no creator and no message id, so before this it authorized as a
-        // heap address: a grant against it could never restore across a launch, and an address
-        // reused after dealloc could hand it to an unrelated object. `newId` is the panel id, which
-        // is persisted and restored, so the identity is stable for as long as the port is.
-        let bridge = PortBridge(appState: appState, spaceId: spaceId, messageId: nil, createdBy: nil,
-                                stableIdentity: newId)
-        // A visible default; `ensureChatTiled`/arrange position it on the shell desktop.
-        let size = CGSize(width: 520, height: 420)
-        let positions: [String: CGPoint] = [:]
-        var panel = PortPanel(
-            id: newId,
-            udid: newId,
-            html: "",
-            bridge: bridge,
-            spaceId: spaceId,
-            createdBy: nil,
-            messageId: nil,
-            userTitle: "chat",
-            size: size,
-            positions: positions
-        )
-        panel.portType = "chat"
-        panel.isChatPort = true
-        panels.append(panel)
-        persistPanel(panel.id)
-        NSLog("[Port42] Registered chat port for space: %@", spaceName)
     }
 }
 

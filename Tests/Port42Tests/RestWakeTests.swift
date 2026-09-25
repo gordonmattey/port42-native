@@ -130,23 +130,6 @@ struct RestWakeTests {
 
     // MARK: silence (fully silent — no chat peeks, no port-birth peeks; unread accumulates)
 
-    @Test("a chat-unread increase in a rested space raises no peek; a working space still peeks")
-    @MainActor
-    func chatSilence() throws {
-        let (shell, state, db) = try makeState()
-        var spaces = try seed(["home", "rested", "working"], in: state, db: db)
-        state.currentSpace = spaces[0]
-        spaces[1].restedAt = Date()
-        try db.saveSpace(spaces[1])
-        state.spaces = try db.getRegularSpaces()
-
-        shell.refreshNotifications(from: [:])                   // seed the baseline
-        shell.refreshNotifications(from: [spaces[1].id: 3, spaces[2].id: 3])
-
-        #expect(!shell.peekingPorts.contains { $0.isChat && $0.spaceId == spaces[1].id })  // silent
-        #expect(shell.peekingPorts.contains { $0.isChat && $0.spaceId == spaces[2].id })   // control
-    }
-
     @Test("a port born in a rested space raises no peek; in a working space it peeks")
     @MainActor
     func portBirthSilence() throws {
@@ -171,10 +154,8 @@ struct RestWakeTests {
         let spaces = try seed(["home", "noisy"], in: state, db: db)
         state.currentSpace = spaces[0]
 
-        shell.refreshNotifications(from: [:])
-        shell.refreshNotifications(from: [spaces[1].id: 2])     // chat peek up
         shell.handlePortCreated(id: "p1", spaceId: spaces[1].id, title: "port")   // port peek up
-        #expect(shell.peekingPorts.count == 2)
+        #expect(shell.peekingPorts.count == 1)
 
         shell.restSpace(spaces[1])
         #expect(shell.peekingPorts.isEmpty)                      // silenced NOW, not on next tick

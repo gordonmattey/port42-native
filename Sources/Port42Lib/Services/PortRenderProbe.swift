@@ -147,7 +147,7 @@ public final class PortUnitCycleHarness {
         guard let shell = ShellState.debugCurrent, let app = shell.debugAppState,
               let sid = app.currentSpace?.id else { return nil }
         let panel = app.portWindows.panels.first {
-            $0.spaceId == sid && $0.presentation == "tiled" && !$0.isChatPort
+            $0.spaceId == sid && $0.presentation == "tiled"
                 && app.portWindows.hostView(for: $0.id) != nil
         }
         guard let panel else { return nil }
@@ -329,7 +329,7 @@ public final class PortUnitCycleHarness {
     /// An existing tiled non-chat panel of this kind with a live view, else a fabricated one.
     private func acquireKind(_ kind: String, app: AppState, sid: String) -> KindRun? {
         if let p = app.portWindows.panels.first(where: {
-            $0.spaceId == sid && $0.presentation == "tiled" && !$0.isChatPort
+            $0.spaceId == sid && $0.presentation == "tiled"
                 && $0.portType == kind && app.portWindows.hostView(for: $0.id) != nil
         }) { return KindRun(kind: kind, id: p.id, fabricated: false) }
         let stamp = String(UUID().uuidString.prefix(6))

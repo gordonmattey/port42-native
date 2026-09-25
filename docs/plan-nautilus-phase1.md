@@ -12,7 +12,7 @@ desktop, a space, or one port.
 ## Progress
 
 1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
-1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (steps 1 to 3 of 5 ✓).
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (steps 1 to 4 of 5 ✓).
 
 ## Order, and why
 
@@ -201,6 +201,48 @@ two gates, calibrated by letting a companion wake itself. The harness's scenario
 space's chat and passes only when the port appears, the harness's post is attributed to the harness,
 and the reply lands in the same chat attributed to the companion. The terminal-port path is verified
 live (above); the harness run waits on re-enrolling its client on the fresh Dev3.
+
+**Step 4 plan (2026-09-25): the old chat goes.** Two commits, suite green at each.
+
+- **4.1, re-home what rides on the messages table.**
+  - The space's chat moves to the space's chrome: a companion bar beside the space name in the top
+    bar opens the space's chat. The dock's chat button opens the same chat.
+  - A terminal companion's reply with no port chat to return to goes to the space's chat.
+  - Headless command companions (NDJSON) are woken by a chat post that mentions them, and their
+    reply is posted whole into the chat that asked. Streaming into a placeholder message goes.
+  - `messages.send`, `messages.sendAsCreator`, `messages.recent`, `bus.publish` and `bus.read` go.
+    `chat.post` and `chat.read` replace the first three; a signal between companions is a mention in
+    a chat, and a port's events stay on `port.publish` and `port.subscribe`. The companion brief and
+    the port manual teach `chat.post`.
+- **4.2, delete.** The native chat port and `ensureChatPort`, `ChatView`, `ConversationContent`, the
+  `Message` model, the send and route-response paths, message observation, the per-space unread
+  counts and last-read dates, the input history, the `[portref]` cards and the join and leave notes.
+  Migration v51 drops `messages` and `input_history` and deletes the native chat port rows.
+- **Left for a follow-up:** the inline-port plumbing keyed by `messageId` on port panels, which
+  nothing creates once the chat views are gone (D11).
+
+**Step 4 done 2026-09-25, as one commit** (the re-home and the deletion touched the same functions).
+The space's chat is a companion bar beside the space name in the top bar, dropping its panel below;
+the dock's chat button and a headless companion's avatar open it. Replies with no port chat to
+return to go to the space's chat. Headless command companions are woken by a chat post and answer
+whole in the chat that asked: the ones mentioned, or, when a person posts without a mention, every
+member; a companion's plain post wakes nobody, so two companions cannot loop. A mention still adds
+that companion to the space. Gone: the native chat port and `ensureChatPort`, `ChatView`,
+`ConversationContent`, the `Message` model, the send paths, message observation, direct-message
+chats, chat peeks, per-space unread counts (a resting space's badge now reads its chat's unread),
+the input history, `[portref]` cards, join and leave notes, `port.create` type `chat`, and the inline
+web-port branch of `port.create` (a web port is always created on the desktop). The methods
+`messages.send`, `messages.sendAsCreator`, `messages.recent`, `bus.publish` and `bus.read` are gone;
+the companion brief and both manuals teach `chat.post`. Migration v51 drops `messages`,
+`input_history` and the native chat port rows and column. `space.current` lists the person and the
+space's companions.
+
+**Found and fixed on the way: a use-after-free in the terminal.** The pty-tee callback held an
+unretained pointer to its view's coordinator, so a terminal view freed without `teardown` crashed
+the process on the shell's next output. The test suite began freeing `AppState` between tests once
+the native chat port (which had pinned it) went, and died silently partway through. The callback now
+holds a retained box with a weak reference. With the fix the suite runs to completion; without it,
+it dies at the same point every run. Suite 1143 green (the removed features' tests went with them).
 
 ### 1.6 Small, clearly right
 

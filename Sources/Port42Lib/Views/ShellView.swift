@@ -161,6 +161,25 @@ public struct ShellView: View {
 
             // Global Settings — the app's SignOutSheet surfaced as a shell overlay (whole menu brought
             // across; sections to be revisited for the shell over time).
+            // The space's chat, dropped down from the top bar under the space name.
+            if shell.spaceChatOpen, shell.zoom != .galaxy, let sid = appState.currentSpace?.id {
+                VStack {
+                    HStack {
+                        PortChatPanel(chats: appState.chats, appState: appState, key: sid, accent: shell.accent)
+                            .frame(width: 440, height: 360)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(shell.accent.opacity(0.4), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.5), radius: 24)
+                            .id(sid)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .padding(.top, topInset + 50).padding(.leading, 60)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(150)
+            }
+
             if shell.showSettings {
                 ZStack {
                     Color.black.opacity(0.6).ignoresSafeArea().contentShape(Rectangle())
@@ -252,6 +271,7 @@ public struct ShellView: View {
         // the answer; there is no "close without answering").
         if permissions.current != nil { permissions.resolveCurrent(granted: false); return true }
         if shell.showSettings { shell.showSettings = false; return true }
+        if shell.spaceChatOpen { shell.spaceChatOpen = false; return true }
         if shell.showNewCompanion { shell.showNewCompanion = false; return true }
         if shell.settingsTarget != nil { shell.settingsTarget = nil; return true }
         if shell.showQuickSwitcher { shell.showQuickSwitcher = false; return true }
@@ -455,6 +475,7 @@ struct ShellGalaxyView: View {
                     HStack(spacing: 18) {
                         ForEach(appState.restingSpaces) { space in
                             restingChip(space)
+                                .onAppear { appState.chats.load(space.id, from: appState.db) }
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 4)
@@ -485,7 +506,7 @@ struct ShellGalaxyView: View {
     /// name and accumulated unread count. Tap = wake + enter; long-press = settings.
     private func restingChip(_ space: Space) -> some View {
         let acc = shell.accent(for: space)
-        let unread = appState.unreadCounts[space.id] ?? 0
+        let unread = appState.chats.unread(space.id, me: appState.currentUser?.id)   // its chat's unread
         let hovered = shelfHovered == space.id
         return VStack(spacing: 7) {
             ZStack(alignment: .topTrailing) {
@@ -571,14 +592,12 @@ struct ShellGalaxyView: View {
             dragged: $draggedSpaceId, dropTarget: $dropTargetId))
     }
 
-    /// Count exactly what the desktop renders as tiles: the space's tiled ports + its chat tile
-    /// (every space has one). This is why a chat-only space reads "1 port", not 0 — the old filter
-    /// excluded the chat port and so undercounted what you actually see on the desktop.
+    /// Count exactly what the desktop renders: the space's tiled ports. (The space's chat lives in
+    /// the top bar now, not as a port on the desktop.)
     private func portCount(_ space: Space) -> Int {
-        let tiled = appState.portWindows.panels.filter {
+        appState.portWindows.panels.filter {
             $0.spaceId == space.id && !$0.isBackground && $0.presentation == "tiled"
         }.count
-        return tiled + 1   // + the chat tile
     }
 
     @ViewBuilder

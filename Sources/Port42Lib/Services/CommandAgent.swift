@@ -34,17 +34,35 @@ struct CommandAgentResponse: Decodable {
 final class CommandAgentHandler {
     private let agent: AgentConfig
     private let spaceId: String
-    let messageId: String
+    /// The chat that asked. The whole reply is posted there, as the companion, when the run ends.
+    private let replyChat: String
+    let handlerId: String
     private weak var appState: AppState?
 
     private var process: Process?
     private var stdinPipe: Pipe?
 
-    init(agent: AgentConfig, spaceId: String, appState: AppState) {
+    init(agent: AgentConfig, spaceId: String, replyChat: String, appState: AppState) {
         self.agent = agent
         self.spaceId = spaceId
-        self.messageId = UUID().uuidString
+        self.replyChat = replyChat
+        self.handlerId = UUID().uuidString
         self.appState = appState
+    }
+
+    /// The run ended: post what it said to the asking chat, clear its typing, forget the handler.
+    private func finish(_ content: String) {
+        guard let appState else { return }
+        appState.typingAgentNamesBySpace[spaceId, default: []].remove(agent.displayName)
+        appState.activeCommandHandlers.removeValue(forKey: handlerId)
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            try appState.postToChat(key: replyChat, text: text,
+                                    from: .companion(id: agent.id, displayName: agent.displayName, spaceId: spaceId))
+        } catch {
+            NSLog("[Port42] Command agent reply to %@ failed: %@", replyChat, error.localizedDescription)
+        }
     }
 
     func start(triggerContent: String, senderId: String, senderName: String) {
@@ -52,24 +70,7 @@ final class CommandAgentHandler {
             NSLog("[Port42] Command agent has no command path")
             return
         }
-        // Insert placeholder message
-        let placeholder = Message(
-            id: messageId,
-            spaceId: spaceId,
-            senderId: agent.id,
-            senderName: agent.displayName,
-            senderType: "agent",
-            content: "",
-            timestamp: Date(),
-            replyToId: nil,
-            syncStatus: "local",
-            createdAt: Date(),
-            senderOwner: appState?.currentUser?.displayName
-        )
-        appState?.messages.append(placeholder)
-
         // Spawn process off main thread
-        let msgId = messageId
         let agentId = agent.id
         let agentArgs = agent.args ?? []
         let workDir = agent.workingDir
@@ -169,18 +170,9 @@ final class CommandAgentHandler {
                     case "content", "done":
                         if let content = response.content {
                             fullContent = response.type == "done" ? content : fullContent + content
-                            let snapshot = fullContent
-                            await MainActor.run {
-                                guard let appState = self.appState,
-                                      let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                                appState.messages[idx].content = snapshot
-                            }
                         }
                     case "error":
                         NSLog("[Port42] Command agent error: %@", response.content ?? "unknown")
-                        await MainActor.run {
-                            self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
-                        }
                     default:
                         break
                     }
@@ -208,42 +200,19 @@ final class CommandAgentHandler {
                     let captured = rawStdout
                     fullContent = await MainActor.run { () -> String in
                         let tags = TerminalOutputProcessor.extractP42Tags(from: captured)
-                        let content = tags.isEmpty
+                        return tags.isEmpty
                             ? captured.trimmingCharacters(in: .whitespacesAndNewlines)
                             : tags.joined(separator: "\n")
-                        if let appState = self.appState,
-                           let idx = appState.messages.firstIndex(where: { $0.id == msgId }) {
-                            appState.messages[idx].content = content
-                        }
-                        return content
                     }
                 }
 
-                // Persist the completed message
-                await MainActor.run {
-                    guard let appState = self.appState,
-                          let idx = appState.messages.firstIndex(where: { $0.id == msgId }) else { return }
-                    appState.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
-                    if !appState.messages[idx].content.isEmpty {
-                        do {
-                            try appState.db.saveMessage(appState.messages[idx])
-                        } catch {
-                            NSLog("[Port42] Failed to persist command agent message: %@", error.localizedDescription)
-                        }
-                    } else {
-                        appState.messages.removeAll { $0.id == msgId }
-                    }
-                    appState.activeCommandHandlers.removeValue(forKey: msgId)
-                }
+                let reply = fullContent
+                await MainActor.run { self.finish(reply) }
 
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
             } catch {
                 NSLog("[Port42] Failed to spawn command agent: %@", error.localizedDescription)
-                await MainActor.run {
-                    self.appState?.typingAgentNamesBySpace[self.spaceId, default: []].remove(self.agent.displayName)
-                    self.appState?.messages.removeAll { $0.id == msgId && $0.content.isEmpty }
-                    self.appState?.activeCommandHandlers.removeValue(forKey: msgId)
-                }
+                await MainActor.run { self.finish("") }
             }
         }
     }

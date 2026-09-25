@@ -23,7 +23,8 @@ struct RegisteredInlinePortTests {
     @Test("registerInlinePort creates one inline panel + webview")
     @MainActor
     func registersOne() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         let bridge = manager.registerInlinePort(id: "p1", html: "<title>Hi</title><div/>",
                                                  spaceId: "s1", createdBy: "echo",
                                                  title: "Hi", anchorMessageId: "m1")
@@ -38,7 +39,8 @@ struct RegisteredInlinePortTests {
     @Test("registerInlinePort is idempotent by id — no second webview")
     @MainActor
     func idempotent() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         let b1 = manager.registerInlinePort(id: "p1", html: "<div>a</div>", spaceId: "s1",
                                             createdBy: nil, title: nil, anchorMessageId: "m1")
         let firstWebView = manager.webViews["p1"]
@@ -63,7 +65,8 @@ struct RegisteredInlinePortTests {
     @Test("undock flips presentation to tiled (a tile IS the port's window)")
     @MainActor
     func promotes() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         manager.registerInlinePort(id: "p1", html: "<div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         manager.undockInline(id: "p1", in: CGSize(width: 800, height: 600))
@@ -87,7 +90,8 @@ struct RegisteredInlinePortTests {
     @Test("undock gives a real desktop size (was tiny inline)")
     @MainActor
     func promotionResizes() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         manager.registerInlinePort(id: "p1", html: "<div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         let inlineSize = try #require(manager.panels.first(where: { $0.id == "p1" })).size

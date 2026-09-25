@@ -7,8 +7,7 @@
 //
 //    • rest round-trips through the DB and the space leaves the working set,
 //    • a port BORN in a rested space raises no peek (the real portCreated sink path),
-//    • a chat-unread bump in a rested space raises no peek,
-//    • after WAKE the same bump DOES peek (calibration: proves the instrument can
+//    • after WAKE a port birth there DOES peek (calibration: proves the instrument can
 //      see peeks at all — silence isn't just a dead notification pipe).
 //
 //  Fabricates one scratch space (+ one port in it) in the DEV instance, cleans both up,
@@ -63,16 +62,6 @@ public final class RestWakeProbeHarness {
         }
         app.selectSpace(home)
 
-        /// Bump the scratch space's chat-unread by one over the LIVE counts (merging keeps
-        /// every other space's baseline intact, so the direct drive can't raise phantom peeks).
-        func bumpChat() {
-            var counts = app.unreadCounts
-            counts[scratch.id] = (counts[scratch.id] ?? 0) + 1
-            shell.refreshNotifications(from: counts)
-        }
-        func chatPeek() -> ShellState.PeekPort? {
-            shell.peekingPorts.first { $0.isChat && $0.spaceId == scratch.id }
-        }
         func fresh() -> Space? { app.spaces.first { $0.id == scratch.id } }
 
         var steps: [(String, () -> Void)] = []
@@ -102,10 +91,6 @@ public final class RestWakeProbeHarness {
                 self.violate("port birth in a rested space raised a peek")
             }
         }))
-        steps.append(("silent-chat-bump", {
-            bumpChat()
-            if chatPeek() != nil { self.violate("chat unread in a rested space raised a peek") }
-        }))
         steps.append(("wake", {
             guard let s = fresh() else { self.violate("scratch space vanished before wake"); return }
             app.wakeSpace(s)
@@ -117,10 +102,11 @@ public final class RestWakeProbeHarness {
             }
         }))
         steps.append(("calibrate-awake-peeks", {
-            // The same bump must peek NOW — otherwise the "silence" above proved nothing.
-            bumpChat()
-            if let p = chatPeek() { shell.dismissPeek(p) }
-            else { self.violate("calibration: chat bump in a WORKING space raised no peek — instrument blind") }
+            // A port birth must peek NOW — otherwise the "silence" above proved nothing.
+            let probeId = "rest-probe-calibration"
+            shell.handlePortCreated(id: probeId, spaceId: scratch.id, title: "calibration")
+            if let p = shell.peekingPorts.first(where: { $0.id == probeId }) { shell.dismissPeek(p) }
+            else { self.violate("calibration: a port birth in a WORKING space raised no peek — instrument blind") }
         }))
 
         var i = 0

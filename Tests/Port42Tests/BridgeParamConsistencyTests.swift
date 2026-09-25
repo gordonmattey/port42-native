@@ -193,7 +193,10 @@ struct BridgeParamConsistencyTests {
         //   said nothing at all. = 75.
         // − companions.invoke and the three ai.* methods (BridgeServiceAI.swift), which went with the
         //   in-app engine (nautilus Phase 1 step 3). = 71.
-        #expect(methods.count == 71, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
+        // − messages.send, messages.sendAsCreator, messages.recent, bus.publish and bus.read, which
+        //   went with the old chat (Phase 1 step 5.4). chat.post and chat.read live in PortChat.swift,
+        //   outside this scan. = 66.
+        #expect(methods.count == 66, "parsed \(methods.count) methods: \(methods.map(\.canonical).sorted())")
     }
 
     @Test("B1 + B2: every required schema prop and every non-bag paramName is read by the body")

@@ -83,30 +83,6 @@ struct PortCreateTests {
 
     // MARK: - Web ports render inline + auto-play (any caller)
 
-    @Test("web port.create renders inline (a fence) and auto-activates — regardless of the inline flag")
-    @MainActor
-    func webRendersInlineAndAutoPlays() throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let space = Space.create(name: "general")
-        try db.saveSpace(space)
-        let spaceId = space.id
-
-        // Default presentation ("inline") → a web port renders inline in chat and auto-plays.
-        let result = state.createPort(type: "web", title: "Hi", html: "<title>Hi</title><div/>",
-                                      command: nil, args: [], cwd: nil, systemPrompt: nil, env: [:],
-                                      spaceId: spaceId, createdBy: nil, createdByName: "echo",
-                                      presentation: "inline")
-        let id = try #require(result["id"] as? String)
-        #expect(result["error"] == nil)
-
-        let msg = try #require(try db.getMessages(spaceId: spaceId).first(where: { $0.id == id }))
-        // A fence (renders inline + syncs), NOT a window-only [port:id] card.
-        #expect(msg.content.contains("```port"))
-        #expect(ChatEntry(id: msg.id, senderName: msg.senderName, content: msg.content).webPortInfo == nil)
-        // Marked to auto-activate so it plays immediately instead of as a collapsed card.
-        #expect(state.pendingPortActivationId == id)
-    }
     // MARK: - browser (GM 2026-07-27: every port type through one door)
 
     @Test("type:\"browser\" is accepted and needs a url")
@@ -135,40 +111,6 @@ struct PortCreateTests {
                 == .ok(.browser(url: "https://example.com")))
     }
 
-    @Test("type:\"chat\" is accepted and needs no payload")
-    func chatValidates() {
-        #expect(PortCreateValidation.validate(type: "chat", html: nil, command: nil, url: nil)
-                == .ok(.chat))
-        // A space has exactly one chat and `space_id` says which, so stray fields are tolerated
-        // rather than rejected: pedantry with no upside.
-        #expect(PortCreateValidation.validate(type: "chat", html: "ignored", command: nil, url: nil)
-                == .ok(.chat))
-    }
-
-    @Test("revealing a chat brings it back from DOCKED, not just from parked")
-    @MainActor
-    func revealChatUndocksIt() throws {
-        let db = try DatabaseService(inMemory: true)
-        let state = AppState(db: db)
-        let space = Space.create(name: "s")
-        try db.saveSpace(space)
-        state.spaces = [space]
-        state.portWindows.switchToSpace(space.id, spaceName: space.name)
-
-        let chat = try #require(state.portWindows.panels.first(where: { $0.isChatPort }))
-        state.portWindows.minimize(chat.id)
-        #expect(state.portWindows.panels.first(where: { $0.isChatPort })?.isBackground == true)
-
-        state.portWindows.revealChat(spaceId: space.id, spaceName: space.name)
-
-        // `isBackground` is a SEPARATE flag from `presentation`, and revealChat cleared only the
-        // latter until 2026-07-27. A docked chat stayed docked, including for the dock's own chat
-        // button, whose sole purpose is reopening it. Found by exposing chat through port.create.
-        let after = try #require(state.portWindows.panels.first(where: { $0.isChatPort }))
-        #expect(after.isBackground == false, "a docked chat must come back")
-        #expect(after.presentation == "tiled")
-    }
-
     @Test("the rejection message names every type it accepts")
     func unknownTypeNamesAllThree() {
         guard case .error(let msg) = PortCreateValidation.validate(type: "hologram", html: nil,
@@ -177,6 +119,6 @@ struct PortCreateTests {
         }
         // A caller told "expected web or terminal" would conclude browser ports are not creatable,
         // which is exactly the wrong belief this change exists to remove.
-        for t in ["web", "terminal", "browser", "chat"] { #expect(msg.contains(t), "message omits \(t)") }
+        for t in ["web", "terminal", "browser"] { #expect(msg.contains(t), "message omits \(t)") }
     }
 }

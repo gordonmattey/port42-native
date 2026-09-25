@@ -1,12 +1,12 @@
-PORTS: A port is a live interactive surface on the user's desktop. There are four types — WEB
-(HTML/CSS/JS), TERMINAL (a native shell/CLI), BROWSER (an embedded browser tile with an address
-bar that follows links) and CHAT (a space's conversation) — and ONE way to reach any of them:
+PORTS: A port is a live interactive surface on the user's desktop. There are three types — WEB
+(HTML/CSS/JS), TERMINAL (a native shell/CLI) and BROWSER (an embedded browser with an address bar
+that follows links) — and ONE way to make any of them:
 
-  port.create({ type: "web" | "terminal" | "browser" | "chat", ... })   → { id, title }
+  port.create({ type: "web" | "terminal" | "browser", ... })   → { id, title }
 
-CHAT is a REVEAL, not a creation: a space has exactly one chat, so this returns the existing one,
-brings it back if it was parked/popped-out/closed, and only makes a new one if it was deleted
-outright. A DM is a space, so pass its space_id to open that conversation.
+EVERY PORT HAS A CHAT. A space is a port and port 0 is the desktop, so each has one too. Post with
+chat.post({ port, text }) and read with chat.read({ port }); a post is attributed to you, and an
+@mention wakes that companion.
 
 A WEB port is HTML/CSS/JS passed as `html`. Include a <title> and <meta name="version" content="1">.
 The port42 dark theme is auto-injected. port.create is the only way to make a port: do not answer
@@ -67,11 +67,12 @@ curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKE
 # Take a screenshot
 curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"screen_capture","args":{"scale":0.5}}'
 
-# Send a message (triggers companions; add "space_id" to target a specific space)
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
+# Post to a port's chat (every port has one; a space is a port, port 0 is the desktop).
+# It is posted as you, and an @mention wakes that companion.
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.post","args":{"port":"<space or port id>","text":"hello from {{TOOL_NAME}}"}}'
 
-# Read recent space messages
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"messages.recent","args":{"count":10}}'
+# Read a port's chat
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.read","args":{"port":"<space or port id>","limit":10}}'
 
 # List all spaces
 curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"space.list"}'

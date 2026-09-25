@@ -27,7 +27,8 @@ struct ReParentStabilityTests {
     @Test("re-registering an existing id never swaps the webview instance")
     @MainActor
     func reRegisterPreservesInstance() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         manager.registerInlinePort(id: "p1", html: "<div>a</div>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         let before = try #require(manager.webViews["p1"])
@@ -41,7 +42,8 @@ struct ReParentStabilityTests {
     @Test("shell undock (inline → tiled) keeps the SAME webview instance (no recreate)")
     @MainActor
     func shellUndockPreservesInstance() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         manager.registerInlinePort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
                                     createdBy: nil, title: nil, anchorMessageId: "m1")
         let before = try #require(manager.webViews["p1"])
@@ -54,7 +56,8 @@ struct ReParentStabilityTests {
     @Test("tiled → parked → tiled round-trip keeps the SAME webview instance")
     @MainActor
     func parkRoundTripPreservesInstance() throws {
-        let (manager, _) = try makeManager()
+        let (manager, state) = try makeManager()
+        defer { withExtendedLifetime(state) {} }   // the manager holds AppState weakly
         manager.registerTiledPort(id: "p1", html: "<title>t</title><div/>", spaceId: "s1",
                                   createdBy: nil, title: nil, position: CGPoint(x: 40, y: 40))
         let before = try #require(manager.webViews["p1"])

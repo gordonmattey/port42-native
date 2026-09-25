@@ -144,7 +144,6 @@ class Port42AppDelegate: NSObject, NSApplicationDelegate {
                 if currentKey == nil || currentKey is NSPanel {
                     window.makeKey()
                     NSApp.activate(ignoringOtherApps: false)
-                    NotificationCenter.default.post(name: .focusChatInput, object: nil)
                 }
             }
             return event

@@ -32,14 +32,14 @@ struct PortPermissionTests {
         #expect(try registryPermission("companions.get") == nil)
     }
 
-    @Test("messages.recent requires no permission")
-    @MainActor func messagesRecentNoPermission() throws {
-        #expect(try registryPermission("messages.recent") == nil)
+    @Test("chat.read requires no permission")
+    @MainActor func chatReadNoPermission() throws {
+        #expect(try registryPermission("chat.read") == nil)
     }
 
-    @Test("messages.send requires no permission")
-    @MainActor func messagesSendNoPermission() throws {
-        #expect(try registryPermission("messages.send") == nil)
+    @Test("chat.post requires no permission")
+    @MainActor func chatPostNoPermission() throws {
+        #expect(try registryPermission("chat.post") == nil)
     }
 
     @Test("space.current requires no permission")

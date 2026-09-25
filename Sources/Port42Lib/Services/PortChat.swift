@@ -111,8 +111,27 @@ extension AppState {
         let implicit = own.flatMap { name in
             companions.first { $0.displayName.lowercased() == name.lowercased() && $0.openInTerminal }
         }
+        // A mention adds that companion to the space, as it always has.
+        var members = Set(((try? db.getAgentsForSpace(spaceId: spaceId)) ?? []).map(\.id))
+        let mentioned = AgentRouter.findTargetAgents(content: entry.text, agents: companions,
+                                                     spaceAgentIds: [], localOwner: currentUser?.displayName)
+        if let space = spaces.first(where: { $0.id == spaceId }) {
+            for agent in mentioned where !members.contains(agent.id) {
+                addCompanionToSpace(agent, space: space)
+                members.insert(agent.id)
+            }
+        }
         routeMentionsToTerminals(content: entry.text, senderName: entry.fromName, spaceId: spaceId,
                                  implicitCompanion: implicit, replyChat: key)
+        // Headless companions: the ones mentioned, or every member when a PERSON posts without a
+        // mention. A companion's post wakes only whom it names, so two companions cannot loop.
+        let headless = ChatRouting.headlessTargets(
+            mentioned: mentioned, members: companions.filter { members.contains($0.id) },
+            text: entry.text, senderName: entry.fromName, senderIsPerson: entry.fromKind == Principal.Kind.human.rawValue)
+        guard !headless.isEmpty else { return }
+        for agent in headless { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
+        launchAgents(headless, spaceId: spaceId, spaceAgentIds: members, triggerContent: entry.text,
+                     senderId: entry.fromId, senderName: entry.fromName, replyChat: key)
     }
 }
 
@@ -125,6 +144,15 @@ public enum ChatRouting {
         if let own = portCompanion?.lowercased(), !own.isEmpty { keys.append(own) }
         var seen = Set<String>()
         return keys.filter { $0 != senderName.lowercased() && seen.insert($0).inserted }
+    }
+
+    /// The headless (non-terminal) companions a post wakes: those it mentions; with no mention,
+    /// every member, but only when a person posted. Never the sender.
+    public static func headlessTargets(mentioned: [AgentConfig], members: [AgentConfig], text: String,
+                                       senderName: String, senderIsPerson: Bool) -> [AgentConfig] {
+        let hasMention = !MentionParser.extractMentions(from: text).isEmpty
+        let pool = hasMention ? mentioned : (senderIsPerson ? members : [])
+        return pool.filter { !$0.openInTerminal && $0.displayName.lowercased() != senderName.lowercased() }
     }
 
     /// Record where a routed companion's next reply goes. A port chat names itself; the old space

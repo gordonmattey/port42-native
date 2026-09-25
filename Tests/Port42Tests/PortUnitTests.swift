@@ -156,19 +156,17 @@ struct PortUnitPeekTests {
                                                 createdBy: nil, title: "b", position: nil)
         let panels = state.portWindows.panels
         // "b" is BOTH tiled here and peeking (e.g. an adopted foreign port) → one item, peek state.
-        let peeks = [ShellState.PeekPort(id: "b", spaceId: "s1", spaceName: "s1", isChat: false, title: "b"),
-                     ShellState.PeekPort(id: "chatX", spaceId: "chatX", spaceName: "other", isChat: true, title: "other")]
+        let peeks = [ShellState.PeekPort(id: "b", spaceId: "s1", spaceName: "s1", title: "b")]
         let items = ShellState.contextItems(tiled: panels, peeks: peeks, allPanels: panels)
-        #expect(items.map { $0.id } == ["b", "chatX", "a"])
+        #expect(items.map { $0.id } == ["b", "a"])
         #expect(items[0].peek != nil && items[0].panel?.id == "b")   // peek wins, panel attached
         #expect(items[0].peekIndex == 0)
-        #expect(items[1].panel == nil && items[1].peek?.isChat == true)   // chat peek, no panel
-        #expect(items[2].peek == nil)                                     // plain tile
+        #expect(items[1].peek == nil)                                     // plain tile
     }
 
     @Test("contextItems: a port peek whose panel vanished is dropped (no dead unit)")
     func contextItemsDropsDeadPeek() {
-        let peeks = [ShellState.PeekPort(id: "ghost", spaceId: "s2", spaceName: "s2", isChat: false, title: "g")]
+        let peeks = [ShellState.PeekPort(id: "ghost", spaceId: "s2", spaceName: "s2", title: "g")]
         let items = ShellState.contextItems(tiled: [], peeks: peeks, allPanels: [])
         #expect(items.isEmpty)
     }

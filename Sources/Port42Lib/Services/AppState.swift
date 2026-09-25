@@ -148,9 +148,6 @@ public final class AppState: ObservableObject {
 
     @Published public var spaces: [Space] = []
     @Published public var currentSpace: Space? { didSet { refreshSpaceCompanions() } }
-    @Published public var messages: [Message] = []
-    /// Message ID of a port that should auto-activate when it appears in the chat.
-    @Published public var pendingPortActivationId: String? = nil
     /// Step 8 feature flag: render active inline web ports through the registry (one WKWebView,
     /// re-parented on pop-out — `RegisteredInlinePortView`) instead of the legacy self-owned
     /// `InlinePortView`. Reversible by flipping to false until the legacy path is deleted.
@@ -169,12 +166,9 @@ public final class AppState: ObservableObject {
     /// Never true for a returning user (nothing sets it outside `enterShellFromSetup`).
     @Published public private(set) var isOnboarding = false
     @Published public var drafts: [String: String] = [:]
-    @Published public var unreadCounts: [String: Int] = [:]
     @Published public var lastReadDates: [String: Date] = [:]
     /// spaceId -> set of agentIds assigned to it. Cached so views never query membership per render.
     @Published public var spaceAgentIds: [String: Set<String>] = [:]
-    /// spaceId -> distinct non-system sender count (online-count badges).
-    @Published public var spaceSenderCounts: [String: Int] = [:]
     @Published public var companions: [AgentConfig] = [] { didSet { refreshSpaceCompanions() } }
     /// The current space's companions. NEVER assigned directly — it is recomputed from the DB by the
     /// single seam `refreshSpaceCompanions()`, triggered whenever an input changes: the roster
@@ -200,8 +194,6 @@ public final class AppState: ObservableObject {
     /// so a draft survives the view being torn down/recreated (e.g. the shell's tile↔focus swap,
     /// or switching spaces and back).
     @Published public var chatDrafts: [String: String] = [:]
-    /// Cached last-activity dates keyed by spaceId (regular and swim). Avoids DB reads during render.
-    @Published public var lastActivityTimes: [String: Date] = [:]
     /// Auth status for UI display (proactively checked at boot)
 
     /// Back-reference to the shell (set in ShellState.init) so the bridge can reach shell-level
@@ -233,7 +225,7 @@ public final class AppState: ObservableObject {
     /// keyed by lowercased companion name. Drained by the controller on CLI readiness.
     var pendingTerminalInjections: [String: [String]] = [:]
     /// Companion name (lowercased) → the port chat its next reply goes to. Set when a port chat
-    /// routes to it; absent means the reply goes to the space's old chat tile (until step 4).
+    /// routes to it; absent means the reply goes to the space's own chat.
     var chatReplyTargets: [String: String] = [:]
     /// panelId → auto-registered companion id. A live `claude` in a plain terminal is registered
     /// as a space companion on SessionStart (docs/summer2026-todo.md); the entry is removed when
@@ -283,29 +275,6 @@ public final class AppState: ObservableObject {
 
     /// Cached port permissions by message ID. Survives LazyVStack view recycling.
     public var cachedPortPermissions: [String: Set<PortPermission>] = [:]
-
-    /// Input history cache per space. Loaded lazily from DB.
-    private var inputHistoryCache: [String: [String]] = [:]
-
-    /// Append to input history for a space.
-    public func appendInputHistory(spaceId: String, content: String) {
-        var history = inputHistoryCache[spaceId] ?? []
-        // Deduplicate consecutive identical entries
-        if history.first != content {
-            history.insert(content, at: 0)
-            if history.count > 100 { history = Array(history.prefix(100)) }
-            inputHistoryCache[spaceId] = history
-        }
-        try? db.appendInputHistory(spaceId: spaceId, content: content)
-    }
-
-    /// Get input history for a space (newest first). Loads from DB on first access.
-    public func inputHistory(for spaceId: String) -> [String] {
-        if let cached = inputHistoryCache[spaceId] { return cached }
-        let history = (try? db.fetchInputHistory(spaceId: spaceId)) ?? []
-        inputHistoryCache[spaceId] = history
-        return history
-    }
 
     /// Every permission ask, from every caller (a port's JS, a companion's tool use, the gateway),
     /// queued in one place and rendered once by `ShellView`. Replaces the old
@@ -411,21 +380,11 @@ public final class AppState: ObservableObject {
         return tools
     }
 
-    private var messageSink: AnyCancellable?
     private var typingSink: AnyCancellable?
     private var heartbeatTimer: Timer?
-    /// Short-lived dedup cache for sendMessageAsNamedAgent — prevents curl + capture both firing
-    private var recentAgentSends: [(key: String, timestamp: Date)] = []
 
     private var spaceObservation: AnyDatabaseCancellable?
-    private var messageObservation: AnyDatabaseCancellable?
-    /// SHELL multi-space chat: messages for spaces OTHER than the current one (open DM tiles), each
-    /// live-observed. `messages` stays the current space's; `messages(for:)` unifies the read.
-    @Published public var messagesBySpace: [String: [Message]] = [:]
-    private var extraMessageObservations: [String: AnyDatabaseCancellable] = [:]
-    private var unreadObservation: AnyDatabaseCancellable?
     private var agentSpacesObservation: AnyDatabaseCancellable?
-    private var senderCountsObservation: AnyDatabaseCancellable?
     private var observationDebounceTask: Task<Void, Never>?
     private var doorCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
@@ -497,9 +456,6 @@ public final class AppState: ObservableObject {
             let title: String
             if let explicit = bridge.title, !explicit.isEmpty {
                 title = explicit
-            } else if let msg = messages.first(where: { $0.id == mid }),
-                      let html = extractPortHtml(from: msg.content) {
-                title = PortPanel.extractTitle(from: html)
             } else {
                 title = "port"
             }
@@ -702,21 +658,6 @@ public final class AppState: ObservableObject {
     }
 
     private func setupPortEventObservers() {
-        // Push new messages to active ports
-        messageSink = $messages
-            .dropFirst()  // skip initial value
-            .removeDuplicates { $0.count == $1.count && $0.last?.id == $1.last?.id }
-            .sink { [weak self] msgs in
-                guard let self, let msg = msgs.last else { return }
-                self.pushEventToBridges(.message, data: .object([
-                    "id": .string(msg.id),
-                    "sender": .string(msg.senderName),
-                    "content": .string(msg.content),
-                    "timestamp": .string(ISO8601DateFormatter().string(from: msg.timestamp)),
-                    "isCompanion": .bool(msg.isAgent)
-                ]))
-            }
-
         // Heartbeat timer: ping active ports every 5s so they know push is alive
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -803,7 +744,6 @@ public final class AppState: ObservableObject {
             spaces = try db.getRegularSpaces()
             loadLastReadDates()   // restore ⌘K recency + unread-since-last-visit across restart (0.6)
             companions = try db.getAllAgents()
-            refreshActivityTimes()
             if let userId = currentUser?.id {
             }
 
@@ -1161,10 +1101,9 @@ public final class AppState: ObservableObject {
     /// Launch agents with staggered delays so companions respond at different rates
 
 
-    private func launchAgents(
+    func launchAgents(
         _ agents: [AgentConfig], spaceId: String, spaceAgentIds: Set<String>,
-        spaceMessages: [Message], triggerContent: String,
-        senderId: String, senderName: String
+        triggerContent: String, senderId: String, senderName: String, replyChat: String
     ) {
         for (index, agent) in agents.enumerated() {
             if !spaceAgentIds.contains(agent.id) {
@@ -1186,8 +1125,8 @@ public final class AppState: ObservableObject {
                 guard !agent.openInTerminal else { return }
 
                 // A headless command companion (NDJSON over stdio). Terminal companions returned above.
-                let handler = CommandAgentHandler(agent: agent, spaceId: spaceId, appState: self)
-                self.activeCommandHandlers[handler.messageId] = handler
+                let handler = CommandAgentHandler(agent: agent, spaceId: spaceId, replyChat: replyChat, appState: self)
+                self.activeCommandHandlers[handler.handlerId] = handler
                 handler.start(triggerContent: triggerContent, senderId: senderId, senderName: senderName)
             }
         }
@@ -1265,12 +1204,6 @@ public final class AppState: ObservableObject {
     }
 
 
-    /// The udid of a space's chat tile — the shell's focus target for that space. Exactly one
-    /// `isChatPort` panel exists per space (`ensureChatPort`).
-    public func chatPortUdid(forSpace spaceId: String) -> String? {
-        portWindows.panels.first { $0.isChatPort && $0.spaceId == spaceId }?.udid
-    }
-
     // MARK: - Spaces
 
 
@@ -1301,12 +1234,6 @@ public final class AppState: ObservableObject {
 
             // Now commit: clear stale content and load the real space. spaceCompanions is derived
             // (companions ∩ spaceAgentIds[currentSpace]) and updates reactively — no refresh here.
-            self.messages = []
-
-            // ValueObservation fires immediately from a background reader thread —
-            // no blocking main-thread DB read needed.
-            self.startMessageObservation(spaceId: space.id)
-            self.startUnreadObservation()
 
         }
     }
@@ -1453,261 +1380,6 @@ public final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Messages
-
-
-    /// Send a message to a specific space (or current space if nil). Routes to companions.
-    public func sendMessage(content: String, toSpaceId: String? = nil) {
-        guard let user = currentUser else { return }
-        let space: Space
-        if let targetId = toSpaceId {
-            // Resolve ANY space by id — `spaces` is getRegularSpaces() and EXCLUDES direct/DM spaces,
-            // so a DM/swim target must fall back to currentSpace (the DM you're in) or the full space
-            // list. Without this, sending in a DM silently no-ops.
-            if let ch = spaces.first(where: { $0.id == targetId })
-                ?? (currentSpace?.id == targetId ? currentSpace : nil)
-                ?? (try? db.getAllSpaces())?.first(where: { $0.id == targetId }) {
-                space = ch
-            } else { return }
-        } else {
-            guard let ch = currentSpace else { return }
-            space = ch
-        }
-
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        spaceErrors[space.id] = nil
-
-        let message = Message.create(
-            spaceId: space.id,
-            senderId: user.id,
-            senderName: user.displayName,
-            content: trimmed
-        )
-
-        do {
-            try db.saveMessage(message)
-            // Send to relay if connected
-            Analytics.shared.messageSent()
-        } catch {
-            print("[Port42] Failed to send message: \(error)")
-        }
-
-        // Route to agents via @mention detection + space membership
-        let isCurrentSpace = space.id == currentSpace?.id
-        let chCompanions = isCurrentSpace
-            ? spaceCompanions
-            : ((try? db.getAgentsForSpace(spaceId: space.id)) ?? [])
-        let chMessages = isCurrentSpace
-            ? messages
-            : ((try? db.getMessages(spaceId: space.id)) ?? [])
-        var spaceAgentIds = Set(chCompanions.map { $0.id })
-        let mentions = MentionParser.extractMentions(from: trimmed)
-
-        // Route @mentions to bridged terminals. In a direct (1:1 DM) space, an un-@'d
-        // message implicitly routes to that space's sole companion.
-        let implicitCompanion = space.type == "direct" ? chCompanions.first : nil
-        routeMentionsToTerminals(content: trimmed, senderName: user.displayName, spaceId: space.id, implicitCompanion: implicitCompanion)
-
-        // @mentioning a companion auto-adds them to the space
-        if !mentions.isEmpty {
-            let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName)
-            for agent in targets where !spaceAgentIds.contains(agent.id) {
-                addCompanionToSpace(agent, space: space)
-                spaceAgentIds.insert(agent.id)
-            }
-        }
-
-        let targets = AgentRouter.findTargetAgents(content: trimmed, agents: companions, spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName)
-        // Direct routing: every target launches. The LLM pre-router that picked who answers a
-        // message with no mention went with the in-app engine (nautilus Phase 1 step 3).
-        // Skip openInTerminal companions (driven + typing-tracked by routeMentionsToTerminals).
-        for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[space.id, default: []].insert(agent.displayName) }
-        launchAgents(
-            targets, spaceId: space.id, spaceAgentIds: spaceAgentIds,
-            spaceMessages: chMessages, triggerContent: trimmed,
-            senderId: user.id, senderName: user.displayName
-        )
-
-    }
-
-    /// Route a companion's response to other companions via the LLM router.
-    /// Applies AI-to-AI cooldown to prevent loops. Router decides who (if anyone) responds.
-    func routeCompanionResponse(content: String, senderId: String, senderName: String, spaceId: String) {
-        // A companion's @mention of a native terminal companion must reach that terminal too.
-        // User + synced messages route via routeMentionsToTerminals, but companion-originated
-        // messages did not — so e.g. an LLM companion @mentioning a terminal companion was
-        // silently dropped (never injected into its stdin).
-        routeMentionsToTerminals(content: content, senderName: senderName, spaceId: spaceId)
-
-        let spaceAgents = (try? db.getAgentsForSpace(spaceId: spaceId)) ?? []
-        let spaceAgentIds = Set(spaceAgents.map { $0.id })
-        let targets = AgentRouter.findTargetAgents(
-            content: content, agents: companions,
-            spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName
-        ).filter { $0.id != senderId }
-
-        guard !targets.isEmpty else { return }
-
-        // AI-to-AI cooldown — explicit @mentions bypass cooldown
-        let mentions = MentionParser.extractMentions(from: content)
-            .map { String($0.dropFirst()).lowercased() }
-        let now = Date()
-        let cooledTargets = targets.filter { agent in
-            // Explicit @mention bypasses cooldown
-            if mentions.contains(agent.displayName.lowercased()) {
-                agentAICooldowns["\(spaceId):\(agent.id)"] = now
-                return true
-            }
-            let key = "\(spaceId):\(agent.id)"
-            if let last = agentAICooldowns[key], now.timeIntervalSince(last) < aiCooldownInterval {
-                NSLog("[Port42] Cooldown: skipping %@ in companion chain (AI-to-AI, %ds ago)", agent.displayName, Int(now.timeIntervalSince(last)))
-                return false
-            }
-            agentAICooldowns[key] = now
-            return true
-        }
-        guard !cooledTargets.isEmpty else { return }
-
-        // Only the companions this reply @mentions are launched. The LLM pre-router that decided
-        // whether an unmentioned companion should answer went with the engine; launching every
-        // unmentioned companion instead would invite AI-to-AI loops, and the companion protocol
-        // already says an @mention is the only way to reach another companion.
-        let mentionedTargets = cooledTargets.filter { mentions.contains($0.displayName.lowercased()) }
-
-        let spaceMessages = (try? db.getMessages(spaceId: spaceId)) ?? []
-
-        if !mentionedTargets.isEmpty {
-            NSLog("[Router] Companion chain: %d explicitly mentioned by %@", mentionedTargets.count, senderName)
-            launchAgents(
-                mentionedTargets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-                spaceMessages: spaceMessages, triggerContent: content,
-                senderId: senderId, senderName: senderName
-            )
-        }
-
-    }
-
-    /// Send a message attributed to a companion (for port-originated messages).
-    /// Saves, syncs, and routes to other agents the same as a user message.
-    public func sendMessageAsCompanion(_ companion: AgentConfig, content: String, spaceId: String) {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let message = Message.create(
-            spaceId: spaceId,
-            senderId: companion.id,
-            senderName: companion.displayName,
-            content: trimmed,
-            senderType: "agent",
-            senderOwner: currentUser?.displayName
-        )
-        do {
-            try db.saveMessage(message)
-        } catch {
-            NSLog("[Port42] sendMessageAsCompanion failed: %@", error.localizedDescription)
-            return
-        }
-
-        // Route this companion's @mentions of native terminal companions into their stdin.
-        routeMentionsToTerminals(content: trimmed, senderName: companion.displayName, spaceId: spaceId)
-
-        let spaceAgentIds = Set(spaceCompanions.map { $0.id })
-        let targets = AgentRouter.findTargetAgents(
-            content: trimmed, agents: companions,
-            spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName
-        ).filter { $0.id != companion.id } // don't trigger the sender
-        // Skip openInTerminal companions: launchAgents drops them, so their typing would
-        // never clear (this was the cross-companion stuck-typing bug). routeMentionsToTerminals
-        // owns native terminal typing.
-        for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
-        launchAgents(
-            targets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-            spaceMessages: messages, triggerContent: trimmed,
-            senderId: companion.id, senderName: companion.displayName
-        )
-    }
-
-    /// Publish a message to a bus topic. Does not trigger companion chat routing.
-    /// Used by bus_publish tool and internal signalling. Bus messages are excluded from the chat view.
-    public func publishToBus(spaceId: String, topic: String, payload: String, senderName: String) {
-        guard let user = currentUser else { return }
-        let message = Message.create(
-            spaceId: spaceId,
-            senderId: user.id,
-            senderName: senderName,
-            content: payload,
-            senderType: "agent",
-            topic: topic
-        )
-        do {
-            try db.saveMessage(message)
-        } catch {
-            NSLog("[p42-state] publishToBus error: %@", error.localizedDescription)
-        }
-    }
-
-
-    /// Send a message attributed to a named external agent (HTTP CLI callers).
-    /// Uses the provided senderName as identity instead of the current user.
-    public func sendMessageAsNamedAgent(content: String, senderName: String, toSpaceId: String? = nil) {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            NSLog("[p42-state] sendMessageAsNamedAgent: DROPPED empty content from %@", senderName)
-            return
-        }
-        guard let spaceId = toSpaceId ?? currentSpace?.id,
-              spaces.first(where: { $0.id == spaceId }) != nil else {
-            NSLog("[p42-state] sendMessageAsNamedAgent: DROPPED — space not found. toSpaceId=%@ currentSpace=%@",
-                  toSpaceId ?? "nil", currentSpace?.id ?? "nil")
-            return
-        }
-        // Dedup: curl and capture can both fire for the same response within a few seconds
-        let dedupKey = "\(senderName):\(spaceId):\(trimmed.prefix(120))"
-        let now = Date()
-        recentAgentSends.removeAll { now.timeIntervalSince($0.timestamp) > 5 }
-        if recentAgentSends.contains(where: { $0.key == dedupKey }) {
-            NSLog("[p42-state] sendMessageAsNamedAgent: DEDUPED sender=%@ preview=\"%@\"",
-                  senderName, String(trimmed.prefix(80)))
-            return
-        }
-        recentAgentSends.append((key: dedupKey, timestamp: now))
-        NSLog("[p42-state] sendMessageAsNamedAgent: sender=%@ space=%@ len=%d preview=\"%@\"",
-              senderName, spaceId, trimmed.count,
-              String(trimmed.prefix(80)).replacingOccurrences(of: "\n", with: "↵"))
-        let agentId = "cli-agent-\(senderName.lowercased().replacingOccurrences(of: " ", with: "-"))"
-        let message = Message.create(
-            spaceId: spaceId,
-            senderId: agentId,
-            senderName: senderName,
-            content: trimmed,
-            senderType: "agent",
-            senderOwner: currentUser?.displayName
-        )
-        do {
-            try db.saveMessage(message)
-        } catch {
-            NSLog("[Port42] sendMessageAsNamedAgent failed: %@", error.localizedDescription)
-            return
-        }
-        // Route this agent's @mentions of native terminal companions into their stdin.
-        routeMentionsToTerminals(content: trimmed, senderName: senderName, spaceId: spaceId)
-
-        let spaceAgentIds = Set(spaceCompanions.map { $0.id })
-        let targets = AgentRouter.findTargetAgents(
-            content: trimmed, agents: companions,
-            spaceAgentIds: spaceAgentIds, localOwner: currentUser?.displayName
-        )
-        // Skip openInTerminal companions (launchAgents drops them → typing never clears).
-        for agent in targets where !agent.openInTerminal { typingAgentNamesBySpace[spaceId, default: []].insert(agent.displayName) }
-        launchAgents(
-            targets, spaceId: spaceId, spaceAgentIds: spaceAgentIds,
-            spaceMessages: messages, triggerContent: trimmed,
-            senderId: agentId, senderName: senderName
-        )
-    }
-
     // MARK: - Companions
 
     public func addCompanion(_ companion: AgentConfig) {
@@ -1811,11 +1483,13 @@ public final class AppState: ObservableObject {
                 catch { NSLog("[chat] reply to %@ failed: %@", chat, error.localizedDescription) }
                 return
             }
-            if let companion {
-                self.sendMessageAsCompanion(companion, content: content, spaceId: config.spaceId)
-            } else {
-                self.sendMessageAsNamedAgent(content: content, senderName: config.companionName, toSpaceId: config.spaceId)
-            }
+            // Not asked from a chat (typed straight into the terminal, or a queued ask): the reply
+            // goes to the space's own chat.
+            let who: Principal = companion.map {
+                .companion(id: $0.id, displayName: $0.displayName, spaceId: config.spaceId)
+            } ?? .peer(id: terminalClientId, displayName: config.companionName, spaceId: config.spaceId)
+            do { try self.postToChat(key: config.spaceId, text: content, from: who) }
+            catch { NSLog("[chat] reply to space %@ failed: %@", config.spaceId, error.localizedDescription) }
         }
         // Drain any messages queued while this terminal was (re)spawning, keyed by companion name.
         let drainKey = config.companionName.lowercased()
@@ -2022,7 +1696,7 @@ public final class AppState: ObservableObject {
         // authenticate it.
         let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). "
             + CompanionProtocol.rules
-            + " POSTING ON YOUR OWN INITIATIVE: to send a NEW message to the space when you are NOT replying (e.g. to share an update or raise something proactively), post it explicitly with curl: curl -s http://127.0.0.1:\(gwPort)/call -H \"Authorization: Bearer $(cat \\\"$PORT42_TOKEN_FILE\\\")\" -d '{\"method\":\"messages.send\",\"args\":{\"text\":\"your message\",\"senderName\":\"\(name)\",\"space_id\":\"\(spaceId)\"}}' — only for self-initiated messages, never to deliver a reply. EVERY Port42 call needs that header: $PORT42_TOKEN_FILE is the path to YOUR OWN token, and $PORT42_CLIENT_ID is the name Port42 knows you by. Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
+            + " POSTING ON YOUR OWN INITIATIVE: to post a NEW message when you are NOT replying (e.g. to share an update or raise something proactively), post it to the space's chat with curl: curl -s http://127.0.0.1:\(gwPort)/call -H \"Authorization: Bearer $(cat \\\"$PORT42_TOKEN_FILE\\\")\" -d '{\"method\":\"chat.post\",\"args\":{\"port\":\"\(spaceId)\",\"text\":\"your message\"}}' — it is posted as you. Only for self-initiated messages, never to deliver a reply. EVERY Port42 call needs that header: $PORT42_TOKEN_FILE is the path to YOUR OWN token, and $PORT42_CLIENT_ID is the name Port42 knows you by. Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
         let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
@@ -2211,29 +1885,7 @@ public final class AppState: ObservableObject {
                 systemPrompt: systemPrompt, env: env, initialInput: initialInput) else {
                 return ["error": "failed to spawn terminal port"]
             }
-            // The terminal lives as a desktop tile; leave its handle in chat so the conversation has
-            // a trace + a way back to it (generic across every surface-type port). Only when there's a
-            // conversational author — an internal create (e.g. a background-port restore) passes nil
-            // and must not spam a card.
-            if createdBy != nil {
-                postPortCard(kind: .terminal, id: portId, title: resolvedTitle, spaceId: spaceId,
-                             createdBy: createdBy, createdByName: createdByName)
-            }
             return ["id": portId, "title": resolvedTitle]
-
-        case .ok(.chat):
-            // REVEAL, not create. One chat per space, so this is idempotent: it returns the existing
-            // chat port, brings it back from parked or popped-out, and recreates it only if it was
-            // deleted outright. The dock's chat button does exactly this; until now nothing else
-            // could. A DM is a space, so a DM's `space_id` reveals that conversation.
-            guard let space = spaces.first(where: { $0.id == spaceId }) else {
-                return ["error": "port.create type:\"chat\" needs a real space_id"]
-            }
-            portWindows.revealChat(spaceId: space.id, spaceName: space.name)
-            guard let panel = portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == space.id }) else {
-                return ["error": "failed to reveal chat port"]
-            }
-            return ["id": panel.id, "title": panel.title]
 
         case .ok(.browser(let url)):
             // A browser port is always a TILE: it carries its own chrome (address bar, back/forward)
@@ -2243,132 +1895,18 @@ public final class AppState: ObservableObject {
                                                       createdBy: createdBy, title: resolvedTitle,
                                                       size: size)
             guard !id.isEmpty else { return ["error": "failed to create browser port"] }
-            if createdBy != nil {
-                postPortCard(kind: .web, id: id, title: resolvedTitle, spaceId: spaceId,
-                             createdBy: createdBy, createdByName: createdByName)
-            }
             return ["id": id, "title": resolvedTitle]
 
         case .ok(.web(let html)):
             let resolvedTitle = (title?.isEmpty == false ? title! : PortPanel.extractTitle(from: html))
-            // SHELL — S2.2: a tiled web port is a desktop tile (registry-owned webview composited on
-            // the shell desktop), not a chat message. arrange() picks the spot when position is nil.
-            if presentation == "tiled" {
-                let id = UUID().uuidString
-                _ = portWindows.registerTiledPort(id: id, html: html, spaceId: spaceId,
-                                                  createdBy: createdBy, title: resolvedTitle,
-                                                  position: position, size: size)
-                // Same as terminals: a tiled web port lives on the desktop, so leave its card in chat
-                // (only for a conversational author — an internal restore passes nil, no card).
-                if createdBy != nil {
-                    postPortCard(kind: .web, id: id, title: resolvedTitle, spaceId: spaceId,
-                                 createdBy: createdBy, createdByName: createdByName)
-                }
-                return ["id": id, "title": resolvedTitle]
-            }
-            // Otherwise a web port renders INLINE in chat and AUTO-PLAYS on creation. The inline
-            // view's titlebar carries play / stop / source / pop-out; pop-out re-parents to a
-            // floating window (Step 8) with no reload.
-            let id = postInlineWebPort(html: html, title: resolvedTitle, spaceId: spaceId,
-                                       createdBy: createdBy, createdByName: createdByName)
-            pendingPortActivationId = id   // activate immediately → it plays inline, not a collapsed card
+            // A web port is a port on the desktop (the inline chat card went with D11). arrange()
+            // picks the spot when position is nil; "parked" puts it in the rail.
+            let id = UUID().uuidString
+            _ = portWindows.registerTiledPort(id: id, html: html, spaceId: spaceId,
+                                              createdBy: createdBy, title: resolvedTitle,
+                                              position: position, size: size)
+            if presentation == "parked" { portWindows.park(id: id) }
             return ["id": id, "title": resolvedTitle]
-        }
-    }
-
-    /// The inline `[port:id]` card's play action (Step 8): focus the live floating window, restore
-    /// it if backgrounded. Mirror of `openTerminalPort` for web ports. (A web port's HTML lives in
-    /// the persisted panel, so after restart the restored panel is brought to front.)
-    func openWebPort(id: String) {
-        guard let panel = portWindows.panels.first(where: { $0.id == id || $0.udid == id }) else {
-            NSLog("[Port42] openWebPort: no panel for %@", id)
-            return
-        }
-        if panel.isBackground {
-            portWindows.restore(panel.id)
-        } else {
-            portWindows.bringToFront(panel.id)
-        }
-    }
-
-    /// Post an inline web port into the space: a `` ```port `` fenced message the chat renders as a
-    /// live inline port (its bridge registers when the view appears, keyed by this message id — the
-    /// same id `inlinePorts()` reports). Synced like a normal companion message so peers see it.
-    /// Returns the message id, which is the inline port's id.
-    func postInlineWebPort(html: String, title: String, spaceId: String,
-                           createdBy: String?, createdByName: String?) -> String {
-        let id = UUID().uuidString
-        let name = createdByName ?? createdBy ?? currentUser?.displayName ?? "port42"
-        let msg = Message(
-            id: id, spaceId: spaceId,
-            senderId: createdBy ?? currentUser?.id ?? "",
-            senderName: name, senderType: "agent",
-            content: "```port\n\(html)\n```",
-            timestamp: Date(), replyToId: nil, syncStatus: "sent", createdAt: Date()
-        )
-        try? db.saveMessage(msg)
-        return id
-    }
-
-    /// Post the in-chat reference card for a newly created port: `[portref:<kind>:<id>:<title>]`.
-    /// Every port type that lives as a surface (terminal, browser, video, tiled web, …) leaves this
-    /// one handle in the conversation, so chat always has a trace and a way back to the port. A
-    /// live-inline web port is the exception — it renders itself inline and needs no card.
-    func postPortCard(kind: PortCardKind, id: String, title: String, spaceId: String,
-                      createdBy: String?, createdByName: String?) {
-        let name = createdByName ?? createdBy ?? currentUser?.displayName ?? "port42"
-        let msg = Message(
-            id: UUID().uuidString, spaceId: spaceId,
-            senderId: createdBy ?? currentUser?.id ?? "",
-            senderName: name, senderType: "agent",
-            content: ChatEntry.portRefCard(kind: kind, id: id, title: title),
-            timestamp: Date(), replyToId: nil, syncStatus: "sent", createdAt: Date()
-        )
-        try? db.saveMessage(msg)
-    }
-
-    /// A chat port card's open action: take the user into open water (their space) and surface the
-    /// port, dispatching by kind. Terminals and web ports have bespoke openers; any other kind brings
-    /// its registered surface to front. Mirrors the pop-out → open-water gesture.
-    func openPort(id: String, kind: PortCardKind) {
-        shell?.enterOpenWater()
-        switch kind {
-        case .terminal:
-            openTerminalPort(id: id)
-        case .web:
-            openWebPort(id: id)
-        default:
-            if let panel = portWindows.panels.first(where: { $0.id == id || $0.udid == id }) {
-                if panel.isBackground { portWindows.restore(panel.id) } else { portWindows.bringToFront(panel.id) }
-            }
-        }
-    }
-
-    /// The inline terminal card's play action (Step 5b): focus the live window, restore it if
-    /// backgrounded, or respawn it (same command/cwd/space) if it was closed.
-    func openTerminalPort(id: String) {
-        let liveId = terminalLiveIds[id] ?? id
-        if let panel = portWindows.panels.first(where: { $0.id == liveId }) {
-            if panel.isBackground { portWindows.restore(liveId) } else { portWindows.bringToFront(liveId) }
-            return
-        }
-        // Window was closed → respawn from the recorded params, keeping the same card key.
-        if let rec = terminalSpawnRecords[id] {
-            _ = spawnNativeTerminalPort(
-                command: rec.command, args: rec.args, cwd: rec.cwd, spaceId: rec.spaceId,
-                title: rec.title, companionName: rec.companionName, systemPrompt: rec.systemPrompt,
-                env: rec.env, recordKey: id, postCard: false)
-            return
-        }
-        // Fallback (e.g. after app restart): restore the persisted panel under its original id.
-        guard let panel = portWindows.panels.first(where: { $0.id == id }) else {
-            NSLog("[Port42] openTerminalPort: no live window or spawn record for %@", id)
-            return
-        }
-        if panel.isBackground {
-            portWindows.restore(id)
-        } else {
-            portWindows.bringToFront(id)
         }
     }
 
@@ -2416,8 +1954,6 @@ public final class AppState: ObservableObject {
             print("[Port42] joinCompanionToSpace failed: \(error)")
             return
         }
-        guard !wasMember else { return }
-        postCompanionMembershipMessage(name: companion.displayName, spaceId: spaceId, content: "\(companion.displayName) joined the space")
     }
 
     /// The mirror of joinCompanionToSpace: drop a companion's membership, refresh the crew, and
@@ -2433,20 +1969,6 @@ public final class AppState: ObservableObject {
             print("[Port42] leaveCompanionFromSpace failed: \(error)")
             return
         }
-        guard wasMember else { return }
-        postCompanionMembershipMessage(name: companion.displayName, spaceId: spaceId, content: "\(companion.displayName) left the space")
-    }
-
-    /// Post a `system` membership message (joined/left) into a space.
-    private func postCompanionMembershipMessage(name: String, spaceId: String, content: String) {
-        let now = Date()
-        let msg = Message(
-            id: UUID().uuidString, spaceId: spaceId,
-            senderId: "cli-agent-\(name.lowercased())",
-            senderName: name, senderType: "system",
-            content: content,
-            timestamp: now, replyToId: nil, syncStatus: "sent", createdAt: now)
-        try? db.saveMessage(msg)
     }
 
     public func addCompanionToSpace(_ companion: AgentConfig, space: Space) {
@@ -2548,22 +2070,16 @@ public final class AppState: ObservableObject {
         currentSpace = nil
         currentUser = nil
         spaces = []
-        messages = []
         companions = []   // spaceCompanions (derived) empties with it
         drafts = [:]
-        unreadCounts = [:]
         lastReadDates = [:]
         UserDefaults.standard.removeObject(forKey: Self.lastReadDatesKey)   // recency is per-user (0.6)
         spaceAgentIds = [:]
-        spaceSenderCounts = [:]
         isSetupComplete = false
         showDreamscape = true
 
         spaceObservation?.cancel()
-        messageObservation?.cancel()
-        unreadObservation?.cancel()
         agentSpacesObservation?.cancel()
-        senderCountsObservation?.cancel()
 
 
         do {
@@ -2599,39 +2115,6 @@ public final class AppState: ObservableObject {
                 self?.refreshSpaceCompanions()   // membership changed (incl. remote) → keep crew fresh
             }
         }
-        senderCountsObservation = db.observeSenderCounts { [weak self] counts in
-            Task { @MainActor in
-                self?.spaceSenderCounts = counts
-            }
-        }
-    }
-
-    private func startMessageObservation(spaceId: String) {
-        messageObservation?.cancel()
-        messageObservation = db.observeMessages(spaceId: spaceId, topic: "chat") { [weak self] dbMessages in
-            Task { @MainActor in
-                guard let self else { return }
-                self.messages = dbMessages
-                // Update cached activity time for this space
-                if let last = dbMessages.last(where: { $0.senderType != "system" }) {
-                    self.lastActivityTimes[spaceId] = last.timestamp
-                }
-            }
-        }
-    }
-
-    // MARK: - SHELL multi-space chat (B)
-    //
-    // The shell surfaces several chat tiles at once — the current space's chat plus any open DMs —
-    // each a live conversation in its OWN space. The current space streams through `messages`; every
-    // other surfaced space streams through `messagesBySpace`, one observation apiece. `messages(for:)`
-    // gives views a single read that works regardless of which bucket a space lives in.
-
-    /// Live read for a space's chat, current or backgrounded. Views pass their own `spaceId`.
-    public func messages(for spaceId: String?) -> [Message] {
-        guard let sid = spaceId else { return [] }
-        if sid == currentSpace?.id { return messages }
-        return messagesBySpace[sid] ?? []
     }
 
     /// The companions in a given space, current or not (reactive via `spaceAgentIds` + `companions`).
@@ -2641,75 +2124,4 @@ public final class AppState: ObservableObject {
         let ids = spaceAgentIds[sid] ?? []
         return companions.filter { ids.contains($0.id) }
     }
-
-
-    /// Begin observing a NON-current space's chat into `messagesBySpace` (idempotent).
-    public func activateSpaceMessages(spaceId: String) {
-        guard spaceId != currentSpace?.id, extraMessageObservations[spaceId] == nil else { return }
-        messagesBySpace[spaceId] = (try? db.getMessages(spaceId: spaceId, topic: "chat")) ?? []
-        extraMessageObservations[spaceId] = db.observeMessages(spaceId: spaceId, topic: "chat") { [weak self] dbMessages in
-            Task { @MainActor in
-                guard let self else { return }
-                self.messagesBySpace[spaceId] = dbMessages
-                if let last = dbMessages.last(where: { $0.senderType != "system" }) {
-                    self.lastActivityTimes[spaceId] = last.timestamp
-                }
-            }
-        }
-    }
-
-    /// Stop observing a backgrounded space and drop its cache (call when a DM tile closes).
-    public func deactivateSpaceMessages(spaceId: String) {
-        extraMessageObservations[spaceId]?.cancel()
-        extraMessageObservations.removeValue(forKey: spaceId)
-        messagesBySpace.removeValue(forKey: spaceId)
-    }
-
-    /// Resolve/create a companion's DM space and start streaming it — WITHOUT switching the current
-    /// space. Returns the direct space so the shell can surface its chat port as a tile. Unlike
-    /// `startSwim`, this leaves `currentSpace` (and its chat tile) exactly where it is.
-    @discardableResult
-    public func openDMSpace(with companion: AgentConfig) -> Space? {
-        guard let directSpace = try? db.getOrCreateDirectSpace(companion: companion) else {
-            print("[Port42] Failed to open DM space for \(companion.displayName)")
-            return nil
-        }
-        spaces = (try? db.getRegularSpaces()) ?? spaces
-        activateSpaceMessages(spaceId: directSpace.id)
-        return directSpace
-    }
-
-    /// Refresh cached last-activity times for all spaces and companion swim spaces.
-    private func refreshActivityTimes() {
-        let allSpaces = try? db.getAllSpaces()
-        let allCompanions = companions
-        Task { @MainActor in
-            var times: [String: Date] = self.lastActivityTimes
-            for space in allSpaces ?? [] {
-                if let t = try? self.db.getLastMessageTime(spaceId: space.id) {
-                    times[space.id] = t
-                }
-            }
-            for companion in allCompanions {
-                if let dmId = (try? self.db.directSpaceId(companionId: companion.id)) ?? nil,
-                   let t = try? self.db.getLastMessageTime(spaceId: dmId) {
-                    times[dmId] = t
-                }
-            }
-            self.lastActivityTimes = times
-        }
-    }
-
-    private func startUnreadObservation() {
-        unreadObservation?.cancel()
-        unreadObservation = db.observeUnreadCounts(
-            excludingSpaceId: currentSpace?.id,
-            since: lastReadDates
-        ) { [weak self] counts in
-            Task { @MainActor in
-                self?.unreadCounts = counts
-            }
-        }
-    }
 }
-

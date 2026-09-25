@@ -3,10 +3,10 @@ import AppKit
 import WebKit
 
 /// SHELL — S2.2b. The real shell desktop that replaces `ContentView` at the space rung: a Chrome
-/// top bar (§7a) + a grid of tiled ports (the chat is a tile) composited over the dreamscape, plus
+/// top bar (§7a) + a grid of tiled ports composited over the dreamscape, plus
 /// a bottom launcher dock. Every port is ONE persistent unit (Port Units, plan §3): tile / peek /
 /// focus are geometry states of the same mounted view — no reparenting, no focus overlay.
-/// Chat is a real `isChatPort` PortPanel rendered as an ordinary tile (no special-casing).
+/// Every port carries its own chat, opened from its title bar; the space's is in the top bar.
 
 // MARK: - Chrome (Layer 2 top bar, §7a)
 
@@ -35,6 +35,18 @@ struct ShellChrome: View {
                 .frame(height: 26)
             }
             .buttonStyle(.plain).help("All spaces (⌘↑ / pinch out)")
+
+            // The space's own chat: a space is a port, so it carries the same companion bar.
+            if let sid = appState.currentSpace?.id {
+                chromeRow {
+                    PortChatBar(chats: appState.chats, key: sid, me: appState.currentUser?.id,
+                                accent: shell.accent, open: shell.spaceChatOpen) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { shell.spaceChatOpen.toggle() }
+                    }
+                }
+                .onAppear { appState.chats.load(sid, from: appState.db) }
+                .onChange(of: sid) { _, new in appState.chats.load(new, from: appState.db) }
+            }
 
             chromeButton("rectangle.3.group", "Arrange (⌘L)") { shell.bumpArrange("chrome-arrange-button") }
             // New Space lives in the galaxy now (spaces are the galaxy's business), not the Chrome.
@@ -154,6 +166,7 @@ struct ShellDesktopView: View {
         return nil
     }
 
+
     var body: some View {
         GeometryReader { geo in
             // Each tile places itself with `.position` (which sets a real layout frame, so its
@@ -254,8 +267,7 @@ struct ShellDesktopView: View {
             .onChange(of: appState.currentSpace?.id) { old, new in
                 ArrangeLog.note("desktop.spaceChanged",
                                 "from=\(ShellState.shortId(old ?? "-")) to=\(ShellState.shortId(new ?? "-"))")
-                shell.clearOpenDMs()                                                       // DMs are per-desktop
-                if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }         // chat → visible tile
+                shell.clearOpenDMs()                                                       // peeks are per-desktop
                 shell.placeUnpositioned(area: geo.size)    // an unplaced tile on the arriving desktop
             }
             .onChange(of: tiledPanels.count) { old, new in
@@ -309,7 +321,6 @@ struct ShellDesktopView: View {
     /// Seed the grid on first entry into a space (nothing positioned yet). Hand-tuned layouts that
     /// come back from the DB with positions are left exactly as-is (arrange only re-grids on spawn/⌘L).
     private func seedIfNeeded(area: CGSize) {
-        if let sid { appState.portWindows.ensureChatTiled(spaceId: sid) }      // chat → visible tile
         let unpositioned = tiledPanels.filter { $0.position(on: sid) == nil }
         if !unpositioned.isEmpty {                                             // never-positioned ports →
             ArrangeLog.note("seedIfNeeded.placing",
@@ -358,12 +369,8 @@ struct ShellTile: View {
     /// The port's chat is slid down from its companion bar.
     @State private var chatOpen = false
 
-    /// The key this port's chat is filed under (`PortRef.key`: the udid). The old native chat tile has
-    /// no port chat; it is the thing this replaces (design-chat-port.md, build step 4).
-    private var chatKey: String? {
-        guard let p = tile.panel, !p.isChatPort else { return nil }
-        return p.udid
-    }
+    /// The key this port's chat is filed under (`PortRef.key`: the udid).
+    private var chatKey: String? { tile.panel?.udid }
     /// Height the open chat takes from the port body.
     private var chatPanelH: CGFloat {
         guard chatOpen, chatKey != nil, !isPeeking else { return 0 }
@@ -375,7 +382,7 @@ struct ShellTile: View {
     /// and chat is native, not authored.
     private var isEditablePort: Bool {
         guard let p = tile.panel else { return false }
-        return p.portType == "web" && !p.isChatPort
+        return p.portType == "web"
     }
 
     /// The version history, as a picker. Every version is already kept forever in `port_versions`;
@@ -422,22 +429,6 @@ struct ShellTile: View {
         guard let s = tile.panel?.spaceId, s != sid,
               let space = appState.spaces.first(where: { $0.id == s }) else { return shell.accent }
         return shell.accent(for: space)
-    }
-
-    /// The DM partner when this tile is a surfaced DIRECT-message chat (else nil). A notification can
-    /// also surface a regular space's chat through the same set, so require an actual direct space —
-    /// direct spaces are excluded from `appState.spaces` (getRegularSpaces).
-    private var dmTileCompanion: AgentConfig? {
-        guard tile.panel?.isChatPort == true, let s = tile.panel?.spaceId,
-              shell.openDMSpaceIds.contains(s),
-              !appState.spaces.contains(where: { $0.id == s }) else { return nil }
-        return appState.companions(forSpace: s).first
-    }
-    /// A surfaced REGULAR space's chat (from a notification) → show the space name, not "chat".
-    private var surfacedSpaceTitle: String? {
-        guard tile.panel?.isChatPort == true, let s = tile.panel?.spaceId,
-              s != appState.currentSpace?.id else { return nil }
-        return appState.spaces.first(where: { $0.id == s })?.name
     }
 
     /// The tile's live frame = its committed frame plus an in-progress move OR corner-resize.
@@ -516,13 +507,7 @@ struct ShellTile: View {
             }
             // The body stays mounted through peek/tile/focus: state changes only resize this
             // SAME view — no placeholder, no second mount, the webview never detaches.
-            Group {
-                if let peek, peek.isChat, tile.panel == nil {
-                    ChatView(spaceId: peek.spaceId).environmentObject(appState)   // chat peek, live miniature
-                } else {
-                    ShellTileBody(shell: shell, appState: appState, tile: tile)
-                }
-            }
+            ShellTileBody(shell: shell, appState: appState, tile: tile)
             .frame(width: liveSize.width, height: max(0, liveSize.height - headerH - chatPanelH))
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
@@ -586,15 +571,8 @@ struct ShellTile: View {
         HStack(spacing: 8) {
             // Drag handle = dot + title + trailing gap; scoped so the focus/close buttons still tap.
             HStack(spacing: 8) {
-                if let dm = dmTileCompanion {                                    // DM tile → partner's swatch + name
-                    Circle().fill(ShellDock.avatarColor(dm.id).gradient).frame(width: 7, height: 7)
-                    Text(dm.displayName).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                    Text("· DM").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
-                } else {
-                    Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
-                    Text(surfacedSpaceTitle ?? tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                    if surfacedSpaceTitle != nil { Text("· from").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary) }
-                }
+                Circle().fill(isFocused ? Port42Theme.textSecondary : tileAccent).frame(width: 7, height: 7)
+                Text(tile.title).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
                 // PRESENCE (L2, demoted from right-of-way by R1): someone ELSE drove this port most
                 // recently. Silent when it is you — the chrome speaks only when there is contention.
                 //
@@ -696,7 +674,7 @@ struct ShellTile: View {
     private func peekHeader(_ p: ShellState.PeekPort) -> some View {
         let col = peekAccent(p)
         return HStack(spacing: 6) {
-            Image(systemName: p.isChat ? "bubble.left.fill" : "square.stack.3d.up")
+            Image(systemName: "square.stack.3d.up")
                 .font(.system(size: 9)).foregroundStyle(col)
             Text(p.title).font(Port42Theme.monoBold(9)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
             Text("· \(p.spaceName)").font(Port42Theme.mono(8)).foregroundStyle(col.opacity(0.85)).lineLimit(1)
@@ -746,11 +724,6 @@ struct ShellTile: View {
                 if isPeeking, let peek, let pf = peekFrame {
                     guard hypot(v.translation.width, v.translation.height) > 40 else { return }   // a wiggle isn't a keep
                     if railZone(at: v.location) == .close { shell.dismissPeek(peek); return }
-                    if peek.isChat {                                     // chat adopts via surface, not panel adoption
-                        shell.dismissPeek(peek)
-                        shell.surfaceSpaceChat(spaceId: peek.spaceId, spaceName: peek.spaceName)
-                        return
-                    }
                     shell.keepPeek(peek, arrange: false)
                     commit(origin: CGPoint(x: pf.minX + v.translation.width, y: pf.minY + v.translation.height),
                            size: tile.panel?.size ?? pf.size)
@@ -850,9 +823,8 @@ struct ShellParkRail: View {
     /// (Phase 2): a port here is tiled, parked, or peeking. One click restores a chip to a tile.
     private var railPanels: [PortPanel] {
         guard let sid = appState.currentSpace?.id else { return [] }
-        let allowed = Set([sid] + shell.openDMSpaceIds)              // parked DM tiles dock here too
         return appState.portWindows.panels.filter {
-            allowed.contains($0.spaceId ?? "") && $0.presentation == "parked"
+            $0.spaceId == sid && $0.presentation == "parked"
         }
     }
 
@@ -912,19 +884,14 @@ struct ShellParkRail: View {
     }
 }
 
-/// A tile's live body: the chat surface (with a member header), or a tiled port's re-parented webview.
+/// A port's live body: its re-parented web, browser or terminal view.
 struct ShellTileBody: View {
     @ObservedObject var shell: ShellState
     @ObservedObject var appState: AppState
     let tile: ShellTileModel
 
     var body: some View {
-        if tile.panel?.isChatPort == true {                             // the chat panel: ChatView + a hover member strip
-            ZStack(alignment: .top) {
-                ChatView(spaceId: tile.panel?.spaceId).environmentObject(appState).padding(.top, 26)   // its OWN space
-                ShellMemberRow(shell: shell, appState: appState, accent: shell.accent, spaceId: tile.panel?.spaceId)
-            }
-        } else if let panel = tile.panel, panel.portType == "browser",
+        if let panel = tile.panel, panel.portType == "browser",
                   let wv = appState.portWindows.hostView(for: panel.id) as? WKWebView {
             ShellBrowserTile(webView: wv, accent: shell.accent, initialURL: panel.html,
                              probeId: panel.id,
@@ -1128,15 +1095,9 @@ struct ShellDock: View {
         return ShellState.palette[h % ShellState.palette.count]
     }
 
-    /// Chat: bring this space's chat tile back to the desktop (from parked / popped-out / closed).
+    /// Chat: the space's own chat, dropped down from the top bar.
     private func openChat() {
-        guard let s = appState.currentSpace else { return }
-        appState.portWindows.revealChat(spaceId: s.id, spaceName: s.name)
-        // Frontmost + select the chat tile — revealChat only flips presentation, so without this the
-        // chat comes back under whatever was focused since.
-        if let panel = appState.portWindows.panels.first(where: { $0.isChatPort && $0.spaceId == s.id }) {
-            shell.bringToFront(panel.id)
-        }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { shell.spaceChatOpen.toggle() }
     }
 
     /// Dock "Terminal" → a real plain-shell terminal port. In the shell it's a tile (hoisted Ghostty
@@ -1165,131 +1126,6 @@ struct ShellDock: View {
                                                        createdBy: nil, title: "browser")
     }
 }
-
-// MARK: - Chat member row (you + the space's companions, with live status)
-
-/// The chat tile's members — a THIN strip at rest (overlapping avatars + count, a pulse if anyone's
-/// thinking); **hover expands** it into the full list (you + companions, each with status). It's an
-/// overlay, so it doesn't permanently eat chat space. Click a companion → its 1:1 DM.
-struct ShellMemberRow: View {
-    @ObservedObject var shell: ShellState
-    @ObservedObject var appState: AppState
-    let accent: Color
-    /// Which space's members to show — nil means the current space (the group chat tile). DM tiles
-    /// pass their own space id so each chat window shows its OWN crew.
-    var spaceId: String? = nil
-    @State private var expanded = false
-    @State private var hoveredId: String?
-    @State private var hoverGen = 0     // hysteresis token so a brief exit doesn't flap the expansion
-
-    private var members: [AgentConfig] { appState.companions(forSpace: spaceId ?? appState.currentSpace?.id) }
-
-    var body: some View {
-        let sid = spaceId ?? appState.currentSpace?.id ?? ""
-        let thinking = appState.typingAgentNamesBySpace[sid] ?? []
-        VStack(spacing: 0) {
-            collapsedStrip(anyThinking: !thinking.isEmpty)
-            if expanded { fullList(thinking: thinking) }
-        }
-        .onHover { hovering in
-            hoverGen += 1
-            if hovering {
-                expanded = true
-            } else {
-                // Collapse after a short grace window; a fast sweep that clips the titlebar seam and
-                // comes back cancels it (newer hoverGen), so the list neither flaps nor sticks open.
-                let gen = hoverGen
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-                    if gen == hoverGen { expanded = false }
-                }
-            }
-        }
-        .animation(.easeOut(duration: 0.14), value: expanded)
-    }
-
-    private func collapsedStrip(anyThinking: Bool) -> some View {
-        HStack(spacing: 8) {
-            HStack(spacing: -6) {                                        // overlapping avatars
-                ForEach(members.prefix(5)) { c in
-                    Circle().fill(ShellDock.avatarColor(c.id).gradient).frame(width: 15, height: 15)
-                        .overlay(Text(initials(c.displayName)).font(.system(size: 6, weight: .bold)).foregroundStyle(.white))
-                        .overlay(Circle().stroke(Color.black.opacity(0.5), lineWidth: 1))
-                }
-            }
-            Text("\(members.count) + you").font(Port42Theme.mono(9)).foregroundStyle(Port42Theme.textSecondary)
-            Spacer(minLength: 6)
-            if anyThinking { statusDot(thinking: true); Text("thinking").font(Port42Theme.mono(8)).foregroundStyle(accent) }
-            Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 7)).foregroundStyle(Port42Theme.textSecondary.opacity(0.6))
-        }
-        .padding(.horizontal, 10).frame(height: 26)
-        .background(Color.black.opacity(0.35))
-        .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
-    }
-
-    private func fullList(thinking: Set<String>) -> some View {
-        VStack(spacing: 2) {
-            memberRow(color: Port42Theme.textSecondary, name: appState.currentUser?.displayName ?? "you",
-                      thinking: false, companion: nil)
-            ForEach(members) { c in
-                memberRow(color: ShellDock.avatarColor(c.id), name: c.displayName,
-                          thinking: thinking.contains(c.displayName), companion: c)
-            }
-        }
-        .padding(.vertical, 6).padding(.horizontal, 6)
-        .background(Color(red: 0.05, green: 0.06, blue: 0.08))
-        .overlay(Rectangle().fill(accent.opacity(0.15)).frame(height: 1), alignment: .bottom)
-        .transition(.opacity)   // fade only — a move-from-top slid the list up into the titlebar (glitch)
-    }
-
-    private func memberRow(color: Color, name: String, thinking: Bool, companion: AgentConfig?) -> some View {
-        let isYou = companion == nil
-        let hot = companion.map { hoveredId == $0.id } ?? false
-        return HStack(spacing: 8) {
-            Circle().fill(isYou ? AnyShapeStyle(color.opacity(0.5)) : AnyShapeStyle(color.gradient))
-                .frame(width: 20, height: 20)
-                .overlay(Text(initials(name)).font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
-            Text(name).font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary).lineLimit(1)
-            if isYou { Text("you").font(Port42Theme.mono(8)).foregroundStyle(Port42Theme.textSecondary) }
-            Spacer(minLength: 6)
-            if companion != nil { statusView(thinking: thinking) }
-            if hot, companion != nil {
-                Image(systemName: "bubble.left").font(.system(size: 9)).foregroundStyle(accent)   // → DM hint
-            }
-        }
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 7).fill(hot ? Color.white.opacity(0.06) : .clear))
-        .contentShape(Rectangle())
-        .onHover { h in if let c = companion { hoveredId = h ? c.id : (hoveredId == c.id ? nil : hoveredId) } }
-        .onTapGesture { if let c = companion { shell.activateCompanion(c) } }   // CLI → terminal, else DM
-    }
-
-    @ViewBuilder private func statusView(thinking: Bool) -> some View {
-        if thinking {
-            HStack(spacing: 4) {
-                statusDot(thinking: true)
-                Text("thinking").font(Port42Theme.mono(8)).foregroundStyle(accent)
-            }
-        } else {
-            statusDot(thinking: false)
-        }
-    }
-
-    @ViewBuilder private func statusDot(thinking: Bool) -> some View {
-        if thinking {
-            TimelineView(.animation) { tl in
-                let t = tl.date.timeIntervalSinceReferenceDate
-                Circle().fill(accent).frame(width: 6, height: 6)
-                    .opacity(0.4 + 0.6 * abs(sin(t * 3)))     // pulse while thinking
-            }
-        } else {
-            Circle().fill(Color.white.opacity(0.22)).frame(width: 6, height: 6)   // idle
-        }
-    }
-
-    private func initials(_ name: String) -> String { name.isEmpty ? "?" : String(name.prefix(2)).uppercased() }
-}
-
-// MARK: - Port version history (chrome)
 
 /// A port's kept versions, with restore. Its own View on purpose: inlined into ShellTileView's
 /// body the type-checker never finished (>7min). Two things are deliberate here —

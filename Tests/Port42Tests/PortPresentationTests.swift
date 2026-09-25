@@ -216,7 +216,7 @@ struct PortPresentationTests {
         #expect(tile.state == .tiled && tile.visible && tile.w == 460)
 
         // A peek context item ⇒ peek.
-        let peek = ShellState.PeekPort(id: "p1", spaceId: "s1", spaceName: "s1", isChat: false, title: "t")
+        let peek = ShellState.PeekPort(id: "p1", spaceId: "s1", spaceName: "s1", title: "t")
         let peekItem = ShellState.PortContextItem(id: "p1", panel: panel, peek: peek, peekIndex: 0)
         let peeking = ShellState.presentation(for: panel, zoom: .space, item: peekItem, area: area)
         #expect(peeking.state == .peek && peeking.visible && peeking.w == 210)
@@ -377,7 +377,7 @@ struct PortPresentationFunnelTests {
         return (shell, state, space.id)
     }
 
-    @Test("presentationSnapshot includes web ports and excludes terminal + chat ports")
+    @Test("presentationSnapshot includes web ports and excludes terminal ports")
     @MainActor
     func snapshotWebOnly() throws {
         let (shell, state, sid) = try world()
@@ -386,16 +386,10 @@ struct PortPresentationFunnelTests {
                              createdBy: nil, messageId: "term", size: CGSize(width: 400, height: 300))
         term.portType = "terminal"
         state.portWindows.panels.append(term)
-        let cb = PortBridge(appState: state, spaceId: sid, messageId: nil)
-        var chat = PortPanel(id: "chat", udid: "chat", html: "", bridge: cb, spaceId: sid,
-                             createdBy: nil, messageId: nil, size: CGSize(width: 480, height: 680))
-        chat.isChatPort = true; chat.portType = "chat"
-        state.portWindows.panels.append(chat)
 
         let snap = shell.presentationSnapshot()
         #expect(snap["p1"] != nil)
         #expect(snap["term"] == nil)
-        #expect(snap["chat"] == nil)
     }
 
     @Test("syncPresentation records the snapshot; a second pass produces no deltas (idempotent)")

@@ -193,4 +193,28 @@ struct PortChatTests {
         ChatRouting.recordReply(&t, companion: "echo", chat: nil)
         #expect(t["echo"] == nil, "asked from the old chat, the reply goes there, not to a stale port chat")
     }
+
+    @Test("headless companions: mentioned ones wake; with no mention, every member only when a person posts")
+    func headlessRouting() {
+        func agent(_ name: String, terminal: Bool = false) -> AgentConfig {
+            var a = AgentConfig.createCommand(ownerId: "u", displayName: name, command: "bot",
+                                              systemPrompt: nil, trigger: .mentionOnly)
+            a.openInTerminal = terminal
+            return a
+        }
+        let bot = agent("Bot"), critic = agent("Critic"), echo = agent("Echo", terminal: true)
+        let members = [bot, critic, echo]
+        func names(_ xs: [AgentConfig]) -> [String] { xs.map(\.displayName) }
+        #expect(names(ChatRouting.headlessTargets(mentioned: [critic], members: members, text: "@Critic hi",
+                                                  senderName: "Alice", senderIsPerson: true)) == ["Critic"])
+        #expect(names(ChatRouting.headlessTargets(mentioned: [], members: members, text: "hello all",
+                                                  senderName: "Alice", senderIsPerson: true)) == ["Bot", "Critic"],
+                "a person's plain post reaches every headless member; terminals are routed elsewhere")
+        #expect(ChatRouting.headlessTargets(mentioned: [], members: members, text: "done",
+                                            senderName: "Bot", senderIsPerson: false).isEmpty,
+                "a companion's plain post wakes nobody, so two companions cannot loop")
+        #expect(ChatRouting.headlessTargets(mentioned: [bot], members: members, text: "@Bot me again",
+                                            senderName: "Bot", senderIsPerson: false).isEmpty,
+                "never the sender")
+    }
 }

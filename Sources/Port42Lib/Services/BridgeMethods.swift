@@ -1113,17 +1113,6 @@ private func registerFileMethods(into r: inout BridgeRegistry, appState: AppStat
 @MainActor
 private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppState) {
 
-    // (Shared helpers stay ABOVE the first method entry: the Spike B source scan attributes
-    // preamble reads to every method in the segment.)
-    func targetSpace(_ p: Principal, _ args: BridgeArgs) -> String {
-        args.string("space_id") ?? p.spaceId ?? appState.currentSpace?.id ?? ""
-    }
-    func senderName(_ p: Principal, _ args: BridgeArgs) -> String {
-        if let override = args.string("senderName") ?? args.string("sender_name"), !override.isEmpty { return override }
-        if p.kind == .companion, let c = appState.companions.first(where: { $0.id == p.id }) { return c.displayName }
-        return appState.currentUser?.displayName ?? "agent"
-    }
-
     // help: the API reference, GENERATED from the registry (close-out step 4c) — the conceptual
     // preamble is the llms-preamble.txt resource, the inventory renders from the live registries.
     // A surface affordance for port JS and the gateway, not an LLM tool.
@@ -1167,7 +1156,16 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         guard let ch = (sid.flatMap { id in appState.spaces.first(where: { $0.id == id }) } ?? appState.currentSpace) else {
             throw BridgeError.notFound("space")
         }
-        let list = (try? appState.db.getSpaceMembers(spaceId: ch.id)) ?? []
+        // Members: the person and the space's companions (the old list was derived from who had
+        // posted in the space's messages, which went with the old chat).
+        var list: [SpaceMember] = []
+        if let me = appState.currentUser {
+            list.append(SpaceMember(senderId: me.id, name: me.displayName, type: "human", owner: nil))
+        }
+        for c in appState.companions(forSpace: ch.id) {
+            list.append(SpaceMember(senderId: c.id, name: c.displayName, type: "agent",
+                                    owner: appState.currentUser?.displayName))
+        }
         return .object([
             "id": .string(ch.id), "name": .string(ch.name), "type": .string(ch.type),
             "memberCount": .int(list.count),
@@ -1264,115 +1262,6 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
             "id": .string(c.id), "name": .string(c.displayName),
             "model": .string(c.model ?? "unknown"), "systemPrompt": .string(c.systemPrompt ?? ""),
         ])
-    }
-
-    r["messages.recent"] = BridgeMethod(permission: nil, paramNames: ["count", "space_id", "topic"],
-        description: "Get the most recent messages from the current space",
-        inputSchema: [
-            "type": "object",
-            "properties": [
-                "count": ["type": "integer", "description": "Number of messages to retrieve (default 20, max 100)"],
-                "topic": ["type": "string", "description": "Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join/leave events."]
-            ]
-        ]) { p, args in
-        let count = min(args.int("count") ?? 20, 100)
-        let topic = args.string("topic") ?? "chat"
-        let msgs = (try? appState.db.getMessages(spaceId: targetSpace(p, args), topic: topic)) ?? []
-        return .array(msgs.suffix(count).map { m in
-            .object([
-                "sender": .string(m.senderName), "content": .string(m.content),
-                "timestamp": .double(m.timestamp.timeIntervalSince1970),
-            ])
-        })
-    }
-
-    r["bus.read"] = BridgeMethod(permission: nil, paramNames: ["topic", "limit", "space_id"],
-        description: "Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join/leave/presence), 'port:{portId}' (port-scoped events).",
-        inputSchema: [
-            "type": "object",
-            "properties": [
-                "topic": ["type": "string", "description": "Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')"],
-                "limit": ["type": "integer", "description": "Max messages to return (default 20)"],
-                "space_id": ["type": "string", "description": "Space ID. Omit for current space."]
-            ],
-            "required": ["topic"]
-        ]) { p, args in
-        let topic = try args.requireString("topic")
-        let limit = min(args.int("limit") ?? 20, 100)
-        let msgs = (try? appState.db.getMessages(spaceId: targetSpace(p, args), topic: topic)) ?? []
-        return .array(msgs.suffix(limit).map { m in
-            .object([
-                "sender": .string(m.senderName), "content": .string(m.content),
-                "timestamp": .double(m.timestamp.timeIntervalSince1970), "topic": .string(m.topic),
-            ])
-        })
-    }
-
-    r["bus.publish"] = BridgeMethod(permission: nil, paramNames: ["topic", "payload", "space_id"],
-        description: "Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.",
-        inputSchema: [
-            "type": "object",
-            "properties": [
-                "topic": ["type": "string", "description": "Bus topic (e.g. 'bus', 'port:myPortId')"],
-                "payload": ["type": "string", "description": "Message payload — any string, typically JSON"],
-                "space_id": ["type": "string", "description": "Target space ID. Omit for current space."],
-                "senderName": ["type": "string", "description": "The name the publish is attributed to. Also accepted as sender_name."],
-                "sender_name": ["type": "string", "description": "Alias of senderName."]
-            ],
-            "required": ["topic", "payload"]
-        ]) { p, args in
-        let topic = try args.requireString("topic")
-        let payload = try args.requireString("payload")
-        appState.publishToBus(spaceId: targetSpace(p, args), topic: topic, payload: payload, senderName: senderName(p, args))
-        return .object(["ok": .bool(true), "topic": .string(topic)])
-    }
-
-    r["messages.send"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"],
-        description: "Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.",
-        inputSchema: [
-            "type": "object",
-            "properties": [
-                "text": ["type": "string", "description": "The message text to send"],
-                "space_id": ["type": "string", "description": "Target space ID (from space_list). Omit for current space."],
-                "senderName": ["type": "string", "description": "The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name."],
-                "sender_name": ["type": "string", "description": "Alias of senderName."]
-            ],
-            "required": ["text"]
-        ]) { p, args in
-        let text = try args.requireString("text")
-        let target = args.string("space_id") ?? p.spaceId
-        let override = args.string("senderName") ?? args.string("sender_name")
-        if let name = override, !name.isEmpty {
-            appState.sendMessageAsNamedAgent(content: text, senderName: name, toSpaceId: target)
-        } else {
-            appState.sendMessage(content: text, toSpaceId: target)
-        }
-        return .object(["ok": .bool(true)])
-    }
-
-    // Tail item 1. Sends attributed to the CALLING principal's display identity (companion name on
-    // the gateway/tool-use surfaces; the port's createdBy, falling back to its title, on port JS).
-    // Replaces the old port-only switch case, whose createdBy-required guard becomes "requires a
-    // caller identity" under the unified principal. Not an LLM tool (companions' replies are already
-    // attributed; this is the identity path for CLI/terminal callers), so toolExposed: false.
-    r["messages.sendAsCreator"] = BridgeMethod(permission: nil, paramNames: ["text", "space_id"], toolExposed: false,
-        description: "Send a message to a space attributed to the calling principal's display identity.") { p, args in
-        let text = try args.requireString("text")
-        guard !text.isEmpty else {
-            throw BridgeError.badArg("messages.sendAsCreator requires a non-empty text argument")
-        }
-        let senderName = p.displayName
-        guard !senderName.isEmpty else {
-            throw BridgeError.badArg("messages.sendAsCreator requires a caller identity")
-        }
-        let target = args.string("space_id") ?? p.spaceId
-        appState.sendMessageAsNamedAgent(content: text, senderName: senderName, toSpaceId: target)
-        // Clear the typing indicator: terminal companions set it at routing time but have no stream
-        // delegate to clear it (moved verbatim from the old port switch case).
-        if let sid = target {
-            appState.typingAgentNamesBySpace[sid, default: []].remove(senderName)
-        }
-        return .object(["ok": .bool(true)])
     }
 }
 

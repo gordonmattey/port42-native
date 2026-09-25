@@ -52,7 +52,6 @@ public struct SignOutSheet: View {
             VStack(spacing: 10) {
                 statRow(label: "spaces", value: "\(appState.spaces.count)")
                 statRow(label: "companions", value: "\(appState.companions.count)")
-                statRow(label: "messages", value: "\(appState.messages.count)+")
             }
             .padding(.bottom, 14).padding(.horizontal, 24)
 

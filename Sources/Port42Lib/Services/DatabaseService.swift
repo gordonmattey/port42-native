@@ -807,6 +807,16 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v51-drop-the-old-chat") { db in
+            // Nautilus Phase 1 step 5.4: every port has its own chat (the storage-backed transcript in
+            // PortChat.swift), so the space's native chat port, its messages and its input history
+            // go. Old transcripts are dropped, not imported (GM, 2026-09-25): a breaking upgrade.
+            try db.execute(sql: "DELETE FROM port_panels WHERE isChatPort = 1")
+            try db.alter(table: "port_panels") { t in t.drop(column: "isChatPort") }
+            try db.execute(sql: "DROP TABLE IF EXISTS messages")
+            try db.execute(sql: "DROP TABLE IF EXISTS input_history")
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1288,139 +1298,13 @@ public final class DatabaseService {
     public func resetAll() throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM agentSpaces")
-            try db.execute(sql: "DELETE FROM messages")
             try db.execute(sql: "DELETE FROM spaces")
             try db.execute(sql: "DELETE FROM agents")
             try db.execute(sql: "DELETE FROM users")
             try db.execute(sql: "DELETE FROM port_storage")
             try db.execute(sql: "DELETE FROM port_panels")
             try db.execute(sql: "DELETE FROM port_versions")
-            try db.execute(sql: "DELETE FROM input_history")
         }
-    }
-
-    // MARK: - Messages
-
-    public func saveMessage(_ message: Message) throws {
-        try dbQueue.write { db in
-            try message.save(db)
-        }
-    }
-
-    /// Save a message only if it doesn't already exist (for history replay deduplication).
-    /// Returns true if the message was inserted, false if it already existed.
-    @discardableResult
-    public func saveMessageIfNotExists(_ message: Message) throws -> Bool {
-        try dbQueue.write { db in
-            if try Message.fetchOne(db, id: message.id) != nil {
-                return false
-            }
-            try message.save(db)
-            return true
-        }
-    }
-
-    public func updateSyncStatus(messageId: String, status: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE messages SET syncStatus = ? WHERE id = ?",
-                arguments: [status, messageId]
-            )
-        }
-    }
-
-    /// Only upgrade sync status if current status is in the `before` list
-    public func updateSyncStatusIfBefore(messageId: String, newStatus: String, before: [String]) throws {
-        try dbQueue.write { db in
-            let placeholders = before.map { _ in "?" }.joined(separator: ", ")
-            try db.execute(
-                sql: "UPDATE messages SET syncStatus = ? WHERE id = ? AND syncStatus IN (\(placeholders))",
-                arguments: StatementArguments([newStatus, messageId] + before)
-            )
-        }
-    }
-
-    /// Mark all messages from a sender in a space as read
-    public func markMessagesAsRead(spaceId: String, bySenderId: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE messages SET syncStatus = 'read' WHERE spaceId = ? AND senderId = ? AND syncStatus IN ('local', 'synced', 'delivered')",
-                arguments: [spaceId, bySenderId]
-            )
-        }
-    }
-
-    public func getMessages(spaceId: String) throws -> [Message] {
-        try dbQueue.read { db in
-            try Message
-                .filter(Column("spaceId") == spaceId)
-                .order(Column("timestamp").asc)
-                .fetchAll(db)
-        }
-    }
-
-    public func getMessages(spaceId: String, topic: String) throws -> [Message] {
-        try dbQueue.read { db in
-            try Message
-                .filter(Column("spaceId") == spaceId)
-                .filter(Column("topic") == topic)
-                .order(Column("timestamp").asc)
-                .fetchAll(db)
-        }
-    }
-
-    /// Returns distinct sender names for a space (unique posters)
-    public func getUniqueSenders(spaceId: String) throws -> [String] {
-        try dbQueue.read { db in
-            try String.fetchAll(db, sql: """
-                SELECT DISTINCT senderName FROM messages
-                WHERE spaceId = ? AND senderType != 'system'
-                ORDER BY senderName
-                """, arguments: [spaceId])
-        }
-    }
-
-    /// Returns distinct space members with type and owner info.
-    /// Only includes actual message senders (human/agent), not system messages.
-    public func getSpaceMembers(spaceId: String) throws -> [SpaceMember] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT senderId,
-                       MAX(senderName) as senderName,
-                       MAX(senderType) as memberType,
-                       MAX(senderOwner) as senderOwner
-                FROM messages
-                WHERE spaceId = ?
-                  AND senderType != 'system'
-                GROUP BY senderId
-                ORDER BY MAX(senderType) ASC, MAX(senderName) ASC
-                """, arguments: [spaceId])
-            return rows.map { row in
-                SpaceMember(
-                    senderId: row["senderId"],
-                    name: row["senderName"],
-                    type: row["memberType"],
-                    owner: row["senderOwner"]
-                )
-            }
-        }
-    }
-
-
-    /// Returns the timestamp of the most recent message in a space, or nil if empty.
-    public func getLastMessageTime(spaceId: String) throws -> Date? {
-        try dbQueue.read { db in
-            try Date.fetchOne(db, sql: """
-                SELECT MAX(timestamp) FROM messages
-                WHERE spaceId = ? AND senderType != 'system'
-                """, arguments: [spaceId])
-        }
-    }
-
-    /// Returns the timestamp of the most recent message in a companion's direct space (DM).
-    public func getLastSwimTime(companionId: String) throws -> Date? {
-        guard let sid = try directSpaceId(companionId: companionId) else { return nil }
-        return try getLastMessageTime(spaceId: sid)
     }
 
     /// Find an existing DM space for a specific remote user, or nil if none exists.
@@ -1453,67 +1337,6 @@ public final class DatabaseService {
             }, onChange: onChange)
     }
 
-    public func observeMessages(
-        spaceId: String,
-        onChange: @escaping ([Message]) -> Void
-    ) -> AnyDatabaseCancellable {
-        ValueObservation
-            .tracking { db in
-                try Message
-                    .filter(Column("spaceId") == spaceId)
-                    .order(Column("timestamp").asc)
-                    .fetchAll(db)
-            }
-            .start(in: dbQueue, onError: { error in
-                print("[Port42] Message observation error: \(error)")
-            }, onChange: onChange)
-    }
-
-    public func observeMessages(
-        spaceId: String,
-        topic: String,
-        onChange: @escaping ([Message]) -> Void
-    ) -> AnyDatabaseCancellable {
-        ValueObservation
-            .tracking { db in
-                try Message
-                    .filter(Column("spaceId") == spaceId)
-                    .filter(Column("topic") == topic)
-                    .order(Column("timestamp").asc)
-                    .fetchAll(db)
-            }
-            .start(in: dbQueue, onError: { error in
-                print("[Port42] Message observation error: \(error)")
-            }, onChange: onChange)
-    }
-
-    public func observeUnreadCounts(
-        excludingSpaceId: String?,
-        since: [String: Date],
-        onChange: @escaping ([String: Int]) -> Void
-    ) -> AnyDatabaseCancellable {
-        ValueObservation
-            .tracking { db in
-                let spaces = try Space.fetchAll(db)
-                var counts: [String: Int] = [:]
-                for space in spaces {
-                    if space.id == excludingSpaceId { continue }
-                    let lastRead = since[space.id] ?? Date.distantPast
-                    let count = try Message
-                        .filter(Column("spaceId") == space.id)
-                        .filter(Column("timestamp") > lastRead)
-                        .fetchCount(db)
-                    if count > 0 {
-                        counts[space.id] = count
-                    }
-                }
-                return counts
-            }
-            .start(in: dbQueue, onError: { error in
-                print("[Port42] Unread observation error: \(error)")
-            }, onChange: onChange)
-    }
-
     /// Observe agent→space membership as a spaceId -> set of agentIds map.
     /// Lets views read membership from an in-memory cache instead of querying per render.
     public func observeAgentSpaces(
@@ -1532,31 +1355,6 @@ public final class DatabaseService {
             }
             .start(in: dbQueue, onError: { error in
                 print("[Port42] AgentSpaces observation error: \(error)")
-            }, onChange: onChange)
-    }
-
-    /// Observe the distinct non-system sender count per space (used for online-count badges).
-    public func observeSenderCounts(
-        onChange: @escaping ([String: Int]) -> Void
-    ) -> AnyDatabaseCancellable {
-        ValueObservation
-            .tracking { db in
-                let rows = try Row.fetchAll(db, sql: """
-                    SELECT spaceId, COUNT(DISTINCT senderName) AS c
-                    FROM messages
-                    WHERE senderType != 'system'
-                    GROUP BY spaceId
-                    """)
-                var counts: [String: Int] = [:]
-                for row in rows {
-                    let spaceId: String = row["spaceId"]
-                    let c: Int = row["c"]
-                    counts[spaceId] = c
-                }
-                return counts
-            }
-            .start(in: dbQueue, onError: { error in
-                print("[Port42] SenderCounts observation error: \(error)")
             }, onChange: onChange)
     }
 
@@ -1789,43 +1587,6 @@ public final class DatabaseService {
                 arguments: [udid, version])
         }
     }
-
-    // MARK: - Input History
-
-    /// Append a sent message to input history for a space. Caps at 100 per space.
-    public func appendInputHistory(spaceId: String, content: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "INSERT INTO input_history (spaceId, content, createdAt) VALUES (?, ?, ?)",
-                arguments: [spaceId, content, Date()]
-            )
-            // Keep only the most recent 100 entries per space
-            try db.execute(
-                sql: """
-                    DELETE FROM input_history WHERE id IN (
-                        SELECT id FROM input_history
-                        WHERE spaceId = ?
-                        ORDER BY createdAt DESC
-                        LIMIT -1 OFFSET 100
-                    )
-                    """,
-                arguments: [spaceId]
-            )
-        }
-    }
-
-    /// Fetch input history for a space, newest first.
-    public func fetchInputHistory(spaceId: String) throws -> [String] {
-        try dbQueue.read { db in
-            try String.fetchAll(db, sql: """
-                SELECT content FROM input_history
-                WHERE spaceId = ?
-                ORDER BY createdAt DESC
-                """,
-                arguments: [spaceId]
-            )
-        }
-    }
 }
 
 // MARK: - Persisted Port Panel Record
@@ -1879,7 +1640,6 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
     public var capabilities: String?
     public var portType: String
     public var dockOrder: Int?
-    public var isChatPort: Bool
     public var createdAt: Date
     /// SHELL S3 — the port's presentation ("floating" | "tiled" | "parked"; "inline" is never
     /// persisted). Was previously lost on restore (defaulted to "floating").
@@ -1924,7 +1684,6 @@ public struct PersistedPortPanel: Codable, FetchableRecord, PersistableRecord {
         }
         self.portType = panel.portType
         self.dockOrder = nil
-        self.isChatPort = panel.isChatPort
         self.createdAt = Date()
         self.presentation = panel.presentation
         self.z = panel.z

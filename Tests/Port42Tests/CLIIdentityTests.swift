@@ -20,57 +20,6 @@ struct CLIIdentityTests {
 
     // MARK: - #7 senderName override
 
-    @Test("sendMessageAsNamedAgent stores message with agent name not host name")
-    @MainActor
-    func namedAgentMessageAttribution() throws {
-        let (state, space) = try makeStateReady()
-
-        state.sendMessageAsNamedAgent(content: "hello from bot", senderName: "test-bot", toSpaceId: space.id)
-
-        let messages = try state.db.getMessages(spaceId: space.id)
-        let botMsg = messages.first { $0.senderName == "test-bot" }
-        #expect(botMsg != nil)
-        #expect(botMsg?.senderName == "test-bot")
-        #expect(botMsg?.senderType == "agent")
-        // Must NOT be attributed to the host user
-        #expect(botMsg?.senderName != "Gordon")
-    }
-
-    @Test("sendMessageAsNamedAgent uses stable derived senderId")
-    @MainActor
-    func namedAgentStableSenderId() throws {
-        let (state, space) = try makeStateReady()
-
-        state.sendMessageAsNamedAgent(content: "msg 1", senderName: "my-agent", toSpaceId: space.id)
-        state.sendMessageAsNamedAgent(content: "msg 2", senderName: "my-agent", toSpaceId: space.id)
-
-        let messages = try state.db.getMessages(spaceId: space.id).filter { $0.senderName == "my-agent" }
-        #expect(messages.count == 2)
-        // Both messages should have the same derived sender ID
-        #expect(messages[0].senderId == messages[1].senderId)
-    }
-
-    @Test("sendMessageAsNamedAgent ignores empty content")
-    @MainActor
-    func namedAgentEmptyContentIgnored() throws {
-        let (state, space) = try makeStateReady()
-        let before = try state.db.getMessages(spaceId: space.id).count
-
-        state.sendMessageAsNamedAgent(content: "   ", senderName: "bot", toSpaceId: space.id)
-
-        let after = try state.db.getMessages(spaceId: space.id).count
-        #expect(after == before)
-    }
-
-    @Test("sendMessageAsNamedAgent ignores unknown space")
-    @MainActor
-    func namedAgentUnknownSpace() throws {
-        let (state, _) = try makeStateReady()
-
-        // Should not crash, just silently drop
-        state.sendMessageAsNamedAgent(content: "hello", senderName: "bot", toSpaceId: "nonexistent-space-id")
-    }
-
     // MARK: - #9 stale presence eviction in SyncService
 
     @Test("onlineUsers evicts stale peer ID when same name reconnects")

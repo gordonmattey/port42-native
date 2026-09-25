@@ -574,14 +574,24 @@ struct GhosttyTerminalView: NSViewRepresentable {
         NSLog("[Ghostty] buildSurface: surface created \(surface) for '\(config.companionName)'")
 
         // PTY tee → copy bytes synchronously off the IO thread (gap #5), hand to
-        // main, deliver via the coordinator's onTee. userdata = coordinator.
+        // main, deliver via the coordinator's onTee.
+        //
+        // userdata is a RETAINED box holding the coordinator WEAKLY, never the coordinator itself.
+        // An unretained coordinator pointer dangled whenever the view and its coordinator were
+        // freed without `teardown` detaching this callback: the shell's next output then retained
+        // freed memory and crashed in `handleTee` (found 2026-09-25, when the test suite began
+        // freeing AppState between tests). The box outlives the coordinator, so the callback finds
+        // a live coordinator or nil. `teardown` releases it; a view freed without teardown leaks
+        // one empty box rather than crashing.
+        let box = TeeBox(coordinator)
+        coordinator.teeBox = Unmanaged.passRetained(box)
         ghostty_surface_set_pty_tee_cb(surface, { ud, bytes, len in
             guard let ud, let bytes, len > 0 else { return }
-            let coord = Unmanaged<Coordinator>.fromOpaque(ud).takeUnretainedValue()
+            let box = Unmanaged<TeeBox>.fromOpaque(ud).takeUnretainedValue()
             let copied = Data(bytes: UnsafeRawPointer(bytes), count: Int(len))
             let str = String(decoding: copied, as: UTF8.self)
-            Task { @MainActor in coord.handleTee(str) }
-        }, Unmanaged.passUnretained(coordinator).toOpaque())
+            Task { @MainActor [weak box] in box?.coordinator?.handleTee(str) }
+        }, coordinator.teeBox?.toOpaque())
 
         // Hand the controller a writer for this surface so chat→terminal routing
         // (routeMentionsToTerminals → controller.inject) can reach it. Reads the
@@ -638,6 +648,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         private let startupCommand: String
         private var startupSent = false
         private var prefillSent = false
+        /// The pty-tee callback's userdata (see `buildSurface`), released by `teardown`.
+        var teeBox: Unmanaged<TeeBox>?
         init(onTee: ((String) -> Void)?, startupCommand: String = "",
              onInject: @escaping ((TerminalSurfaceWriter)?) -> Void = { _ in }) {
             self.onTee = onTee
@@ -677,7 +689,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
             view?.surface = nil
             ghostty_surface_set_pty_tee_cb(s, nil, nil)  // detach before free
             ghostty_surface_free(s)
+            teeBox?.release()                             // the callback can no longer reach it
+            teeBox = nil
             NSLog("[Ghostty] dismantleNSView: surface freed (app singleton kept).")
         }
     }
+}
+
+/// The pty-tee callback's userdata: a retained box that holds the coordinator weakly, so a callback
+/// arriving after the coordinator is gone finds nil instead of freed memory.
+final class TeeBox: @unchecked Sendable {
+    weak var coordinator: GhosttyTerminalView.Coordinator?
+    init(_ coordinator: GhosttyTerminalView.Coordinator) { self.coordinator = coordinator }
 }

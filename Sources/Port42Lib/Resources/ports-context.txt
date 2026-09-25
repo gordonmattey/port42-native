@@ -271,40 +271,17 @@ BRIDGE API REFERENCE:
     Returns: {id, name, model, systemPrompt}
     Get a single companion by ID. Rejects if the companion is not found.
 
-  port42.companions.invoke(id, prompt, options?)
-    Invoke a companion's AI from within a port. The companion sees recent space
-    conversation as context. Response is port-private (does NOT appear in chat).
-    The companion is NOT notified or aware it was invoked.
-    id: companion ID or display name (case-insensitive)
-    prompt: the question or instruction for the companion
-    options: {onToken: fn, onDone: fn}
-    Returns: { text }, the full response text in .text (onDone receives the same { text } object)
-    Requires AI permission (prompted on first use per session).
-
-    Example:
-      const analysis = await port42.companions.invoke("sage", "what patterns do you see?", {
-          onToken: (token) => { output.textContent += token; },
-          onDone: (r) => { console.log("done:", r.text.length, "chars"); }
-      });
-
-    Multi-companion pattern (no special API needed):
-      const results = await Promise.all(
-          ["echo", "sage", "analyst"].map(c =>
-              port42.companions.invoke(c, "rate this idea 1-10")
-          )
-      );
-
   port42.user.get()
     Returns: {id, displayName}
     Get the current user.
 
-  port42.messages.recent(n)
-    Returns: [{sender, content, timestamp}]
-    Get the last n messages from the current space (default 20).
+  port42.chat.read(port, after?, limit?)
+    Returns: {entries: [{seq, at, text, from: {id, name, kind}}], last}
+    Read a port's chat, oldest first. Every port has one: pass a port id, a space id, or 0 for
+    the desktop. Pass `after` (a seq you have seen) to get only what is newer.
 
-  port42.messages.send(text, space_id?)
-    Sends a message and triggers companions. Defaults to the current space.
-    Pass a space_id to target a specific space (e.g. from space.list).
+  port42.chat.post(port, text)
+    Post to a port's chat, attributed to this port. An @mention wakes that companion.
 
   port42.space.current()
     Returns: {id, name, type, memberCount, members: [{id, name, type, owner, qualifiedName}]}

@@ -128,7 +128,9 @@ struct BridgeSchemaParityTests {
         // − the 12 Keeper tools (crease/engrave/fold/position), which went with the in-app engine
         //   (nautilus Phase 1 step 3). = 53.
         // + chat_post and chat_read (every port has a chat, Phase 1 step 5). = 55.
-        #expect(checked == 55, "expected 55 parity-set methods, checked \(checked)")
+        // − messages_send, messages_recent, bus_publish and bus_read, which went with the old chat
+        //   (Phase 1 step 5.4). = 51.
+        #expect(checked == 51, "expected 51 parity-set methods, checked \(checked)")
     }
 
     @Test("generatedToolDefinitions reproduces the full ToolDefinitions.all set (the flip is safe)")

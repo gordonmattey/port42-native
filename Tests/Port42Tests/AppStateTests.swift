@@ -134,100 +134,6 @@ struct AppStateTests {
 
     // MARK: - Messages
 
-    @Test("Send message")
-    @MainActor
-    func sendMessage() throws {
-        let state = try makeStateReady(displayName: "Gordon")
-
-        state.sendMessage(content: "hello world")
-        let messages = try state.db.getMessages(spaceId: state.currentSpace!.id)
-        #expect(messages.count == 2) // welcome + hello
-        #expect(messages.last?.content == "hello world")
-        #expect(messages.last?.senderName == "Gordon")
-        #expect(messages.last?.senderType == "human")
-    }
-
-    @Test("Empty message is not sent")
-    @MainActor
-    func emptyMessage() throws {
-        let state = try makeStateReady()
-
-        state.sendMessage(content: "   ")
-        let messages = try state.db.getMessages(spaceId: state.currentSpace!.id)
-        #expect(messages.count == 1) // only welcome
-    }
-
-    @Test("Messages are per space")
-    @MainActor
-    func messagesPerSpace() throws {
-        let state = try makeStateReady()
-
-        let generalId = state.currentSpace!.id
-        state.sendMessage(content: "in general")
-
-        state.createSpace(name: "other")
-        let otherId = state.currentSpace!.id
-        state.sendMessage(content: "in other")
-
-        let generalMsgs = try state.db.getMessages(spaceId: generalId)
-        let otherMsgs = try state.db.getMessages(spaceId: otherId)
-
-        #expect(generalMsgs.count == 2) // welcome + "in general"
-        #expect(otherMsgs.count == 1) // "in other"
-    }
-
-    /// Regression: sending to a DIRECT/DM space via toSpaceId must work. `spaces` (getRegularSpaces)
-    /// excludes direct spaces, so the resolver has to fall through to getAllSpaces — else a send in a
-    /// DM silently no-ops (the classic-chat-after-login bug).
-    @Test("sendMessage delivers to a direct/DM space (not in getRegularSpaces)")
-    @MainActor
-    func sendToDirectSpace() throws {
-        let state = try makeStateReady()
-        let companion = AgentConfig.createCommand(ownerId: state.currentUser!.id, displayName: "echo", command: "claude", systemPrompt: "hi", trigger: .mentionOnly)
-        state.addCompanion(companion)
-        let dm = try state.db.getOrCreateDirectSpace(companion: companion)
-
-        #expect(!state.spaces.contains { $0.id == dm.id })     // direct space is excluded from `spaces`
-        state.sendMessage(content: "hi in dm", toSpaceId: dm.id)
-        #expect(try state.db.getMessages(spaceId: dm.id).contains { $0.content == "hi in dm" })
-    }
-
-    /// SHELL (B) — multi-space chat read routing: `messages(for:)` routes the current space to
-    /// `messages` and every other to `messagesBySpace`, populated by `activateSpaceMessages` and
-    /// dropped by `deactivateSpaceMessages`. This is what lets a DM tile coexist with the space chat.
-    @Test("messages(for:) routes current vs background space")
-    @MainActor
-    func multiSpaceMessageRead() throws {
-        let state = try makeStateReady()
-        let generalId = state.currentSpace!.id
-
-        state.createSpace(name: "other")      // becomes current
-        let otherId = state.currentSpace!.id
-        state.sendMessage(content: "in other")
-
-        // Back to general; "other" is now a BACKGROUND space (like an open DM tile).
-        let general = try state.db.getAllSpaces().first { $0.id == generalId }!
-        state.selectSpace(general)
-        #expect(state.currentSpace?.id == generalId)
-
-        // Current-space read routes to `messages`; background space isn't observed yet → empty.
-        #expect(state.messages(for: generalId).count == state.messages.count)
-        #expect(state.messages(for: otherId).isEmpty)
-
-        // Activate the background space → synchronous initial read fills the cache.
-        state.activateSpaceMessages(spaceId: otherId)
-        #expect(state.messages(for: otherId).map(\.content).contains("in other"))
-
-        // Activating the CURRENT space is a no-op (guarded — it streams through `messages`).
-        state.activateSpaceMessages(spaceId: generalId)
-        #expect(state.messagesBySpace[generalId] == nil)
-
-        // Deactivate → cache dropped.
-        state.deactivateSpaceMessages(spaceId: otherId)
-        #expect(state.messagesBySpace[otherId] == nil)
-        #expect(state.messages(for: otherId).isEmpty)
-    }
-
     // MARK: - Drafts
 
     @Test("Draft preserved per space")
@@ -266,13 +172,8 @@ struct AppStateTests {
     @MainActor
     func persistence() throws {
         let state = try makeStateReady(displayName: "Persist")
-        state.sendMessage(content: "remember me")
-
-        let messages = try state.db.getMessages(spaceId: state.currentSpace!.id)
         let user = try state.db.getLocalUser()
 
         #expect(user?.displayName == "Persist")
-        #expect(messages.count == 2) // welcome + message
-        #expect(messages.last?.content == "remember me")
     }
 }

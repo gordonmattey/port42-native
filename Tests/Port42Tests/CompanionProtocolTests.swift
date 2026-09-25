@@ -51,7 +51,7 @@ struct CompanionProtocolTests {
         // And the parts only this surface knows: identity, space, self-post.
         #expect(baked.contains("You are scout"))
         #expect(baked.contains("#general"))
-        #expect(baked.contains("messages.send"))
+        #expect(baked.contains("chat.post"))
     }
 
     @Test("the CLI instruction block carries the protocol, not a copy of it")

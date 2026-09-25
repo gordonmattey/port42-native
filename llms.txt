@@ -1,12 +1,12 @@
-PORTS: A port is a live interactive surface on the user's desktop. There are four types — WEB
-(HTML/CSS/JS), TERMINAL (a native shell/CLI), BROWSER (an embedded browser tile with an address
-bar that follows links) and CHAT (a space's conversation) — and ONE way to reach any of them:
+PORTS: A port is a live interactive surface on the user's desktop. There are three types — WEB
+(HTML/CSS/JS), TERMINAL (a native shell/CLI) and BROWSER (an embedded browser with an address bar
+that follows links) — and ONE way to make any of them:
 
-  port.create({ type: "web" | "terminal" | "browser" | "chat", ... })   → { id, title }
+  port.create({ type: "web" | "terminal" | "browser", ... })   → { id, title }
 
-CHAT is a REVEAL, not a creation: a space has exactly one chat, so this returns the existing one,
-brings it back if it was parked/popped-out/closed, and only makes a new one if it was deleted
-outright. A DM is a space, so pass its space_id to open that conversation.
+EVERY PORT HAS A CHAT. A space is a port and port 0 is the desktop, so each has one too. Post with
+chat.post({ port, text }) and read with chat.read({ port }); a post is attributed to you, and an
+@mention wakes that companion.
 
 A WEB port is HTML/CSS/JS passed as `html`. Include a <title> and <meta name="version" content="1">.
 The port42 dark theme is auto-injected. port.create is the only way to make a port: do not answer
@@ -67,11 +67,12 @@ curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKE
 # Take a screenshot
 curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"screen_capture","args":{"scale":0.5}}'
 
-# Send a message (triggers companions; add "space_id" to target a specific space)
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"messages.send","args":{"text":"hello from {{TOOL_NAME}}"}}'
+# Post to a port's chat (every port has one; a space is a port, port 0 is the desktop).
+# It is posted as you, and an @mention wakes that companion.
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.post","args":{"port":"<space or port id>","text":"hello from {{TOOL_NAME}}"}}'
 
-# Read recent space messages
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"messages.recent","args":{"count":10}}'
+# Read a port's chat
+curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.read","args":{"port":"<space or port id>","limit":10}}'
 
 # List all spaces
 curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"space.list"}'
@@ -168,21 +169,6 @@ Generated from the live method registry: every entry below is served exactly as 
         selector (string): CSS selector to extract from (default: body)
         sessionId (string, required): Browser session ID from browser_open
 
-### bus
-
-  bus.publish(topic, payload, space_id)
-      Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.
-        payload (string, required): Message payload — any string, typically JSON
-        senderName (string): The name the publish is attributed to. Also accepted as sender_name.
-        sender_name (string): Alias of senderName.
-        space_id (string): Target space ID. Omit for current space.
-        topic (string, required): Bus topic (e.g. 'bus', 'port:myPortId')
-  bus.read(topic, limit, space_id)
-      Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join/leave/presence), 'port:{portId}' (port-scoped events).
-        limit (integer): Max messages to return (default 20)
-        space_id (string): Space ID. Omit for current space.
-        topic (string, required): Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')
-
 ### camera
 
   camera.capture(scale)  [permission: camera]
@@ -248,21 +234,6 @@ Generated from the live method registry: every entry below is served exactly as 
         topic (string): Optional. "ports" = the port-authoring manual. Omit for the API reference.
   presentation()
       The calling port's current presentation state { state, visible, w, h }: whether its surface is on screen right now and at what content size, so the port can pause its animation loop when not visible and scale fidelity to its size. The same value is delivered as the 'presentation' event on every change; this call returns the current snapshot for the initial read.
-
-### messages
-
-  messages.recent(count, space_id, topic)
-      Get the most recent messages from the current space
-        count (integer): Number of messages to retrieve (default 20, max 100)
-        topic (string): Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join/leave events.
-  messages.send(text, space_id)
-      Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.
-        senderName (string): The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name.
-        sender_name (string): Alias of senderName.
-        space_id (string): Target space ID (from space_list). Omit for current space.
-        text (string, required): The message text to send
-  messages.sendAsCreator(text, space_id)
-      Send a message to a space attributed to the calling principal's display identity.
 
 ### notify
 

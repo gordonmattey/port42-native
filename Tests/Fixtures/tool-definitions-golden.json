@@ -88,63 +88,6 @@
     "name" : "browser_text"
   },
   {
-    "description" : "Publish a message to a bus topic in the current space. Topics partition the message bus — 'bus' is for inter-companion signals, 'port:{id}' for port-scoped events. Does not trigger companion chat routing; companions subscribe via bus: watching signals.",
-    "input_schema" : {
-      "properties" : {
-        "payload" : {
-          "description" : "Message payload — any string, typically JSON",
-          "type" : "string"
-        },
-        "sender_name" : {
-          "description" : "Alias of senderName.",
-          "type" : "string"
-        },
-        "senderName" : {
-          "description" : "The name the publish is attributed to. Also accepted as sender_name.",
-          "type" : "string"
-        },
-        "space_id" : {
-          "description" : "Target space ID. Omit for current space.",
-          "type" : "string"
-        },
-        "topic" : {
-          "description" : "Bus topic (e.g. 'bus', 'port:myPortId')",
-          "type" : "string"
-        }
-      },
-      "required" : [
-        "topic",
-        "payload"
-      ],
-      "type" : "object"
-    },
-    "name" : "bus_publish"
-  },
-  {
-    "description" : "Read recent messages from a bus topic in the current space. Topics: 'bus' (inter-companion signals), 'system' (join\/leave\/presence), 'port:{portId}' (port-scoped events).",
-    "input_schema" : {
-      "properties" : {
-        "limit" : {
-          "description" : "Max messages to return (default 20)",
-          "type" : "integer"
-        },
-        "space_id" : {
-          "description" : "Space ID. Omit for current space.",
-          "type" : "string"
-        },
-        "topic" : {
-          "description" : "Bus topic to read (e.g. 'bus', 'system', 'port:myPortId')",
-          "type" : "string"
-        }
-      },
-      "required" : [
-        "topic"
-      ],
-      "type" : "object"
-    },
-    "name" : "bus_read"
-  },
-  {
     "description" : "Capture a photo from the device camera. Returns a base64 PNG image.",
     "input_schema" : {
       "properties" : {
@@ -343,51 +286,6 @@
       "type" : "object"
     },
     "name" : "help"
-  },
-  {
-    "description" : "Get the most recent messages from the current space",
-    "input_schema" : {
-      "properties" : {
-        "count" : {
-          "description" : "Number of messages to retrieve (default 20, max 100)",
-          "type" : "integer"
-        },
-        "topic" : {
-          "description" : "Message bus topic to read (default 'chat'). Use 'bus' for inter-companion signals, 'system' for join\/leave events.",
-          "type" : "string"
-        }
-      },
-      "type" : "object"
-    },
-    "name" : "messages_recent"
-  },
-  {
-    "description" : "Send a message to a space and trigger companions. Defaults to the current space if space_id is omitted.",
-    "input_schema" : {
-      "properties" : {
-        "sender_name" : {
-          "description" : "Alias of senderName.",
-          "type" : "string"
-        },
-        "senderName" : {
-          "description" : "The name the message is posted under (a companion posting on its own initiative). Also accepted as sender_name.",
-          "type" : "string"
-        },
-        "space_id" : {
-          "description" : "Target space ID (from space_list). Omit for current space.",
-          "type" : "string"
-        },
-        "text" : {
-          "description" : "The message text to send",
-          "type" : "string"
-        }
-      },
-      "required" : [
-        "text"
-      ],
-      "type" : "object"
-    },
-    "name" : "messages_send"
   },
   {
     "description" : "Send a macOS system notification",

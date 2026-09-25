@@ -15,10 +15,10 @@ struct PortWindowLifecycleTests {
         return (state.portWindows, state)
     }
 
-    /// Inject a chat port record directly into panels (simulates restoreFromDB
-    /// loading a saved chat port — no window, just a record).
+    /// Inject a port record directly into panels (simulates restoreFromDB loading a saved port:
+    /// no window, just a record).
     @MainActor
-    private func injectChatPortRecord(
+    private func injectPortRecord(
         into manager: PortWindowManager,
         appState: AppState,
         spaceId: String = "space-1"
@@ -29,43 +29,18 @@ struct PortWindowLifecycleTests {
             id: portId, udid: portId, html: "",
             bridge: bridge, spaceId: spaceId,
             createdBy: nil, messageId: nil,
-            userTitle: "chat", size: CGSize(width: 480, height: 680)
+            userTitle: "port", size: CGSize(width: 480, height: 680)
         )
-        port.isChatPort = true
-        port.portType = "chat"
+        port.portType = "web"
         manager.panels.append(port)
         return portId
     }
-
-    // MARK: - switchToSpace: record creation
-
-    @Test("switchToSpace adds chat port record when none exists")
-    @MainActor
-    func switchToSpaceAddsChatPortRecord() throws {
-        let (manager, _) = try makeManager()
-        manager.switchToSpace("space-1", spaceName: "general")
-        #expect(manager.panels.contains(where: { $0.isChatPort && $0.spaceId == "space-1" }))
-    }
-
-    @Test("switchToSpace does not duplicate chat port on repeated calls")
-    @MainActor
-    func switchToSpaceNoDuplicateChatPort() throws {
-        let (manager, _) = try makeManager()
-        manager.switchToSpace("space-1", spaceName: "general")
-        manager.switchToSpace("space-2", spaceName: "other")
-        manager.switchToSpace("space-1", spaceName: "general")
-
-        let chatPorts = manager.panels.filter { $0.isChatPort && $0.spaceId == "space-1" }
-        #expect(chatPorts.count == 1)
-    }
-
-    // MARK: - minimize / restore (shell semantics: off the desktop, still running)
 
     @Test("minimize backgrounds a panel; restore brings it back")
     @MainActor
     func minimizeRestoreRoundTrip() throws {
         let (manager, appState) = try makeManager()
-        let portId = injectChatPortRecord(into: manager, appState: appState)
+        let portId = injectPortRecord(into: manager, appState: appState)
 
         manager.minimize(portId)
         #expect(manager.panels.first { $0.id == portId }?.isBackground == true)
@@ -81,7 +56,7 @@ struct PortWindowLifecycleTests {
         // The migration ran at DB init; anything persisted as "floating" is impossible now,
         // and a fresh panel's default presentation is tiled.
         let (manager, appState) = try makeManager()
-        let portId = injectChatPortRecord(into: manager, appState: appState)
+        let portId = injectPortRecord(into: manager, appState: appState)
         #expect(manager.panels.first { $0.id == portId }?.presentation == "tiled")
     }
 

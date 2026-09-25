@@ -157,7 +157,7 @@ struct BridgePrincipalTests {
             ("automation.runAppleScript", .automation), ("automation.runJXA", .automation),
             ("rest.call", .rest),
             ("browser.open", .browser), ("browser.text", .browser), ("browser.close", .browser),
-            ("user.get", nil), ("ports.list", nil), ("messages.recent", nil), ("storage.set", nil),
+            ("user.get", nil), ("ports.list", nil), ("chat.read", nil), ("storage.set", nil),
             ("audio.speak", nil), ("camera.stopStream", nil), ("screen.stopStream", nil),
             ("audio.stopCapture", .microphone),
         ]
