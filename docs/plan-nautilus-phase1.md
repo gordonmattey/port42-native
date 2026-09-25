@@ -9,6 +9,10 @@ Port42 holds ports, a registry, grants and a door, and nothing else. The messagi
 model and the memory service are gone. The native chat tile is replaced by a chat port that any scope
 can carry: the desktop, a space, or one port.
 
+## Progress
+
+1.2 ✓ · 1.6 ✓ (both parts) · 1.1 re-scoped (below) · 1.3, 1.4, 1.5 open.
+
 ## Order, and why
 
 Pure removals first, each shippable alone and each leaving the harness at five of five. The chat port
@@ -19,9 +23,12 @@ Each step is its own commit. Suite green, Go suites green, harness five of five,
 
 ### 1.1 Retired spikes, the Keeper service, swims
 
-- **Spikes:** `GhosttyProbe`, `PortDesktopSpike`, `PortResizeSpike`, `ScreenRecordSpike`,
-  `GhosttyResizeSpike` (and its one test reference). Nothing else names them. `MainLoopProbe` and
-  `GhosttyDebugHarness` stay: `Port42App` uses both, and the debug harness is a working tool.
+- **Spikes stay (decided 2026-09-25).** `PortDesktopSpike`, `PortResizeSpike`, `ScreenRecordSpike` and
+  the rest are wired into `Port42App`'s debug menu and its hands-free launch flags, so they are dev
+  tooling, not dead code. No scenario needs them and none ships in a release build. Removing them
+  is GM's call.
+- **Keeper moves to step 1.3.** The in-app engine's system prompt teaches the Keeper tools and injects
+  Keeper's memory, so the two come out together.
 - **Keeper:** `BridgeServiceKeeper`, `CompanionRelationship`, `CreaseInspectorSheet`, the `crease`,
   `fold`, `position` and `engrave` methods, their `DatabaseService` sections, and the four
   `companion_*` tables (empty on Dev3). Tests: `CompanionRelationshipTests`, `D4MemoryScopeTests`,
@@ -36,6 +43,13 @@ Each step is its own commit. Suite green, Go suites green, harness five of five,
 `OpenClawService`, `OpenClawSheet`, `PythonAgentSheet`, `AgentConnectSheet`, their `AppState` flags and
 their `ShellView` sheets. The `port42-openclaw` and `port42-python` repos are left alone here; retiring
 them is GM's call and outside this repo.
+
+**Done 2026-09-25.** The four files are gone, along with the flags and prefill state in `AppState`, the
+OpenClaw detection at launch, the three sheet overlays and their escape-key closes in `ShellView`,
+the settings button that upgraded the OpenClaw plugin, and three analytics events. `port42://openclaw`
+links now fall through to "unknown deep link". A space invite carrying an encryption key, which was
+the agent-connect flow, is logged as unsupported rather than joined. Suite 1441 green; harness five
+of five.
 
 ### 1.3 The in-app engine, and the first run rebuilt on a CLI agent
 
@@ -87,8 +101,11 @@ on it.
 
 ### 1.6 Small, clearly right
 
-- **F7:** a companion's port shows its codename as `createdBy`, not its raw client id.
-- **Shim:** a user's own `claude --resume` survives the session pin.
+- **F7 (done):** `ports.list` entries carry `createdByName` next to `createdBy`: the registered
+  client's name, else the companion's. `createdBy` stays an id because other code reads it as one.
+  Live: the scenario 1 port lists `harness-s1-claude`, and `nautilus s1 cpu` lists `swift-otter`.
+- **Shim (done):** `sessionPin` adds nothing when the person's own arguments choose a session
+  (`--resume`, `-r`, `--continue`, `-c`, `--session-id`, `--fork-session`).
 
 **Deferred to GM, because they delete data:** reaping the `port_versions` rows already written as
 layout noise (F6), and reaping the panel whose space no longer exists (F8).

@@ -23,8 +23,6 @@ public struct SignOutSheet: View {
     @State private var compatibleBaseURL: String = Port42AuthStore.shared.loadCredential(provider: "compatible-url") ?? ""
     @State private var compatibleKeyInput = ""
     @StateObject private var instructionsSvc = InstructionService.shared
-    @State private var pluginUpgradeInProgress = false
-    @State private var pluginUpgradeResult: String?
     @State private var newSecretName = ""
     @State private var newSecretValue = ""
     @State private var newSecretType: Port42AuthStore.SecretType = .bearerToken
@@ -148,7 +146,7 @@ public struct SignOutSheet: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.12), lineWidth: 1))
     }
 
-    /// CLI context install (CLAUDE.md / GEMINI.md) + the openclaw plugin — lives on the AI screen
+    /// CLI context install (CLAUDE.md / GEMINI.md / AGENTS.md) — lives on the AI screen
     /// (it wires the CLI LLM companions), not Remote Access.
     private var cliInstructionsBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -164,30 +162,6 @@ public struct SignOutSheet: View {
                                          action: { instructionsSvc.installInstructions(for: "gemini") })
                     cliInstructionButton(label: "AGENTS.md", installed: instructionsSvc.hasCodexInstructions,
                                          action: { instructionsSvc.installInstructions(for: "codex") })
-                }
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("OPENCLAW PLUGIN").font(Port42Theme.mono(9)).tracking(2).foregroundStyle(Port42Theme.textSecondary)
-                HStack(spacing: 10) {
-                    Button(action: upgradeOpenClawPlugin) {
-                        HStack(spacing: 6) {
-                            if pluginUpgradeInProgress {
-                                ProgressView().scaleEffect(0.6).frame(width: 10, height: 10)
-                            } else {
-                                Image(systemName: pluginUpgradeResult == "ok" ? "checkmark.circle.fill" : "arrow.up.circle")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(pluginUpgradeResult == "ok" ? .green : accent)
-                            }
-                            Text(pluginUpgradeInProgress ? "upgrading..." : "upgrade port42-openclaw")
-                                .font(Port42Theme.mono(11)).foregroundStyle(Port42Theme.textPrimary)
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
-                    }
-                    .buttonStyle(.plain).disabled(pluginUpgradeInProgress)
-                    if let result = pluginUpgradeResult, result != "ok" {
-                        Text(result).font(Port42Theme.mono(10)).foregroundStyle(.red).lineLimit(1)
-                    }
                 }
             }
         }
@@ -662,7 +636,7 @@ public struct SignOutSheet: View {
                     .foregroundStyle(Port42Theme.textSecondary.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
 
-                // CLI install (CLAUDE.md/GEMINI.md + openclaw) moved to the AI tab — it wires the CLI LLMs.
+                // CLI install (CLAUDE.md/GEMINI.md/AGENTS.md) moved to the AI tab — it wires the CLI LLMs.
             }
             .padding(.leading, 8)
             .padding(.top, 8)
@@ -696,25 +670,6 @@ public struct SignOutSheet: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
-    }
-
-    private func upgradeOpenClawPlugin() {
-        pluginUpgradeInProgress = true
-        pluginUpgradeResult = nil
-        Task {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            proc.arguments = ["npx", "openclaw", "plugins", "install", "port42-openclaw"]
-            let pipe = Pipe()
-            proc.standardOutput = pipe
-            proc.standardError = pipe
-            let success = await withCheckedContinuation { cont in
-                proc.terminationHandler = { p in cont.resume(returning: p.terminationStatus == 0) }
-                do { try proc.run() } catch { cont.resume(returning: false) }
-            }
-            pluginUpgradeInProgress = false
-            pluginUpgradeResult = success ? "ok" : "failed — check that openclaw is installed"
-        }
     }
 
     private var isAnthropicConfigured: Bool {

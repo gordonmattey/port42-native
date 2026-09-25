@@ -377,31 +377,13 @@ public struct TransitionRoot: View {
                 NSLog("[Port42] Failed to parse space invite: %@", url.absoluteString)
                 return
             }
-            // If invite contains an encryption key it's an agent invite — show connect sheet
-            if invite.encryptionKey != nil {
-                let space = Space.create(name: invite.spaceName)
-                appState.agentConnectSpace = space
-                appState.agentConnectInviteURL = url.absoluteString
-                appState.showAgentConnectSheet = true
-            } else {
-                appState.joinSpaceFromInvite(invite)
+            // An invite carrying an encryption key was the bring-your-own-agent flow, which is gone
+            // (nautilus Phase 1 step 2). Say so rather than join a space the link was not meant for.
+            guard invite.encryptionKey == nil else {
+                NSLog("[Port42] Agent-connect invites are no longer supported: %@", invite.spaceName)
+                return
             }
-
-        case "openclaw":
-            let outerComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            if let inviteParam = outerComponents?.queryItems?.first(where: { $0.name == "invite" })?.value {
-                NSLog("[Port42] Agent deep link with invite: %@", inviteParam)
-                // Parse space name from invite URL (works with both port42:// and https:// formats)
-                let innerComponents = URLComponents(string: inviteParam)
-                let items = innerComponents?.queryItems ?? []
-                let dict = Dictionary(items.compactMap { i in i.value.map { (i.name, $0) } },
-                                      uniquingKeysWith: { _, last in last })
-                let spaceName = dict["name"] ?? "space"
-                let space = Space.create(name: spaceName)
-                appState.agentConnectSpace = space
-                appState.agentConnectInviteURL = inviteParam
-                appState.showAgentConnectSheet = true
-            }
+            appState.joinSpaceFromInvite(invite)
 
         default:
             NSLog("[Port42] Unknown deep link type: %@", url.host ?? "nil")

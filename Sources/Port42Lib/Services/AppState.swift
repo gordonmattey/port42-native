@@ -761,24 +761,9 @@ public final class AppState: ObservableObject {
     @Published public var friends: [SpaceMember] = []
     @Published public var showDreamscape = true
     @Published public var showNgrokSetup = false
-    @Published public var showOpenClawSheet = false
-    @Published public var openClawAvailable = false
-    @Published public var showPythonAgentSheet = false
-    @Published public var showAgentConnectSheet = false
     @Published public var toastMessage: String?
     /// Space waiting for ngrok setup to complete before copying invite link
     public var pendingInviteSpace: Space?
-    /// Space for the OpenClaw agent connection sheet
-    public var openClawSpace: Space?
-    /// Space for the Python agent connection sheet
-    public var pythonAgentSpace: Space?
-    /// Space + invite URL for the unified agent connect sheet (from deep link)
-    public var agentConnectSpace: Space?
-    public var agentConnectInviteURL: String?
-    /// Pre-filled values passed from AgentConnectSheet into PythonAgentSheet
-    public var pythonAgentName: String = "my-agent"
-    public var pythonAgentTrigger: AgentTrigger = .mentionOnly
-    public var pythonAgentPrefilledInviteURL: String?
     /// Agent names currently typing, keyed by spaceId
     @Published public var typingAgentNamesBySpace: [String: Set<String>] = [:]
     /// Agent names currently executing tools (for "tooling up" indicator)
@@ -1441,12 +1426,6 @@ public final class AppState: ObservableObject {
 
             startSpaceObservation()
             scheduleAllHeartbeats()
-
-            // Detect OpenClaw installation
-            openClawAvailable = OpenClawService.isInstalled
-            if openClawAvailable {
-                print("[Port42] OpenClaw detected")
-            }
 
             // Boot refresh (knowledge item C): any installed instruction block (CLAUDE.md /
             // GEMINI.md / AGENTS.md) is rewritten from the live template, so install-time
