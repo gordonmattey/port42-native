@@ -90,6 +90,20 @@ gateway was killed and calls were answered again 4 seconds later. Harness after 
   reuses), the rate limit and the host credential.
 - **`main.go`** loses the flags that only configured the store and Apple auth.
 
+**Done 2026-09-25.** `gateway.go` went from 1,106 lines to 516 and says what it is in its header.
+`store.go`, `apple_auth.go` and their tests are deleted, and `go.mod` lost SQLite and the JWT library.
+The WebSocket handshake is `no_auth` then identify, with no challenge. Frames are logged by type
+only, because a call frame can carry a caller's credential and its body used to be logged. New Go
+gates: a hub envelope of every type is refused `unknown_method` (checked by re-adding `join`), an
+HTTP call and a WS call need no channel state, and a call with no host is refused `no_host`. Live:
+`join` on Dev3 answers `unknown_method`, and the harness gives 1, 2, 3 and 5 passing, with 4 waiting
+on step 4.
+
+**Why the gateway had been crashing is not recoverable.** The gateway truncated its own log on every
+start, and macOS kept no crash report, so each restart erased the evidence. Now the gateway keeps the
+previous run's log as `.1`, and the app logs how the gateway ended: exit or signal, the status, and
+whether it was asked to stop. The next crash will say why.
+
 ### 0.4 A connection is one caller
 
 The gateway stores the credential given at `identify` on the peer, and `routeCall` stamps it on

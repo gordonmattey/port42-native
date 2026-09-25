@@ -124,7 +124,7 @@ Each ships alone and is done when all five scenarios pass live on Dev3.
 ### Phase 0 · The door (2, 4)
 
 **Progress** (detail in `plan-nautilus-phase0.md`): step 1 harness ✓ · 1b manuals teach `port.create`
-✓ · 2 door on its own connection, gateway respawn ✓ · 3 gateway drops the hub · 4 one connection one
+✓ · 2 door on its own connection, gateway respawn ✓ · 3 gateway drops the hub ✓ · 4 one connection one
 caller · 5 already true · 6 undeclared arguments refused.
 
 **The blocker.** `/call` reaches the app only through the messaging hub: gateway, WebSocket, the app
