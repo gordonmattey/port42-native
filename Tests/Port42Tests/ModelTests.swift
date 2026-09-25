@@ -16,18 +16,7 @@ struct ModelTests {
         #expect(!user.id.isEmpty)
     }
 
-    @Test("New user has nil appleUserID")
-    func newUserNoAppleID() {
-        let user = AppUser.createForTesting(displayName: "Gordon")
-        #expect(user.appleUserID == nil)
-    }
 
-    @Test("AppUser stores appleUserID")
-    func userWithAppleID() {
-        var user = AppUser.createForTesting(displayName: "Gordon")
-        user.appleUserID = "001234.abcdef1234567890.1234"
-        #expect(user.appleUserID == "001234.abcdef1234567890.1234")
-    }
 
     @Test("Two users get unique IDs")
     func uniqueUserIds() {

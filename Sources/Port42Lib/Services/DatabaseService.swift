@@ -755,6 +755,20 @@ public final class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v47-drop-messaging-columns") { db in
+            // Nautilus Phase 1 step 4. The per-space AES key and the sync flag served the messaging
+            // hub, and the Apple user id served its relay sign-in. All three are gone from the app;
+            // their columns go with them. `messages.syncStatus` and `messages.senderOwner` wait for
+            // the messages table itself (step 5), and the users' signing keys wait on Phase 4.
+            try db.alter(table: "spaces") { t in
+                t.drop(column: "encryptionKey")
+                t.drop(column: "syncEnabled")
+            }
+            try db.alter(table: "users") { t in
+                t.drop(column: "appleUserID")
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -1087,7 +1101,7 @@ public final class DatabaseService {
     public func getOrCreateDirectSpace(companion: AgentConfig) throws -> Space {
         if let existing = try findDirectSpace(companionId: companion.id) { return existing }
         let space = Space(id: UUID().uuidString, name: companion.displayName, type: "direct",
-                          createdAt: Date(), encryptionKey: nil, syncEnabled: false)
+                          createdAt: Date())
         try dbQueue.write { db in
             try space.insert(db)
             try db.execute(sql: "INSERT OR IGNORE INTO agentSpaces (agentId, spaceId) VALUES (?, ?)",
@@ -1120,11 +1134,6 @@ public final class DatabaseService {
         }
     }
 
-    public func getSpaceKey(spaceId: String) throws -> String? {
-        try dbQueue.read { db in
-            try Space.fetchOne(db, id: spaceId)?.encryptionKey
-        }
-    }
 
     public func deleteSpace(id: String) throws {
         try dbQueue.write { db in

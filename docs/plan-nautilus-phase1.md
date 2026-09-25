@@ -11,8 +11,8 @@ can carry: the desktop, a space, or one port.
 
 ## Progress
 
-1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ngrok and invites ✓ · 1.4 sync client ✓ · 1.1 re-scoped (below) · 1.3,
-1.4 schema, 1.5 open.
+1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · 1.1 re-scoped (below) ·
+1.3 and 1.5 open.
 
 ## Order, and why
 
@@ -90,8 +90,12 @@ These go together, because the first run is the engine's last user.
   and its boot line. The chat keeps its local companions' typing. Suite 1375 green (51 fewer: the
   crypto, sync-auth, Apple-auth and sync-envelope suites). Harness five of five, with one scenario 5
   timeout on the first run that passed twice on rerun (F18).
-- **Schema:** v49 drops `spaces.encryptionKey`, `spaces.syncEnabled`, `users.publicKey`,
-  `users.privateKey`, `users.appleUserID`, `messages.syncStatus`, `messages.senderOwner`.
+- **Schema (done 2026-09-25, v47):** drops `spaces.encryptionKey`, `spaces.syncEnabled` and
+  `users.appleUserID`, with the fields from `Space` and `AppUser`. `messages.syncStatus` and
+  `messages.senderOwner` go with the `messages` table in step 1.5. `users.publicKey` and
+  `users.privateKey` stay for now: whether Phase 4's peer identity reuses them is GM's call. Live
+  on Dev3's real data: 4 spaces, 1 user and 28 ports before and after, and the harness passed five of
+  five. The pre-migration database is kept at the session scratchpad as `dev3-pre-v47.sqlite`.
 - **Tests:** `ChannelCryptoTests`, `EncryptionIntegrationTests`, `SyncAuthTests`, `AppleAuthTests`,
   `SenderOwnerTests`, `Port42MembersTests` and the messaging cases of mixed suites.
 
