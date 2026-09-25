@@ -372,7 +372,7 @@ through the port, which upstream has no reason to take back while it moves cross
 its surface is Apple-only. So the fallback route starts from a 165-line reference rather than a blank
 page.
 
-**And the coupling is smaller than the earlier count suggested.** Of the 2,367 lines, 
+**The coupling is narrower than the terminal stack's line count implies.** Of the 2,367 lines, 
 `TerminalHooksService` (424) is a socket receiver with no terminal knowledge,
 `TerminalOutputProcessor` (244) is a pure byte pipeline, and `GhosttyTerminalController` (386)
 contains no `ghostty_*` calls at all and already sits behind a seam. The genuinely bound code is
