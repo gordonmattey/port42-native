@@ -47,7 +47,8 @@ defaults to leave out. Every line justified, every step shippable.
 **Every scope is a port.** The desktop is port 0, which the grant model already names. A space is a
 port that holds other ports. A web or terminal port is a port.
 
-**Any port can carry a chat.** You talk at the scope you mean: the desktop, a space, or one port.
+**Every port has a chat**, opened from an icon in its chrome beside its other actions (GM, 2026-09-25).
+You talk at the scope you mean: the desktop, a space, or one port. There is no separate chat port.
 The transcript is that port's state, a file kept through storage. A companion attached to a scope is
 a subscriber of that port, which replaces space membership. A mention is an event on the port.
 

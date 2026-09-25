@@ -105,8 +105,8 @@ These go together, because the first run is the engine's last user.
 The one design in the phase. It needs GM's review before it is built, and nothing before it depends
 on it.
 
-- A chat is a web port that any scope can carry: port 0, a space, or a port. Its transcript is an
-  append-only record in the storage service, keyed to that port (D1, D3).
+- Every port has a chat, opened from an icon in its chrome (GM, 2026-09-25); there is no separate
+  chat port. Its transcript is an append-only record in the storage service, keyed to that port (D1, D3).
 - A companion attached to a scope subscribes to that port's chat. Membership (`agentSpaces`) migrates
   to subscriptions.
 - A mention is an event on the chat port and carries the caller who sent it (F16). The mention router

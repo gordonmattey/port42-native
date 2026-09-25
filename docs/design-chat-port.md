@@ -1,77 +1,66 @@
-# Design: the chat port (nautilus Phase 1 step 5)
+# Design: every port has a chat (nautilus Phase 1 step 5)
 
-Draft for GM's review, 2026-09-25. Nothing here is built. It turns the decisions already taken (D1, D2,
-D3, D10, D11, and "chat is scoped to a port, every scope is a port") into a buildable shape, and puts
-the four choices that are still open at the end.
+Draft for GM's review, revised 2026-09-25 after GM's direction: there is no separate chat port. Chat is
+part of every port (web, terminal, browser), opened from an icon in the port's chrome beside its other
+action buttons. Nothing here is built.
 
 ## What exists today
 
-- **One native chat tile per space.** It is a `PortPanel` with `isChatPort`, rendered by `ChatView` and
-  `ConversationContent` (about 1,800 lines of SwiftUI). `port.create {type:"chat"}` reveals it; it
-  cannot make a second one.
-- **The transcript is the `messages` table**, observed by GRDB and rendered as a list, including inline
-  ports from fences and a `[portref]` card for every port created in the space (101 of space-3's 139
-  messages on Dev3).
-- **A mention reaches a companion** through `routeMentionsToTerminals`: the app parses `@name`, finds
-  the companion in `agentSpaces`, respawns its terminal if closed, and types the message into it. The
-  shim's end-of-turn hook posts the reply back as a message.
-- **What does not work:** a message sent through the API speaks as the person (F16), the chat cannot be
-  shared with a browser guest because it is native, and its layout is the likeliest driver of the
-  70-second stall (F18).
+- **One native chat tile per space** (`isChatPort`, rendered by `ChatView` and `ConversationContent`,
+  about 1,800 lines of SwiftUI). Its transcript is the `messages` table, including inline ports from
+  fences and a `[portref]` card for every port created in the space.
+- **A mention reaches a companion** through `routeMentionsToTerminals`: parse `@name`, find the
+  companion in `agentSpaces`, respawn its terminal if closed, type the message in. The shim's
+  end-of-turn hook posts the reply back as a message.
+- **What does not work:** a message sent through the API speaks as the person (F16), the chat is not
+  reachable by a browser guest, and its layout is the likeliest driver of the 70-second stall (F18).
 
 ## The shape
 
-**A chat is a web port.** Same primitive as a chart: HTML and JS, driven through the bridge, one id, one
-token. It renders in the shell like any tile, and a browser guest can open it with a per-port invite
-(D10) with nothing added. A shared chat is scenario 4 applied to a conversation.
+**Every port carries a chat.** A chat icon sits in the port's chrome with its other actions. It opens
+that port's chat as a panel attached to the tile. A space is a port, so the space's own chrome opens
+the space's chat. Port 0's chrome opens the desktop's.
 
-**Its transcript is storage, keyed to the port** (D1, D3). An append-only list under the chat port's
-own key, written only by the chat port itself. The port reloads it on mount, so it survives restart,
-eviction and remount.
+**The transcript belongs to the port.** An append-only list in the storage service under the port's
+key (D1, D3). It survives restart, eviction and remount, and it goes when the port is closed for good.
 
-**Everything enters through the port's input.** A person typing, a companion replying, and an API
-caller all `port.push` into the chat port. The push carries the caller's principal, so the port records
-who actually said it (fixes F16). The port appends, renders, and publishes a `message` event.
+**Everything enters through one door.** A person typing in the panel, a companion replying, and an API
+caller all post to the port's chat through one registry method. The app records who said it from the
+caller's principal (fixes F16), appends, and publishes a `chat` event on the port's topic.
 
-**A mention is an event, and a companion is a subscriber.** The chat port publishes `mention` events
-naming who was mentioned and who mentioned them. A companion attached to a scope is subscribed to that
-scope's chat. The app's router keeps the subscriptions and does what `routeMentionsToTerminals` does
-today: wake the companion's terminal and type the message in. `agentSpaces` becomes the list of
-subscriptions.
+**A mention is an event, and a companion is a subscriber.** A companion attached to a port or a space
+subscribes to that chat. On a mention the router does what `routeMentionsToTerminals` does today: wake
+the companion's terminal and type the message in. The shim's end-of-turn hook posts the reply back into
+the chat the mention came from. `agentSpaces` becomes the subscription list.
 
-**A reply goes back the same way.** The shim's end-of-turn hook pushes the reply into the chat port the
-mention came from, as the companion's principal.
+**A terminal port's chat is its companion's session.** A message there is typed into the terminal, and
+the reply lands back in the same chat. This is Echo's first-run conversation.
 
-**Scopes.** One chat per space, as now. A terminal port's chat is its companion's session record (the
-terminal port carries a chat; a message there is typed into the terminal). Port 0's chat is the
-desktop-wide one, reachable from anywhere.
+**A browser guest sees the chat of the port it was invited to.** The guest page draws the same panel
+from the same events.
 
 ## What goes with it
 
-`ChatView`, `ConversationContent`, inline-presented ports and port fences (D11), `[portref]` cards,
-the `messages` table and its GRDB observation, `input_history`, and the unread counters built on
-messages.
+`ChatView`, `ConversationContent`, the space chat tile, inline ports and port fences (D11),
+`[portref]` cards, the `messages` table and its observation, `input_history`, and the unread counters
+built on messages.
 
 ## Build order
 
-1. The chat port itself (HTML and JS), transcript in storage, principal-stamped entries, `message` and
-   `mention` events. Shipped behind the existing chat tile, so nothing changes yet.
-2. The router subscribes companions to chat ports, and the shim's reply goes back as a push. Scenario
-   1 switches to the chat port.
-3. Swap the space's chat tile to the chat port, then delete the native chat and the `messages` table.
-4. Terminal-port chats, then port 0's chat.
+1. The registry method, the per-port transcript in storage, principal-stamped entries, the `chat`
+   event. Tested headless.
+2. The chat panel and the chrome icon, on every port type.
+3. The router subscribes companions and the shim replies into the chat. Scenario 1 moves to a space's
+   chat.
+4. Remove the space chat tile, the native chat views and the `messages` table.
+5. Port 0's chat.
 
-The harness gains a check at step 2: a reply lands in the chat port attributed to the companion, and a
-message sent through the API is attributed to its caller.
+The harness gains a check at step 3: a companion's reply lands in the chat attributed to the companion,
+and a post through the API is attributed to its caller.
 
 ## Open for GM
 
-1. **The existing transcripts.** Drop them with the `messages` table (nothing in this plan preserves
-   old data), or import each space's history into its chat port once.
-2. **How a wider scope shows while you are focused on a narrower one.** For example, the space chat
-   while one port is full-screen: a peek when it has something for you (as needs-attention does
-   today), or a drawer you open.
-3. **Where port 0's chat lives.** In the galaxy view, or as a tile on every desktop.
-4. **Echo's copy for the first run** (step 1.3): the welcome currently describes "this conversation is
-   itself a port, your DM with me, in your first space, genesis." Under this design Echo's conversation
-   is its terminal port's chat, and the wording is yours.
+1. **Existing transcripts:** drop them with the `messages` table, or import each space's history into
+   its space's chat once.
+2. **The panel:** a drawer that slides out from the tile, or a flip to the tile's back.
+3. **Unread:** a count on the chat icon, a peek, or both.
