@@ -93,6 +93,7 @@ extension AppState {
     func postToChat(key: String, text: String, from p: Principal) throws -> PortChatEntry {
         let entry = try db.appendChatEntry(chat: key, text: text, at: Date(),
                                            fromId: p.id, fromName: p.displayName, fromKind: p.kind.rawValue)
+        chats.received(key, entry)
         notifyBus.publish(topic: PortNotify.topic(forPortKey: key),
                           kind: PortEventKind.chat.wire, payload: entry.bridgeValue)
         return entry
@@ -147,5 +148,77 @@ func registerChatMethods(into r: inout BridgeRegistry, appState: AppState) {
         let entries = try appState.db.chatEntries(chat: k, after: args.int("after") ?? 0, limit: limit)
         let last = try appState.db.lastChatSeq(chat: k)
         return .object(["entries": .array(entries.map(\.bridgeValue)), "last": .int(last)])
+    }
+}
+
+// MARK: - What the shell shows of a chat
+//
+// The panel, the companion bar and its unread count read this. It is fed by `postToChat`, the one
+// place an entry is written, so every surface sees a post the moment it lands, whoever posted it.
+
+@MainActor
+public final class PortChatStore: ObservableObject {
+    /// The newest entries of each chat the shell has opened or drawn a bar for.
+    @Published public private(set) var entries: [String: [PortChatEntry]] = [:]
+    /// The last seq the person has seen, per chat. Kept across launches.
+    @Published public private(set) var lastRead: [String: Int]
+
+    public static let keep = 200
+    static let defaultsKey = "port42ChatLastRead"
+    private let defaults: UserDefaults?
+
+    public init(defaults: UserDefaults? = .standard) {
+        self.defaults = defaults
+        lastRead = (defaults?.dictionary(forKey: Self.defaultsKey) as? [String: Int]) ?? [:]
+    }
+
+    public func isLoaded(_ key: String) -> Bool { entries[key] != nil }
+
+    /// Load a chat's newest entries once. A chat already loaded is kept current by `received`.
+    public func load(_ key: String, from db: DatabaseService) {
+        guard entries[key] == nil else { return }
+        entries[key] = (try? db.chatEntries(chat: key, after: 0, limit: Self.keep)) ?? []
+    }
+
+    /// A post landed. Appended only to a loaded chat; an unloaded one reads it from the store later.
+    public func received(_ key: String, _ entry: PortChatEntry) {
+        guard var list = entries[key] else { return }
+        guard !list.contains(where: { $0.seq == entry.seq }) else { return }
+        list.append(entry)
+        if list.count > Self.keep { list.removeFirst(list.count - Self.keep) }
+        entries[key] = list
+    }
+
+    /// Entries the person has not seen: newer than their last read, and not their own.
+    public func unread(_ key: String, me: String?) -> Int {
+        let seen = lastRead[key] ?? 0
+        return (entries[key] ?? []).filter { $0.seq > seen && $0.fromId != me }.count
+    }
+
+    public func markRead(_ key: String) {
+        guard let last = entries[key]?.last?.seq, last > (lastRead[key] ?? 0) else { return }
+        lastRead[key] = last
+        defaults?.set(lastRead, forKey: Self.defaultsKey)
+    }
+
+    /// Who is in a chat: everyone who has posted, the newest first, once each.
+    public func participants(_ key: String) -> [(id: String, name: String)] {
+        var seen = Set<String>(), out: [(id: String, name: String)] = []
+        for e in (entries[key] ?? []).reversed() where seen.insert(e.fromId).inserted {
+            out.append((e.fromId, e.fromName))
+        }
+        return out
+    }
+}
+
+@MainActor
+extension AppState {
+    /// The person posting from a chat panel. Through the registry like every other caller.
+    func postToChatAsPerson(key: String, text: String) async throws {
+        guard let user = currentUser else { throw BridgeError.badArg("no signed-in person to post as") }
+        _ = try await runBridgeMethod("chat.post",
+                                      principal: .human(id: user.id, displayName: user.displayName,
+                                                        spaceId: currentSpace?.id),
+                                      args: BridgeArgs(["port": key, "text": text]))
     }
 }

@@ -12,7 +12,7 @@ can carry: the desktop, a space, or one port.
 ## Progress
 
 1.2 ✓ · 1.6 ✓ (both parts) · 1.4 ✓ (ngrok, invites, sync client, schema v47) · housekeeping ✓ ·
-1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (step 1 of 5 ✓).
+1.3 ✓ (engine, Keeper, first run on a CLI) · 1.1 re-scoped (below) · 1.5 in progress (steps 1 and 2 of 5 ✓).
 
 ## Order, and why
 
@@ -180,6 +180,15 @@ published on `port:<key>` as a new system event kind, `chat`, carrying the entry
 whose port or space no longer exists is removed. Eight gates in `PortChatTests`, calibrated by
 breaking attribution and the reap. Not yet verified live: the harness client must be re-enrolled on
 the fresh Dev3.
+
+**Step 2 done 2026-09-25: the companion bar and the panel.** Every port tile except the old chat tile
+carries a companion bar in its title bar: avatars of who has posted, newest first, and an unread
+count; a bubble when the chat is empty. Clicking it slides the chat down from the bar. The panel
+pushes the port body down rather than covering it, because SwiftUI laid over a hosted web or
+terminal view does not reliably get the click. The person posts through `chat.post` as a human
+principal, like any caller. `PortChatStore` (on `AppState`) holds what the shell shows, is fed by the
+one write path, and keeps the last-read seq per chat across launches. Four more gates, calibrated by
+counting the person's own posts as unread. Not yet seen by GM.
 
 ### 1.6 Small, clearly right
 

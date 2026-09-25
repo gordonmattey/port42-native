@@ -355,6 +355,21 @@ struct ShellTile: View {
     @State private var peekHovered = false
     @State private var showVersions = false
     @State private var showMore = false
+    /// The port's chat is slid down from its companion bar.
+    @State private var chatOpen = false
+
+    /// The key this port's chat is filed under (`PortRef.key`: the udid). The old native chat tile has
+    /// no port chat; it is the thing this replaces (design-chat-port.md, build step 4).
+    private var chatKey: String? {
+        guard let p = tile.panel, !p.isChatPort else { return nil }
+        return p.udid
+    }
+    /// Height the open chat takes from the port body.
+    private var chatPanelH: CGFloat {
+        guard chatOpen, chatKey != nil, !isPeeking else { return 0 }
+        let body = liveSize.height - headerH
+        return min(max(150, body * 0.45), max(0, body - 60))
+    }
 
     /// Refresh + versions apply to authored HTML ports only: a terminal has no HTML to reload,
     /// and chat is native, not authored.
@@ -493,6 +508,12 @@ struct ShellTile: View {
         VStack(spacing: 0) {
             // Chrome by state (a chrome swap never remakes the hosted view — Spike 1).
             if isPeeking, let peek { peekHeader(peek) } else { titleBar }
+            // The chat slides down from the companion bar and pushes the body down.
+            if chatPanelH > 0, let key = chatKey {
+                PortChatPanel(chats: appState.chats, appState: appState, key: key, accent: tileAccent)
+                    .frame(width: liveSize.width, height: chatPanelH)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
             // The body stays mounted through peek/tile/focus: state changes only resize this
             // SAME view — no placeholder, no second mount, the webview never detaches.
             Group {
@@ -502,7 +523,7 @@ struct ShellTile: View {
                     ShellTileBody(shell: shell, appState: appState, tile: tile)
                 }
             }
-            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH))
+            .frame(width: liveSize.width, height: max(0, liveSize.height - headerH - chatPanelH))
             // A real AppKit view over a PEEKING unit's content wins the hit-test vs the hosted
             // NSView — the only thing that reliably captures the click (preview / keep).
             .overlay { if isPeeking, let peek { PeekClickCatcher { clickPeek(peek) } } }
@@ -607,6 +628,14 @@ struct ShellTile: View {
                 }
             }
             .gesture(moveGesture)
+            // The companion bar: who is in this port's chat, and what you have not read.
+            if let key = chatKey {
+                PortChatBar(chats: appState.chats, key: key, me: appState.currentUser?.id,
+                            accent: tileAccent, open: chatOpen) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { chatOpen.toggle() }
+                }
+                .onAppear { appState.chats.load(key, from: appState.db) }
+            }
             // Trailing chrome — the SAME controls whether tiled or focused (GM: "literally the same
             // code"). Secondary actions live under "…"; only focus-toggle and close stay visible.
             if isEditablePort, let bridge = tile.panel?.bridge {

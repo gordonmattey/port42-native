@@ -119,4 +119,54 @@ struct PortChatTests {
         #expect(try db.lastChatSeq(chat: "0") == 1)
         #expect(try db.lastChatSeq(chat: w.space.id) == 1)
     }
+
+    // MARK: - What the shell shows (build step 2)
+
+    func entry(_ seq: Int, from: String) -> PortChatEntry {
+        PortChatEntry(seq: seq, at: Date(), text: "t\(seq)", fromId: from, fromName: from.uppercased(), fromKind: "peer")
+    }
+
+    @Test("unread counts what others posted since you last read; your own posts never count")
+    func unreadAndMarkRead() throws {
+        let db = try DatabaseService(inMemory: true)
+        let store = PortChatStore(defaults: nil)
+        store.load("P", from: db)
+        store.received("P", entry(1, from: "echo"))
+        store.received("P", entry(2, from: "me"))
+        store.received("P", entry(3, from: "echo"))
+        #expect(store.unread("P", me: "me") == 2)
+        store.markRead("P")
+        #expect(store.unread("P", me: "me") == 0)
+        store.received("P", entry(4, from: "echo"))
+        #expect(store.unread("P", me: "me") == 1)
+    }
+
+    @Test("participants are everyone who posted, newest first, once each")
+    func participants() throws {
+        let store = PortChatStore(defaults: nil)
+        store.load("P", from: try DatabaseService(inMemory: true))
+        for (i, who) in ["a", "b", "a", "c"].enumerated() { store.received("P", entry(i + 1, from: who)) }
+        #expect(store.participants("P").map(\.id) == ["c", "a", "b"])
+    }
+
+    @Test("a post reaches an open chat at once, whoever made it, and a repeat is not doubled")
+    func postFeedsStore() async throws {
+        let w = try makeParityWorld()
+        w.state.chats.load(w.space.id, from: w.state.db)
+        _ = try await call(w, "chat.post", ["port": w.space.id, "text": "live"],
+                           as: .peer(id: "cli-1", displayName: "harness"))
+        let list = w.state.chats.entries[w.space.id] ?? []
+        #expect(list.map(\.text) == ["live"])
+        w.state.chats.received(w.space.id, list[0])
+        #expect(w.state.chats.entries[w.space.id]?.count == 1)
+    }
+
+    @Test("the person posts through the registry, attributed to them")
+    func personPosts() async throws {
+        let w = try makeParityWorld()
+        try await w.state.postToChatAsPerson(key: w.space.id, text: "from the panel")
+        let e = entries(try await call(w, "chat.read", ["port": w.space.id])).first
+        #expect((e?["from"] as? [String: Any])?["kind"] as? String == "human")
+        #expect((e?["from"] as? [String: Any])?["name"] as? String == "Alice")
+    }
 }

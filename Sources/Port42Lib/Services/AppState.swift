@@ -216,6 +216,8 @@ public final class AppState: ObservableObject {
     /// The in-memory Notify bus (Phase L1, docs/plan-port42-protocol-local-bus.md): a port's stream-out
     /// is published to `port:<id>` and fanned out 1:N to every `port.subscribe` caller.
     public let notifyBus = NotifyBus()
+    /// What the shell shows of each port's chat (PortChat.swift).
+    public let chats = PortChatStore()
     /// Step 5b: params to respawn a terminal from its inline card after the window is closed,
     /// keyed by the card's (original) port id. `terminalLiveIds` maps that stable card id to the
     /// currently-live port id (changes on respawn). In-memory: lost across app restarts (after a
