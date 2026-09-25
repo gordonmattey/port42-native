@@ -105,9 +105,9 @@ struct ShellChrome: View {
     private var statusCluster: some View {
         HStack(spacing: 9) {
             // Every indicator ALWAYS shows — the icon+color carry on/off state, they never disappear.
-            Image(systemName: appState.sync.isConnected ? "bolt.fill" : "bolt.slash").font(.system(size: 10))
-                .foregroundStyle(appState.sync.isConnected ? .green : Port42Theme.textSecondary)
-                .appKitTooltip(appState.sync.isConnected ? "Gateway connected" : "Gateway disconnected")
+            Image(systemName: appState.door.isConnected ? "bolt.fill" : "bolt.slash").font(.system(size: 10))
+                .foregroundStyle(appState.door.isConnected ? .green : Port42Theme.textSecondary)
+                .appKitTooltip(appState.door.isConnected ? "Gateway connected" : "Gateway disconnected")
             Image(systemName: "globe").font(.system(size: 10))
                 .foregroundStyle(appState.tunnel.publicURL != nil ? shell.accent : Port42Theme.textSecondary.opacity(0.4))
                 .appKitTooltip(appState.tunnel.publicURL != nil ? "Remote access on — \(appState.tunnel.publicURL ?? "")" : "Remote access off")

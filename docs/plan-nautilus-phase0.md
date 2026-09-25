@@ -67,6 +67,17 @@ frames, and reconnects. `handleCall` and `jsonContent` move out of `SyncService`
 - **The status light reads the door.** `ShellDesktop`'s three `sync.isConnected` sites read
   `door.isConnected`.
 
+**Done 2026-09-25.** `GatewayDoor` owns the host connection; `SyncService` lost its call path and is
+never started, so a launch shows `[door] open as host` and no sync connection at all. `JSONValue`
+moved to the door, so Phase 1 can delete `SyncService.swift` whole. Nine gates in
+`GatewayDoorTests`, calibrated by breaking stream handling, a wire key and the respawn limit.
+
+**Added to this step, found while verifying it:** nothing restarted a gateway that died, so one crash
+locked every caller out until the app was relaunched (audit F17). `GatewayProcess` now respawns a
+gateway that exits unasked, with a fresh host credential, at most five times a minute. Live: the
+gateway was killed and calls were answered again 4 seconds later. Harness after the step: 1, 2, 3 and
+5 pass; 4 waits on step 4.
+
 ### 0.3 The gateway drops the hub
 
 - **Envelope switch:** keep `call`, `response` and `stream`. Every other type gets the existing

@@ -40,6 +40,20 @@ public final class GatewayProcess: ObservableObject {
 
     private var terminationObserver: NSObjectProtocol?
 
+    /// Set when the app ASKS the gateway to stop (quit, or `stop()`), so its exit is not a crash.
+    private var stopRequested = false
+    /// When the gateway was last respawned, for the respawn limit.
+    private var respawns: [Date] = []
+
+    /// RESPAWN A GATEWAY THAT DIED UNASKED (nautilus Phase 0 step 2). The door is the app's only way
+    /// in, and a dead gateway used to stay dead: every caller was refused until someone relaunched
+    /// the app. At most `limit` respawns inside `window`, so a gateway that dies on launch does not
+    /// loop forever. Pure, so the policy is tested without a process.
+    nonisolated static func shouldRespawn(after recent: [Date], now: Date,
+                                          limit: Int = 5, window: TimeInterval = 60) -> Bool {
+        recent.filter { now.timeIntervalSince($0) < window }.count < limit
+    }
+
     /// Path to the gateway binary inside the app bundle
     private var binaryPath: String? {
         // Try standard auxiliary executable lookup first
@@ -59,6 +73,7 @@ public final class GatewayProcess: ObservableObject {
     /// Start the local gateway on the configured port
     public func start() {
         guard !isRunning else { return }
+        stopRequested = false
 
         guard let path = binaryPath else {
             NSLog("[gateway] binary not found in app bundle")
@@ -113,10 +128,21 @@ public final class GatewayProcess: ObservableObject {
             }
         }
 
-        proc.terminationHandler = { [weak self] _ in
+        proc.terminationHandler = { [weak self] ended in
             Task { @MainActor in
-                self?.isRunning = false
+                guard let self, self.process === ended else { return }   // an older spawn's exit
+                self.isRunning = false
                 print("[gateway] process terminated")
+                guard !self.stopRequested, !AppState.isTestProcess else { return }
+                let now = Date()
+                guard Self.shouldRespawn(after: self.respawns, now: now) else {
+                    NSLog("[gateway] died again; respawn limit reached, staying down")
+                    return
+                }
+                self.respawns = self.respawns.filter { now.timeIntervalSince($0) < 60 } + [now]
+                NSLog("[gateway] died unasked; respawning")
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.start()
             }
         }
 
@@ -147,7 +173,10 @@ public final class GatewayProcess: ObservableObject {
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.process?.terminate() }
+                    MainActor.assumeIsolated {
+                        self?.stopRequested = true
+                        self?.process?.terminate()
+                    }
                 }
             }
         } catch {
@@ -158,6 +187,7 @@ public final class GatewayProcess: ObservableObject {
     /// Stop the local gateway, giving it time to drain connections
     public func stop() {
         guard let proc = process, proc.isRunning else { return }
+        stopRequested = true
         proc.terminate()
         // Give gateway up to 2 seconds to drain WebSocket connections
         let sem = DispatchSemaphore(value: 0)

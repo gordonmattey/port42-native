@@ -133,6 +133,10 @@ person's mouth. In Phase 1 a mention becomes a port event, and it must carry the
 spawns agents ungated came from a July todo item. A client without the grant raises a permission
 card; approving records `terminal` on port 0.
 
+**F17. A dead gateway stayed dead.** `GatewayProcess` noted the exit and did nothing, so a gateway
+crash refused every caller until the app was relaunched. Fixed in Phase 0 step 2: respawn on an
+unasked exit, at most five times a minute.
+
 **F10. The port-positioning gap is closed.** `port.move` and `port.position` exist and worked live.
 The memory note claiming the gap is retired with this audit.
 

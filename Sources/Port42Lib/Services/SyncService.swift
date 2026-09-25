@@ -1,52 +1,6 @@
 import Foundation
 import GRDB
 
-// MARK: - JSON Value (Codable Any)
-
-/// Codable wrapper for arbitrary JSON values so RPC call args can carry full JSON objects.
-enum JSONValue: Codable {
-    case string(String)
-    case number(Double)
-    case bool(Bool)
-    case null
-    case array([JSONValue])
-    case object([String: JSONValue])
-
-    var anyValue: Any {
-        switch self {
-        case .string(let s): return s
-        case .number(let n): return n
-        case .bool(let b): return b
-        case .null: return NSNull()
-        case .array(let a): return a.map(\.anyValue)
-        case .object(let o): return o.mapValues(\.anyValue)
-        }
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
-        else if let n = try? c.decode(Double.self) { self = .number(n) }
-        else if let s = try? c.decode(String.self) { self = .string(s) }
-        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
-        else if let o = try? c.decode([String: JSONValue].self) { self = .object(o) }
-        else { throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Undecodable JSON value")) }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
-        switch self {
-        case .string(let s): try c.encode(s)
-        case .number(let n): try c.encode(n)
-        case .bool(let b): try c.encode(b)
-        case .null: try c.encodeNil()
-        case .array(let a): try c.encode(a)
-        case .object(let o): try c.encode(o)
-        }
-    }
-}
-
 // MARK: - Sync Wire Format
 
 struct SyncEnvelope: Codable {
@@ -179,18 +133,6 @@ public final class SyncService: NSObject, ObservableObject {
     /// CLI tools and other peers must leave this false.
     public var actAsHost: Bool = false
 
-    /// Called when a remote call is received (senderId, callId, method, input) -> responsePayload
-    /// `(senderId, callId, method, input, credential)`.
-    ///
-    /// The CREDENTIAL is the fifth argument and the reason this signature changed: `senderId` addresses
-    /// and must never authorize, so the thing that decides WHO a caller is has to travel separately
-    /// from the thing that says where to send the reply. The app verifies it — it is also the only
-    /// thing that mints one — so the token format has a single implementation.
-    /// The gateway handed us a call. The last parameter is how a STREAMING method emits before it
-    /// finishes: nil when the caller's door cannot carry mid-call frames, so the method can refuse
-    /// rather than emit into nothing.
-    public var onCallReceived: (@MainActor (String, String, String, [String: Any], String?,
-                                            (@MainActor (Any) -> Void)?) async -> Any)?
     /// Called when a response to our own call arrives
     public var onResponseReceived: ((String, Any) -> Void)?
 
@@ -461,9 +403,6 @@ public final class SyncService: NSObject, ObservableObject {
         case "token":
             handleToken(envelope)
 
-        case "call":
-            handleCall(envelope)
-
         case "response":
             handleResponse(envelope)
 
@@ -731,69 +670,6 @@ public final class SyncService: NSObject, ObservableObject {
             continuation.resume(returning: token)
         }
         print("[sync] received join token for space \(spaceId)")
-    }
-
-    private func handleCall(_ envelope: SyncEnvelope) {
-        guard let callId = envelope.callId,
-              let method = envelope.method,
-              let senderId = envelope.senderId else { return }
-
-        print("[sync] received call from \(senderId): \(method) (id=\(callId))")
-
-        Task { @MainActor in
-            let input = envelope.argsAsAny
-            let result: Any
-
-            // A streaming method emits through here, as `stream` frames carrying the same call_id.
-            // Only when the gateway said this door can carry them: on `/call` the value is nil and
-            // the method is refused up front, which is better than the old behavior of accepting a
-            // subscription and dropping every event of it.
-            var emit: (@MainActor (Any) -> Void)?
-            if envelope.streamable == true {
-                emit = { [weak self] event in
-                    guard let self else { return }
-                    var frame = SyncEnvelope(type: "stream")
-                    frame.callId = callId
-                    frame.targetId = senderId
-                    frame.payload = SyncPayload(senderName: "host", senderType: "host",
-                                                content: SyncService.jsonContent(from: event),
-                                                replyToId: nil)
-                    self.send(frame)
-                }
-            }
-
-            if let handler = onCallReceived {
-                result = await handler(senderId, callId, method, input, envelope.credential, emit)
-            } else {
-                result = ["error": "method not implemented", "code": BridgeErrorCode.unsupported.wire] as [String: String]
-            }
-
-            // Send response back
-            var resp = SyncEnvelope(type: "response")
-            resp.callId = callId
-            resp.targetId = senderId
-
-            // Wrap result as JSON. .fragmentsAllowed: a registry method can return a bare
-            // number/bool; without it JSONSerialization raises an ObjC NSException that `try?`
-            // cannot catch, which wedges the main queue permanently (see PortBridge resolve).
-            resp.payload = SyncPayload(senderName: "host", senderType: "host",
-                                       content: Self.jsonContent(from: result), replyToId: nil)
-
-            send(resp)
-        }
-    }
-
-    /// One encoder for a call's RESULT and for each of its stream FRAMES, so a subscriber parses
-    /// both the same way.
-    ///
-    /// `.fragmentsAllowed`: a registry method can return a bare number or bool, and without it
-    /// JSONSerialization raises an ObjC NSException that `try?` cannot catch, which wedges the main
-    /// queue permanently (see PortBridge resolve).
-    static func jsonContent(from value: Any) -> String {
-        if let str = value as? String { return str }
-        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
-           let json = String(data: data, encoding: .utf8) { return json }
-        return "{\"error\":\"unserializable result\"}"
     }
 
     private func handleResponse(_ envelope: SyncEnvelope) {

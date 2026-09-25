@@ -846,6 +846,9 @@ public final class AppState: ObservableObject {
 
     public let db: DatabaseService
     public let sync = SyncService()
+    /// The call door: the app's one host connection to its local gateway (nautilus Phase 0 step 2).
+    /// Every external call arrives here. `sync` is the messaging hub's client and no longer the host.
+    public let door = GatewayDoor()
     #if !RELEASE
     public let appleAuth = AppleAuthService()
     #endif
@@ -1029,6 +1032,7 @@ public final class AppState: ObservableObject {
     private var senderCountsObservation: AnyDatabaseCancellable?
     private var observationDebounceTask: Task<Void, Never>?
     private var syncConnectionCancellable: AnyCancellable?
+    private var doorCancellable: AnyCancellable?
     private var tunnelCancellable: AnyCancellable?
     private var portWindowsCancellable: AnyCancellable?
 
@@ -1039,6 +1043,9 @@ public final class AppState: ObservableObject {
         self.db = db
         // Forward nested sync/tunnel/portWindows changes to trigger SwiftUI updates
         syncConnectionCancellable = sync.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        doorCancellable = door.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         tunnelCancellable = tunnel.objectWillChange.sink { [weak self] _ in
@@ -1533,7 +1540,6 @@ public final class AppState: ObservableObject {
             gwURL = gp.localURL
         }
 
-        sync.actAsHost = true  // Port42 app is the RPC host; CLIs and other peers must not set this
         #if !RELEASE
         sync.configure(gatewayURL: gwURL, userId: userId, userName: currentUser?.displayName, db: db, appleAuth: appleAuth, appleUserID: currentUser?.appleUserID)
         #else
@@ -1550,7 +1556,7 @@ public final class AppState: ObservableObject {
         sync.onPresenceChanged = { [weak self] spaceId, senderId, senderName, status in
             self?.handlePresenceAnnouncement(spaceId: spaceId, senderId: senderId, senderName: senderName, status: status)
         }
-        sync.onCallReceived = { [weak self] senderId, callId, method, input, credential, emit in
+        door.onCallReceived = { [weak self] senderId, callId, method, input, credential, emit in
             guard let self = self else { return ["error": "app state deallocated"] }
 
             // WHO IS CALLING — from the CREDENTIAL, never from `sender_id` (slice-02 half two, 5a).
@@ -1582,22 +1588,19 @@ public final class AppState: ObservableObject {
             return await executor.execute(method: method, input: input, emit: emit)
         }
 
-        let spaces = self.spaces
+        // The door, not the hub (nautilus Phase 0 step 2). The messaging client is configured for the
+        // invite paths that still reach it, but it is no longer started, joins nothing and hosts
+        // nothing; Phase 1 deletes it. The door always faces the LOCAL gateway.
+        door.configure(gatewayURL: gp.localURL, senderId: userId, senderName: currentUser?.displayName)
         if didStartGateway {
             // Give the gateway a moment to bind the port
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                self.sync.connect()
-                for space in spaces {
-                    self.syncJoinSpace(space.id)
-                }
+                self.door.connect()
                 self.autoStartTunnelIfConfigured()
             }
         } else {
-            sync.connect()
-            for space in spaces {
-                syncJoinSpace(space.id)
-            }
+            door.connect()
             autoStartTunnelIfConfigured()
         }
     }
