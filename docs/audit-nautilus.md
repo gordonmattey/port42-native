@@ -24,6 +24,17 @@ What the baseline says: the kernel already does 1 through 4 on one machine. Scen
 and scenario 5 are the product work. Nothing in the messaging system was exercised by any pass except
 as transport for the door (finding F1) and as the channel the prompt travelled on (finding F4).
 
+**Harness baseline, 2026-09-25** (`scripts/scenarios/run.py`, client `nautilus-harness`, Dev3 on
+`nautilus` at `e40ab8f`):
+
+| # | Result | Evidence |
+|---|--------|----------|
+| 1 | FAIL | The mention reached the companion and it replied in 12 s, but with a port fence; the chat tile was parked, so no port appeared (F12). |
+| 2 | PASS | Four tokens threaded; stale and tokenless writes refused; `createdBy` is the harness client. |
+| 3 | PASS | Render received 12 transformed events in 6 s; produce to render median 2 ms, max 3 ms. |
+| 4 | FAIL | A guest giving its credential once at identify is refused `auth_required` on subscribe and on write (F2). The gate for Phase 0 step 4. |
+| 5 | PASS | Six ports across two spaces, two parked, one added: nothing moved; restart moved nothing. |
+
 ## 2. Findings that change the plan
 
 **F1. The door rides the hub.** `/call` → gateway → WebSocket → the app identified as host peer →
@@ -81,6 +92,18 @@ bundle path, and a worktree build writes its bundle to `~/port42-build-<worktree
 a worktree launched beside the Dev3 already running, and both processes opened the same SQLite file
 until the old one was stopped by hand. The kill should key on bundle id or data directory. Found
 while re-running scenario 5; not a nautilus phase, a build fix.
+
+**F12. A port made by a code fence exists only if the chat renders it.** Asked to "make a web port",
+a command companion may answer with a ```` ```port ```` fence in its reply instead of calling
+`port.create`. The fence becomes a port only when the chat tile renders the message. On 2026-09-25 the
+space's chat was parked, the companion replied in 12 seconds, and no port ever appeared. Phase 1
+decides the fence's fate with the chat port: either a fence in a chat message creates a real port
+whether or not anything renders it, or fences go and the skill (Phase 5) steers agents to
+`port.create`.
+
+**F13. `ports.list` has no `all_spaces` argument.** Every audit call passed one; it was ignored, and
+the method returns every space by default. A live instance of the silent-argument defect Phase 0
+step 6 fixes.
 
 **F10. The port-positioning gap is closed.** `port.move` and `port.position` exist and worked live.
 The memory note claiming the gap is retired with this audit.

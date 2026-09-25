@@ -115,6 +115,7 @@ a provider tolerating that use at scale.
 | D8 | Milestone M3 (Sync) in `CLAUDE.md` is superseded. What it reached for arrives as scenario 4. |
 | D9 | Port42 never calls a model provider. It reads no provider credential and holds no API key. A CLI agent talks to its own provider through its own client, under its own sign-in. |
 | D10 | An invite is per port and grants that port only. The same invite opens in Port42 or in a browser. Sharing a whole space is deferred. |
+| D11 | Port fences go. An agent makes a port with `port.create`; the manual and the skill teach only that. |
 
 ## Phases
 
@@ -188,6 +189,10 @@ prompt, delivered through `AGENTS.md`, which `InstructionService` already writes
 
 **The Keychain token step goes** (D9). It read Claude Code's OAuth credential out of the Keychain so
 the app could call Anthropic directly. With no engine in the app, nothing needs it.
+
+**Port fences go** (D11). A fenced port renders inline in a chat message and pops out on a click, and
+both the inline render and the chat tile it lives in go in this phase. Agents make ports with
+`port.create`, and the port manual and the skill teach only that (audit F12).
 
 **Found by the audit, fixed here:** reap `port_versions` rows already written as layout noise (F6);
 show a companion's codename as `createdBy` instead of its raw client id (F7); reap the panel whose
