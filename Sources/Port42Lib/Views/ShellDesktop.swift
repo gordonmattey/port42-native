@@ -48,6 +48,27 @@ struct ShellChrome: View {
                 .onChange(of: sid) { _, new in appState.chats.load(new, from: appState.db) }
             }
 
+            // HIDDEN PORTS in this space (Phase 3.2, decision 4): a person can always see what is
+            // running with no tile, and show it. Absent when there are none.
+            let hidden = appState.portWindows.hiddenPanels(in: appState.currentSpace?.id)
+            if !hidden.isEmpty {
+                chromeRow {
+                    Menu {
+                        ForEach(hidden) { p in
+                            Button("Show \(p.title)") { shell.showHidden(p.id) }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "eye.slash").font(.system(size: 10))
+                            Text("\(hidden.count) hidden").font(Port42Theme.mono(11))
+                        }
+                        .foregroundStyle(Port42Theme.textSecondary)
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help("Ports running here with no tile")
+                }
+            }
+
             // New Space lives in the galaxy now (spaces are the galaxy's business), not the Chrome.
 
             Spacer()

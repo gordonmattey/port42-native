@@ -14,6 +14,8 @@ struct QuickSwitcherItem: Identifiable {
         case companion(AgentConfig)
         /// A closed (archived) port: selecting it reopens it (nautilus Phase 2 step 2).
         case closedPort(id: String, spaceId: String?)
+        /// A hidden port, running with no tile: selecting it shows it (nautilus Phase 3.2).
+        case hiddenPort(id: String)
     }
 }
 
@@ -180,10 +182,17 @@ public struct QuickSwitcher: View {
     }
 
 
+    /// Every hidden port, in every space, so nothing runs where a person cannot find it.
+    private var hiddenItems: [QuickSwitcherItem] {
+        appState.portWindows.hiddenPanels.map { p in
+            QuickSwitcherItem(id: "hidden-\(p.id)", icon: "◌", name: p.title, kind: .hiddenPort(id: p.id))
+        }
+    }
+
     private var filteredItems: [QuickSwitcherItem] {
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Empty query: spaces, then recently closed ports.
-        guard !raw.isEmpty else { return spaceItems + closed.prefix(10) }
+        // Empty query: spaces, then hidden ports, then recently closed ports.
+        guard !raw.isEmpty else { return spaceItems + hiddenItems + Array(closed.prefix(10)) }
 
         // @ prefix: search companions
         if raw.hasPrefix("@") {
@@ -201,7 +210,7 @@ public struct QuickSwitcher: View {
         }
 
         // No prefix: search all
-        let all = spaceItems + companionItems + closed
+        let all = spaceItems + companionItems + hiddenItems + closed
         return all.filter { match(raw, $0.name.lowercased()) }
     }
 
@@ -250,6 +259,8 @@ public struct QuickSwitcher: View {
             }
             appState.portWindows.reopen(id)
             shell?.bringToFront(id)
+        case .hiddenPort(let id):
+            if let shell { shell.showHidden(id) } else { appState.portWindows.restore(id) }
         }
         isPresented = false
     }
@@ -273,7 +284,7 @@ public struct QuickSwitcher: View {
         switch item.kind {
         case .space: return Port42Theme.accent
         case .companion: return Port42Theme.agentColor(for: item.name)
-        case .closedPort: return Port42Theme.textSecondary
+        case .closedPort, .hiddenPort: return Port42Theme.textSecondary
         }
     }
 
@@ -282,6 +293,7 @@ public struct QuickSwitcher: View {
         case .space(let space): return space.isResting ? "resting" : "space"
         case .companion: return "🏊"
         case .closedPort: return "recently closed"
+        case .hiddenPort: return "hidden"
         }
     }
 }

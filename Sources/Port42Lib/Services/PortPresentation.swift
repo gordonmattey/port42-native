@@ -17,7 +17,7 @@ import CoreGraphics
 public struct PortPresentation: Equatable {
 
     public enum State: String, Equatable, CaseIterable {
-        case focused, tiled, peek, parked, background
+        case focused, tiled, peek, parked, background, hidden
     }
 
     /// The placement/mode.
@@ -86,7 +86,9 @@ extension ShellState {
                                                 isPeeking: Bool,
                                                 area: CGSize) -> PortPresentation {
         // Panel-mode gates first — these hold regardless of the current desktop or zoom.
-        if isBackground { return PortPresentation(state: .background, visible: false) }
+        // HIDDEN (the stored `isBackground`): running, on no desktop and in no rail. It used to report
+        // "background", the wallpaper's state, which says the opposite (a wallpaper is drawn).
+        if isBackground { return PortPresentation(state: .hidden, visible: false) }
         // THE DESKTOP WALLPAPER ("Set as background", `presentation == "background"`). It is drawn
         // full-bleed behind every desktop, so it is VISIBLE whenever a desktop is showing. It used to
         // fall through to "not on this desktop" below and report visible:false, so a shader set as

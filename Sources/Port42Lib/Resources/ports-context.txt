@@ -321,7 +321,7 @@ BRIDGE API REFERENCE:
 
   port42.presentation()  /  port42.on('presentation', callback)
     This port's presentation state: { state, visible, w, h }.
-    - state: "focused" | "tiled" | "peek" | "parked" | "background" — your placement/mode.
+    - state: "focused" | "tiled" | "peek" | "parked" | "background" | "hidden" — your placement/mode ("background" is the desktop wallpaper; "hidden" runs with no tile).
     - visible: true only when your pixels are actually on screen right now. False when off-desktop
       (another space is showing), in the galaxy overview, parked, backgrounded, or behind another
       port's focus. This is the one authoritative "render now" flag.

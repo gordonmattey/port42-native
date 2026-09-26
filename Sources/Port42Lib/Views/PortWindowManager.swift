@@ -203,9 +203,26 @@ public final class PortWindowManager: ObservableObject {
     /// address bar). Retained here for the port's lifetime; freed in `destroyWebView`.
     private var browserURLObservers: [String: PortBrowserURLObserver] = [:]
 
-    /// Panels running in the background (hidden but alive).
-    public var backgroundPanels: [PortPanel] {
+    /// HIDDEN ports (nautilus Phase 3.2): running, persisted, with their chat and subscriptions, and
+    /// on no desktop and in no rail. Stored as `isBackground` (the old "docked"). A person finds them
+    /// in ⌘K and in the chrome's hidden count, so nothing runs where they cannot see it.
+    public var hiddenPanels: [PortPanel] {
         panels.filter { $0.isBackground }
+    }
+
+    /// The hidden ports that belong to a space.
+    public func hiddenPanels(in spaceId: String?) -> [PortPanel] {
+        hiddenPanels.filter { $0.spaceId == spaceId }
+    }
+
+    /// Put a port in the presentation it was created with ("tiled" is where it already is).
+    func applyPresentation(_ presentation: String?, to idOrUdid: String) {
+        guard let id = panels.first(where: { $0.id == idOrUdid || $0.udid == idOrUdid })?.id else { return }
+        switch presentation {
+        case "parked": park(id: id)
+        case "hidden": minimize(id)
+        default: break
+        }
     }
 
     /// Set database reference for persistence.
@@ -729,8 +746,8 @@ public final class PortWindowManager: ObservableObject {
         panels[idx].isAlwaysOnTop.toggle()
     }
 
-    /// Send a port to the background (off the desktop, still running). The unit unmounts —
-    /// the live view stays in the registry and remounts (repainting) on restore.
+    /// Hide a port (off the desktop and out of the rail, still running). The unit unmounts; the live
+    /// view stays in the registry and remounts (repainting) on restore, which shows it again.
     public func minimize(_ id: String) {
         guard let idx = panels.firstIndex(where: { $0.id == id }) else { return }
         panels[idx].isBackground = true

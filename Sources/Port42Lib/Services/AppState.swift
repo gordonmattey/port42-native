@@ -1879,6 +1879,7 @@ public final class AppState: ObservableObject {
                 systemPrompt: systemPrompt, env: env, initialInput: initialInput) else {
                 return ["error": "failed to spawn terminal port"]
             }
+            portWindows.applyPresentation(presentation, to: portId)
             return ["id": portId, "title": resolvedTitle]
 
         case .ok(.browser(let url)):
@@ -1889,6 +1890,7 @@ public final class AppState: ObservableObject {
                                                       createdBy: createdBy, title: resolvedTitle,
                                                       size: size)
             guard !id.isEmpty else { return ["error": "failed to create browser port"] }
+            portWindows.applyPresentation(presentation, to: id)
             return ["id": id, "title": resolvedTitle]
 
         case .ok(.web(let html)):
@@ -1899,7 +1901,7 @@ public final class AppState: ObservableObject {
             _ = portWindows.registerTiledPort(id: id, html: html, spaceId: spaceId,
                                               createdBy: createdBy, title: resolvedTitle,
                                               position: position, size: size)
-            if presentation == "parked" { portWindows.park(id: id) }
+            portWindows.applyPresentation(presentation, to: id)
             return ["id": id, "title": resolvedTitle]
         }
     }

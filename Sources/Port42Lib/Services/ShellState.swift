@@ -981,6 +981,19 @@ public final class ShellState: ObservableObject {
         appState.portWindows.close(panel.id)                         // a real tile of this space → close it
     }
 
+    /// Show a hidden port (Phase 3.2): on its home desktop, going there if it is another space, placed
+    /// if it has no spot, and frontmost. Its view was running all along, so it only remounts.
+    public func showHidden(_ id: String) {
+        guard let panel = appState.portWindows.panels.first(where: { $0.id == id }) else { return }
+        if let sid = panel.spaceId, sid != appState.currentSpace?.id,
+           let space = appState.spaces.first(where: { $0.id == sid }) {
+            appState.selectSpace(space)
+        }
+        appState.portWindows.restore(id)
+        placeUnpositioned(area: lastDesktopArea)
+        bringToFront(id)
+    }
+
     /// Bring a tile to the front (focus/hover/drag-start): stamp it frontmost via `nextZ()` and
     /// select it. `setZ` no-ops if the id isn't a panel, so it's safe for any tile.
     public func bringToFront(_ tileId: String) {

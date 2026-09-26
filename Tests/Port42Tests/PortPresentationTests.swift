@@ -39,10 +39,10 @@ struct PortPresentationTests {
         #expect(!p(mode: "background", zoom: .focus("other"), onDesktop: false).visible)
     }
 
-    @Test("background: off the desktop, view unmounts → not visible, 0×0")
-    func background() {
+    @Test("hidden: off the desktop and the rail, view unmounts → not visible, 0×0, and not the wallpaper's state")
+    func hidden() {
         let r = p(isBackground: true)
-        #expect(r.state == .background)
+        #expect(r.state == .hidden)
         #expect(!r.visible)
         #expect(r.w == 0 && r.h == 0)
     }
@@ -55,10 +55,10 @@ struct PortPresentationTests {
         #expect(r.w == 0 && r.h == 0)
     }
 
-    @Test("background wins over parked")
-    func backgroundOverParked() {
+    @Test("hidden wins over parked")
+    func hiddenOverParked() {
         let r = p(isBackground: true, mode: "parked")
-        #expect(r.state == .background)
+        #expect(r.state == .hidden)
         #expect(!r.visible)
     }
 
@@ -137,7 +137,8 @@ struct PortPresentationTests {
         for state in PortPresentation.State.allCases {
             let produced: PortPresentation
             switch state {
-            case .background: produced = p(isBackground: true)
+            case .background: produced = p(mode: "background", onDesktop: false)
+            case .hidden:     produced = p(isBackground: true)
             case .parked:     produced = p(mode: "parked")
             case .tiled:      produced = p()
             case .peek:       produced = p(isPeeking: true)

@@ -110,7 +110,7 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
                 "env": ["type": "object", "description": "type:\"terminal\" — custom environment variables for the shell."],
                 "initialInput": ["type": "string", "description": "type:\"terminal\" — a line typed into the CLI once it is up but NOT submitted: it waits in the input box for the user to press Enter. For handing someone a first prompt to run. Use port_push instead to actually send input."],
                 "space_id": ["type": "string", "description": "Space to create the port in (default: current space)."],
-                "presentation": ["type": "string", "description": "Where the port appears: \"tiled\" (default, a desktop tile) or \"parked\"."]
+                "presentation": ["type": "string", "description": "Where the port appears: \"tiled\" (default, a desktop tile), \"parked\" (a chip in the rail) or \"hidden\" (runs with no tile: a background job, a pipe stage, or an agent nobody needs to watch; show it with port.manage show)."]
             ],
             "required": ["type"]
         ] as [String: Any]) { p, args in
@@ -363,12 +363,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
     }
 
     r["port.manage"] = BridgeMethod(permission: nil, paramNames: ["id", "action"], writesTarget: "id",
-        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), minimize/dock (off the desktop but still running), restore/undock (bring a docked port back onto the desktop). Check the status field from ports_list — 'tiled' | 'parked' | 'docked'.",
+        description: "Manage a port. Actions: focus (raise to the front of the desktop), close (archive it: it can be reopened with port.reopen), hide (off the desktop and out of the rail, still running, with its chat and subscriptions), show (bring a hidden port back onto its desktop). Check the status field from ports_list: 'tiled' | 'parked' | 'hidden'.",
         inputSchema: [
             "type": "object",
             "properties": [
                 "id": ["type": "string", "description": "The port's UDID or title"],
-                "action": ["type": "string", "description": "One of: focus, close, minimize, dock, restore, undock"]
+                "action": ["type": "string", "description": "One of: focus, close, hide, show (minimize, dock, restore and undock are older names for hide and show)"]
             ],
             "required": ["id", "action"]
         ]) { _, args in
@@ -384,12 +384,12 @@ private func registerPortLiveMethods(into r: inout BridgeRegistry, appState: App
             await appState.shell?.setBackgroundPort(id: nil)
         case "close":
             appState.portWindows.close(panel.id)
-        case "minimize", "dock":
+        case "hide", "minimize", "dock":
             appState.portWindows.minimize(panel.id)
-        case "restore", "undock":
+        case "show", "restore", "undock":
             _ = appState.portWindows.restore(panel.id)
         default:
-            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, dock, undock, background, unbackground")
+            throw BridgeError.badArg("unknown action '\(action)'. Use: focus, close, hide, show, background, unbackground")
         }
         return .object(["ok": .bool(true)])
     }
@@ -1401,7 +1401,7 @@ private func registerPortMethods(into r: inout BridgeRegistry, appState: AppStat
         }
         for pt in registered {
             entry(id: pt.udid, title: pt.title, createdBy: pt.createdBy, capabilities: pt.capabilities,
-                  cwd: pt.cwd, status: pt.isBackground ? "docked" : pt.presentation, spaceId: pt.spaceId,
+                  cwd: pt.cwd, status: pt.isBackground ? "hidden" : pt.presentation, spaceId: pt.spaceId,
                   x: pt.x, y: pt.y,
                   surfaceBound: appState.terminalControllers[pt.udid]?.isSurfaceBound)
         }
