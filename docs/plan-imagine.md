@@ -188,6 +188,15 @@ things, all addressed (GM, 2026-09-26):
 - Versions count writes, so v1 and two engineers' patches spent a budget of 3. The default is now 10.
 - The startup-stuck detector fired for every slow-starting CLI, quoting spinner garbage. Removed.
 
+Run 5 (budget 10) passed all twelve checks: DONE in 807 s, 10 versions, one port, a clean console,
+every agent speaking, nobody in another's terminal chat, and the lead checking pixels. But every
+exchange stayed in the space's chat: the port and its chat did not exist until v1, and replies go back
+to the chat that asked. So **/imagine now makes the port at bootstrap** (a placeholder page titled from
+the line, migration v56 records it), the brief names it by id and runs the versions in its chat
+(`port42 chat.post port=<id>`), the vision and a line per version stay in the space's chat, and the
+placeholder does not count against the budget. The test script checks that the engineers worked in
+the port's chat.
+
 Still to watch: messages typed into a starting Claude not submitted after three Enters (run 2 only).
 
 ## Test plan

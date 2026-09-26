@@ -13,9 +13,10 @@ It lists the companions you can @mention. Use those exact names; never invent or
 
 ## Rooms
 
-- Start and coordinate in the space's chat: asks, hand-offs, reports and decisions go there, where
-  the person follows the team.
-- When two or more of you work on one port together, talk about that work in the port's chat.
+- Start and coordinate in the space's chat, where the person follows the team: asks, plans and a
+  line for each step.
+- Work on a port that exists happens in its chat: hand-offs, reports and checks. Hand off there with
+  `port42 chat.post port=<its id>`; replies come back to it.
 - A companion's terminal chat is its own line to the person. Never post into another companion's.
 - Read the room before you act: `port42 chat.read port=<id>`.
 - Post with `port42 chat.post port=<id> text="..."` when you start something on your own; a reply to

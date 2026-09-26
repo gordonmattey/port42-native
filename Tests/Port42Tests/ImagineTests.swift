@@ -30,17 +30,17 @@ struct ImagineTests {
     func brief() {
         let line = "a shader that reacts to music, \"loud\" & bright"
         let b = Imagine.brief(line: line, person: "gordon", lead: "swift-pika", eng1: "merry-wren",
-                              eng2: "merry-koi", title: "a shader that reacts to music", versions: 5)
+                              eng2: "merry-koi", title: "a shader that reacts to music", port: "P-1", versions: 5)
         #expect(b.hasPrefix("@swift-pika /imagine from gordon: \"\(line)\""))
         #expect(b.contains("You lead two engineers, merry-wren and merry-koi"))
         #expect(MentionParser.extractMentions(from: b).map { $0.lowercased() } == ["@swift-pika"],
                 "the brief must @mention only the lead, or it reaches the engineers too")
-        #expect(b.contains("titled 'a shader that reacts to music'"))
+        #expect(b.contains("already made: 'a shader that reacts to music', id P-1"))
         #expect(b.contains("in at most 5 versions"))
-        #expect(b.contains("Have merry-wren make v1"))
+        #expect(b.contains("have merry-wren make v1"))
         #expect(b.contains("starts with DONE"))
-        #expect(b.contains("Coordinate here in the space's chat") && !b.contains("post in the port's chat a message that starts"),
-                "the team starts and reports in the space's chat (GM)")
+        #expect(b.contains("Reply here in the space's chat") && b.contains("Run the versions in the port's chat (port42 chat.post port=P-1)"),
+                "the vision in the space's chat, the work in the port's chat, named by id (GM)")
         #expect(!b.contains("{"), "an unfilled variable")
     }
 
@@ -52,7 +52,7 @@ struct ImagineTests {
                 "the lead must check what a person sees, not only the console and DOM")
         #expect(Imagine.leadRole().contains("ask them where they are"))
         for role in [Imagine.leadRole(), Imagine.engineerRole(lead: "swift-pika")] {
-            #expect(role.contains("space's chat") && role.contains("Never post into another companion's terminal chat"))
+            #expect(role.contains("port's chat") && role.contains("Never post into another companion's terminal chat"))
         }
         let e = Imagine.engineerRole(lead: "swift-pika")
         #expect(e.contains("led by @swift-pika") && e.contains("to @swift-pika"))
@@ -81,6 +81,13 @@ struct ImagineTests {
         #expect(first.fromName == person.displayName, "the brief must come from the person who imagined it")
         #expect(first.text.hasPrefix("@\(team.lead) /imagine from \(person.displayName): \"a clock made of light\""))
         #expect(first.text.contains("in at most 3 versions"))
+        // The port is made at bootstrap, in the space, with the title, and named in the brief by id.
+        let port = try #require(team.port)
+        let panel = try #require(w.state.portWindows.panels.first { $0.udid == port })
+        #expect(panel.spaceId == team.spaceId && panel.title == team.title)
+        #expect(panel.html.contains("an imagine team is building this"))
+        #expect(stored.port == port)
+        #expect(first.text.contains("id \(port)"))
     }
 
     @Test("the budget binds only a running team's own writes, once the port has that many versions")
@@ -100,7 +107,8 @@ struct ImagineTests {
         let w: ParityWorld
         let team: ImagineTeam
         let udid: String
-        func versions() throws -> Int { try w.state.db.fetchPortVersions(portUdid: udid).count }
+        /// The team's versions: the placeholder made at bootstrap is not one.
+        func versions() throws -> Int { try w.state.db.fetchPortVersions(portUdid: udid).count - 1 }
         func write(as name: String, _ html: String) async throws {
             let p: Principal = .peer(id: "child-\(name)", displayName: name, spaceId: team.spaceId)
             _ = try await w.state.runBridgeMethod("port.update", principal: p, args: BridgeArgs(
@@ -118,10 +126,8 @@ struct ImagineTests {
         let w = try makeParityWorld()
         let team = try await w.state.startImagine(line: "a clock made of light", versions: versions,
                                                   person: w.state.currentUser!, testCommand: "true")
-        w.state.portWindows.registerTiledPort(id: "p", html: "<title>\(team.title)</title>v1", spaceId: team.spaceId,
-                                              createdBy: team.eng1, title: team.title, position: CGPoint(x: 40, y: 40))
-        let udid = w.state.portWindows.panels.first { $0.id == "p" }!.udid
-        return Run(w: w, team: team, udid: udid)
+        // The port /imagine made; its placeholder does not count against the budget.
+        return Run(w: w, team: team, udid: try #require(team.port))
     }
 
     @Test("past the budget the team's write is refused with budget_spent and nothing lands; the lead is told once, the person is never refused")
@@ -154,6 +160,8 @@ struct ImagineTests {
     @MainActor
     func budgetRaised() async throws {
         let r = try await run(versions: 1)
+        try await r.write(as: r.team.eng1, "v1")                       // the placeholder is not counted
+        #expect(try r.versions() == 1)
         await #expect(throws: BridgeError.self) { try await r.write(as: r.team.lead, "v2") }
         _ = try await r.person("imagine.budget", ["space": r.team.spaceId, "versions": 2])
         try await r.write(as: r.team.lead, "v2")

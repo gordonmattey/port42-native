@@ -48,11 +48,14 @@ def main():
     run.say("pass" if first and first["text"].startswith(f"@{lead} /imagine from ") and line in first["text"] else "fail",
             "the brief is the space's first post, to the lead, with the line verbatim" if first else "no brief posted")
 
-    port = wait_for(lambda: next((p for p in c.call("ports.list") if p.get("title") == title), None), 900)
-    if not port:
-        run.say("fail", f"no port titled '{title}' within 900s")
+    # The port is made at bootstrap, so the work has a chat from the first message.
+    port = next((p for p in c.call("ports.list") if p.get("id") == team.get("port")), None)
+    if not port or port.get("title") != title:
+        run.say("fail", f"no port '{title}' made at bootstrap (got {team.get('port')!r})")
         return finish(run)
-    run.say("pass", f"'{title}' appeared after {time.time() - started:.0f}s")
+    run.say("pass" if team["port"] in first["text"] else "fail",
+            f"the port '{title}' exists from the start and the brief names it by id" if team["port"] in first["text"]
+            else "the brief does not name the port's id")
 
     def mine():
         return [p["id"] for p in c.call("ports.list") if p.get("title") == title]
@@ -62,7 +65,7 @@ def main():
     while time.time() < deadline and not done:
         time.sleep(10)
         for pid in mine():
-            n = len(c.call("port.history", {"id": pid}))
+            n = len(c.call("port.history", {"id": pid})) - (1 if pid == team["port"] else 0)   # not the placeholder
             if n > most:
                 most = n
                 run.say("wait", f"version {n} of {a.versions} after {time.time() - started:.0f}s")
@@ -80,6 +83,10 @@ def main():
     run.say("pass" if len(copies) == 1 else "fail",
             "one port, no duplicate" if len(copies) == 1 else f"{len(copies)} ports share the title")
     run.say("pass" if 1 <= most <= a.versions else "fail", f"{most} version(s), budget {a.versions}")
+    in_port = {e["from"]["name"] for e in c.call("chat.read", {"port": team["port"], "limit": 200})["entries"]}
+    run.say("pass" if {eng1, eng2} <= in_port else "fail",
+            "the engineers worked in the port's chat" if {eng1, eng2} <= in_port
+            else f"not in the port's chat: {sorted({eng1, eng2} - in_port)}")
     for name in members:
         run.say("pass" if name in seen else "fail",
                 f"@{name} spoke in the space's or the port's chat" if name in seen

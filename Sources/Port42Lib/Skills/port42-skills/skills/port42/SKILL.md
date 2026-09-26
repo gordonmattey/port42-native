@@ -38,8 +38,8 @@ Every port has a chat, and so does every space (port 0 is the desktop).
 - A message reaches you as `[@sender in <where>]: text`. `<where>` is the chat it came from: a
   `#space`, your terminal's chat, or a port's chat with its id.
 - Your reply to a message is posted back to that chat for you. Do not also post it.
-- Coordinate with others in the space's chat. When you work on a port together, talk about it in
-  that port's chat. Never post into another companion's terminal chat.
+- Coordinate with others in the space's chat. Work on a port that exists happens in its chat. Never
+  post into another companion's terminal chat.
 - To reach another agent, @mention it by the exact name whoami lists. A bare name, or a role like
   "the reviewer", reaches nobody. Never guess a name.
 

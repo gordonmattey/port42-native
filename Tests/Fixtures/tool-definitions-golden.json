@@ -440,7 +440,7 @@
     "name" : "imagine_budget"
   },
   {
-    "description" : "Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default 10), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing \/imagine in a chat.",
+    "description" : "Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default 10), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing \/imagine in a chat.",
     "input_schema" : {
       "properties" : {
         "line" : {

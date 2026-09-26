@@ -3,8 +3,9 @@ import Foundation
 /// `/imagine` (docs/plan-imagine.md): one line from a person becomes a small team (a lead and two
 /// engineers) that builds a port in its chat until the lead reports DONE.
 ///
-/// A BOOTSTRAP (GM, 2026-09-26). It makes the space, the three companions with their roles and the
-/// brief, and gets out of the way: from then on they are ordinary companions in a space, managed like
+/// A BOOTSTRAP (GM, 2026-09-26). It makes the space, the port (a placeholder, so it and its chat exist
+/// from the first message), the three companions with their roles and the brief, and gets out of the
+/// way: from then on they are ordinary companions in a space, managed like
 /// any other. Nothing here closes a terminal or removes a companion, ever. The one thing it keeps
 /// doing is the version budget, which bounds the team's token spend.
 ///
@@ -69,9 +70,9 @@ public enum Imagine {
         version works, and decide the next step. Check what a person would see: the console, and for \
         anything drawn, its pixels (count the lit pixels of the canvas with port_exec); a clean console \
         and a full DOM can still be a black screen. If an engineer has not reported back, ask them \
-        where they are. Coordinate in the space's chat, where the person follows the team: hand-offs, \
-        reports and decisions. When you work on the port together with an engineer, talk about it in \
-        the port's chat. Never post into another companion's terminal chat. Stop at DONE.
+        where they are. The space's chat, where the person follows the team, holds the vision, one line \
+        per version and DONE. Run the work on the port in the port's chat: hand-offs, reports and \
+        checks. Never post into another companion's terminal chat. Stop at DONE.
         """
     }
 
@@ -80,10 +81,10 @@ public enum Imagine {
         """
         You are an engineer on an imagine team led by @\(lead). Build what the lead gives you in the \
         port, only your part. Check it works as a person would see it (for anything drawn, its pixels, \
-        not only the console) before you say so. End every turn with a message to @\(lead) in the \
-        space's chat (or the port's chat, when you are working on the port together), even when the \
-        work is not done: what you changed, what you checked, what is left. A turn that ends without \
-        one leaves the team waiting. Never post into another companion's terminal chat.
+        not only the console) before you say so. Work on the port happens in the port's chat. End every \
+        turn with a message to @\(lead) there, even when the work is not done: what you changed, what \
+        you checked, what is left. A turn that ends without one leaves the team waiting. Never post \
+        into another companion's terminal chat.
         """
     }
 
@@ -92,18 +93,34 @@ public enum Imagine {
     /// ONLY THE LEAD IS @MENTIONED. An @mention delivers, so a brief that named the engineers with @
     /// reached all three, and on Dev4 the first CLI to start (a Codex engineer) wrote the vision and
     /// ran the team. The engineers are named plainly; the lead hands them work with @.
+    ///
+    /// THE PORT IS NAMED, WITH ITS ID. It is made at bootstrap, so the work can move to its chat from
+    /// the start. Before, the port and its chat did not exist until v1, every exchange began in the
+    /// space's chat, and replies (which go back to the chat that asked) kept it there (Dev4, run 5).
     public static func brief(line: String, person: String, lead: String, eng1: String, eng2: String,
-                             title: String, versions: Int) -> String {
+                             title: String, port: String, versions: Int) -> String {
         """
         @\(lead) /imagine from \(person): "\(line)"
-        You lead two engineers, \(eng1) and \(eng2) (hand them work with @ and their name). Make one web \
-        port titled '\(title)' that realizes this, in at most \(versions) versions. Coordinate here in \
-        the space's chat; when you work on the port together, talk about it in the port's chat.
-        1. Reply here with the vision, in 3 to 5 lines.
-        2. Have \(eng1) make v1. For each later version, give both engineers concrete, non-overlapping \
-        next steps toward the vision, check the result, and push further.
+        You lead two engineers, \(eng1) and \(eng2) (hand them work with @ and their name). The port is \
+        already made: '\(title)', id \(port). Build in it, never a second one; it holds a placeholder \
+        until v1. Realize this in at most \(versions) versions.
+        1. Reply here in the space's chat with the vision, in 3 to 5 lines.
+        2. Run the versions in the port's chat (port42 chat.post port=\(port)): have \(eng1) make v1 \
+        there, then for each later version give both engineers concrete, non-overlapping next steps, \
+        check the result, and push further. Here, post one line per version.
         3. When the vision is met or the budget is spent, post here a message that starts with DONE and \
         says what the port now is.
+        """
+    }
+
+    /// The port's first version, made at bootstrap: it names what is coming.
+    public static func placeholder(title: String, line: String) -> String {
+        let esc = { (s: String) in s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;") }
+        return """
+        <title>\(esc(title))</title>
+        <meta name="version" content="0">
+        <div style="height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;font:13px ui-monospace,monospace;opacity:.7">
+        <div>an imagine team is building this</div><div style="opacity:.6">\(esc(line))</div></div>
         """
     }
 
@@ -112,6 +129,9 @@ public enum Imagine {
 
     /// Is this write past the team's budget? Only the team's own writes count against it, and only
     /// once the port already has `versions` versions.
+    ///
+    /// `versionsSoFar` counts the team's versions: on the port made at bootstrap, its placeholder is
+    /// not one of them.
     public static func overBudget(team: ImagineTeam, writer: String, versionsSoFar: Int) -> Bool {
         team.isMember(writer) && versionsSoFar >= team.versions
     }
@@ -132,6 +152,8 @@ public struct ImagineTeam: Equatable {
     public let title: String
     public var versions: Int
     public let startedAt: Date
+    /// The port made at bootstrap (its udid); nil for a team started before ports were pre-made.
+    public var port: String? = nil
 
     public var members: [String] { [lead, eng1, eng2] }
 
@@ -165,6 +187,14 @@ extension AppState {
             if !taken.contains(n.lowercased()) && !names.contains(n) { names.append(n) }
         }
         let (lead, eng1, eng2) = (names[0], names[1], names[2])
+        // The port first, so the brief can name it and the work has a chat from the start.
+        let made = try await runBridgeMethod("port.create",
+                                             principal: .human(id: person.id, displayName: person.displayName, spaceId: space.id),
+                                             args: BridgeArgs(["type": "web", "title": title, "space_id": space.id,
+                                                               "html": Imagine.placeholder(title: title, line: line)]))
+        guard case .object(let o) = made, case .string(let portId)? = o["id"] else {
+            throw BridgeError(code: .methodFailed, message: "could not make the port for '\(title)'")
+        }
         let codex = ClaudeCodeSetup.findBinary("codex") != nil
         let seats: [(name: String, cli: String, role: String)] = [
             (lead, "claude", Imagine.leadRole()),
@@ -179,10 +209,10 @@ extension AppState {
             try createCompanion(c, spaceId: space.id)
         }
         let team = ImagineTeam(spaceId: space.id, lead: lead, eng1: eng1, eng2: eng2, title: title,
-                               versions: min(max(versions, 1), Imagine.maxVersions), startedAt: Date())
+                               versions: min(max(versions, 1), Imagine.maxVersions), startedAt: Date(), port: portId)
         try db.saveImagineTeam(team)
         let brief = Imagine.brief(line: line, person: person.displayName, lead: lead, eng1: eng1, eng2: eng2,
-                                  title: title, versions: team.versions)
+                                  title: title, port: portId, versions: team.versions)
         _ = try await runBridgeMethod("chat.post",
                                       principal: .human(id: person.id, displayName: person.displayName, spaceId: space.id),
                                       args: BridgeArgs(["port": space.id, "text": brief]))
@@ -242,15 +272,17 @@ extension AppState {
         return (team, ref)
     }
 
-    func imagineVersionCount(_ ref: PortRef) -> Int {
+    /// The team's versions of a port: on the port made at bootstrap, not counting its placeholder.
+    func imagineVersionCount(_ ref: PortRef, team: ImagineTeam) -> Int {
         guard let udid = ref.udid else { return 0 }
-        return (try? db.fetchPortVersions(portUdid: udid).count) ?? 0
+        let all = (try? db.fetchPortVersions(portUdid: udid).count) ?? 0
+        return udid == team.port ? max(0, all - 1) : all
     }
 
     /// Before a write: refuse it past the budget, with its own code, before its token moves.
     func imagineBudgetGate(method: String, args: BridgeArgs, principal: Principal) throws {
         guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal) else { return }
-        let n = imagineVersionCount(ref)
+        let n = imagineVersionCount(ref, team: team)
         guard Imagine.overBudget(team: team, writer: principal.displayName, versionsSoFar: n) else { return }
         throw BridgeError(
             code: .budgetSpent,
@@ -262,7 +294,7 @@ extension AppState {
     /// After a write landed: when it was the version that reached the budget, tell the lead.
     func imagineBudgetNotice(method: String, args: BridgeArgs, principal: Principal) {
         guard let (team, ref) = imagineBudgetTarget(method: method, args: args, principal: principal),
-              imagineVersionCount(ref) == team.versions, let key = PortRef.key(ref) else { return }
+              imagineVersionCount(ref, team: team) == team.versions, let key = PortRef.key(ref) else { return }
         _ = try? postToChat(key: key, text: Imagine.budgetSpent(lead: team.lead, versions: team.versions),
                             from: .peer(id: ChatRouting.port42SenderId, displayName: "port42", spaceId: team.spaceId))
     }
@@ -271,7 +303,7 @@ extension AppState {
 @MainActor
 func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
     r["imagine.start"] = BridgeMethod(permission: .terminal, paramNames: ["line", "versions"],
-        description: "Start an imagine team: from one line, a new space with a lead and two engineers (their terminals on its desktop) who build a web port for it in its chat, in at most `versions` versions (default \(Imagine.defaultVersions)), until the lead posts DONE. Returns the space, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.",
+        description: "Start an imagine team: from one line, a new space with its port (a placeholder until v1) and a lead and two engineers (their terminals on its desktop) who build that port, in at most `versions` versions (default \(Imagine.defaultVersions)), until the lead posts DONE. Returns the space, the port, the team's names, the port title and the budget. The same as ⌘I or typing /imagine in a chat.",
         inputSchema: [
             "type": "object",
             "properties": [
@@ -285,8 +317,9 @@ func registerImagineMethods(into r: inout BridgeRegistry, appState: AppState) {
         guard !line.isEmpty else { throw BridgeError.badArg("line is empty") }
         let team = try await appState.startImagine(line: line, versions: args.int("versions") ?? Imagine.defaultVersions,
                                                    person: person)
-        return .object(["space": .string(team.spaceId), "lead": .string(team.lead), "eng1": .string(team.eng1),
-                        "eng2": .string(team.eng2), "title": .string(team.title), "versions": .int(team.versions)])
+        return .object(["space": .string(team.spaceId), "port": .string(team.port ?? ""), "lead": .string(team.lead),
+                        "eng1": .string(team.eng1), "eng2": .string(team.eng2), "title": .string(team.title),
+                        "versions": .int(team.versions)])
     }
 
     r["imagine.budget"] = BridgeMethod(permission: nil, paramNames: ["space", "versions"],
