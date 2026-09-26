@@ -23,3 +23,24 @@ iOS are each just a different way of noticing.
 it, and prints every file it had to drop. The dropped list is the seam list.
 `.github/workflows/windows-kernel-spike.yml` runs it on Linux and Windows and cross-compiles the Go
 side. Both are on this branch.
+
+## Research order (GM, 2026-09-26)
+
+The thirteen Future roadmap items in `plan-shell-only.md`, ordered for scoping. Ranked by how
+expensive the decision is to get wrong late, not by how much anyone wants the feature.
+
+| # | Item | Status | Note |
+|---|---|---|---|
+| 1 | The program as the credential | scoping | Phase 4 is about to key grants on a peer id. If identity changes afterwards, authorization is redone. |
+| 2 | The chrome is ports too | scoping | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
+| 3 | One guided permission flow | scoping | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
+| 4 | Share a port's code | scoping | Distribution. Installing a port means running someone's JS against your grants, which is the part most likely to be underestimated. |
+| 5 | Publish a port as a website | **moved up by GM** | Was 11. |
+| 6 | Share a whole space | **moved up by GM** | Was 12. The cascade question in `invite-over-libp2p.md` is the open part. |
+| 7 | Multi-display | | Interacts with per-desktop positions (v46) and `port-shape.md`. |
+| 8 | A live media plane | GM: "would be cool" | Additive, and depends on Phase 4's transport existing. |
+| 9 | The membrane interprets | | Five docs already in `docs/membrane/`. |
+| 10 | More agents as first-run paths | GM queried the item | Setup detects which CLI agent is installed and runs Echo on it. Today Claude Code and Codex; the item is adding Gemini and Antigravity to that detection. Not about agents in general. |
+| 11 | Expand the CLI | **replaces "MCP as a port capability"** | GM, 2026-09-26: "i really dont like it, i think we could expand the cli instead." MCP moves down and the framing changes: the CLI is the surface to grow, not a second protocol to adopt. |
+| 12 | Computer use | GM: "kinda a bad smell" | Has `plan-computer-use.md`. Demote rather than delete. |
+| 13 | Windows and Linux | **scoped** | `windows-port.md`, `kernel-boundary.md`, `libghostty-windows.md`. |
