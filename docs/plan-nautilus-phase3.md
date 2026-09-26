@@ -276,7 +276,10 @@ releases what it held (found writing the tests: without it, held events waited f
 closed terminal). The companion prompt and Codex's AGENTS.md teach `port42 companions.watch`.
 Gates: `WakeQueueTests` (11, calibrated by removing the gather, the hold and the ceiling) and
 `CompanionWatchTests` (5, through the API and the real bus, calibrated by removing the self-wake
-guard and the delete cleanup). Not yet verified live.
+guard and the delete cleanup). Verified live on Dev4: a hidden Claude companion watching a port
+answered one published event in the port's chat 9 s later, and a further event followed by five
+more fired during its turn gave exactly two more replies, the second reading "Alerts #3 to #7 came
+in as a burst, all within 47 ms".
 
 ### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
