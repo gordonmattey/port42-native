@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -165,6 +166,12 @@ func (g *Gateway) SetPeerIdentity(p PeerIdentity) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.peer = p
+}
+
+func (g *Gateway) peerKey() ed25519.PrivateKey {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.peer.Key()
 }
 
 func (g *Gateway) selfPeerID() string {

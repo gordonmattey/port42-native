@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/port42/gateway/transport"
 )
 
 // THE REMOTE DOOR (nautilus Phase 4, step 4.3).
@@ -57,7 +59,7 @@ func (g *Gateway) SetAttestKey(k string) {
 
 // remoteConn is one remote session, addressed by the id the host replies to.
 type remoteConn struct {
-	s      Session
+	s      transport.Session
 	sendMu sync.Mutex
 	rateMu sync.Mutex
 	times  []time.Time
@@ -91,7 +93,7 @@ func (c *remoteConn) send(ctx context.Context, env Envelope) error {
 }
 
 // ServeRemote accepts sessions from a transport until ctx ends, and runs each as a caller.
-func (g *Gateway) ServeRemote(ctx context.Context, t Transport) {
+func (g *Gateway) ServeRemote(ctx context.Context, t transport.Transport) {
 	for {
 		s, err := t.Accept(ctx)
 		if err != nil {
@@ -101,7 +103,7 @@ func (g *Gateway) ServeRemote(ctx context.Context, t Transport) {
 	}
 }
 
-func (g *Gateway) serveSession(ctx context.Context, s Session) {
+func (g *Gateway) serveSession(ctx context.Context, s transport.Session) {
 	var b [8]byte
 	rand.Read(b[:])
 	id := "remote-" + hex.EncodeToString(b[:])
@@ -179,6 +181,8 @@ func (g *Gateway) deliverRemote(ctx context.Context, target string, env Envelope
 	if !ok {
 		return false
 	}
+	// The host's local connection id is this machine's business, not the guest's.
+	env.PeerID = ""
 	if err := c.send(ctx, env); err != nil {
 		log.Printf("[gateway] failed to deliver to %s: %v", target, err)
 	}

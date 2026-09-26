@@ -11,8 +11,11 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/port42/gateway/relay"
 )
 
 // Injected at build time via -ldflags
@@ -21,6 +24,7 @@ var posthogAPIKey string
 func main() {
 	addr := flag.String("addr", ":4242", "listen address")
 	watchParent := flag.Bool("watch-parent", false, "exit when stdin (held by the parent app) closes at EOF")
+	relays := flag.String("relay", "", "comma-separated relay URLs (wss://host/v1) to register on and serve remote callers through")
 	flag.Parse()
 
 	// Log to file for debugging
@@ -111,6 +115,12 @@ func main() {
 			if key := ReadAttestKey(rest); key != "" {
 				gw.SetAttestKey(key)
 			}
+			// Remote callers arrive through relays (4.4), once this instance has a key to register.
+			if list := splitRelays(*relays); len(list) > 0 && gw.peerKey() != nil {
+				t := relay.NewTransport(gw.peerKey(), list)
+				t.Run(context.Background())
+				go gw.ServeRemote(context.Background(), t)
+			}
 			io.Copy(io.Discard, rest)
 			log.Println("[gateway] parent pipe closed (EOF) — shutting down")
 			done <- syscall.SIGTERM
@@ -130,6 +140,16 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.Shutdown(ctx)
+}
+
+func splitRelays(s string) []string {
+	var out []string
+	for _, r := range strings.Split(s, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func handleInvite(w http.ResponseWriter, r *http.Request) {

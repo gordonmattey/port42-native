@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/port42/gateway/transport"
 )
 
 const testAttestKey = "attest-key-for-this-spawn"
@@ -14,7 +16,7 @@ const testAttestKey = "attest-key-for-this-spawn"
 // remoteWorld: a gateway with a host credential and (optionally) an attestation key, the app's host
 // connection, and a guest on another "machine" over the in-memory transport.
 func remoteWorld(t *testing.T, attestKey string) (ctx context.Context, host func() Envelope,
-	hostSend func(Envelope), guest Session, wsURL string) {
+	hostSend func(Envelope), guest transport.Session, wsURL string) {
 	t.Helper()
 	gw := NewGateway()
 	cred, _ := ReadHostCredential(strings.NewReader("the-host\n"))
@@ -29,7 +31,7 @@ func remoteWorld(t *testing.T, attestKey string) (ctx context.Context, host func
 	sendEnvelope(t, c, hostConn, Envelope{Type: "identify", SenderID: "the-app", IsHost: true, HostCredential: "the-host"})
 	readEnvelope(t, c, hostConn) // welcome
 
-	net := NewMemNetwork()
+	net := transport.NewMemNetwork()
 	here := net.Join("this-instance")
 	go gw.ServeRemote(c, here)
 	g, err := net.Join("guest-instance").Dial(c, "this-instance")
@@ -40,7 +42,7 @@ func remoteWorld(t *testing.T, attestKey string) (ctx context.Context, host func
 		func(e Envelope) { sendEnvelope(t, c, hostConn, e) }, g, url
 }
 
-func guestSend(t *testing.T, ctx context.Context, s Session, env Envelope) {
+func guestSend(t *testing.T, ctx context.Context, s transport.Session, env Envelope) {
 	t.Helper()
 	b, _ := json.Marshal(env)
 	if err := s.Send(ctx, b); err != nil {
@@ -48,7 +50,7 @@ func guestSend(t *testing.T, ctx context.Context, s Session, env Envelope) {
 	}
 }
 
-func guestRecv(t *testing.T, ctx context.Context, s Session) Envelope {
+func guestRecv(t *testing.T, ctx context.Context, s transport.Session) Envelope {
 	t.Helper()
 	b, err := s.Recv(ctx)
 	if err != nil {
@@ -92,6 +94,8 @@ func TestARemoteCallReachesTheHostStampedAndItsRepliesComeBack(t *testing.T) {
 	}
 	if e := guestRecv(t, ctx, guest); e.Type != "response" || e.CallID != "c1" {
 		t.Fatalf("second frame %+v", e)
+	} else if e.PeerID != "" {
+		t.Fatalf("the host's local connection id reached the guest: %q", e.PeerID)
 	}
 }
 
@@ -134,11 +138,11 @@ func TestTheAttestationBindsKeyAndPeer(t *testing.T) {
 
 func TestMessagesSplitIntoFramesAndReassemble(t *testing.T) {
 	msg := bytes.Repeat([]byte("port html "), 300_000) // 3 MB
-	frames := SplitMessage(msg, 65535)
+	frames := transport.SplitMessage(msg, 65535)
 	if len(frames) < 2 {
 		t.Fatalf("a 3 MB message fit in one frame")
 	}
-	r := NewReassembler(MaxMessage)
+	r := transport.NewReassembler(transport.MaxMessage)
 	var got []byte
 	for i, f := range frames {
 		if len(f) > 65535 {
@@ -156,15 +160,15 @@ func TestMessagesSplitIntoFramesAndReassemble(t *testing.T) {
 	if !bytes.Equal(got, msg) {
 		t.Fatalf("reassembled %d bytes, want %d", len(got), len(msg))
 	}
-	if one := SplitMessage(nil, 65535); len(one) != 1 {
+	if one := transport.SplitMessage(nil, 65535); len(one) != 1 {
 		t.Fatalf("an empty message is one frame")
 	}
 }
 
 func TestAMessagePastTheCapIsRefused(t *testing.T) {
-	r := NewReassembler(1000)
-	for _, f := range SplitMessage(make([]byte, 5000), 512) {
-		if _, err := r.Add(f); err == ErrMessageTooLarge {
+	r := transport.NewReassembler(1000)
+	for _, f := range transport.SplitMessage(make([]byte, 5000), 512) {
+		if _, err := r.Add(f); err == transport.ErrMessageTooLarge {
 			return
 		}
 	}

@@ -54,6 +54,16 @@ public final class GatewayProcess: ObservableObject {
         host + "\n" + peerSeed + "\n" + attestKey + "\n"
     }
 
+    /// The relays this instance registers on and serves remote callers through (nautilus Phase 4,
+    /// 4.4), from the instance's `PORT42_RELAYS` default, comma-separated `wss://…/v1` URLs. None
+    /// by default until invites exist to bring anyone here (4.5). URLs are not secrets, so they ride
+    /// the arguments; the key the gateway registers with rides stdin.
+    nonisolated static func relayArguments(_ defaults: UserDefaults = .standard) -> [String] {
+        guard let relays = defaults.string(forKey: "PORT42_RELAYS")?
+            .trimmingCharacters(in: .whitespaces), !relays.isEmpty else { return [] }
+        return ["-relay", relays]
+    }
+
     public static let shared = GatewayProcess()
 
     private var terminationObserver: NSObjectProtocol?
@@ -106,7 +116,7 @@ public final class GatewayProcess: ObservableObject {
         // a proxy in front forwards to a bare port, i.e. localhost. A deliberately-hosted relay
         // still opts in by launching the binary itself with -addr :port. See
         // docs/plan-gateway-auth-tls.md P0.
-        proc.arguments = ["-addr", "127.0.0.1:\(port)", "-watch-parent"]
+        proc.arguments = ["-addr", "127.0.0.1:\(port)", "-watch-parent"] + Self.relayArguments()
 
         let pipe = Pipe()
         proc.standardOutput = pipe

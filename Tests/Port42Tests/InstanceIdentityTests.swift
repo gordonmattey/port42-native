@@ -26,6 +26,16 @@ struct InstanceIdentityTests {
                 "the gateway reads the credential from line one and the key from line two")
     }
 
+    @Test("relays reach the gateway as arguments only when the instance names some")
+    func relayArguments() throws {
+        let d = try #require(UserDefaults(suiteName: "port42-relay-args-test"))
+        d.removeObject(forKey: "PORT42_RELAYS")
+        #expect(GatewayProcess.relayArguments(d).isEmpty, "no relay unless one is configured")
+        d.set("wss://relay1.port42.ai/v1", forKey: "PORT42_RELAYS")
+        #expect(GatewayProcess.relayArguments(d) == ["-relay", "wss://relay1.port42.ai/v1"])
+        d.removePersistentDomain(forName: "port42-relay-args-test")
+    }
+
     @Test("the key reaches the gateway only through the stdin handover")
     func keyOnlyOnStdin() throws {
         // The seed is read in exactly one place, the handover written to the gateway's stdin. Anywhere

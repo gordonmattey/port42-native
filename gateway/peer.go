@@ -3,9 +3,10 @@ package main
 import (
 	"bufio"
 	"crypto/ed25519"
-	"encoding/base32"
 	"encoding/base64"
 	"strings"
+
+	"github.com/port42/gateway/transport"
 )
 
 // The instance's peer identity (nautilus Phase 4, step 4.2; docs/design-phase4-relay.md "Identity").
@@ -25,14 +26,11 @@ type PeerIdentity struct {
 	key ed25519.PrivateKey
 }
 
-// peerIDEncoding is lowercase base32 without padding: a URL host is lowercased by many parsers and
-// linkifiers, which would corrupt a mixed-case id, and a 32-byte key becomes 52 characters.
-var peerIDEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
+// PeerIDFromPublicKey renders a public key as a peer id (transport.PeerID, the one encoding).
+func PeerIDFromPublicKey(pub ed25519.PublicKey) string { return transport.PeerID(pub) }
 
-// PeerIDFromPublicKey renders a public key as a peer id.
-func PeerIDFromPublicKey(pub ed25519.PublicKey) string {
-	return peerIDEncoding.EncodeToString(pub)
-}
+// Key is the instance's private key, for the relay and Noise. nil when none was handed over.
+func (p PeerIdentity) Key() ed25519.PrivateKey { return p.key }
 
 // ReadPeerIdentity takes the second handover line, a base64 Ed25519 seed, from the reader
 // `ReadHostCredential` returned. A missing or malformed line gives the zero identity rather than an

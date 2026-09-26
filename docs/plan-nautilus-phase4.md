@@ -331,6 +331,44 @@ with its code. *Live, this Mac:* the test peer through a local relay against Dev
 port, is refused an ungranted one, keeps a subscription through a host write, and is refused on its
 next call after revoke with no restart. Then the same through the deployed relay.
 
+**Built 2026-09-26.** The relay lives in the gateway module, so the protocol has one implementation:
+`gateway/relay` (server, client, Noise), `gateway/cmd/port42-relay` (the program), `relay.Dockerfile`
+(Railway), and `gateway/transport` now holds the seam, the framing and the peer id encoding (moved
+out of the gateway's main package so the relay client can implement the seam). Noise is
+`flynn/noise`; the X25519 key is derived from the Ed25519 key (`filippo.io/edwards25519`), and a
+test checks both derivations agree. Dependencies are pinned to versions that build with Go 1.24.
+The gateway registers on the relays in its `-relay` argument, which the app fills from the
+instance's `PORT42_RELAYS` default (none unless set, until invites exist). The test peer is
+`gateway/cmd/p42peer`.
+
+**Deployed:** the relay runs on Railway (project `port42-relay`, service `relay`), live at
+`wss://relay-production-beea.up.railway.app/v1`. `relay1.port42.ai` is attached and its DNS record is
+in Cloudflare (DNS only, propagated); Railway was still validating ownership for its certificate at
+the time of writing, so Dev2 uses the Railway address for now.
+
+**Live, Dev2 through the deployed relay:** the test peer, on its own key, dialled Dev2 by peer id
+across the internet, completed the Noise handshake, and was refused by Dev2's app as not enrolled
+("does not know you. Ask its owner for an invite"); an unregistered peer id is `host_offline` at
+once. Timing from this Mac: a call round trip on an open session about 270 ms (the path crosses the
+relay twice each way, since both ends are here); a fresh dial with TLS, registration, pairing and the
+handshake 1 to 4 s, so a guest keeps its session open. The enrolled half of this step's live check
+(read a granted port, subscribe, revoke) needs enrolment, so it moves to 4.5.
+
+**Found on the way:** a reply sent down a remote session carried `peer_id`, the gateway's id for the
+host connection, which is the host's local user id; it is now removed before anything reaches a
+guest (calibrated).
+
+Not built from the spec: the per-session throughput cap (1 MB/s). The other limits are in.
+
+Gates: `relay_test.go` (10: the key derivations agree; both ends authenticated and a 3 MB message
+whole; a wrong host key reaches nobody; a caller naming someone else's key refused; an altered frame
+refused as unauthentic; the relay pairs guest and host; an unregistered key is offline; a host claim
+signed by another key refused; a signature for another relay refused; a client refuses a relay that
+names itself differently; the per-guest session limit) and `relay_e2e_test.go` (the door serves a
+remote call through a relay, attested). Each calibrated by breaking its check, and the whole Go suite
+passes under `-race`. Swift suite 1279 green. Harness five of five on Dev2, with Dev2 registered on
+the deployed relay.
+
 ### 4.5 The per-port invite
 
 - `invite.create {port, rights, expires, requireCode}` returns the link (and the code when
