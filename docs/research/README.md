@@ -40,7 +40,7 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 | 7 | Multi-display | | Interacts with per-desktop positions (v46) and `port-shape.md`. |
 | 8 | A live media plane | GM: "would be cool" | Additive, and depends on Phase 4's transport existing. |
 | 9 | The membrane interprets | | Five docs already in `docs/membrane/`. |
-| 10 | More agents as first-run paths | GM queried the item | Setup detects which CLI agent is installed and runs Echo on it. Today Claude Code and Codex; the item is adding Gemini and Antigravity to that detection. Not about agents in general. |
+| 10 | Add Antigravity as a first-run path | GM, 2026-09-26: "add antigravity should be the thing, later" | Setup detects which CLI agent is installed and runs Echo on it (Claude Code and Codex today). The item is Antigravity specifically, not agents in general, and it stays late. |
 | 11 | Expand the CLI | **replaces "MCP as a port capability"** | GM, 2026-09-26: "i really dont like it, i think we could expand the cli instead." MCP moves down and the framing changes: the CLI is the surface to grow, not a second protocol to adopt. |
 | 12 | Computer use | GM: "kinda a bad smell" | Has `plan-computer-use.md`. Demote rather than delete. |
 | 13 | Windows and Linux | **scoped** | `windows-port.md`, `kernel-boundary.md`, `libghostty-windows.md`. |
