@@ -1,44 +1,80 @@
 # Nautilus Phase 3: the pipe
 
-Detailed plan for Phase 3 of `plan-shell-only.md`. Scenario served: 3. Draft for GM's review,
-written 2026-09-25 against `nautilus` at `3735d59`, with Phases 1 and 2 built and the harness at five
-of five. Nothing here is built.
+Detailed plan for Phase 3 of `plan-shell-only.md`. Scenario served: 3. Rewritten 2026-09-26 against
+`nautilus` at `140bd30` for GM's review. Built so far: 3.1 (nothing to build) and 3.6 (the `port42`
+command). Everything from 3.0 to 3.5 is unbuilt.
 
 ## Goal
 
 One port feeds another with no glue, including when the middle stage has no tile, when the receiver
 is not on screen, and when the receiver is a companion rather than a port.
 
+## What changes, for a person and for an agent
+
+- **Any port can run headless.** A port can be hidden: it runs, keeps its storage, chat and
+  subscriptions, and has no tile. A web port hidden is a background process written in HTML and JS (a
+  transform stage, a poller, a scheduler). A terminal port hidden is a background shell job, and a
+  terminal running Claude Code or Codex hidden is a headless agent, driven through its chat exactly as
+  a visible one is. A hidden port can be shown for debugging and hidden again.
+- **Ports keep working off screen.** A port in another space, parked or hidden still receives and
+  sends events at full rate.
+- **An agent can watch a port.** Today an agent wakes only when someone @mentions it. A watch makes
+  an event on a port wake it: "fix this port when its console throws", "review every edit to this
+  port", "tell me when the scraper finds something". Its answer goes to that port's chat.
+
 ## Decisions for GM
 
-1. **Which events wake a watching companion: the subscription says (decided, GM 2026-09-25).** A
-   watch names the event kinds it wakes on; the default is the port's own `port.*` events plus
-   mentions in its chat. `state` (a reviewer watching edits) and `console` (fix it when it throws) can
-   be asked for; `terminal.output` is never a trigger, since it would wake on every keystroke.
-2. **What a burst of events costs.** Every wake is a full model turn (the Open Synth report measured
-   one inference per beat). Recommended: at most one turn in flight per companion; events that arrive
-   during a turn are delivered together as the next turn.
+1. **Which events wake a watcher: the watch says (decided, GM 2026-09-25).** A watch names the event
+   kinds it wakes on. Default: the port's own published events (`port.*`). Can be asked for: `state`
+   (an edit to the port), `console` (a log line or error), `chat` (every post in the port's chat, not
+   only mentions, which already wake). Never: `terminal.output`, which fires on every keystroke.
+2. **A burst of events becomes one turn (recommended, open).** A wake is one full model turn, which
+   takes seconds to minutes and costs tokens. A port can emit events far faster than that. If each
+   event started a turn, five events in a second would type five messages into the agent while it is
+   still answering the first. Recommended: each companion has at most one turn running. Events that
+   arrive while it runs are held, and when the turn ends they are delivered together as one message
+   ("5 events on port 'x' since your last turn", then each). The first event of a quiet period waits
+   one second before waking the agent, so a burst that arrives together is one turn, not one turn and
+   then a batch.
+3. **A watch has a floor and a ceiling (recommended, open).** A port that publishes every half second
+   forever would keep its watcher in back-to-back turns forever. Proposed: at most one wake per watch
+   every 30 seconds by default (the watch can set its own), and at most 60 wakes per watch per hour.
+   At the ceiling the watch pauses and says so in the port's chat, and anyone can resume it.
+4. **A person can always see what is running hidden (recommended, open).** ⌘K lists hidden ports in
+   their own section with show, close and delete, and the space's chrome shows a count ("3 hidden")
+   when there are any. Nothing runs where the person cannot find it.
+5. **`terminal.exec` in a port moves to the roadmap (recommended, open).** The master plan wanted
+   every shell command to run in a port with an identity. No scenario needs it, and running a command
+   in a real terminal to capture its output and exit code is fragile (prompts, TUIs, sentinels), while
+   today's exec already requires the caller's own grant. Hidden terminal ports give a caller a
+   background shell whenever it wants one. Recommended: 3.4 is not built in this phase.
 
 ## What is measured
 
 - **The pipe works for live, visible ports.** Scenario 3 passes: produce, transform and render as
   three web ports, produce to render in single-digit milliseconds.
-- **Durable versus live is no longer split.** The field report found `bus.publish` durable but never
-  delivered to `port.subscribe`, and `port.push` live but leaving nothing. The bus methods went in
-  Phase 1; a port's chat is durable AND published on the port's own topic as a `chat` event, so one
-  name, one channel.
-- **Web ports do not sleep.** Every web port's view is created at launch and stays live off screen,
-  in a resting space or parked; only a closed port is gone. A "rested" subscriber that is a web port
-  should therefore already hear its events. Not yet shown by the harness.
-- **A companion wakes only on chat.** A mention wakes it (a closed terminal is respawned first). It
-  cannot watch a port.
-- **Errors reach port JS, and there is no token carve-out** (both field-report defects, verified
-  2026-09-25). Since 2026-07-28 the bridge rejects with the whole envelope, so `e.code` and
-  `e.current` are set in a port's catch. A port's own JS writing without a token is refused
-  `token_required`, whether it writes to itself or to another port: one rule for every caller.
+- **One channel for durable and live.** A port's chat is durable and is also published on the port's
+  own topic as a `chat` event.
+- **Off-screen web views leave the window.** A port in a resting space or parked is unmounted from
+  the desktop, and its `WKWebView` is kept but sits in no window (`ShellPortHost`). WebKit throttles
+  pages it considers hidden (timers, animation frames, possibly more). Whether a port off screen still
+  publishes and receives at full rate is **unmeasured**. The previous draft said "web ports do not
+  sleep"; that was an inference, not a measurement.
+- **A companion wakes only on chat.** A mention wakes it (a closed terminal is respawned first), and
+  since 2026-09-26 a plain post reaches the companions that are members of that chat. It cannot watch
+  a port.
+- **"Headless companion" today means an NDJSON program**, a command speaking Port42's agent protocol
+  over stdio (`CommandAgentHandler`), not Claude Code or Codex. Claude Code and Codex run only in
+  terminal ports.
+- **A turn has a start and an end the app can see.** A terminal companion's turn starts when a
+  message is injected (`inject + armed`) and ends at its Stop hook (`turnComplete`), which is how every
+  reply is posted today. This is the busy signal decision 2 needs.
+- **Errors reach port JS, and there is no token carve-out** (verified 2026-09-25). The bridge rejects
+  with the whole envelope, so `e.code` and `e.current` are set in a port's catch.
 - **`terminal.exec` runs as a raw child of the app**, attributed to its caller only by the grant it
-  needed. It has no port.
-- **There is no tile-less port.** Every port is tiled, parked or the wallpaper.
+  needed.
+- **There is no tile-less port.** Every port is tiled, parked or the wallpaper; the presentation value
+  appears as a string literal in about 30 places.
 
 ## Before this phase: agents in a room (GM's multi-agent test, 2026-09-25)
 
@@ -66,48 +102,105 @@ that chat is 3.3's watch), and the MIC ON button GM reported missing in the mic 
 
 ## Steps
 
-Each step is its own commit: suite green, harness five of five, plans updated.
+Each step is its own commit: suite green, harness five of five, plans updated. 3.0 comes first
+because its answer decides part of 3.2.
+
+### 3.0 Measure ports off screen
+
+A web port that publishes a counter every 100 ms and counts its own animation frames, with a second
+port subscribed to it, measured on Dev3 in four places: tiled on the current desktop, tiled in a
+resting space, parked, and (after 3.2) hidden. For each: events published per second, events received
+per second, produce-to-receive latency, animation frames per second, and whether anything stops after
+several minutes. The figures go in this plan.
+
+If off-screen ports are throttled, the fix is chosen from what the measurement shows, for example
+keeping off-screen views in an invisible host window so WebKit treats them as visible, while their
+presentation still tells the page it is not seen so it can stop drawing. No fix is designed before
+the numbers exist.
+
+*Gates:* the measurement table, recorded here. If a fix lands, a harness check that an off-screen
+producer still delivers at its own rate.
 
 ### 3.1 Errors reach port JS: already true
 
-Verified 2026-09-25, nothing to build (like Phase 0 step 0.5). The rejection carries `code` and every
-detail (`PortBridge.handleMethod`), and a port's tokenless write to itself or another port is refused
-`token_required`. One gate is added with 3.2: a refused write from a port principal carries `code`
-and `current` in the envelope the page receives.
+Verified 2026-09-25, nothing to build. A refused write from a port principal carries `code` and
+`current` in the envelope the page receives; a gate for that is added with 3.2.
 
-### 3.2 Invisible ports
+### 3.2 Hidden ports
 
-`port.create({ ..., presentation: "hidden" })` makes a port with its full bridge, storage and
-subscriptions and no tile: not on a desktop, not in the rail, listed by `ports.list` with status
-`hidden`, closable and reopenable like any port. `port.manage(id, "show")` gives it a tile for
-debugging and `"hide"` takes it away. Its presentation reports it not visible, so it pauses any
-drawing loop while its logic keeps running.
+- **Create and move.** `port.create({..., presentation: "hidden"})` makes any type of port hidden.
+  `port.manage(id, "show")` tiles it on its home desktop at a free spot; `port.manage(id, "hide")`
+  hides a tiled or parked port. The presentation is stored like any other (`port_panels.presentation`).
+- **Where it is not.** No desktop, no rail, no dock, no exposé. Every place that decides which ports a
+  surface shows reads one predicate, so a hidden port cannot leak into a view that forgot it.
+- **Where it is.** `ports.list` lists it with status `hidden`. ⌘K lists it under "Hidden" (decision 4)
+  with show, close and delete, and the chrome shows the count. Closing archives it like any port, and
+  reopening brings it back hidden. It survives a restart hidden.
+- **What it runs.** A web port gets its web view and bridge as today; its presentation reports
+  `hidden`, not visible, so it can pause drawing while its logic runs (subject to 3.0). A terminal
+  port gets its terminal surface as a parked terminal does. Its chat, storage, subscriptions,
+  console and driver chip work as for any port.
+- **Headless agents.** `port.create({type: "terminal", command: "claude", presentation: "hidden"})`
+  is a headless Claude Code companion: it registers, is @mentioned and replies through its chat, and
+  can be shown to watch it work. Same for Codex.
+- **Permission.** A hidden terminal needs the same terminal grant as a visible one. Hiding is not a
+  way around any gate.
 
-*Gates:* a hidden port is in no desktop set and no rail; it receives a subscribed event and publishes
-one; show and hide round-trip its presentation; it survives a restart hidden.
+*Gates:* a hidden port is in no desktop, rail or dock set (one predicate, source-scanned so a new
+surface cannot skip it); a hidden producer's events reach a visible subscriber and a hidden
+subscriber receives a visible producer's; show then hide round-trips its presentation and position;
+it survives a restart and a close and reopen hidden; `ports.list` reports it hidden; a hidden
+terminal companion answers a mention in its chat; a refused write from a port carries `code` and
+`current` (3.1).
 
 ### 3.3 Companions watch ports
 
-A companion can watch a port: `companions.watch(id, port, kinds?)` and `companions.unwatch(id,
-port)`, stored on the companion. An event of a kind the watch names (decision 1) on the port's topic
-starts a turn: a
-terminal companion gets the event typed in with its source (`[port 'x' published beat]: {...}`); a
-headless one is launched with it. The reply goes to that port's chat. One turn in flight at a time,
-with events batched into the next (decision 2). This is the todo's `busWatch`, generalized.
+- **API.** `companions.watch {port, kinds?, every?, companion?}`, `companions.unwatch {port,
+  companion?}`, `companions.watches {companion?}`. `companion` defaults to the caller, so an agent
+  watches for itself. A person or a client with a grant on the port can set a watch for a companion.
+  `every` is the watch's floor in seconds (decision 3).
+- **Stored.** A new table, `companion_watches` (companion id, port udid, kinds, floor, paused, created),
+  in a new migration. Watches are restored at launch; deleting the port or the companion deletes its
+  watches; closing the port pauses them until it is reopened.
+- **Delivery.** Each watch subscribes to the port's topic on the NotifyBus. An event of a watched kind
+  goes to that companion's wake queue, which applies decision 2 (one turn at a time, a burst is one
+  batch, a quiet-period event waits one second) and decision 3 (floor and ceiling). The queue is a pure
+  state machine with its own tests; the app only feeds it events and turn boundaries.
+- **What the agent receives.** One message, in the same form as a chat message so it knows where it
+  came from and where its answer goes: `[port 'render' (id X): 3 events since your last turn]` and
+  one line per event, kind then payload, each payload cut to a fixed length with the total said.
+- **Where the answer goes.** The watched port's chat, through the reply routing that already posts
+  every turn. @mentions in it route as any chat post does.
+- **No self-wake.** An event caused by the watcher's own write does not wake it: while its turn runs,
+  events on a port whose token it moved in that turn are dropped. Without this, an agent that fixes a
+  port on `console` would wake on the log line its own fix produced, and loop.
+- **Which companions.** A terminal companion (a closed terminal is respawned first, as a mention
+  does). A headless NDJSON companion is launched with the message. A hidden terminal companion (3.2)
+  is the ordinary case for a watcher nobody needs to see.
 
-*Gates:* a watched port's `port.*` event wakes its watcher once; `terminal.output` does not; a burst
-of five during a turn arrives as one batched turn; unwatch stops it; a companion's own event does not
-wake it.
+*Gates:* the wake queue in isolation: idle then one event wakes once after the one-second gather; a
+burst of five during a turn becomes one batched message at turn end; the floor holds; the ceiling
+pauses and reports; a paused watch resumes. In the app: a watched port's `port.*` event wakes its
+watcher and the reply lands in that port's chat; `terminal.output` never wakes; a kind not named does
+not wake; the watcher's own write does not wake it; unwatch stops it; a watch survives a restart;
+deleting the port removes it.
 
-### 3.4 `terminal.exec` runs in a port
+### 3.4 `terminal.exec` runs in a port (moved to the roadmap, decision 5)
 
-Each caller that runs `terminal.exec` gets one hidden terminal port of its own (3.2), created on first
-use and reused, named after the caller. The command runs there, its output is captured and returned
-as today, and the port's chat and console keep the record. Every shell action then has a port with an
-identity, as the model says; the grant stays on port 0 as today.
+What it would be: each caller that runs `terminal.exec` gets one hidden terminal port of its own,
+created on first use and reused, and the command runs there with its output captured and returned as
+today. Not built in this phase unless GM decides otherwise.
 
-*Gates:* two callers' commands run in two different ports; a caller's second command reuses its port;
-output, exit code and timeout behave as before; the port is listed hidden with its creator.
+### 3.5 Scenario 3, extended
+
+The harness's scenario 3 gains, in its own space:
+
+- the transform stage as a hidden port, with produce and render visible;
+- the render port moved to a resting space, still receiving at full rate (3.0);
+- a hidden Claude Code companion watching the render port for one kind, woken by one published
+  event and replying in the render port's chat;
+- a burst of five events while it is answering, which arrives as one batched turn, so the render
+  port's chat holds two replies, not six.
 
 ### 3.6 Port42 as a command, not curl (built 2026-09-26)
 
@@ -156,19 +249,20 @@ HTML to a file and build the request from it with `jq`, which removes shell quot
 the HTML through JSON. A write that names a local file or a shared buffer Port42 reads directly
 (`port.update {id, html_file}`) would skip the encoding, the copy and the size limits.
 
-### 3.5 Scenario 3, extended
-
-The harness's scenario 3 gains: the transform stage as a hidden port; the render port in a resting
-space, still receiving; a companion watching the render port, woken by one published event and
-replying in its chat.
-
 ## Verify, live on Dev3
 
-The harness passes five of five. GM watches a companion react to a port's event, and shows then hides
-a hidden port.
+The harness passes five of five with the extended scenario 3. GM watches a hidden agent react to a
+port's event in that port's chat, finds the hidden ports in ⌘K, and shows then hides one.
 
 ## Not in this phase
 
-Remote subscribers (Phase 4). REST reaching the gateway from a port, the field report's containment
-finding, which belongs with Phase 4's read scoping. Bridge proxies firing phantom calls when coerced
-to a string (a small fix, taken whenever the bridge is next touched).
+- Remote subscribers and remote watches (Phase 4).
+- REST reaching the gateway from a port, the field report's containment finding, which belongs with
+  Phase 4's read scoping.
+- Bridge proxies firing phantom calls when coerced to a string (a small fix, taken whenever the
+  bridge is next touched).
+- Retiring the NDJSON headless companion. Once a hidden terminal companion covers headless agents
+  (3.2), the separate stdio protocol serves no scenario and is a candidate for removal.
+- The Codex risk dialog after a rebuild: a restarted Codex companion waits on it and swallows every
+  message until someone accepts. To identify and fix alongside 3.2, since hidden companions cannot
+  show a dialog to anyone.

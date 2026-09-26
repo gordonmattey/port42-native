@@ -247,7 +247,7 @@ Remaining:
 
 ### Phase 3 · The pipe (3)
 
-**Detailed plan:** `plan-nautilus-phase3.md` (a draft; three decisions for GM at its top).
+**Detailed plan:** `plan-nautilus-phase3.md` (rewritten 2026-09-26; four decisions open for GM at its top).
 
 From the OPEN SYNTH field report, three gaps. Two already pass live: a port publishes on its own
 topic, and publish and subscribe resolve the same `port:{id}` key. The third remains: a rested
