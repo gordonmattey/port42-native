@@ -15,7 +15,7 @@
 	<key>CFBundleVersion</key>
 	<string>${BUILD_NUMBER}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
+	<string>14.0</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>NSHighResolutionCapable</key>

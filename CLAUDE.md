@@ -154,10 +154,19 @@ build.sh auto-detects signing identity from Keychain:
 
 - `dist/Port42.dmg` is tracked via Git LFS (see `.gitattributes`)
 - DMG download link: `https://github.com/gordonmattey/port42-native/raw/refs/heads/main/dist/Port42.dmg`
+- **The Sparkle appcast is generated, never hand-set.** `./build.sh --release` runs
+  `generate_appcast`, which copies the bundle's `LSMinimumSystemVersion` into `dist/appcast.xml` as
+  `sparkle:minimumSystemVersion`. A floor in `Info.plist` above the real one therefore refuses
+  updates to every Mac in between, and editing the feed by hand is undone at the next release.
+  Change `Info.plist`.
 
 ## Conventions
 
-- **macOS 14+** (Sonoma). Use modern APIs.
+- **macOS 14+** (Sonoma). Use modern APIs. `Package.swift` declares `.macOS(.v14)` and `Info.plist`
+  declares `LSMinimumSystemVersion` 14.0; the two must always agree, and `README.md` says the same.
+  A macOS 15 API is reached through a per-API `if #available` guard, never an app-wide deployment
+  bump, so the 14 floor is what makes the compiler prove no unguarded 15-only call is reachable. The
+  only macOS 15 API in the tree is ScreenCaptureKit microphone capture, gated in `ScreenRecorder.swift`.
 - **No light mode.** Everything uses `Port42Theme` colors.
 - **Font:** Always `Port42Theme.mono()` or `Port42Theme.monoBold()`. No system fonts.
 - **State:** All mutable state lives in `AppState`. Views are pure renderers.
