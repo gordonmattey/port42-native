@@ -88,14 +88,12 @@ public enum CompanionProtocol {
     /// Agents call Port42 with the `port42` CLI (GM, 2026-09-26: tools by the CLI, not MCP): one
     /// short command per call, no quoting, no jq, and HTML sent from a file with `=@file`. Each
     /// terminal Port42 starts has its own instance's CLI first on PATH, calling as that session.
-    public static func chats(gateway: String) -> String {
-        let call = "curl -s http://127.0.0.1:\(gateway)/call -H \"Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")\""
-        return """
+    public static func chats(gateway _: String) -> String {
+        """
         TO CALL PORT42, use the port42 command, which calls as you: port42 <method> key=value, with \
         key:=<json> for numbers and objects and key=@<file> to send a file's contents. port42 help api \
         lists every method and its arguments; port42 help ports is the port manual. A refused call \
-        prints {error, code} and exits 1; a stale write's "current" is the token to retry with. (If \
-        port42 is not found, the same call is \(call) -d '{"method":"<method>","args":{...}}'.) \
+        prints {error, code} and exits 1; a stale write's "current" is the token to retry with. \
         FIRST, FIND OUT WHO AND WHERE YOU ARE: port42 whoami returns your name, your \
         space, your terminal port and its chat, and the companions you can @mention. \
         CHATS: every port in Port42 has a chat, and so does every space. A message reaches you as \

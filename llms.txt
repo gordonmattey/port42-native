@@ -31,22 +31,26 @@ window globals — inline handler attributes (onclick="fn()") cannot see your fu
 with "Can't find variable". Attach handlers with addEventListener, or expose explicitly with
 window.fn = fn. Never use inline onclick/onchange attributes in port HTML.
 
-## Calling Port42 APIs
+## Calling Port42
 
-Use `curl` to call any API. Port42 must be running.
+Use the `port42` command. It calls as you, on the Port42 that started your session.
 
 ```bash
-curl -s http://127.0.0.1:4242/call \
-  -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" \
-  -d '{"method":"<method>","args":{...}}'
+port42 whoami                         # who you are, your space, who you can @mention
+port42 <method> key=value ...         # any method
+port42 help api                       # every method and its arguments
+port42 help ports                     # the port manual
 ```
 
-Response: `{"content": "..."}` — the result as a string or JSON.
+Arguments: `key=value` is a string, `key:=<json>` a number, boolean, array or object, and
+`key=@<file>` a file's contents (send HTML this way, never inline). A refused call prints
+`{error, code, ...}` and exits 1; a stale write's `current` is the token to retry with. (Each call is
+an HTTP POST to `http://127.0.0.1:$PORT42_GATEWAY_PORT/call` with
+`Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")`; the command does that for you.)
 
-**Every call must name a caller.** If Port42 started this session, `$PORT42_TOKEN_FILE` is the path
-to your own token and `$PORT42_CLIENT_ID` is the name Port42 knows you by; read the file at call
-time rather than caching it. If that variable is not set, ask the user to add a client in Port42
-Settings → Access. Each instance mints its own tokens, so one instance's is refused by another.
+**Every call names a caller.** If Port42 started this session, `$PORT42_TOKEN_FILE` is your own token
+and `$PORT42_CLIENT_ID` the name Port42 knows you by, and `port42` uses them. Anywhere else it calls
+as the port42 CLI. Each instance mints its own tokens, so one instance's is refused by another.
 
 **Do not read another tool's token file.** It will work, and that is the problem: the permission
 prompt then names that tool instead of you, the grant lands on it, and revoking your access breaks
@@ -58,30 +62,22 @@ A grant is per caller and per capability; the user can see and revoke it in Port
 ## Quick examples
 
 ```bash
-# Read clipboard
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"clipboard.read"}'
+port42 clipboard.read
+port42 terminal.exec command="ls ~/Desktop"
+port42 screen.capture scale:=0.5
 
-# Run a shell command
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"terminal.exec","args":{"command":"ls ~/Desktop"}}'
+# Every port has a chat (a space is a port, port 0 is the desktop). A post is yours, and an
+# @mention wakes that companion.
+port42 chat.post port=<space or port id> text="hello from {{TOOL_NAME}}"
+port42 chat.read port=<space or port id> limit:=10
 
-# Take a screenshot
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"screen_capture","args":{"scale":0.5}}'
+# Make a port from a file, change it with the token ports.list gives you
+port42 port.create type=web html=@port.html
+port42 port.update id=<port id> html=@port.html token=<token>
 
-# Post to a port's chat (every port has one; a space is a port, port 0 is the desktop).
-# It is posted as you, and an @mention wakes that companion.
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.post","args":{"port":"<space or port id>","text":"hello from {{TOOL_NAME}}"}}'
-
-# Read a port's chat
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"chat.read","args":{"port":"<space or port id>","limit":10}}'
-
-# List all spaces
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"space.list"}'
-
-# List companions
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"companions.list"}'
-
-# Get current user
-curl -s http://127.0.0.1:4242/call -H "Authorization: Bearer $(cat "$PORT42_TOKEN_FILE")" -d '{"method":"user.get"}'
+port42 space.list
+port42 companions.list
+port42 user.get
 ```
 
 ERRORS CARRY A CODE YOU CAN BRANCH ON, and a message written for a human. Branch on the code,

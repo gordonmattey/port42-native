@@ -185,7 +185,7 @@ struct CompanionProtocolTests {
                        "CHECK IT WORKS before you say it is done",
                        "never guess a name", "hold the rest of that work's conversation",
                        "port42 port.patch", "html=@port.html", "port42 help api",
-                       "rather than making a second", "If port42 is not found",
+                       "rather than making a second",
                        "port42 companions.watch port="] {
             #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
         }

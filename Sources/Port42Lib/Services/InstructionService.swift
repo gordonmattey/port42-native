@@ -113,11 +113,13 @@ public final class InstructionService: ObservableObject {
 You are running as \(toolName) alongside Port42 — a macOS companion computing platform. \
 Port42 exposes its device and space APIs to you via a local HTTP gateway.
 
-## Calling Port42 APIs
+## Calling Port42
 
-The `port42` command is the short way, and calls as you: `port42 whoami`, \
-`port42 <method> key=value` (`key:=<json>` for numbers and objects, `key=@<file>` for a file's \
-contents), `port42 help api` for every method. The same call by curl:
+Use the `port42` command. It calls as you, on the Port42 that started your session: \
+`port42 whoami`, `port42 <method> key=value` (`key:=<json>` for numbers and objects, `key=@<file>` \
+for a file's contents), `port42 help api` for every method, `port42 help ports` for the port manual. \
+A port is a live interactive surface in the user's chat (web HTML/CSS/JS, or a native terminal), \
+created with `port42 port.create`. Each call is an HTTP POST the command makes for you:
 
 ```bash
 curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
@@ -125,21 +127,15 @@ curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
   -d '{"method":"<method>","args":{...}}'
 ```
 
-`$PORT42_GATEWAY_PORT` is the port of the Port42 that started this session, so the call reaches \
-that instance; without it the call goes to the default, 4242.
-
-Response: `{"content": "..."}` — the result as a string or JSON. A port is a live interactive \
-surface in the user's chat (web HTML/CSS/JS, or a native terminal), created with `port.create`.
-
 ## Who you are when you call
 
 **Every call must name a caller, and you have your own.** If Port42 started this session, \
 `$PORT42_TOKEN_FILE` holds the path to your token and `$PORT42_CLIENT_ID` is the name Port42 knows \
 you by. Read the file at call time rather than caching it: it is re-issued when the app restarts.
 
-If `$PORT42_TOKEN_FILE` is not set, Port42 did not start this session and you have no credential \
-here. Ask the user to add a client in **Port42 Settings → Access** and to give you its token. Note \
-that each Port42 instance mints its own, so a token from one instance is refused by another.
+If `$PORT42_TOKEN_FILE` is not set, Port42 did not start this session, and `port42` calls as the \
+port42 CLI, the credential Port42 gave the command when it installed it. Each Port42 instance mints \
+its own, so a token from one instance is refused by another.
 
 **Do not read another tool's token file.** They sit at predictable paths and they will work, and \
 that is exactly the problem: the permission prompt then names that tool instead of you, the grant \
@@ -154,15 +150,9 @@ callers silently overwriting each other.
 
 ## Learning the platform (on demand, always current)
 
-```bash
-# The full API reference — every method, params, permissions (generated from the live registry)
-curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
-  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help"}'
-
-# The port-authoring manual — REQUIRED READING before building or updating any port
-curl -s http://127.0.0.1:\(CompanionProtocol.envGateway)/call \\
-  -H "Authorization: Bearer $(cat \"$PORT42_TOKEN_FILE\")" -d '{"method":"help","args":{"topic":"ports"}}'
-```
+`port42 help api` prints the full API reference, every method with its arguments and permission,
+generated from the live registry. `port42 help ports` is the port-authoring manual: REQUIRED READING
+before building or updating any port.
 
 If Port42 is not running, the same reference is published at:
 https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
