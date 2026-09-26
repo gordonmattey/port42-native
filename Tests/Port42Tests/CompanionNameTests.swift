@@ -38,6 +38,14 @@ struct CompanionNameTests {
         #expect(ChatRouting.mentionQuery(in: "ask @app%20d") == "app%20d")
     }
 
+    @Test("the chat shows an escaped mention as the name; the stored text keeps the escape")
+    func display() {
+        #expect(ChatRouting.displayText("ask @app%20dev and @scout") == "ask @app dev and @scout")
+        #expect(ChatRouting.displayText("100%20off, mail me@x.com") == "100%20off, mail me@x.com", "only mentions are decoded")
+        let t = PortChatPanel.transcript([PortChatEntry(seq: 1, at: Date(), text: "hi @app%20dev", fromId: "u", fromName: "Alice", fromKind: "human")])
+        #expect(String(t.characters).contains("hi @app dev"))
+    }
+
     func person(_ w: ParityWorld) -> Principal { .human(id: w.state.currentUser!.id, displayName: "Alice", spaceId: w.space.id) }
 
     func create(_ w: ParityWorld, _ name: String) async throws -> AgentConfig {

@@ -194,6 +194,20 @@ public enum ChatRouting {
         return String(tail)
     }
 
+    /// A message as a person reads it: an escaped mention (`@app%20dev`) is shown as the name
+    /// (`@app dev`). Display only; the stored text keeps the escape, which agents need to write it.
+    public static func displayText(_ text: String) -> String {
+        guard text.contains("%"), let re = try? NSRegularExpression(
+            pattern: #"(?<![a-zA-Z0-9.%])@(?:[a-zA-Z]|%[0-9A-Fa-f]{2})(?:[a-zA-Z0-9-]|%[0-9A-Fa-f]{2})*"#) else { return text }
+        var out = text
+        for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let r = Range(m.range, in: out) else { continue }
+            let token = String(out[r])
+            if token.contains("%"), let decoded = token.removingPercentEncoding { out.replaceSubrange(r, with: decoded) }
+        }
+        return out
+    }
+
     /// The draft with the @name being typed completed to `name`'s mention (escaped, see
     /// `CompanionName.mention`), followed by a space.
     public static func complete(_ draft: String, with name: String) -> String {
