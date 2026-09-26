@@ -2,7 +2,7 @@
 
 Detailed plan for Phase 5 of `plan-shell-only.md`. Scenario served: 2 (an agent in a terminal drives a
 port it can see, as itself). Written 2026-09-26 against `nautilus` at `409fc70`, with Phases 1 to 3
-built and the harness at five of five. Draft for GM's review. Nothing here is built.
+built and the harness at five of five. Decisions 1, 3 and 4 settled by GM; 2 open. Nothing here is built.
 
 ## Goal
 
@@ -25,23 +25,23 @@ generated from the registry, so a skill cannot describe a method that no longer 
 
 ## Decisions for GM
 
-1. **Skills load per session, from the app (recommended).** Claude Code takes `--plugin-dir <path>`,
-   "a plugin for this session only"; the shim already builds each Claude session's command line, so
-   it adds the app's own skills plugin. Codex runs from a per-instance home Port42 owns, so the home's
-   `skills/` holds the user's skills plus Port42's (as it now does for AGENTS.md). For agents Port42
-   did not start, the plugin is published in the repo and installed by the person. Alternative:
-   install into `~/.claude/skills` at launch, which the master plan assumed; it writes into the
-   user's setup and was the shape of the multi-instance defect.
-2. **What stays in the brief (recommended).** The brief keeps what applies to every turn: the
-   companion's name and space, that a reply is delivered to the chat it came from, that an @mention
-   is the only way to reach another agent, and "use the port42 skills". Everything else moves into
-   skills. The instruction block in CLAUDE.md and AGENTS.md becomes the same pointer.
-3. **The skill set: by task, not by API namespace (recommended).** Five skills, below. The master
-   plan listed six (connect, port, drive, compose, permissions, errors); errors and permissions fold
-   into the skills where they bite, and "drive" and "connect" are the core.
-4. **The port manual becomes the ports skill (recommended).** `ports-context.txt` (48 KB) and
-   `ports-core.txt` are the port manual today, served by `port42 help ports`. They move into the
-   ports skill's files, and `help ports` prints the same files, so there is one source.
+1. **Skills load in every Port42 terminal, per session; installing them permanently is the person's
+   choice (decided, GM 2026-09-26).** Not only named companions: a `claude` typed into any Port42
+   terminal already runs through the shim (a shell function, with a PATH fallback), which adds
+   `--plugin-dir` for the app's own skills plugin; a `codex` typed there already uses the instance's
+   Codex home through `CODEX_HOME`, whose `skills/` holds the user's skills plus Port42's. A session
+   moved in with `port42 teleport` launches through the same shim. For sessions outside Port42,
+   `port42 skills install` copies the skills into `~/.claude/skills` and `~/.codex/skills` (and
+   again to update): opt-in, never at launch.
+2. **The brief keeps six every-turn rules (recommended, open).** Who it is (name and space); a
+   message arrives as `[@sender in <where>]: text` and the prefix is never copied into a reply; a
+   reply is delivered to the chat it came from automatically, so it is not also posted; an @mention
+   of an exact name is the only way to reach another agent; Port42 is called with the `port42`
+   command, as yourself, never with another tool's token; load the port42 skills for the rest. The
+   instruction block in CLAUDE.md and AGENTS.md becomes the same pointer.
+3. **The skill set: by task, not by API namespace (decided, GM 2026-09-26).** Five skills, below.
+4. **The port manual becomes the ports skill (decided, GM 2026-09-26).** `ports-context.txt` and
+   `ports-core.txt` move into the ports skill's files, and `port42 help ports` prints the same files.
 
 ## What is measured
 
@@ -114,7 +114,8 @@ load-bearing phrases, like `CompanionProtocolTests`); `help ports` prints the sk
 
 - Claude: the shim adds `--plugin-dir` for the app's bundled `port42-skills` plugin.
 - Codex: the per-instance home owns `skills/`, the user's skills plus Port42's.
-- Published: the plugin folder in the repo, installable by hand where Port42 did not start the agent.
+- Typed CLIs: the same holds for a `claude` or `codex` typed into a plain Port42 terminal and for a session moved in with `port42 teleport`.
+- `port42 skills install` copies the skills into `~/.claude/skills` and `~/.codex/skills`, for sessions outside Port42; opt-in.
 
 *Gates:* a Claude session's command line names the plugin (shim test); a Codex home holds the skills
 and the user's own (calibrated by removing each); the user's `~/.claude` and `~/.codex` are untouched
