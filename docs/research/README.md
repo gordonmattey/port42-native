@@ -13,6 +13,11 @@ commit it names. None is an approved decision.
 | [port-shape.md](port-shape.md) | Why does every port get the same tile? | Ports should declare a shape intent (`columns`, `aspect`, `reading`, `dense`, `free`) the way they declare capabilities. An OS window manager arranges rectangles because rectangles are all it has; Port42 can arrange meaning. |
 | [invite-over-libp2p.md](invite-over-libp2p.md) | How does the invite change under libp2p? | It stops being a credential and becomes an enrolment coupon that binds a peer id. One payload type, since a space is a port. Replication is the open work, and it is three problems, not one. |
 
+**Two notes are not roadmap items.** `security-bridge-authorization.md` consolidates what two
+spikes found independently about the bridge authorizing callers against capabilities but never
+against objects. `defects-found.md` lists the concrete bugs found while scoping, none of which was
+the thing being scoped.
+
 **The running gag across all six:** every question that looked like a platform question turned out to
 be the same structural one. The kernel and the shell share an object graph, and Windows, Linux and
 iOS are each just a different way of noticing.
