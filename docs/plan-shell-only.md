@@ -320,6 +320,8 @@ guest asking for anything beyond its grant is refused.
 
 ### Phase 5 · Skills, not a megaprompt (2)
 
+**Detailed plan:** `plan-nautilus-phase5.md` (draft 2026-09-26, four decisions for GM).
+
 The generated reference owns which methods exist. A skill packages the concepts: a man page plus a
 small program, composed by an agent the way a shell user composes commands. Port42 ships knowledge,
 not an LLM.
