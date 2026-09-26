@@ -57,8 +57,10 @@ service is hosted** (decision 3).
    traversal, but Rust beside a Go gateway, and a browser reaches it only through a relay);
    **Tailscale** (both ends must install it and join one tailnet, which fits one person's machines,
    not an invite). No gossipsub or other fan-out mesh: the host is the one source of truth.
-3. **Introductions and relaying: open for Gordon, and the blocker.** Gordon wants no server run by
-   Port42. Researched in `research-phase4-transport.md`. Two jobs need a third party that both sides
+3. **Introductions and relaying: (a), public relays and public STUN for everyone (Gordon,
+   2026-09-26), one path, decided again on 4.0's numbers.** A fallback of ours, if the numbers call
+   for one, is an entry in the invite's relay list and a TURN entry in the ICE configuration: the same
+   code path, not a second one. Gordon wants no server run by Port42. Researched in `research-phase4-transport.md`. Two jobs need a third party that both sides
    can reach:
    - **Introduction** (exchanging connection offers). Public Nostr relays can do it, in both lanes,
      but they are increasingly refusing exactly this traffic and they churn; a project that relied on
