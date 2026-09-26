@@ -80,7 +80,7 @@ public struct PortView: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
+        let config = PortWebViewFactory.configuration()
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs

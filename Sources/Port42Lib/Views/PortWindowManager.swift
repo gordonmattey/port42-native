@@ -1005,7 +1005,7 @@ public final class PortWindowManager: ObservableObject {
 
     /// Create and configure a WKWebView for a panel. Called once per pop-out.
     private func createPortWebView(for panel: PortPanel) {
-        let config = WKWebViewConfiguration()
+        let config = PortWebViewFactory.configuration()
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
@@ -1255,6 +1255,21 @@ enum PortWebViewFactory {
             applied = true
         }
         return applied
+    }
+
+    /// ONE WebKit process pool for every port and browser session (2026-09-26). A configuration
+    /// with no pool makes its own, and making one sets up a whole WebKit process pool on the main
+    /// thread, waiting on a system service as it does: with agents making ports and the system
+    /// busy, Dev4's main thread sat in `WebProcessPool::platformInitialize` → `notify_get_state` and
+    /// every call timed out (sampled). Each web view still gets its own content process, so a port
+    /// that crashes cannot take another with it.
+    @MainActor static let sharedProcessPool = WKProcessPool()
+
+    /// A configuration on the shared pool. Every port web view starts from this.
+    @MainActor static func configuration() -> WKWebViewConfiguration {
+        let config = WKWebViewConfiguration()
+        config.processPool = sharedProcessPool
+        return config
     }
 
     static func wrapHTML(_ body: String, overflow: String = "auto") -> String {
