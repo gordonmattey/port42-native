@@ -32,7 +32,7 @@ expensive the decision is to get wrong late, not by how much anyone wants the fe
 | # | Item | Status | Note |
 |---|---|---|---|
 | 1 | The program as the credential | scoping | Phase 4 is about to key grants on a peer id. If identity changes afterwards, authorization is redone. |
-| 2 | The chrome is ports too | scoping | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
+| 2 | The chrome is ports too | **scoped**, [chrome-as-ports.md](chrome-as-ports.md) | The largest structural bet. Decides what the shell is, and carries the layout and shell-on-other-platforms questions with it. |
 | 3 | One guided permission flow | scoping | Every capability shipped adds another dialog to retrofit. Overlaps the invite and mesh consent models. |
 | 4 | Share, and fork what you were shared | **scoped**, [share-a-ports-code.md](share-a-ports-code.md) | **Merged, GM 2026-09-26.** Was three items (share a port, publish as a website, share a port's code). See below. |
 | 5 | Share a whole space | **moved up by GM** | Was 12. A space is a port, so this is the cascade question in `invite-over-libp2p.md`, not a separate mechanism. |
