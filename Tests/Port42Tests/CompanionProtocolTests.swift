@@ -59,10 +59,11 @@ struct CompanionProtocolTests {
 
         // The shared text itself, so an edit to CompanionProtocol reaches claude.
         #expect(baked.contains(CompanionProtocol.rules))
-        // And the parts only this surface knows: identity, space, self-post.
+        // And the parts only this surface knows: identity and space. Posting on your own initiative
+        // is in the core and team skills since nautilus Phase 5.
         #expect(baked.contains("You are scout"))
         #expect(baked.contains("#general"))
-        #expect(baked.contains("chat.post"))
+        #expect(baked.contains(CompanionProtocol.pointer))
     }
 
     @Test("the CLI instruction block carries the protocol, not a copy of it")
@@ -169,33 +170,38 @@ struct CompanionProtocolTests {
         #expect(!md.contains("\"method\":\"space.current\""), "a bare space lookup reports the user's space")
     }
 
-    /// GM's multi-agent test, 2026-09-25: agents did not know which room to use. Both surfaces teach
-    /// the chats from one source.
-    @Test("both surfaces teach the chats: whoami, chat.read and chat.post on a port")
+    /// The brief is the six every-turn rules (nautilus Phase 5, GM 2026-09-26): who you are, how a
+    /// message reads, replies deliver themselves, @mention by exact name, call as yourself with the
+    /// port42 command, and the skills for the rest. Both surfaces carry it; the long chat guidance
+    /// moved into the skills (`SkillCatalogTests` checks every rule of it has a home there).
+    @Test("both surfaces carry the six every-turn rules and point at the skills, and nothing more")
     @MainActor
-    func chatsTaughtOnBothSurfaces() throws {
+    func briefIsTheSixRules() throws {
         let state = AppState(db: try DatabaseService(inMemory: true))
         state.createSpace(name: "general")
         let id = state.spaces.first(where: { $0.name == "general" })!.id
         let baked = state.bakeCompanionPrompt(name: "scout", spaceId: id, systemPrompt: nil)
-        let chats = CompanionProtocol.chats(gatewayPort: GatewayProcess.shared.port)
-        #expect(baked.contains(chats))
-        for phrase in ["port42 whoami", "port42 chat.read port=", "port42 chat.post port=",
-                       "every port in Port42 has a chat", "port42 port.console id=",
-                       "CHECK IT WORKS before you say it is done",
-                       "never guess a name", "hold the rest of that work's conversation",
-                       "port42 port.patch", "html=@port.html", "port42 help api",
-                       "rather than making a second",
-                       "port42 companions.watch port="] {
-            #expect(chats.contains(phrase), "the chat guidance no longer says: \(phrase)")
-        }
         let home = NSTemporaryDirectory() + "p42-instr-\(UUID().uuidString)"
         try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: home) }
         InstructionService(homeDirectory: home).installInstructions(for: "codex")
         let md = (try? String(contentsOfFile: (home as NSString)
             .appendingPathComponent(".codex/AGENTS.md"), encoding: .utf8)) ?? ""
-        // The file is shared by every instance, so it names the port by env, the prompt by number.
-        #expect(md.contains(CompanionProtocol.chats(gateway: CompanionProtocol.envGateway)))
+        for (surface, text) in [("claude brief", baked), ("codex AGENTS.md", md)] {
+            #expect(text.contains(CompanionProtocol.rules), "\(surface) lacks the rules")
+            #expect(text.contains(CompanionProtocol.pointer), "\(surface) lacks the pointer")
+            for rule in ["never copy that leading prefix", "delivered back to the chat it came from automatically",
+                         "the ONLY thing that delivers your message", "port42 whoami",
+                         "Never read another tool's token file", "port42-ports", "port42-team"] {
+                #expect(text.contains(rule), "\(surface) no longer says: \(rule)")
+            }
+            // The how-to moved to the skills: none of it rides every turn any more.
+            for moved in ["TO CHANGE A PORT", "CHECK IT WORKS", "TO BE WOKEN BY A PORT", "BEFORE YOU MAKE A PORT"] {
+                #expect(!text.contains(moved), "\(surface) still carries the how-to: \(moved)")
+            }
+        }
+        #expect(baked.hasPrefix("You are scout, a space companion in Port42 connected to #general."))
+        // Budget, from the 5.0 baseline of 4,230 characters.
+        #expect(baked.count <= 2_000, "the brief is \(baked.count) characters; the budget is 2,000")
     }
 }

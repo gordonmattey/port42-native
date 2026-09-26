@@ -150,9 +150,11 @@ callers silently overwriting each other.
 
 ## Learning the platform (on demand, always current)
 
-`port42 help api` prints the full API reference, every method with its arguments and permission,
-generated from the live registry. `port42 help ports` is the port-authoring manual: REQUIRED READING
-before building or updating any port.
+The port42 skills (`port42`, `port42-ports`, `port42-compose`, `port42-team`, `port42-devices`) hold
+the how-to; in a Port42 terminal they load on their own, and `port42 skills install` adds them for
+sessions Port42 did not start. `port42 help api` prints the full API reference, every method with
+its arguments and permission, generated from the live registry. `port42 help ports` is the
+port-authoring manual: REQUIRED READING before building or updating any port.
 
 If Port42 is not running, the same reference is published at:
 https://raw.githubusercontent.com/gordonmattey/port42-native/main/llms.txt
@@ -183,8 +185,8 @@ A granted permission is per caller, and the user can see and revoke it in Port42
 Applies only when `PORT42_TOKEN_FILE` is set, which Port42 does for every terminal it starts. If it \
 is unset, ignore this section.
 
-\(CompanionProtocol.chats(gateway: CompanionProtocol.envGateway))
-
 **How to behave:** \(CompanionProtocol.rules)
+
+\(CompanionProtocol.pointer)
 """
 }

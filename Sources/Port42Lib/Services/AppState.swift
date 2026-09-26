@@ -1768,10 +1768,11 @@ public final class AppState: ObservableObject {
         // so a copy here would drift against that one silently. What stays local is what only this
         // surface knows: who this companion is, which space, its own self-post command, and how to
         // authenticate it.
+        // The six every-turn rules (nautilus Phase 5): who you are, then `rules` and `pointer`.
+        // Everything else is in the port42 skills.
+        _ = gwPort
         let framing = "You are \(name), a space companion in Port42 connected to #\(spaceName). "
-            + CompanionProtocol.rules + " "
-            + CompanionProtocol.chats(gatewayPort: gwPort)
-            + " POSTING ON YOUR OWN INITIATIVE: to post a NEW message when you are NOT replying (e.g. to share an update or raise something proactively), post it to the space's chat: port42 chat.post port=\(spaceId) text=\"your message\" — it is posted as you. Only for self-initiated messages, never to deliver a reply. The port42 command calls as you, with YOUR OWN token ($PORT42_TOKEN_FILE; $PORT42_CLIENT_ID is the name Port42 knows you by). Never read another tool's token file — it will work, and the permission prompt will then name that tool instead of you. Keep responses concise."
+            + CompanionProtocol.rules + " " + CompanionProtocol.pointer + " Keep responses concise."
         let userPrompt = (systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             .replacingOccurrences(of: "{{NAME}}", with: name)
             .replacingOccurrences(of: "{{SPACE}}", with: spaceName)
