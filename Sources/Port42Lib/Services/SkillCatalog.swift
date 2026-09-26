@@ -49,6 +49,26 @@ public enum SkillCatalog {
         }
     }
 
+    /// The ports skill's `manual.md`: the port manual (`ports-context.txt`, rendered). One source: the
+    /// same text `port42 help ports` prints after the skill itself.
+    @MainActor
+    public static func manual() -> String { AppState.portsContext }
+
+    /// A skill's `SKILL.md` without its frontmatter, as bundled.
+    public static func body(of skill: String) -> String? {
+        guard let url = pluginURL?.appendingPathComponent("skills/\(skill)/SKILL.md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        guard text.hasPrefix("---\n"), let end = text.range(of: "\n---\n", range: text.index(text.startIndex, offsetBy: 4)..<text.endIndex)
+        else { return text }
+        return String(text[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// What `port42 help ports` prints: the ports skill, then the full manual.
+    @MainActor
+    public static func helpPorts() -> String {
+        [body(of: "port42-ports"), manual()].compactMap { $0 }.joined(separator: "\n\n---\n\n")
+    }
+
     /// Where the plugin lives in the running app.
     public static var pluginURL: URL? {
         Bundle.port42.url(forResource: "port42-skills", withExtension: nil)

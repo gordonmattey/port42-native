@@ -136,16 +136,6 @@ public final class AppState: ObservableObject {
         return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence."
     }()
 
-    /// The resident CORE (bundled): what a port is, the non-negotiables, and the pointer to the
-    /// manual. This is the ONLY port knowledge that rides in every companion system prompt.
-    static let portsCore: String = {
-        if let url = Bundle.port42.url(forResource: "ports-core", withExtension: "txt"),
-           let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text
-        }
-        return "You can create interactive ports by wrapping HTML/CSS/JS in a ```port code fence. Call the help tool with topic \"ports\" before building one."
-    }()
-
     @Published public var spaces: [Space] = []
     @Published public var currentSpace: Space? { didSet { refreshSpaceCompanions() } }
     @Published public var currentUser: AppUser?

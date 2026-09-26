@@ -1133,7 +1133,8 @@ private func registerCommsMethods(into r: inout BridgeRegistry, appState: AppSta
         case nil, "":
             return .string(appState.apiReference)
         case "ports":
-            return .string(AppState.portsContext)
+            // The ports skill, then the full manual: the same files an agent's skill loads.
+            return .string(SkillCatalog.helpPorts())
         case let other?:
             throw BridgeError(code: .notFound, message: "unknown help topic '\(other)' — known topics: ports")
         }

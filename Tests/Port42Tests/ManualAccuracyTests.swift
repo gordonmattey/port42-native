@@ -14,9 +14,18 @@ struct ManualAccuracyTests {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Sources/Port42Lib/Resources")
 
+    static let skills = resources.deletingLastPathComponent().appendingPathComponent("Skills/port42-skills/skills")
+
+    /// A manual by file name, or a skill's SKILL.md as "skill:<name>" (the ports core moved into the
+    /// ports skill in nautilus Phase 5).
     static func manual(_ name: String) throws -> String {
-        try String(contentsOf: resources.appendingPathComponent(name), encoding: .utf8)
+        if name.hasPrefix("skill:") {
+            return try String(contentsOf: skills.appendingPathComponent("\(name.dropFirst(6))/SKILL.md"), encoding: .utf8)
+        }
+        return try String(contentsOf: resources.appendingPathComponent(name), encoding: .utf8)
     }
+
+    static let skillFiles = SkillCatalog.skills.map { "skill:\($0.name)" }
 
     static func matches(_ pattern: String, in text: String) -> Set<String> {
         let re = try! NSRegularExpression(pattern: pattern)
@@ -37,7 +46,7 @@ struct ManualAccuracyTests {
         let w = try makeParityWorld()
         let known = Set(w.registry.keys).union(w.state.bridgeStreamRegistry.keys)
         var unknown: Set<String> = []
-        for file in ["ports-context.txt", "ports-core.txt", "llms-preamble.txt"] {
+        for file in ["ports-context.txt", "llms-preamble.txt"] + Self.skillFiles {
             let taught = Self.matches(#"port42\.([a-zA-Z]+\.[a-zA-Z]+)\("#, in: try Self.manual(file))
             unknown.formUnion(taught.filter { !known.contains($0) && !Self.jsOnly.contains($0) }
                 .map { "\(file): \($0)" })
@@ -50,7 +59,7 @@ struct ManualAccuracyTests {
         let w = try makeParityWorld()
         let tools = Set(w.state.generatedToolDefinitions().compactMap { $0["name"] as? String })
         var unknown: Set<String> = []
-        for file in ["ports-context.txt", "ports-core.txt"] {
+        for file in ["ports-context.txt"] + Self.skillFiles {
             let taught = Self.matches(#"\b([a-z]+_[a-z_]+)\("#, in: try Self.manual(file))
             unknown.formUnion(taught.filter { !tools.contains($0) }.map { "\(file): \($0)" })
         }

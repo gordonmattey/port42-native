@@ -107,6 +107,14 @@ and did not register as a companion (no SessionStart reached the app), so a type
 @mentioned. That is the restarted-Codex dialog already noted in Phase 3, now also on a fresh start;
 to fix with 5.3, since skills in the home change what Codex sees at startup.
 
+**Baseline, 2026-09-26 on Dev4 (today's brief).** A Claude companion's brief is 4,230 characters
+(704 words) on every turn; Codex's AGENTS.md in its home is 7,089 bytes (the user's own file plus the
+block). `collaborate` (a Claude maker, a Codex reviewer): 9 of 9 in 178 s. One team round (a Claude
+lead, a Claude and a Codex engineer): the lead's DONE after 362 s, 4 versions, one port, all three in
+the port's chat, 11 of 12 (the miss is the harness expecting the lead's answer in the space chat).
+Scenario 2 as the harness runs it is driven by the harness, not an agent (0.4 s), so 5.5 adds an
+agent-driven run.
+
 ### 5.1 Skill sources and the generator
 
 - `Sources/Port42Lib/Resources/skills/<name>/`: hand-written `SKILL.md`, generated `reference.md`.
@@ -134,6 +142,17 @@ lands with them.
 
 *Gates:* every rule in today's brief appears in a skill or the new brief (a source scan over the
 load-bearing phrases, like `CompanionProtocolTests`); `help ports` prints the skill's text.
+
+**Built 2026-09-26.** The five `SKILL.md` files, from today's brief, the port manual's core
+(`ports-core.txt`, which nothing had read since the in-app engine went, so its lines on live updates
+and hidden ports had never reached an agent) and the July gotchas. The port manual is the ports
+skill's `manual.md`, generated from `ports-context.txt`; `port42 help ports` prints the ports skill
+and then the manual. `ports-core.txt` is gone. Gates in `SkillCatalogTests`: every rule the brief
+teaches has a home (phrase scan, whitespace-normalized), each `SKILL.md` under 6,000 bytes, the
+manual fresh, and every `port42 …` example naming a real method and only its real arguments (it
+caught four wrong arguments while the skills were written: `script=` for `source=`, `session=` for
+`sessionId=`, `text=` for `data=`, and a missing `token=`). `ManualAccuracyTests` now reads the skills
+too. Each gate calibrated.
 
 ### 5.3 Load them per session
 
