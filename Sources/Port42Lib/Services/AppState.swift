@@ -633,8 +633,24 @@ public final class AppState: ObservableObject {
                        + "That was a deliberate act by the person at this machine — ask them before "
                        + "retrying. They can restore it in Settings → Access.")
         }
-        try? db.touchClient(id: clientId)
+        touchClientIfDue(clientId)
         return (clientId, client.name)
+    }
+
+    /// When each client was last recorded as seen. Recording it is a database commit, and it ran on
+    /// EVERY gateway call, on the main thread: with several agents calling at once those commits
+    /// held the main thread and calls timed out behind them (sampled on Dev4, 2026-09-26). "Last
+    /// seen" needs minutes, not calls, so it is written at most once a minute per client.
+    private var clientTouchedAt: [String: Date] = [:]
+    static let clientTouchInterval: TimeInterval = 60
+
+    /// Returns whether it wrote. Written off the main thread, as grant use is (`touchIfDue`).
+    @discardableResult
+    func touchClientIfDue(_ clientId: String, now: Date = Date()) -> Bool {
+        if let last = clientTouchedAt[clientId], now.timeIntervalSince(last) < Self.clientTouchInterval { return false }
+        clientTouchedAt[clientId] = now
+        Task.detached { [db] in try? db.touchClient(id: clientId) }
+        return true
     }
 
     /// Which instance refused, and on which port (D1).
