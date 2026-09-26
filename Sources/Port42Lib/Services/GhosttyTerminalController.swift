@@ -287,8 +287,10 @@ final class GhosttyTerminalController {
             prefillPending = false   // the person sent whatever was in the box
         case .sessionStarted(let cli):
             log("event=sessionStarted cli=\(cli ?? "?")")
-            cliRunning = true
-            releaseHeld(reason: "sessionStarted")
+            if !cliRunning {
+                cliRunning = true
+                becomeReadyWhenQuiet()
+            }
             // CLI is up → deliver any messages queued while it was (re)spawning.
             flushPending(reason: "sessionStarted")
             // First launch → let AppState auto-register this terminal as a companion (once).
@@ -299,6 +301,7 @@ final class GhosttyTerminalController {
         case .sessionEnded:
             log("event=sessionEnded")
             cliRunning = false
+            inputReady = false
             // Allow re-registration if the user runs claude again in this same terminal.
             didNotifySessionStart = false
             onSessionEnded()
@@ -318,7 +321,7 @@ final class GhosttyTerminalController {
         // Enter sent it. Codex happened to submit typeahead, which is why this looked intermittent.
         // After the CLI exits the same text would reach the bare shell and RUN as a command. So a
         // hooks-capable terminal holds messages until its CLI says it is running.
-        if hooksCapable && !cliRunning {
+        if hooksCapable && !inputReady {
             heldUntilRunning.append(line)
             log("held until the CLI is running (\(heldUntilRunning.count) waiting): \(line.prefix(60).debugDescription)")
             if heldUntilRunning.count == 1 { armHeldFallback() }
@@ -339,6 +342,40 @@ final class GhosttyTerminalController {
 
     /// The CLI in this terminal has said it is running (SessionStart) and has not ended.
     private(set) var cliRunning = false
+    /// ...and has finished starting, so its input box takes keystrokes. Claude's SessionStart hook
+    /// fires while it is still starting (measured on Dev4: a message typed at SessionStart sat unsent
+    /// in all four Claude companions, and in none of the Codex ones), so readiness is SessionStart
+    /// followed by the screen going quiet: no output for `readyQuiet`, at most `readyCap` after it.
+    private(set) var inputReady = false
+    private var lastOutputAt: Date?
+    var readyQuiet: TimeInterval = 0.8
+    var readyCap: TimeInterval = 15
+    /// The clock readiness is judged by. Replaceable so a test decides when time passes.
+    var now: () -> Date = Date.init
+
+    /// Wait until the CLI's input is ready (after SessionStart and a quiet screen), up to `timeout`.
+    /// For tests that model a running CLI.
+    func waitUntilInputReady(timeout: TimeInterval = 5) async {
+        let end = Date().addingTimeInterval(timeout)
+        while !inputReady && Date() < end { try? await Task.sleep(nanoseconds: 20_000_000) }
+    }
+
+    private func becomeReadyWhenQuiet() {
+        let started = now()
+        Task { @MainActor [weak self] in
+            while let self, self.cliRunning, !self.inputReady {
+                let now = self.now()
+                let quietFor = now.timeIntervalSince(max(self.lastOutputAt ?? started, started))
+                if quietFor >= self.readyQuiet || now.timeIntervalSince(started) >= self.readyCap {
+                    self.inputReady = true
+                    self.log("input ready after \(String(format: "%.1f", now.timeIntervalSince(started)))s")
+                    self.releaseHeld(reason: "ready")
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+    }
     private var heldUntilRunning: [String] = []
     /// How long a held message waits for SessionStart before it is typed anyway (a CLI whose hook
     /// never fires would otherwise hold it forever, silently).
@@ -453,6 +490,7 @@ final class GhosttyTerminalController {
 
     /// Feed raw PTY bytes (from the Ghostty tee) into the `<p42>` extractor.
     func receiveTee(_ str: String) {
+        lastOutputAt = now()
         processor.receive(str)
     }
 

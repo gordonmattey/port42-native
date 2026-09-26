@@ -16,11 +16,13 @@ struct MessageDeliveryTests {
         companionPrompt: "")
 
     /// A controller whose surface records every write instead of typing it.
-    func controller() -> (GhosttyTerminalController, () -> [TerminalWrite]) {
+    func controller() async -> (GhosttyTerminalController, () -> [TerminalWrite]) {
         let c = GhosttyTerminalController(panelId: "p1", config: Self.config, post: { _ in })
         var writes: [TerminalWrite] = []
         c.bindSurface { w, done in writes.append(w); done() }
+        c.readyQuiet = 0.05
         c.handleEvent(.sessionStarted(cli: "claude"))       // a running CLI: messages go straight in
+        await c.waitUntilInputReady()
         return (c, { writes })
     }
 
@@ -33,22 +35,45 @@ struct MessageDeliveryTests {
                                      companionPrompt: "")
         var posted: [String] = []
         let c = GhosttyTerminalController(panelId: "p1", config: cfg, post: { posted.append($0) })
+        c.readyQuiet = 0.05
         var writes: [TerminalWrite] = []
         c.bindSurface { w, done in writes.append(w); done() }
         return (c, { writes }, { posted })
     }
 
     @Test("a message sent while the CLI is starting waits for SessionStart, then goes in order and gets its reply posted")
-    func heldUntilRunning() {
+    func heldUntilRunning() async {
         let (c, writes, posted) = starting()
         c.inject("[@gordon in #demo]: one")
         c.inject("[@gordon in #demo]: two")
         #expect(writes().isEmpty, "typed into a shell whose CLI had not started: it lands as typeahead, unsent")
         c.handleEvent(.sessionStarted(cli: "claude"))
+        #expect(writes().isEmpty, "typed at SessionStart, while claude is still starting")
+        await c.waitUntilInputReady()
         #expect(writes().map(\.text) == ["[@gordon in #demo]: one", "[@gordon in #demo]: two"])
         #expect(writes().allSatisfy { $0.submit })
         c.handleEvent(.turnComplete(text: "hi", exitCode: 0))
         #expect(posted() == ["hi"])
+        c.teardown()
+    }
+
+    @Test("after SessionStart, a message waits while the CLI is still drawing, and goes once its screen is quiet")
+    func waitsForQuietScreen() async throws {
+        let (c, writes, _) = starting()
+        var t = Date(timeIntervalSince1970: 1_000)              // time passes only when this test says
+        c.now = { t }
+        c.readyQuiet = 0.8
+        c.inject("[@gordon in #demo]: hi")
+        c.handleEvent(.sessionStarted(cli: "claude"))
+        for _ in 0..<10 {                                      // claude drawing its first screen
+            t += 0.5
+            c.receiveTee("\u{1b}[2K drawing")
+            try await Task.sleep(nanoseconds: 150_000_000)     // let the readiness check look
+            #expect(writes().isEmpty, "typed while the CLI was still drawing")
+        }
+        t += 1                                                 // quiet for longer than readyQuiet
+        await c.waitUntilInputReady(timeout: 10)
+        #expect(writes().map(\.text) == ["[@gordon in #demo]: hi"])
         c.teardown()
     }
 
@@ -106,8 +131,8 @@ struct MessageDeliveryTests {
     }
 
     @Test("the whole message reaches the surface, nothing dropped")
-    func deliveredWhole() {
-        let (c, writes) = controller()
+    func deliveredWhole() async {
+        let (c, writes) = await controller()
         let body = "[@a in #s]: " + String(repeating: "line of text\n", count: 100) + "end"
         c.inject(body + "\r")
         #expect(writes().count == 1)
@@ -116,8 +141,8 @@ struct MessageDeliveryTests {
     }
 
     @Test("an unsent first-run prefill is cleared before the next message, once")
-    func prefillCleared() {
-        let (c, writes) = controller()
+    func prefillCleared() async {
+        let (c, writes) = await controller()
         c.notePrefill()
         c.inject("[@gordon]: hi\r")
         c.inject("[@gordon]: again\r")
@@ -125,8 +150,8 @@ struct MessageDeliveryTests {
     }
 
     @Test("a prefill the person already sent is not cleared")
-    func sentPrefillKept() {
-        let (c, writes) = controller()
+    func sentPrefillKept() async {
+        let (c, writes) = await controller()
         c.notePrefill()
         c.handleEvent(.inputSubmitted(prompt: "hey, i'm gordon. what is this place?"))
         c.inject("[@gordon]: hi\r")
