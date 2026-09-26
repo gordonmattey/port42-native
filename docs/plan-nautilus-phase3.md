@@ -204,7 +204,7 @@ seen, so it carries this phase's ideas (hidden ports, watches) to people. Review
 | COMMAND and ARGS, custom only | A CLI companion cannot be given flags. | ARGS for every CLI, passed as on a bare command line (GM). |
 | "runs headless (NDJSON)" for custom | Today's only headless path, a program speaking Port42's stdio protocol. | RUNS: a tile, or hidden (3.2), for every CLI. This is where "headless" is chosen. |
 | WORKING DIR, SYSTEM PROMPT | Fine. | Kept. |
-| SECRETS | Named Keychain secrets a companion may use in `rest.call` without seeing the value. **The restriction only applies to callers of kind companion; a terminal companion calls as a peer, so it is not restricted at all** (with the REST grant it can use any secret). | Kept, once the gate applies to terminal companions (a fix before anything else in this card). |
+| SECRETS | Named Keychain secrets a companion may use in `rest.call` without seeing the value. **The restriction only applies to callers of kind companion; a terminal companion calls as a peer, so it is not restricted at all** (with the REST grant it can use any secret). | Kept. **Gate fixed 2026-09-26:** it keys on the companion a caller acts as, looking through a terminal's credential to its companion (`AppState.companion(actingAs:)`); `SecretScopeTests`, calibrated. Ports and plain terminals are still unscoped; a per-caller secret grant belongs with Phase 4's read scoping. |
 | OR ADD EXISTING | Fine. | Kept. |
 
 **LISTENS TO** replaces TRIGGER and says what a companion is subscribed to: this space (it hears

@@ -850,10 +850,14 @@ private func registerLiveDeviceMethods(into r: inout BridgeRegistry, appState: A
             throw BridgeError.badArg("rest.call requires a valid URL")
         }
 
-        // Secret scoping: a companion may only use secrets granted to it in its settings.
+        // Secret scoping: a companion may only use secrets granted to it in its settings. A TERMINAL
+        // companion calls with its terminal's credential, as a peer, and this check used to key on
+        // the caller's kind, so it never ran for one: with the REST grant it could use every secret
+        // (found reviewing the new-companion card, 2026-09-26). It keys on who the caller acts as.
         let secretName = optString("secret")
-        if let secretName, p.kind == .companion {
-            let allowed = appState.companions.first(where: { $0.id == p.id })?.secretNames ?? []
+        let actingAs = appState.companion(actingAs: p)
+        if let secretName, p.kind == .companion || actingAs != nil {
+            let allowed = actingAs?.secretNames ?? []
             guard allowed.contains(secretName) else {
                 throw BridgeError.permissionDenied("companion does not have access to secret '\(secretName)'")
             }

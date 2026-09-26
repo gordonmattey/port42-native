@@ -226,6 +226,18 @@ public final class AppState: ObservableObject {
     /// A spawned terminal's client id → its panel id, so `whoami` can tell a companion which terminal,
     /// space and chat it is from its credential alone.
     var terminalClientPanels: [String: String] = [:]
+
+    /// The companion a caller acts as: itself when it is one, else the companion running in the
+    /// terminal its credential belongs to. A terminal companion calls Port42 with its terminal's
+    /// credential, as a peer, so anything that applies a companion's own settings (its secrets) has
+    /// to look through the terminal to find it.
+    func companion(actingAs p: Principal) -> AgentConfig? {
+        if p.kind == .companion { return companions.first { $0.id == p.id } }
+        guard let panelId = terminalClientPanels[p.id],
+              let config = portWindows.panels.first(where: { $0.id == panelId })?.terminalConfig else { return nil }
+        if let id = config.companionId, let c = companions.first(where: { $0.id == id }) { return c }
+        return config.companionName.isEmpty ? nil : companions.first { $0.displayName == config.companionName }
+    }
     /// panelId → auto-registered companion id. A live `claude` in a plain terminal is registered
     /// as a space companion on SessionStart (docs/summer2026-todo.md); the entry is removed when
     /// the terminal tears down, so the roster reflects only terminals that are actually live.
