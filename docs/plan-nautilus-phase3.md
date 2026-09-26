@@ -123,7 +123,11 @@ instance installed last. The companion prompt, Codex's AGENTS.md and the instruc
 
 *Gates:* Go tests for the argument forms and the rule that a session calls as itself; a real-zsh
 test that a terminal runs its own CLI in interactive and login shells when the user's rc puts a
-decoy first; the chat guidance names the CLI calls. Each calibrated by removing its fix.
+decoy first; the chat guidance names the CLI calls. Each calibrated by removing its fix. Verified live
+2026-09-26: on Dev3 a Claude and a Codex companion each patched one port with `port42 port.patch`
+from files in 20 s, Codex retrying a stale write with the refusal's `current`; on Dev4 Codex ran
+`port42 whoami` as itself, from `/tmp/port42-shim-…/bin/port42`, while `~/.local/bin/port42` was
+still prod's older CLI. Open: a restarted Codex terminal waits on a risk dialog GM has to accept.
 
 **Fixed 2026-09-26: instances shared the instruction files.** Every instance rewrote the Port42 block in
 the user's `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` at launch with its own gateway port, so the
